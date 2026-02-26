@@ -1,8 +1,10 @@
-# IronFlow
+# IronFlow — Workflow Automation Engine in Rust
 
-**A lightweight, high-performance workflow engine built in Rust with Lua scripting.**
+**A lightweight, high-performance workflow engine built in Rust with Lua scripting. The open-source alternative to n8n, Airflow, and Prefect that ships as a single binary with zero dependencies.**
 
-Define complex workflows in simple Lua scripts. Execute them on a fast, safe, single-binary runtime. No Python, no Node.js, no dependency hell.
+IronFlow is a DAG-based workflow orchestration engine designed for CI/CD pipelines, data processing, ETL jobs, API integrations, document extraction, and task automation. Define workflows in simple Lua scripts — a language with only ~20 keywords — and run them on a sandboxed, async Rust runtime with parallel step execution, retry logic, conditional routing, and a built-in REST API.
+
+No Python. No Node.js. No Docker required. No dependency hell. Just one binary that runs on Linux, macOS, edge servers, and air-gapped environments.
 
 ```lua
 local flow = Flow.new("process_order")
@@ -259,6 +261,7 @@ Progressive examples from basic to advanced:
 | [05-http](examples/05-http/) | API calls, authentication, OpenAI integration |
 | [06-shell](examples/06-shell/) | Shell commands with args, env vars, timeouts |
 | [07-advanced](examples/07-advanced/) | Hashing, schema validation, full data pipelines, function handlers |
+| [08-extraction](examples/08-extraction/) | Word/PDF/HTML text extraction, metadata, PDF-to-image rendering |
 
 ## Roadmap
 
