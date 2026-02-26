@@ -1,6 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use comrak::{markdown_to_html, Options};
+use comrak::{Options, markdown_to_html};
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
@@ -76,10 +76,7 @@ impl Node for HtmlToMarkdownNode {
         let markdown = html2md::parse_html(&input);
 
         let mut output = NodeOutput::new();
-        output.insert(
-            output_key.to_string(),
-            serde_json::Value::String(markdown),
-        );
+        output.insert(output_key.to_string(), serde_json::Value::String(markdown));
         Ok(output)
     }
 }
@@ -91,7 +88,10 @@ fn get_input(config: &serde_json::Value, ctx: &Context, node_name: &str) -> Resu
     let has_source_key = config.get("source_key").and_then(|v| v.as_str()).is_some();
 
     if has_input && has_source_key {
-        anyhow::bail!("{} accepts either 'input' or 'source_key', not both", node_name);
+        anyhow::bail!(
+            "{} accepts either 'input' or 'source_key', not both",
+            node_name
+        );
     }
 
     if let Some(input_str) = config.get("input").and_then(|v| v.as_str()) {
@@ -105,6 +105,9 @@ fn get_input(config: &serde_json::Value, ctx: &Context, node_name: &str) -> Resu
             other => Ok(serde_json::to_string(other)?),
         }
     } else {
-        anyhow::bail!("{} requires either 'input' string or 'source_key'", node_name)
+        anyhow::bail!(
+            "{} requires either 'input' string or 'source_key'",
+            node_name
+        )
     }
 }

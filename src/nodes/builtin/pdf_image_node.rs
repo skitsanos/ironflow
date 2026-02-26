@@ -28,10 +28,7 @@ impl Node for PdfToImageNode {
             .get("format")
             .and_then(|v| v.as_str())
             .unwrap_or("png");
-        let dpi = config
-            .get("dpi")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(150.0) as f32;
+        let dpi = config.get("dpi").and_then(|v| v.as_f64()).unwrap_or(150.0) as f32;
         let output_key = config
             .get("output_key")
             .and_then(|v| v.as_str())
@@ -54,10 +51,9 @@ impl Node for PdfToImageNode {
         use pdfium_render::prelude::*;
 
         let bindings = if let Ok(env_path) = std::env::var("PDFIUM_LIB_PATH") {
-            Pdfium::bind_to_library(env_path)
-                .map_err(|e| anyhow::anyhow!(
-                    "Failed to load pdfium from PDFIUM_LIB_PATH: {:?}", e
-                ))?
+            Pdfium::bind_to_library(env_path).map_err(|e| {
+                anyhow::anyhow!("Failed to load pdfium from PDFIUM_LIB_PATH: {:?}", e)
+            })?
         } else {
             Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path("./"))
                 .or_else(|_| Pdfium::bind_to_system_library())
@@ -130,10 +126,7 @@ impl Node for PdfToImageNode {
 
         let mut output = NodeOutput::new();
         output.insert(output_key.to_string(), serde_json::Value::Array(images));
-        output.insert(
-            "page_count".to_string(),
-            serde_json::json!(page_count),
-        );
+        output.insert("page_count".to_string(), serde_json::json!(page_count));
         Ok(output)
     }
 }
@@ -166,11 +159,7 @@ fn parse_pages_spec(spec: &str, page_count: usize) -> Result<Vec<usize>> {
                 anyhow::bail!("Invalid page range: {}-{}", start, end);
             }
             if end > page_count {
-                anyhow::bail!(
-                    "Page {} exceeds document page count ({})",
-                    end,
-                    page_count
-                );
+                anyhow::bail!("Page {} exceeds document page count ({})", end, page_count);
             }
 
             for i in start..=end {
@@ -185,11 +174,7 @@ fn parse_pages_spec(spec: &str, page_count: usize) -> Result<Vec<usize>> {
                 anyhow::bail!("Page numbers are 1-based, got 0");
             }
             if page > page_count {
-                anyhow::bail!(
-                    "Page {} exceeds document page count ({})",
-                    page,
-                    page_count
-                );
+                anyhow::bail!("Page {} exceeds document page count ({})", page, page_count);
             }
 
             indices.push(page - 1);

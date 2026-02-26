@@ -73,10 +73,7 @@ impl Node for HashNode {
         };
 
         let mut output = NodeOutput::new();
-        output.insert(
-            output_key.to_string(),
-            serde_json::Value::String(hash_hex),
-        );
+        output.insert(output_key.to_string(), serde_json::Value::String(hash_hex));
         output.insert(
             format!("{}_algorithm", output_key),
             serde_json::Value::String(algorithm.to_string()),

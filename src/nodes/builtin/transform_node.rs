@@ -75,10 +75,7 @@ impl Node for JsonStringifyNode {
         let json_str = serde_json::to_string(source)?;
 
         let mut output = NodeOutput::new();
-        output.insert(
-            output_key.to_string(),
-            serde_json::Value::String(json_str),
-        );
+        output.insert(output_key.to_string(), serde_json::Value::String(json_str));
         Ok(output)
     }
 }
@@ -122,9 +119,10 @@ impl Node for SelectFieldsNode {
         let mut selected = serde_json::Map::new();
         for field in fields {
             if let Some(field_name) = field.as_str()
-                && let Some(value) = source_obj.get(field_name) {
-                    selected.insert(field_name.to_string(), value.clone());
-                }
+                && let Some(value) = source_obj.get(field_name)
+            {
+                selected.insert(field_name.to_string(), value.clone());
+            }
         }
 
         let mut output = NodeOutput::new();
@@ -217,10 +215,11 @@ impl Node for DataFilterNode {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("data_filter requires 'field'"))?;
 
-        let op = config
-            .get("op")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("data_filter requires 'op' (eq, neq, gt, lt, gte, lte, contains, exists)"))?;
+        let op = config.get("op").and_then(|v| v.as_str()).ok_or_else(|| {
+            anyhow::anyhow!(
+                "data_filter requires 'op' (eq, neq, gt, lt, gte, lte, contains, exists)"
+            )
+        })?;
 
         let compare_value = config.get("value");
 
@@ -241,10 +240,7 @@ impl Node for DataFilterNode {
         let count = filtered.len();
         let mut output = NodeOutput::new();
         output.insert(output_key.to_string(), serde_json::Value::Array(filtered));
-        output.insert(
-            format!("{}_count", output_key),
-            serde_json::json!(count),
-        );
+        output.insert(format!("{}_count", output_key), serde_json::json!(count));
         Ok(output)
     }
 }
@@ -274,18 +270,22 @@ fn filter_match(
             match op {
                 "eq" => field_val == cmp,
                 "neq" => field_val != cmp,
-                "gt" => {
-                    field_val.as_f64().zip(cmp.as_f64()).is_some_and(|(a, b)| a > b)
-                }
-                "lt" => {
-                    field_val.as_f64().zip(cmp.as_f64()).is_some_and(|(a, b)| a < b)
-                }
-                "gte" => {
-                    field_val.as_f64().zip(cmp.as_f64()).is_some_and(|(a, b)| a >= b)
-                }
-                "lte" => {
-                    field_val.as_f64().zip(cmp.as_f64()).is_some_and(|(a, b)| a <= b)
-                }
+                "gt" => field_val
+                    .as_f64()
+                    .zip(cmp.as_f64())
+                    .is_some_and(|(a, b)| a > b),
+                "lt" => field_val
+                    .as_f64()
+                    .zip(cmp.as_f64())
+                    .is_some_and(|(a, b)| a < b),
+                "gte" => field_val
+                    .as_f64()
+                    .zip(cmp.as_f64())
+                    .is_some_and(|(a, b)| a >= b),
+                "lte" => field_val
+                    .as_f64()
+                    .zip(cmp.as_f64())
+                    .is_some_and(|(a, b)| a <= b),
                 "contains" => {
                     if let (Some(haystack), Some(needle)) = (field_val.as_str(), cmp.as_str()) {
                         haystack.contains(needle)
@@ -325,7 +325,9 @@ impl Node for DataTransformNode {
         let mapping = config
             .get("mapping")
             .and_then(|v| v.as_object())
-            .ok_or_else(|| anyhow::anyhow!("data_transform requires 'mapping' object (new_name -> old_name)"))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!("data_transform requires 'mapping' object (new_name -> old_name)")
+            })?;
 
         let source = ctx
             .get(source_key)
@@ -361,9 +363,10 @@ fn apply_mapping(
     let mut result = serde_json::Map::new();
     for (new_name, old_name_val) in mapping {
         if let Some(old_name) = old_name_val.as_str()
-            && let Some(value) = item.get(old_name) {
-                result.insert(new_name.clone(), value.clone());
-            }
+            && let Some(value) = item.get(old_name)
+        {
+            result.insert(new_name.clone(), value.clone());
+        }
     }
     serde_json::Value::Object(result)
 }
@@ -394,7 +397,8 @@ impl Node for BatchNode {
         let size = config
             .get("size")
             .and_then(|v| v.as_u64())
-            .ok_or_else(|| anyhow::anyhow!("batch requires 'size' (positive integer)"))? as usize;
+            .ok_or_else(|| anyhow::anyhow!("batch requires 'size' (positive integer)"))?
+            as usize;
 
         if size == 0 {
             anyhow::bail!("batch 'size' must be greater than 0");
@@ -464,9 +468,7 @@ impl Node for DeduplicateNode {
             let dedup_key = match key_field {
                 Some(field) => {
                     // Deduplicate by a specific field value
-                    item.get(field)
-                        .map(|v| v.to_string())
-                        .unwrap_or_default()
+                    item.get(field).map(|v| v.to_string()).unwrap_or_default()
                 }
                 None => {
                     // Deduplicate by full JSON serialization

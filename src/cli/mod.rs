@@ -137,14 +137,16 @@ pub async fn run_cli() -> Result<()> {
 /// Otherwise, auto-detect .env in the current working directory (silently skip if absent).
 fn load_dotenv(explicit_path: Option<&std::path::Path>) {
     match explicit_path {
-        Some(path) => {
-            match dotenvy::from_path(path) {
-                Ok(()) => info!("Loaded env from {}", path.display()),
-                Err(e) => {
-                    eprintln!("Warning: Failed to load dotenv file '{}': {}", path.display(), e);
-                }
+        Some(path) => match dotenvy::from_path(path) {
+            Ok(()) => info!("Loaded env from {}", path.display()),
+            Err(e) => {
+                eprintln!(
+                    "Warning: Failed to load dotenv file '{}': {}",
+                    path.display(),
+                    e
+                );
             }
-        }
+        },
         None => {
             // Auto-detect .env in current directory
             match dotenvy::dotenv() {
@@ -187,7 +189,10 @@ async fn cmd_run(
             };
             println!("  {} [{}] deps: {}", step.name, step.node_type, deps);
             if step.retry.max_retries > 0 {
-                println!("    retries: {}, backoff: {}s", step.retry.max_retries, step.retry.backoff_s);
+                println!(
+                    "    retries: {}, backoff: {}s",
+                    step.retry.max_retries, step.retry.backoff_s
+                );
             }
             if let Some(t) = step.timeout_s {
                 println!("    timeout: {}s", t);
@@ -200,8 +205,9 @@ async fn cmd_run(
 
     // Parse initial context
     let initial_ctx: Context = match context_json {
-        Some(json) => serde_json::from_str(&json)
-            .with_context(|| "Failed to parse --context JSON")?,
+        Some(json) => {
+            serde_json::from_str(&json).with_context(|| "Failed to parse --context JSON")?
+        }
         None => Context::new(),
     };
 
@@ -228,18 +234,16 @@ async fn cmd_run(
             "  {} {} [{}] (attempt {})",
             status_icon, name, task.node_type, task.attempt
         );
-        if verbose
-            && let (Some(s), Some(f)) = (&task.started, &task.finished) {
-                let duration = *f - *s;
-                println!("    Duration: {}ms", duration.num_milliseconds());
-            }
+        if verbose && let (Some(s), Some(f)) = (&task.started, &task.finished) {
+            let duration = *f - *s;
+            println!("    Duration: {}ms", duration.num_milliseconds());
+        }
         if let Some(ref err) = task.error {
             println!("    Error: {}", err);
         }
-        if verbose
-            && let Some(ref output) = task.output {
-                println!("    Output: {}", output);
-            }
+        if verbose && let Some(ref output) = task.output {
+            println!("    Output: {}", output);
+        }
     }
 
     if !run_info.ctx.is_empty() {
@@ -310,11 +314,7 @@ fn cmd_validate(flow_path: PathBuf) -> Result<()> {
     Ok(())
 }
 
-async fn cmd_list(
-    status_filter: Option<String>,
-    store_dir: PathBuf,
-    format: String,
-) -> Result<()> {
+async fn cmd_list(status_filter: Option<String>, store_dir: PathBuf, format: String) -> Result<()> {
     let store = JsonStateStore::new(store_dir);
 
     let status = status_filter

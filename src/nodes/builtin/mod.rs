@@ -1,21 +1,21 @@
-mod log_node;
-mod delay_node;
-mod shell_node;
-mod http_node;
-mod file_node;
-mod transform_node;
-mod conditional_node;
-mod validate_node;
-mod template_node;
-mod hash_node;
 mod code_node;
-mod markdown_node;
+mod conditional_node;
+mod delay_node;
 mod extract_node;
+mod file_node;
+mod hash_node;
+mod http_node;
+mod log_node;
+mod markdown_node;
 #[cfg(feature = "pdf-render")]
 mod pdf_image_node;
+mod shell_node;
+mod template_node;
+mod transform_node;
+mod validate_node;
 
-use std::sync::Arc;
 use crate::nodes::NodeRegistry;
+use std::sync::Arc;
 
 /// Register all built-in nodes into the registry.
 pub fn register_all(registry: &mut NodeRegistry) {

@@ -2,8 +2,8 @@ use anyhow::Result;
 use async_trait::async_trait;
 
 use crate::engine::types::{Context, NodeOutput};
-use crate::nodes::Node;
 use crate::lua::interpolate::interpolate_ctx;
+use crate::nodes::Node;
 
 pub struct LogNode;
 
@@ -18,10 +18,7 @@ impl Node for LogNode {
     }
 
     async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
-        let message = config
-            .get("message")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let message = config.get("message").and_then(|v| v.as_str()).unwrap_or("");
 
         let level = config
             .get("level")

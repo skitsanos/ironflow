@@ -66,10 +66,7 @@ impl Node for WriteFileNode {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("write_file requires 'path' parameter"))?;
 
-        let content = config
-            .get("content")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let content = config.get("content").and_then(|v| v.as_str()).unwrap_or("");
 
         let path = interpolate_ctx(path, &ctx);
         let content = interpolate_ctx(content, &ctx);
@@ -266,7 +263,11 @@ impl Node for ListDirectoryNode {
 }
 
 /// Recursively list directory entries.
-fn list_dir_entries(path: &str, recursive: bool) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<serde_json::Value>>> + Send + '_>> {
+fn list_dir_entries(
+    path: &str,
+    recursive: bool,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<serde_json::Value>>> + Send + '_>>
+{
     Box::pin(async move {
         let mut entries = Vec::new();
         let mut dir = tokio::fs::read_dir(path).await?;
@@ -276,7 +277,11 @@ fn list_dir_entries(path: &str, recursive: bool) -> std::pin::Pin<Box<dyn std::f
             let name = entry.file_name().to_string_lossy().to_string();
             let entry_path = entry.path().to_string_lossy().to_string();
 
-            let type_str = if file_type.is_file() { "file" } else { "directory" };
+            let type_str = if file_type.is_file() {
+                "file"
+            } else {
+                "directory"
+            };
 
             entries.push(serde_json::json!({
                 "name": name,

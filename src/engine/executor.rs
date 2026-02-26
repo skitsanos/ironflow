@@ -4,7 +4,7 @@ use std::sync::Arc;
 use anyhow::{Context as _, Result, bail};
 use chrono::Utc;
 use tokio::sync::{RwLock, Semaphore};
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::engine::types::*;
@@ -41,8 +41,12 @@ impl WorkflowEngine {
         let execution_order = self.topological_sort(flow)?;
 
         // Initialize run in state store
-        self.store.init_run(&run_id, &flow_name, &initial_ctx).await?;
-        self.store.set_run_status(&run_id, RunStatus::Running).await?;
+        self.store
+            .init_run(&run_id, &flow_name, &initial_ctx)
+            .await?;
+        self.store
+            .set_run_status(&run_id, RunStatus::Running)
+            .await?;
 
         // Initialize all task states
         for step in &flow.steps {
@@ -53,11 +57,8 @@ impl WorkflowEngine {
         info!(run_id = %run_id, flow = %flow_name, "Starting workflow execution");
 
         // Build lookup maps
-        let step_map: HashMap<String, &StepDefinition> = flow
-            .steps
-            .iter()
-            .map(|s| (s.name.clone(), s))
-            .collect();
+        let step_map: HashMap<String, &StepDefinition> =
+            flow.steps.iter().map(|s| (s.name.clone(), s)).collect();
 
         let ctx = Arc::new(RwLock::new(initial_ctx));
         let semaphore = Arc::new(Semaphore::new(self.max_concurrent_tasks));
@@ -110,9 +111,7 @@ impl WorkflowEngine {
 
                 let handle = tokio::spawn(async move {
                     let _permit = semaphore.acquire().await.unwrap();
-                    let result = Self::run_task(
-                        &registry, &store, &run_id, &step, &ctx,
-                    ).await;
+                    let result = Self::run_task(&registry, &store, &run_id, &step, &ctx).await;
 
                     match result {
                         Ok(()) => {
@@ -144,7 +143,9 @@ impl WorkflowEngine {
         // Store final context
         let final_ctx = ctx.read().await;
         self.store.update_ctx(&run_id, &final_ctx).await?;
-        self.store.set_run_status(&run_id, final_status.clone()).await?;
+        self.store
+            .set_run_status(&run_id, final_status.clone())
+            .await?;
 
         info!(run_id = %run_id, status = %final_status, "Workflow execution complete");
 
@@ -245,9 +246,10 @@ impl WorkflowEngine {
         for dep in &step.dependencies {
             let route_key = format!("_route_{}", dep);
             if let Some(serde_json::Value::String(r)) = ctx.get(&route_key)
-                && r == route {
-                    return true;
-                }
+                && r == route
+            {
+                return true;
+            }
         }
         false
     }

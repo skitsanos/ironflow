@@ -28,42 +28,44 @@ impl Node for CodeNode {
         }
 
         // Expose env() for reading environment variables
-        let env_fn = lua.create_function(|lua_ctx, key: String| {
-            match std::env::var(&key) {
-                Ok(val) => Ok(LuaValue::String(lua_ctx.create_string(&val)?)),
-                Err(_) => Ok(LuaValue::Nil),
-            }
+        let env_fn = lua.create_function(|lua_ctx, key: String| match std::env::var(&key) {
+            Ok(val) => Ok(LuaValue::String(lua_ctx.create_string(&val)?)),
+            Err(_) => Ok(LuaValue::Nil),
         })?;
         globals.set("env", env_fn)?;
 
         // Expose the context as a read-only `ctx` table
-        let ctx_table = json_value_to_lua_table(&lua, &serde_json::Value::Object(
-            ctx.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
-        ))?;
+        let ctx_table = json_value_to_lua_table(
+            &lua,
+            &serde_json::Value::Object(ctx.iter().map(|(k, v)| (k.clone(), v.clone())).collect()),
+        )?;
         globals.set("ctx", ctx_table.clone())?;
 
         // Execute either bytecode (function handler) or source string
-        let result: LuaValue = if let Some(b64) = config.get("bytecode_b64").and_then(|v| v.as_str()) {
-            // Function handler mode: decode bytecode, load, call with ctx
-            let bytecode = base64::engine::general_purpose::STANDARD
-                .decode(b64)
-                .map_err(|e| anyhow::anyhow!("Failed to decode function bytecode: {}", e))?;
-            let func: LuaFunction = lua
-                .load(&bytecode)
-                .into_function()
-                .map_err(|e| anyhow::anyhow!("Failed to load function: {}", e))?;
-            func.call(ctx_table)
-                .map_err(|e| anyhow::anyhow!("Function execution failed: {}", e))?
-        } else {
-            let source = config
-                .get("source")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| anyhow::anyhow!("code node requires 'source' or a function handler"))?;
-            lua.load(source)
-                .set_name("<code>")
-                .eval()
-                .map_err(|e| anyhow::anyhow!("Code execution failed: {}", e))?
-        };
+        let result: LuaValue =
+            if let Some(b64) = config.get("bytecode_b64").and_then(|v| v.as_str()) {
+                // Function handler mode: decode bytecode, load, call with ctx
+                let bytecode = base64::engine::general_purpose::STANDARD
+                    .decode(b64)
+                    .map_err(|e| anyhow::anyhow!("Failed to decode function bytecode: {}", e))?;
+                let func: LuaFunction = lua
+                    .load(&bytecode)
+                    .into_function()
+                    .map_err(|e| anyhow::anyhow!("Failed to load function: {}", e))?;
+                func.call(ctx_table)
+                    .map_err(|e| anyhow::anyhow!("Function execution failed: {}", e))?
+            } else {
+                let source = config
+                    .get("source")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("code node requires 'source' or a function handler")
+                    })?;
+                lua.load(source)
+                    .set_name("<code>")
+                    .eval()
+                    .map_err(|e| anyhow::anyhow!("Code execution failed: {}", e))?
+            };
 
         // Convert the returned value to NodeOutput
         let mut output = NodeOutput::new();

@@ -84,10 +84,14 @@ pub async fn run_flow(
     State(state): State<Arc<AppState>>,
     Json(req): Json<RunFlowRequest>,
 ) -> Result<Json<RunFlowResponse>, AppError> {
-    let source_count = [req.source.is_some(), req.source_base64.is_some(), req.file.is_some()]
-        .iter()
-        .filter(|&&v| v)
-        .count();
+    let source_count = [
+        req.source.is_some(),
+        req.source_base64.is_some(),
+        req.file.is_some(),
+    ]
+    .iter()
+    .filter(|&&v| v)
+    .count();
 
     if source_count == 0 {
         return Err(AppError::BadRequest(
@@ -134,10 +138,14 @@ pub async fn validate_flow(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ValidateFlowRequest>,
 ) -> Result<Json<ValidateResponse>, AppError> {
-    let source_count = [req.source.is_some(), req.source_base64.is_some(), req.file.is_some()]
-        .iter()
-        .filter(|&&v| v)
-        .count();
+    let source_count = [
+        req.source.is_some(),
+        req.source_base64.is_some(),
+        req.file.is_some(),
+    ]
+    .iter()
+    .filter(|&&v| v)
+    .count();
 
     if source_count == 0 {
         return Err(AppError::BadRequest(
@@ -263,9 +271,7 @@ pub async fn delete_run(
 }
 
 /// GET /nodes
-pub async fn list_nodes(
-    State(state): State<Arc<AppState>>,
-) -> Json<serde_json::Value> {
+pub async fn list_nodes(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
     let nodes: Vec<NodeInfo> = state
         .registry
         .list()

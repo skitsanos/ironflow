@@ -1,5 +1,5 @@
-mod handlers;
 mod errors;
+mod handlers;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -24,7 +24,13 @@ pub struct AppState {
 }
 
 /// Start the REST API server.
-pub async fn serve(host: &str, port: u16, store_dir: PathBuf, flows_dir: Option<PathBuf>, max_body: usize) -> Result<()> {
+pub async fn serve(
+    host: &str,
+    port: u16,
+    store_dir: PathBuf,
+    flows_dir: Option<PathBuf>,
+    max_body: usize,
+) -> Result<()> {
     let registry = Arc::new(NodeRegistry::with_builtins());
     let store = Arc::new(JsonStateStore::new(store_dir));
 

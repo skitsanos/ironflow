@@ -25,11 +25,7 @@ impl Node for ShellCommandNode {
         let args: Vec<&str> = config
             .get("args")
             .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str())
-                    .collect()
-            })
+            .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
             .unwrap_or_default();
 
         let cwd = config.get("cwd").and_then(|v| v.as_str());
@@ -97,7 +93,9 @@ impl Node for ShellCommandNode {
                 #[cfg(unix)]
                 if let Some(pid) = child_pid {
                     // Negative PID signals the whole process group
-                    unsafe { libc::kill(-(pid as i32), libc::SIGKILL); }
+                    unsafe {
+                        libc::kill(-(pid as i32), libc::SIGKILL);
+                    }
                     // Reap all children in the process group to prevent zombies.
                     // waitpid(-pgid, WNOHANG) in a loop until no more remain.
                     loop {
@@ -109,7 +107,11 @@ impl Node for ShellCommandNode {
                         }
                     }
                 }
-                bail!("Command '{}' timed out after {}s (process group killed)", cmd, timeout_s);
+                bail!(
+                    "Command '{}' timed out after {}s (process group killed)",
+                    cmd,
+                    timeout_s
+                );
             }
         };
 
@@ -137,11 +139,7 @@ impl Node for ShellCommandNode {
         );
 
         if !success {
-            bail!(
-                "Command '{}' exited with code {}",
-                cmd,
-                code
-            );
+            bail!("Command '{}' exited with code {}", cmd, code);
         }
 
         Ok(result)

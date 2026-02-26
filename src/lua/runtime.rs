@@ -56,11 +56,9 @@ impl LuaRuntime {
         }
 
         // Expose a safe env(key) function to read environment variables
-        let env_fn = lua.create_function(|lua_ctx, key: String| {
-            match std::env::var(&key) {
-                Ok(val) => Ok(LuaValue::String(lua_ctx.create_string(&val)?)),
-                Err(_) => Ok(LuaValue::Nil),
-            }
+        let env_fn = lua.create_function(|lua_ctx, key: String| match std::env::var(&key) {
+            Ok(val) => Ok(LuaValue::String(lua_ctx.create_string(&val)?)),
+            Err(_) => Ok(LuaValue::Nil),
         })?;
         globals.set("env", env_fn)?;
 
@@ -79,96 +77,106 @@ impl LuaRuntime {
             flow.set("_step_count", 0i32)?;
 
             // flow:step(name, node_config_or_function) -> step_builder
-            let step_fn = lua.create_function(|lua, (flow_tbl, step_name, node_arg): (LuaTable, String, LuaValue)| {
-                // Accept either a table (node config) or a function (auto-wrapped as code node)
-                let node_config: LuaTable = match node_arg {
-                    LuaValue::Table(tbl) => tbl,
-                    LuaValue::Function(func) => {
-                        let bytecode = func.dump(false);
-                        let b64 = base64::engine::general_purpose::STANDARD.encode(&bytecode);
-                        let tbl = lua.create_table()?;
-                        tbl.set("_node_type", "code")?;
-                        tbl.set("bytecode_b64", b64)?;
-                        tbl
-                    }
-                    _ => {
-                        return Err(LuaError::RuntimeError(
-                            "step() expects a node config table or a function".into(),
-                        ));
-                    }
-                };
-                let steps: LuaTable = flow_tbl.get("_steps")?;
-                let count: i32 = flow_tbl.get("_step_count")?;
-
-                let step = lua.create_table()?;
-                step.set("name", step_name)?;
-                step.set("node_type", node_config.get::<String>("_node_type")?)?;
-                step.set("config", node_config)?;
-                step.set("dependencies", lua.create_table()?)?;
-                step.set("max_retries", 0)?;
-                step.set("backoff_s", 1.0)?;
-                step.set("timeout_s", LuaValue::Nil)?;
-                step.set("route", LuaValue::Nil)?;
-
-                steps.set(count + 1, step.clone())?;
-                flow_tbl.set("_step_count", count + 1)?;
-
-                // Return a step builder with chainable methods
-                let builder = lua.create_table()?;
-                builder.set("_step", step)?;
-
-                // builder:depends_on(...)
-                let depends_fn = lua.create_function(|_lua, args: LuaMultiValue| {
-                    let mut iter = args.into_iter();
-                    let builder: LuaTable = iter.next()
-                        .ok_or_else(|| LuaError::RuntimeError("expected self".into()))?
-                        .as_table()
-                        .ok_or_else(|| LuaError::RuntimeError("expected table".into()))?
-                        .clone();
-
-                    let step: LuaTable = builder.get("_step")?;
-                    let deps: LuaTable = step.get("dependencies")?;
-                    let mut idx = deps.len()? as i32;
-
-                    for arg in iter {
-                        if let Some(dep) = arg.as_string().and_then(|s| s.to_str().ok().map(|s| s.to_string())) {
-                            idx += 1;
-                            deps.set(idx, dep)?;
+            let step_fn = lua.create_function(
+                |lua, (flow_tbl, step_name, node_arg): (LuaTable, String, LuaValue)| {
+                    // Accept either a table (node config) or a function (auto-wrapped as code node)
+                    let node_config: LuaTable = match node_arg {
+                        LuaValue::Table(tbl) => tbl,
+                        LuaValue::Function(func) => {
+                            let bytecode = func.dump(false);
+                            let b64 = base64::engine::general_purpose::STANDARD.encode(&bytecode);
+                            let tbl = lua.create_table()?;
+                            tbl.set("_node_type", "code")?;
+                            tbl.set("bytecode_b64", b64)?;
+                            tbl
                         }
-                    }
-                    Ok(builder)
-                })?;
-                builder.set("depends_on", depends_fn)?;
+                        _ => {
+                            return Err(LuaError::RuntimeError(
+                                "step() expects a node config table or a function".into(),
+                            ));
+                        }
+                    };
+                    let steps: LuaTable = flow_tbl.get("_steps")?;
+                    let count: i32 = flow_tbl.get("_step_count")?;
 
-                // builder:retries(max, backoff)
-                let retries_fn = lua.create_function(|_lua, (builder, max, backoff): (LuaTable, u32, Option<f64>)| {
-                    let step: LuaTable = builder.get("_step")?;
-                    step.set("max_retries", max)?;
-                    if let Some(b) = backoff {
-                        step.set("backoff_s", b)?;
-                    }
-                    Ok(builder)
-                })?;
-                builder.set("retries", retries_fn)?;
+                    let step = lua.create_table()?;
+                    step.set("name", step_name)?;
+                    step.set("node_type", node_config.get::<String>("_node_type")?)?;
+                    step.set("config", node_config)?;
+                    step.set("dependencies", lua.create_table()?)?;
+                    step.set("max_retries", 0)?;
+                    step.set("backoff_s", 1.0)?;
+                    step.set("timeout_s", LuaValue::Nil)?;
+                    step.set("route", LuaValue::Nil)?;
 
-                // builder:timeout(seconds)
-                let timeout_fn = lua.create_function(|_lua, (builder, seconds): (LuaTable, f64)| {
-                    let step: LuaTable = builder.get("_step")?;
-                    step.set("timeout_s", seconds)?;
-                    Ok(builder)
-                })?;
-                builder.set("timeout", timeout_fn)?;
+                    steps.set(count + 1, step.clone())?;
+                    flow_tbl.set("_step_count", count + 1)?;
 
-                // builder:route(route_name)
-                let route_fn = lua.create_function(|_lua, (builder, route): (LuaTable, String)| {
-                    let step: LuaTable = builder.get("_step")?;
-                    step.set("route", route)?;
-                    Ok(builder)
-                })?;
-                builder.set("route", route_fn)?;
+                    // Return a step builder with chainable methods
+                    let builder = lua.create_table()?;
+                    builder.set("_step", step)?;
 
-                Ok(builder)
-            })?;
+                    // builder:depends_on(...)
+                    let depends_fn = lua.create_function(|_lua, args: LuaMultiValue| {
+                        let mut iter = args.into_iter();
+                        let builder: LuaTable = iter
+                            .next()
+                            .ok_or_else(|| LuaError::RuntimeError("expected self".into()))?
+                            .as_table()
+                            .ok_or_else(|| LuaError::RuntimeError("expected table".into()))?
+                            .clone();
+
+                        let step: LuaTable = builder.get("_step")?;
+                        let deps: LuaTable = step.get("dependencies")?;
+                        let mut idx = deps.len()? as i32;
+
+                        for arg in iter {
+                            if let Some(dep) = arg
+                                .as_string()
+                                .and_then(|s| s.to_str().ok().map(|s| s.to_string()))
+                            {
+                                idx += 1;
+                                deps.set(idx, dep)?;
+                            }
+                        }
+                        Ok(builder)
+                    })?;
+                    builder.set("depends_on", depends_fn)?;
+
+                    // builder:retries(max, backoff)
+                    let retries_fn = lua.create_function(
+                        |_lua, (builder, max, backoff): (LuaTable, u32, Option<f64>)| {
+                            let step: LuaTable = builder.get("_step")?;
+                            step.set("max_retries", max)?;
+                            if let Some(b) = backoff {
+                                step.set("backoff_s", b)?;
+                            }
+                            Ok(builder)
+                        },
+                    )?;
+                    builder.set("retries", retries_fn)?;
+
+                    // builder:timeout(seconds)
+                    let timeout_fn =
+                        lua.create_function(|_lua, (builder, seconds): (LuaTable, f64)| {
+                            let step: LuaTable = builder.get("_step")?;
+                            step.set("timeout_s", seconds)?;
+                            Ok(builder)
+                        })?;
+                    builder.set("timeout", timeout_fn)?;
+
+                    // builder:route(route_name)
+                    let route_fn =
+                        lua.create_function(|_lua, (builder, route): (LuaTable, String)| {
+                            let step: LuaTable = builder.get("_step")?;
+                            step.set("route", route)?;
+                            Ok(builder)
+                        })?;
+                    builder.set("route", route_fn)?;
+
+                    Ok(builder)
+                },
+            )?;
             flow.set("step", step_fn)?;
 
             Ok(flow)
@@ -237,7 +245,10 @@ impl LuaRuntime {
             // Inject step name into config for conditional nodes
             let config = match config {
                 serde_json::Value::Object(mut m) => {
-                    m.insert("_step_name".to_string(), serde_json::Value::String(step_name.clone()));
+                    m.insert(
+                        "_step_name".to_string(),
+                        serde_json::Value::String(step_name.clone()),
+                    );
                     m.remove("_node_type");
                     serde_json::Value::Object(m)
                 }

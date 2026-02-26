@@ -30,7 +30,10 @@ fn get_path(config: &serde_json::Value, ctx: &Context, node_name: &str) -> Resul
     let has_source_key = config.get("source_key").and_then(|v| v.as_str()).is_some();
 
     if has_path && has_source_key {
-        anyhow::bail!("{} accepts either 'path' or 'source_key', not both", node_name);
+        anyhow::bail!(
+            "{} accepts either 'path' or 'source_key', not both",
+            node_name
+        );
     }
 
     if let Some(path_str) = config.get("path").and_then(|v| v.as_str()) {
@@ -71,9 +74,7 @@ impl Node for ExtractWordNode {
             .get("output_key")
             .and_then(|v| v.as_str())
             .unwrap_or("content");
-        let metadata_key = config
-            .get("metadata_key")
-            .and_then(|v| v.as_str());
+        let metadata_key = config.get("metadata_key").and_then(|v| v.as_str());
 
         let file = std::fs::File::open(&path)
             .map_err(|e| anyhow::anyhow!("Failed to open '{}': {}", path, e))?;
@@ -161,10 +162,7 @@ fn extract_docx_metadata(archive: &mut zip::ZipArchive<std::fs::File>) -> BTreeM
                 if in_meta {
                     let text = String::from_utf8_lossy(e.as_ref()).trim().to_string();
                     if !text.is_empty() {
-                        meta.insert(
-                            key_for_tag(&current_tag).to_string(),
-                            text,
-                        );
+                        meta.insert(key_for_tag(&current_tag).to_string(), text);
                     }
                 }
             }
@@ -246,11 +244,13 @@ fn parse_numbering_defs(
     let mut buf = Vec::new();
 
     // Track abstractNum definitions: abstractNumId -> is_numbered
-    let mut abstract_defs: std::collections::HashMap<String, bool> = std::collections::HashMap::new();
+    let mut abstract_defs: std::collections::HashMap<String, bool> =
+        std::collections::HashMap::new();
     let mut current_abstract_id: Option<String> = None;
 
     // Track num -> abstractNumId mapping
-    let mut num_to_abstract: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut num_to_abstract: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
     let mut current_num_id: Option<String> = None;
 
     loop {
@@ -261,9 +261,8 @@ fn parse_numbering_defs(
                     "w:abstractNum" => {
                         for attr in e.attributes().flatten() {
                             if attr.key.as_ref() == b"w:abstractNumId" {
-                                current_abstract_id = Some(
-                                    String::from_utf8_lossy(&attr.value).to_string(),
-                                );
+                                current_abstract_id =
+                                    Some(String::from_utf8_lossy(&attr.value).to_string());
                             }
                         }
                     }
@@ -282,9 +281,8 @@ fn parse_numbering_defs(
                     "w:num" => {
                         for attr in e.attributes().flatten() {
                             if attr.key.as_ref() == b"w:numId" {
-                                current_num_id = Some(
-                                    String::from_utf8_lossy(&attr.value).to_string(),
-                                );
+                                current_num_id =
+                                    Some(String::from_utf8_lossy(&attr.value).to_string());
                             }
                         }
                     }
@@ -383,9 +381,8 @@ fn parse_docx_paragraphs(
                         if in_para_props {
                             for attr in e.attributes().flatten() {
                                 if attr.key.as_ref() == b"w:val" {
-                                    current_para.style = Some(
-                                        String::from_utf8_lossy(&attr.value).to_string(),
-                                    );
+                                    current_para.style =
+                                        Some(String::from_utf8_lossy(&attr.value).to_string());
                                 }
                             }
                         }
@@ -399,9 +396,11 @@ fn parse_docx_paragraphs(
                         if in_para_props {
                             for attr in e.attributes().flatten() {
                                 if attr.key.as_ref() == b"w:val"
-                                    && let Ok(level) = String::from_utf8_lossy(&attr.value).parse::<u32>() {
-                                        current_para.list_level = level;
-                                    }
+                                    && let Ok(level) =
+                                        String::from_utf8_lossy(&attr.value).parse::<u32>()
+                                {
+                                    current_para.list_level = level;
+                                }
                             }
                         }
                     }
@@ -527,7 +526,8 @@ fn paragraphs_to_text(paragraphs: &[DocxParagraph]) -> String {
 
 fn paragraphs_to_markdown(paragraphs: &[DocxParagraph]) -> String {
     let mut lines: Vec<String> = Vec::new();
-    let mut numbered_counters: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
+    let mut numbered_counters: std::collections::HashMap<u32, u32> =
+        std::collections::HashMap::new();
 
     for para in paragraphs {
         let text: String = para.runs.iter().map(format_run_markdown).collect();
@@ -560,9 +560,7 @@ fn paragraphs_to_markdown(paragraphs: &[DocxParagraph]) -> String {
         if para.is_list_item {
             let indent = "  ".repeat(para.list_level as usize);
             if para.is_numbered {
-                let counter = numbered_counters
-                    .entry(para.list_level)
-                    .or_insert(0);
+                let counter = numbered_counters.entry(para.list_level).or_insert(0);
                 *counter += 1;
                 lines.push(format!("{}{}. {}", indent, counter, text));
             } else {
@@ -625,9 +623,7 @@ impl Node for ExtractPdfNode {
             .get("output_key")
             .and_then(|v| v.as_str())
             .unwrap_or("content");
-        let metadata_key = config
-            .get("metadata_key")
-            .and_then(|v| v.as_str());
+        let metadata_key = config.get("metadata_key").and_then(|v| v.as_str());
 
         let bytes = std::fs::read(&path)
             .map_err(|e| anyhow::anyhow!("Failed to read '{}': {}", path, e))?;
@@ -667,32 +663,31 @@ fn extract_pdf_metadata(bytes: &[u8]) -> BTreeMap<String, serde_json::Value> {
     // Info dictionary
     if let Ok(info_ref) = doc.trailer.get(b"Info")
         && let Ok(obj_ref) = info_ref.as_reference()
-            && let Ok(info_obj) = doc.get_object(obj_ref)
-                && let Ok(dict) = info_obj.as_dict() {
-                    let fields = [
-                        (b"Title".as_slice(), "title"),
-                        (b"Author".as_slice(), "author"),
-                        (b"Subject".as_slice(), "subject"),
-                        (b"Keywords".as_slice(), "keywords"),
-                        (b"Creator".as_slice(), "creator"),
-                        (b"Producer".as_slice(), "producer"),
-                        (b"CreationDate".as_slice(), "created"),
-                        (b"ModDate".as_slice(), "modified"),
-                    ];
+        && let Ok(info_obj) = doc.get_object(obj_ref)
+        && let Ok(dict) = info_obj.as_dict()
+    {
+        let fields = [
+            (b"Title".as_slice(), "title"),
+            (b"Author".as_slice(), "author"),
+            (b"Subject".as_slice(), "subject"),
+            (b"Keywords".as_slice(), "keywords"),
+            (b"Creator".as_slice(), "creator"),
+            (b"Producer".as_slice(), "producer"),
+            (b"CreationDate".as_slice(), "created"),
+            (b"ModDate".as_slice(), "modified"),
+        ];
 
-                    for (key, label) in fields {
-                        if let Ok(val) = dict.get(key)
-                            && let Ok(bytes) = val.as_str() {
-                                let s = String::from_utf8_lossy(bytes).trim().to_string();
-                                if !s.is_empty() {
-                                    meta.insert(
-                                        label.to_string(),
-                                        serde_json::Value::String(s),
-                                    );
-                                }
-                            }
-                    }
+        for (key, label) in fields {
+            if let Ok(val) = dict.get(key)
+                && let Ok(bytes) = val.as_str()
+            {
+                let s = String::from_utf8_lossy(bytes).trim().to_string();
+                if !s.is_empty() {
+                    meta.insert(label.to_string(), serde_json::Value::String(s));
                 }
+            }
+        }
+    }
 
     meta
 }
@@ -748,9 +743,7 @@ impl Node for ExtractHtmlNode {
             .get("output_key")
             .and_then(|v| v.as_str())
             .unwrap_or("content");
-        let metadata_key = config
-            .get("metadata_key")
-            .and_then(|v| v.as_str());
+        let metadata_key = config.get("metadata_key").and_then(|v| v.as_str());
 
         let html = std::fs::read_to_string(&path)
             .map_err(|e| anyhow::anyhow!("Failed to read '{}': {}", path, e))?;
@@ -814,8 +807,8 @@ fn extract_html_metadata(html: &str) -> BTreeMap<String, String> {
         ) {
             let key = name.to_lowercase();
             match key.as_str() {
-                "description" | "author" | "keywords" | "viewport"
-                | "og:title" | "og:description" | "og:type" | "og:url" => {
+                "description" | "author" | "keywords" | "viewport" | "og:title"
+                | "og:description" | "og:type" | "og:url" => {
                     meta.insert(key, content);
                 }
                 _ => {}

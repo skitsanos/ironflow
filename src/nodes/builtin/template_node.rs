@@ -31,10 +31,7 @@ impl Node for TemplateRenderNode {
         let rendered = interpolate_ctx(template, &ctx);
 
         let mut output = NodeOutput::new();
-        output.insert(
-            output_key.to_string(),
-            serde_json::Value::String(rendered),
-        );
+        output.insert(output_key.to_string(), serde_json::Value::String(rendered));
         Ok(output)
     }
 }

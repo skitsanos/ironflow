@@ -32,8 +32,8 @@ impl JsonStateStore {
         let data = tokio::fs::read_to_string(&path)
             .await
             .with_context(|| format!("Failed to read run file: {}", path.display()))?;
-        let info: RunInfo =
-            serde_json::from_str(&data).with_context(|| format!("Failed to parse run: {}", run_id))?;
+        let info: RunInfo = serde_json::from_str(&data)
+            .with_context(|| format!("Failed to parse run: {}", run_id))?;
         Ok(info)
     }
 
@@ -74,7 +74,10 @@ impl StateStore for JsonStateStore {
         let _lock = self.lock.write().await;
         let mut info = self.read_run(run_id).await?;
         info.status = status.clone();
-        if matches!(status, RunStatus::Success | RunStatus::Failed | RunStatus::Stalled) {
+        if matches!(
+            status,
+            RunStatus::Success | RunStatus::Failed | RunStatus::Stalled
+        ) {
             info.finished = Some(Utc::now());
         }
         self.write_run(run_id, &info).await
@@ -121,13 +124,15 @@ impl StateStore for JsonStateStore {
             let path = entry.path();
             if path.extension().and_then(|e| e.to_str()) == Some("json")
                 && let Ok(data) = tokio::fs::read_to_string(&path).await
-                    && let Ok(info) = serde_json::from_str::<RunInfo>(&data) {
-                        if let Some(ref filter) = status_filter
-                            && &info.status != filter {
-                                continue;
-                            }
-                        runs.push(info);
-                    }
+                && let Ok(info) = serde_json::from_str::<RunInfo>(&data)
+            {
+                if let Some(ref filter) = status_filter
+                    && &info.status != filter
+                {
+                    continue;
+                }
+                runs.push(info);
+            }
         }
 
         // Sort by start time, newest first

@@ -10,9 +10,7 @@ use crate::nodes::Node;
 /// Recursively interpolate `${ctx.key}` in all string values within a JSON value.
 fn interpolate_json_value(value: &serde_json::Value, ctx: &Context) -> serde_json::Value {
     match value {
-        serde_json::Value::String(s) => {
-            serde_json::Value::String(interpolate_ctx(s, ctx))
-        }
+        serde_json::Value::String(s) => serde_json::Value::String(interpolate_ctx(s, ctx)),
         serde_json::Value::Array(arr) => {
             serde_json::Value::Array(arr.iter().map(|v| interpolate_json_value(v, ctx)).collect())
         }
@@ -92,10 +90,7 @@ async fn do_http_request(
                 }
             }
             "basic" => {
-                let username = auth
-                    .get("username")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                let username = auth.get("username").and_then(|v| v.as_str()).unwrap_or("");
                 let password = auth.get("password").and_then(|v| v.as_str());
                 request = request.basic_auth(username, password);
             }
