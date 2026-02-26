@@ -71,7 +71,7 @@ The core engine, minimal node set, and CLI. Goal: execute a simple multi-step fl
 
 ## Phase 2: Core Nodes ✅
 
-Implement the essential node types. Each node is a Rust struct implementing `Node`. **40 nodes total.**
+Implement the essential node types. Each node is a Rust struct implementing `Node`. **41 nodes total.**
 
 ### 2.1 HTTP Nodes ✅
 - [x] `http_request` — Generic HTTP with method, url, headers, body, auth, timeout

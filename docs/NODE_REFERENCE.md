@@ -1,6 +1,6 @@
 # IronFlow — Node Reference
 
-Complete reference for all 40 built-in nodes. Click any node name for full documentation with parameters, context output, and Lua examples. Note: `pdf_to_image` requires the `pdf-render` feature flag.
+Complete reference for all 41 built-in nodes. Click any node name for full documentation with parameters, context output, and Lua examples. Note: `pdf_to_image` requires the `pdf-render` feature flag.
 
 For adding or maintaining node implementations, see [Node Contributor Manual](NODE_CONTRIBUTING.md).
 
@@ -89,6 +89,7 @@ For adding or maintaining node implementations, see [Node Contributor Manual](NO
 |------|-------------|
 | [`db_query`](nodes/db_query.md) | Execute a SQL SELECT query and return rows |
 | [`db_exec`](nodes/db_exec.md) | Execute a SQL INSERT/UPDATE/DELETE statement |
+| [`arangodb_aql`](nodes/arangodb_aql.md) | Execute an AQL query against ArangoDB via HTTP |
 
 ## Composition Nodes
 

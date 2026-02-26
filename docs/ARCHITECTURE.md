@@ -78,7 +78,7 @@ pub trait Node: Send + Sync {
 }
 ```
 
-Nodes are registered in a `NodeRegistry` and exposed to Lua as callable factory functions. 40 built-in nodes are provided across HTTP, shell, file, data transform, iteration, caching, conditional, timing, code execution, markdown, document extraction, database, subworkflow, and utility categories. The `pdf_to_image` node requires the `pdf-render` feature flag.
+Nodes are registered in a `NodeRegistry` and exposed to Lua as callable factory functions. 41 built-in nodes are provided across HTTP, shell, file, data transform, iteration, caching, conditional, timing, code execution, markdown, document extraction, database, subworkflow, and utility categories. The `pdf_to_image` node requires the `pdf-render` feature flag.
 
 ### 3. Lua Runtime (`lua/`)
 

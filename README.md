@@ -67,7 +67,7 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 │  DAG resolution · Parallel execution · Retry/timeout     │
 │  Context propagation · Conditional routing · State store │
 ├─────────────────────────────────────────────────────────┤
-│                  40 Built-in Nodes                         │
+│                  41 Built-in Nodes                         │
 │  HTTP · Files · Shell · Transforms · Conditionals · ...  │
 │  All implemented in pure Rust for performance & safety   │
 └─────────────────────────────────────────────────────────┘
@@ -84,7 +84,7 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 
 ## Features
 
-- **40 built-in nodes** — HTTP (GET/POST/PUT/DELETE), file I/O, shell commands, JSON transforms, foreach iteration, key-value caching (memory + file), conditional routing, schema validation, hashing, templating, Markdown conversion, document extraction (Word/PDF/HTML), database queries (SQLite via sqlx), delays, inline code execution, subworkflow composition, and PDF-to-image rendering
+- **41 built-in nodes** — HTTP (GET/POST/PUT/DELETE), file I/O, shell commands, JSON transforms, foreach iteration, key-value caching (memory + file), conditional routing, schema validation, hashing, templating, Markdown conversion, document extraction (Word/PDF/HTML), database queries (SQLite via sqlx, ArangoDB via HTTP), delays, inline code execution, subworkflow composition, and PDF-to-image rendering
 - **Function handlers** — pass Lua functions directly as step handlers, no boilerplate needed
 - **Conditional step shorthand** — `step_if(condition, name, handler)` for concise branching
 - **DAG-based scheduling** — steps run in parallel unless dependencies are declared
@@ -254,7 +254,7 @@ flow:step("standard_flow", nodes.log({
 | **Validation** | `validate_schema` |
 | **Markdown** | `markdown_to_html`, `html_to_markdown` |
 | **Cache** | `cache_set`, `cache_get` |
-| **Database** | `db_query`, `db_exec` |
+| **Database** | `db_query`, `db_exec`, `arangodb_aql` |
 | **Composition** | `subworkflow` |
 | **Extraction** | `extract_word`, `extract_pdf`, `extract_html`, `pdf_to_image` |
 | **Utility** | `log`, `delay`, `template_render`, `hash`, `code` |
@@ -278,6 +278,7 @@ Progressive examples from basic to advanced:
 | [09-cache](examples/09-cache/) | In-memory and file-based key-value caching with TTL |
 | [10-database](examples/10-database/) | SQLite CRUD operations with db_query and db_exec |
 | [11-subworkflow](examples/11-subworkflow/) | Subworkflow composition, fire-and-forget, on_error handling |
+| [12-arangodb](examples/12-arangodb/) | ArangoDB AQL queries with bind variables and env-based credentials |
 
 ## Roadmap
 

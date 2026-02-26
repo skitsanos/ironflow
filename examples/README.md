@@ -62,6 +62,10 @@ Examples organized from basic to advanced. Each folder builds on concepts from t
 - **on_error_example.lua** — Per-step error handling with `on_error`
 - **greet.lua** — Simple reusable helper flow used by the subworkflow examples
 
+## 12-arangodb
+- **aql_query.lua** — Simple AQL query with environment-based credentials
+- **aql_with_bind_vars.lua** — AQL query with bind variables for parameterized queries
+
 ## Running Examples
 
 ```bash
