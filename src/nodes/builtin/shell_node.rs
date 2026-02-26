@@ -60,51 +60,53 @@ impl Node for ShellCommandNode {
             }
         }
 
-        let duration = std::time::Duration::from_secs_f64(timeout_s);
-        let mut child = command
+        // Spawn in a new process group so we can kill the entire tree on timeout
+        #[cfg(unix)]
+        {
+            unsafe {
+                command.pre_exec(|| {
+                    // Create a new process group with this child as the leader
+                    libc::setpgid(0, 0);
+                    Ok(())
+                });
+            }
+        }
+
+        command
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn()?;
+            .stderr(std::process::Stdio::piped());
 
-        // Take stdout/stderr handles before waiting, so we can still kill on timeout
-        let stdout_handle = child.stdout.take();
-        let stderr_handle = child.stderr.take();
+        let child = command.spawn()?;
 
-        let wait_result = tokio::time::timeout(duration, child.wait()).await;
+        // Record the PID before consuming the child via wait_with_output.
+        // On Unix this is the process group ID (since we called setpgid(0,0)).
+        #[cfg(unix)]
+        let child_pid = child.id();
 
-        let status = match wait_result {
-            Ok(Ok(status)) => status,
+        let duration = std::time::Duration::from_secs_f64(timeout_s);
+
+        // wait_with_output reads stdout/stderr concurrently while waiting for
+        // the process to exit, preventing pipe-buffer deadlocks.
+        let result = tokio::time::timeout(duration, child.wait_with_output()).await;
+
+        let output = match result {
+            Ok(Ok(output)) => output,
             Ok(Err(e)) => bail!("Failed to execute command '{}': {}", cmd, e),
             Err(_) => {
-                // Timeout expired — kill the child process
-                let _ = child.kill().await;
-                // Wait to reap the zombie
-                let _ = child.wait().await;
-                bail!("Command '{}' timed out after {}s (process killed)", cmd, timeout_s);
+                // Timeout expired — kill the entire process group
+                #[cfg(unix)]
+                if let Some(pid) = child_pid {
+                    // Negative PID signals the whole process group
+                    unsafe { libc::kill(-(pid as i32), libc::SIGKILL); }
+                }
+                bail!("Command '{}' timed out after {}s (process group killed)", cmd, timeout_s);
             }
         };
 
-        // Read captured output
-        let stdout = if let Some(mut out) = stdout_handle {
-            use tokio::io::AsyncReadExt;
-            let mut buf = Vec::new();
-            let _ = out.read_to_end(&mut buf).await;
-            String::from_utf8_lossy(&buf).to_string()
-        } else {
-            String::new()
-        };
-
-        let stderr = if let Some(mut err) = stderr_handle {
-            use tokio::io::AsyncReadExt;
-            let mut buf = Vec::new();
-            let _ = err.read_to_end(&mut buf).await;
-            String::from_utf8_lossy(&buf).to_string()
-        } else {
-            String::new()
-        };
-
-        let code = status.code().unwrap_or(-1);
-        let success = status.success();
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let code = output.status.code().unwrap_or(-1);
+        let success = output.status.success();
 
         let mut result = NodeOutput::new();
         result.insert(
