@@ -61,23 +61,50 @@ impl Node for ShellCommandNode {
         }
 
         let duration = std::time::Duration::from_secs_f64(timeout_s);
-        let child = command
+        let mut child = command
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .spawn()?;
 
-        let result = tokio::time::timeout(duration, child.wait_with_output()).await;
+        // Take stdout/stderr handles before waiting, so we can still kill on timeout
+        let stdout_handle = child.stdout.take();
+        let stderr_handle = child.stderr.take();
 
-        let output = match result {
-            Ok(Ok(output)) => output,
+        let wait_result = tokio::time::timeout(duration, child.wait()).await;
+
+        let status = match wait_result {
+            Ok(Ok(status)) => status,
             Ok(Err(e)) => bail!("Failed to execute command '{}': {}", cmd, e),
-            Err(_) => bail!("Command '{}' timed out after {}s", cmd, timeout_s),
+            Err(_) => {
+                // Timeout expired — kill the child process
+                let _ = child.kill().await;
+                // Wait to reap the zombie
+                let _ = child.wait().await;
+                bail!("Command '{}' timed out after {}s (process killed)", cmd, timeout_s);
+            }
         };
 
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        let code = output.status.code().unwrap_or(-1);
-        let success = output.status.success();
+        // Read captured output
+        let stdout = if let Some(mut out) = stdout_handle {
+            use tokio::io::AsyncReadExt;
+            let mut buf = Vec::new();
+            let _ = out.read_to_end(&mut buf).await;
+            String::from_utf8_lossy(&buf).to_string()
+        } else {
+            String::new()
+        };
+
+        let stderr = if let Some(mut err) = stderr_handle {
+            use tokio::io::AsyncReadExt;
+            let mut buf = Vec::new();
+            let _ = err.read_to_end(&mut buf).await;
+            String::from_utf8_lossy(&buf).to_string()
+        } else {
+            String::new()
+        };
+
+        let code = status.code().unwrap_or(-1);
+        let success = status.success();
 
         let mut result = NodeOutput::new();
         result.insert(

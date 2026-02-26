@@ -158,7 +158,7 @@ fn load_dotenv(explicit_path: Option<&std::path::Path>) {
 async fn cmd_run(
     flow_path: PathBuf,
     context_json: Option<String>,
-    _verbose: bool,
+    verbose: bool,
     store_dir: PathBuf,
 ) -> Result<()> {
     let registry = NodeRegistry::with_builtins();
@@ -171,6 +171,27 @@ async fn cmd_run(
         .with_context(|| format!("Failed to load flow: {}", flow_path.display()))?;
 
     println!("Flow: {} ({} steps)", flow.name, flow.steps.len());
+
+    if verbose {
+        println!("\nSteps:");
+        for step in &flow.steps {
+            let deps = if step.dependencies.is_empty() {
+                String::from("none")
+            } else {
+                step.dependencies.join(", ")
+            };
+            println!("  {} [{}] deps: {}", step.name, step.node_type, deps);
+            if step.retry.max_retries > 0 {
+                println!("    retries: {}, backoff: {}s", step.retry.max_retries, step.retry.backoff_s);
+            }
+            if let Some(t) = step.timeout_s {
+                println!("    timeout: {}s", t);
+            }
+            if let Some(ref r) = step.route {
+                println!("    route: {}", r);
+            }
+        }
+    }
 
     // Parse initial context
     let initial_ctx: Context = match context_json {
@@ -202,8 +223,19 @@ async fn cmd_run(
             "  {} {} [{}] (attempt {})",
             status_icon, name, task.node_type, task.attempt
         );
+        if verbose {
+            if let (Some(s), Some(f)) = (&task.started, &task.finished) {
+                let duration = *f - *s;
+                println!("    Duration: {}ms", duration.num_milliseconds());
+            }
+        }
         if let Some(ref err) = task.error {
             println!("    Error: {}", err);
+        }
+        if verbose {
+            if let Some(ref output) = task.output {
+                println!("    Output: {}", output);
+            }
         }
     }
 
@@ -247,19 +279,10 @@ fn cmd_validate(flow_path: PathBuf) -> Result<()> {
                 step.name, step.node_type
             ));
         }
-
-        // Check dependencies reference existing steps
-        let step_names: std::collections::HashSet<&str> =
-            flow.steps.iter().map(|s| s.name.as_str()).collect();
-        for dep in &step.dependencies {
-            if !step_names.contains(dep.as_str()) {
-                errors.push(format!(
-                    "Step '{}' depends on '{}', which does not exist",
-                    step.name, dep
-                ));
-            }
-        }
     }
+
+    // Validate DAG (dependencies + cycle detection)
+    errors.extend(flow.validate_dag());
 
     if errors.is_empty() {
         println!("Validation: OK");

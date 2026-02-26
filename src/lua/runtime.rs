@@ -184,11 +184,20 @@ impl LuaRuntime {
             .map_err(|e| anyhow::anyhow!("Flow must have steps: {}", e))?;
 
         let mut steps = Vec::new();
+        let mut seen_names = std::collections::HashSet::new();
 
         for pair in steps_table.pairs::<i32, LuaTable>() {
             let (_, step_table) = pair?;
 
             let step_name: String = step_table.get("name")?;
+
+            if !seen_names.insert(step_name.clone()) {
+                anyhow::bail!(
+                    "Duplicate step name '{}' in flow '{}'. Each step must have a unique name.",
+                    step_name,
+                    name
+                );
+            }
             let node_type: String = step_table.get("node_type")?;
             let max_retries: u32 = step_table.get("max_retries").unwrap_or(0);
             let backoff_s: f64 = step_table.get("backoff_s").unwrap_or(1.0);

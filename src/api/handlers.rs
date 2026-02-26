@@ -141,19 +141,8 @@ pub async fn validate_flow(
                 }
             }
 
-            // Check dependencies
-            let step_names: std::collections::HashSet<&str> =
-                flow.steps.iter().map(|s| s.name.as_str()).collect();
-            for step in &flow.steps {
-                for dep in &step.dependencies {
-                    if !step_names.contains(dep.as_str()) {
-                        errors.push(format!(
-                            "Step '{}' depends on '{}', which does not exist",
-                            step.name, dep
-                        ));
-                    }
-                }
-            }
+            // Validate DAG (dependencies + cycle detection)
+            errors.extend(flow.validate_dag());
 
             Ok(Json(ValidateResponse {
                 valid: errors.is_empty(),

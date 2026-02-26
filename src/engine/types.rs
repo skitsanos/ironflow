@@ -137,3 +137,76 @@ pub struct FlowDefinition {
     pub name: String,
     pub steps: Vec<StepDefinition>,
 }
+
+impl FlowDefinition {
+    /// Validate the DAG: check for missing dependencies and cycles.
+    /// Returns a list of error strings (empty if valid).
+    pub fn validate_dag(&self) -> Vec<String> {
+        use std::collections::{HashMap, HashSet};
+
+        let mut errors = Vec::new();
+        let step_names: HashSet<&str> = self.steps.iter().map(|s| s.name.as_str()).collect();
+
+        // Check dependencies reference existing steps
+        for step in &self.steps {
+            for dep in &step.dependencies {
+                if !step_names.contains(dep.as_str()) {
+                    errors.push(format!(
+                        "Step '{}' depends on '{}', which does not exist",
+                        step.name, dep
+                    ));
+                }
+            }
+        }
+
+        // Run cycle detection via Kahn's algorithm
+        if errors.is_empty() {
+            let mut in_degree: HashMap<&str, usize> = HashMap::new();
+            let mut dependents: HashMap<&str, Vec<&str>> = HashMap::new();
+
+            for step in &self.steps {
+                in_degree.entry(step.name.as_str()).or_insert(0);
+                for dep in &step.dependencies {
+                    dependents
+                        .entry(dep.as_str())
+                        .or_default()
+                        .push(step.name.as_str());
+                    *in_degree.entry(step.name.as_str()).or_insert(0) += 1;
+                }
+            }
+
+            let mut remaining: HashSet<&str> = step_names;
+            loop {
+                let ready: Vec<&str> = remaining
+                    .iter()
+                    .filter(|name| in_degree.get(**name).copied().unwrap_or(0) == 0)
+                    .cloned()
+                    .collect();
+
+                if ready.is_empty() {
+                    if !remaining.is_empty() {
+                        let cycle_steps: Vec<&str> = remaining.into_iter().collect();
+                        errors.push(format!(
+                            "Cycle detected in flow DAG involving steps: {}",
+                            cycle_steps.join(", ")
+                        ));
+                    }
+                    break;
+                }
+
+                for name in &ready {
+                    remaining.remove(name);
+                    if let Some(deps) = dependents.get(name) {
+                        for dep in deps {
+                            if let Some(deg) = in_degree.get_mut(dep) {
+                                *deg -= 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        errors
+    }
+}

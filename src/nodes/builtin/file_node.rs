@@ -257,31 +257,39 @@ impl Node for ListDirectoryNode {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
-        let mut entries = Vec::new();
-        let mut dir = tokio::fs::read_dir(&path).await?;
-
-        while let Some(entry) = dir.next_entry().await? {
-            let file_type = entry.file_type().await?;
-            let name = entry.file_name().to_string_lossy().to_string();
-
-            if recursive && file_type.is_dir() {
-                // For simplicity, just mark directories — full recursion can be added later
-                entries.push(serde_json::json!({
-                    "name": name,
-                    "type": "directory",
-                    "path": entry.path().to_string_lossy(),
-                }));
-            } else {
-                entries.push(serde_json::json!({
-                    "name": name,
-                    "type": if file_type.is_file() { "file" } else { "directory" },
-                    "path": entry.path().to_string_lossy(),
-                }));
-            }
-        }
+        let entries = list_dir_entries(&path, recursive).await?;
 
         let mut output = NodeOutput::new();
         output.insert(output_key.to_string(), serde_json::Value::Array(entries));
         Ok(output)
     }
+}
+
+/// Recursively list directory entries.
+fn list_dir_entries(path: &str, recursive: bool) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<serde_json::Value>>> + Send + '_>> {
+    Box::pin(async move {
+        let mut entries = Vec::new();
+        let mut dir = tokio::fs::read_dir(path).await?;
+
+        while let Some(entry) = dir.next_entry().await? {
+            let file_type = entry.file_type().await?;
+            let name = entry.file_name().to_string_lossy().to_string();
+            let entry_path = entry.path().to_string_lossy().to_string();
+
+            let type_str = if file_type.is_file() { "file" } else { "directory" };
+
+            entries.push(serde_json::json!({
+                "name": name,
+                "type": type_str,
+                "path": entry_path,
+            }));
+
+            if recursive && file_type.is_dir() {
+                let sub_entries = list_dir_entries(&entry_path, true).await?;
+                entries.extend(sub_entries);
+            }
+        }
+
+        Ok(entries)
+    })
 }
