@@ -67,7 +67,7 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 │  DAG resolution · Parallel execution · Retry/timeout     │
 │  Context propagation · Conditional routing · State store │
 ├─────────────────────────────────────────────────────────┤
-│              39 Built-in Nodes (+1 optional)              │
+│                  40 Built-in Nodes                         │
 │  HTTP · Files · Shell · Transforms · Conditionals · ...  │
 │  All implemented in pure Rust for performance & safety   │
 └─────────────────────────────────────────────────────────┘
@@ -84,14 +84,15 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 
 ## Features
 
-- **39+1 built-in nodes** — HTTP (GET/POST/PUT/DELETE), file I/O, shell commands, JSON transforms, foreach iteration, key-value caching (memory + file), conditional routing, schema validation, hashing, templating, Markdown conversion, document extraction (Word/PDF/HTML), database queries (SQLite via sqlx), delays, inline code execution, subworkflow composition, and PDF-to-image rendering (via `pdf-render` feature flag)
+- **40 built-in nodes** — HTTP (GET/POST/PUT/DELETE), file I/O, shell commands, JSON transforms, foreach iteration, key-value caching (memory + file), conditional routing, schema validation, hashing, templating, Markdown conversion, document extraction (Word/PDF/HTML), database queries (SQLite via sqlx), delays, inline code execution, subworkflow composition, and PDF-to-image rendering
 - **Function handlers** — pass Lua functions directly as step handlers, no boilerplate needed
+- **Conditional step shorthand** — `step_if(condition, name, handler)` for concise branching
 - **DAG-based scheduling** — steps run in parallel unless dependencies are declared
 - **Retry with exponential backoff** — configurable per step
 - **Per-step timeouts** — with proper process group cleanup on Unix
 - **Conditional routing** — `if_node` and `switch_node` for branching workflows
 - **Context interpolation** — `${ctx.key}` resolved everywhere, including nested JSON bodies
-- **Environment variables** — `env("KEY")` with `.env` file support
+- **Lua globals** — `env()`, `uuid4()`, `now_rfc3339()`, `now_unix_ms()`, `json_parse()`, `json_stringify()`, `log()`, `base64_encode()`, `base64_decode()`
 - **Schema validation** — JSON Schema validation to fail fast on bad input
 - **REST API** — run and manage flows over HTTP (Axum-based)
 - **CLI** — run, validate, inspect, and list workflows from the terminal
@@ -220,6 +221,12 @@ flow:step("call_api", nodes.http_post({
 ### Conditional routing
 
 ```lua
+-- Simple: step_if runs the step only when the condition is true
+flow:step_if("ctx.amount > 100", "vip_discount", nodes.code({
+    source = "return { discount = ctx.amount * 0.1 }"
+}))
+
+-- Full control: if_node + route for multi-branch workflows
 flow:step("check", nodes.if_node({
     condition = "ctx.amount > 100",
     true_route = "premium",
@@ -249,6 +256,7 @@ flow:step("standard_flow", nodes.log({
 | **Cache** | `cache_set`, `cache_get` |
 | **Database** | `db_query`, `db_exec` |
 | **Composition** | `subworkflow` |
+| **Extraction** | `extract_word`, `extract_pdf`, `extract_html`, `pdf_to_image` |
 | **Utility** | `log`, `delay`, `template_render`, `hash`, `code` |
 
 See [docs/NODE_REFERENCE.md](docs/NODE_REFERENCE.md) for the complete reference with parameters and examples.
@@ -259,9 +267,9 @@ Progressive examples from basic to advanced:
 
 | Folder | What you'll learn |
 |--------|-------------------|
-| [01-basics](examples/01-basics/) | Logging, context passing, parallel execution, retries, env vars |
+| [01-basics](examples/01-basics/) | Logging, context passing, parallel execution, retries, env vars, Lua globals |
 | [02-data-transforms](examples/02-data-transforms/) | JSON parse/stringify, filtering, batching, deduplication |
-| [03-control-flow](examples/03-control-flow/) | If/else routing, switch/case routing |
+| [03-control-flow](examples/03-control-flow/) | If/else routing, switch/case routing, step_if shorthand |
 | [04-file-operations](examples/04-file-operations/) | Read, write, copy, move, delete, list |
 | [05-http](examples/05-http/) | API calls, authentication, OpenAI integration |
 | [06-shell](examples/06-shell/) | Shell commands with args, env vars, timeouts |
