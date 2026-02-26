@@ -275,10 +275,9 @@ Progressive examples from basic to advanced:
 
 - Redis state backend
 - S3 file operations
-- Database nodes (PostgreSQL via feature flag — SQLite supported now)
+- PostgreSQL support (via feature flag — SQLite supported now)
 - Webhook triggers
 - Cron scheduling
-- ~~Flow composition (sub-flows)~~ ✅
 - Web UI for flow visualization
 
 ## License
