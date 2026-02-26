@@ -170,7 +170,7 @@ flow:step("handle_pro", nodes.log({
 
 ## Available Nodes
 
-See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list of 28 nodes and their configuration options.
+See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list of 33 nodes (plus 1 optional with `pdf-render` feature) and their configuration options.
 
 ## Inline Lua Code
 

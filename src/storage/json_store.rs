@@ -119,18 +119,15 @@ impl StateStore for JsonStateStore {
 
         while let Some(entry) = entries.next_entry().await? {
             let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("json") {
-                if let Ok(data) = tokio::fs::read_to_string(&path).await {
-                    if let Ok(info) = serde_json::from_str::<RunInfo>(&data) {
-                        if let Some(ref filter) = status_filter {
-                            if &info.status != filter {
+            if path.extension().and_then(|e| e.to_str()) == Some("json")
+                && let Ok(data) = tokio::fs::read_to_string(&path).await
+                    && let Ok(info) = serde_json::from_str::<RunInfo>(&data) {
+                        if let Some(ref filter) = status_filter
+                            && &info.status != filter {
                                 continue;
                             }
-                        }
                         runs.push(info);
                     }
-                }
-            }
         }
 
         // Sort by start time, newest first

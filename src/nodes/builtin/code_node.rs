@@ -130,7 +130,7 @@ fn lua_value_to_json(value: &LuaValue) -> Result<serde_json::Value> {
         LuaValue::String(s) => Ok(serde_json::Value::String(s.to_str()?.to_string())),
         LuaValue::Table(t) => {
             // Check if array (sequential integer keys starting from 1)
-            let len = t.len()? as i64;
+            let len = t.len()?;
             if len > 0 {
                 let mut arr = Vec::new();
                 for i in 1..=len {

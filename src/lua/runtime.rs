@@ -265,7 +265,7 @@ impl LuaRuntime {
 /// Convert a Lua table to serde_json::Value.
 fn lua_table_to_json(table: &LuaTable) -> Result<serde_json::Value> {
     // Check if this is an array (sequential integer keys starting from 1)
-    let len = table.len()? as i64;
+    let len = table.len()?;
     let mut is_array = len > 0;
 
     if is_array {

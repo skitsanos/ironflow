@@ -81,6 +81,7 @@ Tracking implementation progress. Items are checked off as completed.
 - [x] `batch` / `deduplicate`
 - [x] `hash` (SHA-256, SHA-384, SHA-512, MD5)
 - [x] `code` (inline Lua execution and function handlers)
+- [x] `markdown_to_html` / `html_to_markdown` (comrak + html2md)
 
 ---
 
@@ -116,7 +117,7 @@ Tracking implementation progress. Items are checked off as completed.
 ## Phase 5: Polish
 
 - [x] Structured logging (`tracing`)
-- [x] Node reference docs (28 nodes documented)
+- [x] Node reference docs (33+1 nodes documented)
 - [x] CLI and environment variable reference
 - [ ] Config file support (`ironflow.yaml`)
 - [ ] Redis state store (feature flag)

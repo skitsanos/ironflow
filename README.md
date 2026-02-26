@@ -65,7 +65,7 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 │  DAG resolution · Parallel execution · Retry/timeout     │
 │  Context propagation · Conditional routing · State store │
 ├─────────────────────────────────────────────────────────┤
-│                   28 Built-in Nodes                      │
+│              33 Built-in Nodes (+1 optional)              │
 │  HTTP · Files · Shell · Transforms · Conditionals · ...  │
 │  All implemented in pure Rust for performance & safety   │
 └─────────────────────────────────────────────────────────┘
@@ -82,7 +82,7 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 
 ## Features
 
-- **28 built-in nodes** — HTTP (GET/POST/PUT/DELETE), file I/O, shell commands, JSON transforms, conditional routing, schema validation, hashing, templating, delays, and inline code execution
+- **33+1 built-in nodes** — HTTP (GET/POST/PUT/DELETE), file I/O, shell commands, JSON transforms, conditional routing, schema validation, hashing, templating, Markdown conversion, document extraction (Word/PDF/HTML), delays, inline code execution, and PDF-to-image rendering (via `pdf-render` feature flag)
 - **Function handlers** — pass Lua functions directly as step handlers, no boilerplate needed
 - **DAG-based scheduling** — steps run in parallel unless dependencies are declared
 - **Retry with exponential backoff** — configurable per step
@@ -241,6 +241,7 @@ flow:step("standard_flow", nodes.log({
 | **Transforms** | `json_parse`, `json_stringify`, `select_fields`, `rename_fields`, `data_filter`, `data_transform`, `batch`, `deduplicate` |
 | **Conditionals** | `if_node`, `switch_node` |
 | **Validation** | `validate_schema` |
+| **Markdown** | `markdown_to_html`, `html_to_markdown` |
 | **Utility** | `log`, `delay`, `template_render`, `hash`, `code` |
 
 See [docs/NODE_REFERENCE.md](docs/NODE_REFERENCE.md) for the complete reference with parameters and examples.

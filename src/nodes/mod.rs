@@ -26,6 +26,12 @@ pub struct NodeRegistry {
     nodes: HashMap<String, Arc<dyn Node>>,
 }
 
+impl Default for NodeRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NodeRegistry {
     pub fn new() -> Self {
         Self {

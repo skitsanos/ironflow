@@ -1,6 +1,6 @@
 # IronFlow — Node Reference
 
-Complete reference for all 28 built-in nodes. Each entry shows the node name, configuration parameters, context outputs, and a Lua usage example.
+Complete reference for all 33 built-in nodes (plus 1 optional with the `pdf-render` feature). Each entry shows the node name, configuration parameters, context outputs, and a Lua usage example.
 
 ---
 
@@ -464,6 +464,154 @@ flow:step("md5", nodes.hash({
     source_key = "file_content",
     algorithm = "md5",
     output_key = "file_md5"
+}))
+```
+
+---
+
+## Markdown Nodes
+
+### `markdown_to_html`
+
+Convert Markdown text to HTML. Supports CommonMark and GitHub Flavored Markdown (tables, strikethrough, autolinks, task lists).
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `input` | string | * | — | Markdown text (supports `${ctx.key}`). Use this OR `source_key`. |
+| `source_key` | string | * | — | Context key containing Markdown text. Use this OR `input`. |
+| `output_key` | string | no | `"html"` | Context key for HTML output |
+| `sanitize` | bool | no | `false` | Sanitize HTML output (strips scripts, styles, etc. via ammonia) |
+
+```lua
+flow:step("render", nodes.markdown_to_html({
+    source_key = "readme_content",
+    output_key = "readme_html",
+    sanitize = true
+}))
+```
+
+### `html_to_markdown`
+
+Convert HTML to Markdown. Best-effort conversion — complex HTML structures (custom styles, nested tables, embedded media) may lose fidelity.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `input` | string | * | — | HTML text (supports `${ctx.key}`). Use this OR `source_key`. |
+| `source_key` | string | * | — | Context key containing HTML text. Use this OR `input`. |
+| `output_key` | string | no | `"markdown"` | Context key for Markdown output |
+
+```lua
+flow:step("convert", nodes.html_to_markdown({
+    source_key = "page_html",
+    output_key = "page_markdown"
+}))
+```
+
+---
+
+## Document Extraction Nodes
+
+### `extract_word`
+
+Extract text and metadata from a Word (.docx) document.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `path` | string | * | — | File path (supports `${ctx.key}`). Use this OR `source_key`. |
+| `source_key` | string | * | — | Context key containing file path. Use this OR `path`. |
+| `format` | string | no | `"text"` | Output format: `text` or `markdown` |
+| `output_key` | string | no | `"content"` | Context key for extracted content |
+| `metadata_key` | string | no | — | Context key for metadata. Omit to skip metadata extraction. |
+
+**Metadata output** (when `metadata_key` is set):
+- `title`, `author`, `subject`, `description`, `keywords`
+- `created`, `modified`, `last_modified_by`, `revision`, `category`
+
+```lua
+flow:step("read_doc", nodes.extract_word({
+    path = "report.docx",
+    format = "markdown",
+    output_key = "content",
+    metadata_key = "metadata"
+}))
+```
+
+### `extract_pdf`
+
+Extract text and metadata from a PDF document.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `path` | string | * | — | File path (supports `${ctx.key}`). Use this OR `source_key`. |
+| `source_key` | string | * | — | Context key containing file path. Use this OR `path`. |
+| `format` | string | no | `"text"` | Output format: `text` or `markdown` |
+| `output_key` | string | no | `"content"` | Context key for extracted text |
+| `metadata_key` | string | no | — | Context key for metadata. Omit to skip metadata extraction. |
+
+**Metadata output** (when `metadata_key` is set):
+- `pages` — Page count
+- `title`, `author`, `subject`, `keywords`
+- `creator`, `producer`, `created`, `modified`
+
+```lua
+flow:step("read_pdf", nodes.extract_pdf({
+    path = "invoice.pdf",
+    format = "text",
+    output_key = "text",
+    metadata_key = "pdf_meta"
+}))
+```
+
+### `extract_html`
+
+Extract text and metadata from an HTML file.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `path` | string | * | — | File path (supports `${ctx.key}`). Use this OR `source_key`. |
+| `source_key` | string | * | — | Context key containing file path. Use this OR `path`. |
+| `format` | string | no | `"text"` | Output format: `text` or `markdown` |
+| `output_key` | string | no | `"content"` | Context key for extracted content |
+| `metadata_key` | string | no | — | Context key for metadata. Omit to skip metadata extraction. |
+
+**Metadata output** (when `metadata_key` is set):
+- `title` — From `<title>` tag
+- `description`, `author`, `keywords`, `viewport` — From `<meta>` tags
+- `og:title`, `og:description`, `og:type`, `og:url` — OpenGraph tags
+
+```lua
+flow:step("read_page", nodes.extract_html({
+    path = "page.html",
+    format = "markdown",
+    output_key = "content",
+    metadata_key = "meta"
+}))
+```
+
+### `pdf_to_image` *(requires `pdf-render` feature)*
+
+Render PDF pages to images. Build with `cargo build --features pdf-render`. Requires the `libpdfium` shared library at runtime (place in working directory or set `PDFIUM_LIB_PATH` env var).
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `path` | string | * | — | File path (supports `${ctx.key}`). Use this OR `source_key`. |
+| `source_key` | string | * | — | Context key containing file path. Use this OR `path`. |
+| `pages` | string | no | `"all"` | Pages to render: `"all"`, `"1"`, `"1-5"`, `"1,3,7-9"` |
+| `format` | string | no | `"png"` | Image format: `png`, `jpeg`, `jpg` |
+| `dpi` | number | no | `150` | Resolution in DPI |
+| `output_key` | string | no | `"images"` | Context key for rendered images |
+
+**Context output:**
+- `{output_key}` — Array of `{page, width, height, format, image_base64}` objects
+- `page_count` — Total pages in the document
+
+```lua
+flow:step("render", nodes.pdf_to_image({
+    path = "document.pdf",
+    pages = "1-3",
+    format = "png",
+    dpi = 150,
+    output_key = "images"
 }))
 ```
 

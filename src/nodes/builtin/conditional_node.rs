@@ -152,8 +152,8 @@ fn compare_values(left: Option<&serde_json::Value>, op: &str, right: &str) -> bo
     };
 
     // Try numeric comparison
-    if let Some(left_num) = left.as_f64() {
-        if let Ok(right_num) = right.parse::<f64>() {
+    if let Some(left_num) = left.as_f64()
+        && let Ok(right_num) = right.parse::<f64>() {
             return match op {
                 "==" => (left_num - right_num).abs() < f64::EPSILON,
                 "!=" => (left_num - right_num).abs() >= f64::EPSILON,
@@ -164,7 +164,6 @@ fn compare_values(left: Option<&serde_json::Value>, op: &str, right: &str) -> bo
                 _ => false,
             };
         }
-    }
 
     // String comparison
     let left_str = match left {

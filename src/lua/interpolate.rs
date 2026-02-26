@@ -5,11 +5,8 @@ pub fn interpolate_ctx(template: &str, ctx: &Context) -> String {
     let mut result = template.to_string();
     let mut start = 0;
 
-    loop {
-        let open = match result[start..].find("${ctx.") {
-            Some(pos) => start + pos,
-            None => break,
-        };
+    while let Some(rel) = result[start..].find("${ctx.") {
+        let open = start + rel;
 
         let close = match result[open..].find('}') {
             Some(pos) => open + pos,

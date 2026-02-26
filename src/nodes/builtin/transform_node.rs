@@ -121,11 +121,10 @@ impl Node for SelectFieldsNode {
 
         let mut selected = serde_json::Map::new();
         for field in fields {
-            if let Some(field_name) = field.as_str() {
-                if let Some(value) = source_obj.get(field_name) {
+            if let Some(field_name) = field.as_str()
+                && let Some(value) = source_obj.get(field_name) {
                     selected.insert(field_name.to_string(), value.clone());
                 }
-            }
         }
 
         let mut output = NodeOutput::new();
@@ -361,11 +360,10 @@ fn apply_mapping(
 ) -> serde_json::Value {
     let mut result = serde_json::Map::new();
     for (new_name, old_name_val) in mapping {
-        if let Some(old_name) = old_name_val.as_str() {
-            if let Some(value) = item.get(old_name) {
+        if let Some(old_name) = old_name_val.as_str()
+            && let Some(value) = item.get(old_name) {
                 result.insert(new_name.clone(), value.clone());
             }
-        }
     }
     serde_json::Value::Object(result)
 }

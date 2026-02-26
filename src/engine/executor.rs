@@ -244,11 +244,10 @@ impl WorkflowEngine {
         // Look for _route_{dependency_name} keys in context
         for dep in &step.dependencies {
             let route_key = format!("_route_{}", dep);
-            if let Some(serde_json::Value::String(r)) = ctx.get(&route_key) {
-                if r == route {
+            if let Some(serde_json::Value::String(r)) = ctx.get(&route_key)
+                && r == route {
                     return true;
                 }
-            }
         }
         false
     }

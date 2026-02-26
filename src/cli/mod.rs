@@ -228,20 +228,18 @@ async fn cmd_run(
             "  {} {} [{}] (attempt {})",
             status_icon, name, task.node_type, task.attempt
         );
-        if verbose {
-            if let (Some(s), Some(f)) = (&task.started, &task.finished) {
+        if verbose
+            && let (Some(s), Some(f)) = (&task.started, &task.finished) {
                 let duration = *f - *s;
                 println!("    Duration: {}ms", duration.num_milliseconds());
             }
-        }
         if let Some(ref err) = task.error {
             println!("    Error: {}", err);
         }
-        if verbose {
-            if let Some(ref output) = task.output {
+        if verbose
+            && let Some(ref output) = task.output {
                 println!("    Output: {}", output);
             }
-        }
     }
 
     if !run_info.ctx.is_empty() {
@@ -383,7 +381,7 @@ fn cmd_nodes() -> Result<()> {
     let registry = NodeRegistry::with_builtins();
     let nodes = registry.list();
 
-    println!("{:<20} {}", "NODE TYPE", "DESCRIPTION");
+    println!("{:<20} DESCRIPTION", "NODE TYPE");
     println!("{}", "-".repeat(60));
 
     for (name, desc) in &nodes {
