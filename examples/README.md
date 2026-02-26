@@ -9,6 +9,7 @@ Examples organized from basic to advanced. Each folder builds on concepts from t
 - **retries_and_timeout.lua** — Timeout and retry configuration
 - **environment_variables.lua** — Reading env vars from Lua with `env()`
 - **base64_globals.lua** — `base64_encode()` and `base64_decode()` Lua globals
+- **lua_globals.lua** — `uuid4()`, `now_rfc3339()`, `now_unix_ms()`, `json_parse()`, `json_stringify()`, `log()`
 
 ## 02-data-transforms
 - **json_operations.lua** — Parse, select fields, stringify
@@ -19,6 +20,7 @@ Examples organized from basic to advanced. Each folder builds on concepts from t
 ## 03-control-flow
 - **conditional_routing.lua** — `if_node` with true/false route branching
 - **switch_routing.lua** — `switch_node` multi-case routing
+- **step_if.lua** — `step_if` conditional step shorthand
 
 ## 04-file-operations
 - **read_write_files.lua** — Write, read, list, and delete files

@@ -150,6 +150,31 @@ flow:step("normal_handler", nodes.log({
 })):depends_on("check"):route("normal")
 ```
 
+### `step_if` — Conditional Step Shorthand
+
+For the common case of "run this step only if a condition is true", use `step_if` instead of manually wiring an `if_node` + `depends_on` + `route`:
+
+```lua
+-- Instead of:
+flow:step("check", nodes.if_node({ condition = "ctx.score > 50" }))
+flow:step("bonus", nodes.code({ source = "return { got_bonus = true }" })):depends_on("check"):route("true")
+
+-- Write:
+flow:step_if("ctx.score > 50", "bonus", nodes.code({ source = "return { got_bonus = true }" }))
+```
+
+`step_if` accepts the same condition syntax as `if_node` (`ctx.key > N`, `ctx.key == "value"`, `ctx.key exists`, bare truthiness). It creates an auto-named guard step (`_if_<step_name>`) and wires the actual step to run only when the condition is true. If false, the step is skipped.
+
+Function handlers work too:
+
+```lua
+flow:step_if("ctx.active", "greet", function(ctx)
+    return { greeting = "Hello " .. ctx.name }
+end)
+```
+
+The returned builder supports the same chainable methods: `depends_on()`, `retries()`, `timeout()`, `on_error()`.
+
 Multi-case routing with `switch_node`:
 
 ```lua
@@ -170,7 +195,7 @@ flow:step("handle_pro", nodes.log({
 
 ## Available Nodes
 
-See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list of 33 nodes (plus 1 optional with `pdf-render` feature) and their configuration options.
+See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list of 40 built-in nodes and their configuration options.
 
 ## Inline Lua Code
 

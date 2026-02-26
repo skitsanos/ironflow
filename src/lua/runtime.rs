@@ -1,9 +1,13 @@
 use anyhow::Result;
 use base64::Engine;
+use chrono::Utc;
 use mlua::prelude::*;
+use tracing::{debug, error, info, trace, warn};
+use uuid::Uuid;
 
 use crate::engine::types::{FlowDefinition, RetryConfig, StepDefinition};
 use crate::nodes::NodeRegistry;
+use crate::nodes::builtin::code_node::json_value_to_lua_table;
 
 /// Lua runtime for loading and parsing flow definitions.
 pub struct LuaRuntime;
@@ -61,6 +65,78 @@ impl LuaRuntime {
             Err(_) => Ok(LuaValue::Nil),
         })?;
         globals.set("env", env_fn)?;
+
+        // json_parse(str) -> Lua table
+        let parse_fn = lua.create_function(|lua_ctx, data: String| {
+            let json: serde_json::Value = serde_json::from_str(&data)
+                .map_err(|e| LuaError::RuntimeError(format!("json_parse failed: {}", e)))?;
+            json_value_to_lua_table(lua_ctx, &json).map_err(LuaError::external)
+        })?;
+        globals.set("json_parse", parse_fn)?;
+
+        // json_stringify(value) -> string
+        let stringify_fn = lua.create_function(|_, value: LuaValue| {
+            let json_val = lua_value_to_json(&value).map_err(LuaError::external)?;
+            let serialized = serde_json::to_string(&json_val)
+                .map_err(|e| LuaError::RuntimeError(e.to_string()))?;
+            Ok(serialized)
+        })?;
+        globals.set("json_stringify", stringify_fn)?;
+
+        // log([level], message...)
+        let log_fn = lua.create_function(|_, args: LuaMultiValue| {
+            let values = args.into_iter().collect::<Vec<LuaValue>>();
+            if values.is_empty() {
+                return Err(LuaError::RuntimeError(
+                    "log() requires at least one argument".into(),
+                ));
+            }
+
+            let (level, start_idx) = match values.first().and_then(|v| v.as_string()) {
+                Some(level) => {
+                    let lower = level.to_str()?.to_lowercase();
+                    if matches!(
+                        lower.as_str(),
+                        "trace" | "debug" | "info" | "warn" | "error"
+                    ) {
+                        (lower, 1usize)
+                    } else {
+                        ("info".to_string(), 0usize)
+                    }
+                }
+                None => ("info".to_string(), 0usize),
+            };
+
+            let parts = values
+                .into_iter()
+                .skip(start_idx)
+                .map(|value| lua_to_log_string(&value).map_err(LuaError::external))
+                .collect::<Result<Vec<_>, _>>()?;
+            let message = parts.join(" ");
+
+            match level.as_str() {
+                "trace" => trace!("<lua> {}", message),
+                "debug" => debug!("<lua> {}", message),
+                "warn" => warn!("<lua> {}", message),
+                "error" => error!("<lua> {}", message),
+                _ => info!("<lua> {}", message),
+            }
+
+            Ok(())
+        })?;
+        globals.set("log", log_fn)?;
+
+        // uuid4() -> random UUID string
+        let uuid_fn = lua.create_function(|_, ()| Ok(Uuid::new_v4().to_string()))?;
+        globals.set("uuid4", uuid_fn)?;
+
+        // now_rfc3339() -> RFC3339 timestamp
+        let now_fn = lua.create_function(|_, ()| Ok(Utc::now().to_rfc3339()))?;
+        globals.set("now_rfc3339", now_fn)?;
+
+        // now_unix_ms() -> epoch milliseconds
+        let now_unix_fn = lua.create_function(|_, ()| Ok(Utc::now().timestamp_millis()))?;
+        globals.set("now_unix_ms", now_unix_fn)?;
 
         Ok(())
     }
@@ -187,6 +263,135 @@ impl LuaRuntime {
                 },
             )?;
             flow.set("step", step_fn)?;
+
+            // flow:step_if(condition, name, node_config_or_function) -> step_builder
+            // Syntactic sugar: creates an auto-named if_node + the actual step
+            // with depends_on(if_node) and route("true").
+            let step_if_fn = lua.create_function(
+                |lua,
+                 (flow_tbl, condition, step_name, node_arg): (
+                    LuaTable,
+                    String,
+                    String,
+                    LuaValue,
+                )| {
+                    // 1. Create a hidden if_node step
+                    let guard_name = format!("_if_{}", step_name);
+                    let steps: LuaTable = flow_tbl.get("_steps")?;
+                    let count: i32 = flow_tbl.get("_step_count")?;
+
+                    let guard_config = lua.create_table()?;
+                    guard_config.set("_node_type", "if_node")?;
+                    guard_config.set("condition", condition)?;
+
+                    let guard_step = lua.create_table()?;
+                    guard_step.set("name", guard_name.clone())?;
+                    guard_step.set("node_type", "if_node")?;
+                    guard_step.set("config", guard_config)?;
+                    guard_step.set("dependencies", lua.create_table()?)?;
+                    guard_step.set("max_retries", 0)?;
+                    guard_step.set("backoff_s", 1.0)?;
+                    guard_step.set("timeout_s", LuaValue::Nil)?;
+                    guard_step.set("route", LuaValue::Nil)?;
+
+                    steps.set(count + 1, guard_step)?;
+
+                    // 2. Create the actual step with depends_on + route("true")
+                    let node_config: LuaTable = match node_arg {
+                        LuaValue::Table(tbl) => tbl,
+                        LuaValue::Function(func) => {
+                            let bytecode = func.dump(false);
+                            let b64 = base64::engine::general_purpose::STANDARD.encode(&bytecode);
+                            let tbl = lua.create_table()?;
+                            tbl.set("_node_type", "code")?;
+                            tbl.set("bytecode_b64", b64)?;
+                            tbl
+                        }
+                        _ => {
+                            return Err(LuaError::RuntimeError(
+                                "step_if() expects a node config table or a function".into(),
+                            ));
+                        }
+                    };
+
+                    let deps = lua.create_table()?;
+                    deps.set(1, guard_name)?;
+
+                    let step = lua.create_table()?;
+                    step.set("name", step_name)?;
+                    step.set("node_type", node_config.get::<String>("_node_type")?)?;
+                    step.set("config", node_config)?;
+                    step.set("dependencies", deps)?;
+                    step.set("max_retries", 0)?;
+                    step.set("backoff_s", 1.0)?;
+                    step.set("timeout_s", LuaValue::Nil)?;
+                    step.set("route", "true")?;
+
+                    steps.set(count + 2, step.clone())?;
+                    flow_tbl.set("_step_count", count + 2)?;
+
+                    // Return a builder for the actual step (chainable)
+                    let builder = lua.create_table()?;
+                    builder.set("_step", step)?;
+
+                    let depends_fn = lua.create_function(|_lua, args: LuaMultiValue| {
+                        let mut iter = args.into_iter();
+                        let builder: LuaTable = iter
+                            .next()
+                            .ok_or_else(|| LuaError::RuntimeError("expected self".into()))?
+                            .as_table()
+                            .ok_or_else(|| LuaError::RuntimeError("expected table".into()))?
+                            .clone();
+
+                        let step: LuaTable = builder.get("_step")?;
+                        let deps: LuaTable = step.get("dependencies")?;
+                        let mut idx = deps.len()? as i32;
+
+                        for arg in iter {
+                            if let Some(dep) = arg
+                                .as_string()
+                                .and_then(|s| s.to_str().ok().map(|s| s.to_string()))
+                            {
+                                idx += 1;
+                                deps.set(idx, dep)?;
+                            }
+                        }
+                        Ok(builder)
+                    })?;
+                    builder.set("depends_on", depends_fn)?;
+
+                    let retries_fn = lua.create_function(
+                        |_lua, (builder, max, backoff): (LuaTable, u32, Option<f64>)| {
+                            let step: LuaTable = builder.get("_step")?;
+                            step.set("max_retries", max)?;
+                            if let Some(b) = backoff {
+                                step.set("backoff_s", b)?;
+                            }
+                            Ok(builder)
+                        },
+                    )?;
+                    builder.set("retries", retries_fn)?;
+
+                    let timeout_fn =
+                        lua.create_function(|_lua, (builder, seconds): (LuaTable, f64)| {
+                            let step: LuaTable = builder.get("_step")?;
+                            step.set("timeout_s", seconds)?;
+                            Ok(builder)
+                        })?;
+                    builder.set("timeout", timeout_fn)?;
+
+                    let on_error_fn =
+                        lua.create_function(|_lua, (builder, step_name): (LuaTable, String)| {
+                            let step: LuaTable = builder.get("_step")?;
+                            step.set("on_error", step_name)?;
+                            Ok(builder)
+                        })?;
+                    builder.set("on_error", on_error_fn)?;
+
+                    Ok(builder)
+                },
+            )?;
+            flow.set("step_if", step_if_fn)?;
 
             Ok(flow)
         })?;
@@ -335,6 +540,20 @@ fn lua_table_to_json(table: &LuaTable) -> Result<serde_json::Value> {
             map.insert(key, lua_value_to_json(&val)?);
         }
         Ok(serde_json::Value::Object(map))
+    }
+}
+
+fn lua_to_log_string(value: &LuaValue) -> Result<String> {
+    match value {
+        LuaValue::String(s) => Ok(s.to_str()?.to_string()),
+        LuaValue::Boolean(b) => Ok(b.to_string()),
+        LuaValue::Integer(i) => Ok(i.to_string()),
+        LuaValue::Number(n) => Ok(n.to_string()),
+        LuaValue::Nil => Ok("nil".to_string()),
+        _ => match serde_json::to_string(&lua_value_to_json(value)?) {
+            Ok(serialized) => Ok(serialized),
+            Err(_) => Ok(format!("{:?}", value)),
+        },
     }
 }
 

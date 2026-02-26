@@ -44,6 +44,7 @@ The core engine, minimal node set, and CLI. Goal: execute a simple multi-step fl
 - [x] `env(key)` function exposed to Lua for reading environment variables
 - [x] `base64_encode(str)` / `base64_decode(str)` Lua globals (shared sandbox module)
 - [x] Function handlers — pass Lua functions directly as step handlers (bytecode serialization)
+- [x] `step_if(condition, name, handler)` — conditional step shorthand (syntactic sugar over `if_node` + `route`)
 
 ### 1.6 JSON State Store ✅
 - [x] Implement `StateStore` trait
@@ -70,7 +71,7 @@ The core engine, minimal node set, and CLI. Goal: execute a simple multi-step fl
 
 ## Phase 2: Core Nodes ✅
 
-Implement the essential node types. Each node is a Rust struct implementing `Node`. **39 nodes total (+1 optional with `pdf-render` feature).**
+Implement the essential node types. Each node is a Rust struct implementing `Node`. **40 nodes total.**
 
 ### 2.1 HTTP Nodes ✅
 - [x] `http_request` — Generic HTTP with method, url, headers, body, auth, timeout
@@ -188,12 +189,13 @@ Implement the essential node types. Each node is a Rust struct implementing `Nod
 - [ ] Environment variable overrides
 - [ ] Storage backend selection via config
 
-### 5.3 Testing
-- [ ] Unit tests for each node
-- [ ] Integration tests for engine (multi-step flows)
-- [ ] Lua flow parsing tests
-- [ ] State store tests
-- [ ] API endpoint tests
+### 5.3 Testing ✅
+- [x] Unit tests for each node (37 tests in `test_nodes`)
+- [x] Integration tests for engine (12 tests in `test_engine` — sequential, parallel, deps, timeout, on_error, routing, file I/O)
+- [x] Lua flow parsing tests (16 tests in `test_lua_runtime`)
+- [x] State store tests (15 tests in `test_state_stores` — NullStateStore and JsonStateStore)
+- [x] API endpoint tests (7 tests in `test_api` — run, validate, list, delete, base64, nodes)
+- [x] Interpolation unit tests (4 tests in `lib.rs`)
 
 ### 5.4 Documentation ✅
 - [x] Node reference with individual per-node files (`docs/nodes/`)
@@ -218,4 +220,4 @@ Phase 1 ✅ ──→ Phase 2 ✅ ──→ Phase 3 ✅
                              └──→ Phase 5 (partial ✅)
 ```
 
-Phases 1-3 are complete (39+1 nodes, full CLI, REST API). Phase 4 (advanced nodes) and Phase 5 (polish) remain.
+Phases 1-3 are complete (39+1 nodes, full CLI, REST API). Phase 4 partially done (db, cache, foreach, subworkflow). Phase 5 mostly done — testing complete (103 tests), config and Redis remaining.

@@ -74,7 +74,9 @@ impl StateStore for NullStateStore {
 
     async fn update_ctx(&self, run_id: &str, ctx: &Context) -> Result<()> {
         if let Some(run) = self.runs.lock().unwrap().get_mut(run_id) {
-            run.ctx = ctx.clone();
+            for (k, v) in ctx {
+                run.ctx.insert(k.clone(), v.clone());
+            }
         }
         Ok(())
     }

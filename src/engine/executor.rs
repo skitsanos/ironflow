@@ -88,23 +88,28 @@ impl WorkflowEngine {
                     if handled.contains(step_name) {
                         // Already ran as error handler — mark completed
                         completed.write().await.insert(step_name.clone());
+                    } else {
+                        // Never triggered — mark as skipped so it doesn't stay Pending
+                        let mut task_state = TaskState::new(&step.name, &step.node_type);
+                        task_state.status = TaskStatus::Skipped;
+                        self.store.upsert_task(&run_id, &task_state).await?;
                     }
                     // Either way, skip normal scheduling
                     continue;
                 }
 
                 // Check if any dependency failed
-                {
+                let dep_failed = {
                     let failed_set = failed.read().await;
-                    let dep_failed = step.dependencies.iter().any(|d| failed_set.contains(d));
-                    if dep_failed {
-                        warn!(task = %step_name, "Skipping task — dependency failed");
-                        let mut task_state = TaskState::new(&step.name, &step.node_type);
-                        task_state.status = TaskStatus::Skipped;
-                        self.store.upsert_task(&run_id, &task_state).await?;
-                        failed.write().await.insert(step_name.clone());
-                        continue;
-                    }
+                    step.dependencies.iter().any(|d| failed_set.contains(d))
+                };
+                if dep_failed {
+                    warn!(task = %step_name, "Skipping task — dependency failed");
+                    let mut task_state = TaskState::new(&step.name, &step.node_type);
+                    task_state.status = TaskStatus::Skipped;
+                    self.store.upsert_task(&run_id, &task_state).await?;
+                    failed.write().await.insert(step_name.clone());
+                    continue;
                 }
 
                 // Check route condition

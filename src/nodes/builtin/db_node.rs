@@ -80,10 +80,24 @@ fn row_to_json(row: &AnyRow) -> Result<serde_json::Value> {
                     Err(_) => serde_json::Value::Null,
                 }
             }
-            "BOOLEAN" | "BOOL" => match row.try_get::<bool, _>(col.ordinal()) {
-                Ok(v) => serde_json::json!(v),
-                Err(_) => serde_json::Value::Null,
-            },
+            "BOOLEAN" | "BOOL" => {
+                if let Ok(v) = row.try_get::<bool, _>(col.ordinal()) {
+                    serde_json::json!(v)
+                } else if let Ok(v) = row.try_get::<i64, _>(col.ordinal()) {
+                    serde_json::json!(v != 0)
+                } else if let Ok(v) = row.try_get::<f64, _>(col.ordinal()) {
+                    serde_json::json!(v != 0.0)
+                } else if let Ok(v) = row.try_get::<String, _>(col.ordinal()) {
+                    matches!(
+                        v.as_str(),
+                        "1" | "true" | "TRUE" | "True" | "t" | "T" | "yes" | "YES"
+                    )
+                    .then_some(serde_json::Value::Bool(true))
+                    .unwrap_or(serde_json::Value::Bool(false))
+                } else {
+                    serde_json::Value::Null
+                }
+            }
             _ => {
                 // Default: try as string (TEXT, VARCHAR, etc.)
                 match row.try_get::<String, _>(col.ordinal()) {

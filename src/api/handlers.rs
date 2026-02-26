@@ -123,13 +123,13 @@ pub async fn run_flow(
 
     // Inject _flow_dir for subworkflow path resolution
     if let Some(ref file_path) = req.file {
-        if let Ok(resolved) = resolve_flow_path(file_path, &state) {
-            if let Some(dir) = std::path::Path::new(&resolved).parent() {
-                initial_ctx.insert(
-                    "_flow_dir".to_string(),
-                    serde_json::Value::String(dir.to_string_lossy().to_string()),
-                );
-            }
+        if let Ok(resolved) = resolve_flow_path(file_path, &state)
+            && let Some(dir) = std::path::Path::new(&resolved).parent()
+        {
+            initial_ctx.insert(
+                "_flow_dir".to_string(),
+                serde_json::Value::String(dir.to_string_lossy().to_string()),
+            );
         }
     } else if let Some(ref flows_dir) = state.flows_dir {
         initial_ctx.insert(

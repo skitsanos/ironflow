@@ -45,9 +45,9 @@ IronFlow ships as a single static binary with no runtime dependencies — no Pyt
 │  └──────┘ └──────┘ └──────┘ └───────────┘   │
 ├─────────────────────────────────────────────┤
 │           State Persistence                  │
-│  ┌──────────────┐  ┌───────────────────┐     │
-│  │ JSON Store   │  │ Redis Store (opt) │     │
-│  └──────────────┘  └───────────────────┘     │
+│  ┌──────────────┐ ┌──────────┐ ┌───────────┐  │
+│  │ JSON Store   │ │Null Store│ │Redis (opt)│  │
+│  └──────────────┘ └──────────┘ └───────────┘  │
 └─────────────────────────────────────────────┘
 ```
 
@@ -62,6 +62,8 @@ The core execution engine responsible for:
 - Concurrency control via semaphores
 - Context management (shared HashMap passed between nodes)
 - Duplicate step name detection at parse time
+- On-error handlers (`on_error()` routes failures to recovery steps)
+- Dependency-failure propagation (downstream steps are skipped)
 
 ### 2. Node System (`nodes/`)
 
@@ -76,7 +78,7 @@ pub trait Node: Send + Sync {
 }
 ```
 
-Nodes are registered in a `NodeRegistry` and exposed to Lua as callable factory functions. 38 built-in nodes are provided across HTTP, shell, file, data transform, iteration, caching, conditional, timing, code execution, markdown, document extraction, database, and utility categories, with 1 additional node (`pdf_to_image`) available via the `pdf-render` feature flag.
+Nodes are registered in a `NodeRegistry` and exposed to Lua as callable factory functions. 40 built-in nodes are provided across HTTP, shell, file, data transform, iteration, caching, conditional, timing, code execution, markdown, document extraction, database, subworkflow, and utility categories. The `pdf_to_image` node requires the `pdf-render` feature flag.
 
 ### 3. Lua Runtime (`lua/`)
 
@@ -148,7 +150,7 @@ Features:
    c. Pass config + context to node.execute()
    d. Merge output into shared context
    e. Update state store
-   f. On failure: retry with exponential backoff or mark failed
+   f. On failure: retry with exponential backoff, route to on_error handler, or mark failed
 7. Final status written to state store
 8. Context returned to caller
 ```

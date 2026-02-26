@@ -1,6 +1,8 @@
 # IronFlow — Node Reference
 
-Complete reference for all 39 built-in nodes (plus 1 optional with the `pdf-render` feature). Click any node name for full documentation with parameters, context output, and Lua examples.
+Complete reference for all 40 built-in nodes. Click any node name for full documentation with parameters, context output, and Lua examples. Note: `pdf_to_image` requires the `pdf-render` feature flag.
+
+For adding or maintaining node implementations, see [Node Contributor Manual](NODE_CONTRIBUTING.md).
 
 ---
 
@@ -146,7 +148,77 @@ Decode a base64 string back to its original bytes. Available inside `code` and `
 
 ```lua
 flow:step("decode", function(ctx)
-    local decoded = base64_decode(ctx.encoded)
+local decoded = base64_decode(ctx.encoded)
     return { decoded = decoded }
+end)
+```
+
+### `json_parse(str)`
+
+Parse a JSON string into a Lua table.
+
+```lua
+flow:step("parse", function()
+    local parsed = json_parse('{"user":"Alice","age":29}')
+    return { name = parsed.user, age = parsed.age }
+end)
+```
+
+### `json_stringify(value)`
+
+Serialize a Lua value to a JSON string.
+
+```lua
+flow:step("render", function()
+    local doc = {
+        name = "Alice",
+        roles = { "admin", "editor" },
+    }
+    local json = json_stringify(doc)
+    return { payload = json }
+end)
+```
+
+### `log(level?, ...args)`
+
+Write one or more values to the executor logs.
+
+```lua
+flow:step("trace", function()
+    log("debug", "parsed", { step = "start" })
+    log("error", "failure", "retrying")
+    return { status = "ok" }
+end)
+```
+
+Supported log levels: `trace`, `debug`, `info`, `warn`, `error`. Any unknown level defaults to `info`.
+
+### `uuid4()`
+
+Generate a random UUID v4 string.
+
+```lua
+flow:step("id", function()
+    return { run_id = uuid4() }
+end)
+```
+
+### `now_rfc3339()`
+
+Return current UTC timestamp in RFC3339 format.
+
+```lua
+flow:step("stamp", function()
+    return { started_at = now_rfc3339() }
+end)
+```
+
+### `now_unix_ms()`
+
+Return current UTC epoch timestamp in milliseconds.
+
+```lua
+flow:step("stamp", function()
+    return { epoch_ms = now_unix_ms() }
 end)
 ```
