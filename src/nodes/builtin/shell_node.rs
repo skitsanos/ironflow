@@ -93,11 +93,21 @@ impl Node for ShellCommandNode {
             Ok(Ok(output)) => output,
             Ok(Err(e)) => bail!("Failed to execute command '{}': {}", cmd, e),
             Err(_) => {
-                // Timeout expired — kill the entire process group
+                // Timeout expired — kill the entire process group and reap
                 #[cfg(unix)]
                 if let Some(pid) = child_pid {
                     // Negative PID signals the whole process group
                     unsafe { libc::kill(-(pid as i32), libc::SIGKILL); }
+                    // Reap all children in the process group to prevent zombies.
+                    // waitpid(-pgid, WNOHANG) in a loop until no more remain.
+                    loop {
+                        let ret = unsafe {
+                            libc::waitpid(-(pid as i32), std::ptr::null_mut(), libc::WNOHANG)
+                        };
+                        if ret <= 0 {
+                            break;
+                        }
+                    }
                 }
                 bail!("Command '{}' timed out after {}s (process group killed)", cmd, timeout_s);
             }
