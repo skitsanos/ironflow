@@ -174,6 +174,15 @@ impl LuaRuntime {
                         })?;
                     builder.set("route", route_fn)?;
 
+                    // builder:on_error(step_name)
+                    let on_error_fn =
+                        lua.create_function(|_lua, (builder, step_name): (LuaTable, String)| {
+                            let step: LuaTable = builder.get("_step")?;
+                            step.set("on_error", step_name)?;
+                            Ok(builder)
+                        })?;
+                    builder.set("on_error", on_error_fn)?;
+
                     Ok(builder)
                 },
             )?;
@@ -191,6 +200,16 @@ impl LuaRuntime {
             let factory = lua.create_function(move |lua, config: Option<LuaTable>| {
                 let tbl = config.unwrap_or(lua.create_table()?);
                 tbl.set("_node_type", node_type_owned.clone())?;
+
+                // For code: if `source` is a function, serialize to bytecode
+                if node_type_owned == "code"
+                    && let Ok(LuaValue::Function(func)) = tbl.get::<LuaValue>("source")
+                {
+                    let bytecode = func.dump(false);
+                    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytecode);
+                    tbl.set("bytecode_b64", b64)?;
+                    tbl.set("source", LuaValue::Nil)?;
+                }
 
                 // For foreach: if `transform` is a function, serialize to bytecode
                 if node_type_owned == "foreach"
@@ -240,6 +259,7 @@ impl LuaRuntime {
             let backoff_s: f64 = step_table.get("backoff_s").unwrap_or(1.0);
             let timeout_s: Option<f64> = step_table.get("timeout_s").ok();
             let route: Option<String> = step_table.get("route").ok();
+            let on_error: Option<String> = step_table.get("on_error").ok();
 
             // Extract dependencies
             let deps_table: LuaTable = step_table.get("dependencies")?;
@@ -277,6 +297,7 @@ impl LuaRuntime {
                 },
                 timeout_s,
                 route,
+                on_error,
             });
         }
 

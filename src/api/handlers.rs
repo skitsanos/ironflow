@@ -118,8 +118,25 @@ pub async fn run_flow(
             .map_err(|e| AppError::BadRequest(format!("Failed to load flow: {:#}", e)))?
     };
 
-    let initial_ctx = req.context.unwrap_or_default();
+    let mut initial_ctx = req.context.unwrap_or_default();
     let flow_name = flow.name.clone();
+
+    // Inject _flow_dir for subworkflow path resolution
+    if let Some(ref file_path) = req.file {
+        if let Ok(resolved) = resolve_flow_path(file_path, &state) {
+            if let Some(dir) = std::path::Path::new(&resolved).parent() {
+                initial_ctx.insert(
+                    "_flow_dir".to_string(),
+                    serde_json::Value::String(dir.to_string_lossy().to_string()),
+                );
+            }
+        }
+    } else if let Some(ref flows_dir) = state.flows_dir {
+        initial_ctx.insert(
+            "_flow_dir".to_string(),
+            serde_json::Value::String(flows_dir.to_string_lossy().to_string()),
+        );
+    }
 
     let engine = WorkflowEngine::new(state.registry.clone(), state.store.clone());
     let run_id = engine.execute(&flow, initial_ctx).await?;

@@ -67,7 +67,7 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 │  DAG resolution · Parallel execution · Retry/timeout     │
 │  Context propagation · Conditional routing · State store │
 ├─────────────────────────────────────────────────────────┤
-│              36 Built-in Nodes (+1 optional)              │
+│              39 Built-in Nodes (+1 optional)              │
 │  HTTP · Files · Shell · Transforms · Conditionals · ...  │
 │  All implemented in pure Rust for performance & safety   │
 └─────────────────────────────────────────────────────────┘
@@ -84,7 +84,7 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 
 ## Features
 
-- **36+1 built-in nodes** — HTTP (GET/POST/PUT/DELETE), file I/O, shell commands, JSON transforms, foreach iteration, key-value caching (memory + file), conditional routing, schema validation, hashing, templating, Markdown conversion, document extraction (Word/PDF/HTML), delays, inline code execution, and PDF-to-image rendering (via `pdf-render` feature flag)
+- **39+1 built-in nodes** — HTTP (GET/POST/PUT/DELETE), file I/O, shell commands, JSON transforms, foreach iteration, key-value caching (memory + file), conditional routing, schema validation, hashing, templating, Markdown conversion, document extraction (Word/PDF/HTML), database queries (SQLite via sqlx), delays, inline code execution, subworkflow composition, and PDF-to-image rendering (via `pdf-render` feature flag)
 - **Function handlers** — pass Lua functions directly as step handlers, no boilerplate needed
 - **DAG-based scheduling** — steps run in parallel unless dependencies are declared
 - **Retry with exponential backoff** — configurable per step
@@ -95,6 +95,8 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 - **Schema validation** — JSON Schema validation to fail fast on bad input
 - **REST API** — run and manage flows over HTTP (Axum-based)
 - **CLI** — run, validate, inspect, and list workflows from the terminal
+- **Per-step error handling** — `on_error` directive to route failures to a dedicated handler step
+- **Subworkflow composition** — call other `.lua` flows as reusable modules with input/output mapping
 - **Sandboxed execution** — Lua scripts run without `os`, `io`, or `debug` access
 
 ## Quick Start
@@ -245,6 +247,8 @@ flow:step("standard_flow", nodes.log({
 | **Validation** | `validate_schema` |
 | **Markdown** | `markdown_to_html`, `html_to_markdown` |
 | **Cache** | `cache_set`, `cache_get` |
+| **Database** | `db_query`, `db_exec` |
+| **Composition** | `subworkflow` |
 | **Utility** | `log`, `delay`, `template_render`, `hash`, `code` |
 
 See [docs/NODE_REFERENCE.md](docs/NODE_REFERENCE.md) for the complete reference with parameters and examples.
@@ -264,15 +268,17 @@ Progressive examples from basic to advanced:
 | [07-advanced](examples/07-advanced/) | Hashing, schema validation, full data pipelines, function handlers |
 | [08-extraction](examples/08-extraction/) | Word/PDF/HTML text extraction, metadata, PDF-to-image rendering |
 | [09-cache](examples/09-cache/) | In-memory and file-based key-value caching with TTL |
+| [10-database](examples/10-database/) | SQLite CRUD operations with db_query and db_exec |
+| [11-subworkflow](examples/11-subworkflow/) | Subworkflow composition, fire-and-forget, on_error handling |
 
 ## Roadmap
 
 - Redis state backend
 - S3 file operations
-- Database nodes (PostgreSQL, SQLite)
+- Database nodes (PostgreSQL via feature flag — SQLite supported now)
 - Webhook triggers
 - Cron scheduling
-- Flow composition (sub-flows)
+- ~~Flow composition (sub-flows)~~ ✅
 - Web UI for flow visualization
 
 ## License

@@ -1,6 +1,6 @@
 # IronFlow — Node Reference
 
-Complete reference for all 36 built-in nodes (plus 1 optional with the `pdf-render` feature). Click any node name for full documentation with parameters, context output, and Lua examples.
+Complete reference for all 39 built-in nodes (plus 1 optional with the `pdf-render` feature). Click any node name for full documentation with parameters, context output, and Lua examples.
 
 ---
 
@@ -80,6 +80,19 @@ Complete reference for all 36 built-in nodes (plus 1 optional with the `pdf-rend
 | [`extract_pdf`](nodes/extract_pdf.md) | Extract text and metadata from PDF |
 | [`extract_html`](nodes/extract_html.md) | Extract text and metadata from HTML |
 | [`pdf_to_image`](nodes/pdf_to_image.md) | Render PDF pages to images *(requires `pdf-render` feature)* |
+
+## Database Nodes
+
+| Node | Description |
+|------|-------------|
+| [`db_query`](nodes/db_query.md) | Execute a SQL SELECT query and return rows |
+| [`db_exec`](nodes/db_exec.md) | Execute a SQL INSERT/UPDATE/DELETE statement |
+
+## Composition Nodes
+
+| Node | Description |
+|------|-------------|
+| [`subworkflow`](nodes/subworkflow.md) | Load and execute another `.lua` flow as a reusable module |
 
 ## Code Execution Nodes
 

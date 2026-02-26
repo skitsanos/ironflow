@@ -51,6 +51,15 @@ Examples organized from basic to advanced. Each folder builds on concepts from t
 - **cache_memory.lua** — In-memory key-value cache with TTL
 - **cache_file.lua** — File-based persistent cache with TTL
 
+## 10-database
+- **sqlite_crud.lua** — SQLite CRUD operations using `db_exec` and `db_query`
+
+## 11-subworkflow
+- **basic_subworkflow.lua** — Call a subworkflow and use its output
+- **fire_and_forget.lua** — Launch a subworkflow without waiting (async)
+- **on_error_example.lua** — Per-step error handling with `on_error`
+- **greet.lua** — Simple reusable helper flow used by the subworkflow examples
+
 ## Running Examples
 
 ```bash

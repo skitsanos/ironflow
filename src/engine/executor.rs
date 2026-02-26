@@ -60,10 +60,19 @@ impl WorkflowEngine {
         let step_map: HashMap<String, &StepDefinition> =
             flow.steps.iter().map(|s| (s.name.clone(), s)).collect();
 
+        // Collect steps that are on_error targets — they only run when triggered
+        let error_only_steps: HashSet<String> = flow
+            .steps
+            .iter()
+            .filter_map(|s| s.on_error.clone())
+            .collect();
+
         let ctx = Arc::new(RwLock::new(initial_ctx));
         let semaphore = Arc::new(Semaphore::new(self.max_concurrent_tasks));
         let completed: Arc<RwLock<HashSet<String>>> = Arc::new(RwLock::new(HashSet::new()));
         let failed: Arc<RwLock<HashSet<String>>> = Arc::new(RwLock::new(HashSet::new()));
+        // Steps already executed as on_error handlers (skip in normal scheduling)
+        let error_handled: Arc<RwLock<HashSet<String>>> = Arc::new(RwLock::new(HashSet::new()));
 
         // Execute in phases from topological order
         for phase in &execution_order {
@@ -71,6 +80,18 @@ impl WorkflowEngine {
 
             for step_name in phase {
                 let step = step_map[step_name].clone();
+
+                // Skip steps that are on_error targets — they only run
+                // when triggered by an error, never in normal scheduling
+                if error_only_steps.contains(step_name) {
+                    let handled = error_handled.read().await;
+                    if handled.contains(step_name) {
+                        // Already ran as error handler — mark completed
+                        completed.write().await.insert(step_name.clone());
+                    }
+                    // Either way, skip normal scheduling
+                    continue;
+                }
 
                 // Check if any dependency failed
                 {
@@ -107,7 +128,12 @@ impl WorkflowEngine {
                 let semaphore = semaphore.clone();
                 let completed = completed.clone();
                 let failed = failed.clone();
+                let error_handled = error_handled.clone();
                 let run_id = run_id.clone();
+                let step_map_clone: HashMap<String, StepDefinition> = step_map
+                    .iter()
+                    .map(|(k, v)| (k.clone(), (*v).clone()))
+                    .collect();
 
                 let handle = tokio::spawn(async move {
                     let _permit = semaphore.acquire().await.unwrap();
@@ -118,8 +144,72 @@ impl WorkflowEngine {
                             completed.write().await.insert(step.name.clone());
                         }
                         Err(e) => {
-                            error!(task = %step.name, error = %e, "Task failed");
-                            failed.write().await.insert(step.name.clone());
+                            // Check for on_error handler
+                            if let Some(ref error_step_name) = step.on_error {
+                                warn!(
+                                    task = %step.name,
+                                    error_handler = %error_step_name,
+                                    "Task failed — routing to error handler"
+                                );
+
+                                // Inject error details into context
+                                {
+                                    let mut ctx_write = ctx.write().await;
+                                    ctx_write.insert(
+                                        "_error_message".to_string(),
+                                        serde_json::Value::String(format!("{:#}", e)),
+                                    );
+                                    ctx_write.insert(
+                                        "_error_step".to_string(),
+                                        serde_json::Value::String(step.name.clone()),
+                                    );
+                                    ctx_write.insert(
+                                        "_error_node_type".to_string(),
+                                        serde_json::Value::String(step.node_type.clone()),
+                                    );
+                                }
+
+                                // Run the error handler step
+                                if let Some(error_step) = step_map_clone.get(error_step_name) {
+                                    let err_result = Self::run_task(
+                                        &registry, &store, &run_id, error_step, &ctx,
+                                    )
+                                    .await;
+
+                                    match err_result {
+                                        Ok(()) => {
+                                            // Error was handled — mark original step
+                                            // as completed (error handled)
+                                            completed.write().await.insert(step.name.clone());
+                                            completed.write().await.insert(error_step_name.clone());
+                                            // Prevent the handler from running again
+                                            // in its normal phase
+                                            error_handled
+                                                .write()
+                                                .await
+                                                .insert(error_step_name.clone());
+                                        }
+                                        Err(handler_err) => {
+                                            error!(
+                                                task = %error_step_name,
+                                                error = %handler_err,
+                                                "Error handler also failed"
+                                            );
+                                            failed.write().await.insert(step.name.clone());
+                                        }
+                                    }
+                                } else {
+                                    error!(
+                                        task = %step.name,
+                                        error_handler = %error_step_name,
+                                        "Error handler step not found"
+                                    );
+                                    failed.write().await.insert(step.name.clone());
+                                }
+                            } else {
+                                error!(task = %step.name, error = %e, "Task failed");
+                                failed.write().await.insert(step.name.clone());
+                            }
                         }
                     }
                 });

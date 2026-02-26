@@ -129,6 +129,7 @@ pub struct StepDefinition {
     pub retry: RetryConfig,
     pub timeout_s: Option<f64>,
     pub route: Option<String>,
+    pub on_error: Option<String>,
 }
 
 /// Complete flow definition (parsed from Lua).

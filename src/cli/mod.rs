@@ -204,12 +204,20 @@ async fn cmd_run(
     }
 
     // Parse initial context
-    let initial_ctx: Context = match context_json {
+    let mut initial_ctx: Context = match context_json {
         Some(json) => {
             serde_json::from_str(&json).with_context(|| "Failed to parse --context JSON")?
         }
         None => Context::new(),
     };
+
+    // Inject _flow_dir so subworkflow nodes can resolve relative paths
+    if let Some(flow_dir) = flow_path.canonicalize()?.parent() {
+        initial_ctx.insert(
+            "_flow_dir".to_string(),
+            serde_json::Value::String(flow_dir.to_string_lossy().to_string()),
+        );
+    }
 
     let store = Arc::new(JsonStateStore::new(store_dir));
     let engine = WorkflowEngine::new(Arc::new(registry), store.clone());

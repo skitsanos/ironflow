@@ -42,6 +42,7 @@ The core engine, minimal node set, and CLI. Goal: execute a simple multi-step fl
 - [x] Lua table ↔ JSON conversion (custom `lua_table_to_json` / `lua_value_to_json`)
 - [x] Context variable interpolation (`${ctx.key}` with nested dot-path support)
 - [x] `env(key)` function exposed to Lua for reading environment variables
+- [x] `base64_encode(str)` / `base64_decode(str)` Lua globals (shared sandbox module)
 - [x] Function handlers — pass Lua functions directly as step handlers (bytecode serialization)
 
 ### 1.6 JSON State Store ✅
@@ -69,7 +70,7 @@ The core engine, minimal node set, and CLI. Goal: execute a simple multi-step fl
 
 ## Phase 2: Core Nodes ✅
 
-Implement the essential node types. Each node is a Rust struct implementing `Node`. **36 nodes total (+1 optional with `pdf-render` feature).**
+Implement the essential node types. Each node is a Rust struct implementing `Node`. **39 nodes total (+1 optional with `pdf-render` feature).**
 
 ### 2.1 HTTP Nodes ✅
 - [x] `http_request` — Generic HTTP with method, url, headers, body, auth, timeout
@@ -86,8 +87,8 @@ Implement the essential node types. Each node is a Rust struct implementing `Nod
 - [x] Working directory configuration
 
 ### 2.3 File Operation Nodes ✅
-- [x] `read_file` — Read file contents (text)
-- [x] `write_file` — Write/append to file
+- [x] `read_file` — Read file contents (text or binary as base64)
+- [x] `write_file` — Write/append to file (text or binary from base64, with `source_key` for context data)
 - [x] `copy_file` — Copy a file to a new location
 - [x] `move_file` — Move/rename a file
 - [x] `delete_file` — Delete a file
@@ -118,6 +119,12 @@ Implement the essential node types. Each node is a Rust struct implementing `Nod
 - [x] `code` — Execute inline Lua code or function handlers with sandboxed context access
 - [x] `markdown_to_html` — Markdown to HTML conversion (CommonMark + GFM, optional sanitization)
 - [x] `html_to_markdown` — HTML to Markdown conversion (best-effort, lossy on complex HTML)
+
+### 2.8 Document Extraction Nodes ✅
+- [x] `extract_word` — Extract text and metadata from Word (.docx)
+- [x] `extract_pdf` — Extract text and metadata from PDF
+- [x] `extract_html` — Extract text and metadata from HTML
+- [x] `pdf_to_image` — Render PDF pages to images (optional, requires `pdf-render` feature flag)
 
 ---
 
@@ -150,24 +157,20 @@ Implement the essential node types. Each node is a Rust struct implementing `Nod
 ## Phase 4: Advanced Nodes
 
 ### 4.1 Integration Nodes
-- [ ] `db_query`, `db_exec` — SQLite support (via `rusqlite`)
-- [ ] `cache_get`, `cache_set` — In-memory cache with TTL
+- [x] `db_query`, `db_exec` — SQLite support via `sqlx` (PostgreSQL via `postgres` feature flag)
+- [x] `cache_get`, `cache_set` — In-memory and file-based cache with TTL
+- [x] `foreach` — Array iteration with Lua function transforms and null filtering
 
-### 4.2 Resilience Nodes
-- [ ] `retry_policy` — Wraps another node with custom retry logic
-- [ ] `circuit_breaker` — Three-state fault tolerance
-- [ ] `foreach` — Fan-out with bounded concurrency
+### 4.2 Subworkflow Nodes
+- [x] `subworkflow` — Load and execute another `.lua` flow as a reusable module
+- [x] Context mapping (input_keys, output_keys) for clean interfaces between flows
+- [ ] `parallel_subworkflows` — Concurrent subworkflow execution
 
 ### 4.3 Notification Nodes
 - [ ] `send_email` — SMTP email via `lettre`
 - [ ] `slack_notification` — Webhook-based Slack messages
 
-### 4.4 Subworkflow Nodes
-- [ ] `subworkflow` — Load and execute another `.lua` flow
-- [ ] Context mapping (input_keys, output_keys)
-- [ ] `parallel_subworkflows` — Concurrent subworkflow execution
-
-### 4.5 Control Plane Nodes
+### 4.4 Control Plane Nodes
 - [ ] `metrics_emit` — In-memory metrics collection
 - [ ] `queue_publish`, `queue_consume` — In-memory queue
 
@@ -175,7 +178,7 @@ Implement the essential node types. Each node is a Rust struct implementing `Nod
 
 ## Phase 5: Polish & Production Readiness
 
-### 5.1 Observability
+### 5.1 Observability ✅
 - [x] Structured logging via `tracing` crate
 - [x] Per-task timing in state store (started/finished timestamps)
 - [x] Workflow execution summary on completion (CLI prints task statuses)
@@ -192,11 +195,16 @@ Implement the essential node types. Each node is a Rust struct implementing `Nod
 - [ ] State store tests
 - [ ] API endpoint tests
 
-### 5.4 Documentation
-- [x] Node reference (`docs/NODE_REFERENCE.md`)
+### 5.4 Documentation ✅
+- [x] Node reference with individual per-node files (`docs/nodes/`)
 - [x] Lua flow writing guide (`docs/LUA_FLOW_GUIDE.md`)
 - [x] CLI and environment variable reference (`docs/CLI_REFERENCE.md`)
+- [x] Examples organized by category with README (11 folders, 36 examples)
 - [ ] API reference
+
+### 5.5 Infrastructure ✅
+- [x] GitHub Actions CI (check, clippy, fmt, test, build, validate examples)
+- [x] Shared Lua sandbox module (`lua_sandbox.rs`) for consistent VM setup
 
 ---
 
@@ -210,4 +218,4 @@ Phase 1 ✅ ──→ Phase 2 ✅ ──→ Phase 3 ✅
                              └──→ Phase 5 (partial ✅)
 ```
 
-Phases 1-3 are complete (36+1 nodes, full CLI, REST API). Phase 4 (advanced nodes) and Phase 5 (polish) remain.
+Phases 1-3 are complete (39+1 nodes, full CLI, REST API). Phase 4 (advanced nodes) and Phase 5 (polish) remain.

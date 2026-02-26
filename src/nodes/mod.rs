@@ -43,12 +43,28 @@ impl NodeRegistry {
     pub fn with_builtins() -> Self {
         let mut registry = Self::new();
         builtin::register_all(&mut registry);
+
+        // Snapshot the base registry (all nodes except subworkflow) and give
+        // it to SubworkflowNode. It adds itself back at execution time so
+        // child engines can also run subworkflows (nested execution).
+        let base = Arc::new(registry.snapshot());
+        registry.register(Arc::new(builtin::subworkflow_node::SubworkflowNode {
+            base_registry: base,
+        }));
+
         registry
     }
 
     /// Register a node implementation.
     pub fn register(&mut self, node: Arc<dyn Node>) {
         self.nodes.insert(node.node_type().to_string(), node);
+    }
+
+    /// Create a clone of this registry (all nodes are Arc-shared).
+    pub fn snapshot(&self) -> Self {
+        Self {
+            nodes: self.nodes.clone(),
+        }
     }
 
     /// Look up a node by type name.

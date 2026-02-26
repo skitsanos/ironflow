@@ -1,4 +1,5 @@
 pub mod json_store;
+pub mod null_store;
 
 use anyhow::Result;
 use async_trait::async_trait;

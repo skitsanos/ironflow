@@ -1,6 +1,6 @@
 [package]
 name = "ironflow"
-version = "1.2.0"
+version = "1.3.0"
 edition = "2024"
 description = "Lightweight workflow engine — Rust core, Lua scripting, single binary"
 
@@ -36,10 +36,12 @@ lopdf = { version = "0.39.0", features = ["chrono"] }
 pdf-extract = "0.10.0"
 image = "0.25.6"
 pdfium-render = { version = "0.8.37", optional = true }
+sqlx = { version = "0.8", features = ["runtime-tokio", "any", "sqlite"] }
 
 [features]
 default = []
 pdf-render = ["dep:pdfium-render"]
+postgres = ["sqlx/postgres"]
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.182"

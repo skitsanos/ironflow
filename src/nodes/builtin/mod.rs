@@ -1,6 +1,7 @@
 mod cache_node;
 pub(crate) mod code_node;
 mod conditional_node;
+mod db_node;
 mod delay_node;
 mod extract_node;
 mod file_node;
@@ -13,6 +14,7 @@ mod markdown_node;
 #[cfg(feature = "pdf-render")]
 mod pdf_image_node;
 mod shell_node;
+pub(crate) mod subworkflow_node;
 mod template_node;
 mod transform_node;
 mod validate_node;
@@ -58,6 +60,8 @@ pub fn register_all(registry: &mut NodeRegistry) {
     registry.register(Arc::new(foreach_node::ForEachNode));
     registry.register(Arc::new(cache_node::CacheSetNode));
     registry.register(Arc::new(cache_node::CacheGetNode));
+    registry.register(Arc::new(db_node::DbQueryNode));
+    registry.register(Arc::new(db_node::DbExecNode));
 
     #[cfg(feature = "pdf-render")]
     registry.register(Arc::new(pdf_image_node::PdfToImageNode));
