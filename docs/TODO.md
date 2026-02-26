@@ -42,6 +42,7 @@ Tracking implementation progress. Items are checked off as completed.
 - [x] Lua table ↔ JSON conversion
 - [x] Context variable interpolation (`${ctx.key}`)
 - [x] `env(key)` function for reading environment variables
+- [x] `base64_encode(str)` / `base64_decode(str)` Lua globals (shared sandbox)
 
 ### 1.6 JSON State Store
 - [x] `StateStore` trait
@@ -68,7 +69,7 @@ Tracking implementation progress. Items are checked off as completed.
 
 - [x] `http_request` (+ get/post/put/delete) with auth and context interpolation
 - [x] `shell_command` with timeout, process group kill, and concurrent I/O
-- [x] `read_file` / `write_file` / `list_directory` (with recursive support)
+- [x] `read_file` / `write_file` / `list_directory` (with recursive support, binary I/O via base64)
 - [x] `copy_file` / `move_file` / `delete_file`
 - [x] `json_parse` / `json_stringify` / `select_fields`
 - [x] `rename_fields`
@@ -119,8 +120,10 @@ Tracking implementation progress. Items are checked off as completed.
 ## Phase 5: Polish
 
 - [x] Structured logging (`tracing`)
-- [x] Node reference docs (37 nodes documented)
+- [x] Node reference docs (37 individual per-node files in `docs/nodes/`)
 - [x] CLI and environment variable reference
+- [x] Examples organized by category with README (9 folders, 29 examples)
+- [x] Shared Lua sandbox module (`lua_sandbox.rs`) for consistent VM setup
 - [ ] Config file support (`ironflow.yaml`)
 - [ ] Redis state store (feature flag)
 - [x] GitHub Actions CI (check, clippy, fmt, test, build, validate examples)
