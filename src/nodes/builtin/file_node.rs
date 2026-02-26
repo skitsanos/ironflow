@@ -1,5 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
+use base64::Engine;
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
@@ -14,7 +15,7 @@ impl Node for ReadFileNode {
     }
 
     fn description(&self) -> &str {
-        "Read file contents"
+        "Read file contents (text or binary as base64)"
     }
 
     async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
@@ -28,8 +29,22 @@ impl Node for ReadFileNode {
             .get("output_key")
             .and_then(|v| v.as_str())
             .unwrap_or("file");
+        let encoding = config
+            .get("encoding")
+            .and_then(|v| v.as_str())
+            .unwrap_or("text");
 
-        let content = tokio::fs::read_to_string(&path).await?;
+        let content = match encoding {
+            "base64" => {
+                let bytes = tokio::fs::read(&path).await?;
+                base64::engine::general_purpose::STANDARD.encode(&bytes)
+            }
+            "text" => tokio::fs::read_to_string(&path).await?,
+            other => anyhow::bail!(
+                "read_file: unsupported encoding '{}'. Must be 'text' or 'base64'.",
+                other
+            ),
+        };
 
         let mut output = NodeOutput::new();
         output.insert(
@@ -57,7 +72,7 @@ impl Node for WriteFileNode {
     }
 
     fn description(&self) -> &str {
-        "Write content to a file"
+        "Write content to a file (text or binary from base64)"
     }
 
     async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
@@ -66,14 +81,42 @@ impl Node for WriteFileNode {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("write_file requires 'path' parameter"))?;
 
-        let content = config.get("content").and_then(|v| v.as_str()).unwrap_or("");
-
         let path = interpolate_ctx(path, &ctx);
-        let content = interpolate_ctx(content, &ctx);
+        let encoding = config
+            .get("encoding")
+            .and_then(|v| v.as_str())
+            .unwrap_or("text");
         let append = config
             .get("append")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
+
+        // Resolve content bytes: from `content` string or `source_key` context value
+        let bytes: Vec<u8> =
+            if let Some(source_key) = config.get("source_key").and_then(|v| v.as_str()) {
+                let val = ctx
+                    .get(source_key)
+                    .ok_or_else(|| anyhow::anyhow!("Key '{}' not found in context", source_key))?;
+                let s = val
+                    .as_str()
+                    .ok_or_else(|| anyhow::anyhow!("Value at '{}' must be a string", source_key))?;
+                match encoding {
+                    "base64" => base64::engine::general_purpose::STANDARD
+                        .decode(s)
+                        .map_err(|e| {
+                            anyhow::anyhow!("Failed to decode base64 from '{}': {}", source_key, e)
+                        })?,
+                    "text" => s.as_bytes().to_vec(),
+                    other => anyhow::bail!(
+                        "write_file: unsupported encoding '{}'. Must be 'text' or 'base64'.",
+                        other
+                    ),
+                }
+            } else {
+                let content = config.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                let content = interpolate_ctx(content, &ctx);
+                content.into_bytes()
+            };
 
         if append {
             use tokio::io::AsyncWriteExt;
@@ -82,9 +125,9 @@ impl Node for WriteFileNode {
                 .append(true)
                 .open(&path)
                 .await?;
-            file.write_all(content.as_bytes()).await?;
+            file.write_all(&bytes).await?;
         } else {
-            tokio::fs::write(&path, &content).await?;
+            tokio::fs::write(&path, &bytes).await?;
         }
 
         let mut output = NodeOutput::new();

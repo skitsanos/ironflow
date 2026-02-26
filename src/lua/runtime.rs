@@ -191,6 +191,17 @@ impl LuaRuntime {
             let factory = lua.create_function(move |lua, config: Option<LuaTable>| {
                 let tbl = config.unwrap_or(lua.create_table()?);
                 tbl.set("_node_type", node_type_owned.clone())?;
+
+                // For foreach: if `transform` is a function, serialize to bytecode
+                if node_type_owned == "foreach"
+                    && let Ok(LuaValue::Function(func)) = tbl.get::<LuaValue>("transform")
+                {
+                    let bytecode = func.dump(false);
+                    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytecode);
+                    tbl.set("transform_bytecode_b64", b64)?;
+                    tbl.set("transform", LuaValue::Nil)?;
+                }
+
                 Ok(tbl)
             })?;
             nodes_table.set(node_type, factory)?;

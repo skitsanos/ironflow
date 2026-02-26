@@ -67,7 +67,7 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 │  DAG resolution · Parallel execution · Retry/timeout     │
 │  Context propagation · Conditional routing · State store │
 ├─────────────────────────────────────────────────────────┤
-│              33 Built-in Nodes (+1 optional)              │
+│              36 Built-in Nodes (+1 optional)              │
 │  HTTP · Files · Shell · Transforms · Conditionals · ...  │
 │  All implemented in pure Rust for performance & safety   │
 └─────────────────────────────────────────────────────────┘
@@ -84,7 +84,7 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 
 ## Features
 
-- **33+1 built-in nodes** — HTTP (GET/POST/PUT/DELETE), file I/O, shell commands, JSON transforms, conditional routing, schema validation, hashing, templating, Markdown conversion, document extraction (Word/PDF/HTML), delays, inline code execution, and PDF-to-image rendering (via `pdf-render` feature flag)
+- **36+1 built-in nodes** — HTTP (GET/POST/PUT/DELETE), file I/O, shell commands, JSON transforms, foreach iteration, key-value caching (memory + file), conditional routing, schema validation, hashing, templating, Markdown conversion, document extraction (Word/PDF/HTML), delays, inline code execution, and PDF-to-image rendering (via `pdf-render` feature flag)
 - **Function handlers** — pass Lua functions directly as step handlers, no boilerplate needed
 - **DAG-based scheduling** — steps run in parallel unless dependencies are declared
 - **Retry with exponential backoff** — configurable per step
@@ -240,10 +240,11 @@ flow:step("standard_flow", nodes.log({
 | **HTTP** | `http_request`, `http_get`, `http_post`, `http_put`, `http_delete` |
 | **Files** | `read_file`, `write_file`, `copy_file`, `move_file`, `delete_file`, `list_directory` |
 | **Shell** | `shell_command` |
-| **Transforms** | `json_parse`, `json_stringify`, `select_fields`, `rename_fields`, `data_filter`, `data_transform`, `batch`, `deduplicate` |
+| **Transforms** | `json_parse`, `json_stringify`, `select_fields`, `rename_fields`, `data_filter`, `data_transform`, `batch`, `deduplicate`, `foreach` |
 | **Conditionals** | `if_node`, `switch_node` |
 | **Validation** | `validate_schema` |
 | **Markdown** | `markdown_to_html`, `html_to_markdown` |
+| **Cache** | `cache_set`, `cache_get` |
 | **Utility** | `log`, `delay`, `template_render`, `hash`, `code` |
 
 See [docs/NODE_REFERENCE.md](docs/NODE_REFERENCE.md) for the complete reference with parameters and examples.
@@ -262,6 +263,7 @@ Progressive examples from basic to advanced:
 | [06-shell](examples/06-shell/) | Shell commands with args, env vars, timeouts |
 | [07-advanced](examples/07-advanced/) | Hashing, schema validation, full data pipelines, function handlers |
 | [08-extraction](examples/08-extraction/) | Word/PDF/HTML text extraction, metadata, PDF-to-image rendering |
+| [09-cache](examples/09-cache/) | In-memory and file-based key-value caching with TTL |
 
 ## Roadmap
 

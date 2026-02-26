@@ -108,9 +108,9 @@ Tracking implementation progress. Items are checked off as completed.
 ## Phase 4: Advanced Nodes
 
 - [ ] `db_query` / `db_exec` (SQLite)
-- [ ] `cache_get` / `cache_set`
+- [x] `cache_get` / `cache_set` (memory and file backends with TTL)
 - [ ] `retry_policy` / `circuit_breaker`
-- [ ] `foreach`
+- [x] `foreach` (array iteration with Lua transform, null filtering)
 - [ ] `send_email` / `slack_notification`
 - [ ] `subworkflow` / `parallel_subworkflows`
 
@@ -119,7 +119,7 @@ Tracking implementation progress. Items are checked off as completed.
 ## Phase 5: Polish
 
 - [x] Structured logging (`tracing`)
-- [x] Node reference docs (33+1 nodes documented)
+- [x] Node reference docs (37 nodes documented)
 - [x] CLI and environment variable reference
 - [ ] Config file support (`ironflow.yaml`)
 - [ ] Redis state store (feature flag)

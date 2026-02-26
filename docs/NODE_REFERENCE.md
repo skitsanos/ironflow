@@ -1,663 +1,100 @@
 # IronFlow — Node Reference
 
-Complete reference for all 33 built-in nodes (plus 1 optional with the `pdf-render` feature). Each entry shows the node name, configuration parameters, context outputs, and a Lua usage example.
+Complete reference for all 36 built-in nodes (plus 1 optional with the `pdf-render` feature). Click any node name for full documentation with parameters, context output, and Lua examples.
 
 ---
 
 ## HTTP Nodes
 
-### `http_request`
-
-Generic HTTP request with full configuration.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `method` | string | yes | — | HTTP method (GET, POST, PUT, DELETE, PATCH) |
-| `url` | string | yes | — | Request URL (supports `${ctx.key}` interpolation) |
-| `headers` | table | no | `{}` | Request headers |
-| `body` | any | no | `nil` | Request body (auto-serialized to JSON) |
-| `timeout` | number | no | `30` | Timeout in seconds |
-| `auth` | table | no | `nil` | Auth config (see below) |
-| `output_key` | string | no | `"http"` | Context key prefix for response |
-
-**Auth types:**
-- `{type="bearer", token="..."}` — Bearer token
-- `{type="basic", username="...", password="..."}` — Basic auth
-- `{type="api_key", key="...", header="X-API-Key"}` — API key header
-
-**Context output:**
-- `{output_key}_status` — HTTP status code
-- `{output_key}_data` — Response body (parsed as JSON if possible)
-- `{output_key}_headers` — Response headers
-- `{output_key}_success` — `true` if status 2xx
-
-```lua
-flow:step("fetch", nodes.http_request({
-    method = "GET",
-    url = "https://api.example.com/data",
-    headers = { Accept = "application/json" },
-    output_key = "result"
-}))
-```
-
-### `http_get` / `http_post` / `http_put` / `http_delete`
-
-Convenience wrappers around `http_request` with method pre-set. Same parameters as `http_request` minus `method`.
-
-```lua
-flow:step("get_user", nodes.http_get({
-    url = "https://api.example.com/users/${ctx.user_id}",
-    auth = { type = "bearer", token = env("API_TOKEN") },
-    output_key = "user"
-}))
-```
-
----
+| Node | Description |
+|------|-------------|
+| [`http_request`](nodes/http_request.md) | Generic HTTP request with full configuration |
+| [`http_get`](nodes/http_get.md) | HTTP GET convenience wrapper |
+| [`http_post`](nodes/http_post.md) | HTTP POST convenience wrapper |
+| [`http_put`](nodes/http_put.md) | HTTP PUT convenience wrapper |
+| [`http_delete`](nodes/http_delete.md) | HTTP DELETE convenience wrapper |
 
 ## Shell Nodes
 
-### `shell_command`
-
-Execute a shell command and capture output.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `cmd` | string | yes | — | Command to execute |
-| `args` | array | no | `[]` | Command arguments |
-| `cwd` | string | no | `.` | Working directory |
-| `env` | table | no | `{}` | Environment variables |
-| `timeout` | number | no | `60` | Timeout in seconds |
-| `output_key` | string | no | `"shell"` | Context key prefix |
-
-**Context output:**
-- `{output_key}_stdout` — Standard output
-- `{output_key}_stderr` — Standard error
-- `{output_key}_code` — Exit code
-- `{output_key}_success` — `true` if exit code 0
-
-```lua
-flow:step("build", nodes.shell_command({
-    cmd = "cargo",
-    args = { "build", "--release" },
-    cwd = "/path/to/project",
-    timeout = 120
-}))
-```
-
----
+| Node | Description |
+|------|-------------|
+| [`shell_command`](nodes/shell_command.md) | Execute a shell command and capture output |
 
 ## File Operation Nodes
 
-### `read_file`
-
-Read file contents as text.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `path` | string | yes | — | File path (supports `${ctx.key}`) |
-| `output_key` | string | no | `"file"` | Context key prefix |
-
-**Context output:**
-- `{output_key}_content` — File contents
-- `{output_key}_path` — Resolved file path
-- `{output_key}_success` — `true` on success
-
-### `write_file`
-
-Write content to a file.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `path` | string | yes | — | File path (supports `${ctx.key}`) |
-| `content` | string | yes | — | Content to write (supports `${ctx.key}`) |
-| `append` | bool | no | `false` | Append instead of overwrite |
-
-**Context output:**
-- `write_file_path` — Written file path
-- `write_file_success` — `true` on success
-
-### `copy_file`
-
-Copy a file to a new location.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `source` | string | yes | Source path (supports `${ctx.key}`) |
-| `destination` | string | yes | Destination path (supports `${ctx.key}`) |
-
-**Context output:**
-- `copy_file_source`, `copy_file_destination`, `copy_file_success`
-
-### `move_file`
-
-Move or rename a file.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `source` | string | yes | Source path (supports `${ctx.key}`) |
-| `destination` | string | yes | Destination path (supports `${ctx.key}`) |
-
-**Context output:**
-- `move_file_source`, `move_file_destination`, `move_file_success`
-
-### `delete_file`
-
-Delete a file.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `path` | string | yes | File path (supports `${ctx.key}`) |
-
-**Context output:**
-- `delete_file_path`, `delete_file_success`
-
-### `list_directory`
-
-List files in a directory.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `path` | string | yes | — | Directory path (supports `${ctx.key}`) |
-| `recursive` | bool | no | `false` | Include subdirectories |
-| `output_key` | string | no | `"files"` | Context key for file list |
-
-**Context output:**
-- `{output_key}` — Array of `{name, type, path}` entries
-
-```lua
-flow:step("scan", nodes.list_directory({
-    path = "/var/data",
-    output_key = "files"
-}))
-```
-
----
+| Node | Description |
+|------|-------------|
+| [`read_file`](nodes/read_file.md) | Read file contents as text |
+| [`write_file`](nodes/write_file.md) | Write content to a file |
+| [`copy_file`](nodes/copy_file.md) | Copy a file to a new location |
+| [`move_file`](nodes/move_file.md) | Move or rename a file |
+| [`delete_file`](nodes/delete_file.md) | Delete a file |
+| [`list_directory`](nodes/list_directory.md) | List files in a directory |
 
 ## Data Transform Nodes
 
-### `json_parse`
-
-Parse a JSON string from context into a value.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `source_key` | string | yes | Context key containing JSON string |
-| `output_key` | string | yes | Context key for parsed result |
-
-### `json_stringify`
-
-Serialize a context value to a JSON string.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `source_key` | string | yes | Context key to serialize |
-| `output_key` | string | yes | Context key for JSON string |
-
-### `select_fields`
-
-Pick specific fields from a context object.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `source_key` | string | yes | Context key containing an object |
-| `fields` | array | yes | List of field names to select |
-| `output_key` | string | yes | Context key for result |
-
-```lua
-flow:step("pick", nodes.select_fields({
-    source_key = "user",
-    fields = { "name", "email" },
-    output_key = "user_summary"
-}))
-```
-
-### `rename_fields`
-
-Rename fields in a context object.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `source_key` | string | yes | Context key containing an object |
-| `mapping` | table | yes | Rename mapping `{old_name = "new_name"}` |
-| `output_key` | string | yes | Context key for result |
-
-```lua
-flow:step("rename", nodes.rename_fields({
-    source_key = "record",
-    mapping = { first_name = "fname", last_name = "lname" },
-    output_key = "renamed"
-}))
-```
-
-### `data_filter`
-
-Filter items in an array by a field condition.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `source_key` | string | yes | Context key containing an array |
-| `field` | string | yes | Field name to test on each item |
-| `op` | string | yes | Operator: `eq`, `neq`, `gt`, `lt`, `gte`, `lte`, `contains`, `exists`, `not_exists` |
-| `value` | any | no* | Value to compare against (*not needed for `exists`/`not_exists`) |
-| `output_key` | string | yes | Context key for filtered result |
-
-**Context output:**
-- `{output_key}` — Filtered array
-- `{output_key}_count` — Number of items after filtering
-
-```lua
-flow:step("adults", nodes.data_filter({
-    source_key = "users",
-    field = "age",
-    op = "gte",
-    value = 18,
-    output_key = "adult_users"
-}))
-```
-
-### `data_transform`
-
-Map/rename fields across objects or arrays. Takes a mapping of `{new_name = "old_name"}` and produces new objects with only the mapped fields.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `source_key` | string | yes | Context key containing an object or array of objects |
-| `mapping` | table | yes | Field mapping `{new_name = "old_name"}` |
-| `output_key` | string | yes | Context key for result |
-
-```lua
-flow:step("reshape", nodes.data_transform({
-    source_key = "users",
-    mapping = { full_name = "name", years_old = "age" },
-    output_key = "reshaped"
-}))
-```
-
----
+| Node | Description |
+|------|-------------|
+| [`json_parse`](nodes/json_parse.md) | Parse a JSON string into a value |
+| [`json_stringify`](nodes/json_stringify.md) | Serialize a value to a JSON string |
+| [`select_fields`](nodes/select_fields.md) | Pick specific fields from an object |
+| [`rename_fields`](nodes/rename_fields.md) | Rename fields in an object |
+| [`data_filter`](nodes/data_filter.md) | Filter array items by a field condition |
+| [`data_transform`](nodes/data_transform.md) | Map/rename fields across objects or arrays |
+| [`batch`](nodes/batch.md) | Split an array into chunks |
+| [`deduplicate`](nodes/deduplicate.md) | Remove duplicate items from an array |
+| [`foreach`](nodes/foreach.md) | Iterate over an array with a Lua transform (string or function) |
 
 ## Conditional Nodes
 
-### `if_node`
-
-Evaluate a condition and set a route in context. Downstream steps can use `:route()` to execute conditionally.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `condition` | string | yes | — | Expression (e.g., `"ctx.amount > 100"`, `"ctx.name == 'Alice'"`, `"ctx.flag exists"`) |
-| `true_route` | string | no | `"true"` | Route name when condition is true |
-| `false_route` | string | no | `"false"` | Route name when condition is false |
-
-**Supported operators:** `==`, `!=`, `>`, `<`, `>=`, `<=`, `exists`
-
-**Context output:**
-- `_route_{step_name}` — The chosen route name
-- `_condition_result_{step_name}` — Boolean result
-
-### `switch_node`
-
-Multi-case routing based on a context value.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `value` | string | yes | — | Context expression to evaluate (e.g., `"ctx.status"`) |
-| `cases` | table | yes | — | Map of `{case_value = "route_name"}` |
-| `default` | string | no | `"default"` | Default route if no case matches |
-
-**Context output:**
-- `_route_{step_name}` — The matched route name
-- `_switch_value_{step_name}` — The resolved value
-
----
+| Node | Description |
+|------|-------------|
+| [`if_node`](nodes/if_node.md) | Evaluate a condition and set a route |
+| [`switch_node`](nodes/switch_node.md) | Multi-case routing based on a context value |
 
 ## Timing Nodes
 
-### `delay`
+| Node | Description |
+|------|-------------|
+| [`delay`](nodes/delay.md) | Pause execution for a duration |
 
-Pause execution for a duration.
+## Cache Nodes
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `seconds` | number | yes | Duration to wait |
-
-**Context output:**
-- `delay_seconds` — The duration waited
-
-```lua
-flow:step("wait", nodes.delay({ seconds = 5 }))
-```
-
----
-
-## Utility Nodes
-
-### `validate_schema`
-
-Validate context data against a JSON Schema.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `source_key` | string | yes | Context key to validate |
-| `schema` | table | yes | JSON Schema definition |
-
-**Context output:**
-- `validation_success` — `true`/`false`
-- `validation_errors` — Array of error messages (if any)
-
-Fails the task if validation fails.
-
-```lua
-flow:step("validate", nodes.validate_schema({
-    source_key = "order",
-    schema = {
-        type = "object",
-        required = { "id", "amount" },
-        properties = {
-            id = { type = "string" },
-            amount = { type = "number" }
-        }
-    }
-}))
-```
-
-### `template_render`
-
-Render a string template with context variable interpolation.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `template` | string | yes | Template string with `${ctx.key}` placeholders |
-| `output_key` | string | yes | Context key for rendered result |
-
-```lua
-flow:step("greet", nodes.template_render({
-    template = "Hello, ${ctx.user.name}! Your balance is ${ctx.balance}.",
-    output_key = "greeting"
-}))
-```
-
-### `log`
-
-Write a message to the workflow log.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `message` | string | yes | — | Log message (supports `${ctx.key}`) |
-| `level` | string | no | `"info"` | Log level: `debug`, `info`, `warn`, `error` |
-
-**Context output:**
-- `log_message` — The rendered message
-
-```lua
-flow:step("log_result", nodes.log({
-    message = "Processed order ${ctx.order_id}, total: ${ctx.total}",
-    level = "info"
-}))
-```
-
-### `batch`
-
-Split an array into chunks of a specified size.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `source_key` | string | yes | Context key containing array |
-| `size` | number | yes | Chunk size (must be > 0) |
-| `output_key` | string | yes | Context key for batched result |
-
-**Context output:**
-- `{output_key}` — Array of arrays (chunks)
-- `{output_key}_count` — Number of batches
-
-```lua
-flow:step("chunk", nodes.batch({
-    source_key = "items",
-    size = 10,
-    output_key = "batches"
-}))
-```
-
-### `deduplicate`
-
-Remove duplicate items from an array.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `source_key` | string | yes | Context key containing array |
-| `key` | string | no | Field to deduplicate by (for arrays of objects). If omitted, deduplicates by full JSON value. |
-| `output_key` | string | yes | Context key for deduplicated result |
-
-**Context output:**
-- `{output_key}` — Deduplicated array
-- `{output_key}_removed` — Number of duplicates removed
-
-```lua
-flow:step("dedup", nodes.deduplicate({
-    source_key = "records",
-    key = "email",
-    output_key = "unique_records"
-}))
-```
-
-### `hash`
-
-Compute a cryptographic hash of a string or context value.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `input` | string | * | — | String to hash (supports `${ctx.key}`). Use this OR `source_key`. |
-| `source_key` | string | * | — | Context key containing the value to hash. Use this OR `input`. |
-| `algorithm` | string | no | `"sha256"` | Hash algorithm: `sha256`, `sha384`, `sha512`, `md5` |
-| `output_key` | string | no | `"hash"` | Context key for hex-encoded hash |
-
-**Context output:**
-- `{output_key}` — Hex-encoded hash string
-- `{output_key}_algorithm` — Algorithm used
-
-```lua
-flow:step("checksum", nodes.hash({
-    input = "${ctx.payload}",
-    algorithm = "sha256",
-    output_key = "payload_hash"
-}))
-
-flow:step("md5", nodes.hash({
-    source_key = "file_content",
-    algorithm = "md5",
-    output_key = "file_md5"
-}))
-```
-
----
+| Node | Description |
+|------|-------------|
+| [`cache_set`](nodes/cache_set.md) | Store a value with optional TTL (memory or file) |
+| [`cache_get`](nodes/cache_get.md) | Retrieve a cached value |
 
 ## Markdown Nodes
 
-### `markdown_to_html`
-
-Convert Markdown text to HTML. Supports CommonMark and GitHub Flavored Markdown (tables, strikethrough, autolinks, task lists).
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `input` | string | * | — | Markdown text (supports `${ctx.key}`). Use this OR `source_key`. |
-| `source_key` | string | * | — | Context key containing Markdown text. Use this OR `input`. |
-| `output_key` | string | no | `"html"` | Context key for HTML output |
-| `sanitize` | bool | no | `false` | Sanitize HTML output (strips scripts, styles, etc. via ammonia) |
-
-```lua
-flow:step("render", nodes.markdown_to_html({
-    source_key = "readme_content",
-    output_key = "readme_html",
-    sanitize = true
-}))
-```
-
-### `html_to_markdown`
-
-Convert HTML to Markdown. Best-effort conversion — complex HTML structures (custom styles, nested tables, embedded media) may lose fidelity.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `input` | string | * | — | HTML text (supports `${ctx.key}`). Use this OR `source_key`. |
-| `source_key` | string | * | — | Context key containing HTML text. Use this OR `input`. |
-| `output_key` | string | no | `"markdown"` | Context key for Markdown output |
-
-```lua
-flow:step("convert", nodes.html_to_markdown({
-    source_key = "page_html",
-    output_key = "page_markdown"
-}))
-```
-
----
+| Node | Description |
+|------|-------------|
+| [`markdown_to_html`](nodes/markdown_to_html.md) | Convert Markdown to HTML |
+| [`html_to_markdown`](nodes/html_to_markdown.md) | Convert HTML to Markdown |
 
 ## Document Extraction Nodes
 
-### `extract_word`
-
-Extract text and metadata from a Word (.docx) document.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `path` | string | * | — | File path (supports `${ctx.key}`). Use this OR `source_key`. |
-| `source_key` | string | * | — | Context key containing file path. Use this OR `path`. |
-| `format` | string | no | `"text"` | Output format: `text` or `markdown` |
-| `output_key` | string | no | `"content"` | Context key for extracted content |
-| `metadata_key` | string | no | — | Context key for metadata. Omit to skip metadata extraction. |
-
-**Metadata output** (when `metadata_key` is set):
-- `title`, `author`, `subject`, `description`, `keywords`
-- `created`, `modified`, `last_modified_by`, `revision`, `category`
-
-```lua
-flow:step("read_doc", nodes.extract_word({
-    path = "report.docx",
-    format = "markdown",
-    output_key = "content",
-    metadata_key = "metadata"
-}))
-```
-
-### `extract_pdf`
-
-Extract text and metadata from a PDF document.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `path` | string | * | — | File path (supports `${ctx.key}`). Use this OR `source_key`. |
-| `source_key` | string | * | — | Context key containing file path. Use this OR `path`. |
-| `format` | string | no | `"text"` | Output format: `text` or `markdown` |
-| `output_key` | string | no | `"content"` | Context key for extracted text |
-| `metadata_key` | string | no | — | Context key for metadata. Omit to skip metadata extraction. |
-
-**Metadata output** (when `metadata_key` is set):
-- `pages` — Page count
-- `title`, `author`, `subject`, `keywords`
-- `creator`, `producer`, `created`, `modified`
-
-```lua
-flow:step("read_pdf", nodes.extract_pdf({
-    path = "invoice.pdf",
-    format = "text",
-    output_key = "text",
-    metadata_key = "pdf_meta"
-}))
-```
-
-### `extract_html`
-
-Extract text and metadata from an HTML file.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `path` | string | * | — | File path (supports `${ctx.key}`). Use this OR `source_key`. |
-| `source_key` | string | * | — | Context key containing file path. Use this OR `path`. |
-| `format` | string | no | `"text"` | Output format: `text` or `markdown` |
-| `output_key` | string | no | `"content"` | Context key for extracted content |
-| `metadata_key` | string | no | — | Context key for metadata. Omit to skip metadata extraction. |
-
-**Metadata output** (when `metadata_key` is set):
-- `title` — From `<title>` tag
-- `description`, `author`, `keywords`, `viewport` — From `<meta>` tags
-- `og:title`, `og:description`, `og:type`, `og:url` — OpenGraph tags
-
-```lua
-flow:step("read_page", nodes.extract_html({
-    path = "page.html",
-    format = "markdown",
-    output_key = "content",
-    metadata_key = "meta"
-}))
-```
-
-### `pdf_to_image` *(requires `pdf-render` feature)*
-
-Render PDF pages to images. Build with `cargo build --features pdf-render`. Requires the `libpdfium` shared library at runtime (place in working directory or set `PDFIUM_LIB_PATH` env var).
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `path` | string | * | — | File path (supports `${ctx.key}`). Use this OR `source_key`. |
-| `source_key` | string | * | — | Context key containing file path. Use this OR `path`. |
-| `pages` | string | no | `"all"` | Pages to render: `"all"`, `"1"`, `"1-5"`, `"1,3,7-9"` |
-| `format` | string | no | `"png"` | Image format: `png`, `jpeg`, `jpg` |
-| `dpi` | number | no | `150` | Resolution in DPI |
-| `output_key` | string | no | `"images"` | Context key for rendered images |
-
-**Context output:**
-- `{output_key}` — Array of `{page, width, height, format, image_base64}` objects
-- `page_count` — Total pages in the document
-
-```lua
-flow:step("render", nodes.pdf_to_image({
-    path = "document.pdf",
-    pages = "1-3",
-    format = "png",
-    dpi = 150,
-    output_key = "images"
-}))
-```
-
----
+| Node | Description |
+|------|-------------|
+| [`extract_word`](nodes/extract_word.md) | Extract text and metadata from Word (.docx) |
+| [`extract_pdf`](nodes/extract_pdf.md) | Extract text and metadata from PDF |
+| [`extract_html`](nodes/extract_html.md) | Extract text and metadata from HTML |
+| [`pdf_to_image`](nodes/pdf_to_image.md) | Render PDF pages to images *(requires `pdf-render` feature)* |
 
 ## Code Execution Nodes
 
-### `code`
+| Node | Description |
+|------|-------------|
+| [`code`](nodes/code.md) | Execute inline Lua code with context access |
 
-Execute inline Lua code with access to the full workflow context. Useful for custom data extraction, transformation, or logic that goes beyond built-in nodes.
+## Utility Nodes
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `source` | string | yes* | Lua source code to execute |
-
-*Or use a function handler directly: `flow:step("name", function(ctx) ... end)` — the function is automatically compiled and wrapped as a `code` node.
-
-**Sandboxing:** The `os`, `io`, `debug`, `loadfile`, and `dofile` modules are removed from the Lua environment. The workflow context is exposed as a read-only `ctx` table.
-
-**Return values:**
-- **Table** — Each key-value pair is merged into the workflow context
-- **Single value** — Stored under the `result` key in context
-- **nil** — Nothing is merged
-
-```lua
--- Extract specific fields from an API response
-flow:step("extract", nodes.code({
-    source = [[
-        local data = ctx.api_data
-        local name = data.user.name
-        local email = data.user.email
-        return { user_name = name, user_email = email }
-    ]]
-}))
-
--- Compute a derived value
-flow:step("calc", nodes.code({
-    source = [[
-        local total = 0
-        for _, item in ipairs(ctx.items) do
-            total = total + item.price * item.qty
-        end
-        return { order_total = total }
-    ]]
-}))
-```
+| Node | Description |
+|------|-------------|
+| [`log`](nodes/log.md) | Write a message to the workflow log |
+| [`validate_schema`](nodes/validate_schema.md) | Validate data against a JSON Schema |
+| [`template_render`](nodes/template_render.md) | Render a string template with context variables |
+| [`hash`](nodes/hash.md) | Compute a cryptographic hash |
 
 ---
 
@@ -677,4 +114,26 @@ flow:step("call_api", nodes.http_get({
     url = "https://api.example.com/data",
     auth = { type = "bearer", token = env("API_TOKEN") }
 }))
+```
+
+### `base64_encode(str)`
+
+Encode a string (or binary data) to base64. Available inside `code` and `foreach` nodes.
+
+```lua
+flow:step("encode", function(ctx)
+    local encoded = base64_encode("Hello, IronFlow!")
+    return { encoded = encoded }  -- "SGVsbG8sIElyb25GbG93IQ=="
+end)
+```
+
+### `base64_decode(str)`
+
+Decode a base64 string back to its original bytes. Available inside `code` and `foreach` nodes.
+
+```lua
+flow:step("decode", function(ctx)
+    local decoded = base64_decode(ctx.encoded)
+    return { decoded = decoded }
+end)
 ```

@@ -69,7 +69,7 @@ The core engine, minimal node set, and CLI. Goal: execute a simple multi-step fl
 
 ## Phase 2: Core Nodes ✅
 
-Implement the essential node types. Each node is a Rust struct implementing `Node`. **33 nodes total (+1 optional with `pdf-render` feature).**
+Implement the essential node types. Each node is a Rust struct implementing `Node`. **36 nodes total (+1 optional with `pdf-render` feature).**
 
 ### 2.1 HTTP Nodes ✅
 - [x] `http_request` — Generic HTTP with method, url, headers, body, auth, timeout
@@ -210,4 +210,4 @@ Phase 1 ✅ ──→ Phase 2 ✅ ──→ Phase 3 ✅
                              └──→ Phase 5 (partial ✅)
 ```
 
-Phases 1-3 are complete (33+1 nodes, full CLI, REST API). Phase 4 (advanced nodes) and Phase 5 (polish) remain.
+Phases 1-3 are complete (36+1 nodes, full CLI, REST API). Phase 4 (advanced nodes) and Phase 5 (polish) remain.

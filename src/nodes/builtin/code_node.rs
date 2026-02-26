@@ -5,6 +5,7 @@ use mlua::prelude::*;
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
+use crate::nodes::builtin::lua_sandbox;
 
 pub struct CodeNode;
 
@@ -20,26 +21,7 @@ impl Node for CodeNode {
 
     async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
         let lua = Lua::new();
-
-        // Sandbox: remove dangerous modules
-        let globals = lua.globals();
-        for name in &["os", "io", "debug", "loadfile", "dofile"] {
-            globals.set(*name, LuaValue::Nil)?;
-        }
-
-        // Expose env() for reading environment variables
-        let env_fn = lua.create_function(|lua_ctx, key: String| match std::env::var(&key) {
-            Ok(val) => Ok(LuaValue::String(lua_ctx.create_string(&val)?)),
-            Err(_) => Ok(LuaValue::Nil),
-        })?;
-        globals.set("env", env_fn)?;
-
-        // Expose the context as a read-only `ctx` table
-        let ctx_table = json_value_to_lua_table(
-            &lua,
-            &serde_json::Value::Object(ctx.iter().map(|(k, v)| (k.clone(), v.clone())).collect()),
-        )?;
-        globals.set("ctx", ctx_table.clone())?;
+        let ctx_table = lua_sandbox::setup_sandbox(&lua, &ctx)?;
 
         // Execute either bytecode (function handler) or source string
         let result: LuaValue =
@@ -91,7 +73,7 @@ impl Node for CodeNode {
 }
 
 /// Convert a serde_json::Value into a Lua value.
-fn json_value_to_lua_table(lua: &Lua, value: &serde_json::Value) -> Result<LuaValue> {
+pub fn json_value_to_lua_table(lua: &Lua, value: &serde_json::Value) -> Result<LuaValue> {
     match value {
         serde_json::Value::Null => Ok(LuaValue::Nil),
         serde_json::Value::Bool(b) => Ok(LuaValue::Boolean(*b)),
@@ -123,7 +105,7 @@ fn json_value_to_lua_table(lua: &Lua, value: &serde_json::Value) -> Result<LuaVa
 }
 
 /// Convert a Lua value back to serde_json::Value.
-fn lua_value_to_json(value: &LuaValue) -> Result<serde_json::Value> {
+pub fn lua_value_to_json(value: &LuaValue) -> Result<serde_json::Value> {
     match value {
         LuaValue::Nil => Ok(serde_json::Value::Null),
         LuaValue::Boolean(b) => Ok(serde_json::Value::Bool(*b)),

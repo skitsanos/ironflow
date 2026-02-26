@@ -2,3 +2,4 @@
 .env
 .idea/
 data/
+.ironflow_cache/

@@ -8,11 +8,13 @@ Examples organized from basic to advanced. Each folder builds on concepts from t
 - **parallel_execution.lua** — Steps without dependencies run in parallel
 - **retries_and_timeout.lua** — Timeout and retry configuration
 - **environment_variables.lua** — Reading env vars from Lua with `env()`
+- **base64_globals.lua** — `base64_encode()` and `base64_decode()` Lua globals
 
 ## 02-data-transforms
 - **json_operations.lua** — Parse, select fields, stringify
 - **transform_pipeline.lua** — Filter, transform, rename, batch, deduplicate
 - **filter_and_batch.lua** — Filter by condition, deduplicate, split into batches
+- **foreach_function.lua** — Iterate over arrays with a Lua function transform
 
 ## 03-control-flow
 - **conditional_routing.lua** — `if_node` with true/false route branching
@@ -20,6 +22,7 @@ Examples organized from basic to advanced. Each folder builds on concepts from t
 
 ## 04-file-operations
 - **read_write_files.lua** — Write, read, list, and delete files
+- **binary_file_io.lua** — Read and write binary files using base64 encoding
 
 ## 05-http
 - **api_call.lua** — Simple GET request with response handling
@@ -38,6 +41,15 @@ Examples organized from basic to advanced. Each folder builds on concepts from t
 - **code_node_extract.lua** — Inline Lua code node to extract fields from API responses
 - **function_handler.lua** — Pass Lua functions directly as step handlers
 - **markdown_conversion.lua** — Markdown ↔ HTML conversion with GFM support
+
+## 08-extraction
+- **extract_word.lua** — Extract text and metadata from Word (.docx) files
+- **extract_pdf.lua** — Extract text and metadata from PDF files
+- **pdf_to_image.lua** — Render PDF pages to images *(requires `pdf-render` feature)*
+
+## 09-cache
+- **cache_memory.lua** — In-memory key-value cache with TTL
+- **cache_file.lua** — File-based persistent cache with TTL
 
 ## Running Examples
 
