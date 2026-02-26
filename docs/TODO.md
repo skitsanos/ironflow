@@ -82,6 +82,8 @@ Tracking implementation progress. Items are checked off as completed.
 - [x] `hash` (SHA-256, SHA-384, SHA-512, MD5)
 - [x] `code` (inline Lua execution and function handlers)
 - [x] `markdown_to_html` / `html_to_markdown` (comrak + html2md)
+- [x] `extract_word` / `extract_pdf` / `extract_html` (document text and metadata extraction)
+- [x] `pdf_to_image` (PDF page rendering via `pdf-render` feature flag)
 
 ---
 
@@ -121,4 +123,5 @@ Tracking implementation progress. Items are checked off as completed.
 - [x] CLI and environment variable reference
 - [ ] Config file support (`ironflow.yaml`)
 - [ ] Redis state store (feature flag)
+- [x] GitHub Actions CI (check, clippy, fmt, test, build, validate examples)
 - [ ] Unit + integration tests
