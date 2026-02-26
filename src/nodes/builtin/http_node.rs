@@ -7,6 +7,26 @@ use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
 
+/// Recursively interpolate `${ctx.key}` in all string values within a JSON value.
+fn interpolate_json_value(value: &serde_json::Value, ctx: &Context) -> serde_json::Value {
+    match value {
+        serde_json::Value::String(s) => {
+            serde_json::Value::String(interpolate_ctx(s, ctx))
+        }
+        serde_json::Value::Array(arr) => {
+            serde_json::Value::Array(arr.iter().map(|v| interpolate_json_value(v, ctx)).collect())
+        }
+        serde_json::Value::Object(map) => {
+            let new_map: serde_json::Map<String, serde_json::Value> = map
+                .iter()
+                .map(|(k, v)| (k.clone(), interpolate_json_value(v, ctx)))
+                .collect();
+            serde_json::Value::Object(new_map)
+        }
+        other => other.clone(),
+    }
+}
+
 async fn do_http_request(
     method: &str,
     config: &serde_json::Value,
@@ -93,9 +113,10 @@ async fn do_http_request(
         }
     }
 
-    // Body
+    // Body (with recursive context interpolation)
     if let Some(body) = config.get("body") {
-        request = request.json(body);
+        let interpolated_body = interpolate_json_value(body, ctx);
+        request = request.json(&interpolated_body);
     }
 
     let response = request.send().await?;

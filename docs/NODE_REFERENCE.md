@@ -1,6 +1,6 @@
 # IronFlow — Node Reference
 
-Complete reference for all 27 built-in nodes. Each entry shows the node name, configuration parameters, context outputs, and a Lua usage example.
+Complete reference for all 28 built-in nodes. Each entry shows the node name, configuration parameters, context outputs, and a Lua usage example.
 
 ---
 
@@ -464,6 +464,50 @@ flow:step("md5", nodes.hash({
     source_key = "file_content",
     algorithm = "md5",
     output_key = "file_md5"
+}))
+```
+
+---
+
+## Code Execution Nodes
+
+### `code`
+
+Execute inline Lua code with access to the full workflow context. Useful for custom data extraction, transformation, or logic that goes beyond built-in nodes.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `source` | string | yes* | Lua source code to execute |
+
+*Or use a function handler directly: `flow:step("name", function(ctx) ... end)` — the function is automatically compiled and wrapped as a `code` node.
+
+**Sandboxing:** The `os`, `io`, `debug`, `loadfile`, and `dofile` modules are removed from the Lua environment. The workflow context is exposed as a read-only `ctx` table.
+
+**Return values:**
+- **Table** — Each key-value pair is merged into the workflow context
+- **Single value** — Stored under the `result` key in context
+- **nil** — Nothing is merged
+
+```lua
+-- Extract specific fields from an API response
+flow:step("extract", nodes.code({
+    source = [[
+        local data = ctx.api_data
+        local name = data.user.name
+        local email = data.user.email
+        return { user_name = name, user_email = email }
+    ]]
+}))
+
+-- Compute a derived value
+flow:step("calc", nodes.code({
+    source = [[
+        local total = 0
+        for _, item in ipairs(ctx.items) do
+            total = total + item.price * item.qty
+        end
+        return { order_total = total }
+    ]]
 }))
 ```
 

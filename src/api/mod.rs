@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use axum::Router;
+use axum::extract::DefaultBodyLimit;
 use axum::routing::{delete, get, post};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
@@ -23,7 +24,7 @@ pub struct AppState {
 }
 
 /// Start the REST API server.
-pub async fn serve(host: &str, port: u16, store_dir: PathBuf, flows_dir: Option<PathBuf>) -> Result<()> {
+pub async fn serve(host: &str, port: u16, store_dir: PathBuf, flows_dir: Option<PathBuf>, max_body: usize) -> Result<()> {
     let registry = Arc::new(NodeRegistry::with_builtins());
     let store = Arc::new(JsonStateStore::new(store_dir));
 
@@ -41,6 +42,7 @@ pub async fn serve(host: &str, port: u16, store_dir: PathBuf, flows_dir: Option<
         .route("/runs/{id}", delete(handlers::delete_run))
         .route("/nodes", get(handlers::list_nodes))
         .route("/health", get(handlers::health))
+        .layer(DefaultBodyLimit::max(max_body))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
         .with_state(state);

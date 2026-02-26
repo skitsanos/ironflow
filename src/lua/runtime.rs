@@ -1,4 +1,5 @@
 use anyhow::Result;
+use base64::Engine;
 use mlua::prelude::*;
 
 use crate::engine::types::{FlowDefinition, RetryConfig, StepDefinition};
@@ -77,8 +78,25 @@ impl LuaRuntime {
             flow.set("_steps", lua.create_table()?)?;
             flow.set("_step_count", 0i32)?;
 
-            // flow:step(name, node_config) -> step_builder
-            let step_fn = lua.create_function(|lua, (flow_tbl, step_name, node_config): (LuaTable, String, LuaTable)| {
+            // flow:step(name, node_config_or_function) -> step_builder
+            let step_fn = lua.create_function(|lua, (flow_tbl, step_name, node_arg): (LuaTable, String, LuaValue)| {
+                // Accept either a table (node config) or a function (auto-wrapped as code node)
+                let node_config: LuaTable = match node_arg {
+                    LuaValue::Table(tbl) => tbl,
+                    LuaValue::Function(func) => {
+                        let bytecode = func.dump(false);
+                        let b64 = base64::engine::general_purpose::STANDARD.encode(&bytecode);
+                        let tbl = lua.create_table()?;
+                        tbl.set("_node_type", "code")?;
+                        tbl.set("bytecode_b64", b64)?;
+                        tbl
+                    }
+                    _ => {
+                        return Err(LuaError::RuntimeError(
+                            "step() expects a node config table or a function".into(),
+                        ));
+                    }
+                };
                 let steps: LuaTable = flow_tbl.get("_steps")?;
                 let count: i32 = flow_tbl.get("_step_count")?;
 

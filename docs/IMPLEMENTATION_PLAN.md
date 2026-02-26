@@ -31,6 +31,8 @@ The core engine, minimal node set, and CLI. Goal: execute a simple multi-step fl
 - [x] Context merging after each task completion
 - [x] Route-based conditional task execution
 - [x] Task skip on dependency failure
+- [x] Duplicate step name detection at parse time
+- [x] Shared `validate_dag()` method on `FlowDefinition` for CLI and API
 
 ### 1.5 Lua Integration ✅
 - [x] Initialize `mlua::Lua` with sandbox settings (os, io, debug removed)
@@ -40,6 +42,7 @@ The core engine, minimal node set, and CLI. Goal: execute a simple multi-step fl
 - [x] Lua table ↔ JSON conversion (custom `lua_table_to_json` / `lua_value_to_json`)
 - [x] Context variable interpolation (`${ctx.key}` with nested dot-path support)
 - [x] `env(key)` function exposed to Lua for reading environment variables
+- [x] Function handlers — pass Lua functions directly as step handlers (bytecode serialization)
 
 ### 1.6 JSON State Store ✅
 - [x] Implement `StateStore` trait
@@ -51,7 +54,7 @@ The core engine, minimal node set, and CLI. Goal: execute a simple multi-step fl
 - [x] `ironflow run <flow.lua>` — load, execute, print result
 - [x] `ironflow validate <flow.lua>` — parse and check DAG, report errors
 - [x] `--context` flag to pass initial context as JSON string
-- [x] `--verbose` flag for detailed execution output
+- [x] `--verbose` flag for detailed execution output (step details, task durations, outputs)
 - [x] Pretty-printed output with task status indicators (✓, ✗, ⊘, ⟳, ○)
 - [x] `ironflow list` — List past runs with `--status` filter and `--format` (table/json)
 - [x] `ironflow inspect <run_id>` — Show detailed run info as JSON
@@ -66,7 +69,7 @@ The core engine, minimal node set, and CLI. Goal: execute a simple multi-step fl
 
 ## Phase 2: Core Nodes ✅
 
-Implement the essential node types. Each node is a Rust struct implementing `Node`. **27 nodes total.**
+Implement the essential node types. Each node is a Rust struct implementing `Node`. **28 nodes total.**
 
 ### 2.1 HTTP Nodes ✅
 - [x] `http_request` — Generic HTTP with method, url, headers, body, auth, timeout
@@ -77,7 +80,8 @@ Implement the essential node types. Each node is a Rust struct implementing `Nod
 
 ### 2.2 Shell Nodes ✅
 - [x] `shell_command` — Execute command, capture stdout/stderr/exit code
-- [x] Timeout support
+- [x] Timeout support with process group kill (prevents orphan processes)
+- [x] Concurrent stdout/stderr reading (prevents pipe-buffer deadlocks)
 - [x] Environment variable passthrough
 - [x] Working directory configuration
 
@@ -87,7 +91,7 @@ Implement the essential node types. Each node is a Rust struct implementing `Nod
 - [x] `copy_file` — Copy a file to a new location
 - [x] `move_file` — Move/rename a file
 - [x] `delete_file` — Delete a file
-- [x] `list_directory` — List directory entries
+- [x] `list_directory` — List directory entries (with full recursive support)
 
 ### 2.4 Data Transform Nodes ✅
 - [x] `json_parse`, `json_stringify`
@@ -111,20 +115,24 @@ Implement the essential node types. Each node is a Rust struct implementing `Nod
 - [x] `batch` — Split an array into chunks of specified size
 - [x] `deduplicate` — Remove duplicates from array (by field or full value)
 - [x] `hash` — Compute hash (SHA-256, SHA-384, SHA-512, MD5) of strings or context values
+- [x] `code` — Execute inline Lua code or function handlers with sandboxed context access
 
 ---
 
 ## Phase 3: REST API & Persistence ✅
 
 ### 3.1 REST API Server ✅
-- [x] `ironflow serve` command with `--host`, `--port`, `--flows-dir` flags
-- [x] `POST /flows/run` — Accept inline Lua source or file reference, with initial context
+- [x] `ironflow serve` command with `--host`, `--port`, `--flows-dir`, `--max-body` flags
+- [x] `POST /flows/run` — Accept `source`, `source_base64`, or `file`, with initial context
+- [x] `POST /flows/validate` — Validate without executing (node types, deps, DAG cycles)
 - [x] `GET /runs` — List runs with optional `?status=` filter (summary view)
 - [x] `GET /runs/:id` — Get full run info (context, tasks, timing)
 - [x] `DELETE /runs/:id` — Delete run (404 on missing)
 - [x] `GET /nodes` — List registered nodes with descriptions
-- [x] `POST /flows/validate` — Validate without executing
 - [x] `GET /health` — Version and status check
+- [x] `source_base64` field for escaping-free Lua submission
+- [x] Mutual exclusion — reject requests with multiple source fields
+- [x] Configurable request body size limit (default 1 MB, `--max-body` flag)
 - [x] Error responses with consistent JSON format (`error` + optional `details`)
 - [x] CORS support (permissive, via `tower-http`)
 - [x] Request tracing (via `tower-http` TraceLayer)
@@ -185,7 +193,7 @@ Implement the essential node types. Each node is a Rust struct implementing `Nod
 ### 5.4 Documentation
 - [x] Node reference (`docs/NODE_REFERENCE.md`)
 - [x] Lua flow writing guide (`docs/LUA_FLOW_GUIDE.md`)
-- [ ] CLI reference
+- [x] CLI and environment variable reference (`docs/CLI_REFERENCE.md`)
 - [ ] API reference
 
 ---
@@ -200,4 +208,4 @@ Phase 1 ✅ ──→ Phase 2 ✅ ──→ Phase 3 ✅
                              └──→ Phase 5 (partial ✅)
 ```
 
-Phases 1-3 are complete (27 nodes, full CLI, REST API). Phase 4 (advanced nodes) and Phase 5 (polish) remain.
+Phases 1-3 are complete (28 nodes, full CLI, REST API). Phase 4 (advanced nodes) and Phase 5 (polish) remain.

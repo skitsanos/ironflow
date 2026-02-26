@@ -80,20 +80,24 @@ pub enum Commands {
     /// Start the REST API server
     Serve {
         /// Host to bind to
-        #[arg(long, default_value = "127.0.0.1")]
+        #[arg(long, default_value = "0.0.0.0", env = "HOST")]
         host: String,
 
         /// Port to listen on
-        #[arg(short, long, default_value = "3000")]
+        #[arg(short, long, default_value = "3000", env = "PORT")]
         port: u16,
 
         /// State store directory
-        #[arg(long, default_value = "data/runs")]
+        #[arg(long, default_value = "data/runs", env = "STORE_DIR")]
         store_dir: PathBuf,
 
         /// Directory to look for .lua flow files
-        #[arg(long)]
+        #[arg(long, env = "FLOWS_DIR")]
         flows_dir: Option<PathBuf>,
+
+        /// Maximum request body size in bytes (default: 1048576 = 1 MB)
+        #[arg(long, default_value = "1048576", env = "MAX_BODY")]
+        max_body: usize,
     },
 }
 
@@ -123,7 +127,8 @@ pub async fn run_cli() -> Result<()> {
             port,
             store_dir,
             flows_dir,
-        } => crate::api::serve(&host, port, store_dir, flows_dir).await,
+            max_body,
+        } => crate::api::serve(&host, port, store_dir, flows_dir, max_body).await,
     }
 }
 

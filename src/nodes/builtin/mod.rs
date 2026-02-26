@@ -8,6 +8,7 @@ mod conditional_node;
 mod validate_node;
 mod template_node;
 mod hash_node;
+mod code_node;
 
 use std::sync::Arc;
 use crate::nodes::NodeRegistry;
@@ -41,4 +42,5 @@ pub fn register_all(registry: &mut NodeRegistry) {
     registry.register(Arc::new(validate_node::ValidateSchemaNode));
     registry.register(Arc::new(template_node::TemplateRenderNode));
     registry.register(Arc::new(hash_node::HashNode));
+    registry.register(Arc::new(code_node::CodeNode));
 }

@@ -1,0 +1,52 @@
+# IronFlow Examples
+
+Examples organized from basic to advanced. Each folder builds on concepts from the previous ones.
+
+## 01-basics
+- **hello_world.lua** — Minimal flow with logging and templates
+- **context_passing.lua** — How data flows between steps via context
+- **parallel_execution.lua** — Steps without dependencies run in parallel
+- **retries_and_timeout.lua** — Timeout and retry configuration
+- **environment_variables.lua** — Reading env vars from Lua with `env()`
+
+## 02-data-transforms
+- **json_operations.lua** — Parse, select fields, stringify
+- **transform_pipeline.lua** — Filter, transform, rename, batch, deduplicate
+- **filter_and_batch.lua** — Filter by condition, deduplicate, split into batches
+
+## 03-control-flow
+- **conditional_routing.lua** — `if_node` with true/false route branching
+- **switch_routing.lua** — `switch_node` multi-case routing
+
+## 04-file-operations
+- **read_write_files.lua** — Write, read, list, and delete files
+
+## 05-http
+- **api_call.lua** — Simple GET request with response handling
+- **authenticated_request.lua** — Bearer, Basic, and API key authentication
+- **openai_chat_completions.lua** — OpenAI Chat Completions API (gpt-4o-mini)
+- **openai_responses.lua** — OpenAI Responses API (gpt-4o-mini)
+- **openai_with_extract.lua** — Chat Completions + function handler to extract the reply
+
+## 06-shell
+- **run_commands.lua** — Execute shell commands with args, env vars, and timeout
+
+## 07-advanced
+- **hashing.lua** — SHA-256 and MD5 hash computation
+- **schema_validation.lua** — JSON Schema validation with error handling
+- **data_pipeline.lua** — Full pipeline: filter → transform → dedup → hash → batch
+- **code_node_extract.lua** — Inline Lua code node to extract fields from API responses
+- **function_handler.lua** — Pass Lua functions directly as step handlers
+
+## Running Examples
+
+```bash
+# Basic
+ironflow run examples/01-basics/hello_world.lua --context '{"user_name": "Alice"}'
+
+# With verbose output
+ironflow run examples/07-advanced/data_pipeline.lua --verbose --context '...'
+
+# Validate without running
+ironflow validate examples/03-control-flow/switch_routing.lua
+```

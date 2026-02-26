@@ -24,13 +24,14 @@ return flow
 ```lua
 flow:step("fetch_data", nodes.http_get({
     url = "https://api.example.com/data",
-    headers = { Authorization = "Bearer ${ctx.token}" }
+    headers = { Authorization = "Bearer ${ctx.token}" },
+    output_key = "api"
 }))
 ```
 
 Each step has:
-- **name** (string) — unique identifier within the flow
-- **node** (node config) — the node type and its configuration
+- **name** (string) — unique identifier within the flow (duplicates are rejected)
+- **handler** — either a node config (`nodes.node_type({...})`) or a Lua function (`function(ctx) ... end`)
 
 ## Dependencies
 
@@ -38,15 +39,17 @@ Steps run in parallel by default. Use `depends_on()` to enforce ordering:
 
 ```lua
 flow:step("process", nodes.data_transform({
-    expression = "item.value * 2"
+    source_key = "api_data",
+    mapping = { name = "full_name", age = "years" },
+    output_key = "processed"
 })):depends_on("fetch_data")
 ```
 
 Multiple dependencies:
 
 ```lua
-flow:step("merge", nodes.data_transform({
-    -- merge results from both
+flow:step("merge", nodes.log({
+    message = "Both sources ready: ${ctx.users_count} users, ${ctx.orders_count} orders"
 })):depends_on("fetch_users", "fetch_orders")
 ```
 
@@ -57,7 +60,8 @@ Configure retry behavior per step:
 ```lua
 flow:step("call_api", nodes.http_post({
     url = "https://api.example.com/submit",
-    body = { data = "ctx.payload" }
+    body = { data = "payload" },
+    output_key = "result"
 })):retries(3, 1.0)  -- max 3 retries, 1s initial backoff
 ```
 
@@ -69,8 +73,9 @@ Set a per-step timeout:
 
 ```lua
 flow:step("slow_op", nodes.shell_command({
-    cmd = "long-running-script.sh"
-})):timeout(30)  -- 30 seconds
+    cmd = "long-running-script.sh",
+    timeout = 30
+})):timeout(30)  -- 30 second step-level timeout
 ```
 
 ## Context
@@ -81,7 +86,7 @@ Context is a shared key-value store that flows through all steps:
 -- Initial context is passed via CLI or API:
 -- ironflow run flow.lua --context '{"user_id": "123"}'
 
--- Steps read from context via their config:
+-- Steps read from context via ${ctx.key} interpolation:
 flow:step("greet", nodes.template_render({
     template = "Hello, ${ctx.user_name}!",
     output_key = "greeting"
@@ -105,8 +110,24 @@ Nested access with dots:
 
 ```lua
 nodes.template_render({
-    template = "User email: ${ctx.user.email}"
+    template = "User email: ${ctx.user.email}",
+    output_key = "info"
 })
+```
+
+## Environment Variables
+
+Use `env(key)` to read environment variables in Lua. Works with system env vars and values from `.env` files:
+
+```lua
+local api_key = env("API_KEY")
+local db_url = env("DATABASE_URL") or "sqlite://default.db"
+
+flow:step("call_api", nodes.http_get({
+    url = "https://api.example.com/data",
+    auth = { type = "bearer", token = env("API_TOKEN") },
+    output_key = "api"
+}))
 ```
 
 ## Conditional Execution
@@ -120,19 +141,88 @@ flow:step("check", nodes.if_node({
     false_route = "normal"
 }))
 
-flow:step("high_value_handler", nodes.http_post({
-    url = "https://api.example.com/vip",
-    body = { amount = "ctx.amount" }
+flow:step("high_value_handler", nodes.log({
+    message = "VIP order: $${ctx.amount}"
 })):depends_on("check"):route("high_value")
 
 flow:step("normal_handler", nodes.log({
-    message = "Standard processing"
+    message = "Standard processing for $${ctx.amount}"
 })):depends_on("check"):route("normal")
+```
+
+Multi-case routing with `switch_node`:
+
+```lua
+flow:step("route", nodes.switch_node({
+    value = "ctx.tier",
+    cases = { free = "free_path", pro = "pro_path" },
+    default = "free_path"
+}))
+
+flow:step("handle_free", nodes.log({
+    message = "Free tier"
+})):depends_on("route"):route("free_path")
+
+flow:step("handle_pro", nodes.log({
+    message = "Pro tier"
+})):depends_on("route"):route("pro_path")
 ```
 
 ## Available Nodes
 
-See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list of nodes and their configuration options.
+See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list of 28 nodes and their configuration options.
+
+## Inline Lua Code
+
+Use the `code` node to run custom Lua logic with full access to the workflow context:
+
+```lua
+-- Extract fields from an API response
+flow:step("extract", nodes.code({
+    source = [[
+        local data = ctx.api_data
+        return {
+            user_name = data.user.name,
+            user_email = data.user.email
+        }
+    ]]
+})):depends_on("call_api")
+```
+
+The code runs in a sandboxed Lua VM (no `os`, `io`, `debug` access). Return a table to merge key-value pairs into context, or a single value (stored under `result`).
+
+## Function Handlers
+
+You can pass a Lua function directly as a step handler — no need for `nodes.code()`:
+
+```lua
+flow:step("process", function(ctx)
+    local admins = {}
+    for _, user in ipairs(ctx.users) do
+        if user.role == "admin" then
+            table.insert(admins, string.upper(user.name))
+        end
+    end
+    return { admins = admins, admin_count = #admins }
+end)
+```
+
+The function receives `ctx` (the full workflow context) as its argument and returns a table of key-value pairs to merge into context. Under the hood, the function is compiled to bytecode at parse time and executed as a `code` node — so the same sandbox rules apply. `env()` works inside handlers.
+
+**Important:** Function handlers must be self-contained. Do not capture local variables from the enclosing scope — they will be `nil` at runtime:
+
+```lua
+-- BAD: captured local won't survive bytecode transfer
+local threshold = 100
+flow:step("check", function(ctx)
+    return { over = ctx.amount > threshold }  -- threshold is nil!
+end)
+
+-- GOOD: use env() or inline the value
+flow:step("check", function(ctx)
+    return { over = ctx.amount > 100 }
+end)
+```
 
 ## Complete Example
 
@@ -145,54 +235,59 @@ flow:step("validate", nodes.validate_schema({
     source_key = "order",
     schema = {
         type = "object",
-        required = { "order_id", "user_id", "items", "total" },
+        required = { "order_id", "customer_name", "items", "total" },
         properties = {
             order_id = { type = "string" },
-            user_id = { type = "string" },
+            customer_name = { type = "string" },
             items = { type = "array" },
             total = { type = "number" }
         }
     }
 }))
 
--- Fetch user details (runs after validation)
-flow:step("fetch_user", nodes.http_get({
-    url = "https://api.example.com/users/${ctx.user_id}",
-    output_key = "user"
+-- Compute a checksum for the order
+flow:step("checksum", nodes.hash({
+    source_key = "order",
+    algorithm = "sha256",
+    output_key = "order_hash"
 })):depends_on("validate")
 
--- Check inventory (runs after validation, parallel with fetch_user)
-flow:step("check_inventory", nodes.http_post({
-    url = "https://api.example.com/inventory/check",
-    body = { items = "ctx.items" },
-    output_key = "inventory"
+-- Check if it's a high-value order
+flow:step("check_value", nodes.if_node({
+    condition = "ctx.order.total > 500",
+    true_route = "high_value",
+    false_route = "standard"
 })):depends_on("validate")
 
--- Process payment (needs both user and inventory)
-flow:step("charge", nodes.http_post({
-    url = "https://payments.example.com/charge",
-    body = {
-        amount = "ctx.total",
-        email = "ctx.user.email"
-    },
-    output_key = "payment"
-})):depends_on("fetch_user", "check_inventory"):retries(3, 2.0)
+-- High-value path: log for review
+flow:step("flag_review", nodes.log({
+    message = "HIGH VALUE ORDER ${ctx.order.order_id}: $${ctx.order.total} from ${ctx.order.customer_name} (hash: ${ctx.order_hash})",
+    level = "warn"
+})):depends_on("check_value", "checksum"):route("high_value")
 
--- Send confirmation
-flow:step("notify", nodes.send_email({
-    to = "ctx.user.email",
-    subject = "Order ${ctx.order_id} confirmed",
-    body = "Your order has been processed. Payment ID: ${ctx.payment.id}"
-})):depends_on("charge")
+-- Standard path: log confirmation
+flow:step("confirm", nodes.log({
+    message = "Order ${ctx.order.order_id} confirmed: $${ctx.order.total} for ${ctx.order.customer_name}",
+    level = "info"
+})):depends_on("check_value", "checksum"):route("standard")
 
 return flow
+```
+
+Run with:
+```bash
+ironflow run order_processing.lua \
+  --context '{"order":{"order_id":"ORD-42","customer_name":"Alice","items":["widget"],"total":750}}'
 ```
 
 ## Tips
 
 - Keep flows focused — one flow per logical workflow
 - Use meaningful step names — they appear in logs and state
-- Set retries on external calls (HTTP, email, etc.)
+- Step names must be unique within a flow (duplicates cause a parse error)
+- Set retries on external calls (HTTP, shell, etc.)
 - Set timeouts on potentially slow operations
 - Use `validate_schema` early to fail fast on bad input
 - Leverage parallel execution — only add `depends_on` where truly needed
+- Use `env()` for secrets and configuration — never hardcode tokens in flows
+- Use `--verbose` when debugging to see per-task timing and outputs
