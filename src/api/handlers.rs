@@ -340,9 +340,12 @@ pub async fn run_webhook(
     let headers_map: serde_json::Map<String, serde_json::Value> = headers
         .iter()
         .filter_map(|(k, v)| {
-            v.to_str()
-                .ok()
-                .map(|val| (k.as_str().to_string(), serde_json::Value::String(val.to_string())))
+            v.to_str().ok().map(|val| {
+                (
+                    k.as_str().to_string(),
+                    serde_json::Value::String(val.to_string()),
+                )
+            })
         })
         .collect();
     initial_ctx.insert(
@@ -351,10 +354,7 @@ pub async fn run_webhook(
     );
 
     // Inject webhook name
-    initial_ctx.insert(
-        "_webhook".to_string(),
-        serde_json::Value::String(name),
-    );
+    initial_ctx.insert("_webhook".to_string(), serde_json::Value::String(name));
     let flow_name = flow.name.clone();
 
     // Inject _flow_dir for subworkflow path resolution

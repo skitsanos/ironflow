@@ -15,14 +15,9 @@ use ironflow::nodes::NodeRegistry;
 use ironflow::storage::json_store::JsonStateStore;
 
 /// Build a test router with the webhook route wired up, mirroring src/api/mod.rs.
-fn build_test_app(
-    flows_dir: std::path::PathBuf,
-    webhooks: HashMap<String, String>,
-) -> Router {
+fn build_test_app(flows_dir: std::path::PathBuf, webhooks: HashMap<String, String>) -> Router {
     let registry = Arc::new(NodeRegistry::with_builtins());
-    let store = Arc::new(JsonStateStore::new(
-        tempfile::tempdir().unwrap().keep(),
-    ));
+    let store = Arc::new(JsonStateStore::new(tempfile::tempdir().unwrap().keep()));
 
     let state = Arc::new(ironflow::api::AppState {
         registry,

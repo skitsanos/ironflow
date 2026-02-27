@@ -111,10 +111,7 @@ webhooks:
     let webhooks = cfg.webhooks.unwrap();
     assert_eq!(webhooks.len(), 2);
     assert_eq!(webhooks.get("hello").unwrap(), "hello_world.lua");
-    assert_eq!(
-        webhooks.get("process-order").unwrap(),
-        "orders/process.lua"
-    );
+    assert_eq!(webhooks.get("process-order").unwrap(), "orders/process.lua");
 }
 
 #[test]
