@@ -1,9 +1,9 @@
 local flow = Flow.new("image_rotate_demo")
 
 flow:step("rotate", nodes.image_rotate({
-    path = "data/samples/sample_front.png",
+    path = "data/samples/semantic-chunking.jpeg",
     angle = 90,
-    output_path = "output/sample_front_rotated.png",
+    output_path = "data/samples/semantic-chunking_rotated.png",
     output_key = "rotated"
 }))
 

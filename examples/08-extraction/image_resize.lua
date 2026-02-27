@@ -1,8 +1,8 @@
 local flow = Flow.new("image_resize_demo")
 
 flow:step("resize", nodes.image_resize({
-    path = "data/samples/sample_front.png",
-    output_path = "sample_front_small.png",
+    path = "data/samples/semantic-chunking.jpeg",
+    output_path = "data/samples/sample_small.png",
     width = 140,
     output_key = "resized"
 }))

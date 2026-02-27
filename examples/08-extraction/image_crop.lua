@@ -1,12 +1,12 @@
 local flow = Flow.new("image_crop_demo")
 
 flow:step("crop", nodes.image_crop({
-    path = "data/samples/sample_front.png",
-    output_path = "sample_front_cropped.png",
+    path = "data/samples/markdown-aware-chunking.jpeg",
+    output_path = "data/samples/markdown-aware-chunking_cropped.png",
     x = 10,
     y = 8,
-    width = 120,
-    height = 80,
+    width = 400,
+    height = 300,
     format = "png",
     output_key = "cropped"
 }))
