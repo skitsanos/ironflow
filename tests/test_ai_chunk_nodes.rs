@@ -308,7 +308,7 @@ async fn ai_chunk_merge_custom_output_key() {
     });
 
     let out = node.execute(&config, ctx).await.unwrap();
-    assert!(out.get("result").is_some());
-    assert!(out.get("result_count").is_some());
-    assert!(out.get("result_success").is_some());
+    assert!(out.contains_key("result"));
+    assert!(out.contains_key("result_count"));
+    assert!(out.contains_key("result_success"));
 }

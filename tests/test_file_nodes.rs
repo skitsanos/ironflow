@@ -309,8 +309,8 @@ async fn list_directory_custom_output_key() {
     });
 
     let result = node.execute(&config, empty_ctx()).await.unwrap();
-    assert!(result.get("entries").is_some());
-    assert!(result.get("files").is_none());
+    assert!(result.contains_key("entries"));
+    assert!(!result.contains_key("files"));
     assert_eq!(result.get("entries").unwrap().as_array().unwrap().len(), 1);
 }
 

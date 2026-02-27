@@ -356,7 +356,7 @@ async fn step_if_skips_when_false() {
     let info = store.get_run_info(&run_id).await.unwrap();
 
     assert_eq!(info.status, RunStatus::Success);
-    assert!(info.ctx.get("got_bonus").is_none());
+    assert!(!info.ctx.contains_key("got_bonus"));
     assert_eq!(info.tasks["bonus"].status, TaskStatus::Skipped);
 }
 
