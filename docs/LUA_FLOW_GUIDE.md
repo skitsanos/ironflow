@@ -130,6 +130,26 @@ flow:step("call_api", nodes.http_get({
 }))
 ```
 
+## Webhook Context
+
+When a flow is triggered via `POST /webhooks/{name}`, the engine automatically injects:
+
+- `ctx._headers` — a table of HTTP request headers (lowercase keys)
+- `ctx._webhook` — the webhook name from the URL
+
+```lua
+flow:step("check_auth", function(ctx)
+    local auth = ctx._headers and ctx._headers.authorization or ""
+    local token = auth:match("^Bearer%s+(.+)$")
+    if not token then
+        error("Unauthorized")
+    end
+    return { token = token }
+end)
+```
+
+These keys are only present when the flow is invoked through a webhook endpoint. Flows run via CLI or `/flows/run` will not have them unless you pass them manually in the context.
+
 ## Conditional Execution
 
 Use conditional nodes to branch:

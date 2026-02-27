@@ -1,6 +1,7 @@
 mod errors;
-mod handlers;
+pub mod handlers;
 
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -21,6 +22,9 @@ pub struct AppState {
     pub registry: Arc<NodeRegistry>,
     pub store: Arc<JsonStateStore>,
     pub flows_dir: Option<PathBuf>,
+    pub max_concurrent_tasks: Option<usize>,
+    /// Webhook name → flow file path mappings from config.
+    pub webhooks: HashMap<String, String>,
 }
 
 /// Start the REST API server.
@@ -30,6 +34,8 @@ pub async fn serve(
     store_dir: PathBuf,
     flows_dir: Option<PathBuf>,
     max_body: usize,
+    max_concurrent_tasks: Option<usize>,
+    webhooks: HashMap<String, String>,
 ) -> Result<()> {
     let registry = Arc::new(NodeRegistry::with_builtins());
     let store = Arc::new(JsonStateStore::new(store_dir));
@@ -38,6 +44,8 @@ pub async fn serve(
         registry,
         store,
         flows_dir,
+        max_concurrent_tasks,
+        webhooks,
     });
 
     let app = Router::new()
@@ -47,6 +55,7 @@ pub async fn serve(
         .route("/runs/{id}", get(handlers::get_run))
         .route("/runs/{id}", delete(handlers::delete_run))
         .route("/nodes", get(handlers::list_nodes))
+        .route("/webhooks/{name}", post(handlers::run_webhook))
         .route("/health", get(handlers::health))
         .layer(DefaultBodyLimit::max(max_body))
         .layer(TraceLayer::new_for_http())

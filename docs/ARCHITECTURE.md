@@ -127,6 +127,7 @@ Built with `axum`. Endpoints:
 - `GET /runs/:id` — Get full run details (context, tasks, timing)
 - `DELETE /runs/:id` — Delete a run record
 - `GET /nodes` — List available nodes with descriptions
+- `POST /webhooks/{name}` — Execute a webhook-mapped flow (configured in `ironflow.yaml`)
 - `GET /health` — Version and status check
 
 Features:
@@ -162,6 +163,7 @@ Context is a `HashMap<String, serde_json::Value>` that flows through the entire 
 - Each node receives the full context (read-only snapshot)
 - Node output (a map) is merged into context after execution
 - Keys prefixed with `_` are reserved for engine internals (routes, conditions)
+- Webhook requests inject `_headers` (HTTP headers map) and `_webhook` (webhook name)
 - In Lua configs, context is accessed via `${ctx.key}` interpolation
 
 ## Concurrency Model

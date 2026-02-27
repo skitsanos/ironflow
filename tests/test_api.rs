@@ -26,7 +26,7 @@ async fn api_flow_run_via_engine() {
     "#;
 
     let flow = LuaRuntime::load_flow_from_string(source, &registry).unwrap();
-    let engine = WorkflowEngine::new(registry, store.clone());
+    let engine = WorkflowEngine::new(registry, store.clone(), None);
     let run_id = engine
         .execute(&flow, std::collections::HashMap::new())
         .await
@@ -97,7 +97,7 @@ async fn api_list_runs_with_filter() {
     )
     .unwrap();
 
-    let engine = WorkflowEngine::new(registry.clone(), store.clone());
+    let engine = WorkflowEngine::new(registry.clone(), store.clone(), None);
     engine
         .execute(&flow1, std::collections::HashMap::new())
         .await
@@ -145,7 +145,7 @@ async fn api_delete_run() {
     )
     .unwrap();
 
-    let engine = WorkflowEngine::new(registry, store.clone());
+    let engine = WorkflowEngine::new(registry, store.clone(), None);
     let run_id = engine
         .execute(&flow, std::collections::HashMap::new())
         .await

@@ -1,0 +1,23 @@
+# IronFlow configuration file
+# Place this file in your project root as ironflow.yaml
+# All fields are optional — missing fields use CLI flags, env vars, or defaults.
+
+# Server settings (used by `ironflow serve`)
+# host: "0.0.0.0"
+# port: 3000
+# flows_dir: "flows"
+
+# Storage
+# store_dir: "data/runs"
+
+# Request limits
+# max_body: 1048576  # 1 MB
+
+# Engine
+# max_concurrent_tasks: 4
+
+# Webhooks — map names to flow files (relative to flows_dir)
+# Each entry creates a POST /webhooks/{name} endpoint.
+# webhooks:
+#   hello: hello_world.lua
+#   process-order: orders/process.lua
