@@ -1,6 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use lettre::message::{header::ContentType, Mailbox, MultiPart, SinglePart};
+use lettre::message::{Mailbox, MultiPart, SinglePart, header::ContentType};
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 use std::time::Duration;
@@ -27,7 +27,12 @@ fn interpolate_json_value(value: &serde_json::Value, ctx: &Context) -> serde_jso
     }
 }
 
-fn resolve_param(config: &serde_json::Value, key: &str, env_key: &str, ctx: &Context) -> Option<String> {
+fn resolve_param(
+    config: &serde_json::Value,
+    key: &str,
+    env_key: &str,
+    ctx: &Context,
+) -> Option<String> {
     config
         .get(key)
         .and_then(|v| v.as_str())
@@ -55,11 +60,7 @@ fn resolve_recipients(value: &serde_json::Value, ctx: &Context) -> Option<Vec<St
                 .iter()
                 .filter_map(|v| v.as_str().map(|s| interpolate_ctx(s, ctx)))
                 .collect();
-            if list.is_empty() {
-                None
-            } else {
-                Some(list)
-            }
+            if list.is_empty() { None } else { Some(list) }
         }
         _ => None,
     }
@@ -141,9 +142,7 @@ fn extract_common_params(config: &serde_json::Value, ctx: &Context) -> Result<Em
         .map(|v| interpolate_ctx(v, ctx));
 
     let cc = config.get("cc").and_then(|v| resolve_string_list(v, ctx));
-    let bcc = config
-        .get("bcc")
-        .and_then(|v| resolve_string_list(v, ctx));
+    let bcc = config.get("bcc").and_then(|v| resolve_string_list(v, ctx));
     let reply_to = config
         .get("reply_to")
         .and_then(|v| v.as_str())
@@ -169,10 +168,9 @@ impl SendEmailNode {
         config: &serde_json::Value,
         ctx: &Context,
     ) -> Result<NodeOutput> {
-        let api_key = resolve_param(config, "api_key", "RESEND_API_KEY", ctx)
-            .ok_or_else(|| {
-                anyhow::anyhow!("send_email requires 'api_key' or RESEND_API_KEY env var")
-            })?;
+        let api_key = resolve_param(config, "api_key", "RESEND_API_KEY", ctx).ok_or_else(|| {
+            anyhow::anyhow!("send_email requires 'api_key' or RESEND_API_KEY env var")
+        })?;
 
         let params = extract_common_params(config, ctx)?;
 
@@ -209,9 +207,7 @@ impl SendEmailNode {
             env!("CARGO_PKG_VERSION")
         );
 
-        let client = reqwest::Client::builder()
-            .timeout(params.timeout)
-            .build()?;
+        let client = reqwest::Client::builder().timeout(params.timeout).build()?;
         let response = client
             .post(api_url)
             .header("Authorization", format!("Bearer {}", api_key))
@@ -223,8 +219,7 @@ impl SendEmailNode {
         let status = response.status().as_u16();
         let success = response.status().is_success();
         let body = response.text().await?;
-        let data =
-            serde_json::from_str(&body).unwrap_or(serde_json::Value::String(body.clone()));
+        let data = serde_json::from_str(&body).unwrap_or(serde_json::Value::String(body.clone()));
 
         let mut output = NodeOutput::new();
         output.insert(
@@ -238,26 +233,20 @@ impl SendEmailNode {
         );
 
         if !success {
-            anyhow::bail!(
-                "send_email Resend API returned status {}: {}",
-                status,
-                body
-            );
+            anyhow::bail!("send_email Resend API returned status {}: {}", status, body);
         }
 
         Ok(output)
     }
 
-    async fn send_via_smtp(
-        &self,
-        config: &serde_json::Value,
-        ctx: &Context,
-    ) -> Result<NodeOutput> {
+    async fn send_via_smtp(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let params = extract_common_params(config, ctx)?;
 
-        let smtp_server = resolve_param(config, "smtp_server", "SMTP_SERVER", ctx)
-            .ok_or_else(|| {
-                anyhow::anyhow!("send_email smtp provider requires 'smtp_server' or SMTP_SERVER env var")
+        let smtp_server =
+            resolve_param(config, "smtp_server", "SMTP_SERVER", ctx).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "send_email smtp provider requires 'smtp_server' or SMTP_SERVER env var"
+                )
             })?;
 
         let smtp_port = config
@@ -276,7 +265,11 @@ impl SendEmailNode {
 
         // Build the email message
         let from_mailbox: Mailbox = params.from.parse().map_err(|e| {
-            anyhow::anyhow!("send_email: invalid 'from' address '{}': {}", params.from, e)
+            anyhow::anyhow!(
+                "send_email: invalid 'from' address '{}': {}",
+                params.from,
+                e
+            )
         })?;
 
         let mut builder = Message::builder()
@@ -310,7 +303,11 @@ impl SendEmailNode {
 
         if let Some(reply_to) = &params.reply_to {
             let mailbox: Mailbox = reply_to.parse().map_err(|e| {
-                anyhow::anyhow!("send_email: invalid 'reply_to' address '{}': {}", reply_to, e)
+                anyhow::anyhow!(
+                    "send_email: invalid 'reply_to' address '{}': {}",
+                    reply_to,
+                    e
+                )
             })?;
             builder = builder.reply_to(mailbox);
         }
@@ -330,9 +327,7 @@ impl SendEmailNode {
                     ),
             )?,
             (Some(html), None) => builder.header(ContentType::TEXT_HTML).body(html.clone())?,
-            (None, Some(text)) => builder
-                .header(ContentType::TEXT_PLAIN)
-                .body(text.clone())?,
+            (None, Some(text)) => builder.header(ContentType::TEXT_PLAIN).body(text.clone())?,
             (None, None) => builder
                 .header(ContentType::TEXT_PLAIN)
                 .body(String::new())?,
@@ -352,8 +347,7 @@ impl SendEmailNode {
                 t.build()
             }
             "tls" => {
-                let mut t =
-                    AsyncSmtpTransport::<Tokio1Executor>::relay(&smtp_server)?;
+                let mut t = AsyncSmtpTransport::<Tokio1Executor>::relay(&smtp_server)?;
                 if let Some(port) = smtp_port {
                     t = t.port(port);
                 }
@@ -365,8 +359,7 @@ impl SendEmailNode {
             }
             _ => {
                 // "starttls" (default)
-                let mut t =
-                    AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&smtp_server)?;
+                let mut t = AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&smtp_server)?;
                 if let Some(port) = smtp_port {
                     t = t.port(port);
                 }
@@ -404,11 +397,7 @@ impl SendEmailNode {
                 );
 
                 if !response.is_positive() {
-                    anyhow::bail!(
-                        "send_email SMTP server returned {}: {}",
-                        code,
-                        message
-                    );
+                    anyhow::bail!("send_email SMTP server returned {}: {}", code, message);
                 }
             }
             Err(e) => {

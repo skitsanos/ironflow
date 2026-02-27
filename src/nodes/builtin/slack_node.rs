@@ -10,7 +10,10 @@ fn interpolate_json_value(value: &serde_json::Value, ctx: &Context) -> serde_jso
     match value {
         serde_json::Value::String(s) => serde_json::Value::String(interpolate_ctx(s, ctx)),
         serde_json::Value::Array(items) => serde_json::Value::Array(
-            items.iter().map(|item| interpolate_json_value(item, ctx)).collect(),
+            items
+                .iter()
+                .map(|item| interpolate_json_value(item, ctx))
+                .collect(),
         ),
         serde_json::Value::Object(map) => serde_json::Value::Object(
             map.iter()
@@ -50,15 +53,15 @@ impl Node for SlackNotificationNode {
     }
 
     async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
-        let webhook_url = resolve_webhook_url(config, &ctx)
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "slack_notification requires 'webhook_url' or SLACK_WEBHOOK env var"
-                )
-            })?;
+        let webhook_url = resolve_webhook_url(config, &ctx).ok_or_else(|| {
+            anyhow::anyhow!("slack_notification requires 'webhook_url' or SLACK_WEBHOOK env var")
+        })?;
 
         let output_key = resolve_output_key(config);
-        let timeout_s = config.get("timeout").and_then(|value| value.as_f64()).unwrap_or(30.0);
+        let timeout_s = config
+            .get("timeout")
+            .and_then(|value| value.as_f64())
+            .unwrap_or(30.0);
         let timeout = Duration::from_secs_f64(timeout_s);
 
         let mut payload = config
@@ -74,11 +77,7 @@ impl Node for SlackNotificationNode {
             .get("text")
             .and_then(|value| value.as_str())
             .or_else(|| config.get("message").and_then(|value| value.as_str()))
-            .or_else(|| {
-                payload_obj
-                    .get("text")
-                    .and_then(|value| value.as_str())
-            })
+            .or_else(|| payload_obj.get("text").and_then(|value| value.as_str()))
             .map(|value| interpolate_ctx(value, &ctx));
 
         if let Some(text) = text {
@@ -90,11 +89,7 @@ impl Node for SlackNotificationNode {
         }
 
         let client = reqwest::Client::builder().timeout(timeout).build()?;
-        let response = client
-            .post(&webhook_url)
-            .json(payload_obj)
-            .send()
-            .await?;
+        let response = client.post(&webhook_url).json(payload_obj).send().await?;
 
         let status = response.status().as_u16();
         let success = response.status().is_success();

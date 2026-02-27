@@ -63,7 +63,8 @@ async fn slack_notification_requires_webhook_when_missing_config_and_env() {
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(
-        err.contains("slack_notification requires 'webhook_url'") || err.contains("error sending request for url"),
+        err.contains("slack_notification requires 'webhook_url'")
+            || err.contains("error sending request for url"),
         "Expected webhook URL or request error, got: {}",
         err
     );
@@ -168,10 +169,7 @@ async fn slack_notification_interpolates_context() {
     let node = reg.get("slack_notification").unwrap();
 
     let mut ctx = Context::new();
-    ctx.insert(
-        "user".to_string(),
-        serde_json::json!("Alice"),
-    );
+    ctx.insert("user".to_string(), serde_json::json!("Alice"));
 
     let config = serde_json::json!({
         "webhook_url": url,

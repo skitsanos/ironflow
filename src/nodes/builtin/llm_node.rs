@@ -146,7 +146,10 @@ fn extract_chat_tool_calls(data: &serde_json::Value) -> Vec<serde_json::Value> {
     let Some(first_choice) = choices.first() else {
         return Vec::new();
     };
-    let Some(message) = first_choice.get("message").or_else(|| first_choice.get("delta")) else {
+    let Some(message) = first_choice
+        .get("message")
+        .or_else(|| first_choice.get("delta"))
+    else {
         return Vec::new();
     };
 
@@ -246,10 +249,7 @@ fn parse_timeout(config: &serde_json::Value) -> f64 {
         .unwrap_or(30.0)
 }
 
-fn resolve_tools(
-    config: &serde_json::Value,
-    ctx: &Context,
-) -> Result<Option<serde_json::Value>> {
+fn resolve_tools(config: &serde_json::Value, ctx: &Context) -> Result<Option<serde_json::Value>> {
     let Some(raw_tools) = config.get("tools") else {
         return Ok(None);
     };
@@ -581,10 +581,14 @@ fn build_body(input: &LlmBodyInput<'_>) -> Result<Value> {
         body_obj.insert("input".to_string(), Value::String(prompt.to_string()));
     }
 
-    if matches!(mode, LlmMode::Chat) && let Some(tools) = tools {
+    if matches!(mode, LlmMode::Chat)
+        && let Some(tools) = tools
+    {
         body_obj.insert("tools".to_string(), tools.clone());
     }
-    if matches!(mode, LlmMode::Chat) && let Some(tool_choice) = tool_choice {
+    if matches!(mode, LlmMode::Chat)
+        && let Some(tool_choice) = tool_choice
+    {
         body_obj.insert("tool_choice".to_string(), tool_choice.clone());
     }
 

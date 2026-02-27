@@ -206,14 +206,8 @@ async fn send_email_sends_correct_request() {
         received.contains("Test Subject"),
         "Expected subject in body"
     );
-    assert!(
-        received.contains("<h1>Hello</h1>"),
-        "Expected HTML body"
-    );
-    assert!(
-        received.contains("IronFlow"),
-        "Expected User-Agent header"
-    );
+    assert!(received.contains("<h1>Hello</h1>"), "Expected HTML body");
+    assert!(received.contains("IronFlow"), "Expected User-Agent header");
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -225,7 +219,10 @@ async fn send_email_interpolates_context() {
     let node = reg.get("send_email").unwrap();
 
     let mut ctx = Context::new();
-    ctx.insert("user_email".to_string(), serde_json::json!("alice@example.com"));
+    ctx.insert(
+        "user_email".to_string(),
+        serde_json::json!("alice@example.com"),
+    );
     ctx.insert("user_name".to_string(), serde_json::json!("Alice"));
 
     let config = serde_json::json!({
