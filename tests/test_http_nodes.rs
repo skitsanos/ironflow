@@ -24,13 +24,11 @@ fn spawn_mock_server(response_body: &str) -> (String, std::thread::JoinHandle<()
         response_body
     );
     let handle = std::thread::spawn(move || {
-        for stream in listener.incoming().take(1) {
-            if let Ok(mut stream) = stream {
-                let mut buf = [0u8; 4096];
-                let _ = stream.read(&mut buf);
-                let _ = stream.write_all(response.as_bytes());
-                let _ = stream.flush();
-            }
+        for mut stream in listener.incoming().take(1).flatten() {
+            let mut buf = [0u8; 4096];
+            let _ = stream.read(&mut buf);
+            let _ = stream.write_all(response.as_bytes());
+            let _ = stream.flush();
         }
     });
     (url, handle)
@@ -55,15 +53,13 @@ fn spawn_capturing_mock_server(
     );
     let (tx, rx) = std::sync::mpsc::channel();
     let handle = std::thread::spawn(move || {
-        for stream in listener.incoming().take(1) {
-            if let Ok(mut stream) = stream {
-                let mut buf = [0u8; 4096];
-                let n = stream.read(&mut buf).unwrap_or(0);
-                let captured = String::from_utf8_lossy(&buf[..n]).to_string();
-                let _ = tx.send(captured);
-                let _ = stream.write_all(response.as_bytes());
-                let _ = stream.flush();
-            }
+        for mut stream in listener.incoming().take(1).flatten() {
+            let mut buf = [0u8; 4096];
+            let n = stream.read(&mut buf).unwrap_or(0);
+            let captured = String::from_utf8_lossy(&buf[..n]).to_string();
+            let _ = tx.send(captured);
+            let _ = stream.write_all(response.as_bytes());
+            let _ = stream.flush();
         }
     });
     (url, handle, rx)
@@ -367,7 +363,7 @@ async fn http_get_custom_output_key() {
     assert_eq!(output.get("resp_success"), Some(&serde_json::json!(true)));
     assert!(output.contains_key("resp_headers"));
     // Default key should NOT be present
-    assert!(output.get("http_status").is_none());
+    assert!(!output.contains_key("http_status"));
 
     handle.join().unwrap();
 }
