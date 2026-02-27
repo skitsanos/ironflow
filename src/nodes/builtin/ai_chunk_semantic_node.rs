@@ -352,7 +352,11 @@ fn filter_split_indices(
 
 fn clamp_odd_window(window: usize, data_len: usize) -> usize {
     let w = window.min(data_len);
-    let w = if w.is_multiple_of(2) { w.saturating_sub(1) } else { w };
+    let w = if w.is_multiple_of(2) {
+        w.saturating_sub(1)
+    } else {
+        w
+    };
     w.max(3).min(data_len)
 }
 
@@ -425,14 +429,24 @@ impl Node for AiChunkSemanticNode {
             .and_then(|v| v.as_u64())
             .map(|v| v as usize)
             .unwrap_or(3);
-        let sim_window = if sim_window < 3 { 3 } else if sim_window.is_multiple_of(2) { sim_window + 1 } else { sim_window };
+        let sim_window = if sim_window < 3 {
+            3
+        } else if sim_window.is_multiple_of(2) {
+            sim_window + 1
+        } else {
+            sim_window
+        };
 
         let sg_window = config
             .get("sg_window")
             .and_then(|v| v.as_u64())
             .map(|v| v as usize)
             .unwrap_or(11);
-        let sg_window = if sg_window.is_multiple_of(2) { sg_window + 1 } else { sg_window };
+        let sg_window = if sg_window.is_multiple_of(2) {
+            sg_window + 1
+        } else {
+            sg_window
+        };
 
         let poly_order = config
             .get("poly_order")
@@ -585,8 +599,7 @@ impl Node for AiChunkSemanticNode {
         }
 
         // Flatten embeddings for windowed_cross_similarity
-        let flat_embeddings: Vec<f64> =
-            embeddings.iter().flat_map(|e| e.iter().copied()).collect();
+        let flat_embeddings: Vec<f64> = embeddings.iter().flat_map(|e| e.iter().copied()).collect();
 
         // Step 3: Compute windowed cross-similarity (distance curve)
         let similarities = match windowed_cross_similarity(&flat_embeddings, n, dim, sim_window) {
@@ -623,13 +636,12 @@ impl Node for AiChunkSemanticNode {
         // Step 5: Find local minima
         let minima_window = clamp_odd_window(effective_sg.max(5), smoothed.len());
 
-        let (minima_indices, minima_values) =
-            if minima_window >= 3 && minima_window > poly_order {
-                find_local_minima_interpolated(&smoothed, minima_window, poly_order, 0.1)
-                    .unwrap_or_else(|| (vec![], vec![]))
-            } else {
-                (vec![], vec![])
-            };
+        let (minima_indices, minima_values) = if minima_window >= 3 && minima_window > poly_order {
+            find_local_minima_interpolated(&smoothed, minima_window, poly_order, 0.1)
+                .unwrap_or_else(|| (vec![], vec![]))
+        } else {
+            (vec![], vec![])
+        };
 
         // Step 6: Filter split points
         let (split_indices, _) =

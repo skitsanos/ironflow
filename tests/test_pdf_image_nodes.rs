@@ -11,10 +11,7 @@ fn empty_ctx() -> Context {
 }
 
 fn ctx_with(pairs: Vec<(&str, serde_json::Value)>) -> Context {
-    pairs
-        .into_iter()
-        .map(|(k, v)| (k.to_string(), v))
-        .collect()
+    pairs.into_iter().map(|(k, v)| (k.to_string(), v)).collect()
 }
 
 fn is_pdfium_error(err: &anyhow::Error) -> bool {
@@ -41,7 +38,8 @@ fn write_temp_png(path: &std::path::Path, color: [u8; 4], width: u32, height: u3
 
 #[tokio::test]
 async fn pdf_to_image_generates_base64_pages() {
-    let sample_pdf = sample_root().join("Bill26022026_121916AM_8000951511_fc72420d-72e1-460b-b714-8a7388ea90d4_.pdf");
+    let sample_pdf = sample_root()
+        .join("Bill26022026_121916AM_8000951511_fc72420d-72e1-460b-b714-8a7388ea90d4_.pdf");
     if !sample_pdf.exists() {
         eprintln!("Skipping: sample pdf not found at {}", sample_pdf.display());
         return;
@@ -73,7 +71,8 @@ async fn pdf_to_image_generates_base64_pages() {
 
 #[tokio::test]
 async fn pdf_thumbnail_generates_one_thumbnail() {
-    let sample_pdf = sample_root().join("Bill26022026_121916AM_8000951511_fc72420d-72e1-460b-b714-8a7388ea90d4_.pdf");
+    let sample_pdf = sample_root()
+        .join("Bill26022026_121916AM_8000951511_fc72420d-72e1-460b-b714-8a7388ea90d4_.pdf");
     if !sample_pdf.exists() {
         eprintln!("Skipping: sample pdf not found at {}", sample_pdf.display());
         return;
@@ -165,10 +164,16 @@ async fn image_to_pdf_accepts_source_key_with_base64_and_paths() {
                 { "data": back_b64 }
             ]),
         ),
-        ("out_path", serde_json::json!(out_dir.to_string_lossy().to_string())),
+        (
+            "out_path",
+            serde_json::json!(out_dir.to_string_lossy().to_string()),
+        ),
     ]);
 
-    let output_path = format!("{}/from_context.pdf", ctx.get("out_path").unwrap().as_str().unwrap());
+    let output_path = format!(
+        "{}/from_context.pdf",
+        ctx.get("out_path").unwrap().as_str().unwrap()
+    );
     let config = serde_json::json!({
         "source_key": "images",
         "output_path": output_path,
@@ -207,7 +212,14 @@ async fn image_resize_generates_resized_file() {
     assert!(result.get("resized_height").unwrap().as_u64().unwrap() > 0);
     assert_eq!(result.get("resized_format").unwrap(), "png");
     assert!(result.get("resized_success").unwrap().as_bool().unwrap());
-    assert!(result.get("resized").unwrap().as_str().unwrap().ends_with(".png"));
+    assert!(
+        result
+            .get("resized")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .ends_with(".png")
+    );
 
     let image = image::ImageReader::open(output_path)
         .unwrap()
@@ -255,7 +267,8 @@ async fn image_crop_generates_cropped_file() {
 
 #[tokio::test]
 async fn pdf_metadata_extracts_key_fields() {
-    let sample_pdf = sample_root().join("Bill26022026_121916AM_8000951511_fc72420d-72e1-460b-b714-8a7388ea90d4_.pdf");
+    let sample_pdf = sample_root()
+        .join("Bill26022026_121916AM_8000951511_fc72420d-72e1-460b-b714-8a7388ea90d4_.pdf");
     if !sample_pdf.exists() {
         eprintln!("Skipping: sample pdf not found at {}", sample_pdf.display());
         return;
@@ -296,7 +309,10 @@ async fn image_rotate_generates_rotated_file() {
 
     let result = node.execute(&config, empty_ctx()).await.unwrap();
 
-    assert_eq!(result.get("rotated").unwrap().as_str().unwrap(), output_path.to_str().unwrap());
+    assert_eq!(
+        result.get("rotated").unwrap().as_str().unwrap(),
+        output_path.to_str().unwrap()
+    );
     assert_eq!(
         result.get("rotated_angle").unwrap().as_u64().unwrap(),
         90u64
@@ -336,7 +352,13 @@ async fn image_flip_and_grayscale() {
     });
 
     let flip_result = flip.execute(&flip_config, empty_ctx()).await.unwrap();
-    assert!(flip_result.get("flipped_success").unwrap().as_bool().unwrap());
+    assert!(
+        flip_result
+            .get("flipped_success")
+            .unwrap()
+            .as_bool()
+            .unwrap()
+    );
     assert_eq!(
         flip_result.get("flipped_width").unwrap().as_u64().unwrap(),
         u64::from(source.width())

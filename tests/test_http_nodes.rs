@@ -81,7 +81,11 @@ async fn http_get_happy_path() {
     let config = serde_json::json!({ "url": url });
     let result = node.execute(&config, empty_ctx()).await;
 
-    assert!(result.is_ok(), "http_get should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "http_get should succeed: {:?}",
+        result.err()
+    );
     let output = result.unwrap();
     assert_eq!(output.get("http_status"), Some(&serde_json::json!(200)));
     assert_eq!(
@@ -125,14 +129,22 @@ async fn http_post_happy_path() {
     });
     let result = node.execute(&config, empty_ctx()).await;
 
-    assert!(result.is_ok(), "http_post should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "http_post should succeed: {:?}",
+        result.err()
+    );
     let output = result.unwrap();
     assert_eq!(output.get("http_status"), Some(&serde_json::json!(200)));
     assert_eq!(output.get("http_success"), Some(&serde_json::json!(true)));
 
     // Verify the request was a POST
     let captured = rx.recv().unwrap();
-    assert!(captured.starts_with("POST "), "Expected POST request, got: {}", &captured[..20]);
+    assert!(
+        captured.starts_with("POST "),
+        "Expected POST request, got: {}",
+        &captured[..20]
+    );
 
     handle.join().unwrap();
 }
@@ -152,7 +164,11 @@ async fn http_post_with_headers() {
         "body": { "data": 42 }
     });
     let result = node.execute(&config, empty_ctx()).await;
-    assert!(result.is_ok(), "http_post with headers should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "http_post with headers should succeed: {:?}",
+        result.err()
+    );
 
     let captured = rx.recv().unwrap();
     let lower = captured.to_lowercase();
@@ -180,7 +196,11 @@ async fn http_put_happy_path() {
     });
     let result = node.execute(&config, empty_ctx()).await;
 
-    assert!(result.is_ok(), "http_put should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "http_put should succeed: {:?}",
+        result.err()
+    );
     let output = result.unwrap();
     assert_eq!(output.get("http_status"), Some(&serde_json::json!(200)));
     assert_eq!(
@@ -189,7 +209,11 @@ async fn http_put_happy_path() {
     );
 
     let captured = rx.recv().unwrap();
-    assert!(captured.starts_with("PUT "), "Expected PUT request, got: {}", &captured[..20]);
+    assert!(
+        captured.starts_with("PUT "),
+        "Expected PUT request, got: {}",
+        &captured[..20]
+    );
 
     handle.join().unwrap();
 }
@@ -206,7 +230,11 @@ async fn http_delete_happy_path() {
     let config = serde_json::json!({ "url": url });
     let result = node.execute(&config, empty_ctx()).await;
 
-    assert!(result.is_ok(), "http_delete should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "http_delete should succeed: {:?}",
+        result.err()
+    );
     let output = result.unwrap();
     assert_eq!(output.get("http_status"), Some(&serde_json::json!(200)));
     assert_eq!(output.get("http_success"), Some(&serde_json::json!(true)));
@@ -236,7 +264,11 @@ async fn http_request_get_with_explicit_method() {
     });
     let result = node.execute(&config, empty_ctx()).await;
 
-    assert!(result.is_ok(), "http_request GET should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "http_request GET should succeed: {:?}",
+        result.err()
+    );
     let output = result.unwrap();
     assert_eq!(output.get("http_status"), Some(&serde_json::json!(200)));
 
@@ -260,7 +292,11 @@ async fn http_request_post_with_explicit_method() {
     });
     let result = node.execute(&config, empty_ctx()).await;
 
-    assert!(result.is_ok(), "http_request POST should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "http_request POST should succeed: {:?}",
+        result.err()
+    );
     let output = result.unwrap();
     assert_eq!(output.get("http_status"), Some(&serde_json::json!(200)));
 
@@ -324,7 +360,10 @@ async fn http_get_custom_output_key() {
     let output = result.unwrap();
     // Should use custom output_key prefix
     assert_eq!(output.get("resp_status"), Some(&serde_json::json!(200)));
-    assert_eq!(output.get("resp_data"), Some(&serde_json::json!({"val": 42})));
+    assert_eq!(
+        output.get("resp_data"),
+        Some(&serde_json::json!({"val": 42}))
+    );
     assert_eq!(output.get("resp_success"), Some(&serde_json::json!(true)));
     assert!(output.contains_key("resp_headers"));
     // Default key should NOT be present

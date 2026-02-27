@@ -37,7 +37,11 @@ async fn ai_chunk_fixed_splits_long_text() {
     let out = node.execute(&config, ctx).await.unwrap();
     let chunks = out.get("chunks").unwrap().as_array().unwrap();
 
-    assert!(chunks.len() > 1, "Expected multiple chunks, got {}", chunks.len());
+    assert!(
+        chunks.len() > 1,
+        "Expected multiple chunks, got {}",
+        chunks.len()
+    );
     // Each chunk except possibly the last should be <= 100 bytes
     for chunk in &chunks[..chunks.len() - 1] {
         assert!(chunk.as_str().unwrap().len() <= 100);
@@ -85,7 +89,11 @@ async fn ai_chunk_fixed_with_delimiter() {
     let out = node.execute(&config, ctx).await.unwrap();
     let chunks = out.get("chunks").unwrap().as_array().unwrap();
 
-    assert!(chunks.len() >= 2, "Expected at least 2 chunks, got {}", chunks.len());
+    assert!(
+        chunks.len() >= 2,
+        "Expected at least 2 chunks, got {}",
+        chunks.len()
+    );
     // Verify chunks split at newline boundaries (each chunk ends with \n or is the last chunk)
     for chunk in &chunks[..chunks.len() - 1] {
         let s = chunk.as_str().unwrap();

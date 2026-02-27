@@ -13,10 +13,7 @@ fn empty_ctx() -> Context {
 }
 
 fn ctx_with(pairs: Vec<(&str, serde_json::Value)>) -> Context {
-    pairs
-        .into_iter()
-        .map(|(k, v)| (k.to_string(), v))
-        .collect()
+    pairs.into_iter().map(|(k, v)| (k.to_string(), v)).collect()
 }
 
 // =============================================================================

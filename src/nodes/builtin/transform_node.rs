@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 
-use csv::{QuoteStyle, ReaderBuilder, Trim, WriterBuilder};
 use anyhow::Result;
 use async_trait::async_trait;
+use csv::{QuoteStyle, ReaderBuilder, Trim, WriterBuilder};
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
@@ -139,11 +139,7 @@ impl Node for CsvParseNode {
             .delimiter(delimiter)
             .quote(quote)
             .has_headers(has_header)
-            .trim(if trim_fields {
-                Trim::All
-            } else {
-                Trim::None
-            })
+            .trim(if trim_fields { Trim::All } else { Trim::None })
             .from_reader(csv_text.as_bytes());
 
         let mut rows = Vec::new();
@@ -169,7 +165,10 @@ impl Node for CsvParseNode {
                 }
                 for idx in headers.len()..record.len() {
                     let key = format!("column_{}", idx + 1);
-                    row.insert(key, csv_value_from_str(record.get(idx).unwrap_or_default(), infer_types));
+                    row.insert(
+                        key,
+                        csv_value_from_str(record.get(idx).unwrap_or_default(), infer_types),
+                    );
                 }
                 rows.push(serde_json::Value::Object(row));
             }
@@ -272,7 +271,11 @@ impl Node for CsvStringifyNode {
                         for row in rows {
                             let fields: Vec<String> = headers
                                 .iter()
-                                .map(|field| csv_value_to_string(row.get(field).unwrap_or(&serde_json::Value::Null)))
+                                .map(|field| {
+                                    csv_value_to_string(
+                                        row.get(field).unwrap_or(&serde_json::Value::Null),
+                                    )
+                                })
                                 .collect();
                             csv.write_record(fields)?;
                         }
@@ -284,9 +287,8 @@ impl Node for CsvStringifyNode {
                             .max()
                             .unwrap_or(0);
                         if include_headers {
-                            let header: Vec<String> = (1..=max_len)
-                                .map(|idx| format!("column_{idx}"))
-                                .collect();
+                            let header: Vec<String> =
+                                (1..=max_len).map(|idx| format!("column_{idx}")).collect();
                             csv.write_record(header)?;
                         }
                         for row in values {
@@ -321,7 +323,9 @@ impl Node for CsvStringifyNode {
                 }
                 let fields: Vec<String> = headers
                     .iter()
-                    .map(|field| csv_value_to_string(object.get(field).unwrap_or(&serde_json::Value::Null)))
+                    .map(|field| {
+                        csv_value_to_string(object.get(field).unwrap_or(&serde_json::Value::Null))
+                    })
                     .collect();
                 csv.write_record(fields)?;
             }
@@ -332,10 +336,10 @@ impl Node for CsvStringifyNode {
             }
         }
 
-        let csv_text = String::from_utf8(
-            csv.into_inner()
-                .map_err(|err| anyhow::anyhow!("csv_stringify failed to finalize buffer: {}", err))?,
-        )?;
+        let csv_text =
+            String::from_utf8(csv.into_inner().map_err(|err| {
+                anyhow::anyhow!("csv_stringify failed to finalize buffer: {}", err)
+            })?)?;
         let mut output = NodeOutput::new();
         output.insert(output_key.to_string(), serde_json::Value::String(csv_text));
         Ok(output)

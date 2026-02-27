@@ -186,10 +186,7 @@ impl Node for AiChunkNode {
 
         let chunks = match mode {
             "fixed" => {
-                let size = config
-                    .get("size")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(4096) as usize;
+                let size = config.get("size").and_then(|v| v.as_u64()).unwrap_or(4096) as usize;
 
                 let delimiters_str = config
                     .get("delimiters")
@@ -218,7 +215,10 @@ impl Node for AiChunkNode {
 
                 chunk_split(&text, delimiters, min_chars)
             }
-            other => anyhow::bail!("ai_chunk: unsupported mode '{}' (use 'fixed' or 'split')", other),
+            other => anyhow::bail!(
+                "ai_chunk: unsupported mode '{}' (use 'fixed' or 'split')",
+                other
+            ),
         };
 
         let count = chunks.len();

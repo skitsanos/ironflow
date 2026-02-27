@@ -22,7 +22,11 @@ fn registry_with_builtins_has_nodes() {
     let reg = NodeRegistry::with_builtins();
     let nodes = reg.list();
     // All implemented nodes are now built-in:
-    assert!(nodes.len() >= 56, "Expected at least 56 nodes, got {}", nodes.len());
+    assert!(
+        nodes.len() >= 56,
+        "Expected at least 56 nodes, got {}",
+        nodes.len()
+    );
 }
 
 #[test]
@@ -272,10 +276,7 @@ async fn csv_stringify_node_arrays() {
         "output_key": "csv",
         "include_headers": false
     });
-    let ctx = ctx_with(vec![("rows", serde_json::json!([
-        [1, 2],
-        [3, 4]
-    ]))]);
+    let ctx = ctx_with(vec![("rows", serde_json::json!([[1, 2], [3, 4]]))]);
 
     let result = node.execute(&config, ctx).await.unwrap();
     let csv_text = result.get("csv").unwrap().as_str().unwrap();
@@ -766,7 +767,10 @@ async fn json_validate_node_valid() {
             }
         }
     });
-    let ctx = ctx_with(vec![("payload_raw", serde_json::json!(r#"{"name":"Alice"}"#))]);
+    let ctx = ctx_with(vec![(
+        "payload_raw",
+        serde_json::json!(r#"{"name":"Alice"}"#),
+    )]);
 
     let result = node.execute(&config, ctx).await.unwrap();
     assert_eq!(

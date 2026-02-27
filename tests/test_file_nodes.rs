@@ -31,9 +31,16 @@ async fn copy_file_happy_path() {
     });
 
     let result = node.execute(&config, empty_ctx()).await.unwrap();
-    assert_eq!(result.get("copy_file_success").unwrap(), &serde_json::Value::Bool(true));
     assert_eq!(
-        result.get("copy_file_destination").unwrap().as_str().unwrap(),
+        result.get("copy_file_success").unwrap(),
+        &serde_json::Value::Bool(true)
+    );
+    assert_eq!(
+        result
+            .get("copy_file_destination")
+            .unwrap()
+            .as_str()
+            .unwrap(),
         dst.to_str().unwrap()
     );
     // Source still exists
@@ -88,12 +95,21 @@ async fn copy_file_interpolates_context() {
     });
 
     let ctx = ctx_with(vec![
-        ("src_path", serde_json::Value::String(src.to_str().unwrap().to_string())),
-        ("dst_path", serde_json::Value::String(dst.to_str().unwrap().to_string())),
+        (
+            "src_path",
+            serde_json::Value::String(src.to_str().unwrap().to_string()),
+        ),
+        (
+            "dst_path",
+            serde_json::Value::String(dst.to_str().unwrap().to_string()),
+        ),
     ]);
 
     let result = node.execute(&config, ctx).await.unwrap();
-    assert_eq!(result.get("copy_file_success").unwrap(), &serde_json::Value::Bool(true));
+    assert_eq!(
+        result.get("copy_file_success").unwrap(),
+        &serde_json::Value::Bool(true)
+    );
     assert_eq!(std::fs::read_to_string(&dst).unwrap(), "ctx interpolation");
 }
 
@@ -115,9 +131,16 @@ async fn move_file_happy_path() {
     });
 
     let result = node.execute(&config, empty_ctx()).await.unwrap();
-    assert_eq!(result.get("move_file_success").unwrap(), &serde_json::Value::Bool(true));
     assert_eq!(
-        result.get("move_file_destination").unwrap().as_str().unwrap(),
+        result.get("move_file_success").unwrap(),
+        &serde_json::Value::Bool(true)
+    );
+    assert_eq!(
+        result
+            .get("move_file_destination")
+            .unwrap()
+            .as_str()
+            .unwrap(),
         dst.to_str().unwrap()
     );
     // Source no longer exists
@@ -173,7 +196,10 @@ async fn delete_file_happy_path() {
     });
 
     let result = node.execute(&config, empty_ctx()).await.unwrap();
-    assert_eq!(result.get("delete_file_success").unwrap(), &serde_json::Value::Bool(true));
+    assert_eq!(
+        result.get("delete_file_success").unwrap(),
+        &serde_json::Value::Bool(true)
+    );
     assert_eq!(
         result.get("delete_file_path").unwrap().as_str().unwrap(),
         file.to_str().unwrap()
@@ -228,16 +254,28 @@ async fn list_directory_happy_path() {
     let files = result.get("files").unwrap().as_array().unwrap();
     assert_eq!(files.len(), 3);
 
-    let names: Vec<&str> = files.iter().map(|e| e.get("name").unwrap().as_str().unwrap()).collect();
+    let names: Vec<&str> = files
+        .iter()
+        .map(|e| e.get("name").unwrap().as_str().unwrap())
+        .collect();
     assert!(names.contains(&"a.txt"));
     assert!(names.contains(&"b.txt"));
     assert!(names.contains(&"subdir"));
 
     // Check type field
-    let subdir_entry = files.iter().find(|e| e.get("name").unwrap() == "subdir").unwrap();
-    assert_eq!(subdir_entry.get("type").unwrap().as_str().unwrap(), "directory");
+    let subdir_entry = files
+        .iter()
+        .find(|e| e.get("name").unwrap() == "subdir")
+        .unwrap();
+    assert_eq!(
+        subdir_entry.get("type").unwrap().as_str().unwrap(),
+        "directory"
+    );
 
-    let file_entry = files.iter().find(|e| e.get("name").unwrap() == "a.txt").unwrap();
+    let file_entry = files
+        .iter()
+        .find(|e| e.get("name").unwrap() == "a.txt")
+        .unwrap();
     assert_eq!(file_entry.get("type").unwrap().as_str().unwrap(), "file");
 }
 
@@ -297,7 +335,10 @@ async fn list_directory_recursive() {
     // Should have: root.txt, child (dir), nested.txt (from recursive)
     assert_eq!(files.len(), 3);
 
-    let names: Vec<&str> = files.iter().map(|e| e.get("name").unwrap().as_str().unwrap()).collect();
+    let names: Vec<&str> = files
+        .iter()
+        .map(|e| e.get("name").unwrap().as_str().unwrap())
+        .collect();
     assert!(names.contains(&"root.txt"));
     assert!(names.contains(&"child"));
     assert!(names.contains(&"nested.txt"));

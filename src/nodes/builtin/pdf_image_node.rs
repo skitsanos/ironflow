@@ -4,7 +4,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use base64::Engine;
 use lopdf::content::{Content, Operation};
-use lopdf::{dictionary, xobject, Document, Object, Stream};
+use lopdf::{Document, Object, Stream, dictionary, xobject};
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
@@ -101,10 +101,7 @@ impl Node for PdfThumbnailNode {
 
     async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
         let path = resolve_path(config, &ctx, "pdf_thumbnail")?;
-        let page = config
-            .get("page")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(1) as usize;
+        let page = config.get("page").and_then(|v| v.as_u64()).unwrap_or(1) as usize;
         if page == 0 {
             anyhow::bail!("pdf_thumbnail: 'page' must be 1-based and >= 1");
         }
@@ -129,10 +126,7 @@ impl Node for PdfThumbnailNode {
             .map(|v| parse_positive_u32(v, "height"));
         let width = width.transpose()?;
         let height = height.transpose()?;
-        let max_side = config
-            .get("size")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(256);
+        let max_side = config.get("size").and_then(|v| v.as_u64()).unwrap_or(256);
         let max_side = parse_positive_u32(max_side, "size")?;
 
         let bytes = std::fs::read(&path)
@@ -213,7 +207,11 @@ impl Node for ImageToPdfNode {
             }
 
             let image_stream = xobject::image_from(loaded.bytes).map_err(|e| {
-                anyhow::anyhow!("image_to_pdf: failed to parse image '{}': {:?}", loaded.label, e)
+                anyhow::anyhow!(
+                    "image_to_pdf: failed to parse image '{}': {:?}",
+                    loaded.label,
+                    e
+                )
             })?;
             let image_id = doc.add_object(image_stream);
             let image_name = format!("X{}", image_id.0);
@@ -226,12 +224,8 @@ impl Node for ImageToPdfNode {
                 i64::from(width).into(),
                 i64::from(height).into(),
             ];
-            let mut content = Content {
-                operations: vec![],
-            };
-            content
-                .operations
-                .push(Operation::new("q", vec![]));
+            let mut content = Content { operations: vec![] };
+            content.operations.push(Operation::new("q", vec![]));
             content.operations.push(Operation::new(
                 "cm",
                 vec![
@@ -243,16 +237,17 @@ impl Node for ImageToPdfNode {
                     0.into(),
                 ],
             ));
-            content
-                .operations
-                .push(Operation::new("Do", vec![Object::Name(image_name.clone().into_bytes())]));
+            content.operations.push(Operation::new(
+                "Do",
+                vec![Object::Name(image_name.clone().into_bytes())],
+            ));
             content.operations.push(Operation::new("Q", vec![]));
 
             let content_id = doc.add_object(Stream::new(
                 dictionary! {},
-                content
-                    .encode()
-                    .map_err(|e| anyhow::anyhow!("image_to_pdf failed to encode content stream: {:?}", e))?,
+                content.encode().map_err(|e| {
+                    anyhow::anyhow!("image_to_pdf failed to encode content stream: {:?}", e)
+                })?,
             ));
 
             let page_id = doc.add_object(dictionary! {
@@ -263,7 +258,9 @@ impl Node for ImageToPdfNode {
             });
 
             doc.add_xobject(page_id, image_name.as_bytes(), image_id)
-                .map_err(|e| anyhow::anyhow!("image_to_pdf failed to add image resource: {:?}", e))?;
+                .map_err(|e| {
+                    anyhow::anyhow!("image_to_pdf failed to add image resource: {:?}", e)
+                })?;
             page_ids.push(page_id);
         }
 
@@ -272,7 +269,8 @@ impl Node for ImageToPdfNode {
             "Kids" => page_ids.iter().map(|id| lopdf::Object::Reference(*id)).collect::<Vec<_>>(),
             "Count" => page_ids.len() as u32,
         };
-        doc.objects.insert(pages_id, lopdf::Object::Dictionary(pages));
+        doc.objects
+            .insert(pages_id, lopdf::Object::Dictionary(pages));
 
         let catalog_id = doc.add_object(dictionary! {
             "Type" => "Catalog",
@@ -281,13 +279,21 @@ impl Node for ImageToPdfNode {
 
         doc.trailer.set("Root", catalog_id);
         doc.compress();
-        doc.save(&output_path)
-            .map_err(|e| anyhow::anyhow!("image_to_pdf: failed to save PDF '{}': {:?}", output_path, e))?;
+        doc.save(&output_path).map_err(|e| {
+            anyhow::anyhow!(
+                "image_to_pdf: failed to save PDF '{}': {:?}",
+                output_path,
+                e
+            )
+        })?;
 
         let mut out = NodeOutput::new();
         out.insert(output_key.to_string(), serde_json::json!(output_path));
         out.insert("image_count".to_string(), serde_json::json!(page_ids.len()));
-        out.insert(format!("{}_count", output_key), serde_json::json!(page_ids.len()));
+        out.insert(
+            format!("{}_count", output_key),
+            serde_json::json!(page_ids.len()),
+        );
         out.insert(
             format!("{}_success", output_key),
             serde_json::Value::Bool(true),
@@ -346,18 +352,19 @@ impl Node for ImageResizeNode {
             height,
         )?;
 
-        let resized = source_loaded
-            .image
-            .resize_exact(target_w, target_h, image::imageops::FilterType::Lanczos3);
+        let resized = source_loaded.image.resize_exact(
+            target_w,
+            target_h,
+            image::imageops::FilterType::Lanczos3,
+        );
 
-        save_dynamic_image(
-            resized,
-            &output_path,
-            format,
-        )?;
+        save_dynamic_image(resized, &output_path, format)?;
 
         let mut output = NodeOutput::new();
-        output.insert(output_key.to_string(), serde_json::Value::String(output_path));
+        output.insert(
+            output_key.to_string(),
+            serde_json::Value::String(output_path),
+        );
         output.insert(
             format!("{}_width", output_key),
             serde_json::Value::Number(serde_json::Number::from(u64::from(target_w))),
@@ -414,9 +421,9 @@ impl Node for ImageCropNode {
 
         let (crop_w, crop_w_field) = if let Some(width_val) = config.get("crop_width") {
             (
-                width_val
-                    .as_u64()
-                    .ok_or_else(|| anyhow::anyhow!("image_crop: 'crop_width' must be a positive number"))?,
+                width_val.as_u64().ok_or_else(|| {
+                    anyhow::anyhow!("image_crop: 'crop_width' must be a positive number")
+                })?,
                 "crop_width",
             )
         } else {
@@ -425,24 +432,30 @@ impl Node for ImageCropNode {
                     .get("width")
                     .ok_or_else(|| anyhow::anyhow!("image_crop requires 'crop_width' or 'width'"))?
                     .as_u64()
-                    .ok_or_else(|| anyhow::anyhow!("image_crop: 'width' must be a positive number"))?,
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("image_crop: 'width' must be a positive number")
+                    })?,
                 "width",
             )
         };
         let (crop_h, crop_h_field) = if let Some(height_val) = config.get("crop_height") {
             (
-                height_val
-                    .as_u64()
-                    .ok_or_else(|| anyhow::anyhow!("image_crop: 'crop_height' must be a positive number"))?,
+                height_val.as_u64().ok_or_else(|| {
+                    anyhow::anyhow!("image_crop: 'crop_height' must be a positive number")
+                })?,
                 "crop_height",
             )
         } else {
             (
                 config
                     .get("height")
-                    .ok_or_else(|| anyhow::anyhow!("image_crop requires 'crop_height' or 'height'"))?
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("image_crop requires 'crop_height' or 'height'")
+                    })?
                     .as_u64()
-                    .ok_or_else(|| anyhow::anyhow!("image_crop: 'height' must be a positive number"))?,
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("image_crop: 'height' must be a positive number")
+                    })?,
                 "height",
             )
         };
@@ -462,12 +475,12 @@ impl Node for ImageCropNode {
             );
         }
 
-        let crop_right = x
-            .checked_add(crop_w)
-            .ok_or_else(|| anyhow::anyhow!("image_crop: crop start + width overflows image width"))?;
-        let crop_bottom = y
-            .checked_add(crop_h)
-            .ok_or_else(|| anyhow::anyhow!("image_crop: crop start + height overflows image height"))?;
+        let crop_right = x.checked_add(crop_w).ok_or_else(|| {
+            anyhow::anyhow!("image_crop: crop start + width overflows image width")
+        })?;
+        let crop_bottom = y.checked_add(crop_h).ok_or_else(|| {
+            anyhow::anyhow!("image_crop: crop start + height overflows image height")
+        })?;
 
         if crop_right > source_loaded.image.width() {
             anyhow::bail!(
@@ -490,7 +503,10 @@ impl Node for ImageCropNode {
         save_dynamic_image(cropped, &output_path, format)?;
 
         let mut output = NodeOutput::new();
-        output.insert(output_key.to_string(), serde_json::Value::String(output_path));
+        output.insert(
+            output_key.to_string(),
+            serde_json::Value::String(output_path),
+        );
         output.insert(
             format!("{}_width", output_key),
             serde_json::Value::Number(serde_json::Number::from(u64::from(crop_w))),
@@ -596,7 +612,10 @@ impl Node for ImageRotateNode {
         save_dynamic_image(rotated.clone(), &output_path, format)?;
 
         let mut output = NodeOutput::new();
-        output.insert(output_key.to_string(), serde_json::Value::String(output_path));
+        output.insert(
+            output_key.to_string(),
+            serde_json::Value::String(output_path),
+        );
         output.insert(
             format!("{}_angle", output_key),
             serde_json::Value::Number(serde_json::Number::from(u64::from(angle))),
@@ -677,7 +696,10 @@ impl Node for ImageFlipNode {
         save_dynamic_image(flipped.clone(), &output_path, format)?;
 
         let mut output = NodeOutput::new();
-        output.insert(output_key.to_string(), serde_json::Value::String(output_path));
+        output.insert(
+            output_key.to_string(),
+            serde_json::Value::String(output_path),
+        );
         output.insert(
             format!("{}_direction", output_key),
             serde_json::Value::String(direction),
@@ -734,7 +756,10 @@ impl Node for ImageGrayscaleNode {
         save_dynamic_image(image.clone(), &output_path, format)?;
 
         let mut output = NodeOutput::new();
-        output.insert(output_key.to_string(), serde_json::Value::String(output_path));
+        output.insert(
+            output_key.to_string(),
+            serde_json::Value::String(output_path),
+        );
         output.insert(
             format!("{}_width", output_key),
             serde_json::Value::Number(serde_json::Number::from(u64::from(image.width()))),
@@ -790,7 +815,11 @@ fn parse_rotation_angle(value: &serde_json::Value, field: &str) -> Result<u16> {
     match angle {
         90 | 180 | 270 => Ok(angle as u16),
         0 => Ok(90),
-        _ => anyhow::bail!("{}: unsupported angle '{}'. Supported values: 90, 180, 270", field, angle),
+        _ => anyhow::bail!(
+            "{}: unsupported angle '{}'. Supported values: 90, 180, 270",
+            field,
+            angle
+        ),
     }
 }
 
@@ -882,14 +911,8 @@ fn parse_positive_u32(value: u64, field: &str) -> Result<u32> {
 }
 
 fn parse_non_negative_u32(value: u64, field: &str) -> Result<u32> {
-    u32::try_from(value).map_err(|_| {
-        anyhow::anyhow!(
-            "{}: value {} is too large (max {})",
-            field,
-            value,
-            u32::MAX
-        )
-    })
+    u32::try_from(value)
+        .map_err(|_| anyhow::anyhow!("{}: value {} is too large (max {})", field, value, u32::MAX))
 }
 
 fn target_size(
@@ -923,7 +946,10 @@ fn resolve_single_image_source(
     let has_source_key = config.get("source_key").and_then(|v| v.as_str()).is_some();
 
     if has_path && has_source_key {
-        anyhow::bail!("{} accepts either 'path' or 'source_key', not both", node_name);
+        anyhow::bail!(
+            "{} accepts either 'path' or 'source_key', not both",
+            node_name
+        );
     }
 
     if let Some(path) = config.get("path").and_then(|v| v.as_str()) {
@@ -980,36 +1006,35 @@ fn render_pdf_page(
     let page = document
         .pages()
         .get(request.page_idx as u16)
-        .map_err(|e| {
-            anyhow::anyhow!("Failed to get page {}: {:?}", request.page_idx + 1, e)
-        })?;
+        .map_err(|e| anyhow::anyhow!("Failed to get page {}: {:?}", request.page_idx + 1, e))?;
 
     let page_width = (page.width().to_inches() * request.dpi).max(1.0);
     let page_height = (page.height().to_inches() * request.dpi).max(1.0);
 
-    let (target_width, target_height) = match (request.width_hint, request.height_hint, request.max_side) {
-        (Some(w), Some(h), _) => (w, h),
-        (Some(w), None, _) => {
-            let h = ((page_height * (w as f32 / page_width)).round() as u32).max(1);
-            (w, h)
-        }
-        (None, Some(h), _) => {
-            let w = ((page_width * (h as f32 / page_height)).round() as u32).max(1);
-            (w, h)
-        }
-        (None, None, Some(limit)) => {
-            if page_width >= page_height {
-                let width = limit;
-                let height = ((page_height / page_width) * width as f32).round() as u32;
-                (width, height.max(1))
-            } else {
-                let height = limit;
-                let width = ((page_width / page_height) * height as f32).round() as u32;
-                (width.max(1), height)
+    let (target_width, target_height) =
+        match (request.width_hint, request.height_hint, request.max_side) {
+            (Some(w), Some(h), _) => (w, h),
+            (Some(w), None, _) => {
+                let h = ((page_height * (w as f32 / page_width)).round() as u32).max(1);
+                (w, h)
             }
-        }
-        (None, None, None) => (page_width as u32, page_height as u32),
-    };
+            (None, Some(h), _) => {
+                let w = ((page_width * (h as f32 / page_height)).round() as u32).max(1);
+                (w, h)
+            }
+            (None, None, Some(limit)) => {
+                if page_width >= page_height {
+                    let width = limit;
+                    let height = ((page_height / page_width) * width as f32).round() as u32;
+                    (width, height.max(1))
+                } else {
+                    let height = limit;
+                    let width = ((page_width / page_height) * height as f32).round() as u32;
+                    (width.max(1), height)
+                }
+            }
+            (None, None, None) => (page_width as u32, page_height as u32),
+        };
 
     let render_config = pdfium_render::prelude::PdfRenderConfig::new()
         .set_target_width(target_width as i32)
@@ -1017,13 +1042,7 @@ fn render_pdf_page(
 
     let bitmap = page
         .render_with_config(&render_config)
-        .map_err(|e| {
-            anyhow::anyhow!(
-                "Failed to render page {}: {:?}",
-                request.page_idx + 1,
-                e
-            )
-        })?;
+        .map_err(|e| anyhow::anyhow!("Failed to render page {}: {:?}", request.page_idx + 1, e))?;
 
     let img = bitmap.as_image();
 
@@ -1032,7 +1051,8 @@ fn render_pdf_page(
 
     match request.format {
         image::ImageFormat::Jpeg => {
-            img.into_rgb8().write_to(&mut cursor, image::ImageFormat::Jpeg)?;
+            img.into_rgb8()
+                .write_to(&mut cursor, image::ImageFormat::Jpeg)?;
         }
         _ => {
             img.write_to(&mut cursor, image::ImageFormat::Png)?;
@@ -1059,7 +1079,10 @@ fn resolve_path(config: &serde_json::Value, ctx: &Context, node_name: &str) -> R
     let has_source_key = config.get("source_key").and_then(|v| v.as_str()).is_some();
 
     if has_path && has_source_key {
-        anyhow::bail!("{} accepts either 'path' or 'source_key', not both", node_name);
+        anyhow::bail!(
+            "{} accepts either 'path' or 'source_key', not both",
+            node_name
+        );
     }
 
     if let Some(path_str) = config.get("path").and_then(|v| v.as_str()) {
@@ -1136,10 +1159,7 @@ fn parse_pages_spec(spec: &str, page_count: usize) -> Result<Vec<usize>> {
     Ok(indices)
 }
 
-fn resolve_image_sources(
-    config: &serde_json::Value,
-    ctx: &Context,
-) -> Result<Vec<ImageInput>> {
+fn resolve_image_sources(config: &serde_json::Value, ctx: &Context) -> Result<Vec<ImageInput>> {
     let has_sources = config.get("sources").is_some();
     let has_source_key = config.get("source_key").is_some();
 
@@ -1195,14 +1215,17 @@ fn parse_image_input(value: &serde_json::Value, ctx: &Context) -> Result<ImageIn
 fn load_image_bytes(input: ImageInput) -> Result<LoadedImage> {
     let (label, bytes) = match input {
         ImageInput::Path(path) => {
-            let bytes = std::fs::read(&path)
-                .map_err(|e| anyhow::anyhow!("image_to_pdf: failed to read image '{}': {}", path, e))?;
+            let bytes = std::fs::read(&path).map_err(|e| {
+                anyhow::anyhow!("image_to_pdf: failed to read image '{}': {}", path, e)
+            })?;
             (path, bytes)
         }
         ImageInput::Base64(data) => {
             let bytes = base64::engine::general_purpose::STANDARD
                 .decode(data)
-                .map_err(|e| anyhow::anyhow!("image_to_pdf: failed to decode base64 image data: {}", e))?;
+                .map_err(|e| {
+                    anyhow::anyhow!("image_to_pdf: failed to decode base64 image data: {}", e)
+                })?;
             ("base64_image".to_string(), bytes)
         }
     };

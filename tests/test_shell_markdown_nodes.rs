@@ -65,7 +65,10 @@ async fn shell_failing_command_returns_error() {
     });
 
     let result = node.execute(&config, empty_ctx()).await;
-    assert!(result.is_err(), "Expected failing command to return an error");
+    assert!(
+        result.is_err(),
+        "Expected failing command to return an error"
+    );
     let err_msg = result.unwrap_err().to_string();
     assert!(
         err_msg.contains("exited with code"),
@@ -126,7 +129,10 @@ async fn html_to_markdown_basic_tags() {
 
     let result = node.execute(&config, empty_ctx()).await.unwrap();
     let md = result.get("markdown").unwrap().as_str().unwrap();
-    assert!(md.contains("Title"), "Expected markdown to contain 'Title', got: {md}");
+    assert!(
+        md.contains("Title"),
+        "Expected markdown to contain 'Title', got: {md}"
+    );
     assert!(
         md.contains("**bold**"),
         "Expected markdown to contain '**bold**', got: {md}"
@@ -173,9 +179,7 @@ async fn html_to_markdown_via_source_key() {
         "source_key": "my_html"
     });
 
-    let ctx = ctx_with(vec![
-        ("my_html", serde_json::json!("<h2>Heading</h2>"))
-    ]);
+    let ctx = ctx_with(vec![("my_html", serde_json::json!("<h2>Heading</h2>"))]);
 
     let result = node.execute(&config, ctx).await.unwrap();
     let md = result.get("markdown").unwrap().as_str().unwrap();

@@ -27,12 +27,7 @@ fn build_validation_output(success: bool, errors: Vec<String>) -> NodeOutput {
     );
     output.insert(
         "validation_errors".to_string(),
-        serde_json::Value::Array(
-            errors
-                .into_iter()
-                .map(serde_json::Value::String)
-                .collect(),
-        ),
+        serde_json::Value::Array(errors.into_iter().map(serde_json::Value::String).collect()),
     );
     output
 }

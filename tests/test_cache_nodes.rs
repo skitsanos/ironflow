@@ -24,10 +24,19 @@ async fn cache_set_memory_happy_path() {
         "backend": "memory"
     });
 
-    let output = node.execute(&config, empty_ctx()).await.expect("cache_set succeeds");
+    let output = node
+        .execute(&config, empty_ctx())
+        .await
+        .expect("cache_set succeeds");
 
-    assert_eq!(output.get("cache_key").unwrap(), &serde_json::json!("test_set_memory_key"));
-    assert_eq!(output.get("cache_stored").unwrap(), &serde_json::json!(true));
+    assert_eq!(
+        output.get("cache_key").unwrap(),
+        &serde_json::json!("test_set_memory_key")
+    );
+    assert_eq!(
+        output.get("cache_stored").unwrap(),
+        &serde_json::json!(true)
+    );
 }
 
 // --- cache_get: memory backend (set then get) ---
@@ -46,13 +55,19 @@ async fn cache_get_memory_happy_path() {
         "value": 42,
         "backend": "memory"
     });
-    set_node.execute(&set_config, empty_ctx()).await.expect("cache_set succeeds");
+    set_node
+        .execute(&set_config, empty_ctx())
+        .await
+        .expect("cache_set succeeds");
 
     let get_config = serde_json::json!({
         "key": key,
         "backend": "memory"
     });
-    let output = get_node.execute(&get_config, empty_ctx()).await.expect("cache_get succeeds");
+    let output = get_node
+        .execute(&get_config, empty_ctx())
+        .await
+        .expect("cache_get succeeds");
 
     assert_eq!(output.get("cached_value").unwrap(), &serde_json::json!(42));
     assert_eq!(output.get("cache_hit").unwrap(), &serde_json::json!(true));
@@ -69,9 +84,15 @@ async fn cache_get_memory_missing_key() {
         "key": "nonexistent_key_12345",
         "backend": "memory"
     });
-    let output = get_node.execute(&config, empty_ctx()).await.expect("cache_get succeeds");
+    let output = get_node
+        .execute(&config, empty_ctx())
+        .await
+        .expect("cache_get succeeds");
 
-    assert_eq!(output.get("cached_value").unwrap(), &serde_json::Value::Null);
+    assert_eq!(
+        output.get("cached_value").unwrap(),
+        &serde_json::Value::Null
+    );
     assert_eq!(output.get("cache_hit").unwrap(), &serde_json::json!(false));
 }
 
@@ -92,10 +113,19 @@ async fn cache_set_file_backend() {
         "cache_dir": cache_dir
     });
 
-    let output = node.execute(&config, empty_ctx()).await.expect("cache_set file succeeds");
+    let output = node
+        .execute(&config, empty_ctx())
+        .await
+        .expect("cache_set file succeeds");
 
-    assert_eq!(output.get("cache_key").unwrap(), &serde_json::json!("file_test_key"));
-    assert_eq!(output.get("cache_stored").unwrap(), &serde_json::json!(true));
+    assert_eq!(
+        output.get("cache_key").unwrap(),
+        &serde_json::json!("file_test_key")
+    );
+    assert_eq!(
+        output.get("cache_stored").unwrap(),
+        &serde_json::json!(true)
+    );
 
     // Verify the file was actually created
     let cache_file = tmp.path().join("file_test_key.json");
@@ -119,15 +149,24 @@ async fn cache_get_file_backend() {
         "backend": "file",
         "cache_dir": cache_dir
     });
-    set_node.execute(&set_config, empty_ctx()).await.expect("cache_set file succeeds");
+    set_node
+        .execute(&set_config, empty_ctx())
+        .await
+        .expect("cache_set file succeeds");
 
     let get_config = serde_json::json!({
         "key": "file_roundtrip",
         "backend": "file",
         "cache_dir": cache_dir
     });
-    let output = get_node.execute(&get_config, empty_ctx()).await.expect("cache_get file succeeds");
+    let output = get_node
+        .execute(&get_config, empty_ctx())
+        .await
+        .expect("cache_get file succeeds");
 
-    assert_eq!(output.get("cached_value").unwrap(), &serde_json::json!([1, 2, 3]));
+    assert_eq!(
+        output.get("cached_value").unwrap(),
+        &serde_json::json!([1, 2, 3])
+    );
     assert_eq!(output.get("cache_hit").unwrap(), &serde_json::json!(true));
 }

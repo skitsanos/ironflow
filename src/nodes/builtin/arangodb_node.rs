@@ -25,7 +25,12 @@ fn interpolate_json_value(value: &serde_json::Value, ctx: &Context) -> serde_jso
 }
 
 /// Resolve a config string parameter, falling back to an environment variable.
-fn resolve_param(config: &serde_json::Value, key: &str, env_key: &str, ctx: &Context) -> Option<String> {
+fn resolve_param(
+    config: &serde_json::Value,
+    key: &str,
+    env_key: &str,
+    ctx: &Context,
+) -> Option<String> {
     config
         .get(key)
         .and_then(|v| v.as_str())
@@ -47,11 +52,12 @@ impl Node for ArangoDbAqlNode {
 
     async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
         // Connection parameters (config overrides env)
-        let url = resolve_param(config, "url", "ARANGODB_URL", &ctx)
-            .ok_or_else(|| anyhow::anyhow!("arangodb_aql requires 'url' or ARANGODB_URL env var"))?;
+        let url = resolve_param(config, "url", "ARANGODB_URL", &ctx).ok_or_else(|| {
+            anyhow::anyhow!("arangodb_aql requires 'url' or ARANGODB_URL env var")
+        })?;
 
-        let database = resolve_param(config, "database", "ARANGODB_DATABASE", &ctx)
-            .ok_or_else(|| {
+        let database =
+            resolve_param(config, "database", "ARANGODB_DATABASE", &ctx).ok_or_else(|| {
                 anyhow::anyhow!("arangodb_aql requires 'database' or ARANGODB_DATABASE env var")
             })?;
 

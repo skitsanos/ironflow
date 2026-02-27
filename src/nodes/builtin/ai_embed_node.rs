@@ -281,16 +281,10 @@ impl Node for AiEmbedNode {
 
         if texts.is_empty() {
             let mut output = NodeOutput::new();
-            output.insert(
-                format!("{}_embeddings", output_key),
-                serde_json::json!([]),
-            );
+            output.insert(format!("{}_embeddings", output_key), serde_json::json!([]));
             output.insert(format!("{}_count", output_key), serde_json::json!(0));
             output.insert(format!("{}_dimension", output_key), serde_json::json!(0));
-            output.insert(
-                format!("{}_model", output_key),
-                serde_json::json!(""),
-            );
+            output.insert(format!("{}_model", output_key), serde_json::json!(""));
             output.insert(
                 format!("{}_success", output_key),
                 serde_json::Value::Bool(true),
@@ -346,13 +340,17 @@ impl Node for AiEmbedNode {
                             "ai_embed (oauth) requires 'client_id' or OAUTH_CLIENT_ID env var"
                         )
                     })?;
-                let client_secret =
-                    resolve_param(config, "client_secret", "OAUTH_CLIENT_SECRET", &ctx)
-                        .ok_or_else(|| {
-                            anyhow::anyhow!(
-                                "ai_embed (oauth) requires 'client_secret' or OAUTH_CLIENT_SECRET env var"
-                            )
-                        })?;
+                let client_secret = resolve_param(
+                    config,
+                    "client_secret",
+                    "OAUTH_CLIENT_SECRET",
+                    &ctx,
+                )
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "ai_embed (oauth) requires 'client_secret' or OAUTH_CLIENT_SECRET env var"
+                    )
+                })?;
                 let scope = resolve_param(config, "scope", "OAUTH_SCOPE", &ctx);
                 let base_url = resolve_param(config, "base_url", "OAUTH_BASE_URL", &ctx)
                     .ok_or_else(|| {
