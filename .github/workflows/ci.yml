@@ -3,6 +3,13 @@ name: CI
 on:
   push:
     branches: [main, master]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "examples/**"
+      - ".github/workflows/ci.yml"
   pull_request:
     branches: [main, master]
 
