@@ -123,6 +123,10 @@ Examples organized from basic to advanced. Each folder builds on concepts from t
 - **send_email_smtp.lua** — Send an email via SMTP
 - **slack_notification.lua** — Send a Slack message via incoming webhook
 
+## 15-webhooks
+- **simple_webhook.lua** — Basic webhook that greets the caller by name
+- **auth_check.lua** — Webhook with Authorization header validation
+
 ## Running Examples
 
 ```bash

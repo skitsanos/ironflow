@@ -12,8 +12,26 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Verify the tag was pushed on the main branch
+  guard:
+    name: Verify tag is on main
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check tag commit is on main
+        run: |
+          TAG_SHA=$(git rev-list -n 1 ${{ github.ref }})
+          if ! git merge-base --is-ancestor "$TAG_SHA" origin/main; then
+            echo "::error::Tag ${{ github.ref_name }} is not on the main branch. Releases must be tagged on main."
+            exit 1
+          fi
+
   build:
     name: Build ${{ matrix.target }}
+    needs: guard
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:

@@ -116,6 +116,38 @@ ironflow serve --port 8080
 ironflow serve
 ```
 
+### Configuration File
+
+The `serve` command (and all other commands) can load settings from `ironflow.yaml`. Place it in the working directory for auto-detection, or specify a path with `-C`:
+
+```bash
+ironflow -C /path/to/ironflow.yaml serve
+```
+
+#### Webhook Routes
+
+Define webhook-to-flow mappings in `ironflow.yaml` to expose flows as named HTTP endpoints:
+
+```yaml
+flows_dir: "data/flows"
+
+webhooks:
+  hello: hello_world.lua            # POST /webhooks/hello
+  process-order: orders/process.lua  # POST /webhooks/process-order
+```
+
+- Flow paths are resolved relative to `flows_dir`
+- POST only — JSON body becomes initial workflow context
+- HTTP headers are injected as `ctx._headers` (lowercase keys)
+- Webhook name is injected as `ctx._webhook`
+
+```bash
+curl -X POST http://localhost:3000/webhooks/hello \
+  -H "Authorization: Bearer my-token" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "World"}'
+```
+
 ---
 
 ## Environment Variables

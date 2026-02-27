@@ -1,4 +1,7 @@
-use std::path::PathBuf;
+mod config;
+pub use config::IronFlowConfig;
+
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
@@ -18,6 +21,10 @@ pub struct Cli {
     /// Path to a .env file to load (default: auto-detect .env in cwd)
     #[arg(long, global = true)]
     dotenv: Option<PathBuf>,
+
+    /// Path to config file (default: auto-detect ironflow.yaml in cwd)
+    #[arg(short = 'C', long, global = true)]
+    config: Option<PathBuf>,
 
     #[command(subcommand)]
     pub command: Commands,
@@ -107,20 +114,32 @@ pub async fn run_cli() -> Result<()> {
     // Load .env file
     load_dotenv(cli.dotenv.as_deref());
 
+    // Load config file (ironflow.yaml)
+    let cfg = IronFlowConfig::load(cli.config.as_deref())?;
+
     match cli.command {
         Commands::Run {
             flow,
             context,
             verbose,
             store_dir,
-        } => cmd_run(flow, context, verbose, store_dir).await,
+        } => {
+            let store_dir = apply_config_path(store_dir, "data/runs", cfg.store_dir.as_deref());
+            cmd_run(flow, context, verbose, store_dir, cfg.max_concurrent_tasks).await
+        }
         Commands::Validate { flow } => cmd_validate(flow),
         Commands::List {
             status,
             store_dir,
             format,
-        } => cmd_list(status, store_dir, format).await,
-        Commands::Inspect { run_id, store_dir } => cmd_inspect(run_id, store_dir).await,
+        } => {
+            let store_dir = apply_config_path(store_dir, "data/runs", cfg.store_dir.as_deref());
+            cmd_list(status, store_dir, format).await
+        }
+        Commands::Inspect { run_id, store_dir } => {
+            let store_dir = apply_config_path(store_dir, "data/runs", cfg.store_dir.as_deref());
+            cmd_inspect(run_id, store_dir).await
+        }
         Commands::Nodes => cmd_nodes(),
         Commands::Serve {
             host,
@@ -128,7 +147,45 @@ pub async fn run_cli() -> Result<()> {
             store_dir,
             flows_dir,
             max_body,
-        } => crate::api::serve(&host, port, store_dir, flows_dir, max_body).await,
+        } => {
+            let host = if host == "0.0.0.0" {
+                cfg.host.unwrap_or(host)
+            } else {
+                host
+            };
+            let port = if port == 3000 {
+                cfg.port.unwrap_or(port)
+            } else {
+                port
+            };
+            let store_dir = apply_config_path(store_dir, "data/runs", cfg.store_dir.as_deref());
+            let flows_dir = flows_dir.or_else(|| cfg.flows_dir.map(PathBuf::from));
+            let max_body = if max_body == 1048576 {
+                cfg.max_body.unwrap_or(max_body)
+            } else {
+                max_body
+            };
+            let webhooks = cfg.webhooks.unwrap_or_default();
+            crate::api::serve(
+                &host,
+                port,
+                store_dir,
+                flows_dir,
+                max_body,
+                cfg.max_concurrent_tasks,
+                webhooks,
+            )
+            .await
+        }
+    }
+}
+
+/// If the CLI value matches the hard-coded default, use the config value instead (if set).
+fn apply_config_path(cli_value: PathBuf, default: &str, config_value: Option<&str>) -> PathBuf {
+    if cli_value == Path::new(default) {
+        config_value.map(PathBuf::from).unwrap_or(cli_value)
+    } else {
+        cli_value
     }
 }
 
@@ -167,6 +224,7 @@ async fn cmd_run(
     context_json: Option<String>,
     verbose: bool,
     store_dir: PathBuf,
+    max_concurrent_tasks: Option<usize>,
 ) -> Result<()> {
     let registry = NodeRegistry::with_builtins();
 
@@ -220,7 +278,7 @@ async fn cmd_run(
     }
 
     let store = Arc::new(JsonStateStore::new(store_dir));
-    let engine = WorkflowEngine::new(Arc::new(registry), store.clone());
+    let engine = WorkflowEngine::new(Arc::new(registry), store.clone(), max_concurrent_tasks);
 
     let run_id = engine.execute(&flow, initial_ctx).await?;
 

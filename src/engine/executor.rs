@@ -19,10 +19,17 @@ pub struct WorkflowEngine {
 }
 
 impl WorkflowEngine {
-    pub fn new(registry: Arc<NodeRegistry>, store: Arc<dyn StateStore>) -> Self {
-        let max_concurrent_tasks = std::env::var("IRONFLOW_MAX_CONCURRENT_TASKS")
-            .ok()
-            .and_then(|v| v.parse().ok())
+    pub fn new(
+        registry: Arc<NodeRegistry>,
+        store: Arc<dyn StateStore>,
+        max_concurrent_tasks: Option<usize>,
+    ) -> Self {
+        let max_concurrent_tasks = max_concurrent_tasks
+            .or_else(|| {
+                std::env::var("IRONFLOW_MAX_CONCURRENT_TASKS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+            })
             .unwrap_or_else(num_cpus::get);
 
         Self {

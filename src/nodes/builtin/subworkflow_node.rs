@@ -109,7 +109,7 @@ impl Node for SubworkflowNode {
         let store: Arc<dyn crate::storage::StateStore> = Arc::new(NullStateStore::new());
 
         if wait {
-            let engine = WorkflowEngine::new(child_registry, store.clone());
+            let engine = WorkflowEngine::new(child_registry, store.clone(), None);
             let run_id = engine.execute(&flow, sub_ctx).await?;
             let run_info = store.get_run_info(&run_id).await?;
 
@@ -152,7 +152,7 @@ impl Node for SubworkflowNode {
             let flow_name = flow.name.clone();
             let flow_name2 = flow_name.clone();
             tokio::spawn(async move {
-                let engine = WorkflowEngine::new(child_registry, store);
+                let engine = WorkflowEngine::new(child_registry, store, None);
                 if let Err(e) = engine.execute(&flow, sub_ctx).await {
                     tracing::error!(
                         flow = %flow_name,

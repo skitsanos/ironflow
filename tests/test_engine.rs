@@ -13,7 +13,7 @@ use ironflow::storage::null_store::NullStateStore;
 fn engine() -> (WorkflowEngine, Arc<dyn StateStore>) {
     let reg = Arc::new(NodeRegistry::with_builtins());
     let store: Arc<dyn StateStore> = Arc::new(NullStateStore::new());
-    let engine = WorkflowEngine::new(reg, store.clone());
+    let engine = WorkflowEngine::new(reg, store.clone(), None);
     (engine, store)
 }
 
