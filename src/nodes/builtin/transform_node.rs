@@ -81,6 +81,130 @@ impl Node for JsonStringifyNode {
     }
 }
 
+pub struct JsonExtractPathNode;
+
+#[async_trait]
+impl Node for JsonExtractPathNode {
+    fn node_type(&self) -> &str {
+        "json_extract_path"
+    }
+
+    fn description(&self) -> &str {
+        "Extract a value from JSON data using a dotted path with optional array indexes"
+    }
+
+    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+        let source_key = config
+            .get("source_key")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("json_extract_path requires 'source_key'"))?;
+
+        let path = config
+            .get("path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("json_extract_path requires 'path'"))?;
+
+        let output_key = config
+            .get("output_key")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("json_extract_path requires 'output_key'"))?;
+
+        let parse_json = config
+            .get("parse_json")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        let required = config
+            .get("required")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        let default_value = config.get("default").cloned();
+
+        let source = ctx
+            .get(source_key)
+            .ok_or_else(|| anyhow::anyhow!("Key '{}' not found in context", source_key))?;
+
+        let source = if parse_json {
+            if let Some(json_text) = source.as_str() {
+                serde_json::from_str(json_text).map_err(|err| {
+                    anyhow::anyhow!(
+                        "json_extract_path failed to parse '{}' as JSON: {}",
+                        source_key,
+                        err
+                    )
+                })?
+            } else {
+                source.clone()
+            }
+        } else {
+            source.clone()
+        };
+
+        let value = if path.trim().is_empty() {
+            Some(source)
+        } else {
+            resolve_json_path(&source, path).cloned()
+        };
+
+        let output_value = match value {
+            Some(v) => v,
+            None if required => anyhow::bail!("Path '{}' was not found in '{}'", path, source_key),
+            None => default_value.unwrap_or(serde_json::Value::Null),
+        };
+
+        let mut output = NodeOutput::new();
+        output.insert(output_key.to_string(), output_value);
+        Ok(output)
+    }
+}
+
+fn resolve_json_path<'a>(
+    value: &'a serde_json::Value,
+    path: &str,
+) -> Option<&'a serde_json::Value> {
+    let mut current = value;
+    let mut index = 0;
+    let bytes = path.as_bytes();
+    let len = bytes.len();
+
+    while index < len {
+        let segment_start = index;
+        while index < len && bytes[index] != b'.' && bytes[index] != b'[' {
+            index += 1;
+        }
+
+        if index > segment_start {
+            let key = &path[segment_start..index];
+            current = current.as_object()?.get(key)?;
+        }
+
+        if index < len && bytes[index] == b'[' {
+            index += 1;
+
+            let bracket_start = index;
+            while index < len && bytes[index] != b']' {
+                index += 1;
+            }
+            if index >= len {
+                return None;
+            }
+
+            let index_text = path[bracket_start..index].trim();
+            let array_index = index_text.parse::<usize>().ok()?;
+            current = current.as_array()?.get(array_index)?;
+
+            index += 1;
+        }
+
+        if index < len && bytes[index] == b'.' {
+            index += 1;
+        }
+    }
+
+    Some(current)
+}
+
 pub struct CsvParseNode;
 
 #[async_trait]

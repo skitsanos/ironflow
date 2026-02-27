@@ -186,7 +186,7 @@ async fn api_nodes_list() {
     let registry = NodeRegistry::with_builtins();
     let nodes = registry.list();
 
-    assert!(nodes.len() >= 39);
+    assert!(nodes.len() >= 44);
 
     // Verify some key nodes exist
     let names: Vec<&str> = nodes.iter().map(|(n, _)| *n).collect();

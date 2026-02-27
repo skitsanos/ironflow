@@ -67,7 +67,7 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 │  DAG resolution · Parallel execution · Retry/timeout     │
 │  Context propagation · Conditional routing · State store │
 ├─────────────────────────────────────────────────────────┤
-│                  56 Built-in Nodes                         │
+│                  61 Built-in Nodes                         │
 │  HTTP · Files · Shell · Transforms · Conditionals · ...  │
 │  All implemented in pure Rust for performance & safety   │
 └─────────────────────────────────────────────────────────┘
@@ -84,7 +84,7 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 
 ## Features
 
-- **56 built-in nodes** — HTTP (GET/POST/PUT/DELETE), file I/O, shell commands, JSON/CSV transforms, foreach iteration, key-value caching (memory + file), conditional routing, schema validation, hashing, templating, Markdown conversion, document extraction (Word/PDF/HTML), database queries (SQLite via sqlx, ArangoDB via HTTP), AI text embeddings and chunking (OpenAI, Ollama, OAuth), delays, inline code execution, subworkflow composition, and image helpers (`pdf_to_image`, `pdf_thumbnail`, `image_to_pdf`, `image_resize`, `image_crop`, `image_rotate`, `image_flip`, `image_grayscale`, `pdf_metadata`)
+- **61 built-in nodes** — HTTP (GET/POST/PUT/DELETE), file I/O, shell commands, JSON/CSV transforms, foreach iteration, key-value caching (memory + file), conditional routing, schema validation, hashing, templating, Markdown conversion, document extraction (Word/PDF/HTML/VTT/SRT), database queries (SQLite via sqlx, ArangoDB via HTTP), AI text embeddings and chunking (OpenAI, Ollama, OAuth), data extraction helpers (`json_extract_path`, `if_body_contains`, `if_http_status`), delays, inline code execution, subworkflow composition, and image helpers (`pdf_to_image`, `pdf_thumbnail`, `image_to_pdf`, `image_resize`, `image_crop`, `image_rotate`, `image_flip`, `image_grayscale`, `pdf_metadata`)
 - **Function handlers** — pass Lua functions directly as step handlers, no boilerplate needed
 - **Conditional step shorthand** — `step_if(condition, name, handler)` for concise branching
 - **DAG-based scheduling** — steps run in parallel unless dependencies are declared
@@ -250,7 +250,7 @@ flow:step("standard_flow", nodes.log({
 | **Files** | `read_file`, `write_file`, `copy_file`, `move_file`, `delete_file`, `list_directory` |
 | **Shell** | `shell_command` |
 | **Transforms** | `json_parse`, `json_stringify`, `csv_parse`, `csv_stringify`, `select_fields`, `rename_fields`, `data_filter`, `data_transform`, `batch`, `deduplicate`, `foreach` |
-| **Conditionals** | `if_node`, `switch_node` |
+| **Conditionals** | `if_node`, `if_body_contains`, `if_http_status`, `switch_node` |
 | **Validation** | `validate_schema`, `json_validate` |
 | **Markdown** | `markdown_to_html`, `html_to_markdown` |
 | **Cache** | `cache_set`, `cache_get` |

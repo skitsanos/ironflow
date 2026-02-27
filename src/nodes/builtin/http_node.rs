@@ -25,6 +25,48 @@ fn interpolate_json_value(value: &serde_json::Value, ctx: &Context) -> serde_jso
     }
 }
 
+/// Simple percent-encoding for form body values.
+fn percent_encode(input: &str) -> String {
+    let mut result = String::with_capacity(input.len());
+    for byte in input.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                result.push(byte as char);
+            }
+            _ => {
+                result.push_str(&format!("%{:02X}", byte));
+            }
+        }
+    }
+    result
+}
+
+fn body_value_to_text(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Bool(b) => b.to_string(),
+        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::Null => String::new(),
+        other => other.to_string(),
+    }
+}
+
+fn build_form_body(body: &serde_json::Value) -> Result<String> {
+    let object = body
+        .as_object()
+        .ok_or_else(|| anyhow::anyhow!("body_type='form' requires 'body' to be an object"))?;
+
+    let mut pairs = Vec::with_capacity(object.len());
+    for (key, value) in object {
+        pairs.push(format!(
+            "{}={}",
+            percent_encode(key),
+            percent_encode(&body_value_to_text(value))
+        ));
+    }
+    Ok(pairs.join("&"))
+}
+
 async fn do_http_request(
     method: &str,
     config: &serde_json::Value,
@@ -61,6 +103,7 @@ async fn do_http_request(
     };
 
     // Headers
+    let mut has_content_type_header = false;
     if let Some(headers) = config.get("headers").and_then(|v| v.as_object()) {
         let mut header_map = HeaderMap::new();
         for (k, v) in headers {
@@ -70,6 +113,9 @@ async fn do_http_request(
                     HeaderName::from_bytes(k.as_bytes())?,
                     HeaderValue::from_str(&val)?,
                 );
+                if k.eq_ignore_ascii_case("content-type") {
+                    has_content_type_header = true;
+                }
             }
         }
         request = request.headers(header_map);
@@ -111,7 +157,36 @@ async fn do_http_request(
     // Body (with recursive context interpolation)
     if let Some(body) = config.get("body") {
         let interpolated_body = interpolate_json_value(body, ctx);
-        request = request.json(&interpolated_body);
+        let body_type = config
+            .get("body_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("json");
+
+        match body_type {
+            "json" => {
+                request = request.json(&interpolated_body);
+            }
+            "form" => {
+                let form_body = build_form_body(&interpolated_body)?;
+                if !has_content_type_header {
+                    request = request.header("Content-Type", "application/x-www-form-urlencoded");
+                }
+                request = request.body(form_body);
+            }
+            "text" => {
+                let text_body = body_value_to_text(&interpolated_body);
+                if !has_content_type_header {
+                    request = request.header("Content-Type", "text/plain; charset=utf-8");
+                }
+                request = request.body(text_body);
+            }
+            other => {
+                anyhow::bail!(
+                    "Unsupported body_type '{}'. Expected one of: json, form, text",
+                    other
+                );
+            }
+        }
     }
 
     let response = request.send().await?;

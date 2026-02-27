@@ -22,13 +22,13 @@ flow:step("ask", nodes.http_post({
 
 -- Extract just the message content using a code node
 flow:step("extract", nodes.code({
-    source = [[
+    source = function()
         local data = ctx.ai_data
         local reply = data.choices[1].message.content
         local model = data.model
         local tokens = data.usage.total_tokens
         return { reply = reply, model = model, tokens_used = tokens }
-    ]]
+    end
 })):depends_on("ask")
 
 -- Log the extracted reply

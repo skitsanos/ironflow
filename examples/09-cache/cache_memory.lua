@@ -10,9 +10,9 @@ flow:step("store_token", nodes.cache_set({
 
 -- Store a context value
 flow:step("setup_data", nodes.code({
-    source = [[
+    source = function()
         return { user = { id = 42, name = "Alice", role = "admin" } }
-    ]]
+    end
 }))
 
 flow:step("cache_user", nodes.cache_set({

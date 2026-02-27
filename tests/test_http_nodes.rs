@@ -177,6 +177,113 @@ async fn http_post_with_headers() {
     handle.join().unwrap();
 }
 
+#[tokio::test]
+async fn http_post_form_body() {
+    let body = r#"{"ok":true}"#;
+    let (url, handle, rx) = spawn_capturing_mock_server(body);
+
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("http_post").unwrap();
+    let config = serde_json::json!({
+        "url": url,
+        "body_type": "form",
+        "body": {
+            "grant_type": "client_credentials",
+            "client_id": "my-client-id",
+            "client_secret": "my-secret",
+            "scope": "demo scope"
+        },
+        "output_key": "token_request"
+    });
+    let result = node.execute(&config, empty_ctx()).await;
+
+    assert!(
+        result.is_ok(),
+        "http_post form body should succeed: {:?}",
+        result.err()
+    );
+    let output = result.unwrap();
+    assert_eq!(
+        output.get("token_request_status"),
+        Some(&serde_json::json!(200))
+    );
+    assert_eq!(
+        output.get("token_request_data"),
+        Some(&serde_json::json!({"ok": true}))
+    );
+
+    let captured = rx.recv().unwrap();
+    let lower = captured.to_lowercase();
+    assert!(
+        lower.contains("content-type: application/x-www-form-urlencoded"),
+        "Expected form content type, got: {}",
+        captured
+    );
+    assert!(
+        captured.contains("grant_type=client_credentials"),
+        "Expected form-encoded grant_type, got: {}",
+        captured
+    );
+    assert!(
+        captured.contains("client_id=my-client-id"),
+        "Expected client_id field, got: {}",
+        captured
+    );
+    assert!(
+        captured.contains("scope=demo%20scope"),
+        "Expected URL-encoded scope value, got: {}",
+        captured
+    );
+
+    handle.join().unwrap();
+}
+
+#[tokio::test]
+async fn http_post_text_body() {
+    let body = r#"{"ok":true}"#;
+    let (url, handle, rx) = spawn_capturing_mock_server(body);
+
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("http_post").unwrap();
+    let config = serde_json::json!({
+        "url": url,
+        "body_type": "text",
+        "body": "Hello text body",
+        "output_key": "text_request"
+    });
+    let result = node.execute(&config, empty_ctx()).await;
+
+    assert!(
+        result.is_ok(),
+        "http_post text body should succeed: {:?}",
+        result.err()
+    );
+    let output = result.unwrap();
+    assert_eq!(
+        output.get("text_request_status"),
+        Some(&serde_json::json!(200))
+    );
+    assert_eq!(
+        output.get("text_request_data"),
+        Some(&serde_json::json!({"ok": true}))
+    );
+
+    let captured = rx.recv().unwrap();
+    let lower = captured.to_lowercase();
+    assert!(
+        lower.contains("content-type: text/plain; charset=utf-8"),
+        "Expected text content type, got: {}",
+        captured
+    );
+    assert!(
+        captured.ends_with("Hello text body"),
+        "Expected text body payload, got: {}",
+        captured
+    );
+
+    handle.join().unwrap();
+}
+
 // ==================== http_put ====================
 
 #[tokio::test]
@@ -300,6 +407,64 @@ async fn http_request_post_with_explicit_method() {
     assert!(captured.starts_with("POST "), "Expected POST request");
 
     handle.join().unwrap();
+}
+
+#[tokio::test]
+async fn http_request_post_form_body() {
+    let body = r#"{"ok":true}"#;
+    let (url, handle, rx) = spawn_capturing_mock_server(body);
+
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("http_request").unwrap();
+    let config = serde_json::json!({
+        "url": url,
+        "method": "POST",
+        "body_type": "form",
+        "body": {
+            "field": "value with spaces"
+        }
+    });
+    let result = node.execute(&config, empty_ctx()).await;
+
+    assert!(
+        result.is_ok(),
+        "http_request POST with form body should succeed: {:?}",
+        result.err()
+    );
+    let output = result.unwrap();
+    assert_eq!(output.get("http_status"), Some(&serde_json::json!(200)));
+
+    let captured = rx.recv().unwrap();
+    assert!(
+        captured.starts_with("POST "),
+        "Expected POST request, got: {}",
+        &captured[..20]
+    );
+    assert!(
+        captured.contains("field=value%20with%20spaces"),
+        "Expected encoded form payload, got: {}",
+        captured
+    );
+
+    handle.join().unwrap();
+}
+
+#[tokio::test]
+async fn http_request_invalid_body_type() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("http_request").unwrap();
+    let config = serde_json::json!({
+        "url": "http://127.0.0.1:1",
+        "method": "POST",
+        "body_type": "xml",
+        "body": { "a": 1 },
+        "timeout": 2
+    });
+    let result = node.execute(&config, empty_ctx()).await;
+
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("body_type"));
 }
 
 #[tokio::test]

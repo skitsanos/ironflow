@@ -16,6 +16,7 @@ Examples organized from basic to advanced. Each folder builds on concepts from t
 - **transform_pipeline.lua** — Filter, transform, rename, batch, deduplicate
 - **filter_and_batch.lua** — Filter by condition, deduplicate, split into batches
 - **foreach_function.lua** — Iterate over arrays with a Lua function transform
+- **json_extract_path.lua** — Extract values by JSON path from API responses and parsed JSON
 - **csv_parse_stringify.lua** — Parse CSV text and write back canonical CSV
 
 ## 03-control-flow
@@ -31,6 +32,10 @@ Examples organized from basic to advanced. Each folder builds on concepts from t
 ## 05-http
 - **api_call.lua** — Simple GET request with response handling
 - **authenticated_request.lua** — Bearer, Basic, and API key authentication
+- **oauth_access_token.lua** — OAuth token flow (get access_token + authenticated request)
+- **oauth_access_token_form_encoded.lua** — OAuth token via native form-encoded POST (`body_type = "form"`)
+- **if_http_status.lua** — Route by HTTP status with success/code-class routes
+- **if_body_contains.lua** — Route by checking whether response content includes a pattern
 - **openai_chat_completions.lua** — OpenAI Chat Completions API (gpt-4o-mini)
 - **openai_responses.lua** — OpenAI Responses API (gpt-4o-mini)
 - **openai_with_extract.lua** — Chat Completions + function handler to extract the reply
@@ -51,6 +56,8 @@ Examples organized from basic to advanced. Each folder builds on concepts from t
 ## 08-extraction
 - **extract_word.lua** — Extract text and metadata from Word (.docx) files
 - **extract_pdf.lua** — Extract text and metadata from PDF files
+- **extract_vtt.lua** — Extract text and metadata from WebVTT subtitle files
+- **extract_srt.lua** — Extract text and metadata from SRT subtitle files
 - **pdf_to_image.lua** — Render PDF pages to images
 - **pdf_thumbnail.lua** — Render one PDF page as a thumbnail image
 - **pdf_metadata.lua** — Read PDF metadata and page count
@@ -83,6 +90,9 @@ Examples organized from basic to advanced. Each folder builds on concepts from t
 - **embed_openai.lua** — Text embeddings via OpenAI API
 - **embed_ollama.lua** — Text embeddings via local Ollama
 - **embed_oauth.lua** — Text embeddings via OAuth-authenticated endpoint
+- **oauth_chat_completion.lua** — OAuth token flow + OpenAI chat completion on OAUTH_BASE_URL (`gpt-5-mini`)
+- **vtt_sentiment_analysis.lua** — Extract a VTT transcript and run OAuth-backed sentiment analysis with `gpt-5-mini`
+- **vtt_sentiment_analysis_compare.lua** — Compare `gpt-5-mini` vs `gpt-5` on `data/samples/interview.vtt`
 - **pipeline_foreach_embed.lua** — Multi-page PDF embeddings with chunk -> foreach -> embed
 - **chunk_fixed.lua** — Fixed-size text chunking with delimiter boundaries
 - **chunk_split.lua** — Delimiter-based text splitting

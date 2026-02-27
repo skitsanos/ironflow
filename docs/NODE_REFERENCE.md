@@ -1,6 +1,6 @@
 # IronFlow — Node Reference
 
-Complete reference for all 56 built-in nodes. Click any node name for full documentation with parameters, context output, and Lua examples.
+Complete reference for all 61 built-in nodes. Click any node name for full documentation with parameters, context output, and Lua examples.
 
 For adding or maintaining node implementations, see [Node Contributor Manual](NODE_CONTRIBUTING.md).
 
@@ -39,6 +39,7 @@ For adding or maintaining node implementations, see [Node Contributor Manual](NO
 |------|-------------|
 | [`csv_parse`](nodes/csv_parse.md) | Parse CSV text into JSON rows |
 | [`csv_stringify`](nodes/csv_stringify.md) | Convert JSON data to CSV text |
+| [`json_extract_path`](nodes/json_extract_path.md) | Extract a nested value from JSON by path |
 | [`json_parse`](nodes/json_parse.md) | Parse a JSON string into a value |
 | [`json_stringify`](nodes/json_stringify.md) | Serialize a value to a JSON string |
 | [`select_fields`](nodes/select_fields.md) | Pick specific fields from an object |
@@ -54,6 +55,8 @@ For adding or maintaining node implementations, see [Node Contributor Manual](NO
 | Node | Description |
 |------|-------------|
 | [`if_node`](nodes/if_node.md) | Evaluate a condition and set a route |
+| [`if_body_contains`](nodes/if_body_contains.md) | Route execution based on context content pattern match |
+| [`if_http_status`](nodes/if_http_status.md) | Route execution based on an HTTP status key |
 | [`switch_node`](nodes/switch_node.md) | Multi-case routing based on a context value |
 
 ## Timing Nodes
@@ -83,6 +86,8 @@ For adding or maintaining node implementations, see [Node Contributor Manual](NO
 | [`extract_word`](nodes/extract_word.md) | Extract text and metadata from Word (.docx) |
 | [`extract_pdf`](nodes/extract_pdf.md) | Extract text and metadata from PDF |
 | [`extract_html`](nodes/extract_html.md) | Extract text and metadata from HTML |
+| [`extract_vtt`](nodes/extract_vtt.md) | Extract text and metadata from WebVTT subtitles |
+| [`extract_srt`](nodes/extract_srt.md) | Extract text and metadata from SRT subtitles |
 | [`pdf_metadata`](nodes/pdf_metadata.md) | Extract PDF metadata fields and page count |
 | [`pdf_to_image`](nodes/pdf_to_image.md) | Render PDF pages to images |
 | [`pdf_thumbnail`](nodes/pdf_thumbnail.md) | Render a single PDF page as a thumbnail image |

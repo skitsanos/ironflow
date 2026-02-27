@@ -23,8 +23,8 @@ fn registry_with_builtins_has_nodes() {
     let nodes = reg.list();
     // All implemented nodes are now built-in:
     assert!(
-        nodes.len() >= 56,
-        "Expected at least 56 nodes, got {}",
+        nodes.len() >= 61,
+        "Expected at least 61 nodes, got {}",
         nodes.len()
     );
 }
@@ -593,6 +593,181 @@ async fn if_node_missing_key_exists_false() {
     );
 }
 
+#[tokio::test]
+async fn if_http_status_node_success() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("if_http_status").unwrap();
+
+    let config = serde_json::json!({
+        "status_key": "probe_status",
+        "_step_name": "probe"
+    });
+
+    let ctx = ctx_with(vec![("probe_status", serde_json::json!(204))]);
+
+    let result = node.execute(&config, ctx).await.unwrap();
+    assert_eq!(
+        result.get("_route_probe").unwrap(),
+        &serde_json::json!("success")
+    );
+    assert_eq!(
+        result.get("_status_code_probe").unwrap(),
+        &serde_json::json!(204)
+    );
+    assert_eq!(
+        result.get("_status_class_probe").unwrap(),
+        &serde_json::json!("2xx")
+    );
+}
+
+#[tokio::test]
+async fn if_http_status_node_error() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("if_http_status").unwrap();
+
+    let config = serde_json::json!({
+        "status_key": "probe_status",
+        "error_route": "bad",
+        "_step_name": "probe"
+    });
+
+    let ctx = ctx_with(vec![("probe_status", serde_json::json!(404))]);
+
+    let result = node.execute(&config, ctx).await.unwrap();
+    assert_eq!(
+        result.get("_route_probe").unwrap(),
+        &serde_json::json!("bad")
+    );
+}
+
+#[tokio::test]
+async fn if_http_status_node_routes_map() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("if_http_status").unwrap();
+
+    let config = serde_json::json!({
+        "status_key": "probe_status",
+        "_step_name": "probe",
+        "routes": {
+            "401": "unauthorized",
+            "2xx": "success",
+            "default": "unexpected"
+        }
+    });
+
+    let unauthorized = node
+        .execute(
+            &config,
+            ctx_with(vec![("probe_status", serde_json::json!(401))]),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        unauthorized.get("_route_probe").unwrap(),
+        &serde_json::json!("unauthorized")
+    );
+
+    let redirected = node
+        .execute(
+            &config,
+            ctx_with(vec![("probe_status", serde_json::json!(500))]),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        redirected.get("_route_probe").unwrap(),
+        &serde_json::json!("unexpected")
+    );
+}
+
+#[tokio::test]
+async fn if_body_contains_node_case_sensitive_match() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("if_body_contains").unwrap();
+
+    let config = serde_json::json!({
+        "source_key": "response",
+        "pattern": "Hello",
+        "true_route": "found",
+        "false_route": "missing",
+        "_step_name": "resp"
+    });
+    let ctx = ctx_with(vec![("response", serde_json::json!("Hello world"))]);
+
+    let result = node.execute(&config, ctx).await.unwrap();
+    assert_eq!(
+        result.get("_route_resp").unwrap(),
+        &serde_json::json!("found")
+    );
+    assert_eq!(
+        result.get("_contains_resp").unwrap(),
+        &serde_json::json!(true)
+    );
+}
+
+#[tokio::test]
+async fn if_body_contains_node_case_insensitive_match() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("if_body_contains").unwrap();
+
+    let config = serde_json::json!({
+        "source_key": "payload",
+        "pattern": "WORLD",
+        "case_sensitive": false,
+        "_step_name": "payload"
+    });
+    let ctx = ctx_with(vec![("payload", serde_json::json!("hello world"))]);
+
+    let result = node.execute(&config, ctx).await.unwrap();
+    assert_eq!(
+        result.get("_route_payload").unwrap(),
+        &serde_json::json!("true")
+    );
+    assert_eq!(
+        result.get("_contains_payload").unwrap(),
+        &serde_json::json!(true)
+    );
+}
+
+#[tokio::test]
+async fn if_body_contains_node_no_match() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("if_body_contains").unwrap();
+
+    let config = serde_json::json!({
+        "source_key": "payload",
+        "pattern": "missing-value",
+        "false_route": "notfound",
+        "_step_name": "payload"
+    });
+    let ctx = ctx_with(vec![("payload", serde_json::json!("hello world"))]);
+
+    let result = node.execute(&config, ctx).await.unwrap();
+    assert_eq!(
+        result.get("_route_payload").unwrap(),
+        &serde_json::json!("notfound")
+    );
+    assert_eq!(
+        result.get("_contains_payload").unwrap(),
+        &serde_json::json!(false)
+    );
+}
+
+#[tokio::test]
+async fn if_body_contains_node_required_key_missing() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("if_body_contains").unwrap();
+
+    let config = serde_json::json!({
+        "source_key": "missing",
+        "pattern": "x",
+        "required": true
+    });
+
+    let result = node.execute(&config, empty_ctx()).await;
+    assert!(result.is_err());
+}
+
 // --- SwitchNode ---
 
 #[tokio::test]
@@ -638,6 +813,73 @@ async fn switch_node_default() {
         result.get("_route_sw").unwrap(),
         &serde_json::json!("basic")
     );
+}
+
+// --- JsonExtractPathNode ---
+
+#[tokio::test]
+async fn json_extract_path_node() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("json_extract_path").unwrap();
+
+    let config = serde_json::json!({
+        "source_key": "payload",
+        "path": "user.profile.roles[1]",
+        "output_key": "second_role"
+    });
+    let ctx = ctx_with(vec![(
+        "payload",
+        serde_json::json!({"user":{"profile":{"roles":["admin","editor"]}}}),
+    )]);
+
+    let result = node.execute(&config, ctx).await.unwrap();
+    assert_eq!(
+        result.get("second_role").unwrap(),
+        &serde_json::json!("editor")
+    );
+}
+
+#[tokio::test]
+async fn json_extract_path_node_missing_with_default() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("json_extract_path").unwrap();
+
+    let config = serde_json::json!({
+        "source_key": "payload",
+        "path": "user.profile.email",
+        "output_key": "email",
+        "default": "not-found"
+    });
+    let ctx = ctx_with(vec![(
+        "payload",
+        serde_json::json!({"user":{"profile":{"roles":["admin","editor"]}}}),
+    )]);
+
+    let result = node.execute(&config, ctx).await.unwrap();
+    assert_eq!(
+        result.get("email").unwrap(),
+        &serde_json::json!("not-found")
+    );
+}
+
+#[tokio::test]
+async fn json_extract_path_node_required_missing_fails() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("json_extract_path").unwrap();
+
+    let config = serde_json::json!({
+        "source_key": "payload",
+        "path": "user.profile.email",
+        "output_key": "email",
+        "required": true
+    });
+    let ctx = ctx_with(vec![(
+        "payload",
+        serde_json::json!({"user":{"profile":{"roles":["admin","editor"]}}}),
+    )]);
+
+    let result = node.execute(&config, ctx).await;
+    assert!(result.is_err());
 }
 
 // --- HashNode ---

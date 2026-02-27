@@ -235,7 +235,7 @@ async fn ai_chunk_merge_reduces_chunk_count() {
         "Expected fewer than 6 merged chunks, got {}",
         merged.len()
     );
-    assert!(merged.len() >= 1);
+    assert!(!merged.is_empty());
 }
 
 #[tokio::test]

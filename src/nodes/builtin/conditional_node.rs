@@ -110,6 +110,205 @@ impl Node for SwitchNode {
     }
 }
 
+pub struct IfHttpStatusNode;
+
+#[async_trait]
+impl Node for IfHttpStatusNode {
+    fn node_type(&self) -> &str {
+        "if_http_status"
+    }
+
+    fn description(&self) -> &str {
+        "Route execution based on an HTTP status code"
+    }
+
+    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+        let status_key = config
+            .get("status_key")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("if_http_status requires 'status_key'"))?;
+
+        let success_route = config
+            .get("success_route")
+            .and_then(|v| v.as_str())
+            .unwrap_or("success");
+
+        let error_route = config
+            .get("error_route")
+            .and_then(|v| v.as_str())
+            .unwrap_or("error");
+
+        let default_route = config
+            .get("default_route")
+            .and_then(|v| v.as_str())
+            .unwrap_or(error_route);
+
+        let routes = config.get("routes").and_then(|v| v.as_object());
+
+        let step_name = config
+            .get("_step_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("if_http_status");
+
+        let raw_status = resolve_nested(status_key, &ctx)
+            .ok_or_else(|| anyhow::anyhow!("Key '{}' not found in context", status_key))?;
+
+        let status = match raw_status {
+            serde_json::Value::Number(number) => number
+                .as_u64()
+                .and_then(|n| u16::try_from(n).ok())
+                .ok_or_else(|| anyhow::anyhow!("{} value must fit in u16", status_key))?,
+            serde_json::Value::String(value) => value.parse::<u16>().map_err(|_| {
+                anyhow::anyhow!("{} must be a valid status number string", status_key)
+            })?,
+            _ => {
+                anyhow::bail!("{} must be a number or numeric string", status_key);
+            }
+        };
+
+        let route = if let Some(routes) = routes {
+            resolve_status_route(routes, status, default_route)
+        } else if (200..=299).contains(&status) {
+            success_route.to_string()
+        } else {
+            error_route.to_string()
+        };
+
+        let status_class = status_code_class(status);
+
+        let mut output = NodeOutput::new();
+        output.insert(
+            format!("_route_{}", step_name),
+            serde_json::Value::String(route),
+        );
+        output.insert(
+            format!("_status_code_{}", step_name),
+            serde_json::Value::Number((status as u64).into()),
+        );
+        output.insert(
+            format!("_status_class_{}", step_name),
+            serde_json::Value::String(status_class),
+        );
+        Ok(output)
+    }
+}
+
+fn resolve_status_route(
+    routes: &serde_json::Map<String, serde_json::Value>,
+    status: u16,
+    default_route: &str,
+) -> String {
+    let exact_key = status.to_string();
+    if let Some(route) = routes.get(&exact_key).and_then(|value| value.as_str()) {
+        return route.to_string();
+    }
+
+    let class_key = status_code_class(status);
+    if let Some(route) = routes.get(&class_key).and_then(|value| value.as_str()) {
+        return route.to_string();
+    }
+
+    if let Some(route) = routes.get("default").and_then(|value| value.as_str()) {
+        return route.to_string();
+    }
+
+    default_route.to_string()
+}
+
+fn status_code_class(status: u16) -> String {
+    let bucket = status / 100;
+    format!("{}xx", bucket)
+}
+
+pub struct IfBodyContainsNode;
+
+#[async_trait]
+impl Node for IfBodyContainsNode {
+    fn node_type(&self) -> &str {
+        "if_body_contains"
+    }
+
+    fn description(&self) -> &str {
+        "Route execution based on whether context content contains a pattern"
+    }
+
+    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+        let source_key = config
+            .get("source_key")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("if_body_contains requires 'source_key'"))?;
+
+        let pattern = config
+            .get("pattern")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("if_body_contains requires 'pattern'"))?;
+
+        let true_route = config
+            .get("true_route")
+            .and_then(|v| v.as_str())
+            .unwrap_or("true");
+
+        let false_route = config
+            .get("false_route")
+            .and_then(|v| v.as_str())
+            .unwrap_or("false");
+
+        let case_sensitive = config
+            .get("case_sensitive")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+
+        let required = config
+            .get("required")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        let step_name = config
+            .get("_step_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("if_body_contains");
+
+        let raw_value = resolve_nested(source_key, &ctx);
+        let source_text = match raw_value {
+            Some(serde_json::Value::String(s)) => Some(s.clone()),
+            Some(v) if !v.is_object() && !v.is_array() => Some(v.to_string()),
+            Some(v) => Some(v.to_string()),
+            None if required => {
+                anyhow::bail!(
+                    "if_body_contains requires '{}' to exist in context",
+                    source_key
+                )
+            }
+            None => None,
+        };
+
+        let matched = if pattern.is_empty() {
+            false
+        } else if let Some(body) = source_text {
+            if case_sensitive {
+                body.contains(pattern)
+            } else {
+                body.to_lowercase().contains(&pattern.to_lowercase())
+            }
+        } else {
+            false
+        };
+
+        let route = if matched { true_route } else { false_route };
+
+        let mut output = NodeOutput::new();
+        output.insert(
+            format!("_route_{}", step_name),
+            serde_json::Value::String(route.to_string()),
+        );
+        output.insert(
+            format!("_contains_{}", step_name),
+            serde_json::Value::Bool(matched),
+        );
+        Ok(output)
+    }
+}
+
 /// Evaluate a simple condition expression against context.
 /// Supports: ctx.key > N, ctx.key == "value", ctx.key exists, ctx.key != N
 fn evaluate_condition(condition: &str, ctx: &Context) -> bool {

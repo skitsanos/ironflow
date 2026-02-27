@@ -3,7 +3,7 @@ local flow = Flow.new("foreach_function_demo")
 
 -- Set up test data
 flow:step("setup", nodes.code({
-    source = [[
+    source = function()
         return {
             products = {
                 { name = "Widget", price = 10.50, qty = 3 },
@@ -11,7 +11,7 @@ flow:step("setup", nodes.code({
                 { name = "Doohickey", price = 5.75, qty = 10 }
             }
         }
-    ]]
+    end
 }))
 
 -- Transform each product using a function

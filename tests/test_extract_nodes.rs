@@ -15,6 +15,14 @@ fn sample_pdf_path() -> PathBuf {
     )
 }
 
+fn sample_vtt_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("data/samples/sample_subtitles.vtt")
+}
+
+fn sample_srt_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("data/samples/sample_subtitles.srt")
+}
+
 fn html_sample() -> &'static str {
     "<!doctype html><html><head><title>Extract Test</title><meta name=\"author\" content=\"Tester\"><meta name=\"description\" content=\"sample\"></head><body><h1>Hello HTML</h1><p>Plain <b>text</b> with links.</p></body></html>"
 }
@@ -167,4 +175,114 @@ async fn extract_pdf_missing_file_errors() {
         .await
         .expect_err("expected missing-file error");
     assert!(err.to_string().contains("Failed to read"));
+}
+
+#[tokio::test]
+async fn extract_vtt_text_and_metadata() {
+    let path = sample_vtt_path();
+    if !path.exists() {
+        eprintln!("Skipping: sample vtt not found at {}", path.display());
+        return;
+    }
+    let node = NodeRegistry::with_builtins().get("extract_vtt").unwrap();
+
+    let out = node
+        .execute(
+            &serde_json::json!({
+                "path": path.to_string_lossy(),
+                "format": "text",
+                "metadata_key": "subtitle_meta"
+            }),
+            Context::new(),
+        )
+        .await
+        .unwrap();
+
+    let transcript = out.get("transcript").unwrap().as_str().unwrap();
+    let text = transcript;
+    assert!(text.contains("Welcome"));
+    assert!(text.contains("Great to see you"));
+    let cue_count = out
+        .get("subtitle_meta")
+        .unwrap()
+        .get("cue_count")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    assert_eq!(cue_count, 2);
+
+    let cues = out.get("cues").and_then(|v| v.as_array()).unwrap();
+    assert_eq!(cues.len(), 2);
+    let first = &cues[0];
+    assert_eq!(first.get("start_ms").and_then(|v| v.as_u64()), Some(0));
+    assert_eq!(first.get("end_ms").and_then(|v| v.as_u64()), Some(3000));
+    assert_eq!(
+        first.get("start").and_then(|v| v.as_str()),
+        Some("00:00:00.000")
+    );
+    assert_eq!(
+        first.get("text").and_then(|v| v.as_str()),
+        Some("Welcome to IronFlow subtitle extraction.")
+    );
+}
+
+#[tokio::test]
+async fn extract_vtt_markdown() {
+    let path = sample_vtt_path();
+    if !path.exists() {
+        eprintln!("Skipping: sample vtt not found at {}", path.display());
+        return;
+    }
+    let node = NodeRegistry::with_builtins().get("extract_vtt").unwrap();
+
+    let out = node
+        .execute(
+            &serde_json::json!({
+                "path": path.to_string_lossy(),
+                "format": "markdown",
+                "output_key": "subtitle_md",
+            }),
+            Context::new(),
+        )
+        .await
+        .unwrap();
+
+    let md = out.get("subtitle_md").unwrap().as_str().unwrap();
+    assert!(md.contains("->"));
+    assert!(md.contains("00:00:00.000"));
+    let transcript = out.get("transcript").unwrap().as_str().unwrap();
+    assert!(transcript.contains("Welcome"));
+    assert!(transcript.contains("Great to see you"));
+}
+
+#[tokio::test]
+async fn extract_srt_text_and_metadata() {
+    let path = sample_srt_path();
+    if !path.exists() {
+        eprintln!("Skipping: sample srt not found at {}", path.display());
+        return;
+    }
+    let node = NodeRegistry::with_builtins().get("extract_srt").unwrap();
+
+    let out = node
+        .execute(
+            &serde_json::json!({
+                "path": path.to_string_lossy(),
+                "format": "text",
+                "metadata_key": "subtitle_meta"
+            }),
+            Context::new(),
+        )
+        .await
+        .unwrap();
+
+    let text = out.get("transcript").unwrap().as_str().unwrap();
+    assert!(text.contains("Welcome"));
+    assert!(text.contains("Great to see you"));
+    let cue_count = out
+        .get("subtitle_meta")
+        .unwrap()
+        .get("cue_count")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    assert_eq!(cue_count, 2);
 }

@@ -44,6 +44,7 @@ pub fn register_all(registry: &mut NodeRegistry) {
     registry.register(Arc::new(file_node::ListDirectoryNode));
     registry.register(Arc::new(transform_node::JsonParseNode));
     registry.register(Arc::new(transform_node::JsonStringifyNode));
+    registry.register(Arc::new(transform_node::JsonExtractPathNode));
     registry.register(Arc::new(transform_node::CsvParseNode));
     registry.register(Arc::new(transform_node::CsvStringifyNode));
     registry.register(Arc::new(transform_node::SelectFieldsNode));
@@ -54,6 +55,8 @@ pub fn register_all(registry: &mut NodeRegistry) {
     registry.register(Arc::new(transform_node::DeduplicateNode));
     registry.register(Arc::new(conditional_node::IfNode));
     registry.register(Arc::new(conditional_node::SwitchNode));
+    registry.register(Arc::new(conditional_node::IfHttpStatusNode));
+    registry.register(Arc::new(conditional_node::IfBodyContainsNode));
     registry.register(Arc::new(validate_node::ValidateSchemaNode));
     registry.register(Arc::new(validate_node::JsonValidateNode));
     registry.register(Arc::new(template_node::TemplateRenderNode));
@@ -64,6 +67,8 @@ pub fn register_all(registry: &mut NodeRegistry) {
     registry.register(Arc::new(extract_node::ExtractWordNode));
     registry.register(Arc::new(extract_node::ExtractPdfNode));
     registry.register(Arc::new(extract_node::ExtractHtmlNode));
+    registry.register(Arc::new(extract_node::ExtractVttNode));
+    registry.register(Arc::new(extract_node::ExtractSrtNode));
     registry.register(Arc::new(foreach_node::ForEachNode));
     registry.register(Arc::new(cache_node::CacheSetNode));
     registry.register(Arc::new(cache_node::CacheGetNode));

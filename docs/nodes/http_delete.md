@@ -8,10 +8,14 @@ HTTP DELETE request convenience wrapper.
 |--------------|--------|----------|-----------|------------------------------------------------------------------------------------------------------|
 | `url`        | string | yes      | --        | Request URL. Supports context interpolation via `${ctx.key}`.                                        |
 | `headers`    | object | no       | `{}`      | Key-value map of request headers. Header values support `${ctx.key}` interpolation.                  |
-| `body`       | any    | no       | --        | Request body, sent as JSON. All string values within the body are recursively interpolated via `${ctx.key}`. |
+| `body_type`  | string | no       | `"json"`  | Body encoding. Supported values: `json`, `form`, `text`. |
+| `body`       | any    | no       | --        | Request body payload. |
 | `timeout`    | number | no       | `30`      | Request timeout in seconds (supports fractional values).                                             |
 | `auth`       | object | no       | --        | Authentication configuration. See [Auth](#auth) below.                                               |
 | `output_key` | string | no       | `"http"`  | Prefix for context output keys.                                                                      |
+
+For `body_type = "form"`, `body` must be an object and is sent as `application/x-www-form-urlencoded`.
+For `body_type = "text"`, `body` is sent as plain text.
 
 ### Auth
 

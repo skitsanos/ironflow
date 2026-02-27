@@ -6,14 +6,17 @@ Execute inline Lua code with access to the workflow context.
 
 | Parameter      | Type   | Required | Default | Description                                                         |
 |----------------|--------|----------|---------|---------------------------------------------------------------------|
-| `source`       | string | No*      | --      | Lua source code to evaluate                                        |
+| `source`       | string/function | No* | --      | Lua source code string **or inline function** to evaluate              |
 | `bytecode_b64` | string | No*      | --      | Base64-encoded Lua bytecode for function handler mode               |
 
 *Exactly one of `source` or `bytecode_b64` must be provided.
 
 ### Source mode
 
-When `source` is provided, the Lua code is evaluated as an expression or chunk. The last expression's value becomes the node output.
+When `source` is provided, one of two forms are supported:
+
+- Lua source string, evaluated as an expression/chunk. The last expression's value becomes the node output.
+- Lua function, which is compiled to bytecode and executed with sandboxed context as the script body.
 
 ### Function handler (bytecode) mode
 
@@ -56,10 +59,10 @@ Inline source:
 local flow = Flow.new("calculate_total")
 
 flow:step("compute", nodes.code({
-    source = [[
+    source = function()
         local total = ctx.price * ctx.quantity
         return { total = total, currency = ctx.currency or "USD" }
-    ]]
+    end
 }))
 
 flow:step("done", nodes.log({
@@ -75,10 +78,10 @@ Reading an environment variable:
 local flow = Flow.new("env_check")
 
 flow:step("check", nodes.code({
-    source = [[
+    source = function()
         local api_key = env("API_KEY")
         return { has_key = api_key ~= nil }
-    ]]
+    end
 }))
 
 flow:step("done", nodes.log({
