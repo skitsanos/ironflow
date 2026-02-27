@@ -1,6 +1,6 @@
 # IronFlow — Node Reference
 
-Complete reference for all 61 built-in nodes. Click any node name for full documentation with parameters, context output, and Lua examples.
+Complete reference for all 68 built-in nodes. Click any node name for full documentation with parameters, context output, and Lua examples.
 
 For adding or maintaining node implementations, see [Node Contributor Manual](NODE_CONTRIBUTING.md).
 
@@ -32,6 +32,18 @@ For adding or maintaining node implementations, see [Node Contributor Manual](NO
 | [`move_file`](nodes/move_file.md) | Move or rename a file |
 | [`delete_file`](nodes/delete_file.md) | Delete a file |
 | [`list_directory`](nodes/list_directory.md) | List files in a directory |
+
+## S3 Nodes
+
+| Node | Description |
+|------|-------------|
+| [`s3_presign_url`](nodes/s3_presign_url.md) | Generate a presigned URL for supported S3 operations |
+| [`s3_copy_object`](nodes/s3_copy_object.md) | Copy an S3 object to another key or bucket |
+| [`s3_delete_object`](nodes/s3_delete_object.md) | Delete an object from S3 |
+| [`s3_get_object`](nodes/s3_get_object.md) | Download an object from S3 |
+| [`s3_list_buckets`](nodes/s3_list_buckets.md) | List available buckets in the S3 account |
+| [`s3_list_objects`](nodes/s3_list_objects.md) | List objects under a S3 key prefix |
+| [`s3_put_object`](nodes/s3_put_object.md) | Upload an object to S3 |
 
 ## Data Transform Nodes
 

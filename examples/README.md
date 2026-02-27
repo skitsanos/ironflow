@@ -28,6 +28,9 @@ Examples organized from basic to advanced. Each folder builds on concepts from t
 - **read_write_files.lua** — Write, read, list, and delete files
 - **binary_file_io.lua** — Read and write binary files using base64 encoding
 - **copy_move_files.lua** — Copy and move files between locations
+- **s3_put_get_list.lua** — Upload, download, list, and delete objects in `raw/temp`
+- **s3_copy.lua** — Copy objects inside S3 and verify object list
+- **s3_presign_url.lua** — Upload a demo object and generate a presigned S3 URL
 
 ## 05-http
 - **api_call.lua** — Simple GET request with response handling
@@ -40,6 +43,7 @@ Examples organized from basic to advanced. Each folder builds on concepts from t
 - **openai_responses.lua** — OpenAI Responses API (gpt-4o-mini)
 - **openai_with_extract.lua** — Chat Completions + function handler to extract the reply
 - **http_methods.lua** — Generic http_request, http_put, and http_delete
+- **s3_presigned_upload.lua** — Generate a presigned PUT URL, upload a local file via HTTP, and verify with S3
 
 ## 06-shell
 - **run_commands.lua** — Execute shell commands with args, env vars, and timeout

@@ -23,8 +23,8 @@ fn registry_with_builtins_has_nodes() {
     let nodes = reg.list();
     // All implemented nodes are now built-in:
     assert!(
-        nodes.len() >= 61,
-        "Expected at least 61 nodes, got {}",
+        nodes.len() >= 68,
+        "Expected at least 68 nodes, got {}",
         nodes.len()
     );
 }
