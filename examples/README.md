@@ -83,10 +83,14 @@ Examples organized from basic to advanced. Each folder builds on concepts from t
 - **embed_openai.lua** — Text embeddings via OpenAI API
 - **embed_ollama.lua** — Text embeddings via local Ollama
 - **embed_oauth.lua** — Text embeddings via OAuth-authenticated endpoint
+- **pipeline_foreach_embed.lua** — Multi-page PDF embeddings with chunk -> foreach -> embed
 - **chunk_fixed.lua** — Fixed-size text chunking with delimiter boundaries
 - **chunk_split.lua** — Delimiter-based text splitting
 - **chunk_merge.lua** — Merge small chunks into token-budget groups
+- **chunk_embed_openai_word.lua** — Word document → chunk → foreach → OpenAI embeddings
+- **embed_openai_from_ctx.lua** — Context-driven document path for OpenAI embeddings
 - **chunk_semantic.lua** — Semantic chunking using embedding similarity
+- **semantic_chunks_embed.lua** — Semantic chunking then foreach + embeddings
 
 ## Running Examples
 
