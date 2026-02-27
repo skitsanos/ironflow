@@ -18,6 +18,19 @@ env:
   RUSTFLAGS: -Dwarnings
 
 jobs:
+  # Only allow PRs from develop into main
+  branch-guard:
+    name: Branch guard
+    if: github.event_name == 'pull_request' && github.base_ref == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check source branch
+        run: |
+          if [ "${{ github.head_ref }}" != "develop" ]; then
+            echo "::error::Only the 'develop' branch can be merged into 'main'. Got '${{ github.head_ref }}'."
+            exit 1
+          fi
+
   check:
     name: Check
     runs-on: ubuntu-latest
