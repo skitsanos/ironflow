@@ -41,10 +41,13 @@ fn write_temp_png(path: &std::path::Path, color: [u8; 4], width: u32, height: u3
 
 #[tokio::test]
 async fn pdf_to_image_generates_base64_pages() {
+    let sample_pdf = sample_root().join("Bill26022026_121916AM_8000951511_fc72420d-72e1-460b-b714-8a7388ea90d4_.pdf");
+    if !sample_pdf.exists() {
+        eprintln!("Skipping: sample pdf not found at {}", sample_pdf.display());
+        return;
+    }
     let reg = NodeRegistry::with_builtins();
     let node = reg.get("pdf_to_image").unwrap();
-
-    let sample_pdf = sample_root().join("Bill26022026_121916AM_8000951511_fc72420d-72e1-460b-b714-8a7388ea90d4_.pdf");
 
     let config = serde_json::json!({
         "path": sample_pdf.to_string_lossy(),
@@ -70,10 +73,13 @@ async fn pdf_to_image_generates_base64_pages() {
 
 #[tokio::test]
 async fn pdf_thumbnail_generates_one_thumbnail() {
+    let sample_pdf = sample_root().join("Bill26022026_121916AM_8000951511_fc72420d-72e1-460b-b714-8a7388ea90d4_.pdf");
+    if !sample_pdf.exists() {
+        eprintln!("Skipping: sample pdf not found at {}", sample_pdf.display());
+        return;
+    }
     let reg = NodeRegistry::with_builtins();
     let node = reg.get("pdf_thumbnail").unwrap();
-
-    let sample_pdf = sample_root().join("Bill26022026_121916AM_8000951511_fc72420d-72e1-460b-b714-8a7388ea90d4_.pdf");
 
     let config = serde_json::json!({
         "path": sample_pdf.to_string_lossy(),
@@ -249,10 +255,13 @@ async fn image_crop_generates_cropped_file() {
 
 #[tokio::test]
 async fn pdf_metadata_extracts_key_fields() {
+    let sample_pdf = sample_root().join("Bill26022026_121916AM_8000951511_fc72420d-72e1-460b-b714-8a7388ea90d4_.pdf");
+    if !sample_pdf.exists() {
+        eprintln!("Skipping: sample pdf not found at {}", sample_pdf.display());
+        return;
+    }
     let reg = NodeRegistry::with_builtins();
     let node = reg.get("pdf_metadata").unwrap();
-
-    let sample_pdf = sample_root().join("Bill26022026_121916AM_8000951511_fc72420d-72e1-460b-b714-8a7388ea90d4_.pdf");
 
     let config = serde_json::json!({
         "path": sample_pdf.to_string_lossy(),

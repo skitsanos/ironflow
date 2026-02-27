@@ -21,8 +21,12 @@ fn html_sample() -> &'static str {
 
 #[tokio::test]
 async fn extract_word_text_output() {
-    let node = NodeRegistry::with_builtins().get("extract_word").unwrap();
     let path = sample_docx_path();
+    if !path.exists() {
+        eprintln!("Skipping: sample docx not found at {}", path.display());
+        return;
+    }
+    let node = NodeRegistry::with_builtins().get("extract_word").unwrap();
 
     let config = serde_json::json!({
         "path": path.to_string_lossy(),
@@ -36,8 +40,12 @@ async fn extract_word_text_output() {
 
 #[tokio::test]
 async fn extract_word_markdown_with_metadata() {
-    let node = NodeRegistry::with_builtins().get("extract_word").unwrap();
     let path = sample_docx_path();
+    if !path.exists() {
+        eprintln!("Skipping: sample docx not found at {}", path.display());
+        return;
+    }
+    let node = NodeRegistry::with_builtins().get("extract_word").unwrap();
 
     let config = serde_json::json!({
         "path": path.to_string_lossy(),
@@ -113,8 +121,12 @@ async fn extract_html_text_and_markdown() {
 
 #[tokio::test]
 async fn extract_pdf_returns_content_and_metadata() {
-    let node = NodeRegistry::with_builtins().get("extract_pdf").unwrap();
     let path = sample_pdf_path();
+    if !path.exists() {
+        eprintln!("Skipping: sample pdf not found at {}", path.display());
+        return;
+    }
+    let node = NodeRegistry::with_builtins().get("extract_pdf").unwrap();
 
     let out = node
         .execute(
