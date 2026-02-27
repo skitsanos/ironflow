@@ -22,7 +22,7 @@ fn registry_with_builtins_has_nodes() {
     let reg = NodeRegistry::with_builtins();
     let nodes = reg.list();
     // All implemented nodes are now built-in:
-    assert!(nodes.len() >= 52, "Expected at least 52 nodes, got {}", nodes.len());
+    assert!(nodes.len() >= 56, "Expected at least 56 nodes, got {}", nodes.len());
 }
 
 #[test]

@@ -84,7 +84,7 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 
 ## Features
 
-- **56 built-in nodes** — HTTP (GET/POST/PUT/DELETE), file I/O, shell commands, JSON/CSV transforms, foreach iteration, key-value caching (memory + file), conditional routing, schema validation, hashing, templating, Markdown conversion, document extraction (Word/PDF/HTML), database queries (SQLite via sqlx, ArangoDB via HTTP), delays, inline code execution, subworkflow composition, and image helpers (`pdf_to_image`, `pdf_thumbnail`, `image_to_pdf`, `image_resize`, `image_crop`, `image_rotate`, `image_flip`, `image_grayscale`, `pdf_metadata`)
+- **56 built-in nodes** — HTTP (GET/POST/PUT/DELETE), file I/O, shell commands, JSON/CSV transforms, foreach iteration, key-value caching (memory + file), conditional routing, schema validation, hashing, templating, Markdown conversion, document extraction (Word/PDF/HTML), database queries (SQLite via sqlx, ArangoDB via HTTP), AI text embeddings and chunking (OpenAI, Ollama, OAuth), delays, inline code execution, subworkflow composition, and image helpers (`pdf_to_image`, `pdf_thumbnail`, `image_to_pdf`, `image_resize`, `image_crop`, `image_rotate`, `image_flip`, `image_grayscale`, `pdf_metadata`)
 - **Function handlers** — pass Lua functions directly as step handlers, no boilerplate needed
 - **Conditional step shorthand** — `step_if(condition, name, handler)` for concise branching
 - **DAG-based scheduling** — steps run in parallel unless dependencies are declared
@@ -281,7 +281,7 @@ Progressive examples from basic to advanced:
 | [10-database](examples/10-database/) | SQLite CRUD operations with db_query and db_exec |
 | [11-subworkflow](examples/11-subworkflow/) | Subworkflow composition, fire-and-forget, on_error handling |
 | [12-arangodb](examples/12-arangodb/) | ArangoDB AQL queries with bind variables and env-based credentials |
-| [13-ai](examples/13-ai/) | Text embeddings via OpenAI, Ollama, and OAuth providers |
+| [13-ai](examples/13-ai/) | Text embeddings (OpenAI, Ollama, OAuth), text chunking (fixed, split, merge, semantic) |
 
 ## Roadmap
 
