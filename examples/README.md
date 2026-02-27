@@ -97,6 +97,9 @@ Examples organized from basic to advanced. Each folder builds on concepts from t
 - **oauth_chat_completion.lua** — OAuth token flow + OpenAI chat completion on OAUTH_BASE_URL (`gpt-5-mini`)
 - **vtt_sentiment_analysis.lua** — Extract a VTT transcript and run OAuth-backed sentiment analysis with `gpt-5-mini`
 - **vtt_sentiment_analysis_compare.lua** — Compare `gpt-5-mini` vs `gpt-5` on `data/samples/interview.vtt`
+- **llm_openai_chat.lua** — Unified `nodes.llm` chat example using OpenAI-compatible providers
+- **llm_azure_chat.lua** — Unified `nodes.llm` chat example using Azure OpenAI deployment
+- **llm_gemini_chat.lua** — Unified `nodes.llm` chat example using Gemini OpenAI-compatible endpoint
 - **pipeline_foreach_embed.lua** — Multi-page PDF embeddings with chunk -> foreach -> embed
 - **chunk_fixed.lua** — Fixed-size text chunking with delimiter boundaries
 - **chunk_split.lua** — Delimiter-based text splitting

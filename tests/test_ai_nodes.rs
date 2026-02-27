@@ -136,3 +136,75 @@ async fn ai_chunk_semantic_empty_text_returns_zero_chunks() {
         Some(&serde_json::json!(true))
     );
 }
+
+// =============================================================================
+// llm
+// =============================================================================
+
+#[test]
+fn llm_registered_with_correct_type() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("llm");
+    assert!(node.is_some(), "llm should be registered");
+    assert_eq!(node.unwrap().node_type(), "llm");
+}
+
+#[tokio::test]
+async fn llm_missing_mode_input_and_messages() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("llm").unwrap();
+    let config = serde_json::json!({
+        "provider": "openai",
+        "mode": "chat",
+        "output_key": "demo"
+    });
+    let result = node.execute(&config, empty_ctx()).await;
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("input_key") || err.contains("prompt"),
+        "Expected missing prompt/input_key message, got: {}",
+        err
+    );
+}
+
+#[tokio::test]
+async fn llm_missing_openai_api_key() {
+    unsafe { std::env::remove_var("OPENAI_API_KEY") };
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("llm").unwrap();
+    let config = serde_json::json!({
+        "provider": "openai",
+        "prompt": "Hello",
+        "mode": "chat",
+        "output_key": "demo"
+    });
+    let result = node.execute(&config, empty_ctx()).await;
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("llm (openai) requires 'api_key'"),
+        "Expected api_key error, got: {}",
+        err
+    );
+}
+
+#[tokio::test]
+async fn llm_invalid_mode() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("llm").unwrap();
+    let config = serde_json::json!({
+        "provider": "openai",
+        "prompt": "Hello",
+        "mode": "weird",
+        "output_key": "demo"
+    });
+    let result = node.execute(&config, empty_ctx()).await;
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("unsupported mode"),
+        "Expected unsupported mode error, got: {}",
+        err
+    );
+}
