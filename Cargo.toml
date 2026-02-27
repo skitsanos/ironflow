@@ -1,6 +1,6 @@
 [package]
 name = "ironflow"
-version = "1.6.1"
+version = "1.7.0"
 edition = "2024"
 description = "Lightweight workflow engine — Rust core, Lua scripting, single binary"
 
@@ -40,6 +40,7 @@ pdf-extract = "0.10.0"
 image = "0.25.6"
 pdfium-render = "0.8.37"
 sqlx = { version = "0.8", features = ["runtime-tokio", "any", "sqlite"] }
+lettre = { version = "0.11.19", default-features = false, features = ["builder", "hostname", "pool", "smtp-transport", "tokio1", "tokio1-rustls-tls"] }
 
 [features]
 default = ["pdf-render"]

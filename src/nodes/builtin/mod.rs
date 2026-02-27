@@ -18,7 +18,9 @@ mod log_node;
 mod lua_sandbox;
 mod markdown_node;
 mod pdf_image_node;
+mod slack_node;
 mod s3_node;
+mod send_email_node;
 mod shell_node;
 pub(crate) mod subworkflow_node;
 mod template_node;
@@ -79,6 +81,8 @@ pub fn register_all(registry: &mut NodeRegistry) {
     registry.register(Arc::new(s3_node::S3CopyObjectNode));
     registry.register(Arc::new(s3_node::S3ListObjectsNode));
     registry.register(Arc::new(s3_node::S3ListBucketsNode));
+    registry.register(Arc::new(slack_node::SlackNotificationNode));
+    registry.register(Arc::new(send_email_node::SendEmailNode));
     registry.register(Arc::new(cache_node::CacheSetNode));
     registry.register(Arc::new(cache_node::CacheGetNode));
     registry.register(Arc::new(db_node::DbQueryNode));

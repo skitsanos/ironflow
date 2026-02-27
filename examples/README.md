@@ -95,9 +95,18 @@ Examples organized from basic to advanced. Each folder builds on concepts from t
 - **embed_ollama.lua** — Text embeddings via local Ollama
 - **embed_oauth.lua** — Text embeddings via OAuth-authenticated endpoint
 - **oauth_chat_completion.lua** — OAuth token flow + OpenAI chat completion on OAUTH_BASE_URL (`gpt-5-mini`)
+- **llm_oauth_chat_completion.lua** — OAuth client-credentials + `nodes.llm` chat completion on OAUTH_BASE_URL
+- **llm_groq_chat.lua** — Unified `nodes.llm` chat example using Groq (`llama-3.1-8b-instant`)
 - **vtt_sentiment_analysis.lua** — Extract a VTT transcript and run OAuth-backed sentiment analysis with `gpt-5-mini`
 - **vtt_sentiment_analysis_compare.lua** — Compare `gpt-5-mini` vs `gpt-5` on `data/samples/interview.vtt`
 - **llm_openai_chat.lua** — Unified `nodes.llm` chat example using OpenAI-compatible providers
+- **llm_openai_function_tools.lua** — Function/tool-calling with `nodes.llm` against OpenAI-compatible responses
+- **llm_openai_response_format.lua** — OpenAI `response_format` demo (`json_object` + `json_schema`)
+- **llm_openai_tool_web_search.lua** — OpenAI Responses API internal web search tool demo
+- **llm_openai_tool_subworkflow_dispatch.lua** — Pass tool calls to subworkflows via `nodes.llm` and dispatch by tool name
+- **tool_weather_subworkflow.lua** — Reusable weather lookup subworkflow used by tool dispatch example
+- **tool_time_subworkflow.lua** — Reusable current-time subworkflow used by tool dispatch example
+- **tool_unknown_subworkflow.lua** — Handles unknown tool calls for fallback/error demonstration
 - **llm_azure_chat.lua** — Unified `nodes.llm` chat example using Azure OpenAI deployment
 - **llm_gemini_chat.lua** — Unified `nodes.llm` chat example using Gemini OpenAI-compatible endpoint
 - **pipeline_foreach_embed.lua** — Multi-page PDF embeddings with chunk -> foreach -> embed
@@ -108,6 +117,11 @@ Examples organized from basic to advanced. Each folder builds on concepts from t
 - **embed_openai_from_ctx.lua** — Context-driven document path for OpenAI embeddings
 - **chunk_semantic.lua** — Semantic chunking using embedding similarity
 - **semantic_chunks_embed.lua** — Semantic chunking then foreach + embeddings
+
+## 14-notifications
+- **send_email_resend.lua** — Send an email via Resend API
+- **send_email_smtp.lua** — Send an email via SMTP
+- **slack_notification.lua** — Send a Slack message via incoming webhook
 
 ## Running Examples
 

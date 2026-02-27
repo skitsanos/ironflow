@@ -67,7 +67,7 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 │  DAG resolution · Parallel execution · Retry/timeout     │
 │  Context propagation · Conditional routing · State store │
 ├─────────────────────────────────────────────────────────┤
-│                  68 Built-in Nodes                         │
+│                  71 Built-in Nodes                         │
 │  HTTP · Files · Shell · Transforms · Conditionals · ...  │
 │  All implemented in pure Rust for performance & safety   │
 └─────────────────────────────────────────────────────────┘
@@ -84,7 +84,7 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 
 ## Features
 
-- **68 built-in nodes** — HTTP (GET/POST/PUT/DELETE), file I/O, S3 operations, shell commands, JSON/CSV transforms, foreach iteration, key-value caching (memory + file), conditional routing, schema validation, hashing, templating, Markdown conversion, document extraction (Word/PDF/HTML/VTT/SRT), database queries (SQLite via sqlx, ArangoDB via HTTP), AI text embeddings and chunking (OpenAI, Ollama, OAuth), data extraction helpers (`json_extract_path`, `if_body_contains`, `if_http_status`), delays, inline code execution, subworkflow composition, presigned S3 URL support, and image helpers (`pdf_to_image`, `pdf_thumbnail`, `image_to_pdf`, `image_resize`, `image_crop`, `image_rotate`, `image_flip`, `image_grayscale`, `pdf_metadata`)
+- **71 built-in nodes** — HTTP (GET/POST/PUT/DELETE), file I/O, S3 operations, shell commands, JSON/CSV transforms, foreach iteration, key-value caching (memory + file), conditional routing, schema validation, hashing, templating, Markdown conversion, document extraction (Word/PDF/HTML/VTT/SRT), database queries (SQLite via sqlx, ArangoDB via HTTP), AI text embeddings/chunking (`ai_*`) and chat/completions (`llm`) across providers, notification integrations (`send_email`, `slack_notification`), data extraction helpers (`json_extract_path`, `if_body_contains`, `if_http_status`), delays, inline code execution, subworkflow composition, presigned S3 URL support, and image helpers (`pdf_to_image`, `pdf_thumbnail`, `image_to_pdf`, `image_resize`, `image_crop`, `image_rotate`, `image_flip`, `image_grayscale`, `pdf_metadata`).
 - **Function handlers** — pass Lua functions directly as step handlers, no boilerplate needed
 - **Conditional step shorthand** — `step_if(condition, name, handler)` for concise branching
 - **DAG-based scheduling** — steps run in parallel unless dependencies are declared
@@ -248,15 +248,19 @@ flow:step("standard_flow", nodes.log({
 |----------|-------|
 | **HTTP** | `http_request`, `http_get`, `http_post`, `http_put`, `http_delete` |
 | **Files** | `read_file`, `write_file`, `copy_file`, `move_file`, `delete_file`, `list_directory` |
+| **S3** | `s3_presign_url`, `s3_get_object`, `s3_put_object`, `s3_delete_object`, `s3_copy_object`, `s3_list_objects`, `s3_list_buckets` |
 | **Shell** | `shell_command` |
-| **Transforms** | `json_parse`, `json_stringify`, `csv_parse`, `csv_stringify`, `select_fields`, `rename_fields`, `data_filter`, `data_transform`, `batch`, `deduplicate`, `foreach` |
+| **Transforms** | `json_parse`, `json_stringify`, `json_extract_path`, `csv_parse`, `csv_stringify`, `select_fields`, `rename_fields`, `data_filter`, `data_transform`, `batch`, `deduplicate`, `foreach` |
 | **Conditionals** | `if_node`, `if_body_contains`, `if_http_status`, `switch_node` |
 | **Validation** | `validate_schema`, `json_validate` |
 | **Markdown** | `markdown_to_html`, `html_to_markdown` |
 | **Cache** | `cache_set`, `cache_get` |
+| **Notification** | `send_email`, `slack_notification` |
 | **Database** | `db_query`, `db_exec`, `arangodb_aql` |
-| **Composition** | `subworkflow` |
-| **Extraction** | `extract_word`, `extract_pdf`, `extract_html`, `pdf_to_image`, `pdf_thumbnail`, `pdf_metadata`, `image_to_pdf` |
+| **Composition** | `subworkflow`, `code` |
+| **Utility** | `log`, `hash`, `delay`, `template_render` |
+| **AI** | `ai_chunk`, `ai_chunk_merge`, `ai_chunk_semantic`, `ai_embed`, `llm` |
+| **Extraction** | `extract_word`, `extract_pdf`, `extract_html`, `extract_vtt`, `extract_srt`, `pdf_to_image`, `pdf_thumbnail`, `pdf_metadata`, `image_to_pdf` |
 | **Image Processing** | `image_resize`, `image_crop`, `image_rotate`, `image_flip`, `image_grayscale` |
 | **AI** | `ai_embed`, `ai_chunk`, `ai_chunk_merge`, `ai_chunk_semantic` |
 | **Utility** | `log`, `delay`, `template_render`, `hash`, `code` |
@@ -282,11 +286,11 @@ Progressive examples from basic to advanced:
 | [11-subworkflow](examples/11-subworkflow/) | Subworkflow composition, fire-and-forget, on_error handling |
 | [12-arangodb](examples/12-arangodb/) | ArangoDB AQL queries with bind variables and env-based credentials |
 | [13-ai](examples/13-ai/) | Text embeddings (OpenAI, Ollama, OAuth), text chunking (fixed, split, merge, semantic) |
+| [14-notifications](examples/14-notifications/) | Email via Resend or SMTP, Slack webhooks |
 
 ## Roadmap
 
 - Redis state backend
-- S3 file operations
 - PostgreSQL support (via feature flag — SQLite supported now)
 - Webhook triggers
 - Cron scheduling

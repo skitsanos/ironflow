@@ -71,7 +71,7 @@ The core engine, minimal node set, and CLI. Goal: execute a simple multi-step fl
 
 ## Phase 2: Core Nodes ✅
 
-Implement the essential node types. Each node is a Rust struct implementing `Node`. **56 nodes total**.
+Implement the essential node types. Each node is a Rust struct implementing `Node`. **57 nodes total**.
 
 ### 2.1 HTTP Nodes ✅
 - [x] `http_request` — Generic HTTP with method, url, headers, body, auth, timeout
@@ -176,8 +176,8 @@ Implement the essential node types. Each node is a Rust struct implementing `Nod
 - [ ] `parallel_subworkflows` — Concurrent subworkflow execution
 
 ### 4.3 Notification Nodes
-- [ ] `send_email` — SMTP email via `lettre`
-- [ ] `slack_notification` — Webhook-based Slack messages
+- [x] `send_email` — Email via Resend API or SMTP
+- [x] `slack_notification` — Webhook-based Slack messages
 
 ### 4.4 Control Plane Nodes
 - [ ] `metrics_emit` — In-memory metrics collection
@@ -228,4 +228,4 @@ Phase 1 ✅ ──→ Phase 2 ✅ ──→ Phase 3 ✅
                              └──→ Phase 5 (partial ✅)
 ```
 
-Phases 1-3 are complete (56 nodes, full CLI, REST API). Phase 4 partially done (db, cache, foreach, subworkflow). Phase 5 mostly done — testing complete (additional image tests added), config and Redis remaining.
+Phases 1-3 are complete (57 nodes, full CLI, REST API). Phase 4 partially done (db, cache, foreach, subworkflow). Phase 5 mostly done — testing complete (additional image tests added), config and Redis remaining.

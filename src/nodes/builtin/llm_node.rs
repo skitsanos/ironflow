@@ -139,6 +139,48 @@ fn extract_text(value: &serde_json::Value, out: &mut String) {
     }
 }
 
+fn extract_chat_tool_calls(data: &serde_json::Value) -> Vec<serde_json::Value> {
+    let Some(choices) = data.get("choices").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let Some(first_choice) = choices.first() else {
+        return Vec::new();
+    };
+    let Some(message) = first_choice.get("message").or_else(|| first_choice.get("delta")) else {
+        return Vec::new();
+    };
+
+    message
+        .get("tool_calls")
+        .and_then(Value::as_array)
+        .map(|tool_calls| {
+            tool_calls
+                .iter()
+                .filter_map(|call| {
+                    if call.is_object() {
+                        Some(call.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn extract_tool_call_names(tool_calls: &[serde_json::Value]) -> Vec<String> {
+    tool_calls
+        .iter()
+        .filter_map(|call| {
+            call.get("function")
+                .and_then(|f| f.get("name"))
+                .and_then(Value::as_str)
+                .or_else(|| call.get("name").and_then(Value::as_str))
+                .map(str::to_string)
+        })
+        .collect()
+}
+
 fn extract_chat_reply(data: &serde_json::Value) -> Option<String> {
     let choices = data.get("choices")?.as_array()?;
     let first = choices.first()?;
@@ -202,6 +244,37 @@ fn parse_timeout(config: &serde_json::Value) -> f64 {
         .get("timeout")
         .and_then(|v| v.as_f64())
         .unwrap_or(30.0)
+}
+
+fn resolve_tools(
+    config: &serde_json::Value,
+    ctx: &Context,
+) -> Result<Option<serde_json::Value>> {
+    let Some(raw_tools) = config.get("tools") else {
+        return Ok(None);
+    };
+
+    let tools = interpolate_json_value(raw_tools, ctx);
+    match tools {
+        serde_json::Value::Array(_) => Ok(Some(tools)),
+        serde_json::Value::Object(_) => Ok(Some(serde_json::Value::Array(vec![tools]))),
+        _ => anyhow::bail!("llm: 'tools' must be an array of tool objects"),
+    }
+}
+
+fn resolve_tool_choice(
+    config: &serde_json::Value,
+    ctx: &Context,
+) -> Result<Option<serde_json::Value>> {
+    let Some(raw_tool_choice) = config.get("tool_choice") else {
+        return Ok(None);
+    };
+
+    let tool_choice = interpolate_json_value(raw_tool_choice, ctx);
+    match tool_choice {
+        serde_json::Value::String(_) | serde_json::Value::Object(_) => Ok(Some(tool_choice)),
+        _ => anyhow::bail!("llm: 'tool_choice' must be a string or object"),
+    }
 }
 
 fn resolve_model(
@@ -438,14 +511,28 @@ fn resolve_prompt(config: &serde_json::Value, ctx: &Context) -> Result<String> {
     anyhow::bail!("llm: either 'prompt', 'input_key', or 'messages' is required");
 }
 
-fn build_body(
+struct LlmBodyInput<'a> {
     mode: LlmMode,
-    model: &str,
+    model: &'a str,
     messages: Option<Vec<Value>>,
-    prompt: &str,
-    config: &serde_json::Value,
-    ctx: &Context,
-) -> Result<Value> {
+    prompt: &'a str,
+    config: &'a serde_json::Value,
+    ctx: &'a Context,
+    tools: Option<Value>,
+    tool_choice: Option<Value>,
+}
+
+fn build_body(input: &LlmBodyInput<'_>) -> Result<Value> {
+    let LlmBodyInput {
+        mode,
+        model,
+        messages,
+        prompt,
+        config,
+        ctx,
+        tools,
+        tool_choice,
+    } = input;
     let body = json!({ "model": model });
 
     let mut body_obj = body
@@ -468,8 +555,8 @@ fn build_body(
     }
 
     if matches!(mode, LlmMode::Chat) {
-        let final_messages = if let Some(messages) = messages {
-            messages
+        let final_messages = if let Some(messages) = messages.as_ref() {
+            messages.clone()
         } else {
             let mut items = Vec::new();
             if let Some(system_prompt) = config
@@ -492,6 +579,13 @@ fn build_body(
         body_obj.insert("messages".to_string(), Value::Array(final_messages));
     } else {
         body_obj.insert("input".to_string(), Value::String(prompt.to_string()));
+    }
+
+    if matches!(mode, LlmMode::Chat) && let Some(tools) = tools {
+        body_obj.insert("tools".to_string(), tools.clone());
+    }
+    if matches!(mode, LlmMode::Chat) && let Some(tool_choice) = tool_choice {
+        body_obj.insert("tool_choice".to_string(), tool_choice.clone());
     }
 
     if let Some(extra) = config.get("extra").and_then(|v| v.as_object()) {
@@ -518,6 +612,8 @@ impl Node for LlmNode {
     async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
         let mode = parse_mode(config)?;
         let timeout_s = parse_timeout(config);
+        let tools = resolve_tools(config, &ctx)?;
+        let tool_choice = resolve_tool_choice(config, &ctx)?;
         let output_key = config
             .get("output_key")
             .and_then(|v| v.as_str())
@@ -553,7 +649,17 @@ impl Node for LlmNode {
         };
         let model = resolve_model(config, mode, azure_deployment.as_deref());
         let (url, headers, provider_name) = resolve_provider_config(config, &ctx, mode)?;
-        let body = build_body(mode, &model, messages, &prompt, config, &ctx)?;
+        let request_input = LlmBodyInput {
+            mode,
+            model: &model,
+            messages,
+            prompt: &prompt,
+            config,
+            ctx: &ctx,
+            tools,
+            tool_choice,
+        };
+        let body = build_body(&request_input)?;
 
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs_f64(timeout_s))
@@ -589,6 +695,13 @@ impl Node for LlmNode {
             LlmMode::Chat => extract_chat_reply(&parsed),
             LlmMode::Responses => extract_responses_reply(&parsed),
         };
+        let tool_calls = if matches!(mode, LlmMode::Chat) {
+            extract_chat_tool_calls(&parsed)
+        } else {
+            Vec::new()
+        };
+        let has_tool_calls = !tool_calls.is_empty();
+        let tool_call_names = extract_tool_call_names(&tool_calls);
 
         let mut output = NodeOutput::new();
         output.insert(format!("{}_model", output_key), Value::String(model));
@@ -614,12 +727,34 @@ impl Node for LlmNode {
         }
         if let Some(reply) = reply {
             output.insert(format!("{}_text", output_key), Value::String(reply));
+        } else if !tool_calls.is_empty() {
+            output.insert(
+                format!("{}_text", output_key),
+                Value::String("<tool call requested>".to_string()),
+            );
         } else {
             output.insert(
                 format!("{}_text", output_key),
                 Value::String("<no reply>".to_string()),
             );
         }
+        output.insert(
+            format!("{}_tool_calls", output_key),
+            Value::Array(tool_calls),
+        );
+        output.insert(
+            format!("{}_tool_call_needed", output_key),
+            Value::Bool(has_tool_calls),
+        );
+        output.insert(
+            format!("{}_tool_call_names", output_key),
+            Value::Array(
+                tool_call_names
+                    .into_iter()
+                    .map(serde_json::Value::String)
+                    .collect(),
+            ),
+        );
 
         Ok(output)
     }

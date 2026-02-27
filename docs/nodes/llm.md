@@ -9,6 +9,8 @@ Run a chat-style request against OpenAI, OpenAI-compatible, Azure, or custom end
 | `provider` | string | no | `"openai"` | Provider backend: `"openai"`, `"openai_compatible"`, `"azure"`, `"custom"` |
 | `mode` | string | no | `"chat"` | Request mode: `"chat"`, `"responses"`, or `"auto"` |
 | `model` | string | no | provider-dependent | Model name (for Azure, defaults to deployment when available) |
+| `tools` | array | no | — | OpenAI-style tool definitions, provided as a Lua table |
+| `tool_choice` | string/object | no | `"auto"` | Tool selection behavior (`"auto"`, `"required"`, or explicit object) |
 | `prompt` | string | no | — | Direct prompt text for user content |
 | `input_key` | string | no | `"prompt"` | Context key for prompt text when `prompt` is not set |
 | `messages` | array | no | — | Chat-style message objects (`role`, `content`) for chat mode |
@@ -17,6 +19,7 @@ Run a chat-style request against OpenAI, OpenAI-compatible, Azure, or custom end
 | `temperature` | number | no | — | Sampling temperature |
 | `max_tokens` | number | no | — | OpenAI chat `max_tokens` (mapped to `max_tokens` for chat and `max_output_tokens` for responses) |
 | `max_output_tokens` | number | no | — | Direct `max_output_tokens` passthrough |
+| `response_format` | object | no | — | OpenAI-compatible response format override. Useful aliases: `{ type = "json_object" }` or `{ type = "json_schema", json_schema = { ... } }` |
 | `extra` | object | no | — | Extra request fields merged into payload |
 | `output_key` | string | no | `"llm"` | Prefix for output context keys |
 | `timeout` | number | no | `30` | Request timeout in seconds |
@@ -57,6 +60,9 @@ Run a chat-style request against OpenAI, OpenAI-compatible, Azure, or custom end
 - `{output_key}_status` — HTTP status code
 - `{output_key}_success` — `true` on success
 - `{output_key}_usage` — token usage section when available
+- `{output_key}_tool_calls` — parsed tool call objects (if any)
+- `{output_key}_tool_call_needed` — `true` when model returned one or more tool calls
+- `{output_key}_tool_call_names` — list of called function names
 
 ## Examples
 
@@ -111,3 +117,112 @@ flow:step("chat", nodes.llm({
     output_key = "gemini_chat"
 }))
 ```
+
+### OpenAI response_format: `json_object` and `json_schema`
+
+```lua
+flow:step("json_object", nodes.llm({
+    provider = "openai",
+    model = "gpt-5-mini",
+    temperature = 0.0,
+    prompt = "Return a JSON object with keys `language` and `topic`.",
+    output_key = "openai_json_object",
+    extra = {
+        response_format = {
+            type = "json_object",
+        }
+    }
+}))
+
+flow:step("json_schema", nodes.llm({
+    provider = "openai",
+    model = "gpt-5-mini",
+    temperature = 0.0,
+    prompt = "Return JSON with sentiment and confidence.",
+    output_key = "openai_json_schema",
+    extra = {
+        response_format = {
+            type = "json_schema",
+            json_schema = {
+                name = "sentiment_schema",
+                strict = true,
+                schema = {
+                    type = "object",
+                    properties = {
+                        sentiment = { type = "string", enum = { "positive", "neutral", "negative" } },
+                        confidence = { type = "number", minimum = 0, maximum = 1 },
+                    },
+                    required = { "sentiment", "confidence" },
+                    additionalProperties = false,
+                },
+            },
+        }
+    }
+}))
+```
+
+### OpenAI Responses internal tools (web search)
+
+```lua
+flow:step("search", nodes.llm({
+    provider = "openai",
+    mode = "responses",
+    model = "gpt-4o-mini",
+    prompt = "Use web search to find ...",
+    output_key = "search",
+    extra = {
+        tools = {
+            { type = "web_search_preview" }
+        },
+        tool_choice = "auto"
+    }
+}))
+```
+
+### OpenAI function calling with Lua-defined function tools
+
+```lua
+flow:step("ask", nodes.llm({
+    provider = "openai",
+    mode = "chat",
+    model = "gpt-5-mini",
+    messages = {
+        { role = "user", content = "What is the current weather in Paris?" },
+    },
+    tools = {
+        {
+            type = "function",
+            function = {
+                name = "get_weather",
+                description = "Get the current weather for a city.",
+                parameters = {
+                    type = "object",
+                    properties = {
+                        city = {
+                            type = "string",
+                            description = "City name requested by the user.",
+                        },
+                    },
+                    required = { "city" },
+                    additionalProperties = false,
+                },
+            },
+        },
+    },
+    tool_choice = "required",
+    output_key = "weather_tool",
+}))
+
+-- `weather_tool_tool_calls` contains the tool call payload:
+-- {
+--   {
+--     id = "call_xxx",
+--     type = "function",
+--     function = { name = "get_weather", arguments = '{"city":"Paris"}' }
+--   }
+-- }
+```
+
+`llm` exposes tool-calling details as `{output_key}_tool_calls`, `{output_key}_tool_call_needed`, and `{output_key}_tool_call_names`.
+
+`llm` also merges `extra` into the request body as-is for providers that do not yet expose all fields in this table.

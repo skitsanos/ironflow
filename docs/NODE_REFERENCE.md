@@ -1,6 +1,6 @@
 # IronFlow — Node Reference
 
-Complete reference for all 69 built-in nodes. Click any node name for full documentation with parameters, context output, and Lua examples.
+Complete reference for all 71 built-in nodes. Click any node name for full documentation with parameters, context output, and Lua examples.
 
 For adding or maintaining node implementations, see [Node Contributor Manual](NODE_CONTRIBUTING.md).
 
@@ -44,6 +44,13 @@ For adding or maintaining node implementations, see [Node Contributor Manual](NO
 | [`s3_list_buckets`](nodes/s3_list_buckets.md) | List available buckets in the S3 account |
 | [`s3_list_objects`](nodes/s3_list_objects.md) | List objects under a S3 key prefix |
 | [`s3_put_object`](nodes/s3_put_object.md) | Upload an object to S3 |
+
+## Notification Nodes
+
+| Node | Description |
+|------|-------------|
+| [`send_email`](nodes/send_email.md) | Send an email via Resend API or SMTP |
+| [`slack_notification`](nodes/slack_notification.md) | Send a message to Slack via incoming webhook |
 
 ## Data Transform Nodes
 
