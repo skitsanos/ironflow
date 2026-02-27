@@ -21,8 +21,8 @@ fn ctx_with(pairs: Vec<(&str, serde_json::Value)>) -> Context {
 fn registry_with_builtins_has_nodes() {
     let reg = NodeRegistry::with_builtins();
     let nodes = reg.list();
-    // Should have 39+ nodes
-    assert!(nodes.len() >= 39, "Expected 39+ nodes, got {}", nodes.len());
+    // All implemented nodes are now built-in:
+    assert!(nodes.len() >= 52, "Expected at least 52 nodes, got {}", nodes.len());
 }
 
 #[test]
@@ -31,6 +31,54 @@ fn registry_get_existing() {
     let log = reg.get("log");
     assert!(log.is_some());
     assert_eq!(log.unwrap().node_type(), "log");
+}
+
+#[test]
+fn registry_get_image_resize_node() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("image_resize");
+    assert!(node.is_some());
+    assert_eq!(node.unwrap().node_type(), "image_resize");
+}
+
+#[test]
+fn registry_get_image_crop_node() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("image_crop");
+    assert!(node.is_some());
+    assert_eq!(node.unwrap().node_type(), "image_crop");
+}
+
+#[test]
+fn registry_get_pdf_metadata_node() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("pdf_metadata");
+    assert!(node.is_some());
+    assert_eq!(node.unwrap().node_type(), "pdf_metadata");
+}
+
+#[test]
+fn registry_get_image_rotate_node() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("image_rotate");
+    assert!(node.is_some());
+    assert_eq!(node.unwrap().node_type(), "image_rotate");
+}
+
+#[test]
+fn registry_get_image_flip_node() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("image_flip");
+    assert!(node.is_some());
+    assert_eq!(node.unwrap().node_type(), "image_flip");
+}
+
+#[test]
+fn registry_get_image_grayscale_node() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("image_grayscale");
+    assert!(node.is_some());
+    assert_eq!(node.unwrap().node_type(), "image_grayscale");
 }
 
 #[test]
@@ -143,6 +191,97 @@ async fn json_stringify_node() {
     let s = result.get("json_str").unwrap().as_str().unwrap();
     let back: serde_json::Value = serde_json::from_str(s).unwrap();
     assert_eq!(back, serde_json::json!({"x": 42}));
+}
+
+#[tokio::test]
+async fn csv_parse_node() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("csv_parse").unwrap();
+
+    let config = serde_json::json!({
+        "source_key": "raw_csv",
+        "output_key": "rows",
+        "has_header": true,
+        "infer_types": true
+    });
+    let ctx = ctx_with(vec![(
+        "raw_csv",
+        serde_json::json!("name,age\nAlice,30\nBob,25"),
+    )]);
+
+    let result = node.execute(&config, ctx).await.unwrap();
+    let rows = result.get("rows").unwrap().as_array().unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].get("name").unwrap(), "Alice");
+    assert_eq!(rows[0].get("age").unwrap(), 30);
+}
+
+#[tokio::test]
+async fn csv_parse_without_header() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("csv_parse").unwrap();
+
+    let config = serde_json::json!({
+        "source_key": "raw_csv",
+        "output_key": "rows",
+        "has_header": false,
+        "delimiter": ";"
+    });
+    let ctx = ctx_with(vec![("raw_csv", serde_json::json!("Alice;30\nBob;25"))]);
+
+    let result = node.execute(&config, ctx).await.unwrap();
+    let rows = result.get("rows").unwrap().as_array().unwrap();
+    let row = rows[0].as_array().unwrap();
+    assert_eq!(row[0], "Alice");
+    assert_eq!(row[1], "30");
+}
+
+#[tokio::test]
+async fn csv_stringify_node_objects() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("csv_stringify").unwrap();
+
+    let config = serde_json::json!({
+        "source_key": "rows",
+        "output_key": "csv",
+        "include_headers": true
+    });
+    let ctx = ctx_with(vec![(
+        "rows",
+        serde_json::json!([
+            {"name": "Alice", "age": 30},
+            {"name": "Bob", "age": 25}
+        ]),
+    )]);
+
+    let result = node.execute(&config, ctx).await.unwrap();
+    let csv_text = result.get("csv").unwrap().as_str().unwrap();
+    let lines: Vec<&str> = csv_text.lines().collect();
+    assert_eq!(lines[0], "age,name");
+    assert_eq!(lines[1], "30,Alice");
+    assert_eq!(lines[2], "25,Bob");
+}
+
+#[tokio::test]
+async fn csv_stringify_node_arrays() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("csv_stringify").unwrap();
+
+    let config = serde_json::json!({
+        "source_key": "rows",
+        "output_key": "csv",
+        "include_headers": false
+    });
+    let ctx = ctx_with(vec![("rows", serde_json::json!([
+        [1, 2],
+        [3, 4]
+    ]))]);
+
+    let result = node.execute(&config, ctx).await.unwrap();
+    let csv_text = result.get("csv").unwrap().as_str().unwrap();
+    let lines: Vec<&str> = csv_text.lines().collect();
+    assert_eq!(lines[0], "1,2");
+    assert_eq!(lines[1], "3,4");
 }
 
 // --- SelectFieldsNode ---
@@ -610,6 +749,66 @@ async fn validate_schema_invalid() {
             // Also acceptable — validation failure as error
         }
     }
+}
+
+#[tokio::test]
+async fn json_validate_node_valid() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("json_validate").unwrap();
+
+    let config = serde_json::json!({
+        "source_key": "payload_raw",
+        "schema": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+                "name": { "type": "string" }
+            }
+        }
+    });
+    let ctx = ctx_with(vec![("payload_raw", serde_json::json!(r#"{"name":"Alice"}"#))]);
+
+    let result = node.execute(&config, ctx).await.unwrap();
+    assert_eq!(
+        result.get("validation_success").unwrap(),
+        &serde_json::json!(true)
+    );
+}
+
+#[tokio::test]
+async fn json_validate_node_invalid() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("json_validate").unwrap();
+
+    let config = serde_json::json!({
+        "source_key": "payload_raw",
+        "schema": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+                "name": { "type": "string" }
+            }
+        }
+    });
+    let ctx = ctx_with(vec![("payload_raw", serde_json::json!(r#"{"age":30}"#))]);
+
+    let result = node.execute(&config, ctx).await;
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn json_validate_node_bad_json() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("json_validate").unwrap();
+
+    let config = serde_json::json!({
+        "source_key": "payload_raw",
+        "schema": { "type": "object" }
+    });
+    let ctx = ctx_with(vec![("payload_raw", serde_json::json!("\"unclosed\""))]);
+
+    let result = node.execute(&config, ctx).await;
+    assert!(result.is_err());
 }
 
 // --- MarkdownToHtmlNode ---

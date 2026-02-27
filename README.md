@@ -67,7 +67,7 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 │  DAG resolution · Parallel execution · Retry/timeout     │
 │  Context propagation · Conditional routing · State store │
 ├─────────────────────────────────────────────────────────┤
-│                  41 Built-in Nodes                         │
+│                  56 Built-in Nodes                         │
 │  HTTP · Files · Shell · Transforms · Conditionals · ...  │
 │  All implemented in pure Rust for performance & safety   │
 └─────────────────────────────────────────────────────────┘
@@ -84,7 +84,7 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 
 ## Features
 
-- **41 built-in nodes** — HTTP (GET/POST/PUT/DELETE), file I/O, shell commands, JSON transforms, foreach iteration, key-value caching (memory + file), conditional routing, schema validation, hashing, templating, Markdown conversion, document extraction (Word/PDF/HTML), database queries (SQLite via sqlx, ArangoDB via HTTP), delays, inline code execution, subworkflow composition, and PDF-to-image rendering
+- **56 built-in nodes** — HTTP (GET/POST/PUT/DELETE), file I/O, shell commands, JSON/CSV transforms, foreach iteration, key-value caching (memory + file), conditional routing, schema validation, hashing, templating, Markdown conversion, document extraction (Word/PDF/HTML), database queries (SQLite via sqlx, ArangoDB via HTTP), delays, inline code execution, subworkflow composition, and image helpers (`pdf_to_image`, `pdf_thumbnail`, `image_to_pdf`, `image_resize`, `image_crop`, `image_rotate`, `image_flip`, `image_grayscale`, `pdf_metadata`)
 - **Function handlers** — pass Lua functions directly as step handlers, no boilerplate needed
 - **Conditional step shorthand** — `step_if(condition, name, handler)` for concise branching
 - **DAG-based scheduling** — steps run in parallel unless dependencies are declared
@@ -249,14 +249,16 @@ flow:step("standard_flow", nodes.log({
 | **HTTP** | `http_request`, `http_get`, `http_post`, `http_put`, `http_delete` |
 | **Files** | `read_file`, `write_file`, `copy_file`, `move_file`, `delete_file`, `list_directory` |
 | **Shell** | `shell_command` |
-| **Transforms** | `json_parse`, `json_stringify`, `select_fields`, `rename_fields`, `data_filter`, `data_transform`, `batch`, `deduplicate`, `foreach` |
+| **Transforms** | `json_parse`, `json_stringify`, `csv_parse`, `csv_stringify`, `select_fields`, `rename_fields`, `data_filter`, `data_transform`, `batch`, `deduplicate`, `foreach` |
 | **Conditionals** | `if_node`, `switch_node` |
-| **Validation** | `validate_schema` |
+| **Validation** | `validate_schema`, `json_validate` |
 | **Markdown** | `markdown_to_html`, `html_to_markdown` |
 | **Cache** | `cache_set`, `cache_get` |
 | **Database** | `db_query`, `db_exec`, `arangodb_aql` |
 | **Composition** | `subworkflow` |
-| **Extraction** | `extract_word`, `extract_pdf`, `extract_html`, `pdf_to_image` |
+| **Extraction** | `extract_word`, `extract_pdf`, `extract_html`, `pdf_to_image`, `pdf_thumbnail`, `pdf_metadata`, `image_to_pdf` |
+| **Image Processing** | `image_resize`, `image_crop`, `image_rotate`, `image_flip`, `image_grayscale` |
+| **AI** | `ai_embed`, `ai_chunk`, `ai_chunk_merge`, `ai_chunk_semantic` |
 | **Utility** | `log`, `delay`, `template_render`, `hash`, `code` |
 
 See [docs/NODE_REFERENCE.md](docs/NODE_REFERENCE.md) for the complete reference with parameters and examples.
@@ -274,11 +276,12 @@ Progressive examples from basic to advanced:
 | [05-http](examples/05-http/) | API calls, authentication, OpenAI integration |
 | [06-shell](examples/06-shell/) | Shell commands with args, env vars, timeouts |
 | [07-advanced](examples/07-advanced/) | Hashing, schema validation, full data pipelines, function handlers |
-| [08-extraction](examples/08-extraction/) | Word/PDF/HTML text extraction, metadata, PDF-to-image rendering |
+| [08-extraction](examples/08-extraction/) | Word/PDF/HTML text extraction, metadata, PDF-to-image rendering, image resize/crop |
 | [09-cache](examples/09-cache/) | In-memory and file-based key-value caching with TTL |
 | [10-database](examples/10-database/) | SQLite CRUD operations with db_query and db_exec |
 | [11-subworkflow](examples/11-subworkflow/) | Subworkflow composition, fire-and-forget, on_error handling |
 | [12-arangodb](examples/12-arangodb/) | ArangoDB AQL queries with bind variables and env-based credentials |
+| [13-ai](examples/13-ai/) | Text embeddings via OpenAI, Ollama, and OAuth providers |
 
 ## Roadmap
 

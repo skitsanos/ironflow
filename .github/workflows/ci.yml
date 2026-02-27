@@ -19,7 +19,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --all-targets
-      - run: cargo check --all-targets --features pdf-render
 
   clippy:
     name: Clippy
@@ -31,7 +30,6 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo clippy --all-targets --features pdf-render -- -D warnings
 
   fmt:
     name: Format
@@ -54,7 +52,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --all-targets
-      - run: cargo test --all-targets --features pdf-render
 
   build:
     name: Build
@@ -67,7 +64,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release
-      - run: cargo build --release --features pdf-render
 
   validate-examples:
     name: Validate example flows
@@ -82,10 +78,6 @@ jobs:
         run: |
           failed=0
           for f in examples/**/*.lua; do
-            # Skip examples that require optional features
-            case "$f" in
-              *pdf_to_image*) echo "Skipping $f (requires pdf-render feature)"; continue ;;
-            esac
             echo "Validating $f..."
             if ! ./target/release/ironflow validate "$f"; then
               echo "FAIL: $f"

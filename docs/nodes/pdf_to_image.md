@@ -1,6 +1,6 @@
 # `pdf_to_image`
 
-Render PDF pages to images (requires the `pdf-render` feature and the pdfium library at runtime).
+Render PDF pages to images using the native `pdfium` library at runtime.
 
 ## Parameters
 
@@ -14,7 +14,7 @@ Render PDF pages to images (requires the `pdf-render` feature and the pdfium lib
 | `output_key` | string | no | `"images"` | Context key where the array of rendered image objects is stored. |
 
 > Providing both `path` and `source_key` is an error.
-> Requires the pdfium native library. Set `PDFIUM_LIB_PATH` env var, place `libpdfium` in the working directory, or install it system-wide.
+> Requires the `pdfium` native library. Set `PDFIUM_LIB_PATH` env var, place `libpdfium` in the working directory, or install it system-wide.
 
 ## Context Output
 

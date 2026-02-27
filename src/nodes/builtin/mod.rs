@@ -1,3 +1,7 @@
+mod ai_chunk_merge_node;
+mod ai_chunk_node;
+mod ai_chunk_semantic_node;
+pub(crate) mod ai_embed_node;
 mod cache_node;
 pub(crate) mod code_node;
 mod conditional_node;
@@ -12,7 +16,6 @@ mod http_node;
 mod log_node;
 mod lua_sandbox;
 mod markdown_node;
-#[cfg(feature = "pdf-render")]
 mod pdf_image_node;
 mod shell_node;
 pub(crate) mod subworkflow_node;
@@ -41,6 +44,8 @@ pub fn register_all(registry: &mut NodeRegistry) {
     registry.register(Arc::new(file_node::ListDirectoryNode));
     registry.register(Arc::new(transform_node::JsonParseNode));
     registry.register(Arc::new(transform_node::JsonStringifyNode));
+    registry.register(Arc::new(transform_node::CsvParseNode));
+    registry.register(Arc::new(transform_node::CsvStringifyNode));
     registry.register(Arc::new(transform_node::SelectFieldsNode));
     registry.register(Arc::new(transform_node::RenameFieldsNode));
     registry.register(Arc::new(transform_node::DataFilterNode));
@@ -50,6 +55,7 @@ pub fn register_all(registry: &mut NodeRegistry) {
     registry.register(Arc::new(conditional_node::IfNode));
     registry.register(Arc::new(conditional_node::SwitchNode));
     registry.register(Arc::new(validate_node::ValidateSchemaNode));
+    registry.register(Arc::new(validate_node::JsonValidateNode));
     registry.register(Arc::new(template_node::TemplateRenderNode));
     registry.register(Arc::new(hash_node::HashNode));
     registry.register(Arc::new(code_node::CodeNode));
@@ -65,6 +71,18 @@ pub fn register_all(registry: &mut NodeRegistry) {
     registry.register(Arc::new(db_node::DbExecNode));
     registry.register(Arc::new(arangodb_node::ArangoDbAqlNode));
 
-    #[cfg(feature = "pdf-render")]
+    registry.register(Arc::new(ai_chunk_node::AiChunkNode));
+    registry.register(Arc::new(ai_chunk_merge_node::AiChunkMergeNode));
+    registry.register(Arc::new(ai_chunk_semantic_node::AiChunkSemanticNode));
+    registry.register(Arc::new(ai_embed_node::AiEmbedNode));
+
     registry.register(Arc::new(pdf_image_node::PdfToImageNode));
+    registry.register(Arc::new(pdf_image_node::PdfThumbnailNode));
+    registry.register(Arc::new(pdf_image_node::ImageToPdfNode));
+    registry.register(Arc::new(pdf_image_node::PdfMetadataNode));
+    registry.register(Arc::new(pdf_image_node::ImageResizeNode));
+    registry.register(Arc::new(pdf_image_node::ImageCropNode));
+    registry.register(Arc::new(pdf_image_node::ImageRotateNode));
+    registry.register(Arc::new(pdf_image_node::ImageFlipNode));
+    registry.register(Arc::new(pdf_image_node::ImageGrayscaleNode));
 }

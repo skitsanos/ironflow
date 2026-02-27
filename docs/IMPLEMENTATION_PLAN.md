@@ -71,7 +71,7 @@ The core engine, minimal node set, and CLI. Goal: execute a simple multi-step fl
 
 ## Phase 2: Core Nodes ✅
 
-Implement the essential node types. Each node is a Rust struct implementing `Node`. **41 nodes total.**
+Implement the essential node types. Each node is a Rust struct implementing `Node`. **56 nodes total**.
 
 ### 2.1 HTTP Nodes ✅
 - [x] `http_request` — Generic HTTP with method, url, headers, body, auth, timeout
@@ -125,7 +125,15 @@ Implement the essential node types. Each node is a Rust struct implementing `Nod
 - [x] `extract_word` — Extract text and metadata from Word (.docx)
 - [x] `extract_pdf` — Extract text and metadata from PDF
 - [x] `extract_html` — Extract text and metadata from HTML
-- [x] `pdf_to_image` — Render PDF pages to images (optional, requires `pdf-render` feature flag)
+- [x] `pdf_metadata` — Read PDF metadata and page count
+- [x] `pdf_to_image` — Render PDF pages to images (requires native `pdfium` library)
+- [x] `pdf_thumbnail` — Render a single PDF page as a thumbnail image
+- [x] `image_to_pdf` — Compose PDF from one or more images
+- [x] `image_resize` — Resize image files (using `image` crate)
+- [x] `image_crop` — Crop image regions (using `image` crate)
+- [x] `image_rotate` — Rotate an image by 90/180/270 degrees
+- [x] `image_flip` — Flip an image horizontally or vertically
+- [x] `image_grayscale` — Convert an image to grayscale
 
 ---
 
@@ -190,7 +198,7 @@ Implement the essential node types. Each node is a Rust struct implementing `Nod
 - [ ] Storage backend selection via config
 
 ### 5.3 Testing ✅
-- [x] Unit tests for each node (37 tests in `test_nodes`)
+- [x] Unit tests for each node (in `test_nodes` and image/PDF suites)
 - [x] Integration tests for engine (12 tests in `test_engine` — sequential, parallel, deps, timeout, on_error, routing, file I/O)
 - [x] Lua flow parsing tests (16 tests in `test_lua_runtime`)
 - [x] State store tests (15 tests in `test_state_stores` — NullStateStore and JsonStateStore)
@@ -201,7 +209,7 @@ Implement the essential node types. Each node is a Rust struct implementing `Nod
 - [x] Node reference with individual per-node files (`docs/nodes/`)
 - [x] Lua flow writing guide (`docs/LUA_FLOW_GUIDE.md`)
 - [x] CLI and environment variable reference (`docs/CLI_REFERENCE.md`)
-- [x] Examples organized by category with README (11 folders, 36 examples)
+- [x] Examples organized by category with README (12 folders, 50+ examples)
 - [ ] API reference
 
 ### 5.5 Infrastructure ✅
@@ -220,4 +228,4 @@ Phase 1 ✅ ──→ Phase 2 ✅ ──→ Phase 3 ✅
                              └──→ Phase 5 (partial ✅)
 ```
 
-Phases 1-3 are complete (39+1 nodes, full CLI, REST API). Phase 4 partially done (db, cache, foreach, subworkflow). Phase 5 mostly done — testing complete (103 tests), config and Redis remaining.
+Phases 1-3 are complete (56 nodes, full CLI, REST API). Phase 4 partially done (db, cache, foreach, subworkflow). Phase 5 mostly done — testing complete (additional image tests added), config and Redis remaining.

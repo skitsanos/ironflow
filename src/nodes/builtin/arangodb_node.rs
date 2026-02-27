@@ -161,10 +161,10 @@ impl Node for ArangoDbAqlNode {
         );
 
         // Include stats if available
-        if let Some(extra) = response_body.get("extra") {
-            if let Some(stats) = extra.get("stats") {
-                output.insert(format!("{}_stats", output_key), stats.clone());
-            }
+        if let Some(extra) = response_body.get("extra")
+            && let Some(stats) = extra.get("stats")
+        {
+            output.insert(format!("{}_stats", output_key), stats.clone());
         }
 
         output.insert(

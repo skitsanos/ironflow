@@ -11,6 +11,9 @@ Validate context data against a JSON Schema.
 
 The node retrieves the value stored under `source_key` in the workflow context and validates it using the provided JSON Schema. If validation fails, the node returns an error and the workflow step is marked as failed.
 
+Use this node when the value is already in your context as JSON (object/array/value).  
+If the context value is a raw JSON string, use [`json_validate`](json_validate.md) instead.
+
 ## Context Output
 
 - `validation_success` -- boolean indicating whether validation passed

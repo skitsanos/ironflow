@@ -195,7 +195,7 @@ flow:step("handle_pro", nodes.log({
 
 ## Available Nodes
 
-See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list of 41 built-in nodes and their configuration options.
+See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list of 56 built-in nodes and their configuration options.
 
 ## Inline Lua Code
 
@@ -312,7 +312,7 @@ ironflow run order_processing.lua \
 - Step names must be unique within a flow (duplicates cause a parse error)
 - Set retries on external calls (HTTP, shell, etc.)
 - Set timeouts on potentially slow operations
-- Use `validate_schema` early to fail fast on bad input
+- Use `validate_schema`/`json_validate` early to fail fast on bad input
 - Leverage parallel execution — only add `depends_on` where truly needed
 - Use `env()` for secrets and configuration — never hardcode tokens in flows
 - Use `--verbose` when debugging to see per-task timing and outputs

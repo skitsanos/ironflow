@@ -1,6 +1,6 @@
 # IronFlow — Node Reference
 
-Complete reference for all 41 built-in nodes. Click any node name for full documentation with parameters, context output, and Lua examples. Note: `pdf_to_image` requires the `pdf-render` feature flag.
+Complete reference for all 56 built-in nodes. Click any node name for full documentation with parameters, context output, and Lua examples.
 
 For adding or maintaining node implementations, see [Node Contributor Manual](NODE_CONTRIBUTING.md).
 
@@ -37,6 +37,8 @@ For adding or maintaining node implementations, see [Node Contributor Manual](NO
 
 | Node | Description |
 |------|-------------|
+| [`csv_parse`](nodes/csv_parse.md) | Parse CSV text into JSON rows |
+| [`csv_stringify`](nodes/csv_stringify.md) | Convert JSON data to CSV text |
 | [`json_parse`](nodes/json_parse.md) | Parse a JSON string into a value |
 | [`json_stringify`](nodes/json_stringify.md) | Serialize a value to a JSON string |
 | [`select_fields`](nodes/select_fields.md) | Pick specific fields from an object |
@@ -81,7 +83,15 @@ For adding or maintaining node implementations, see [Node Contributor Manual](NO
 | [`extract_word`](nodes/extract_word.md) | Extract text and metadata from Word (.docx) |
 | [`extract_pdf`](nodes/extract_pdf.md) | Extract text and metadata from PDF |
 | [`extract_html`](nodes/extract_html.md) | Extract text and metadata from HTML |
-| [`pdf_to_image`](nodes/pdf_to_image.md) | Render PDF pages to images *(requires `pdf-render` feature)* |
+| [`pdf_metadata`](nodes/pdf_metadata.md) | Extract PDF metadata fields and page count |
+| [`pdf_to_image`](nodes/pdf_to_image.md) | Render PDF pages to images |
+| [`pdf_thumbnail`](nodes/pdf_thumbnail.md) | Render a single PDF page as a thumbnail image |
+| [`image_rotate`](nodes/image_rotate.md) | Rotate a single image by 90-degree steps |
+| [`image_flip`](nodes/image_flip.md) | Flip a single image horizontally/vertically |
+| [`image_grayscale`](nodes/image_grayscale.md) | Convert a single image to grayscale |
+| [`image_to_pdf`](nodes/image_to_pdf.md) | Convert images to PDF |
+| [`image_resize`](nodes/image_resize.md) | Resize a single image |
+| [`image_crop`](nodes/image_crop.md) | Crop a single image |
 
 ## Database Nodes
 
@@ -90,6 +100,15 @@ For adding or maintaining node implementations, see [Node Contributor Manual](NO
 | [`db_query`](nodes/db_query.md) | Execute a SQL SELECT query and return rows |
 | [`db_exec`](nodes/db_exec.md) | Execute a SQL INSERT/UPDATE/DELETE statement |
 | [`arangodb_aql`](nodes/arangodb_aql.md) | Execute an AQL query against ArangoDB via HTTP |
+
+## AI Nodes
+
+| Node | Description |
+|------|-------------|
+| [`ai_embed`](nodes/ai_embed.md) | Generate text embeddings via OpenAI, Ollama, or OAuth providers |
+| [`ai_chunk`](nodes/ai_chunk.md) | Split text into chunks using fixed-size or delimiter strategies |
+| [`ai_chunk_merge`](nodes/ai_chunk_merge.md) | Merge small text chunks into token-budget groups |
+| [`ai_chunk_semantic`](nodes/ai_chunk_semantic.md) | Split text into semantic chunks using embedding similarity |
 
 ## Composition Nodes
 
@@ -108,6 +127,7 @@ For adding or maintaining node implementations, see [Node Contributor Manual](NO
 | Node | Description |
 |------|-------------|
 | [`log`](nodes/log.md) | Write a message to the workflow log |
+| [`json_validate`](nodes/json_validate.md) | Parse JSON text and validate it against a JSON Schema |
 | [`validate_schema`](nodes/validate_schema.md) | Validate data against a JSON Schema |
 | [`template_render`](nodes/template_render.md) | Render a string template with context variables |
 | [`hash`](nodes/hash.md) | Compute a cryptographic hash |
