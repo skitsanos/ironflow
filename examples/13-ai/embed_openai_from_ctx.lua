@@ -12,12 +12,25 @@ Run with:
 
 local flow = Flow.new("embed_openai_from_ctx")
 
+--[[ Step 0: keep this reusable with a safe fallback path. ]]
+flow:step("prepare_input", nodes.code({
+    source = function(ctx)
+        local path = ctx.document_path
+        if type(path) ~= "string" or path == "" then
+            path = "data/samples/Bill26022026_121916AM_8000951511_fc72420d-72e1-460b-b714-8a7388ea90d4_.pdf"
+        end
+        return {
+            document_path = path
+        }
+    end
+}))
+
 --[[ Step 1: extract a document path from context and parse it to text. ]]
 flow:step("load_document", nodes.extract_pdf({
     path = "${ctx.document_path}",
     format = "text",
     output_key = "document_text"
-}))
+})):depends_on("prepare_input")
 
 --[[ Step 2: chunk the extracted text. ]]
 flow:step("chunk_document", nodes.ai_chunk({

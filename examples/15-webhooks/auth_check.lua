@@ -15,7 +15,14 @@ local flow = Flow.new("auth_check")
 
 -- Step 1: Extract and validate the Authorization header
 flow:step("validate_auth", function(ctx)
-    local auth = ctx._headers and ctx._headers.authorization or ""
+    local auth = ""
+    if ctx._headers then
+        auth = ctx._headers.authorization or ctx._headers.Authorization or ""
+    elseif ctx.headers then
+        auth = ctx.headers.authorization or ctx.headers.Authorization or ""
+    else
+        auth = ctx.authorization or ctx.Authorization or ""
+    end
 
     if auth == "" then
         error("Missing Authorization header")

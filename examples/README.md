@@ -127,6 +127,11 @@ Examples organized from basic to advanced. Each folder builds on concepts from t
 - **simple_webhook.lua** — Basic webhook that greets the caller by name
 - **auth_check.lua** — Webhook with Authorization header validation
 
+## 16-s3vector
+- **s3vector_vector_workflow.lua** — Create a vector bucket and index, upload vectors, query, and delete vectors.
+- **s3vector_metadata_query.lua** — Embed a transcript, attach metadata, and query with metadata filters.
+- **s3vector_rag_ingest_query.lua** — End-to-end RAG pattern: extract → chunk → embed → store → query.
+
 ## Running Examples
 
 ```bash

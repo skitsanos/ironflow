@@ -2,6 +2,20 @@
 -- Filter → Transform → Deduplicate → Hash → Batch
 local flow = Flow.new("data_pipeline")
 
+flow:step("prepare_input", nodes.code({
+    source = function()
+        return {
+            orders = {
+                { id = "A1", amount = 100, customer_name = "Alice", status = "completed" },
+                { id = "A2", amount = 50, customer_name = "Bob", status = "pending" },
+                { id = "A3", amount = 200, customer_name = "Carol", status = "completed" },
+                { id = "A1", amount = 100, customer_name = "Alice", status = "completed" },
+                { id = "A4", amount = 75, customer_name = "Dave", status = "completed" }
+            }
+        }
+    end,
+}))
+
 -- 1. Filter: keep only completed orders
 flow:step("filter", nodes.data_filter({
     source_key = "orders",
@@ -9,7 +23,7 @@ flow:step("filter", nodes.data_filter({
     op = "eq",
     value = "completed",
     output_key = "completed_orders"
-}))
+})):depends_on("prepare_input")
 
 -- 2. Transform: reshape to a simpler schema
 flow:step("transform", nodes.data_transform({

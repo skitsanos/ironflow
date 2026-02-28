@@ -1,6 +1,14 @@
 -- Validates a JSON string payload before parsing
 local flow = Flow.new("json_validate_flow")
 
+flow:step("prepare_input", nodes.code({
+    source = function()
+        return {
+            payload_json = '{"id":"ORD-123","name":"Alice","status":"new","age":29}'
+        }
+    end,
+}))
+
 flow:step("validate", nodes.json_validate({
     source_key = "payload_json",
     schema = {
@@ -13,7 +21,7 @@ flow:step("validate", nodes.json_validate({
             age = { type = "integer", minimum = 0 }
         }
     }
-}))
+})):depends_on("prepare_input")
 
 flow:step("parse", nodes.json_parse({
     source_key = "payload_json",

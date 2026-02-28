@@ -1,6 +1,6 @@
 # IronFlow — Node Reference
 
-Complete reference for all 71 built-in nodes. Click any node name for full documentation with parameters, context output, and Lua examples.
+Complete reference for all 78 built-in nodes. Click any node name for full documentation with parameters, context output, and Lua examples.
 
 For adding or maintaining node implementations, see [Node Contributor Manual](NODE_CONTRIBUTING.md).
 
@@ -44,6 +44,18 @@ For adding or maintaining node implementations, see [Node Contributor Manual](NO
 | [`s3_list_buckets`](nodes/s3_list_buckets.md) | List available buckets in the S3 account |
 | [`s3_list_objects`](nodes/s3_list_objects.md) | List objects under a S3 key prefix |
 | [`s3_put_object`](nodes/s3_put_object.md) | Upload an object to S3 |
+
+## S3 Vector Nodes
+
+| Node | Description |
+|------|-------------|
+| [`s3vector_create_bucket`](nodes/s3vector_create_bucket.md) | Create an Amazon S3 Vector bucket |
+| [`s3vector_create_index`](nodes/s3vector_create_index.md) | Create an index inside an S3 Vector bucket |
+| [`s3vector_delete_vectors`](nodes/s3vector_delete_vectors.md) | Delete vectors from an S3 Vector index |
+| [`s3vector_get_bucket`](nodes/s3vector_get_bucket.md) | Get metadata for an S3 Vector bucket |
+| [`s3vector_get_index`](nodes/s3vector_get_index.md) | Get metadata for an S3 Vector index |
+| [`s3vector_put_vectors`](nodes/s3vector_put_vectors.md) | Upload vectors to an S3 Vector index |
+| [`s3vector_query_vectors`](nodes/s3vector_query_vectors.md) | Query nearest vectors in an S3 Vector index |
 
 ## Notification Nodes
 

@@ -19,13 +19,14 @@ flow:step("time_tool", nodes.code({
             city = "Paris"
         end
 
-        local timestamp = os.date("!%Y-%m-%d %H:%M:%S UTC")
+        local timestamp = now_rfc3339()
         return {
             tool_result_name = "time",
             tool_result_text = "Current time in " .. city .. " is " .. timestamp .. ".",
             tool_result_value = {
                 city = city,
                 timestamp = timestamp,
+                timestamp_ms = now_unix_ms(),
                 source = "subworkflow"
             },
         }
@@ -33,4 +34,3 @@ flow:step("time_tool", nodes.code({
 } ))
 
 return flow
-
