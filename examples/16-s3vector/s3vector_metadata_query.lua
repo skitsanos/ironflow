@@ -45,7 +45,7 @@ flow:step("create_index", nodes.s3vector_create_index({
 
 --[[ Step 3: extract interview transcript and split into chunks ]]
 flow:step("extract_vtt", nodes.extract_vtt({
-    path = "data/samples/interview.vtt",
+    path = "data/samples/interview_long.vtt",
     format = "text",
     output_key = "transcript"
 })):depends_on("create_index")
@@ -101,7 +101,7 @@ flow:step("build_vectors", nodes.code({
                     key = key,
                     data = embedding,
                     metadata = {
-                        source_file = "interview.vtt",
+                        source_file = "interview_long.vtt",
                         chunk_index = i,
                         char_count = #text,
                     }
@@ -159,7 +159,7 @@ flow:step("query_metadata", nodes.s3vector_query_vectors({
     top_k = 3,
     query_vector_key = "query_vector",
     filter = {
-        source_file = "interview.vtt"
+        source_file = "interview_long.vtt"
     },
     return_metadata = true,
     return_distance = true,

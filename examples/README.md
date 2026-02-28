@@ -131,6 +131,9 @@ Examples organized from basic to advanced. Each folder builds on concepts from t
 - **s3vector_vector_workflow.lua** — Create a vector bucket and index, upload vectors, query, and delete vectors.
 - **s3vector_metadata_query.lua** — Embed a transcript, attach metadata, and query with metadata filters.
 - **s3vector_rag_ingest_query.lua** — End-to-end RAG pattern: extract → chunk → embed → store → query.
+- **s3vector_similarity_threshold.lua** — Demonstrates cosine similarity threshold filtering during vector query.
+- **s3vector_rag_query_expansion.lua** — RAG ingestion with LLM-based query expansion before vector search.
+- **s3vector_rag_query_evaluator.lua** — Compare baseline vs LLM-expanded retrieval on S3 vectors with relevance metrics.
 
 ## Running Examples
 

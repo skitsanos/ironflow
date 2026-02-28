@@ -114,6 +114,27 @@ async fn s3vector_query_vectors_requires_top_k() {
 }
 
 #[tokio::test]
+async fn s3vector_query_vectors_invalid_min_similarity() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("s3vector_query_vectors").unwrap();
+
+    let config = serde_json::json!({
+        "vector_bucket_name": "demo-bucket",
+        "index_name": "demo-index",
+        "top_k": 5,
+        "query_vector": [0.1, 0.2, 0.3],
+        "min_similarity": 1.5
+    });
+    let err = node.execute(&config, empty_ctx()).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("requires 'min_similarity' to be between 0 and 1"),
+        "{}",
+        err
+    );
+}
+
+#[tokio::test]
 async fn s3vector_delete_vectors_requires_keys() {
     let reg = NodeRegistry::with_builtins();
     let node = reg.get("s3vector_delete_vectors").unwrap();

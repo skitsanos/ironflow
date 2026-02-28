@@ -19,6 +19,8 @@ Run vector similarity search on an Amazon S3 Vector index.
 | `filter_key` | string | no | -- | Context key for a JSON metadata filter object. |
 | `return_metadata` | bool | no | `false` | Include vector metadata in results. |
 | `return_distance` | bool | no | `false` | Include distance values in results. |
+| `min_similarity` | number | no | -- | Optional minimum cosine similarity threshold between query vector and results. Only supported for cosine-index metrics (`min_similarity = 1 - distance`). Fewer results may be returned than `top_k`. |
+| `strict` | bool | no | `false` | When `true`, require a cosine index for `min_similarity`; otherwise `min_similarity` is ignored for non-cosine indexes. |
 | `output_key` | string | no | `s3vector` | Prefix for context output keys. |
 
 At least one of `query_vector` or `query_vector_key` is required.
@@ -27,6 +29,8 @@ At least one of `query_vector` or `query_vector_key` is required.
 ## Context Output
 
 - `{output_key}_distance_metric` — Similarity metric used.
+- `{output_key}_min_similarity` — Configured minimum cosine similarity threshold (when set).
+- `{output_key}_min_similarity_applied` — `true` when cosine filtering was actually applied.
 - `{output_key}_count` — Number of returned result entries.
 - `{output_key}_vectors` — Array of result objects (`key`, optional `distance`, optional `metadata`).
 - `{output_key}_success` — `true` on success.

@@ -139,7 +139,6 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
 - [x] Lua flow writing guide (`docs/LUA_FLOW_GUIDE.md`)
 - [x] CLI and environment variable reference (`docs/CLI_REFERENCE.md`)
 - [x] Examples organized by category with README (16 folders, 71+ examples)
-- [ ] API reference
 
 ### 5.5 Infrastructure ✅
 - [x] GitHub Actions CI (check, clippy, fmt, test, build, validate examples) — path-filtered to skip docs-only changes

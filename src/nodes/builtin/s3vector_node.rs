@@ -105,6 +105,32 @@ fn resolve_u32(config: &serde_json::Value, keys: &[&str], node: &str, field: &st
     })
 }
 
+fn resolve_f64(config: &serde_json::Value, node: &str, field: &str) -> Result<f64> {
+    let value = config
+        .get(field)
+        .ok_or_else(|| anyhow::anyhow!("{} requires '{}' field", node, field))?;
+
+    let number = if let Some(value) = value.as_f64() {
+        value
+    } else if let Some(value) = value.as_i64() {
+        value as f64
+    } else if let Some(value) = value.as_u64() {
+        value as f64
+    } else {
+        return Err(anyhow::anyhow!(
+            "{} requires '{}' to be a number",
+            node,
+            field
+        ));
+    };
+
+    if !number.is_finite() {
+        anyhow::bail!("{} requires '{}' to be a finite number", node, field);
+    }
+
+    Ok(number)
+}
+
 fn resolve_non_empty_string(
     config: &serde_json::Value,
     keys: &[&str],
@@ -844,6 +870,23 @@ impl Node for S3VectorQueryVectorsNode {
             .get("return_distance")
             .and_then(|value| value.as_bool())
             .unwrap_or(false);
+        let min_similarity = if config.get("min_similarity").is_some() {
+            let min_similarity = resolve_f64(config, "s3vector_query_vectors", "min_similarity")?;
+            if !(0.0..=1.0).contains(&min_similarity) {
+                anyhow::bail!(
+                    "s3vector_query_vectors requires 'min_similarity' to be between 0 and 1"
+                );
+            }
+            Some(min_similarity)
+        } else {
+            None
+        };
+        let strict = config
+            .get("strict")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
+
+        let should_return_distance = return_distance || min_similarity.is_some();
 
         let filter = if let Some(filter_value) = config.get("filter") {
             Some(parse_metadata(filter_value, "s3vector_query_vectors")?)
@@ -861,7 +904,7 @@ impl Node for S3VectorQueryVectorsNode {
             .top_k(top_k as i32)
             .query_vector(VectorData::Float32(query_vector))
             .return_metadata(return_metadata)
-            .return_distance(return_distance);
+            .return_distance(should_return_distance);
         if let Some(bucket_name) = bucket_name {
             request = request.vector_bucket_name(bucket_name);
         }
@@ -876,27 +919,63 @@ impl Node for S3VectorQueryVectorsNode {
         }
 
         let response = request.send().await?;
+        let distance_metric = response.distance_metric();
+        let should_apply_min_similarity = if min_similarity.is_some() && strict {
+            if distance_metric != Some(&DistanceMetric::Cosine) {
+                anyhow::bail!(
+                    "s3vector_query_vectors min_similarity requires cosine distance metric when strict=true"
+                );
+            }
+            true
+        } else {
+            min_similarity.is_some() && distance_metric == Some(&DistanceMetric::Cosine)
+        };
+        let min_similarity_value = min_similarity.unwrap_or_default();
         let vectors: Vec<serde_json::Value> = response
             .vectors()
             .iter()
-            .map(|vector| {
+            .filter_map(|vector| {
+                if should_apply_min_similarity {
+                    if let Some(distance) = vector.distance() {
+                        let similarity = 1.0_f64 - f64::from(distance);
+                        if similarity < min_similarity_value {
+                            return None;
+                        }
+                    } else {
+                        return None;
+                    }
+                }
+
                 let mut item = serde_json::Map::new();
                 item.insert("key".to_string(), serde_json::json!(vector.key()));
-                if let Some(distance) = vector.distance() {
-                    item.insert("distance".to_string(), serde_json::json!(distance));
+                if return_distance {
+                    if let Some(distance) = vector.distance() {
+                        item.insert("distance".to_string(), serde_json::json!(distance));
+                    }
                 }
-                if let Some(metadata) = vector.metadata() {
-                    item.insert("metadata".to_string(), document_to_json(metadata));
+                if return_metadata {
+                    if let Some(metadata) = vector.metadata() {
+                        item.insert("metadata".to_string(), document_to_json(metadata));
+                    }
                 }
-                serde_json::Value::Object(item)
+                Some(serde_json::Value::Object(item))
             })
             .collect();
-
         let mut output = NodeOutput::new();
-        if let Some(distance_metric) = response.distance_metric() {
+        if let Some(distance_metric) = distance_metric {
             output.insert(
                 format!("{}_distance_metric", output_key),
                 serde_json::Value::String(distance_metric.as_str().to_string()),
+            );
+        }
+        if let Some(min_similarity) = min_similarity {
+            output.insert(
+                format!("{}_min_similarity", output_key),
+                serde_json::json!(min_similarity),
+            );
+            output.insert(
+                format!("{}_min_similarity_applied", output_key),
+                serde_json::json!(should_apply_min_similarity),
             );
         }
         output.insert(
