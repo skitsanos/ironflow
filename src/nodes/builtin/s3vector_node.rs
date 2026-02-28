@@ -948,15 +948,11 @@ impl Node for S3VectorQueryVectorsNode {
 
                 let mut item = serde_json::Map::new();
                 item.insert("key".to_string(), serde_json::json!(vector.key()));
-                if return_distance {
-                    if let Some(distance) = vector.distance() {
-                        item.insert("distance".to_string(), serde_json::json!(distance));
-                    }
+                if return_distance && let Some(distance) = vector.distance() {
+                    item.insert("distance".to_string(), serde_json::json!(distance));
                 }
-                if return_metadata {
-                    if let Some(metadata) = vector.metadata() {
-                        item.insert("metadata".to_string(), document_to_json(metadata));
-                    }
+                if return_metadata && let Some(metadata) = vector.metadata() {
+                    item.insert("metadata".to_string(), document_to_json(metadata));
                 }
                 Some(serde_json::Value::Object(item))
             })
