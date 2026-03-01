@@ -1,6 +1,21 @@
 -- Demonstrates JSON Schema validation
 local flow = Flow.new("schema_validation")
 
+flow:step("prepare_input", nodes.code({
+    source = function()
+        return {
+            order = {
+                id = "ORD-001",
+                amount = 99.99,
+                customer = {
+                    name = "Alice",
+                    email = "alice@example.com"
+                }
+            }
+        }
+    end,
+}))
+
 -- Validate the order object against a JSON schema
 flow:step("validate", nodes.validate_schema({
     source_key = "order",
@@ -20,7 +35,7 @@ flow:step("validate", nodes.validate_schema({
             }
         }
     }
-}))
+})):depends_on("prepare_input")
 
 -- Only runs if validation passes
 flow:step("process", nodes.log({

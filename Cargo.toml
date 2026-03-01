@@ -21,6 +21,8 @@ tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 reqwest = { version = "0.13.2", features = ["json"] }
 aws-config = "1.8.4"
 aws-sdk-s3 = "1.8.4"
+aws-sdk-s3vectors = "1.21.0"
+aws-smithy-types = "1.4.5"
 csv = "1.4.0"
 jsonschema = "0.42.1"
 num_cpus = "1.17.0"

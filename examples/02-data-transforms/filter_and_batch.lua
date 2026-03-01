@@ -1,6 +1,19 @@
 -- Demonstrates filtering, deduplication, and batching
 local flow = Flow.new("filter_and_batch")
 
+flow:step("prepare_input", nodes.code({
+    source = function()
+        return {
+            users = {
+                { name = "Alice", email = "alice@example.com", status = "active" },
+                { name = "Bob", email = "bob@example.com", status = "inactive" },
+                { name = "Carol", email = "carol@example.com", status = "active" },
+                { name = "Dave", email = "dave@example.com", status = "active" }
+            }
+        }
+    end,
+}))
+
 -- Filter: keep only items where status == "active"
 flow:step("filter_active", nodes.data_filter({
     source_key = "users",
@@ -8,7 +21,7 @@ flow:step("filter_active", nodes.data_filter({
     op = "eq",
     value = "active",
     output_key = "active_users"
-}))
+})):depends_on("prepare_input")
 
 -- Deduplicate by email
 flow:step("dedup", nodes.deduplicate({
