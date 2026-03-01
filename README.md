@@ -67,7 +67,7 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 │  DAG resolution · Parallel execution · Retry/timeout     │
 │  Context propagation · Conditional routing · State store │
 ├─────────────────────────────────────────────────────────┤
-│                  71 Built-in Nodes                         │
+│                  79 Built-in Nodes                         │
 │  HTTP · Files · Shell · Transforms · Conditionals · ...  │
 │  All implemented in pure Rust for performance & safety   │
 └─────────────────────────────────────────────────────────┘
@@ -84,7 +84,7 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 
 ## Features
 
-- **71 built-in nodes** — HTTP (GET/POST/PUT/DELETE), file I/O, S3 operations, shell commands, JSON/CSV transforms, foreach iteration, key-value caching (memory + file), conditional routing, schema validation, hashing, templating, Markdown conversion, document extraction (Word/PDF/HTML/VTT/SRT), database queries (SQLite via sqlx, ArangoDB via HTTP), AI text embeddings/chunking (`ai_*`) and chat/completions (`llm`) across providers, notification integrations (`send_email`, `slack_notification`), data extraction helpers (`json_extract_path`, `if_body_contains`, `if_http_status`), delays, inline code execution, subworkflow composition, presigned S3 URL support, and image helpers (`pdf_to_image`, `pdf_thumbnail`, `image_to_pdf`, `image_resize`, `image_crop`, `image_rotate`, `image_flip`, `image_grayscale`, `pdf_metadata`).
+- **79 built-in nodes** — HTTP (GET/POST/PUT/DELETE), file I/O, S3 operations, shell commands, JSON/CSV transforms, foreach iteration, key-value caching (memory + file), conditional routing, schema validation, hashing, templating, Markdown conversion, document extraction (Word/PDF/HTML/VTT/SRT), database queries (SQLite via sqlx, ArangoDB via HTTP), AI text embeddings/chunking (`ai_*`) and chat/completions (`llm`) across providers, MCP client (`mcp_client`), notification integrations (`send_email`, `slack_notification`), data extraction helpers (`json_extract_path`, `if_body_contains`, `if_http_status`), delays, inline code execution, subworkflow composition, presigned S3 URL support, and image helpers (`pdf_to_image`, `pdf_thumbnail`, `image_to_pdf`, `image_resize`, `image_crop`, `image_rotate`, `image_flip`, `image_grayscale`, `pdf_metadata`).
 - **Function handlers** — pass Lua functions directly as step handlers, no boilerplate needed
 - **Conditional step shorthand** — `step_if(condition, name, handler)` for concise branching
 - **DAG-based scheduling** — steps run in parallel unless dependencies are declared
@@ -259,6 +259,7 @@ flow:step("standard_flow", nodes.log({
 | **Database** | `db_query`, `db_exec`, `arangodb_aql` |
 | **Composition** | `subworkflow`, `code` |
 | **Utility** | `log`, `hash`, `delay`, `template_render` |
+| **MCP** | `mcp_client` |
 | **AI** | `ai_chunk`, `ai_chunk_merge`, `ai_chunk_semantic`, `ai_embed`, `llm` |
 | **Extraction** | `extract_word`, `extract_pdf`, `extract_html`, `extract_vtt`, `extract_srt`, `pdf_to_image`, `pdf_thumbnail`, `pdf_metadata`, `image_to_pdf` |
 | **Image Processing** | `image_resize`, `image_crop`, `image_rotate`, `image_flip`, `image_grayscale` |
@@ -287,6 +288,7 @@ Progressive examples from basic to advanced:
 | [12-arangodb](examples/12-arangodb/) | ArangoDB AQL queries with bind variables and env-based credentials |
 | [13-ai](examples/13-ai/) | Text embeddings (OpenAI, Ollama, OAuth), text chunking (fixed, split, merge, semantic) |
 | [14-notifications](examples/14-notifications/) | Email via Resend or SMTP, Slack webhooks |
+| [17-mcp](examples/17-mcp/) | MCP stdio and SSE client workflows (initialize, tools/list, tools/call) |
 
 ## Roadmap
 

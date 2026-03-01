@@ -135,6 +135,10 @@ Examples organized from basic to advanced. Each folder builds on concepts from t
 - **s3vector_rag_query_expansion.lua** — RAG ingestion with LLM-based query expansion before vector search.
 - **s3vector_rag_query_evaluator.lua** — Compare baseline vs LLM-expanded retrieval on S3 vectors with relevance metrics.
 
+## 17-mcp
+- **mcp_stdio.lua** — Demonstrates MCP stdio `initialize`, `list_tools`, and `call_tool` in one workflow using a local mock MCP script.
+- **mcp_sse.lua** — Example skeleton for SSE-based MCP tool listing with token/header configuration.
+
 ## Running Examples
 
 ```bash

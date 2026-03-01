@@ -17,6 +17,7 @@ mod llm_node;
 mod log_node;
 mod lua_sandbox;
 mod markdown_node;
+mod mcp_node;
 mod pdf_image_node;
 mod s3_node;
 mod s3vector_node;
@@ -102,6 +103,7 @@ pub fn register_all(registry: &mut NodeRegistry) {
     registry.register(Arc::new(ai_chunk_semantic_node::AiChunkSemanticNode));
     registry.register(Arc::new(ai_embed_node::AiEmbedNode));
     registry.register(Arc::new(llm_node::LlmNode));
+    registry.register(Arc::new(mcp_node::McpClientNode));
 
     registry.register(Arc::new(pdf_image_node::PdfToImageNode));
     registry.register(Arc::new(pdf_image_node::PdfThumbnailNode));

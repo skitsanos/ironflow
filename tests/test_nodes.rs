@@ -23,8 +23,8 @@ fn registry_with_builtins_has_nodes() {
     let nodes = reg.list();
     // All implemented nodes are now built-in:
     assert!(
-        nodes.len() >= 78,
-        "Expected at least 78 nodes, got {}",
+        nodes.len() >= 79,
+        "Expected at least 79 nodes, got {}",
         nodes.len()
     );
 }
@@ -59,6 +59,14 @@ fn registry_get_pdf_metadata_node() {
     let node = reg.get("pdf_metadata");
     assert!(node.is_some());
     assert_eq!(node.unwrap().node_type(), "pdf_metadata");
+}
+
+#[test]
+fn registry_get_mcp_client_node() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("mcp_client");
+    assert!(node.is_some());
+    assert_eq!(node.unwrap().node_type(), "mcp_client");
 }
 
 #[test]
