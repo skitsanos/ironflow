@@ -71,7 +71,7 @@ The core engine, minimal node set, and CLI. Goal: execute a simple multi-step fl
 
 ## Phase 2: Nodes ✅
 
-95 built-in nodes across HTTP, shell, file, S3, MCP, data transforms, conditionals, caching, database, AI, notifications, composition, S3 vector, XML, YAML, HTML sanitization, date/time, encoding, and utility categories. Each node is a Rust struct implementing the `Node` trait.
+96 built-in nodes across HTTP, shell, file, S3, MCP, data transforms, conditionals, caching, database, AI, notifications, composition, S3 vector, XML, YAML, HTML sanitization, date/time, encoding, and utility categories. Each node is a Rust struct implementing the `Node` trait.
 
 See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters, context output, and Lua examples.
 
@@ -105,10 +105,10 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
 
 ## Phase 4: Advanced Features
 
-### 4.1 Subworkflow Composition
+### 4.1 Subworkflow Composition ✅
 - [x] `subworkflow` — Load and execute another `.lua` flow as a reusable module
 - [x] Context mapping (input_keys, output_keys) for clean interfaces between flows
-- [ ] `parallel_subworkflows` — Concurrent subworkflow execution
+- [x] `parallel_subworkflows` — Concurrent subworkflow execution with per-flow input mapping, error handling modes (`fail_fast` / `ignore`), and ordered result collection
 
 ---
 
