@@ -89,6 +89,7 @@ Examples organized from basic to advanced. Each folder builds on concepts from t
 - **basic_subworkflow.lua** — Call a subworkflow and use its output
 - **fire_and_forget.lua** — Launch a subworkflow without waiting (async)
 - **on_error_example.lua** — Per-step error handling with `on_error`
+- **parallel_subworkflows.lua** — Run multiple subworkflows concurrently and collect results
 - **greet.lua** — Simple reusable helper flow used by the subworkflow examples
 
 ## 12-arangodb

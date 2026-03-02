@@ -21,6 +21,7 @@ mod log_node;
 mod lua_sandbox;
 mod markdown_node;
 mod mcp_node;
+pub(crate) mod parallel_subworkflows_node;
 mod pdf_image_node;
 mod s3_node;
 mod s3vector_node;

@@ -49,8 +49,13 @@ impl NodeRegistry {
         // child engines can also run subworkflows (nested execution).
         let base = Arc::new(registry.snapshot());
         registry.register(Arc::new(builtin::subworkflow_node::SubworkflowNode {
-            base_registry: base,
+            base_registry: base.clone(),
         }));
+        registry.register(Arc::new(
+            builtin::parallel_subworkflows_node::ParallelSubworkflowsNode {
+                base_registry: base,
+            },
+        ));
 
         registry
     }
