@@ -161,7 +161,7 @@ async fn parallel_subworkflows_custom_output_key() {
 }
 
 #[tokio::test]
-    async fn parallel_subworkflows_fail_fast_on_error() {
+async fn parallel_subworkflows_fail_fast_on_error() {
     let dir = tempfile::tempdir().unwrap();
 
     write_flow(
@@ -185,37 +185,37 @@ async fn parallel_subworkflows_custom_output_key() {
     });
 
     let ctx = ctx_with_flow_dir(dir.path());
-        let result = node.execute(&config, ctx).await;
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("failed"));
-    }
-
-    #[tokio::test]
-    async fn parallel_subworkflows_invalid_on_error_value() {
-        let dir = tempfile::tempdir().unwrap();
-
-        write_flow(
-            &dir.path().join("good.lua"),
-            r#"flow:step("s", nodes.code({ source = "return { ok = true }" }))"#,
-        );
-
-        let reg = NodeRegistry::with_builtins();
-        let node = reg.get("parallel_subworkflows").unwrap();
-
-        let config = serde_json::json!({
-            "flows": [
-                { "flow": "good.lua" }
-            ],
-            "on_error": "fail-fast"
-        });
-
-        let ctx = ctx_with_flow_dir(dir.path());
-        let err = node.execute(&config, ctx).await.unwrap_err();
-        assert!(err.to_string().contains("invalid on_error"));
-    }
+    let result = node.execute(&config, ctx).await;
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("failed"));
+}
 
 #[tokio::test]
-    async fn parallel_subworkflows_collect_errors_on_ignore() {
+async fn parallel_subworkflows_invalid_on_error_value() {
+    let dir = tempfile::tempdir().unwrap();
+
+    write_flow(
+        &dir.path().join("good.lua"),
+        r#"flow:step("s", nodes.code({ source = "return { ok = true }" }))"#,
+    );
+
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("parallel_subworkflows").unwrap();
+
+    let config = serde_json::json!({
+        "flows": [
+            { "flow": "good.lua" }
+        ],
+        "on_error": "fail-fast"
+    });
+
+    let ctx = ctx_with_flow_dir(dir.path());
+    let err = node.execute(&config, ctx).await.unwrap_err();
+    assert!(err.to_string().contains("invalid on_error"));
+}
+
+#[tokio::test]
+async fn parallel_subworkflows_collect_errors_on_ignore() {
     let dir = tempfile::tempdir().unwrap();
 
     write_flow(
@@ -238,8 +238,8 @@ async fn parallel_subworkflows_custom_output_key() {
         "on_error": "ignore"
     });
 
-        let ctx = ctx_with_flow_dir(dir.path());
-        let out = node.execute(&config, ctx).await.unwrap();
+    let ctx = ctx_with_flow_dir(dir.path());
+    let out = node.execute(&config, ctx).await.unwrap();
 
     let results = out.get("parallel_results").unwrap().as_array().unwrap();
     assert!(results[0].get("success").unwrap().as_bool().unwrap());
@@ -251,40 +251,40 @@ async fn parallel_subworkflows_custom_output_key() {
             .as_bool()
             .unwrap()
     );
-        assert_eq!(
-            out.get("parallel_results_errors")
-                .unwrap()
-                .as_u64()
-                .unwrap(),
-            1
-        );
-    }
+    assert_eq!(
+        out.get("parallel_results_errors")
+            .unwrap()
+            .as_u64()
+            .unwrap(),
+        1
+    );
+}
 
-    #[tokio::test]
-    async fn parallel_subworkflows_input_mapping_string_literal() {
-        let dir = tempfile::tempdir().unwrap();
+#[tokio::test]
+async fn parallel_subworkflows_input_mapping_string_literal() {
+    let dir = tempfile::tempdir().unwrap();
 
-        write_flow(
-            &dir.path().join("echo.lua"),
-            r#"flow:step("s", nodes.code({ source = "return { greeting = ctx.text }" }))"#,
-        );
+    write_flow(
+        &dir.path().join("echo.lua"),
+        r#"flow:step("s", nodes.code({ source = "return { greeting = ctx.text }" }))"#,
+    );
 
-        let reg = NodeRegistry::with_builtins();
-        let node = reg.get("parallel_subworkflows").unwrap();
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("parallel_subworkflows").unwrap();
 
-        let config = serde_json::json!({
-            "flows": [
-                { "flow": "echo.lua", "input": { "text": "hello from parent?" } }
-            ],
-            "on_error": "ignore"
-        });
+    let config = serde_json::json!({
+        "flows": [
+            { "flow": "echo.lua", "input": { "text": "hello from parent?" } }
+        ],
+        "on_error": "ignore"
+    });
 
-        let ctx = ctx_with_flow_dir(dir.path());
+    let ctx = ctx_with_flow_dir(dir.path());
 
-        let out = node.execute(&config, ctx).await.unwrap();
-        let results = out.get("parallel_results").unwrap().as_array().unwrap();
-        assert_eq!(results[0].get("greeting").unwrap(), "hello from parent?");
-    }
+    let out = node.execute(&config, ctx).await.unwrap();
+    let results = out.get("parallel_results").unwrap().as_array().unwrap();
+    assert_eq!(results[0].get("greeting").unwrap(), "hello from parent?");
+}
 
 #[tokio::test]
 async fn parallel_subworkflows_missing_flows_error() {
