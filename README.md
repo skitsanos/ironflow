@@ -67,7 +67,7 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 │  DAG resolution · Parallel execution · Retry/timeout     │
 │  Context propagation · Conditional routing · State store │
 ├─────────────────────────────────────────────────────────┤
-│                  79 Built-in Nodes                         │
+│                   95 Built-in Nodes                        │
 │  HTTP · Files · Shell · Transforms · Conditionals · ...  │
 │  All implemented in pure Rust for performance & safety   │
 └─────────────────────────────────────────────────────────┘
@@ -84,7 +84,7 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 
 ## Features
 
-- **79 built-in nodes** — HTTP (GET/POST/PUT/DELETE), file I/O, S3 operations, shell commands, JSON/CSV transforms, foreach iteration, key-value caching (memory + file), conditional routing, schema validation, hashing, templating, Markdown conversion, document extraction (Word/PDF/HTML/VTT/SRT), database queries (SQLite via sqlx, ArangoDB via HTTP), AI text embeddings/chunking (`ai_*`) and chat/completions (`llm`) across providers, MCP client (`mcp_client`), notification integrations (`send_email`, `slack_notification`), data extraction helpers (`json_extract_path`, `if_body_contains`, `if_http_status`), delays, inline code execution, subworkflow composition, presigned S3 URL support, and image helpers (`pdf_to_image`, `pdf_thumbnail`, `image_to_pdf`, `image_resize`, `image_crop`, `image_rotate`, `image_flip`, `image_grayscale`, `pdf_metadata`).
+- **95 built-in nodes** — HTTP (GET/POST/PUT/DELETE), file I/O, ZIP utilities (`zip_create`, `zip_list`, `zip_extract`), S3 operations, shell commands, JSON/CSV/XML/YAML transforms, foreach iteration, key-value caching (memory + file), conditional routing, schema validation, hashing, templating, Markdown conversion, HTML sanitization, document extraction (Word/PDF/HTML/VTT/SRT), PDF merge/split, database queries (SQLite via sqlx, ArangoDB via HTTP), AI text embeddings/chunking (`ai_*`) and chat/completions (`llm`) across providers, MCP client (`mcp_client`), notification integrations (`send_email`, `slack_notification`), data extraction helpers (`json_extract_path`, `if_body_contains`, `if_http_status`), delays, inline code execution, subworkflow composition, presigned S3 URL support, base64 encoding/decoding, date formatting, image helpers (`pdf_to_image`, `pdf_thumbnail`, `image_to_pdf`, `image_resize`, `image_crop`, `image_rotate`, `image_flip`, `image_grayscale`, `image_metadata`, `image_convert`, `image_watermark`, `pdf_metadata`).
 - **Function handlers** — pass Lua functions directly as step handlers, no boilerplate needed
 - **Conditional step shorthand** — `step_if(condition, name, handler)` for concise branching
 - **DAG-based scheduling** — steps run in parallel unless dependencies are declared
@@ -171,6 +171,7 @@ curl -X POST http://localhost:3000/flows/run \
 | `GET` | `/runs/{id}` | Get run details |
 | `DELETE` | `/runs/{id}` | Delete a run |
 | `GET` | `/nodes` | List available nodes |
+| `POST` | `/webhooks/{name}` | Execute a webhook-mapped flow |
 | `GET` | `/health` | Health check |
 
 ## Writing Flows
@@ -249,6 +250,7 @@ flow:step("standard_flow", nodes.log({
 | **HTTP** | `http_request`, `http_get`, `http_post`, `http_put`, `http_delete` |
 | **Files** | `read_file`, `write_file`, `copy_file`, `move_file`, `delete_file`, `list_directory` |
 | **S3** | `s3_presign_url`, `s3_get_object`, `s3_put_object`, `s3_delete_object`, `s3_copy_object`, `s3_list_objects`, `s3_list_buckets` |
+| **S3 Vectors** | `s3vector_create_bucket`, `s3vector_get_bucket`, `s3vector_create_index`, `s3vector_get_index`, `s3vector_put_vectors`, `s3vector_query_vectors`, `s3vector_delete_vectors` |
 | **Shell** | `shell_command` |
 | **Transforms** | `json_parse`, `json_stringify`, `json_extract_path`, `csv_parse`, `csv_stringify`, `select_fields`, `rename_fields`, `data_filter`, `data_transform`, `batch`, `deduplicate`, `foreach` |
 | **Conditionals** | `if_node`, `if_body_contains`, `if_http_status`, `switch_node` |
@@ -258,13 +260,17 @@ flow:step("standard_flow", nodes.log({
 | **Notification** | `send_email`, `slack_notification` |
 | **Database** | `db_query`, `db_exec`, `arangodb_aql` |
 | **Composition** | `subworkflow`, `code` |
+| **XML** | `xml_parse`, `xml_stringify` |
+| **YAML** | `yaml_parse`, `yaml_stringify` |
+| **HTML** | `html_sanitize` |
+| **Encoding** | `base64_encode`, `base64_decode` |
+| **Date/Time** | `date_format` |
 | **Utility** | `log`, `hash`, `delay`, `template_render` |
+| **ZIP** | `zip_create`, `zip_list`, `zip_extract` |
 | **MCP** | `mcp_client` |
-| **AI** | `ai_chunk`, `ai_chunk_merge`, `ai_chunk_semantic`, `ai_embed`, `llm` |
-| **Extraction** | `extract_word`, `extract_pdf`, `extract_html`, `extract_vtt`, `extract_srt`, `pdf_to_image`, `pdf_thumbnail`, `pdf_metadata`, `image_to_pdf` |
-| **Image Processing** | `image_resize`, `image_crop`, `image_rotate`, `image_flip`, `image_grayscale` |
-| **AI** | `ai_embed`, `ai_chunk`, `ai_chunk_merge`, `ai_chunk_semantic` |
-| **Utility** | `log`, `delay`, `template_render`, `hash`, `code` |
+| **AI** | `ai_embed`, `ai_chunk`, `ai_chunk_merge`, `ai_chunk_semantic`, `llm` |
+| **Extraction** | `extract_word`, `extract_pdf`, `extract_html`, `extract_vtt`, `extract_srt`, `pdf_to_image`, `pdf_thumbnail`, `pdf_metadata`, `image_to_pdf`, `pdf_merge`, `pdf_split` |
+| **Image Processing** | `image_resize`, `image_crop`, `image_rotate`, `image_flip`, `image_grayscale`, `image_metadata`, `image_convert`, `image_watermark` |
 
 See [docs/NODE_REFERENCE.md](docs/NODE_REFERENCE.md) for the complete reference with parameters and examples.
 
@@ -280,21 +286,25 @@ Progressive examples from basic to advanced:
 | [04-file-operations](examples/04-file-operations/) | Read, write, copy, move, delete, list |
 | [05-http](examples/05-http/) | API calls, authentication, OpenAI integration |
 | [06-shell](examples/06-shell/) | Shell commands with args, env vars, timeouts |
-| [07-advanced](examples/07-advanced/) | Hashing, schema validation, full data pipelines, function handlers |
-| [08-extraction](examples/08-extraction/) | Word/PDF/HTML text extraction, metadata, PDF-to-image rendering, image resize/crop |
+| [07-advanced](examples/07-advanced/) | Hashing, schema validation, full data pipelines, function handlers, base64 encoding |
+| [08-extraction](examples/08-extraction/) | Word/PDF/HTML text extraction, metadata, PDF-to-image rendering, image resize/crop, PDF merge/split, image metadata |
 | [09-cache](examples/09-cache/) | In-memory and file-based key-value caching with TTL |
 | [10-database](examples/10-database/) | SQLite CRUD operations with db_query and db_exec |
 | [11-subworkflow](examples/11-subworkflow/) | Subworkflow composition, fire-and-forget, on_error handling |
 | [12-arangodb](examples/12-arangodb/) | ArangoDB AQL queries with bind variables and env-based credentials |
 | [13-ai](examples/13-ai/) | Text embeddings (OpenAI, Ollama, OAuth), text chunking (fixed, split, merge, semantic) |
 | [14-notifications](examples/14-notifications/) | Email via Resend or SMTP, Slack webhooks |
+| [15-webhooks](examples/15-webhooks/) | Webhook routes with auth header validation, config-driven endpoints |
+| [16-s3vector](examples/16-s3vector/) | S3 Vectors RAG pipelines, similarity search, metadata filtering, query expansion |
 | [17-mcp](examples/17-mcp/) | MCP stdio and SSE client workflows (initialize, tools/list, tools/call) |
+| [18-xml-yaml](examples/18-xml-yaml/) | XML and YAML parsing/stringifying |
+| [19-html-sanitize](examples/19-html-sanitize/) | HTML sanitization with configurable allowed tags |
+| [20-date](examples/20-date/) | Date parsing, formatting, and timezone conversion |
 
 ## Roadmap
 
 - Redis state backend
 - PostgreSQL support (via feature flag — SQLite supported now)
-- Webhook triggers
 - Cron scheduling
 - Web UI for flow visualization
 

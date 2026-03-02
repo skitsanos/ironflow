@@ -23,8 +23,8 @@ fn registry_with_builtins_has_nodes() {
     let nodes = reg.list();
     // All implemented nodes are now built-in:
     assert!(
-        nodes.len() >= 79,
-        "Expected at least 79 nodes, got {}",
+        nodes.len() >= 82,
+        "Expected at least 82 nodes, got {}",
         nodes.len()
     );
 }
@@ -67,6 +67,30 @@ fn registry_get_mcp_client_node() {
     let node = reg.get("mcp_client");
     assert!(node.is_some());
     assert_eq!(node.unwrap().node_type(), "mcp_client");
+}
+
+#[test]
+fn registry_get_zip_create_node() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("zip_create");
+    assert!(node.is_some());
+    assert_eq!(node.unwrap().node_type(), "zip_create");
+}
+
+#[test]
+fn registry_get_zip_list_node() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("zip_list");
+    assert!(node.is_some());
+    assert_eq!(node.unwrap().node_type(), "zip_list");
+}
+
+#[test]
+fn registry_get_zip_extract_node() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("zip_extract");
+    assert!(node.is_some());
+    assert_eq!(node.unwrap().node_type(), "zip_extract");
 }
 
 #[test]

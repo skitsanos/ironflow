@@ -71,7 +71,7 @@ The core engine, minimal node set, and CLI. Goal: execute a simple multi-step fl
 
 ## Phase 2: Nodes ✅
 
-79 built-in nodes across HTTP, shell, file, S3, MCP, data transforms, conditionals, caching, database, AI, notifications, composition, S3 vector, and utility categories. Each node is a Rust struct implementing the `Node` trait.
+95 built-in nodes across HTTP, shell, file, S3, MCP, data transforms, conditionals, caching, database, AI, notifications, composition, S3 vector, XML, YAML, HTML sanitization, date/time, encoding, and utility categories. Each node is a Rust struct implementing the `Node` trait.
 
 See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters, context output, and Lua examples.
 

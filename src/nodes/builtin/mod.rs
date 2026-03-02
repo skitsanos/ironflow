@@ -6,12 +6,15 @@ mod arangodb_node;
 mod cache_node;
 pub(crate) mod code_node;
 mod conditional_node;
+mod date_node;
 mod db_node;
 mod delay_node;
+mod encoding_node;
 mod extract_node;
 mod file_node;
 mod foreach_node;
 mod hash_node;
+mod html_sanitize_node;
 mod http_node;
 mod llm_node;
 mod log_node;
@@ -28,6 +31,8 @@ pub(crate) mod subworkflow_node;
 mod template_node;
 mod transform_node;
 mod validate_node;
+mod xml_node;
+mod yaml_node;
 
 use crate::nodes::NodeRegistry;
 use std::sync::Arc;
@@ -48,6 +53,9 @@ pub fn register_all(registry: &mut NodeRegistry) {
     registry.register(Arc::new(file_node::MoveFileNode));
     registry.register(Arc::new(file_node::DeleteFileNode));
     registry.register(Arc::new(file_node::ListDirectoryNode));
+    registry.register(Arc::new(file_node::ZipCreateNode));
+    registry.register(Arc::new(file_node::ZipListNode));
+    registry.register(Arc::new(file_node::ZipExtractNode));
     registry.register(Arc::new(transform_node::JsonParseNode));
     registry.register(Arc::new(transform_node::JsonStringifyNode));
     registry.register(Arc::new(transform_node::JsonExtractPathNode));
@@ -68,6 +76,7 @@ pub fn register_all(registry: &mut NodeRegistry) {
     registry.register(Arc::new(template_node::TemplateRenderNode));
     registry.register(Arc::new(hash_node::HashNode));
     registry.register(Arc::new(code_node::CodeNode));
+    registry.register(Arc::new(html_sanitize_node::HtmlSanitizeNode));
     registry.register(Arc::new(markdown_node::MarkdownToHtmlNode));
     registry.register(Arc::new(markdown_node::HtmlToMarkdownNode));
     registry.register(Arc::new(extract_node::ExtractWordNode));
@@ -114,4 +123,20 @@ pub fn register_all(registry: &mut NodeRegistry) {
     registry.register(Arc::new(pdf_image_node::ImageRotateNode));
     registry.register(Arc::new(pdf_image_node::ImageFlipNode));
     registry.register(Arc::new(pdf_image_node::ImageGrayscaleNode));
+    registry.register(Arc::new(pdf_image_node::ImageMetadataNode));
+    registry.register(Arc::new(pdf_image_node::ImageConvertNode));
+    registry.register(Arc::new(pdf_image_node::ImageWatermarkNode));
+    registry.register(Arc::new(pdf_image_node::PdfMergeNode));
+    registry.register(Arc::new(pdf_image_node::PdfSplitNode));
+
+    registry.register(Arc::new(xml_node::XmlParseNode));
+    registry.register(Arc::new(xml_node::XmlStringifyNode));
+
+    registry.register(Arc::new(yaml_node::YamlParseNode));
+    registry.register(Arc::new(yaml_node::YamlStringifyNode));
+
+    registry.register(Arc::new(date_node::DateFormatNode));
+
+    registry.register(Arc::new(encoding_node::Base64EncodeNode));
+    registry.register(Arc::new(encoding_node::Base64DecodeNode));
 }
