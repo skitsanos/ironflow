@@ -1,6 +1,6 @@
 # IronFlow — Node Reference
 
-Complete reference for all 78 built-in nodes. Click any node name for full documentation with parameters, context output, and Lua examples.
+Complete reference for all 95 built-in nodes. Click any node name for full documentation with parameters, context output, and Lua examples.
 
 For adding or maintaining node implementations, see [Node Contributor Manual](NODE_CONTRIBUTING.md).
 
@@ -32,6 +32,9 @@ For adding or maintaining node implementations, see [Node Contributor Manual](NO
 | [`move_file`](nodes/move_file.md) | Move or rename a file |
 | [`delete_file`](nodes/delete_file.md) | Delete a file |
 | [`list_directory`](nodes/list_directory.md) | List files in a directory |
+| [`zip_create`](nodes/zip_create.md) | Create a ZIP archive from a file or directory |
+| [`zip_extract`](nodes/zip_extract.md) | Extract ZIP archive entries to a directory |
+| [`zip_list`](nodes/zip_list.md) | List ZIP archive entries |
 
 ## S3 Nodes
 
@@ -110,6 +113,39 @@ For adding or maintaining node implementations, see [Node Contributor Manual](NO
 | [`markdown_to_html`](nodes/markdown_to_html.md) | Convert Markdown to HTML |
 | [`html_to_markdown`](nodes/html_to_markdown.md) | Convert HTML to Markdown |
 
+## XML Nodes
+
+| Node | Description |
+|------|-------------|
+| [`xml_parse`](nodes/xml_parse.md) | Parse XML text into a JSON object |
+| [`xml_stringify`](nodes/xml_stringify.md) | Convert a JSON object to XML text |
+
+## YAML Nodes
+
+| Node | Description |
+|------|-------------|
+| [`yaml_parse`](nodes/yaml_parse.md) | Parse YAML text into a JSON value |
+| [`yaml_stringify`](nodes/yaml_stringify.md) | Convert a JSON value to YAML text |
+
+## HTML Sanitization Nodes
+
+| Node | Description |
+|------|-------------|
+| [`html_sanitize`](nodes/html_sanitize.md) | Sanitize HTML by removing unsafe tags, attributes, and scripts |
+
+## Date/Time Nodes
+
+| Node | Description |
+|------|-------------|
+| [`date_format`](nodes/date_format.md) | Parse, reformat, and convert dates/timestamps |
+
+## Encoding Nodes
+
+| Node | Description |
+|------|-------------|
+| [`base64_encode`](nodes/base64_encode.md) | Encode a string, context value, or file to base64 |
+| [`base64_decode`](nodes/base64_decode.md) | Decode a base64 string to text or file |
+
 ## Document Extraction Nodes
 
 | Node | Description |
@@ -122,6 +158,11 @@ For adding or maintaining node implementations, see [Node Contributor Manual](NO
 | [`pdf_metadata`](nodes/pdf_metadata.md) | Extract PDF metadata fields and page count |
 | [`pdf_to_image`](nodes/pdf_to_image.md) | Render PDF pages to images |
 | [`pdf_thumbnail`](nodes/pdf_thumbnail.md) | Render a single PDF page as a thumbnail image |
+| [`pdf_merge`](nodes/pdf_merge.md) | Merge multiple PDF files into one |
+| [`pdf_split`](nodes/pdf_split.md) | Split a PDF into individual pages or page ranges |
+| [`image_metadata`](nodes/image_metadata.md) | Extract image dimensions, format, and color type |
+| [`image_convert`](nodes/image_convert.md) | Convert an image between formats (PNG, JPEG, etc.) |
+| [`image_watermark`](nodes/image_watermark.md) | Apply a semi-transparent text watermark to an image |
 | [`image_rotate`](nodes/image_rotate.md) | Rotate a single image by 90-degree steps |
 | [`image_flip`](nodes/image_flip.md) | Flip a single image horizontally/vertically |
 | [`image_grayscale`](nodes/image_grayscale.md) | Convert a single image to grayscale |
@@ -152,6 +193,12 @@ For adding or maintaining node implementations, see [Node Contributor Manual](NO
 | Node | Description |
 |------|-------------|
 | [`subworkflow`](nodes/subworkflow.md) | Load and execute another `.lua` flow as a reusable module |
+
+## MCP Nodes
+
+| Node | Description |
+|------|-------------|
+| [`mcp_client`](nodes/mcp_client.md) | MCP client for stdio/SSE transports and tools (`initialize`, `list_tools`, `call_tool`) |
 
 ## Code Execution Nodes
 

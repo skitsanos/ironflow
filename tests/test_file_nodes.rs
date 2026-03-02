@@ -1,6 +1,8 @@
-//! Tests for file operation nodes: copy_file, move_file, delete_file, list_directory.
+//! Tests for file operation nodes: copy_file, move_file, delete_file, list_directory,
+//! zip_create, zip_list, zip_extract.
 
 use std::collections::HashMap;
+use std::io::Write;
 
 use ironflow::engine::types::Context;
 use ironflow::nodes::NodeRegistry;
@@ -369,4 +371,199 @@ async fn list_directory_missing_config_param() {
     let result = node.execute(&config, empty_ctx()).await;
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("path"));
+}
+
+// --- zip_create ---
+
+#[tokio::test]
+async fn zip_create_happy_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("input");
+    let nested = source.join("nested");
+    std::fs::create_dir(&source).unwrap();
+    std::fs::create_dir(&nested).unwrap();
+    std::fs::write(source.join("a.txt"), "A").unwrap();
+    std::fs::write(nested.join("b.txt"), "B").unwrap();
+
+    let zip_path = dir.path().join("archive.zip");
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("zip_create").unwrap();
+
+    let config = serde_json::json!({
+        "source": source.to_str().unwrap(),
+        "zip_path": zip_path.to_str().unwrap(),
+        "include_root": false,
+    });
+
+    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    assert_eq!(
+        result.get("zip_create_files").unwrap(),
+        &serde_json::json!(2)
+    );
+    assert!(zip_path.exists());
+
+    let file = std::fs::File::open(&zip_path).unwrap();
+    let mut archive = zip::ZipArchive::new(file).unwrap();
+    let mut names = Vec::new();
+    for i in 0..archive.len() {
+        names.push(archive.by_index(i).unwrap().name().to_string());
+    }
+    assert!(names.contains(&"a.txt".to_string()));
+    assert!(names.contains(&"nested/b.txt".to_string()));
+}
+
+#[tokio::test]
+async fn zip_create_missing_source() {
+    let dir = tempfile::tempdir().unwrap();
+    let zip_path = dir.path().join("archive.zip");
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("zip_create").unwrap();
+
+    let config = serde_json::json!({
+        "source": dir.path().join("missing").to_str().unwrap(),
+        "zip_path": zip_path.to_str().unwrap(),
+    });
+
+    let result = node.execute(&config, empty_ctx()).await;
+    assert!(result.is_err());
+}
+
+// --- zip_list ---
+
+#[tokio::test]
+async fn zip_list_happy_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("input.txt");
+    std::fs::write(&source, "hello").unwrap();
+    let zip_path = dir.path().join("archive.zip");
+
+    let reg = NodeRegistry::with_builtins();
+    let create_node = reg.get("zip_create").unwrap();
+    let list_node = reg.get("zip_list").unwrap();
+
+    create_node
+        .execute(
+            &serde_json::json!({
+                "source": source.to_str().unwrap(),
+                "zip_path": zip_path.to_str().unwrap(),
+            }),
+            empty_ctx(),
+        )
+        .await
+        .unwrap();
+
+    let result = list_node
+        .execute(
+            &serde_json::json!({
+                "path": zip_path.to_str().unwrap(),
+                "output_key": "entries"
+            }),
+            empty_ctx(),
+        )
+        .await
+        .unwrap();
+
+    let entries = result.get("entries").unwrap().as_array().unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(result.get("entries_count").unwrap(), &serde_json::json!(1));
+    let name = entries[0].get("name").unwrap().as_str().unwrap();
+    assert_eq!(name, "input.txt");
+}
+
+#[tokio::test]
+async fn zip_list_missing_archive() {
+    let dir = tempfile::tempdir().unwrap();
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("zip_list").unwrap();
+
+    let config = serde_json::json!({
+        "path": dir.path().join("missing.zip").to_str().unwrap(),
+    });
+
+    let result = node.execute(&config, empty_ctx()).await;
+    assert!(result.is_err());
+}
+
+// --- zip_extract ---
+
+#[tokio::test]
+async fn zip_extract_happy_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("input");
+    let nested = source.join("nested");
+    std::fs::create_dir(&source).unwrap();
+    std::fs::create_dir(&nested).unwrap();
+    std::fs::write(source.join("a.txt"), "A").unwrap();
+    std::fs::write(nested.join("b.txt"), "B").unwrap();
+
+    let zip_path = dir.path().join("archive.zip");
+    let destination = dir.path().join("extracted");
+
+    let reg = NodeRegistry::with_builtins();
+    let create_node = reg.get("zip_create").unwrap();
+    let extract_node = reg.get("zip_extract").unwrap();
+
+    create_node
+        .execute(
+            &serde_json::json!({
+                "source": source.to_str().unwrap(),
+                "zip_path": zip_path.to_str().unwrap(),
+            }),
+            empty_ctx(),
+        )
+        .await
+        .unwrap();
+
+    let result = extract_node
+        .execute(
+            &serde_json::json!({
+                "path": zip_path.to_str().unwrap(),
+                "destination": destination.to_str().unwrap(),
+                "output_key": "extracted",
+            }),
+            empty_ctx(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        result.get("extracted_count").unwrap(),
+        &serde_json::json!(2u64)
+    );
+    assert!(destination.join("a.txt").exists());
+    assert!(destination.join("nested/b.txt").exists());
+    assert_eq!(
+        std::fs::read_to_string(destination.join("nested/b.txt")).unwrap(),
+        "B"
+    );
+}
+
+#[tokio::test]
+async fn zip_extract_prevents_traversal() {
+    let dir = tempfile::tempdir().unwrap();
+    let zip_path = dir.path().join("evil.zip");
+
+    let file = std::fs::File::create(&zip_path).unwrap();
+    let mut archive = zip::ZipWriter::new(file);
+    let options =
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    archive.start_file("../evil.txt", options).unwrap();
+    archive.write_all(b"hack").unwrap();
+    archive.finish().unwrap();
+
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("zip_extract").unwrap();
+
+    let destination = dir.path().join("out");
+    let result = node
+        .execute(
+            &serde_json::json!({
+                "path": zip_path.to_str().unwrap(),
+                "destination": destination.to_str().unwrap(),
+            }),
+            empty_ctx(),
+        )
+        .await;
+
+    assert!(result.is_err());
 }

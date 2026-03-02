@@ -31,6 +31,7 @@ Examples organized from basic to advanced. Each folder builds on concepts from t
 - **s3_put_get_list.lua** — Upload, download, list, and delete objects in `raw/temp`
 - **s3_copy.lua** — Copy objects inside S3 and verify object list
 - **s3_presign_url.lua** — Upload a demo object and generate a presigned S3 URL
+- **zip_workflow.lua** — Create a ZIP archive, list entries, extract, and log results
 
 ## 05-http
 - **api_call.lua** — Simple GET request with response handling
@@ -56,6 +57,7 @@ Examples organized from basic to advanced. Each folder builds on concepts from t
 - **code_node_extract.lua** — Inline Lua code node to extract fields from API responses
 - **function_handler.lua** — Pass Lua functions directly as step handlers
 - **markdown_conversion.lua** — Markdown ↔ HTML conversion with GFM support
+- **base64_encode_decode.lua** — Base64 encode and decode round-trip
 
 ## 08-extraction
 - **extract_word.lua** — Extract text and metadata from Word (.docx) files
@@ -72,6 +74,9 @@ Examples organized from basic to advanced. Each folder builds on concepts from t
 - **image_flip.lua** — Flip an image horizontally or vertically
 - **image_grayscale.lua** — Convert an image to grayscale
 - **extract_html.lua** — Extract text and metadata from HTML
+- **pdf_merge.lua** — Merge multiple PDF files into one
+- **pdf_split.lua** — Split a PDF into individual pages
+- **image_metadata.lua** — Extract image dimensions, format, and color info
 
 ## 09-cache
 - **cache_memory.lua** — In-memory key-value cache with TTL
@@ -134,6 +139,20 @@ Examples organized from basic to advanced. Each folder builds on concepts from t
 - **s3vector_similarity_threshold.lua** — Demonstrates cosine similarity threshold filtering during vector query.
 - **s3vector_rag_query_expansion.lua** — RAG ingestion with LLM-based query expansion before vector search.
 - **s3vector_rag_query_evaluator.lua** — Compare baseline vs LLM-expanded retrieval on S3 vectors with relevance metrics.
+
+## 17-mcp
+- **mcp_stdio.lua** — Demonstrates MCP stdio `initialize`, `list_tools`, and `call_tool` in one workflow using a local mock MCP script.
+- **mcp_sse.lua** — Example skeleton for SSE-based MCP tool listing with token/header configuration.
+
+## 18-xml-yaml
+- **xml_parse.lua** — Parse XML into JSON and log the result
+- **yaml_parse.lua** — Parse YAML into JSON and log the result
+
+## 19-html-sanitize
+- **html_sanitize.lua** — Sanitize HTML by removing scripts and event handlers
+
+## 20-date
+- **date_format.lua** — Parse, format, and display dates with timezone support
 
 ## Running Examples
 
