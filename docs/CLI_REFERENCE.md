@@ -124,6 +124,37 @@ The `serve` command (and all other commands) can load settings from `ironflow.ya
 ironflow -C /path/to/ironflow.yaml serve
 ```
 
+#### Storage Backend
+
+IronFlow supports two state storage backends:
+
+- **json** (default) — File-based JSON storage in `store_dir`
+- **redis** — Redis-backed storage (requires building with `--features redis`)
+
+Configure via `ironflow.yaml`:
+
+```yaml
+store_backend: redis
+redis_url: "redis://127.0.0.1:6379"
+redis_prefix: "ironflow:"    # key prefix (default: "ironflow:")
+redis_ttl: 86400              # optional: TTL in seconds for run keys
+```
+
+Or via environment variables (override config file):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `STORE_BACKEND` | `json` | Storage backend: `json` or `redis` |
+| `REDIS_URL` | `redis://127.0.0.1:6379` | Redis connection URL |
+| `REDIS_PREFIX` | `ironflow:` | Key prefix for Redis keys |
+| `REDIS_TTL` | — | TTL in seconds for run keys (no expiration if unset) |
+
+To build with Redis support:
+
+```bash
+cargo build --release --features redis
+```
+
 #### Webhook Routes
 
 Define webhook-to-flow mappings in `ironflow.yaml` to expose flows as named HTTP endpoints:

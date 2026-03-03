@@ -14,6 +14,8 @@ use crate::lua::LuaRuntime;
 use crate::nodes::NodeRegistry;
 use crate::storage::StateStore;
 use crate::storage::json_store::JsonStateStore;
+#[cfg(feature = "redis")]
+use crate::storage::redis_store::RedisStateStore;
 
 #[derive(Parser)]
 #[command(name = "ironflow", version, about = "Lightweight workflow engine")]
@@ -125,7 +127,8 @@ pub async fn run_cli() -> Result<()> {
             store_dir,
         } => {
             let store_dir = apply_config_path(store_dir, "data/runs", cfg.store_dir.as_deref());
-            cmd_run(flow, context, verbose, store_dir, cfg.max_concurrent_tasks).await
+            let store = create_store(&cfg, &store_dir).await?;
+            cmd_run(flow, context, verbose, store, cfg.max_concurrent_tasks).await
         }
         Commands::Validate { flow } => cmd_validate(flow),
         Commands::List {
@@ -134,11 +137,13 @@ pub async fn run_cli() -> Result<()> {
             format,
         } => {
             let store_dir = apply_config_path(store_dir, "data/runs", cfg.store_dir.as_deref());
-            cmd_list(status, store_dir, format).await
+            let store = create_store(&cfg, &store_dir).await?;
+            cmd_list(status, store, format).await
         }
         Commands::Inspect { run_id, store_dir } => {
             let store_dir = apply_config_path(store_dir, "data/runs", cfg.store_dir.as_deref());
-            cmd_inspect(run_id, store_dir).await
+            let store = create_store(&cfg, &store_dir).await?;
+            cmd_inspect(run_id, store).await
         }
         Commands::Nodes => cmd_nodes(),
         Commands::Serve {
@@ -148,6 +153,8 @@ pub async fn run_cli() -> Result<()> {
             flows_dir,
             max_body,
         } => {
+            let store_dir = apply_config_path(store_dir, "data/runs", cfg.store_dir.as_deref());
+            let store = create_store(&cfg, &store_dir).await?;
             let host = if host == "0.0.0.0" {
                 cfg.host.unwrap_or(host)
             } else {
@@ -158,7 +165,6 @@ pub async fn run_cli() -> Result<()> {
             } else {
                 port
             };
-            let store_dir = apply_config_path(store_dir, "data/runs", cfg.store_dir.as_deref());
             let flows_dir = flows_dir.or_else(|| cfg.flows_dir.map(PathBuf::from));
             let max_body = if max_body == 1048576 {
                 cfg.max_body.unwrap_or(max_body)
@@ -169,7 +175,7 @@ pub async fn run_cli() -> Result<()> {
             crate::api::serve(
                 &host,
                 port,
-                store_dir,
+                store,
                 flows_dir,
                 max_body,
                 cfg.max_concurrent_tasks,
@@ -219,11 +225,59 @@ fn load_dotenv(explicit_path: Option<&std::path::Path>) {
     }
 }
 
+/// Create a state store based on configuration.
+///
+/// If `store_backend` is `"redis"`, connects to Redis using the configured URL.
+/// Otherwise, falls back to the JSON file-based store using `store_dir`.
+///
+/// Config fields can be overridden by environment variables:
+/// `STORE_BACKEND`, `REDIS_URL`, `REDIS_PREFIX`, `REDIS_TTL`.
+pub async fn create_store(cfg: &IronFlowConfig, store_dir: &Path) -> Result<Arc<dyn StateStore>> {
+    let backend = std::env::var("STORE_BACKEND")
+        .ok()
+        .or_else(|| cfg.store_backend.clone())
+        .unwrap_or_else(|| "json".to_string());
+
+    match backend.as_str() {
+        #[cfg(feature = "redis")]
+        "redis" => {
+            let url = std::env::var("REDIS_URL")
+                .ok()
+                .or_else(|| cfg.redis_url.clone())
+                .unwrap_or_else(|| "redis://127.0.0.1:6379".to_string());
+
+            let prefix = std::env::var("REDIS_PREFIX")
+                .ok()
+                .or_else(|| cfg.redis_prefix.clone());
+
+            let ttl = std::env::var("REDIS_TTL")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .or(cfg.redis_ttl);
+
+            info!("Using Redis state store at {}", url);
+            let store = RedisStateStore::new(&url, prefix, ttl).await?;
+            Ok(Arc::new(store))
+        }
+        #[cfg(not(feature = "redis"))]
+        "redis" => {
+            anyhow::bail!(
+                "Redis backend requested but the 'redis' feature is not enabled. \
+                 Rebuild with: cargo build --features redis"
+            );
+        }
+        _ => {
+            info!("Using JSON state store at {}", store_dir.display());
+            Ok(Arc::new(JsonStateStore::new(store_dir)))
+        }
+    }
+}
+
 async fn cmd_run(
     flow_path: PathBuf,
     context_json: Option<String>,
     verbose: bool,
-    store_dir: PathBuf,
+    store: Arc<dyn StateStore>,
     max_concurrent_tasks: Option<usize>,
 ) -> Result<()> {
     let registry = NodeRegistry::with_builtins();
@@ -277,7 +331,6 @@ async fn cmd_run(
         );
     }
 
-    let store = Arc::new(JsonStateStore::new(store_dir));
     let engine = WorkflowEngine::new(Arc::new(registry), store.clone(), max_concurrent_tasks);
 
     let run_id = engine.execute(&flow, initial_ctx).await?;
@@ -380,9 +433,11 @@ fn cmd_validate(flow_path: PathBuf) -> Result<()> {
     Ok(())
 }
 
-async fn cmd_list(status_filter: Option<String>, store_dir: PathBuf, format: String) -> Result<()> {
-    let store = JsonStateStore::new(store_dir);
-
+async fn cmd_list(
+    status_filter: Option<String>,
+    store: Arc<dyn StateStore>,
+    format: String,
+) -> Result<()> {
     let status = status_filter
         .as_deref()
         .map(|s| match s {
@@ -430,9 +485,7 @@ async fn cmd_list(status_filter: Option<String>, store_dir: PathBuf, format: Str
     Ok(())
 }
 
-async fn cmd_inspect(run_id: String, store_dir: PathBuf) -> Result<()> {
-    let store = JsonStateStore::new(store_dir);
-
+async fn cmd_inspect(run_id: String, store: Arc<dyn StateStore>) -> Result<()> {
     let info = store
         .get_run_info(&run_id)
         .await

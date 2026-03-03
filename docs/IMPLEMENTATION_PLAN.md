@@ -95,11 +95,15 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
 - [x] CORS support (permissive, via `tower-http`)
 - [x] Request tracing (via `tower-http` TraceLayer)
 
-### 3.2 Redis State Store
-- [ ] Implement `RedisStateStore` behind `redis` cargo feature flag
-- [ ] Same trait interface as JSON store
-- [ ] Key prefix configuration
-- [ ] Connection pooling
+### 3.2 Redis State Store ✅
+- [x] Implement `RedisStateStore` behind `redis` cargo feature flag
+- [x] Same trait interface as JSON store
+- [x] Key prefix configuration (`redis_prefix` in config or `REDIS_PREFIX` env var)
+- [x] Connection pooling (via `ConnectionManager` with auto-reconnect)
+- [x] Optional TTL for automatic run expiration (`redis_ttl` in config or `REDIS_TTL` env var)
+- [x] `create_store()` factory function for backend selection (config + env var)
+- [x] `AppState.store` refactored to `Arc<dyn StateStore>` for runtime backend selection
+- [x] 8 integration tests against real Redis
 
 ---
 

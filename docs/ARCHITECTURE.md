@@ -105,6 +105,13 @@ pub trait StateStore: Send + Sync {
 }
 ```
 
+Implementations:
+- **JsonStateStore** — File-based, one JSON file per run with atomic writes and `RwLock`
+- **NullStateStore** — In-memory, transient (used by subworkflow nodes)
+- **RedisStateStore** — Redis-backed (optional, `redis` feature flag). Uses a Redis Hash per run with a Set index for efficient listing. Supports configurable key prefix, TTL, and auto-reconnecting connection pool.
+
+Backend selection is controlled by the `store_backend` config field or `STORE_BACKEND` environment variable.
+
 ### 5. CLI (`cli/`)
 
 Built with `clap`. Commands:
