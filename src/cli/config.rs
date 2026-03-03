@@ -15,6 +15,14 @@ pub struct IronFlowConfig {
     pub flows_dir: Option<String>,
     pub max_body: Option<usize>,
     pub max_concurrent_tasks: Option<usize>,
+    /// Storage backend: "json" (default) or "redis"
+    pub store_backend: Option<String>,
+    /// Redis connection URL, e.g. "redis://127.0.0.1:6379"
+    pub redis_url: Option<String>,
+    /// Redis key prefix (default: "ironflow:")
+    pub redis_prefix: Option<String>,
+    /// TTL in seconds for Redis run keys (optional, no expiration if unset)
+    pub redis_ttl: Option<u64>,
     /// Webhook name → flow file path mappings.
     /// e.g. `hello: hello_world.lua` → POST /webhooks/hello executes hello_world.lua
     pub webhooks: Option<HashMap<String, String>>,

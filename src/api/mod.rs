@@ -15,12 +15,12 @@ use tower_http::trace::TraceLayer;
 use tracing::info;
 
 use crate::nodes::NodeRegistry;
-use crate::storage::json_store::JsonStateStore;
+use crate::storage::StateStore;
 
 /// Shared application state accessible by all handlers.
 pub struct AppState {
     pub registry: Arc<NodeRegistry>,
-    pub store: Arc<JsonStateStore>,
+    pub store: Arc<dyn StateStore>,
     pub flows_dir: Option<PathBuf>,
     pub max_concurrent_tasks: Option<usize>,
     /// Webhook name → flow file path mappings from config.
@@ -31,14 +31,13 @@ pub struct AppState {
 pub async fn serve(
     host: &str,
     port: u16,
-    store_dir: PathBuf,
+    store: Arc<dyn StateStore>,
     flows_dir: Option<PathBuf>,
     max_body: usize,
     max_concurrent_tasks: Option<usize>,
     webhooks: HashMap<String, String>,
 ) -> Result<()> {
     let registry = Arc::new(NodeRegistry::with_builtins());
-    let store = Arc::new(JsonStateStore::new(store_dir));
 
     let state = Arc::new(AppState {
         registry,
