@@ -70,6 +70,25 @@ async fn pdf_to_image_generates_base64_pages() {
 }
 
 #[tokio::test]
+async fn pdf_to_image_rejects_excessive_dpi_before_loading() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("pdf_to_image").unwrap();
+
+    let result = node
+        .execute(
+            &serde_json::json!({
+                "path": "/definitely/missing.pdf",
+                "dpi": 10_000,
+            }),
+            &empty_ctx(),
+        )
+        .await;
+
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("dpi"));
+}
+
+#[tokio::test]
 async fn pdf_thumbnail_generates_one_thumbnail() {
     let sample_pdf = sample_root()
         .join("Bill26022026_121916AM_8000951511_fc72420d-72e1-460b-b714-8a7388ea90d4_.pdf");

@@ -50,17 +50,18 @@ impl Node for PdfToImageNode {
             .and_then(|v| v.as_str())
             .unwrap_or("images");
         let dpi = config.get("dpi").and_then(|v| v.as_f64()).unwrap_or(150.0) as f32;
+        validate_pdf_dpi(dpi, "pdf_to_image")?;
 
-        let bytes = std::fs::read(&path)
-            .map_err(|e| anyhow::anyhow!("Failed to read '{}': {}", path, e))?;
+        let bytes = read_pdf_bytes_capped(&path, "pdf_to_image")?;
         let bindings = load_pdfium()?;
         let pdfium = pdfium_render::prelude::Pdfium::new(bindings);
         let document = pdfium
-            .load_pdf_from_byte_vec(bytes.clone(), None)
+            .load_pdf_from_byte_vec(bytes, None)
             .map_err(|e| anyhow::anyhow!("Failed to open PDF '{}': {:?}", path, e))?;
 
         let page_count = document.pages().len() as usize;
         let page_indices = parse_pages_spec(pages_spec, page_count)?;
+        validate_pdf_render_page_count(page_indices.len(), "pdf_to_image")?;
 
         let mut images = Vec::new();
 
@@ -121,6 +122,7 @@ impl Node for PdfThumbnailNode {
             "pdf_thumbnail",
         )?;
         let dpi = config.get("dpi").and_then(|v| v.as_f64()).unwrap_or(150.0) as f32;
+        validate_pdf_dpi(dpi, "pdf_thumbnail")?;
         let width = config
             .get("width")
             .and_then(|v| v.as_u64())
@@ -134,12 +136,11 @@ impl Node for PdfThumbnailNode {
         let max_side = config.get("size").and_then(|v| v.as_u64()).unwrap_or(256);
         let max_side = parse_positive_u32(max_side, "size")?;
 
-        let bytes = std::fs::read(&path)
-            .map_err(|e| anyhow::anyhow!("Failed to read '{}': {}", path, e))?;
+        let bytes = read_pdf_bytes_capped(&path, "pdf_thumbnail")?;
         let bindings = load_pdfium()?;
         let pdfium = pdfium_render::prelude::Pdfium::new(bindings);
         let document = pdfium
-            .load_pdf_from_byte_vec(bytes.clone(), None)
+            .load_pdf_from_byte_vec(bytes, None)
             .map_err(|e| anyhow::anyhow!("Failed to open PDF '{}': {:?}", path, e))?;
         let page_count = document.pages().len() as usize;
 
@@ -1265,6 +1266,18 @@ fn render_pdf_page(
             (None, None, None) => (page_width as u32, page_height as u32),
         };
 
+    let pixels = u64::from(target_width).saturating_mul(u64::from(target_height));
+    let max_pixels = crate::util::limits::max_pdf_render_pixels();
+    if pixels > max_pixels {
+        anyhow::bail!(
+            "PDF render target {}x{} ({} pixels) exceeds limit {} (set IRONFLOW_MAX_PDF_RENDER_PIXELS to raise)",
+            target_width,
+            target_height,
+            pixels,
+            max_pixels
+        );
+    }
+
     let render_config = pdfium_render::prelude::PdfRenderConfig::new()
         .set_target_width(target_width as i32)
         .set_target_height(target_height as i32);
@@ -1335,6 +1348,53 @@ fn resolve_path(config: &serde_json::Value, ctx: &Context, node_name: &str) -> R
     } else {
         anyhow::bail!("{} requires either 'path' or 'source_key'", node_name)
     }
+}
+
+fn read_pdf_bytes_capped(path: &str, node_name: &str) -> Result<Vec<u8>> {
+    let max_bytes = crate::util::limits::max_pdf_bytes();
+    let meta = std::fs::metadata(path)
+        .map_err(|e| anyhow::anyhow!("{}: failed to stat '{}': {}", node_name, path, e))?;
+    if meta.len() > max_bytes {
+        anyhow::bail!(
+            "{}: PDF '{}' is {} bytes, exceeds limit {} (set IRONFLOW_MAX_PDF_BYTES to raise)",
+            node_name,
+            path,
+            meta.len(),
+            max_bytes
+        );
+    }
+
+    std::fs::read(path).map_err(|e| anyhow::anyhow!("Failed to read '{}': {}", path, e))
+}
+
+fn validate_pdf_dpi(dpi: f32, node_name: &str) -> Result<()> {
+    if !dpi.is_finite() || dpi <= 0.0 {
+        anyhow::bail!("{}: dpi must be a positive finite number", node_name);
+    }
+
+    let max_dpi = crate::util::limits::max_pdf_dpi() as f32;
+    if dpi > max_dpi {
+        anyhow::bail!(
+            "{}: dpi {} exceeds limit {} (set IRONFLOW_MAX_PDF_DPI to raise)",
+            node_name,
+            dpi,
+            max_dpi
+        );
+    }
+    Ok(())
+}
+
+fn validate_pdf_render_page_count(page_count: usize, node_name: &str) -> Result<()> {
+    let max_pages = crate::util::limits::max_pdf_render_pages() as usize;
+    if page_count > max_pages {
+        anyhow::bail!(
+            "{}: requested {} rendered pages, exceeds limit {} (set IRONFLOW_MAX_PDF_RENDER_PAGES to raise)",
+            node_name,
+            page_count,
+            max_pages
+        );
+    }
+    Ok(())
 }
 
 /// Parse a page specification string into 0-based page indices.

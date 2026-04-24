@@ -7,14 +7,25 @@ use tokio::sync::{RwLock, Semaphore};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
+use crate::engine::events::{RunEvent, RunEventType};
 use crate::engine::types::*;
 use crate::nodes::NodeRegistry;
 use crate::storage::StateStore;
+use crate::storage::event_store::EventStore;
+
+fn task_duration_ms(
+    started: Option<chrono::DateTime<Utc>>,
+    finished: Option<chrono::DateTime<Utc>>,
+) -> Option<u64> {
+    let duration = finished?.signed_duration_since(started?);
+    duration.num_milliseconds().try_into().ok()
+}
 
 /// The core workflow execution engine.
 pub struct WorkflowEngine {
     registry: Arc<NodeRegistry>,
     store: Arc<dyn StateStore>,
+    events: Option<Arc<dyn EventStore>>,
     max_concurrent_tasks: usize,
 }
 
@@ -35,6 +46,29 @@ impl WorkflowEngine {
         Self {
             registry,
             store,
+            events: None,
+            max_concurrent_tasks,
+        }
+    }
+
+    pub fn new_with_events(
+        registry: Arc<NodeRegistry>,
+        store: Arc<dyn StateStore>,
+        events: Arc<dyn EventStore>,
+        max_concurrent_tasks: Option<usize>,
+    ) -> Self {
+        let max_concurrent_tasks = max_concurrent_tasks
+            .or_else(|| {
+                std::env::var("IRONFLOW_MAX_CONCURRENT_TASKS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+            })
+            .unwrap_or_else(num_cpus::get);
+
+        Self {
+            registry,
+            store,
+            events: Some(events),
             max_concurrent_tasks,
         }
     }
@@ -54,6 +88,13 @@ impl WorkflowEngine {
         self.store
             .set_run_status(&run_id, RunStatus::Running)
             .await?;
+        self.publish_event(RunEvent::run(
+            &run_id,
+            &flow_name,
+            RunEventType::RunStarted,
+            RunStatus::Running,
+        ))
+        .await;
 
         // Initialize all task states
         for step in &flow.steps {
@@ -113,6 +154,18 @@ impl WorkflowEngine {
                         let mut task_state = TaskState::new(&step.name, &step.node_type);
                         task_state.status = TaskStatus::Skipped;
                         self.store.upsert_task(&run_id, &task_state).await?;
+                        self.publish_event(
+                            RunEvent::task(
+                                &run_id,
+                                &step.name,
+                                &step.node_type,
+                                RunEventType::TaskSkipped,
+                                TaskStatus::Skipped,
+                                None,
+                            )
+                            .with_reason("error handler was not triggered"),
+                        )
+                        .await;
                     }
                     // Either way, skip normal scheduling
                     continue;
@@ -128,6 +181,18 @@ impl WorkflowEngine {
                     let mut task_state = TaskState::new(&step.name, &step.node_type);
                     task_state.status = TaskStatus::Skipped;
                     self.store.upsert_task(&run_id, &task_state).await?;
+                    self.publish_event(
+                        RunEvent::task(
+                            &run_id,
+                            &step.name,
+                            &step.node_type,
+                            RunEventType::TaskSkipped,
+                            TaskStatus::Skipped,
+                            None,
+                        )
+                        .with_reason("dependency failed"),
+                    )
+                    .await;
                     failed.write().await.insert(step_name.clone());
                     continue;
                 }
@@ -142,6 +207,18 @@ impl WorkflowEngine {
                         let mut task_state = TaskState::new(&step.name, &step.node_type);
                         task_state.status = TaskStatus::Skipped;
                         self.store.upsert_task(&run_id, &task_state).await?;
+                        self.publish_event(
+                            RunEvent::task(
+                                &run_id,
+                                &step.name,
+                                &step.node_type,
+                                RunEventType::TaskSkipped,
+                                TaskStatus::Skipped,
+                                None,
+                            )
+                            .with_reason("route condition was not matched"),
+                        )
+                        .await;
                         completed.write().await.insert(step_name.clone());
                         continue;
                     }
@@ -149,6 +226,7 @@ impl WorkflowEngine {
 
                 let registry = self.registry.clone();
                 let store = self.store.clone();
+                let events = self.events.clone();
                 let ctx = ctx.clone();
                 let semaphore = semaphore.clone();
                 let completed = completed.clone();
@@ -159,7 +237,9 @@ impl WorkflowEngine {
 
                 let handle = tokio::spawn(async move {
                     let _permit = semaphore.acquire().await.unwrap();
-                    let result = Self::run_task(&registry, &store, &run_id, &step, &ctx).await;
+                    let result =
+                        Self::run_task(&registry, &store, events.as_ref(), &run_id, &step, &ctx)
+                            .await;
 
                     match result {
                         Ok(()) => {
@@ -195,7 +275,12 @@ impl WorkflowEngine {
                                 // Run the error handler step
                                 if let Some(error_step) = step_map.get(error_step_name) {
                                     let err_result = Self::run_task(
-                                        &registry, &store, &run_id, error_step, &ctx,
+                                        &registry,
+                                        &store,
+                                        events.as_ref(),
+                                        &run_id,
+                                        error_step,
+                                        &ctx,
                                     )
                                     .await;
 
@@ -256,9 +341,23 @@ impl WorkflowEngine {
         // Store final context
         let final_ctx = ctx.read().await;
         self.store.update_ctx(&run_id, final_ctx.as_ref()).await?;
+        self.publish_event(RunEvent::run(
+            &run_id,
+            &flow_name,
+            RunEventType::ContextUpdated,
+            RunStatus::Running,
+        ))
+        .await;
         self.store
             .set_run_status(&run_id, final_status.clone())
             .await?;
+        self.publish_event(RunEvent::run(
+            &run_id,
+            &flow_name,
+            RunEventType::RunFinished,
+            final_status.clone(),
+        ))
+        .await;
 
         info!(run_id = %run_id, status = %final_status, "Workflow execution complete");
 
@@ -269,6 +368,7 @@ impl WorkflowEngine {
     async fn run_task(
         registry: &NodeRegistry,
         store: &Arc<dyn StateStore>,
+        events: Option<&Arc<dyn EventStore>>,
         run_id: &str,
         step: &StepDefinition,
         ctx: &Arc<RwLock<Arc<Context>>>,
@@ -287,6 +387,18 @@ impl WorkflowEngine {
             task_state.attempt = attempt;
             task_state.started = Some(Utc::now());
             store.upsert_task(run_id, &task_state).await?;
+            Self::publish_event_ref(
+                events,
+                RunEvent::task(
+                    run_id,
+                    &step.name,
+                    &step.node_type,
+                    RunEventType::TaskStarted,
+                    TaskStatus::Running,
+                    Some(attempt),
+                ),
+            )
+            .await;
 
             info!(task = %step.name, attempt = attempt, max = max_attempts, "Running task");
 
@@ -345,7 +457,21 @@ impl WorkflowEngine {
                         Some(output_value)
                     };
                     task_state.finished = Some(Utc::now());
+                    let duration_ms = task_duration_ms(task_state.started, task_state.finished);
                     store.upsert_task(run_id, &task_state).await?;
+                    Self::publish_event_ref(
+                        events,
+                        RunEvent::task(
+                            run_id,
+                            &step.name,
+                            &step.node_type,
+                            RunEventType::TaskSucceeded,
+                            TaskStatus::Success,
+                            Some(attempt),
+                        )
+                        .with_duration_ms(duration_ms),
+                    )
+                    .await;
 
                     info!(task = %step.name, "Task completed successfully");
                     return Ok(());
@@ -357,7 +483,22 @@ impl WorkflowEngine {
                     task_state.status = TaskStatus::Failed;
                     task_state.error = Some(err_msg.clone());
                     task_state.finished = Some(Utc::now());
+                    let duration_ms = task_duration_ms(task_state.started, task_state.finished);
                     store.upsert_task(run_id, &task_state).await?;
+                    Self::publish_event_ref(
+                        events,
+                        RunEvent::task(
+                            run_id,
+                            &step.name,
+                            &step.node_type,
+                            RunEventType::TaskFailed,
+                            TaskStatus::Failed,
+                            Some(attempt),
+                        )
+                        .with_duration_ms(duration_ms)
+                        .with_error(err_msg.clone()),
+                    )
+                    .await;
 
                     last_error = Some(err_msg);
 
@@ -365,6 +506,18 @@ impl WorkflowEngine {
                     if attempt < max_attempts {
                         let delay = step.retry.backoff_s * 2.0_f64.powi((attempt - 1) as i32);
                         info!(task = %step.name, delay_s = delay, "Retrying after backoff");
+                        Self::publish_event_ref(
+                            events,
+                            RunEvent::task(
+                                run_id,
+                                &step.name,
+                                &step.node_type,
+                                RunEventType::TaskRetrying,
+                                TaskStatus::Running,
+                                Some(attempt + 1),
+                            ),
+                        )
+                        .await;
                         tokio::time::sleep(std::time::Duration::from_secs_f64(delay)).await;
                     }
                 }
@@ -391,6 +544,18 @@ impl WorkflowEngine {
             }
         }
         false
+    }
+
+    async fn publish_event(&self, event: RunEvent) {
+        Self::publish_event_ref(self.events.as_ref(), event).await;
+    }
+
+    async fn publish_event_ref(events: Option<&Arc<dyn EventStore>>, event: RunEvent) {
+        if let Some(events) = events
+            && let Err(err) = events.publish(event).await
+        {
+            warn!(error = %err, "Failed to publish workflow event");
+        }
     }
 
     /// Topological sort using Kahn's algorithm. Returns execution phases.

@@ -92,8 +92,10 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
 - [x] Mutual exclusion — reject requests with multiple source fields
 - [x] Configurable request body size limit (default 1 MB, `--max-body` flag)
 - [x] Error responses with consistent JSON format (`error` + optional `details`)
-- [x] CORS support (permissive, via `tower-http`)
+- [x] API key authentication for non-loopback servers via `IRONFLOW_API_KEY`
+- [x] Configurable CORS support via `IRONFLOW_CORS_ORIGINS` / `cors_origins`
 - [x] Request tracing (via `tower-http` TraceLayer)
+- [x] Lua instruction, wall-clock, memory, and GC controls for flow parsing and Lua nodes
 
 ### 3.2 Redis State Store ✅
 - [x] Implement `RedisStateStore` behind `redis` cargo feature flag
@@ -104,6 +106,24 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
 - [x] `create_store()` factory function for backend selection (config + env var)
 - [x] `AppState.store` refactored to `Arc<dyn StateStore>` for runtime backend selection
 - [x] 8 integration tests against real Redis
+
+### 3.3 SQL State Store ✅
+- [x] `SqlStateStore` for SQLite/Postgres via `sqlx::AnyPool`
+- [x] Separate SQL tables for runs and tasks to avoid rewriting full run records on task updates
+- [x] Backend selection via `IRONFLOW_STORE=json|sqlite|postgres|redis`
+- [x] SQL store URL via `IRONFLOW_STORE_URL` / `store_url`
+- [x] SQL table prefix via `IRONFLOW_SQL_TABLE_PREFIX` / `sql_table_prefix` for shared SQLite/Postgres databases
+
+### 3.4 Run Event Streaming ✅
+- [x] Define compact `RunEvent` payloads for run/task lifecycle monitoring; include step name, `node_type`, attempt, status, timing, and error metadata, but never full node input/output.
+- [x] Add separate event backend selection via `IRONFLOW_EVENT_STORE=memory|sqlite|postgres|redis` and `IRONFLOW_EVENT_STORE_URL`; do not reuse `IRONFLOW_STORE` so deployments can store runs and events in different systems.
+- [x] Implement in-memory event store for single-instance/local deployments.
+- [x] Implement SQL event store for SQLite/Postgres shared event backends.
+- [x] Apply the shared SQL table prefix to SQL event tables.
+- [x] Implement Redis event store behind the `redis` cargo feature flag, using `REDIS_URL`, `REDIS_PREFIX`, and optional `REDIS_TTL`.
+- [x] Emit events from the workflow engine next to run/task state transitions.
+- [x] Add `GET /runs/{id}/events` SSE endpoint with replay support from the selected event backend.
+- [x] Defer Redis Streams, NATS, Kafka/Redpanda, and other event backends to a later phase.
 
 ---
 

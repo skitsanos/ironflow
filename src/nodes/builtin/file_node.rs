@@ -9,6 +9,51 @@ use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
 
+#[derive(Clone, Copy)]
+struct DirectoryListLimits {
+    max_entries: usize,
+    max_depth: usize,
+}
+
+#[derive(Clone, Copy)]
+struct ZipLimits {
+    max_entries: usize,
+    max_total_uncompressed_bytes: u64,
+}
+
+fn optional_usize(config: &serde_json::Value, key: &str) -> Option<usize> {
+    config
+        .get(key)
+        .and_then(|v| v.as_u64())
+        .and_then(|v| usize::try_from(v).ok())
+        .filter(|v| *v > 0)
+}
+
+fn optional_u64(config: &serde_json::Value, key: &str) -> Option<u64> {
+    config.get(key).and_then(|v| v.as_u64()).filter(|v| *v > 0)
+}
+
+fn directory_list_limits(config: &serde_json::Value) -> DirectoryListLimits {
+    DirectoryListLimits {
+        max_entries: optional_usize(config, "max_entries")
+            .unwrap_or_else(|| crate::util::limits::max_directory_entries() as usize),
+        max_depth: config
+            .get("max_depth")
+            .and_then(|v| v.as_u64())
+            .and_then(|v| usize::try_from(v).ok())
+            .unwrap_or_else(|| crate::util::limits::max_directory_depth() as usize),
+    }
+}
+
+fn zip_limits(config: &serde_json::Value) -> ZipLimits {
+    ZipLimits {
+        max_entries: optional_usize(config, "max_entries")
+            .unwrap_or_else(|| crate::util::limits::max_zip_entries() as usize),
+        max_total_uncompressed_bytes: optional_u64(config, "max_total_uncompressed_bytes")
+            .unwrap_or_else(crate::util::limits::max_zip_uncompressed_bytes),
+    }
+}
+
 pub struct ReadFileNode;
 
 #[async_trait]
@@ -322,7 +367,7 @@ impl Node for ListDirectoryNode {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
-        let entries = list_dir_entries(&path, recursive).await?;
+        let entries = list_dir_entries(&path, recursive, directory_list_limits(config)).await?;
 
         let mut output = NodeOutput::new();
         output.insert(output_key.to_string(), serde_json::Value::Array(entries));
@@ -334,13 +379,42 @@ impl Node for ListDirectoryNode {
 fn list_dir_entries(
     path: &str,
     recursive: bool,
+    limits: DirectoryListLimits,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<serde_json::Value>>> + Send + '_>>
 {
     Box::pin(async move {
         let mut entries = Vec::new();
+        list_dir_entries_inner(path, recursive, limits, 0, &mut entries).await?;
+        Ok(entries)
+    })
+}
+
+fn list_dir_entries_inner<'a>(
+    path: &'a str,
+    recursive: bool,
+    limits: DirectoryListLimits,
+    depth: usize,
+    entries: &'a mut Vec<serde_json::Value>,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
+    Box::pin(async move {
+        if depth > limits.max_depth {
+            anyhow::bail!(
+                "list_directory: recursion depth {} exceeds limit {}",
+                depth,
+                limits.max_depth
+            );
+        }
+
         let mut dir = tokio::fs::read_dir(path).await?;
 
         while let Some(entry) = dir.next_entry().await? {
+            if entries.len() >= limits.max_entries {
+                anyhow::bail!(
+                    "list_directory: entry count exceeds limit {} (set max_entries or IRONFLOW_MAX_DIRECTORY_ENTRIES to raise)",
+                    limits.max_entries
+                );
+            }
+
             let file_type = entry.file_type().await?;
             let name = entry.file_name().to_string_lossy().to_string();
             let entry_path = entry.path().to_string_lossy().to_string();
@@ -358,12 +432,11 @@ fn list_dir_entries(
             }));
 
             if recursive && file_type.is_dir() {
-                let sub_entries = list_dir_entries(&entry_path, true).await?;
-                entries.extend(sub_entries);
+                list_dir_entries_inner(&entry_path, true, limits, depth + 1, entries).await?;
             }
         }
 
-        Ok(entries)
+        Ok(())
     })
 }
 
@@ -406,8 +479,15 @@ impl Node for ZipCreateNode {
 
         let zip_path_clone = zip_path.clone();
         let source_clone = source.clone();
+        let limits = zip_limits(config);
         let files_count = tokio::task::spawn_blocking(move || {
-            create_zip_archive(&source_clone, &zip_path_clone, include_root, compression)
+            create_zip_archive(
+                &source_clone,
+                &zip_path_clone,
+                include_root,
+                compression,
+                limits,
+            )
         })
         .await
         .map_err(|e| anyhow::anyhow!("zip_create: worker task failed: {}", e))??;
@@ -458,9 +538,11 @@ impl Node for ZipListNode {
             .unwrap_or("zip_entries");
 
         let zip_path_clone = zip_path.clone();
-        let entries = tokio::task::spawn_blocking(move || list_zip_entries(&zip_path_clone))
-            .await
-            .map_err(|e| anyhow::anyhow!("zip_list: worker task failed: {}", e))??;
+        let limits = zip_limits(config);
+        let entries =
+            tokio::task::spawn_blocking(move || list_zip_entries(&zip_path_clone, limits))
+                .await
+                .map_err(|e| anyhow::anyhow!("zip_list: worker task failed: {}", e))??;
 
         let mut output = NodeOutput::new();
         let count = entries.len() as u64;
@@ -519,8 +601,9 @@ impl Node for ZipExtractNode {
 
         let zip_path_clone = zip_path.clone();
         let destination_clone = destination.clone();
+        let limits = zip_limits(config);
         let extracted = tokio::task::spawn_blocking(move || {
-            extract_zip_archive(&zip_path_clone, &destination_clone, overwrite)
+            extract_zip_archive(&zip_path_clone, &destination_clone, overwrite, limits)
         })
         .await
         .map_err(|e| anyhow::anyhow!("zip_extract: worker task failed: {}", e))??;
@@ -559,14 +642,27 @@ fn parse_zip_compression(value: &str) -> Result<zip::CompressionMethod> {
     }
 }
 
-fn zip_collect_entries(source: &Path, include_root: bool) -> Result<Vec<(PathBuf, String)>> {
+fn zip_collect_entries(
+    source: &Path,
+    include_root: bool,
+    limits: ZipLimits,
+) -> Result<Vec<(PathBuf, String)>> {
     let mut entries = Vec::new();
+    let mut total_bytes = 0u64;
 
     if source.is_file() {
         let file_name = source.file_name().and_then(|n| n.to_str()).ok_or_else(|| {
             anyhow::anyhow!("zip_create: source file path has no valid file name")
         })?;
 
+        total_bytes = source.metadata()?.len();
+        if total_bytes > limits.max_total_uncompressed_bytes {
+            anyhow::bail!(
+                "zip_create: source file is {} bytes, exceeds uncompressed limit {}",
+                total_bytes,
+                limits.max_total_uncompressed_bytes
+            );
+        }
         entries.push((source.to_path_buf(), file_name.replace('\\', "/")));
         return Ok(entries);
     }
@@ -587,7 +683,13 @@ fn zip_collect_entries(source: &Path, include_root: bool) -> Result<Vec<(PathBuf
         None
     };
 
-    walk_dir_for_zip(source, root_prefix.as_deref().unwrap_or(""), &mut entries)?;
+    walk_dir_for_zip(
+        source,
+        root_prefix.as_deref().unwrap_or(""),
+        &mut entries,
+        &mut total_bytes,
+        limits,
+    )?;
     Ok(entries)
 }
 
@@ -595,6 +697,8 @@ fn walk_dir_for_zip(
     directory: &Path,
     prefix: &str,
     entries: &mut Vec<(PathBuf, String)>,
+    total_bytes: &mut u64,
+    limits: ZipLimits,
 ) -> Result<()> {
     for entry in fs::read_dir(directory)? {
         let entry = entry?;
@@ -611,8 +715,21 @@ fn walk_dir_for_zip(
         };
 
         if path.is_dir() {
-            walk_dir_for_zip(&path, &child_prefix, entries)?;
+            walk_dir_for_zip(&path, &child_prefix, entries, total_bytes, limits)?;
         } else if path.is_file() {
+            if entries.len() >= limits.max_entries {
+                anyhow::bail!(
+                    "zip_create: file count exceeds limit {} (set max_entries or IRONFLOW_MAX_ZIP_ENTRIES to raise)",
+                    limits.max_entries
+                );
+            }
+            *total_bytes = total_bytes.saturating_add(path.metadata()?.len());
+            if *total_bytes > limits.max_total_uncompressed_bytes {
+                anyhow::bail!(
+                    "zip_create: total source bytes exceed limit {} (set max_total_uncompressed_bytes or IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES to raise)",
+                    limits.max_total_uncompressed_bytes
+                );
+            }
             entries.push((path, child_prefix));
         }
     }
@@ -625,6 +742,7 @@ fn create_zip_archive(
     zip_path: &str,
     include_root: bool,
     compression: zip::CompressionMethod,
+    limits: ZipLimits,
 ) -> Result<usize> {
     let source = Path::new(source);
     if !source.exists() {
@@ -635,7 +753,7 @@ fn create_zip_archive(
         fs::create_dir_all(parent)?;
     }
 
-    let entries = zip_collect_entries(source, include_root)?;
+    let entries = zip_collect_entries(source, include_root, limits)?;
 
     let zip_file = File::create(zip_path)
         .map_err(|e| anyhow::anyhow!("zip_create: cannot create '{}': {}", zip_path, e))?;
@@ -657,16 +775,32 @@ fn create_zip_archive(
     Ok(files_count)
 }
 
-fn list_zip_entries(zip_path: &str) -> Result<Vec<serde_json::Value>> {
+fn list_zip_entries(zip_path: &str, limits: ZipLimits) -> Result<Vec<serde_json::Value>> {
     let file = File::open(zip_path)
         .map_err(|e| anyhow::anyhow!("zip_list: failed to open '{}': {}", zip_path, e))?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| {
         anyhow::anyhow!("zip_list: '{}' is not a valid zip archive: {}", zip_path, e)
     })?;
 
+    if archive.len() > limits.max_entries {
+        anyhow::bail!(
+            "zip_list: archive has {} entries, exceeds limit {}",
+            archive.len(),
+            limits.max_entries
+        );
+    }
+
     let mut entries = Vec::new();
+    let mut total_uncompressed = 0u64;
     for index in 0..archive.len() {
         let entry = archive.by_index(index)?;
+        total_uncompressed = total_uncompressed.saturating_add(entry.size());
+        if total_uncompressed > limits.max_total_uncompressed_bytes {
+            anyhow::bail!(
+                "zip_list: total uncompressed bytes exceed limit {}",
+                limits.max_total_uncompressed_bytes
+            );
+        }
         let name = entry.name().to_string();
         let is_directory = name.ends_with('/');
         entries.push(serde_json::json!({
@@ -682,7 +816,12 @@ fn list_zip_entries(zip_path: &str) -> Result<Vec<serde_json::Value>> {
     Ok(entries)
 }
 
-fn extract_zip_archive(zip_path: &str, destination: &str, overwrite: bool) -> Result<Vec<String>> {
+fn extract_zip_archive(
+    zip_path: &str,
+    destination: &str,
+    overwrite: bool,
+    limits: ZipLimits,
+) -> Result<Vec<String>> {
     let file = File::open(zip_path)
         .map_err(|e| anyhow::anyhow!("zip_extract: failed to open '{}': {}", zip_path, e))?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| {
@@ -693,13 +832,29 @@ fn extract_zip_archive(zip_path: &str, destination: &str, overwrite: bool) -> Re
         )
     })?;
 
+    if archive.len() > limits.max_entries {
+        anyhow::bail!(
+            "zip_extract: archive has {} entries, exceeds limit {}",
+            archive.len(),
+            limits.max_entries
+        );
+    }
+
     let destination = Path::new(destination);
     fs::create_dir_all(destination)?;
     let destination = destination.canonicalize()?;
     let mut extracted = Vec::new();
+    let mut total_uncompressed = 0u64;
 
     for index in 0..archive.len() {
         let mut entry = archive.by_index(index)?;
+        total_uncompressed = total_uncompressed.saturating_add(entry.size());
+        if total_uncompressed > limits.max_total_uncompressed_bytes {
+            anyhow::bail!(
+                "zip_extract: total uncompressed bytes exceed limit {}",
+                limits.max_total_uncompressed_bytes
+            );
+        }
         let raw_name = entry.name().to_string();
         let safe_name = validate_zip_entry_name(&raw_name)?;
         let out_path = destination.join(safe_name.replace('\\', "/"));

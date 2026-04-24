@@ -7,6 +7,7 @@ use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
 use crate::nodes::builtin::code_node::{json_value_to_lua_table, lua_value_to_json};
 use crate::nodes::builtin::lua_sandbox;
+use crate::util::limits::{LuaExecutionLimits, apply_lua_limits, collect_lua_garbage};
 
 pub struct ForEachNode;
 
@@ -50,6 +51,8 @@ impl Node for ForEachNode {
             .ok_or_else(|| anyhow::anyhow!("Value at '{}' is not an array", source_key))?;
 
         let lua = Lua::new();
+        let limits = LuaExecutionLimits::from_env();
+        apply_lua_limits(&lua, limits)?;
         lua_sandbox::setup_sandbox(&lua, ctx)?;
 
         // Decode and load the transform function
@@ -91,6 +94,7 @@ impl Node for ForEachNode {
             format!("{}_count", output_key),
             serde_json::json!(results.len()),
         );
+        collect_lua_garbage(&lua, limits)?;
         Ok(output)
     }
 }

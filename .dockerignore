@@ -1,0 +1,13 @@
+.git
+.gitignore
+.env
+.env.*
+target
+data
+tmp
+*.log
+Dockerfile
+docker-compose*.yml
+docs
+examples
+tests

@@ -6,6 +6,7 @@ use mlua::prelude::*;
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
 use crate::nodes::builtin::lua_sandbox;
+use crate::util::limits::{LuaExecutionLimits, apply_lua_limits, collect_lua_garbage};
 
 pub struct CodeNode;
 
@@ -21,6 +22,8 @@ impl Node for CodeNode {
 
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let lua = Lua::new();
+        let limits = LuaExecutionLimits::from_env();
+        apply_lua_limits(&lua, limits)?;
         let ctx_table = lua_sandbox::setup_sandbox(&lua, ctx)?;
 
         // Execute either bytecode (function handler) or source string
@@ -67,6 +70,8 @@ impl Node for CodeNode {
                 output.insert("result".to_string(), lua_value_to_json(&other)?);
             }
         }
+
+        collect_lua_garbage(&lua, limits)?;
 
         Ok(output)
     }

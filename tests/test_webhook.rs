@@ -12,6 +12,7 @@ use http_body_util::BodyExt;
 use tower::ServiceExt;
 
 use ironflow::nodes::NodeRegistry;
+use ironflow::storage::event_store::MemoryEventStore;
 use ironflow::storage::json_store::JsonStateStore;
 
 /// Build a test router with the webhook route wired up, mirroring src/api/mod.rs.
@@ -22,6 +23,7 @@ fn build_test_app(flows_dir: std::path::PathBuf, webhooks: HashMap<String, Strin
     let state = Arc::new(ironflow::api::AppState {
         registry,
         store,
+        event_store: Arc::new(MemoryEventStore::new()),
         flows_dir: Some(flows_dir),
         max_concurrent_tasks: None,
         webhooks,

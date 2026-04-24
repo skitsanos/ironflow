@@ -6,6 +6,8 @@ use ironflow::engine::types::*;
 use ironflow::storage::StateStore;
 use ironflow::storage::json_store::JsonStateStore;
 use ironflow::storage::null_store::NullStateStore;
+use ironflow::storage::sql_store::SqlStateStore;
+use sqlx::Row;
 
 fn test_ctx() -> Context {
     let mut ctx = HashMap::new();
@@ -244,6 +246,167 @@ async fn json_store_list_runs() {
     let failed_only = store.list_runs(Some(RunStatus::Failed)).await.unwrap();
     assert_eq!(failed_only.len(), 1);
     assert_eq!(failed_only[0].flow_name, "flow_b");
+}
+
+fn sqlite_store_url(dir: &std::path::Path) -> String {
+    format!(
+        "sqlite://{}?mode=rwc",
+        dir.join("state.sqlite").to_string_lossy()
+    )
+}
+
+#[tokio::test]
+async fn sql_store_init_update_and_get() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = SqlStateStore::new(&sqlite_store_url(dir.path()))
+        .await
+        .unwrap();
+
+    let mut initial = HashMap::new();
+    initial.insert("a".to_string(), serde_json::json!(1));
+    store.init_run("r1", "sql_flow", &initial).await.unwrap();
+    store
+        .set_run_status("r1", RunStatus::Running)
+        .await
+        .unwrap();
+
+    let mut task = TaskState::new("step1", "log");
+    task.status = TaskStatus::Success;
+    task.attempt = 2;
+    task.output = Some(serde_json::json!({"ok": true}));
+    store.upsert_task("r1", &task).await.unwrap();
+
+    let mut ctx_update = HashMap::new();
+    ctx_update.insert("b".to_string(), serde_json::json!("two"));
+    store.update_ctx("r1", &ctx_update).await.unwrap();
+
+    let info = store.get_run_info("r1").await.unwrap();
+    assert_eq!(info.flow_name, "sql_flow");
+    assert_eq!(info.status, RunStatus::Running);
+    assert_eq!(info.ctx.get("a").unwrap(), &serde_json::json!(1));
+    assert_eq!(info.ctx.get("b").unwrap(), &serde_json::json!("two"));
+    assert_eq!(info.tasks["step1"].attempt, 2);
+    assert_eq!(
+        info.tasks["step1"].output.as_ref().unwrap(),
+        &serde_json::json!({"ok": true})
+    );
+}
+
+#[tokio::test]
+async fn sql_store_lists_summaries_without_full_context() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = SqlStateStore::new(&sqlite_store_url(dir.path()))
+        .await
+        .unwrap();
+
+    let mut ctx = HashMap::new();
+    ctx.insert("large".to_string(), serde_json::json!("x".repeat(1024)));
+    store.init_run("r1", "sql_flow", &ctx).await.unwrap();
+    store
+        .set_run_status("r1", RunStatus::Success)
+        .await
+        .unwrap();
+    store
+        .init_run("r2", "other_flow", &HashMap::new())
+        .await
+        .unwrap();
+    store.set_run_status("r2", RunStatus::Failed).await.unwrap();
+
+    let summaries = store
+        .list_run_summaries(Some(RunStatus::Success))
+        .await
+        .unwrap();
+
+    assert_eq!(summaries.len(), 1);
+    assert_eq!(summaries[0].id, "r1");
+    assert_eq!(summaries[0].flow_name, "sql_flow");
+    assert_eq!(summaries[0].status, RunStatus::Success);
+}
+
+#[tokio::test]
+async fn sql_store_uses_custom_table_prefix() {
+    let dir = tempfile::tempdir().unwrap();
+    let url = sqlite_store_url(dir.path());
+    let store = SqlStateStore::new_with_prefix(&url, Some("tenant_a_"))
+        .await
+        .unwrap();
+
+    store
+        .init_run("r1", "prefixed_flow", &HashMap::new())
+        .await
+        .unwrap();
+
+    let pool = sqlx::AnyPool::connect(&url).await.unwrap();
+    let row = sqlx::query(
+        "SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'tenant_a_runs'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(row.get::<i64, _>("count"), 1);
+
+    let row = sqlx::query(
+        "SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'ironflow_runs'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(row.get::<i64, _>("count"), 0);
+}
+
+#[cfg(feature = "postgres")]
+#[tokio::test]
+async fn postgres_sql_store_works_with_custom_table_prefix() {
+    let Some(url) = postgres_database_url() else {
+        eprintln!("Skipping test: DATABASE_URL is not configured for Postgres");
+        return;
+    };
+    let prefix = unique_sql_prefix("pg_state");
+    let store = SqlStateStore::new_with_prefix(&url, Some(&prefix))
+        .await
+        .unwrap();
+
+    store
+        .init_run("pg-r1", "pg_flow", &HashMap::new())
+        .await
+        .unwrap();
+    store
+        .set_run_status("pg-r1", RunStatus::Success)
+        .await
+        .unwrap();
+
+    let info = store.get_run_info("pg-r1").await.unwrap();
+    assert_eq!(info.flow_name, "pg_flow");
+    assert_eq!(info.status, RunStatus::Success);
+
+    drop(store);
+    cleanup_postgres_state_tables(&url, &prefix).await;
+}
+
+#[cfg(feature = "postgres")]
+fn postgres_database_url() -> Option<String> {
+    dotenvy::dotenv().ok();
+    std::env::var("DATABASE_URL")
+        .ok()
+        .filter(|url| url.starts_with("postgres://") || url.starts_with("postgresql://"))
+}
+
+#[cfg(feature = "postgres")]
+fn unique_sql_prefix(label: &str) -> String {
+    let id = uuid::Uuid::new_v4().simple().to_string();
+    format!("{}_{}_", label, &id[..8])
+}
+
+#[cfg(feature = "postgres")]
+async fn cleanup_postgres_state_tables(url: &str, prefix: &str) {
+    if let Ok(pool) = sqlx::AnyPool::connect(url).await {
+        let _ = sqlx::query(&format!("DROP TABLE IF EXISTS {}tasks", prefix))
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query(&format!("DROP TABLE IF EXISTS {}runs", prefix))
+            .execute(&pool)
+            .await;
+    }
 }
 
 #[tokio::test]

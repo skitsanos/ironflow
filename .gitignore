@@ -5,3 +5,5 @@
 .idea/
 data/
 .ironflow_cache/
+Taskfile.yaml
+

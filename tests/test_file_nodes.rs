@@ -347,6 +347,54 @@ async fn list_directory_recursive() {
 }
 
 #[tokio::test]
+async fn list_directory_respects_max_entries() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.txt"), "a").unwrap();
+    std::fs::write(dir.path().join("b.txt"), "b").unwrap();
+
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("list_directory").unwrap();
+
+    let result = node
+        .execute(
+            &serde_json::json!({
+                "path": dir.path().to_str().unwrap(),
+                "max_entries": 1,
+            }),
+            &empty_ctx(),
+        )
+        .await;
+
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("entry count"));
+}
+
+#[tokio::test]
+async fn list_directory_respects_max_depth() {
+    let dir = tempfile::tempdir().unwrap();
+    let sub = dir.path().join("child");
+    std::fs::create_dir(&sub).unwrap();
+    std::fs::write(sub.join("nested.txt"), "n").unwrap();
+
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("list_directory").unwrap();
+
+    let result = node
+        .execute(
+            &serde_json::json!({
+                "path": dir.path().to_str().unwrap(),
+                "recursive": true,
+                "max_depth": 0,
+            }),
+            &empty_ctx(),
+        )
+        .await;
+
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("recursion depth"));
+}
+
+#[tokio::test]
 async fn list_directory_empty() {
     let dir = tempfile::tempdir().unwrap();
 
@@ -428,6 +476,63 @@ async fn zip_create_missing_source() {
     assert!(result.is_err());
 }
 
+#[tokio::test]
+async fn zip_create_respects_max_entries() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("input");
+    std::fs::create_dir(&source).unwrap();
+    std::fs::write(source.join("a.txt"), "A").unwrap();
+    std::fs::write(source.join("b.txt"), "B").unwrap();
+
+    let zip_path = dir.path().join("archive.zip");
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("zip_create").unwrap();
+
+    let result = node
+        .execute(
+            &serde_json::json!({
+                "source": source.to_str().unwrap(),
+                "zip_path": zip_path.to_str().unwrap(),
+                "max_entries": 1,
+            }),
+            &empty_ctx(),
+        )
+        .await;
+
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("file count"));
+}
+
+#[tokio::test]
+async fn zip_create_respects_total_uncompressed_bytes() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("input.txt");
+    std::fs::write(&source, "hello").unwrap();
+    let zip_path = dir.path().join("archive.zip");
+
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("zip_create").unwrap();
+
+    let result = node
+        .execute(
+            &serde_json::json!({
+                "source": source.to_str().unwrap(),
+                "zip_path": zip_path.to_str().unwrap(),
+                "max_total_uncompressed_bytes": 1,
+            }),
+            &empty_ctx(),
+        )
+        .await;
+
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("uncompressed limit")
+    );
+}
+
 // --- zip_list ---
 
 #[tokio::test]
@@ -482,6 +587,38 @@ async fn zip_list_missing_archive() {
 
     let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn zip_list_respects_max_entries() {
+    let dir = tempfile::tempdir().unwrap();
+    let zip_path = dir.path().join("archive.zip");
+
+    let file = std::fs::File::create(&zip_path).unwrap();
+    let mut archive = zip::ZipWriter::new(file);
+    let options =
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    archive.start_file("a.txt", options).unwrap();
+    archive.write_all(b"a").unwrap();
+    archive.start_file("b.txt", options).unwrap();
+    archive.write_all(b"b").unwrap();
+    archive.finish().unwrap();
+
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("zip_list").unwrap();
+
+    let result = node
+        .execute(
+            &serde_json::json!({
+                "path": zip_path.to_str().unwrap(),
+                "max_entries": 1,
+            }),
+            &empty_ctx(),
+        )
+        .await;
+
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("exceeds limit"));
 }
 
 // --- zip_extract ---
@@ -566,4 +703,41 @@ async fn zip_extract_prevents_traversal() {
         .await;
 
     assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn zip_extract_respects_total_uncompressed_bytes() {
+    let dir = tempfile::tempdir().unwrap();
+    let zip_path = dir.path().join("archive.zip");
+
+    let file = std::fs::File::create(&zip_path).unwrap();
+    let mut archive = zip::ZipWriter::new(file);
+    let options =
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    archive.start_file("big.txt", options).unwrap();
+    archive.write_all(b"too large").unwrap();
+    archive.finish().unwrap();
+
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("zip_extract").unwrap();
+    let destination = dir.path().join("out");
+
+    let result = node
+        .execute(
+            &serde_json::json!({
+                "path": zip_path.to_str().unwrap(),
+                "destination": destination.to_str().unwrap(),
+                "max_total_uncompressed_bytes": 1,
+            }),
+            &empty_ctx(),
+        )
+        .await;
+
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("uncompressed bytes")
+    );
 }

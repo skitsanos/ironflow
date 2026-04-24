@@ -3,6 +3,8 @@
 
 use std::collections::HashMap;
 
+use axum::Router;
+use axum::routing::post;
 use ironflow::engine::types::Context;
 use ironflow::nodes::NodeRegistry;
 
@@ -205,6 +207,49 @@ async fn llm_invalid_mode() {
     assert!(
         err.contains("unsupported mode"),
         "Expected unsupported mode error, got: {}",
+        err
+    );
+}
+
+#[tokio::test]
+async fn llm_rejects_oversized_response_body() {
+    let app = Router::new().route(
+        "/chat/completions",
+        post(|| async {
+            let large_text = "x".repeat(1024);
+            axum::Json(serde_json::json!({
+                "choices": [{
+                    "message": {
+                        "content": large_text
+                    }
+                }]
+            }))
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("llm").unwrap();
+    let config = serde_json::json!({
+        "provider": "custom",
+        "mode": "chat",
+        "base_url": format!("http://{}", addr),
+        "auth_type": "none",
+        "prompt": "Hello",
+        "max_response_bytes": 64,
+        "output_key": "demo"
+    });
+
+    let result = node.execute(&config, &empty_ctx()).await;
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("max_response_bytes"),
+        "Expected max_response_bytes error, got: {}",
         err
     );
 }

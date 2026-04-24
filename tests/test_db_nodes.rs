@@ -76,3 +76,104 @@ async fn db_query_returns_empty_when_no_rows() {
     assert_eq!(rows.get("rows_count").unwrap(), 0);
     assert!(rows.get("rows").unwrap().as_array().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn db_query_respects_max_rows() {
+    let reg = NodeRegistry::with_builtins();
+    let db_query = reg.get("db_query").unwrap();
+    let db_exec = reg.get("db_exec").unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("max_rows.db");
+    let connection = sqlite_url(&db_path);
+
+    db_exec
+        .execute(
+            &serde_json::json!({
+                "connection": connection,
+                "query": "CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY)"
+            }),
+            &empty_ctx(),
+        )
+        .await
+        .unwrap();
+
+    for id in 1..=3 {
+        db_exec
+            .execute(
+                &serde_json::json!({
+                    "connection": connection,
+                    "query": "INSERT INTO t(id) VALUES(?)",
+                    "params": [id]
+                }),
+                &empty_ctx(),
+            )
+            .await
+            .unwrap();
+    }
+
+    let err = db_query
+        .execute(
+            &serde_json::json!({
+                "connection": connection,
+                "query": "SELECT id FROM t ORDER BY id",
+                "max_rows": 2
+            }),
+            &empty_ctx(),
+        )
+        .await
+        .expect_err("query above max_rows must fail");
+
+    assert!(
+        err.to_string().contains("max_rows"),
+        "expected max_rows error, got: {err}"
+    );
+}
+
+#[tokio::test]
+async fn db_query_respects_max_result_bytes() {
+    let reg = NodeRegistry::with_builtins();
+    let db_query = reg.get("db_query").unwrap();
+    let db_exec = reg.get("db_exec").unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("max_bytes.db");
+    let connection = sqlite_url(&db_path);
+
+    db_exec
+        .execute(
+            &serde_json::json!({
+                "connection": connection,
+                "query": "CREATE TABLE IF NOT EXISTS t (value TEXT)"
+            }),
+            &empty_ctx(),
+        )
+        .await
+        .unwrap();
+    db_exec
+        .execute(
+            &serde_json::json!({
+                "connection": connection,
+                "query": "INSERT INTO t(value) VALUES(?)",
+                "params": ["this string is intentionally too large for the tiny test cap"]
+            }),
+            &empty_ctx(),
+        )
+        .await
+        .unwrap();
+
+    let err = db_query
+        .execute(
+            &serde_json::json!({
+                "connection": connection,
+                "query": "SELECT value FROM t",
+                "max_result_bytes": 16
+            }),
+            &empty_ctx(),
+        )
+        .await
+        .expect_err("query above max_result_bytes must fail");
+
+    assert!(
+        err.to_string().contains("max_result_bytes"),
+        "expected max_result_bytes error, got: {err}"
+    );
+}

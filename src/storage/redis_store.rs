@@ -179,7 +179,7 @@ impl StateStore for RedisStateStore {
         }
 
         // Sort by start time, newest first
-        runs.sort_by(|a, b| b.started.cmp(&a.started));
+        runs.sort_by_key(|run| std::cmp::Reverse(run.started));
 
         Ok(runs)
     }
@@ -229,7 +229,7 @@ impl StateStore for RedisStateStore {
             }
         }
 
-        summaries.sort_by(|a, b| b.started.cmp(&a.started));
+        summaries.sort_by_key(|summary| std::cmp::Reverse(summary.started));
         Ok(summaries)
     }
 

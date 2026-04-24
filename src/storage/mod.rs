@@ -1,7 +1,10 @@
+pub mod event_store;
 pub mod json_store;
 pub mod null_store;
 #[cfg(feature = "redis")]
 pub mod redis_store;
+pub mod sql_names;
+pub mod sql_store;
 
 use anyhow::Result;
 use async_trait::async_trait;

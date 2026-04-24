@@ -10,6 +10,8 @@ Execute a SQL SELECT query against a database and return the result rows.
 | `query`      | string | yes      | --       | SQL SELECT query with `?` placeholders for bound parameters.                                                          |
 | `params`     | array  | no       | `[]`     | Query parameters. Strings support `${ctx.*}` interpolation. Numbers, booleans, and null are bound with their native SQL types. |
 | `output_key` | string | no       | `"rows"` | Context key prefix for the output.                                                                                    |
+| `max_rows` | number/string | no | `IRONFLOW_DB_MAX_ROWS` / `1000` | Maximum rows returned before failing. Use pagination or raise this limit for trusted jobs. |
+| `max_result_bytes` | number/string | no | `IRONFLOW_DB_MAX_RESULT_BYTES` / `10485760` | Maximum serialized JSON result size before failing. |
 
 ## Context Output
 
@@ -30,8 +32,9 @@ local db = "sqlite:/tmp/app.db?mode=rwc"
 
 flow:step("query_users", nodes.db_query({
     connection = db,
-    query = "SELECT * FROM users WHERE active = ?",
+    query = "SELECT * FROM users WHERE active = ? ORDER BY id LIMIT ? OFFSET ?",
     params = { true },
+    max_rows = 100,
     output_key = "users"
 }))
 
@@ -49,6 +52,8 @@ return flow
 - String parameters support context interpolation (`${ctx.*}`), so you can dynamically construct queries based on upstream step outputs.
 - Null values in `params` are bound as SQL NULL.
 - Boolean values are bound as their native SQL type (e.g., INTEGER 0/1 for SQLite).
+- Results are streamed from the database, but returned rows are still accumulated into workflow context. Use SQL pagination (`LIMIT`/`OFFSET` or keyset pagination) for large datasets.
+- `IRONFLOW_DB_MAX_ROWS=0` and `IRONFLOW_DB_MAX_RESULT_BYTES=0` disable the corresponding global caps. Per-node caps must be greater than zero.
 
 ## See Also
 

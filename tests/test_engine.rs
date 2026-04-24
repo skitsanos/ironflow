@@ -3,11 +3,13 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use ironflow::engine::RunEventType;
 use ironflow::engine::executor::WorkflowEngine;
 use ironflow::engine::types::*;
 use ironflow::lua::runtime::LuaRuntime;
 use ironflow::nodes::NodeRegistry;
 use ironflow::storage::StateStore;
+use ironflow::storage::event_store::{EventStore, MemoryEventStore};
 use ironflow::storage::null_store::NullStateStore;
 
 fn engine() -> (WorkflowEngine, Arc<dyn StateStore>) {
@@ -41,6 +43,35 @@ async fn execute_single_step() {
     assert_eq!(info.status, RunStatus::Success);
     assert_eq!(info.tasks.len(), 1);
     assert_eq!(info.tasks["greet"].status, TaskStatus::Success);
+}
+
+#[tokio::test]
+async fn execute_emits_compact_run_events() {
+    let reg = Arc::new(NodeRegistry::with_builtins());
+    let store: Arc<dyn StateStore> = Arc::new(NullStateStore::new());
+    let events: Arc<dyn EventStore> = Arc::new(MemoryEventStore::new());
+    let engine = WorkflowEngine::new_with_events(reg, store, events.clone(), None);
+    let flow = load_flow(
+        r#"
+        local flow = Flow.new("events")
+        flow:step("make_value", nodes.code({ source = "return { value = 'ok' }" }))
+        return flow
+    "#,
+    );
+
+    let run_id = engine.execute(&flow, HashMap::new()).await.unwrap();
+    let emitted = events.list_since(&run_id, None, 20).await.unwrap();
+    let event_types: Vec<_> = emitted.iter().map(|event| event.event_type).collect();
+
+    assert!(event_types.contains(&RunEventType::RunStarted));
+    assert!(event_types.contains(&RunEventType::TaskStarted));
+    assert!(event_types.contains(&RunEventType::TaskSucceeded));
+    assert!(event_types.contains(&RunEventType::ContextUpdated));
+    assert!(event_types.contains(&RunEventType::RunFinished));
+
+    let serialized = serde_json::to_value(&emitted[0]).unwrap();
+    assert!(serialized.get("input").is_none());
+    assert!(serialized.get("output").is_none());
 }
 
 #[tokio::test]
