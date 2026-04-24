@@ -49,6 +49,15 @@ static MEMORY_CACHE: LazyLock<BoundedCache<String, serde_json::Value>> =
 
 const DEFAULT_CACHE_DIR: &str = ".ironflow_cache";
 
+fn cache_dir_from_config(config: &serde_json::Value) -> String {
+    config
+        .get("cache_dir")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .or_else(|| std::env::var("IRONFLOW_CACHE_DIR").ok())
+        .unwrap_or_else(|| DEFAULT_CACHE_DIR.to_string())
+}
+
 // ── cache_set ───────────────────────────────────────────────
 
 pub struct CacheSetNode;
@@ -99,11 +108,8 @@ impl Node for CacheSetNode {
                         + ttl
                 });
                 let entry = CacheEntry { value, expires_at };
-                let cache_dir = config
-                    .get("cache_dir")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or(DEFAULT_CACHE_DIR);
-                write_file_entry(cache_dir, key, &entry)?;
+                let cache_dir = cache_dir_from_config(config);
+                write_file_entry(&cache_dir, key, &entry)?;
             }
             other => anyhow::bail!(
                 "cache_set: unsupported backend '{}'. Must be 'memory' or 'file'.",
@@ -160,11 +166,8 @@ impl Node for CacheGetNode {
         let value = match backend {
             "memory" => MEMORY_CACHE.get(&key),
             "file" => {
-                let cache_dir = config
-                    .get("cache_dir")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or(DEFAULT_CACHE_DIR);
-                read_file_entry(cache_dir, &key)?.map(|e| e.value)
+                let cache_dir = cache_dir_from_config(config);
+                read_file_entry(&cache_dir, &key)?.map(|e| e.value)
             }
             other => anyhow::bail!(
                 "cache_get: unsupported backend '{}'. Must be 'memory' or 'file'.",

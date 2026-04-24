@@ -1,9 +1,13 @@
 //! Tests for cache_set and cache_get nodes.
 
 use std::collections::HashMap;
+use std::sync::LazyLock;
 
 use ironflow::engine::types::Context;
 use ironflow::nodes::NodeRegistry;
+
+static CACHE_ENV_LOCK: LazyLock<tokio::sync::Mutex<()>> =
+    LazyLock::new(|| tokio::sync::Mutex::new(()));
 
 // --- Helpers ---
 
@@ -169,6 +173,50 @@ async fn cache_get_file_backend() {
         &serde_json::json!([1, 2, 3])
     );
     assert_eq!(output.get("cache_hit").unwrap(), &serde_json::json!(true));
+}
+
+#[tokio::test]
+async fn cache_file_backend_uses_env_default_directory() {
+    let _guard = CACHE_ENV_LOCK.lock().await;
+    let previous = std::env::var("IRONFLOW_CACHE_DIR").ok();
+
+    let tmp = tempfile::tempdir().expect("create tempdir");
+    unsafe { std::env::set_var("IRONFLOW_CACHE_DIR", tmp.path()) };
+
+    let reg = NodeRegistry::with_builtins();
+    let set_node = reg.get("cache_set").expect("cache_set node exists");
+    let get_node = reg.get("cache_get").expect("cache_get node exists");
+
+    let set_config = serde_json::json!({
+        "key": "env_default_file_cache",
+        "value": {"from": "env"},
+        "backend": "file"
+    });
+    set_node
+        .execute(&set_config, &empty_ctx())
+        .await
+        .expect("cache_set file succeeds with env cache dir");
+
+    let get_config = serde_json::json!({
+        "key": "env_default_file_cache",
+        "backend": "file"
+    });
+    let output = get_node
+        .execute(&get_config, &empty_ctx())
+        .await
+        .expect("cache_get file succeeds with env cache dir");
+
+    assert_eq!(
+        output.get("cached_value").unwrap(),
+        &serde_json::json!({"from": "env"})
+    );
+    assert_eq!(output.get("cache_hit").unwrap(), &serde_json::json!(true));
+    assert!(tmp.path().join("env_default_file_cache.json").exists());
+
+    match previous {
+        Some(value) => unsafe { std::env::set_var("IRONFLOW_CACHE_DIR", value) },
+        None => unsafe { std::env::remove_var("IRONFLOW_CACHE_DIR") },
+    }
 }
 
 // --- Memory backend: TTL expiry reclaims entry on get ---

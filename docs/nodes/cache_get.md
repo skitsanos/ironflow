@@ -8,8 +8,8 @@ Retrieve a value from the cache (memory or file-based).
 |-----------|------|----------|---------|-------------|
 | `key` | string | yes | — | Cache key to look up. Supports `${ctx.*}` interpolation. |
 | `output_key` | string | no | `"cached_value"` | Context key where the retrieved value is stored. |
-| `backend` | string | no | `"memory"` | Storage backend: `"memory"` (in-process global HashMap) or `"file"` (JSON files on disk). |
-| `cache_dir` | string | no | `".ironflow_cache"` | Directory for file-based cache entries. Only used when `backend` is `"file"`. |
+| `backend` | string | no | `"memory"` | Storage backend: `"memory"` (process-global bounded cache) or `"file"` (JSON files on disk). |
+| `cache_dir` | string | no | `IRONFLOW_CACHE_DIR` / `".ironflow_cache"` | Directory for file-based cache entries. Only used when `backend` is `"file"`. Per-node value overrides the env var. |
 
 > Expired entries are automatically removed on access (from both memory and file backends).
 
@@ -37,6 +37,11 @@ flow:step("done", nodes.log({
 
 return flow
 ```
+
+## Environment
+
+- `IRONFLOW_CACHE_MAX_ENTRIES` controls the process-global memory backend size. Default: `10000`.
+- `IRONFLOW_CACHE_DIR` controls the default file backend directory when `cache_dir` is not set. Default: `.ironflow_cache`.
 
 ### File backend
 

@@ -276,6 +276,8 @@ These are read by the `serve` command. CLI flags override them.
 | `IRONFLOW_LUA_MAX_MEMORY_BYTES` | `134217728` | Max Lua VM memory per Lua state; `0` disables |
 | `IRONFLOW_LUA_HOOK_INTERVAL` | `10000` | Instruction interval for budget checks |
 | `IRONFLOW_LUA_GC_AFTER_EXECUTION` | `true` | Run a Lua garbage-collection cycle after flow parsing/code execution |
+| `IRONFLOW_CACHE_MAX_ENTRIES` | `10000` | Max entries retained by the process-global `cache_set` / `cache_get` memory backend |
+| `IRONFLOW_CACHE_DIR` | `.ironflow_cache` | Default directory for the `cache_set` / `cache_get` file backend when `cache_dir` is not set |
 | `IRONFLOW_DB_MAX_ROWS` | `1000` | Max rows returned by `db_query`; `0` disables |
 | `IRONFLOW_DB_MAX_RESULT_BYTES` | `10485760` | Max serialized JSON result size for `db_query`; `0` disables |
 | `IRONFLOW_LLM_MAX_RESPONSE_BYTES` | `26214400` | Max LLM provider response body size; `0` disables |
