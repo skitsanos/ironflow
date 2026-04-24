@@ -62,7 +62,14 @@ pub struct ValidateResponse {
 #[derive(Deserialize)]
 pub struct ListRunsQuery {
     pub status: Option<String>,
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
 }
+
+/// Default page size when `?limit` is not supplied.
+pub const DEFAULT_LIST_RUNS_LIMIT: usize = 50;
+/// Hard cap on `?limit` to prevent one request from loading the whole catalog.
+pub const MAX_LIST_RUNS_LIMIT: usize = 500;
 
 #[derive(Serialize)]
 pub struct NodeInfo {
@@ -234,10 +241,23 @@ pub async fn list_runs(
         .transpose()
         .map_err(|e| AppError::BadRequest(e.to_string()))?;
 
-    let runs = state.store.list_runs(status_filter).await?;
+    let limit = params
+        .limit
+        .unwrap_or(DEFAULT_LIST_RUNS_LIMIT)
+        .clamp(1, MAX_LIST_RUNS_LIMIT);
+    let offset = params.offset.unwrap_or(0);
 
-    // Return a summary view (without full context/task details)
-    let summaries: Vec<serde_json::Value> = runs
+    // Storage returns lightweight summaries — no ctx, no task payloads.
+    // Default impl still loads full runs under the hood; concrete stores
+    // (JSON, Redis) can override `list_run_summaries` for a real win.
+    let mut summaries_all = state.store.list_run_summaries(status_filter).await?;
+    summaries_all.sort_by_key(|summary| std::cmp::Reverse(summary.started));
+
+    let total_matching = summaries_all.len();
+    let page: Vec<&crate::engine::types::RunSummary> =
+        summaries_all.iter().skip(offset).take(limit).collect();
+
+    let summaries: Vec<serde_json::Value> = page
         .iter()
         .map(|r| {
             serde_json::json!({
@@ -246,14 +266,17 @@ pub async fn list_runs(
                 "status": r.status,
                 "started": r.started,
                 "finished": r.finished,
-                "task_count": r.tasks.len(),
+                "task_count": r.task_count,
             })
         })
         .collect();
 
     Ok(Json(serde_json::json!({
         "runs": summaries,
-        "total": summaries.len(),
+        "total": total_matching,
+        "limit": limit,
+        "offset": offset,
+        "returned": summaries.len(),
     })))
 }
 
@@ -392,22 +415,59 @@ fn decode_base64_source(b64: &str) -> Result<String, AppError> {
         .map_err(|e| AppError::BadRequest(format!("Base64 payload is not valid UTF-8: {}", e)))
 }
 
-fn resolve_flow_path(file_path: &str, state: &AppState) -> Result<String, AppError> {
+/// Resolve a client-supplied flow path.
+///
+/// When `flows_dir` is configured, every accepted path — including absolute
+/// paths — must canonicalize to a location inside that directory. The cwd
+/// fallback is disabled in that mode to prevent a caller from executing
+/// arbitrary `.lua` files just because they are reachable from the server
+/// process.
+///
+/// When `flows_dir` is not configured there is no sandbox to enforce, and the
+/// old permissive behaviour (absolute or cwd-relative) is preserved.
+pub fn resolve_flow_path(file_path: &str, state: &AppState) -> Result<String, AppError> {
+    if let Some(ref flows_dir) = state.flows_dir {
+        let root = flows_dir.canonicalize().map_err(|e| {
+            AppError::BadRequest(format!(
+                "Configured flows_dir '{}' is not accessible: {}",
+                flows_dir.display(),
+                e
+            ))
+        })?;
+
+        let candidate = if std::path::Path::new(file_path).is_absolute() {
+            std::path::PathBuf::from(file_path)
+        } else {
+            root.join(file_path)
+        };
+
+        if !candidate.exists() {
+            return Err(AppError::NotFound(format!(
+                "Flow file not found: {}",
+                file_path
+            )));
+        }
+
+        let canonical = candidate.canonicalize().map_err(|e| {
+            AppError::BadRequest(format!("Cannot resolve flow path '{}': {}", file_path, e))
+        })?;
+
+        if !canonical.starts_with(&root) {
+            return Err(AppError::Forbidden(format!(
+                "Flow path '{}' escapes configured flows_dir",
+                file_path
+            )));
+        }
+
+        return canonical
+            .to_str()
+            .map(|s| s.to_string())
+            .ok_or_else(|| AppError::BadRequest("Invalid path encoding".to_string()));
+    }
+
     if std::path::Path::new(file_path).is_absolute() {
         return Ok(file_path.to_string());
     }
-
-    if let Some(ref flows_dir) = state.flows_dir {
-        let full_path = flows_dir.join(file_path);
-        if full_path.exists() {
-            return full_path
-                .to_str()
-                .map(|s| s.to_string())
-                .ok_or_else(|| AppError::BadRequest("Invalid path".to_string()));
-        }
-    }
-
-    // Try relative to cwd
     if std::path::Path::new(file_path).exists() {
         return Ok(file_path.to_string());
     }

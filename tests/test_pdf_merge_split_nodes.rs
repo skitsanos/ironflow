@@ -119,7 +119,7 @@ async fn pdf_merge_two_files() {
     });
 
     let ctx = HashMap::new();
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
 
     assert_eq!(result.get("pdf_merge_success"), Some(&json!(true)));
     assert_eq!(result.get("pdf_merge_page_count"), Some(&json!(2)));
@@ -148,7 +148,7 @@ async fn pdf_merge_missing_file_error() {
     });
 
     let ctx = HashMap::new();
-    let result = node.execute(&config, ctx).await;
+    let result = node.execute(&config, &ctx).await;
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(err.contains("failed to load"), "Error: {}", err);
@@ -175,7 +175,7 @@ async fn pdf_split_single_page() {
     });
 
     let ctx = HashMap::new();
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
 
     assert_eq!(result.get("pdf_split_success"), Some(&json!(true)));
     assert_eq!(result.get("pdf_split_page_count"), Some(&json!(1)));
@@ -207,7 +207,7 @@ async fn pdf_split_specific_pages() {
     });
 
     let ctx = HashMap::new();
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
 
     assert_eq!(result.get("pdf_split_success"), Some(&json!(true)));
     assert_eq!(result.get("pdf_split_page_count"), Some(&json!(4)));
@@ -237,7 +237,7 @@ async fn pdf_split_missing_file_error() {
     });
 
     let ctx = HashMap::new();
-    let result = node.execute(&config, ctx).await;
+    let result = node.execute(&config, &ctx).await;
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(err.contains("failed to load"), "Error: {}", err);

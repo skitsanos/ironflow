@@ -21,13 +21,13 @@ impl Node for ReadFileNode {
         "Read file contents (text or binary as base64)"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let path = config
             .get("path")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("read_file requires 'path' parameter"))?;
 
-        let path = interpolate_ctx(path, &ctx);
+        let path = interpolate_ctx(path, ctx);
         let output_key = config
             .get("output_key")
             .and_then(|v| v.as_str())
@@ -36,6 +36,19 @@ impl Node for ReadFileNode {
             .get("encoding")
             .and_then(|v| v.as_str())
             .unwrap_or("text");
+
+        // Pre-flight size guard: fail before allocating a huge buffer.
+        let max_bytes = crate::util::limits::max_file_bytes();
+        if let Ok(meta) = tokio::fs::metadata(&path).await
+            && meta.len() > max_bytes
+        {
+            anyhow::bail!(
+                "read_file: '{}' is {} bytes, exceeds limit {} (set IRONFLOW_MAX_FILE_BYTES to raise)",
+                path,
+                meta.len(),
+                max_bytes
+            );
+        }
 
         let content = match encoding {
             "base64" => {
@@ -78,13 +91,13 @@ impl Node for WriteFileNode {
         "Write content to a file (text or binary from base64)"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let path = config
             .get("path")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("write_file requires 'path' parameter"))?;
 
-        let path = interpolate_ctx(path, &ctx);
+        let path = interpolate_ctx(path, ctx);
         let encoding = config
             .get("encoding")
             .and_then(|v| v.as_str())
@@ -117,9 +130,18 @@ impl Node for WriteFileNode {
                 }
             } else {
                 let content = config.get("content").and_then(|v| v.as_str()).unwrap_or("");
-                let content = interpolate_ctx(content, &ctx);
+                let content = interpolate_ctx(content, ctx);
                 content.into_bytes()
             };
+
+        let max_bytes = crate::util::limits::max_file_bytes();
+        if bytes.len() as u64 > max_bytes {
+            anyhow::bail!(
+                "write_file: payload {} bytes exceeds limit {} (set IRONFLOW_MAX_FILE_BYTES to raise)",
+                bytes.len(),
+                max_bytes
+            );
+        }
 
         if append {
             use tokio::io::AsyncWriteExt;
@@ -158,7 +180,7 @@ impl Node for CopyFileNode {
         "Copy a file to a new location"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let source = config
             .get("source")
             .and_then(|v| v.as_str())
@@ -169,8 +191,8 @@ impl Node for CopyFileNode {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("copy_file requires 'destination' parameter"))?;
 
-        let source = interpolate_ctx(source, &ctx);
-        let destination = interpolate_ctx(destination, &ctx);
+        let source = interpolate_ctx(source, ctx);
+        let destination = interpolate_ctx(destination, ctx);
 
         tokio::fs::copy(&source, &destination).await?;
 
@@ -203,7 +225,7 @@ impl Node for MoveFileNode {
         "Move a file to a new location"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let source = config
             .get("source")
             .and_then(|v| v.as_str())
@@ -214,8 +236,8 @@ impl Node for MoveFileNode {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("move_file requires 'destination' parameter"))?;
 
-        let source = interpolate_ctx(source, &ctx);
-        let destination = interpolate_ctx(destination, &ctx);
+        let source = interpolate_ctx(source, ctx);
+        let destination = interpolate_ctx(destination, ctx);
 
         tokio::fs::rename(&source, &destination).await?;
 
@@ -248,13 +270,13 @@ impl Node for DeleteFileNode {
         "Delete a file"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let path = config
             .get("path")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("delete_file requires 'path' parameter"))?;
 
-        let path = interpolate_ctx(path, &ctx);
+        let path = interpolate_ctx(path, ctx);
 
         tokio::fs::remove_file(&path).await?;
 
@@ -283,13 +305,13 @@ impl Node for ListDirectoryNode {
         "List files in a directory"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let path = config
             .get("path")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("list_directory requires 'path' parameter"))?;
 
-        let path = interpolate_ctx(path, &ctx);
+        let path = interpolate_ctx(path, ctx);
         let output_key = config
             .get("output_key")
             .and_then(|v| v.as_str())
@@ -357,7 +379,7 @@ impl Node for ZipCreateNode {
         "Create a ZIP archive from a file or directory"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let source = config
             .get("source")
             .and_then(|v| v.as_str())
@@ -368,8 +390,8 @@ impl Node for ZipCreateNode {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("zip_create requires 'zip_path' parameter"))?;
 
-        let source = interpolate_ctx(source, &ctx);
-        let zip_path = interpolate_ctx(zip_path, &ctx);
+        let source = interpolate_ctx(source, ctx);
+        let zip_path = interpolate_ctx(zip_path, ctx);
         let include_root = config
             .get("include_root")
             .and_then(|v| v.as_bool())
@@ -423,13 +445,13 @@ impl Node for ZipListNode {
         "List entries in a ZIP archive"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let zip_path = config
             .get("path")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("zip_list requires 'path' parameter"))?;
 
-        let zip_path = interpolate_ctx(zip_path, &ctx);
+        let zip_path = interpolate_ctx(zip_path, ctx);
         let output_key = config
             .get("output_key")
             .and_then(|v| v.as_str())
@@ -471,7 +493,7 @@ impl Node for ZipExtractNode {
         "Extract a ZIP archive into a directory"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let zip_path = config
             .get("path")
             .and_then(|v| v.as_str())
@@ -492,8 +514,8 @@ impl Node for ZipExtractNode {
             .and_then(|v| v.as_bool())
             .unwrap_or(true);
 
-        let zip_path = interpolate_ctx(zip_path, &ctx);
-        let destination = interpolate_ctx(destination, &ctx);
+        let zip_path = interpolate_ctx(zip_path, ctx);
+        let destination = interpolate_ctx(destination, ctx);
 
         let zip_path_clone = zip_path.clone();
         let destination_clone = destination.clone();

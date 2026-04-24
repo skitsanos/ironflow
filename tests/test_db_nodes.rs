@@ -22,7 +22,7 @@ async fn db_exec_and_query_round_trip_with_typed_params() {
         "connection": connection,
         "query": "CREATE TABLE IF NOT EXISTS people (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, age INTEGER, active INTEGER)"
     });
-    let created = db_exec.execute(&create, empty_ctx()).await.unwrap();
+    let created = db_exec.execute(&create, &empty_ctx()).await.unwrap();
     assert_eq!(created.get("db_exec_success").unwrap(), true);
 
     let insert = serde_json::json!({
@@ -30,7 +30,7 @@ async fn db_exec_and_query_round_trip_with_typed_params() {
         "query": "INSERT INTO people(name, age, active) VALUES(?, ?, ?)",
         "params": ["Alice", 42, true]
     });
-    let inserted = db_exec.execute(&insert, empty_ctx()).await.unwrap();
+    let inserted = db_exec.execute(&insert, &empty_ctx()).await.unwrap();
     assert_eq!(inserted.get("rows_affected").unwrap(), 1);
 
     let query = serde_json::json!({
@@ -40,7 +40,7 @@ async fn db_exec_and_query_round_trip_with_typed_params() {
         "output_key": "people"
     });
 
-    let rows = db_query.execute(&query, empty_ctx()).await.unwrap();
+    let rows = db_query.execute(&query, &empty_ctx()).await.unwrap();
     assert_eq!(rows.get("people_success").unwrap(), true);
     assert_eq!(rows.get("people_count").unwrap(), 1);
 
@@ -64,7 +64,7 @@ async fn db_query_returns_empty_when_no_rows() {
         "connection": connection,
         "query": "CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY, value TEXT)"
     });
-    db_exec.execute(&create, empty_ctx()).await.unwrap();
+    db_exec.execute(&create, &empty_ctx()).await.unwrap();
 
     let query = serde_json::json!({
         "connection": connection,
@@ -72,7 +72,7 @@ async fn db_query_returns_empty_when_no_rows() {
         "params": ["missing"],
         "output_key": "rows"
     });
-    let rows = db_query.execute(&query, empty_ctx()).await.unwrap();
+    let rows = db_query.execute(&query, &empty_ctx()).await.unwrap();
     assert_eq!(rows.get("rows_count").unwrap(), 0);
     assert!(rows.get("rows").unwrap().as_array().unwrap().is_empty());
 }

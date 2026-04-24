@@ -27,6 +27,17 @@ impl JsonStateStore {
         self.base_dir.join(format!("{}.json", run_id))
     }
 
+    /// Sidecar file holding only the `RunSummary` for this run.
+    ///
+    /// Written alongside every full-record update so listings can enumerate
+    /// tiny files instead of re-parsing multi-MB run blobs. The two files are
+    /// kept consistent by always writing the summary after the main file —
+    /// a stale summary is just missed until the next write, whereas a
+    /// dangling summary with no run is pruned by `list_run_summaries`.
+    fn summary_path(&self, run_id: &str) -> PathBuf {
+        self.base_dir.join(format!("{}.summary.json", run_id))
+    }
+
     async fn read_run(&self, run_id: &str) -> Result<RunInfo> {
         let path = self.run_path(run_id);
         let data = tokio::fs::read_to_string(&path)
@@ -44,6 +55,17 @@ impl JsonStateStore {
         let data = serde_json::to_string_pretty(info)?;
         tokio::fs::write(&tmp_path, &data).await?;
         tokio::fs::rename(&tmp_path, &path).await?;
+
+        // Sidecar summary. Failure here is non-fatal — the main record is the
+        // source of truth; a missing summary just makes the next listing do
+        // a full parse for this run.
+        let summary = RunSummary::from(info);
+        let summary_path = self.summary_path(run_id);
+        let summary_tmp = summary_path.with_extension("json.tmp");
+        if let Ok(sjson) = serde_json::to_string(&summary) {
+            let _ = tokio::fs::write(&summary_tmp, &sjson).await;
+            let _ = tokio::fs::rename(&summary_tmp, &summary_path).await;
+        }
 
         Ok(())
     }
@@ -73,11 +95,9 @@ impl StateStore for JsonStateStore {
     async fn set_run_status(&self, run_id: &str, status: RunStatus) -> Result<()> {
         let _lock = self.lock.write().await;
         let mut info = self.read_run(run_id).await?;
-        info.status = status.clone();
-        if matches!(
-            status,
-            RunStatus::Success | RunStatus::Failed | RunStatus::Stalled
-        ) {
+        let is_terminal = status.is_terminal();
+        info.status = status;
+        if is_terminal {
             info.finished = Some(Utc::now());
         }
         self.write_run(run_id, &info).await
@@ -136,7 +156,7 @@ impl StateStore for JsonStateStore {
         }
 
         // Sort by start time, newest first
-        runs.sort_by(|a, b| b.started.cmp(&a.started));
+        runs.sort_by_key(|run| std::cmp::Reverse(run.started));
 
         Ok(runs)
     }
@@ -147,6 +167,74 @@ impl StateStore for JsonStateStore {
         if path.exists() {
             tokio::fs::remove_file(&path).await?;
         }
+        let summary = self.summary_path(run_id);
+        if summary.exists() {
+            let _ = tokio::fs::remove_file(&summary).await;
+        }
         Ok(())
+    }
+
+    /// Native summary listing — reads only `*.summary.json` sidecar files.
+    /// Falls back to parsing the main record for any run missing a sidecar
+    /// (covers data written before the sidecar was introduced).
+    async fn list_run_summaries(
+        &self,
+        status_filter: Option<RunStatus>,
+    ) -> Result<Vec<RunSummary>> {
+        let _lock = self.lock.read().await;
+
+        if !self.base_dir.exists() {
+            return Ok(Vec::new());
+        }
+
+        let mut summaries = Vec::new();
+        let mut entries = tokio::fs::read_dir(&self.base_dir).await?;
+
+        while let Some(entry) = entries.next_entry().await? {
+            let path = entry.path();
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+
+            // Only consider main records; summaries are an optimization, not
+            // authoritative. For each main record we try the summary first
+            // and fall back to a full parse.
+            if !name.ends_with(".json") || name.ends_with(".summary.json") {
+                continue;
+            }
+            let run_id = &name[..name.len() - ".json".len()];
+
+            let summary_path = self.summary_path(run_id);
+            let summary: Option<RunSummary> = if summary_path.exists() {
+                tokio::fs::read_to_string(&summary_path)
+                    .await
+                    .ok()
+                    .and_then(|data| serde_json::from_str::<RunSummary>(&data).ok())
+            } else {
+                None
+            };
+
+            let summary = match summary {
+                Some(s) => s,
+                None => {
+                    // Sidecar missing or corrupt — fall back to a full parse.
+                    let data = tokio::fs::read_to_string(&path).await?;
+                    match serde_json::from_str::<RunInfo>(&data) {
+                        Ok(info) => RunSummary::from(&info),
+                        Err(_) => continue,
+                    }
+                }
+            };
+
+            if let Some(ref filter) = status_filter
+                && &summary.status != filter
+            {
+                continue;
+            }
+            summaries.push(summary);
+        }
+
+        summaries.sort_by_key(|summary| std::cmp::Reverse(summary.started));
+        Ok(summaries)
     }
 }

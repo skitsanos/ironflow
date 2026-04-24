@@ -1,50 +1,50 @@
 [package]
 name = "ironflow"
-version = "1.8.0"
+version = "1.9.0"
 edition = "2024"
 description = "Lightweight workflow engine — Rust core, Lua scripting, single binary"
 
 [dependencies]
-tokio = { version = "1.49.0", features = ["full"] }
+tokio = { version = "1.52.1", features = ["full"] }
 mlua = { version = "0.11.6", features = ["lua54", "async", "serialize", "send", "vendored"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 serde_yaml = "0.9"
-clap = { version = "4.5.60", features = ["derive", "env"] }
+clap = { version = "4.6.1", features = ["derive", "env"] }
 anyhow = "1.0.102"
 thiserror = "2.0.18"
-uuid = { version = "1.21.0", features = ["v4"] }
+uuid = { version = "1.23.1", features = ["v4"] }
 chrono = { version = "0.4.44", features = ["serde"] }
 async-trait = "0.1.89"
 tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 reqwest = { version = "0.13.2", features = ["json"] }
-aws-config = "1.8.4"
-aws-sdk-s3 = "1.8.4"
-aws-sdk-s3vectors = "1.21.0"
-aws-smithy-types = "1.4.5"
+aws-config = "1.8.16"
+aws-sdk-s3 = "1.131.0"
+aws-sdk-s3vectors = "1.24.0"
+aws-smithy-types = "1.4.7"
 csv = "1.4.0"
-jsonschema = "0.44.0"
+jsonschema = "0.46"
 num_cpus = "1.17.0"
 dotenvy = "0.15.7"
-sha2 = "0.10.9"
-md-5 = "0.10.6"
+sha2 = "0.11"
+md-5 = "0.11"
 hex = "0.4.3"
-axum = "0.8.8"
+axum = "0.8.9"
 tower-http = { version = "0.6.8", features = ["cors", "trace"] }
 base64 = "0.22.1"
-comrak = "0.50.0"
+comrak = "0.52"
 html2md = "0.2.15"
 ammonia = "4.1.2"
-zip = "8.1.0"
+zip = "8.5.1"
 quick-xml = "0.39.2"
-lopdf = { version = "0.39.0", features = ["chrono", "embed_image"] }
+lopdf = { version = "0.40", features = ["chrono", "embed_image"] }
 pdf-extract = "0.10.0"
-image = "0.25.6"
-pdfium-render = "0.8.37"
+image = "0.25.10"
+pdfium-render = "0.9"
 sqlx = { version = "0.8", features = ["runtime-tokio", "any", "sqlite"] }
-lettre = { version = "0.11.19", default-features = false, features = ["builder", "hostname", "pool", "smtp-transport", "tokio1", "tokio1-rustls-tls"] }
-redis = { version = "0.32", features = ["aio", "tokio-comp", "connection-manager"], optional = true }
+lettre = { version = "0.11.21", default-features = false, features = ["builder", "hostname", "pool", "smtp-transport", "tokio1", "tokio1-rustls-tls"] }
+redis = { version = "1.2", features = ["aio", "tokio-comp", "connection-manager"], optional = true }
 
 [features]
 default = ["pdf-render"]
@@ -58,4 +58,4 @@ http-body-util = "0.1"
 tower = "0.5"
 
 [target.'cfg(unix)'.dependencies]
-libc = "0.2.182"
+libc = "0.2.186"

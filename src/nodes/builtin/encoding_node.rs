@@ -19,7 +19,7 @@ impl Node for Base64EncodeNode {
         "Encode a string or file contents to base64"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let output_key = config
             .get("output_key")
             .and_then(|v| v.as_str())
@@ -39,7 +39,7 @@ impl Node for Base64EncodeNode {
         }
 
         let bytes: Vec<u8> = if let Some(input_str) = config.get("input").and_then(|v| v.as_str()) {
-            interpolate_ctx(input_str, &ctx).into_bytes()
+            interpolate_ctx(input_str, ctx).into_bytes()
         } else if let Some(source_key) = config.get("source_key").and_then(|v| v.as_str()) {
             let val = ctx
                 .get(source_key)
@@ -49,7 +49,7 @@ impl Node for Base64EncodeNode {
                 other => serde_json::to_string(other)?.into_bytes(),
             }
         } else if let Some(file_path) = config.get("file").and_then(|v| v.as_str()) {
-            let path = interpolate_ctx(file_path, &ctx);
+            let path = interpolate_ctx(file_path, ctx);
             tokio::fs::read(&path)
                 .await
                 .map_err(|e| anyhow::anyhow!("Failed to read file '{}': {}", path, e))?
@@ -81,7 +81,7 @@ impl Node for Base64DecodeNode {
         "Decode a base64 string to text or file"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let output_key = config
             .get("output_key")
             .and_then(|v| v.as_str())
@@ -103,7 +103,7 @@ impl Node for Base64DecodeNode {
         }
 
         let encoded = if let Some(input_str) = config.get("input").and_then(|v| v.as_str()) {
-            interpolate_ctx(input_str, &ctx)
+            interpolate_ctx(input_str, ctx)
         } else if let Some(source_key) = config.get("source_key").and_then(|v| v.as_str()) {
             let val = ctx
                 .get(source_key)
@@ -126,7 +126,7 @@ impl Node for Base64DecodeNode {
         let mut output = NodeOutput::new();
 
         if let Some(file_path) = output_file {
-            let path = interpolate_ctx(file_path, &ctx);
+            let path = interpolate_ctx(file_path, ctx);
             tokio::fs::write(&path, &decoded_bytes)
                 .await
                 .map_err(|e| anyhow::anyhow!("Failed to write file '{}': {}", path, e))?;

@@ -463,18 +463,18 @@ impl Node for S3VectorCreateBucketNode {
         "Create an S3 Vector bucket"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let bucket_name = resolve_non_empty_string(
             config,
             &["vector_bucket_name", "bucket"],
             &["S3VECTOR_BUCKET_NAME", "S3_BUCKET"],
-            &ctx,
+            ctx,
             "s3vector_create_bucket",
             "vector_bucket_name",
         )?;
         let output_key = resolve_output_key(config);
 
-        let client = build_s3vector_client(config, &ctx).await?;
+        let client = build_s3vector_client(config, ctx).await?;
         let response = client
             .create_vector_bucket()
             .vector_bucket_name(bucket_name.clone())
@@ -512,16 +512,16 @@ impl Node for S3VectorGetBucketNode {
         "Get metadata for an S3 Vector bucket"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let output_key = resolve_output_key(config);
-        let (bucket_name, bucket_arn) = resolve_bucket_id(config, &ctx, "s3vector_get_bucket")?;
+        let (bucket_name, bucket_arn) = resolve_bucket_id(config, ctx, "s3vector_get_bucket")?;
         if bucket_name.is_none() && bucket_arn.is_none() {
             return Err(anyhow::anyhow!(
                 "s3vector_get_bucket requires 'vector_bucket_name' or 'vector_bucket_arn'"
             ));
         }
 
-        let mut request = build_s3vector_client(config, &ctx)
+        let mut request = build_s3vector_client(config, ctx)
             .await?
             .get_vector_bucket();
 
@@ -577,9 +577,9 @@ impl Node for S3VectorCreateIndexNode {
         "Create an S3 Vector index"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let output_key = resolve_output_key(config);
-        let (bucket_name, bucket_arn) = resolve_bucket_id(config, &ctx, "s3vector_create_index")?;
+        let (bucket_name, bucket_arn) = resolve_bucket_id(config, ctx, "s3vector_create_index")?;
         if bucket_name.is_none() && bucket_arn.is_none() {
             return Err(anyhow::anyhow!(
                 "s3vector_create_index requires 'vector_bucket_name' or 'vector_bucket_arn'"
@@ -590,7 +590,7 @@ impl Node for S3VectorCreateIndexNode {
             config,
             &["index_name", "index"],
             &["S3VECTOR_INDEX_NAME"],
-            &ctx,
+            ctx,
             "s3vector_create_index",
             "index_name",
         )?;
@@ -611,7 +611,7 @@ impl Node for S3VectorCreateIndexNode {
             anyhow::bail!("s3vector_create_index requires 'dimension' to be greater than zero");
         }
 
-        let mut request = build_s3vector_client(config, &ctx)
+        let mut request = build_s3vector_client(config, ctx)
             .await?
             .create_index()
             .data_type(data_type.clone())
@@ -682,10 +682,10 @@ impl Node for S3VectorGetIndexNode {
         "Get metadata for an S3 Vector index"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let output_key = resolve_output_key(config);
-        let (bucket_name, _bucket_arn) = resolve_bucket_id(config, &ctx, "s3vector_get_index")?;
-        let (index_name, index_arn) = resolve_index_id(config, &ctx, "s3vector_get_index")?;
+        let (bucket_name, _bucket_arn) = resolve_bucket_id(config, ctx, "s3vector_get_index")?;
+        let (index_name, index_arn) = resolve_index_id(config, ctx, "s3vector_get_index")?;
         if index_name.is_none() && index_arn.is_none() {
             return Err(anyhow::anyhow!(
                 "s3vector_get_index requires 'index_name' or 'index_arn'"
@@ -697,7 +697,7 @@ impl Node for S3VectorGetIndexNode {
             ));
         }
 
-        let mut request = build_s3vector_client(config, &ctx).await?.get_index();
+        let mut request = build_s3vector_client(config, ctx).await?.get_index();
 
         if let Some(bucket_name) = bucket_name {
             request = request.vector_bucket_name(bucket_name);
@@ -769,10 +769,10 @@ impl Node for S3VectorPutVectorsNode {
         "Upload vectors into an S3 Vector index"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let output_key = resolve_output_key(config);
-        let (bucket_name, _bucket_arn) = resolve_bucket_id(config, &ctx, "s3vector_put_vectors")?;
-        let (index_name, index_arn) = resolve_index_id(config, &ctx, "s3vector_put_vectors")?;
+        let (bucket_name, _bucket_arn) = resolve_bucket_id(config, ctx, "s3vector_put_vectors")?;
+        let (index_name, index_arn) = resolve_index_id(config, ctx, "s3vector_put_vectors")?;
         if index_name.is_none() && index_arn.is_none() {
             return Err(anyhow::anyhow!(
                 "s3vector_put_vectors requires 'index_name' or 'index_arn'"
@@ -784,13 +784,13 @@ impl Node for S3VectorPutVectorsNode {
             ));
         }
 
-        let vectors = resolve_vectors_data(config, &ctx, "s3vector_put_vectors")?;
+        let vectors = resolve_vectors_data(config, ctx, "s3vector_put_vectors")?;
         let vector_keys: Vec<String> = vectors
             .iter()
             .map(|value| value.key().to_string())
             .collect();
 
-        let mut request = build_s3vector_client(config, &ctx)
+        let mut request = build_s3vector_client(config, ctx)
             .await?
             .put_vectors()
             .set_vectors(Some(vectors));
@@ -840,10 +840,10 @@ impl Node for S3VectorQueryVectorsNode {
         "Query an S3 Vector index by vector similarity"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let output_key = resolve_output_key(config);
-        let (bucket_name, _bucket_arn) = resolve_bucket_id(config, &ctx, "s3vector_query_vectors")?;
-        let (index_name, index_arn) = resolve_index_id(config, &ctx, "s3vector_query_vectors")?;
+        let (bucket_name, _bucket_arn) = resolve_bucket_id(config, ctx, "s3vector_query_vectors")?;
+        let (index_name, index_arn) = resolve_index_id(config, ctx, "s3vector_query_vectors")?;
         if index_name.is_none() && index_arn.is_none() {
             return Err(anyhow::anyhow!(
                 "s3vector_query_vectors requires 'index_name' or 'index_arn'"
@@ -860,7 +860,7 @@ impl Node for S3VectorQueryVectorsNode {
             anyhow::bail!("s3vector_query_vectors requires 'top_k' to be greater than zero");
         }
 
-        let query_vector = resolve_query_vector(config, &ctx, "s3vector_query_vectors")?;
+        let query_vector = resolve_query_vector(config, ctx, "s3vector_query_vectors")?;
 
         let return_metadata = config
             .get("return_metadata")
@@ -891,14 +891,14 @@ impl Node for S3VectorQueryVectorsNode {
         let filter = if let Some(filter_value) = config.get("filter") {
             Some(parse_metadata(filter_value, "s3vector_query_vectors")?)
         } else {
-            let source_key = resolve_optional(config, &["filter_key"], &[], &ctx);
+            let source_key = resolve_optional(config, &["filter_key"], &[], ctx);
             source_key
                 .and_then(|value| ctx.get(&value).cloned())
                 .map(|value| parse_metadata(&value, "s3vector_query_vectors"))
                 .transpose()?
         };
 
-        let mut request = build_s3vector_client(config, &ctx)
+        let mut request = build_s3vector_client(config, ctx)
             .await?
             .query_vectors()
             .top_k(top_k as i32)
@@ -1002,11 +1002,10 @@ impl Node for S3VectorDeleteVectorsNode {
         "Delete vectors from an S3 Vector index"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let output_key = resolve_output_key(config);
-        let (bucket_name, _bucket_arn) =
-            resolve_bucket_id(config, &ctx, "s3vector_delete_vectors")?;
-        let (index_name, index_arn) = resolve_index_id(config, &ctx, "s3vector_delete_vectors")?;
+        let (bucket_name, _bucket_arn) = resolve_bucket_id(config, ctx, "s3vector_delete_vectors")?;
+        let (index_name, index_arn) = resolve_index_id(config, ctx, "s3vector_delete_vectors")?;
         if index_name.is_none() && index_arn.is_none() {
             return Err(anyhow::anyhow!(
                 "s3vector_delete_vectors requires 'index_name' or 'index_arn'"
@@ -1022,12 +1021,12 @@ impl Node for S3VectorDeleteVectorsNode {
             config,
             "keys",
             Some("keys_source_key"),
-            &ctx,
+            ctx,
             "s3vector_delete_vectors",
             "keys",
         )?;
 
-        let mut request = build_s3vector_client(config, &ctx)
+        let mut request = build_s3vector_client(config, ctx)
             .await?
             .delete_vectors()
             .set_keys(Some(keys.clone()));

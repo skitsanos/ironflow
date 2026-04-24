@@ -144,20 +144,20 @@ impl Node for DbQueryNode {
         "Execute a SELECT query and return rows as JSON"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let query = config
             .get("query")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("db_query requires 'query' parameter"))?;
 
-        let query = interpolate_ctx(query, &ctx);
-        let params = resolve_params(config, &ctx);
+        let query = interpolate_ctx(query, ctx);
+        let params = resolve_params(config, ctx);
         let output_key = config
             .get("output_key")
             .and_then(|v| v.as_str())
             .unwrap_or("rows");
 
-        let pool = connect(config, &ctx).await?;
+        let pool = connect(config, ctx).await?;
         let args = bind_params(&params)?;
 
         let rows: Vec<AnyRow> = sqlx::query_with(&query, args)
@@ -193,16 +193,16 @@ impl Node for DbExecNode {
         "Execute an INSERT, UPDATE, or DELETE statement"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let query = config
             .get("query")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("db_exec requires 'query' parameter"))?;
 
-        let query = interpolate_ctx(query, &ctx);
-        let params = resolve_params(config, &ctx);
+        let query = interpolate_ctx(query, ctx);
+        let params = resolve_params(config, ctx);
 
-        let pool = connect(config, &ctx).await?;
+        let pool = connect(config, ctx).await?;
         let args = bind_params(&params)?;
 
         let result = sqlx::query_with(&query, args)

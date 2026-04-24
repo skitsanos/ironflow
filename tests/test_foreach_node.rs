@@ -41,7 +41,7 @@ async fn foreach_collects_transformed_results() {
         ]),
     )]);
 
-    let out = node.execute(&config, ctx).await.unwrap();
+    let out = node.execute(&config, &ctx).await.unwrap();
     let arr = out.get("mapped").unwrap().as_array().unwrap();
     assert_eq!(arr.len(), 3);
     assert_eq!(arr[0].get("name").unwrap(), "alpha");
@@ -80,7 +80,7 @@ async fn foreach_filter_nulls_defaults_to_true() {
         ]),
     )]);
 
-    let out = node.execute(&config, ctx).await.unwrap();
+    let out = node.execute(&config, &ctx).await.unwrap();
     let arr = out.get("active_items").unwrap().as_array().unwrap();
     assert_eq!(arr.len(), 2);
     assert_eq!(out.get("active_items_count").unwrap(), 2);
@@ -110,7 +110,7 @@ async fn foreach_filter_nulls_false_preserves_nil_results() {
 
     let ctx = ctx_with(vec![("items", serde_json::json!([0, 1, 2, 3]))]);
 
-    let out = node.execute(&config, ctx).await.unwrap();
+    let out = node.execute(&config, &ctx).await.unwrap();
     let arr = out.get("mapped").unwrap().as_array().unwrap();
     assert_eq!(arr.len(), 4);
     assert_eq!(arr[0], serde_json::Value::Null);

@@ -108,13 +108,11 @@ fn parse_mode(config: &serde_json::Value) -> Result<LlmMode> {
 
 fn extract_text(value: &serde_json::Value, out: &mut String) {
     match value {
-        Value::String(s) => {
-            if !s.is_empty() {
-                if !out.is_empty() {
-                    out.push(' ');
-                }
-                out.push_str(s);
+        Value::String(s) if !s.is_empty() => {
+            if !out.is_empty() {
+                out.push(' ');
             }
+            out.push_str(s);
         }
         Value::Array(items) => {
             for item in items {
@@ -613,20 +611,20 @@ impl Node for LlmNode {
         "Run Chat Completions or Responses against OpenAI, OpenAI-compatible, Azure, or custom providers"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let mode = parse_mode(config)?;
         let timeout_s = parse_timeout(config);
-        let tools = resolve_tools(config, &ctx)?;
-        let tool_choice = resolve_tool_choice(config, &ctx)?;
+        let tools = resolve_tools(config, ctx)?;
+        let tool_choice = resolve_tool_choice(config, ctx)?;
         let output_key = config
             .get("output_key")
             .and_then(|v| v.as_str())
             .unwrap_or("llm")
             .to_string();
 
-        let messages = resolve_messages(config, &ctx)?;
+        let messages = resolve_messages(config, ctx)?;
         let prompt = if messages.is_none() {
-            resolve_prompt(config, &ctx)?
+            resolve_prompt(config, ctx)?
         } else {
             String::new()
         };
@@ -637,14 +635,14 @@ impl Node for LlmNode {
                 config,
                 "azure_chat_deployment",
                 "AZURE_OPENAI_CHAT_DEPLOYMENT",
-                &ctx,
+                ctx,
             )
             .or_else(|| {
                 resolve_param(
                     config,
                     "azure_responses_deployment",
                     "AZURE_OPENAI_RESPONSES_DEPLOYMENT",
-                    &ctx,
+                    ctx,
                 )
             })
             .or_else(|| Some("".to_string()))
@@ -652,14 +650,14 @@ impl Node for LlmNode {
             None
         };
         let model = resolve_model(config, mode, azure_deployment.as_deref());
-        let (url, headers, provider_name) = resolve_provider_config(config, &ctx, mode)?;
+        let (url, headers, provider_name) = resolve_provider_config(config, ctx, mode)?;
         let request_input = LlmBodyInput {
             mode,
             model: &model,
             messages,
             prompt: &prompt,
             config,
-            ctx: &ctx,
+            ctx,
             tools,
             tool_choice,
         };

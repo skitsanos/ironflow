@@ -54,7 +54,7 @@ async fn subworkflow_merges_output_when_no_output_key() {
         serde_json::Value::String(dir.path().to_string_lossy().to_string()),
     );
 
-    let out = node.execute(&config, ctx).await.unwrap();
+    let out = node.execute(&config, &ctx).await.unwrap();
     assert_eq!(out.get("child_value").unwrap(), 42);
     assert_eq!(out.get("from_parent").unwrap(), 7);
 }
@@ -78,7 +78,7 @@ async fn subworkflow_waits_and_returns_child_success_flag() {
         serde_json::Value::String(dir.path().to_string_lossy().to_string()),
     );
 
-    let out = node.execute(&config, ctx).await.unwrap();
+    let out = node.execute(&config, &ctx).await.unwrap();
 
     assert_eq!(out.get("subworkflow_name").unwrap(), "child");
     let child = out.get("child_out").unwrap();
@@ -94,7 +94,7 @@ async fn subworkflow_fails_with_relative_path_without_flow_dir() {
     let config = subworkflow_node_config("does_not_exist.lua", false);
     let ctx = Context::new();
 
-    let err = node.execute(&config, ctx).await.unwrap_err();
+    let err = node.execute(&config, &ctx).await.unwrap_err();
     assert!(err.to_string().contains("_flow_dir not set"));
 }
 
@@ -117,7 +117,7 @@ async fn subworkflow_failure_can_return_success_when_output_key_set() {
         serde_json::Value::String(dir.path().to_string_lossy().to_string()),
     );
 
-    let out = node.execute(&config, ctx).await.unwrap();
+    let out = node.execute(&config, &ctx).await.unwrap();
     assert_eq!(out.get("child_out_success").unwrap(), false);
     assert_eq!(out.get("subworkflow_name").unwrap(), "child");
 }
@@ -141,6 +141,6 @@ async fn subworkflow_failure_without_output_key_propagates_error() {
         serde_json::Value::String(dir.path().to_string_lossy().to_string()),
     );
 
-    let err = node.execute(&config, ctx).await.unwrap_err();
+    let err = node.execute(&config, &ctx).await.unwrap_err();
     assert!(err.to_string().contains("Subworkflow"));
 }

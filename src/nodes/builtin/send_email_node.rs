@@ -78,15 +78,15 @@ impl Node for SendEmailNode {
         "Send an email via Resend API or SMTP"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let provider = config
             .get("provider")
             .and_then(|v| v.as_str())
             .unwrap_or("resend");
 
         match provider {
-            "resend" => self.send_via_resend(config, &ctx).await,
-            "smtp" => self.send_via_smtp(config, &ctx).await,
+            "resend" => self.send_via_resend(config, ctx).await,
+            "smtp" => self.send_via_smtp(config, ctx).await,
             other => anyhow::bail!("send_email: unsupported provider '{}'", other),
         }
     }

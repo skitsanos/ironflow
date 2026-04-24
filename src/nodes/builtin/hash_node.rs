@@ -19,7 +19,7 @@ impl Node for HashNode {
         "Compute a hash (SHA-256, SHA-384, SHA-512, MD5) of a string or context value"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let algorithm = config
             .get("algorithm")
             .and_then(|v| v.as_str())
@@ -32,7 +32,7 @@ impl Node for HashNode {
 
         // Get the input: either from "input" directly or from "source_key" in context
         let input = if let Some(input_str) = config.get("input").and_then(|v| v.as_str()) {
-            interpolate_ctx(input_str, &ctx)
+            interpolate_ctx(input_str, ctx)
         } else if let Some(source_key) = config.get("source_key").and_then(|v| v.as_str()) {
             let val = ctx
                 .get(source_key)

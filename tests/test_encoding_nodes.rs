@@ -20,7 +20,7 @@ async fn base64_encode_string() {
         "input": "Hello, World!"
     });
 
-    let output = node.execute(&config, empty_ctx()).await.unwrap();
+    let output = node.execute(&config, &empty_ctx()).await.unwrap();
     assert_eq!(
         output.get("base64_encoded").unwrap(),
         &serde_json::json!("SGVsbG8sIFdvcmxkIQ==")
@@ -39,7 +39,7 @@ async fn base64_encode_via_source_key() {
         "source_key": "message"
     });
 
-    let output = node.execute(&config, ctx).await.unwrap();
+    let output = node.execute(&config, &ctx).await.unwrap();
     assert_eq!(
         output.get("base64_encoded").unwrap(),
         &serde_json::json!("SGVsbG8sIFdvcmxkIQ==")
@@ -56,7 +56,7 @@ async fn base64_encode_custom_output_key() {
         "output_key": "my_encoded"
     });
 
-    let output = node.execute(&config, empty_ctx()).await.unwrap();
+    let output = node.execute(&config, &empty_ctx()).await.unwrap();
     assert!(output.contains_key("my_encoded"));
     assert_eq!(
         output.get("my_encoded").unwrap(),
@@ -75,7 +75,7 @@ async fn base64_encode_url_safe() {
         "url_safe": true
     });
 
-    let output = node.execute(&config, empty_ctx()).await.unwrap();
+    let output = node.execute(&config, &empty_ctx()).await.unwrap();
     let encoded = output.get("base64_encoded").unwrap().as_str().unwrap();
     // URL-safe base64 should not contain + or /
     assert!(!encoded.contains('+'));
@@ -94,7 +94,7 @@ async fn base64_encode_file() {
         "file": tmp.to_str().unwrap()
     });
 
-    let output = node.execute(&config, empty_ctx()).await.unwrap();
+    let output = node.execute(&config, &empty_ctx()).await.unwrap();
     let encoded = output.get("base64_encoded").unwrap().as_str().unwrap();
 
     // Verify round-trip
@@ -113,7 +113,7 @@ async fn base64_encode_missing_input_error() {
     let node = reg.get("base64_encode").expect("base64_encode node exists");
 
     let config = serde_json::json!({});
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("requires one of"));
 }
@@ -129,7 +129,7 @@ async fn base64_decode_string() {
         "input": "SGVsbG8sIFdvcmxkIQ=="
     });
 
-    let output = node.execute(&config, empty_ctx()).await.unwrap();
+    let output = node.execute(&config, &empty_ctx()).await.unwrap();
     assert_eq!(
         output.get("base64_decoded").unwrap(),
         &serde_json::json!("Hello, World!")
@@ -148,7 +148,7 @@ async fn base64_decode_to_file() {
         "output_file": tmp.to_str().unwrap()
     });
 
-    let output = node.execute(&config, empty_ctx()).await.unwrap();
+    let output = node.execute(&config, &empty_ctx()).await.unwrap();
     assert!(output.contains_key("base64_decoded_path"));
 
     let contents = tokio::fs::read_to_string(&tmp).await.unwrap();
@@ -170,7 +170,10 @@ async fn base64_decode_url_safe() {
         "input": original,
         "url_safe": true
     });
-    let enc_output = encode_node.execute(&enc_config, empty_ctx()).await.unwrap();
+    let enc_output = encode_node
+        .execute(&enc_config, &empty_ctx())
+        .await
+        .unwrap();
     let encoded = enc_output.get("base64_encoded").unwrap().as_str().unwrap();
 
     // Decode with url_safe
@@ -178,7 +181,10 @@ async fn base64_decode_url_safe() {
         "input": encoded,
         "url_safe": true
     });
-    let dec_output = decode_node.execute(&dec_config, empty_ctx()).await.unwrap();
+    let dec_output = decode_node
+        .execute(&dec_config, &empty_ctx())
+        .await
+        .unwrap();
     assert_eq!(
         dec_output.get("base64_decoded").unwrap(),
         &serde_json::json!(original)
@@ -194,7 +200,7 @@ async fn base64_decode_invalid_error() {
         "input": "!!!not-valid-base64!!!"
     });
 
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     assert!(
         result
@@ -210,7 +216,7 @@ async fn base64_decode_missing_input_error() {
     let node = reg.get("base64_decode").expect("base64_decode node exists");
 
     let config = serde_json::json!({});
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("requires either"));
 }

@@ -54,12 +54,12 @@ impl Node for AiChunkMergeNode {
         "Merge small text chunks into token-budget groups"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let source_key = config
             .get("source_key")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("ai_chunk_merge requires 'source_key' parameter"))?;
-        let source_key = interpolate_ctx(source_key, &ctx);
+        let source_key = interpolate_ctx(source_key, ctx);
 
         let output_key = config
             .get("output_key")

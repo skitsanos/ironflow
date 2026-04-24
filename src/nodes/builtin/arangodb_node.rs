@@ -50,14 +50,14 @@ impl Node for ArangoDbAqlNode {
         "Execute an AQL query against ArangoDB via the Cursor API"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         // Connection parameters (config overrides env)
-        let url = resolve_param(config, "url", "ARANGODB_URL", &ctx).ok_or_else(|| {
+        let url = resolve_param(config, "url", "ARANGODB_URL", ctx).ok_or_else(|| {
             anyhow::anyhow!("arangodb_aql requires 'url' or ARANGODB_URL env var")
         })?;
 
         let database =
-            resolve_param(config, "database", "ARANGODB_DATABASE", &ctx).ok_or_else(|| {
+            resolve_param(config, "database", "ARANGODB_DATABASE", ctx).ok_or_else(|| {
                 anyhow::anyhow!("arangodb_aql requires 'database' or ARANGODB_DATABASE env var")
             })?;
 
@@ -66,7 +66,7 @@ impl Node for ArangoDbAqlNode {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("arangodb_aql requires 'query' parameter"))?;
 
-        let query = interpolate_ctx(query, &ctx);
+        let query = interpolate_ctx(query, ctx);
 
         let output_key = config
             .get("output_key")
@@ -86,7 +86,7 @@ impl Node for ArangoDbAqlNode {
         let mut body = serde_json::json!({ "query": query });
 
         if let Some(bind_vars) = config.get("bindVars") {
-            let interpolated = interpolate_json_value(bind_vars, &ctx);
+            let interpolated = interpolate_json_value(bind_vars, ctx);
             body["bindVars"] = interpolated;
         }
 
@@ -102,9 +102,9 @@ impl Node for ArangoDbAqlNode {
         let mut request = client.post(&cursor_url);
 
         // Authentication: token (JWT Bearer) or username/password (Basic)
-        let token = resolve_param(config, "token", "ARANGODB_TOKEN", &ctx);
-        let username = resolve_param(config, "username", "ARANGODB_USERNAME", &ctx);
-        let password = resolve_param(config, "password", "ARANGODB_PASSWORD", &ctx);
+        let token = resolve_param(config, "token", "ARANGODB_TOKEN", ctx);
+        let username = resolve_param(config, "username", "ARANGODB_USERNAME", ctx);
+        let password = resolve_param(config, "password", "ARANGODB_PASSWORD", ctx);
 
         if let Some(token) = token {
             request = request.bearer_auth(token);

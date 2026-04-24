@@ -25,7 +25,7 @@ async fn s3vector_create_bucket_requires_name() {
     let config = serde_json::json!({
         "output_key": "vector_bucket"
     });
-    let err = node.execute(&config, empty_ctx()).await.unwrap_err();
+    let err = node.execute(&config, &empty_ctx()).await.unwrap_err();
     assert!(
         err.to_string()
             .contains("s3vector_create_bucket requires 'vector_bucket_name'"),
@@ -45,7 +45,7 @@ async fn s3vector_create_index_requires_bucket() {
         "distance_metric": "euclidean",
         "dimension": 3
     });
-    let err = node.execute(&config, empty_ctx()).await.unwrap_err();
+    let err = node.execute(&config, &empty_ctx()).await.unwrap_err();
     assert!(
         err.to_string()
             .contains("s3vector_create_index requires 'vector_bucket_name'"),
@@ -62,7 +62,7 @@ async fn s3vector_get_index_requires_index() {
     let config = serde_json::json!({
         "vector_bucket_name": "demo-bucket"
     });
-    let err = node.execute(&config, empty_ctx()).await.unwrap_err();
+    let err = node.execute(&config, &empty_ctx()).await.unwrap_err();
     assert!(
         err.to_string()
             .contains("s3vector_get_index requires 'index_name'"),
@@ -85,7 +85,7 @@ async fn s3vector_put_vectors_requires_index() {
             }
         ]
     });
-    let err = node.execute(&config, empty_ctx()).await.unwrap_err();
+    let err = node.execute(&config, &empty_ctx()).await.unwrap_err();
     assert!(
         err.to_string()
             .contains("s3vector_put_vectors requires 'index_name'"),
@@ -104,7 +104,7 @@ async fn s3vector_query_vectors_requires_top_k() {
         "index_name": "demo-index",
         "query_vector": [0.1, 0.2, 0.3]
     });
-    let err = node.execute(&config, empty_ctx()).await.unwrap_err();
+    let err = node.execute(&config, &empty_ctx()).await.unwrap_err();
     assert!(
         err.to_string()
             .contains("s3vector_query_vectors requires 'top_k' field"),
@@ -125,7 +125,7 @@ async fn s3vector_query_vectors_invalid_min_similarity() {
         "query_vector": [0.1, 0.2, 0.3],
         "min_similarity": 1.5
     });
-    let err = node.execute(&config, empty_ctx()).await.unwrap_err();
+    let err = node.execute(&config, &empty_ctx()).await.unwrap_err();
     assert!(
         err.to_string()
             .contains("requires 'min_similarity' to be between 0 and 1"),
@@ -143,7 +143,7 @@ async fn s3vector_delete_vectors_requires_keys() {
         "vector_bucket_name": "demo-bucket",
         "index_name": "demo-index"
     });
-    let err = node.execute(&config, empty_ctx()).await.unwrap_err();
+    let err = node.execute(&config, &empty_ctx()).await.unwrap_err();
     assert!(
         err.to_string()
             .contains("s3vector_delete_vectors requires 'keys'"),

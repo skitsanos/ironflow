@@ -35,8 +35,8 @@ impl Node for PdfToImageNode {
         "Render PDF pages to images (requires pdfium library)"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
-        let path = resolve_path(config, &ctx, "pdf_to_image")?;
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
+        let path = resolve_path(config, ctx, "pdf_to_image")?;
         let format = resolve_image_format(
             config.get("format").and_then(|v| v.as_str()),
             "pdf_to_image",
@@ -104,8 +104,8 @@ impl Node for PdfThumbnailNode {
         "Render a single PDF page as a thumbnail image (requires pdfium library)"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
-        let path = resolve_path(config, &ctx, "pdf_thumbnail")?;
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
+        let path = resolve_path(config, ctx, "pdf_thumbnail")?;
         let page = config.get("page").and_then(|v| v.as_u64()).unwrap_or(1) as usize;
         if page == 0 {
             anyhow::bail!("pdf_thumbnail: 'page' must be 1-based and >= 1");
@@ -185,8 +185,8 @@ impl Node for ImageToPdfNode {
         "Convert one or more images to a PDF file"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
-        let sources = resolve_image_sources(config, &ctx)?;
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
+        let sources = resolve_image_sources(config, ctx)?;
         let output_key = config
             .get("output_key")
             .and_then(|v| v.as_str())
@@ -195,7 +195,7 @@ impl Node for ImageToPdfNode {
             .get("output_path")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("image_to_pdf requires 'output_path' parameter"))?;
-        let output_path = interpolate_ctx(output_path, &ctx);
+        let output_path = interpolate_ctx(output_path, ctx);
 
         let mut doc = Document::with_version("1.5");
         let pages_id = doc.new_object_id();
@@ -317,13 +317,13 @@ impl Node for ImageResizeNode {
         "Resize a single image"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
-        let source = resolve_single_image_source(config, &ctx, "image_resize")?;
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
+        let source = resolve_single_image_source(config, ctx, "image_resize")?;
         let output_path = config
             .get("output_path")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("image_resize requires 'output_path' parameter"))?;
-        let output_path = interpolate_ctx(output_path, &ctx);
+        let output_path = interpolate_ctx(output_path, ctx);
         let output_key = config
             .get("output_key")
             .and_then(|v| v.as_str())
@@ -404,13 +404,13 @@ impl Node for ImageCropNode {
         "Crop a single image"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
-        let source = resolve_single_image_source(config, &ctx, "image_crop")?;
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
+        let source = resolve_single_image_source(config, ctx, "image_crop")?;
         let output_path = config
             .get("output_path")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("image_crop requires 'output_path' parameter"))?;
-        let output_path = interpolate_ctx(output_path, &ctx);
+        let output_path = interpolate_ctx(output_path, ctx);
         let output_key = config
             .get("output_key")
             .and_then(|v| v.as_str())
@@ -554,8 +554,8 @@ impl Node for PdfMetadataNode {
         "Extract PDF metadata and page count"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
-        let path = resolve_path(config, &ctx, "pdf_metadata")?;
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
+        let path = resolve_path(config, ctx, "pdf_metadata")?;
         let output_key = config
             .get("output_key")
             .and_then(|v| v.as_str())
@@ -581,13 +581,13 @@ impl Node for ImageRotateNode {
         "Rotate a single image by 90-degree increments"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
-        let source = resolve_single_image_source(config, &ctx, "image_rotate")?;
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
+        let source = resolve_single_image_source(config, ctx, "image_rotate")?;
         let output_path = config
             .get("output_path")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("image_rotate requires 'output_path' parameter"))?;
-        let output_path = interpolate_ctx(output_path, &ctx);
+        let output_path = interpolate_ctx(output_path, ctx);
         let output_key = config
             .get("output_key")
             .and_then(|v| v.as_str())
@@ -663,13 +663,13 @@ impl Node for ImageFlipNode {
         "Flip a single image horizontally or vertically"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
-        let source = resolve_single_image_source(config, &ctx, "image_flip")?;
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
+        let source = resolve_single_image_source(config, ctx, "image_flip")?;
         let output_path = config
             .get("output_path")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("image_flip requires 'output_path' parameter"))?;
-        let output_path = interpolate_ctx(output_path, &ctx);
+        let output_path = interpolate_ctx(output_path, ctx);
         let output_key = config
             .get("output_key")
             .and_then(|v| v.as_str())
@@ -739,13 +739,13 @@ impl Node for ImageGrayscaleNode {
         "Convert a single image to grayscale"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
-        let source = resolve_single_image_source(config, &ctx, "image_grayscale")?;
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
+        let source = resolve_single_image_source(config, ctx, "image_grayscale")?;
         let output_path = config
             .get("output_path")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("image_grayscale requires 'output_path' parameter"))?;
-        let output_path = interpolate_ctx(output_path, &ctx);
+        let output_path = interpolate_ctx(output_path, ctx);
         let output_key = config
             .get("output_key")
             .and_then(|v| v.as_str())
@@ -795,8 +795,8 @@ impl Node for ImageMetadataNode {
         "Extract metadata from an image file"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
-        let path = resolve_path(config, &ctx, "image_metadata")?;
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
+        let path = resolve_path(config, ctx, "image_metadata")?;
         let output_key = config
             .get("output_key")
             .and_then(|v| v.as_str())
@@ -846,13 +846,13 @@ impl Node for ImageConvertNode {
         "Convert between image formats"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
-        let path = resolve_path(config, &ctx, "image_convert")?;
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
+        let path = resolve_path(config, ctx, "image_convert")?;
         let output_path = config
             .get("output_path")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("image_convert requires 'output_path' parameter"))?;
-        let output_path = interpolate_ctx(output_path, &ctx);
+        let output_path = interpolate_ctx(output_path, ctx);
         let output_key = config
             .get("output_key")
             .and_then(|v| v.as_str())
@@ -912,13 +912,13 @@ impl Node for ImageWatermarkNode {
         "Overlay a semi-transparent watermark band on an image"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
-        let source = resolve_single_image_source(config, &ctx, "image_watermark")?;
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
+        let source = resolve_single_image_source(config, ctx, "image_watermark")?;
         let output_path = config
             .get("output_path")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("image_watermark requires 'output_path' parameter"))?;
-        let output_path = interpolate_ctx(output_path, &ctx);
+        let output_path = interpolate_ctx(output_path, ctx);
         let output_key = config
             .get("output_key")
             .and_then(|v| v.as_str())
@@ -927,7 +927,7 @@ impl Node for ImageWatermarkNode {
             .get("text")
             .and_then(|v| v.as_str())
             .unwrap_or("watermark");
-        let text = interpolate_ctx(text, &ctx);
+        let text = interpolate_ctx(text, ctx);
         let position = config
             .get("position")
             .and_then(|v| v.as_str())
@@ -1229,9 +1229,12 @@ fn render_pdf_page(
         );
     }
 
+    let pdf_page_idx = i32::try_from(request.page_idx)
+        .map_err(|_| anyhow::anyhow!("page index {} is too large", request.page_idx + 1))?;
+
     let page = document
         .pages()
-        .get(request.page_idx as u16)
+        .get(pdf_page_idx)
         .map_err(|e| anyhow::anyhow!("Failed to get page {}: {:?}", request.page_idx + 1, e))?;
 
     let page_width = (page.width().to_inches() * request.dpi).max(1.0);
@@ -1270,7 +1273,13 @@ fn render_pdf_page(
         .render_with_config(&render_config)
         .map_err(|e| anyhow::anyhow!("Failed to render page {}: {:?}", request.page_idx + 1, e))?;
 
-    let img = bitmap.as_image();
+    let img = bitmap.as_image().map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to convert page {} to image: {:?}",
+            request.page_idx + 1,
+            e
+        )
+    })?;
 
     let mut buf: Vec<u8> = Vec::new();
     let mut cursor = std::io::Cursor::new(&mut buf);
@@ -1485,7 +1494,7 @@ impl Node for PdfMergeNode {
         "Merge multiple PDF files into one"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let files = config
             .get("files")
             .and_then(|v| v.as_array())
@@ -1499,7 +1508,7 @@ impl Node for PdfMergeNode {
             .get("output_path")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("pdf_merge requires 'output_path' parameter"))?;
-        let output_path = interpolate_ctx(output_path, &ctx);
+        let output_path = interpolate_ctx(output_path, ctx);
 
         let output_key = config
             .get("output_key")
@@ -1511,7 +1520,7 @@ impl Node for PdfMergeNode {
             let path = file_val.as_str().ok_or_else(|| {
                 anyhow::anyhow!("pdf_merge: each entry in 'files' must be a string")
             })?;
-            let path = interpolate_ctx(path, &ctx);
+            let path = interpolate_ctx(path, ctx);
             let doc = Document::load(&path)
                 .map_err(|e| anyhow::anyhow!("pdf_merge: failed to load '{}': {:?}", path, e))?;
             documents.push(doc);
@@ -1680,13 +1689,13 @@ impl Node for PdfSplitNode {
         "Split a PDF into individual pages or page ranges"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
-        let path = resolve_path(config, &ctx, "pdf_split")?;
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
+        let path = resolve_path(config, ctx, "pdf_split")?;
         let output_dir = config
             .get("output_dir")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("pdf_split requires 'output_dir' parameter"))?;
-        let output_dir = interpolate_ctx(output_dir, &ctx);
+        let output_dir = interpolate_ctx(output_dir, ctx);
         let output_key = config
             .get("output_key")
             .and_then(|v| v.as_str())

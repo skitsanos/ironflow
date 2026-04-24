@@ -41,7 +41,7 @@ async fn extract_word_text_output() {
         "output_key": "content",
     });
 
-    let out = node.execute(&config, Context::new()).await.unwrap();
+    let out = node.execute(&config, &Context::new()).await.unwrap();
     let content = out.get("content").unwrap().as_str().unwrap();
     assert!(content.contains("Technology Comparison Matrix"));
 }
@@ -62,7 +62,7 @@ async fn extract_word_markdown_with_metadata() {
         "metadata_key": "meta"
     });
 
-    let out = node.execute(&config, Context::new()).await.unwrap();
+    let out = node.execute(&config, &Context::new()).await.unwrap();
     let content = out.get("content_md").unwrap().as_str().unwrap();
     assert!(content.contains("Technology Comparison Matrix"));
     assert_eq!(out.get("meta").unwrap().get("author").unwrap(), "Un-named");
@@ -81,7 +81,7 @@ async fn extract_html_text_and_markdown() {
                 "path": path.to_string_lossy(),
                 "output_key": "text"
             }),
-            Context::new(),
+            &Context::new(),
         )
         .await
         .unwrap();
@@ -96,7 +96,7 @@ async fn extract_html_text_and_markdown() {
                 "format": "markdown",
                 "output_key": "md"
             }),
-            Context::new(),
+            &Context::new(),
         )
         .await
         .unwrap();
@@ -113,7 +113,7 @@ async fn extract_html_text_and_markdown() {
                 "metadata_key": "meta",
                 "output_key": "text"
             }),
-            Context::new(),
+            &Context::new(),
         )
         .await
         .unwrap();
@@ -144,7 +144,7 @@ async fn extract_pdf_returns_content_and_metadata() {
                 "output_key": "pdf_content",
                 "metadata_key": "pdf_meta"
             }),
-            Context::new(),
+            &Context::new(),
         )
         .await
         .unwrap();
@@ -170,7 +170,7 @@ async fn extract_pdf_missing_file_errors() {
                 "path": "/tmp/this_file_does_not_exist_hopefully.pdf",
                 "output_key": "content"
             }),
-            Context::new(),
+            &Context::new(),
         )
         .await
         .expect_err("expected missing-file error");
@@ -193,7 +193,7 @@ async fn extract_vtt_text_and_metadata() {
                 "format": "text",
                 "metadata_key": "subtitle_meta"
             }),
-            Context::new(),
+            &Context::new(),
         )
         .await
         .unwrap();
@@ -241,7 +241,7 @@ async fn extract_vtt_markdown() {
                 "format": "markdown",
                 "output_key": "subtitle_md",
             }),
-            Context::new(),
+            &Context::new(),
         )
         .await
         .unwrap();
@@ -270,7 +270,7 @@ async fn extract_srt_text_and_metadata() {
                 "format": "text",
                 "metadata_key": "subtitle_meta"
             }),
-            Context::new(),
+            &Context::new(),
         )
         .await
         .unwrap();

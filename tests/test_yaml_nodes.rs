@@ -19,7 +19,7 @@ async fn yaml_parse_simple() {
         "input": "name: Alice\nage: 30",
         "output_key": "data"
     });
-    let out = node.execute(&config, empty_ctx()).await.unwrap();
+    let out = node.execute(&config, &empty_ctx()).await.unwrap();
     let data = &out["data"];
     assert_eq!(data["name"], "Alice");
     assert_eq!(data["age"], 30);
@@ -34,7 +34,7 @@ async fn yaml_parse_nested() {
         "input": yaml_input,
         "output_key": "config"
     });
-    let out = node.execute(&config, empty_ctx()).await.unwrap();
+    let out = node.execute(&config, &empty_ctx()).await.unwrap();
     let config_val = &out["config"];
     assert_eq!(config_val["server"]["host"], "localhost");
     assert_eq!(config_val["server"]["port"], 8080);
@@ -55,7 +55,7 @@ async fn yaml_parse_via_source_key() {
     let config = serde_json::json!({
         "source_key": "raw_yaml"
     });
-    let out = node.execute(&config, ctx).await.unwrap();
+    let out = node.execute(&config, &ctx).await.unwrap();
     assert_eq!(out["yaml_data"]["key"], "value");
 }
 
@@ -67,7 +67,7 @@ async fn yaml_parse_custom_output_key() {
         "input": "x: 1",
         "output_key": "my_output"
     });
-    let out = node.execute(&config, empty_ctx()).await.unwrap();
+    let out = node.execute(&config, &empty_ctx()).await.unwrap();
     assert_eq!(out["my_output"]["x"], 1);
 }
 
@@ -78,7 +78,7 @@ async fn yaml_parse_invalid_yaml_error() {
     let config = serde_json::json!({
         "input": ":\n  - :\n  invalid: [unclosed"
     });
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
 }
 
@@ -94,7 +94,7 @@ async fn yaml_stringify_simple() {
         "source_key": "data",
         "output_key": "result"
     });
-    let out = node.execute(&config, ctx).await.unwrap();
+    let out = node.execute(&config, &ctx).await.unwrap();
     let yaml_str = out["result"].as_str().unwrap();
     assert!(yaml_str.contains("name:"));
     assert!(yaml_str.contains("Alice"));
@@ -109,7 +109,7 @@ async fn yaml_stringify_array() {
     let config = serde_json::json!({
         "source_key": "items"
     });
-    let out = node.execute(&config, ctx).await.unwrap();
+    let out = node.execute(&config, &ctx).await.unwrap();
     let yaml_str = out["yaml"].as_str().unwrap();
     assert!(yaml_str.contains("- a"));
     assert!(yaml_str.contains("- b"));
@@ -125,7 +125,7 @@ async fn yaml_stringify_via_source_key() {
         "source_key": "obj",
         "output_key": "yaml_out"
     });
-    let out = node.execute(&config, ctx).await.unwrap();
+    let out = node.execute(&config, &ctx).await.unwrap();
     let yaml_str = out["yaml_out"].as_str().unwrap();
     assert!(yaml_str.contains("key:"));
     assert!(yaml_str.contains("val"));
@@ -136,7 +136,7 @@ async fn yaml_parse_missing_input_error() {
     let reg = NodeRegistry::with_builtins();
     let node = reg.get("yaml_parse").unwrap();
     let config = serde_json::json!({});
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();
     assert!(err_msg.contains("input") || err_msg.contains("source_key"));

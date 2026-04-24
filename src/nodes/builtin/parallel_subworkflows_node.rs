@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use async_trait::async_trait;
+use tokio::sync::Semaphore;
 
 use crate::engine::executor::WorkflowEngine;
 use crate::engine::types::{Context, NodeOutput, RunStatus};
@@ -11,6 +12,9 @@ use crate::nodes::{Node, NodeRegistry};
 use crate::storage::null_store::NullStateStore;
 
 use super::subworkflow_node::SubworkflowNode;
+
+/// Hard cap on `max_concurrent` to guard against pathological config values.
+const MAX_PARALLEL_SUBWORKFLOWS_CAP: usize = 1024;
 
 pub struct ParallelSubworkflowsNode {
     /// Registry containing all non-subworkflow nodes.
@@ -43,7 +47,7 @@ impl Node for ParallelSubworkflowsNode {
         "Execute multiple subworkflows concurrently and collect their results"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let flows = config
             .get("flows")
             .and_then(|v| v.as_array())
@@ -76,6 +80,18 @@ impl Node for ParallelSubworkflowsNode {
             .get("output_key")
             .and_then(|v| v.as_str())
             .unwrap_or("parallel_results");
+
+        // Concurrency cap. Default: num_cpus. Users can raise or lower it per
+        // node. Hard-capped at MAX_PARALLEL_SUBWORKFLOWS_CAP to block pathological
+        // config values from saturating the runtime.
+        let max_concurrent = config
+            .get("max_concurrent")
+            .and_then(|v| v.as_u64())
+            .map(|n| n as usize)
+            .filter(|n| *n > 0)
+            .unwrap_or_else(num_cpus::get)
+            .min(MAX_PARALLEL_SUBWORKFLOWS_CAP);
+        let semaphore = Arc::new(Semaphore::new(max_concurrent));
 
         let child_registry = self.child_registry();
 
@@ -157,8 +173,12 @@ impl Node for ParallelSubworkflowsNode {
             }
 
             let registry = child_registry.clone();
+            let sem = semaphore.clone();
 
             let handle = tokio::spawn(async move {
+                // Bound concurrent subflow execution — without this, N flows
+                // all run at once no matter how large N is.
+                let _permit = sem.acquire_owned().await.expect("semaphore closed");
                 let flow = LuaRuntime::load_flow(&flow_path_str, &registry)?;
                 let flow_name = flow.name.clone();
                 let store: Arc<dyn crate::storage::StateStore> = Arc::new(NullStateStore::new());

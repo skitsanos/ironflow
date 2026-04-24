@@ -22,7 +22,7 @@ async fn html_sanitize_removes_script_tags() {
         "input": "<p>Hi</p><script>alert('xss')</script>"
     });
 
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     let sanitized = result.get("sanitized_html").unwrap().as_str().unwrap();
     assert!(
         sanitized.contains("<p>Hi</p>"),
@@ -43,7 +43,7 @@ async fn html_sanitize_preserves_safe_tags() {
         "input": r#"<p><b>bold</b> <a href="https://example.com">link</a></p>"#
     });
 
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     let sanitized = result.get("sanitized_html").unwrap().as_str().unwrap();
     assert!(
         sanitized.contains("<b>bold</b>"),
@@ -68,7 +68,7 @@ async fn html_sanitize_strips_onclick() {
         "input": r#"<p onclick="steal()">Safe text</p>"#
     });
 
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     let sanitized = result.get("sanitized_html").unwrap().as_str().unwrap();
     assert!(
         sanitized.contains("Safe text"),
@@ -94,7 +94,7 @@ async fn html_sanitize_via_source_key() {
         "source_key": "raw_html"
     });
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     let sanitized = result.get("sanitized_html").unwrap().as_str().unwrap();
     assert!(
         sanitized.contains("<p>good</p>"),
@@ -116,7 +116,7 @@ async fn html_sanitize_custom_output_key() {
         "output_key": "clean"
     });
 
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     assert!(
         result.contains_key("clean"),
         "Expected 'clean' key in output"
@@ -136,7 +136,7 @@ async fn html_sanitize_empty_input() {
         "input": ""
     });
 
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     let sanitized = result.get("sanitized_html").unwrap().as_str().unwrap();
     assert_eq!(sanitized, "", "Expected empty string for empty input");
 }
@@ -148,7 +148,7 @@ async fn html_sanitize_missing_input_error() {
 
     let config = serde_json::json!({});
 
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err(), "Expected error when no input provided");
     let err_msg = result.unwrap_err().to_string();
     assert!(

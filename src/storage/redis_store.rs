@@ -65,9 +65,13 @@ impl RedisStateStore {
         let mut conn = self.conn.clone();
         let key = self.run_key(run_id);
         let json = serde_json::to_string(info)?;
+        let summary = RunSummary::from(info);
+        let summary_json = serde_json::to_string(&summary)?;
 
+        // Store both fields so listings can pull just `summary` without
+        // dragging the full record across the wire.
         let _: () = conn
-            .hset(&key, "info", &json)
+            .hset_multiple(&key, &[("info", &json), ("summary", &summary_json)])
             .await
             .with_context(|| format!("Redis HSET failed for run {}", run_id))?;
 
@@ -79,6 +83,14 @@ impl RedisStateStore {
         }
 
         Ok(())
+    }
+
+    async fn read_summary(&self, run_id: &str) -> Option<RunSummary> {
+        let mut conn = self.conn.clone();
+        let key = self.run_key(run_id);
+        let raw: Option<String> = conn.hget(&key, "summary").await.ok()?;
+        let raw = raw?;
+        serde_json::from_str::<RunSummary>(&raw).ok()
     }
 }
 
@@ -108,11 +120,9 @@ impl StateStore for RedisStateStore {
 
     async fn set_run_status(&self, run_id: &str, status: RunStatus) -> Result<()> {
         let mut info = self.read_run(run_id).await?;
-        info.status = status.clone();
-        if matches!(
-            status,
-            RunStatus::Success | RunStatus::Failed | RunStatus::Stalled
-        ) {
+        let is_terminal = status.is_terminal();
+        info.status = status;
+        if is_terminal {
             info.finished = Some(Utc::now());
         }
         self.write_run(run_id, &info).await
@@ -172,6 +182,55 @@ impl StateStore for RedisStateStore {
         runs.sort_by(|a, b| b.started.cmp(&a.started));
 
         Ok(runs)
+    }
+
+    async fn list_run_summaries(
+        &self,
+        status_filter: Option<RunStatus>,
+    ) -> Result<Vec<RunSummary>> {
+        let mut conn = self.conn.clone();
+        let index_key = self.index_key();
+
+        let run_ids: Vec<String> = conn
+            .smembers(&index_key)
+            .await
+            .with_context(|| "Redis SMEMBERS failed for runs index")?;
+
+        let mut summaries = Vec::new();
+        for run_id in &run_ids {
+            match self.read_summary(run_id).await {
+                Some(s) => {
+                    if let Some(ref filter) = status_filter
+                        && &s.status != filter
+                    {
+                        continue;
+                    }
+                    summaries.push(s);
+                }
+                None => {
+                    // No summary field (pre-upgrade data) — fall back to full
+                    // record parse and backfill nothing. Stale index entries
+                    // are swept the same way `list_runs` does.
+                    match self.read_run(run_id).await {
+                        Ok(info) => {
+                            let s = RunSummary::from(&info);
+                            if let Some(ref filter) = status_filter
+                                && &s.status != filter
+                            {
+                                continue;
+                            }
+                            summaries.push(s);
+                        }
+                        Err(_) => {
+                            let _: std::result::Result<(), _> = conn.srem(&index_key, run_id).await;
+                        }
+                    }
+                }
+            }
+        }
+
+        summaries.sort_by(|a, b| b.started.cmp(&a.started));
+        Ok(summaries)
     }
 
     async fn delete_run(&self, run_id: &str) -> Result<()> {

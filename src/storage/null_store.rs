@@ -50,8 +50,9 @@ impl StateStore for NullStateStore {
 
     async fn set_run_status(&self, run_id: &str, status: RunStatus) -> Result<()> {
         if let Some(run) = self.runs.lock().unwrap().get_mut(run_id) {
+            let is_terminal = status.is_terminal();
             run.status = status;
-            if run.finished.is_none() {
+            if is_terminal && run.finished.is_none() {
                 run.finished = Some(chrono::Utc::now());
             }
         }

@@ -402,12 +402,12 @@ impl Node for AiChunkSemanticNode {
         "Split text into semantic chunks using embedding similarity"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let source_key = config
             .get("source_key")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("ai_chunk_semantic requires 'source_key' parameter"))?;
-        let source_key = crate::lua::interpolate::interpolate_ctx(source_key, &ctx);
+        let source_key = crate::lua::interpolate::interpolate_ctx(source_key, ctx);
 
         let output_key = config
             .get("output_key")
@@ -513,12 +513,12 @@ impl Node for AiChunkSemanticNode {
         let embeddings = match provider {
             "openai" => {
                 let api_key =
-                    resolve_param(config, "api_key", "OPENAI_API_KEY", &ctx).ok_or_else(|| {
+                    resolve_param(config, "api_key", "OPENAI_API_KEY", ctx).ok_or_else(|| {
                         anyhow::anyhow!(
                             "ai_chunk_semantic (openai) requires 'api_key' or OPENAI_API_KEY env var"
                         )
                     })?;
-                let base_url = resolve_param(config, "base_url", "OPENAI_BASE_URL", &ctx)
+                let base_url = resolve_param(config, "base_url", "OPENAI_BASE_URL", ctx)
                     .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
                 let model = config
                     .get("model")
@@ -528,7 +528,7 @@ impl Node for AiChunkSemanticNode {
                 embed_openai(&client, &base_url, &api_key, model, &sentences).await?
             }
             "ollama" => {
-                let host = resolve_param(config, "ollama_host", "OLLAMA_HOST", &ctx)
+                let host = resolve_param(config, "ollama_host", "OLLAMA_HOST", ctx)
                     .unwrap_or_else(|| "http://localhost:11434".to_string());
                 let model = config
                     .get("model")
@@ -538,27 +538,27 @@ impl Node for AiChunkSemanticNode {
                 embed_ollama(&client, &host, model, &sentences).await?
             }
             "oauth" => {
-                let token_url = resolve_param(config, "token_url", "OAUTH_TOKEN_URL", &ctx)
+                let token_url = resolve_param(config, "token_url", "OAUTH_TOKEN_URL", ctx)
                     .ok_or_else(|| {
                         anyhow::anyhow!(
                             "ai_chunk_semantic (oauth) requires 'token_url' or OAUTH_TOKEN_URL env var"
                         )
                     })?;
-                let client_id = resolve_param(config, "client_id", "OAUTH_CLIENT_ID", &ctx)
+                let client_id = resolve_param(config, "client_id", "OAUTH_CLIENT_ID", ctx)
                     .ok_or_else(|| {
                         anyhow::anyhow!(
                             "ai_chunk_semantic (oauth) requires 'client_id' or OAUTH_CLIENT_ID env var"
                         )
                     })?;
                 let client_secret =
-                    resolve_param(config, "client_secret", "OAUTH_CLIENT_SECRET", &ctx)
+                    resolve_param(config, "client_secret", "OAUTH_CLIENT_SECRET", ctx)
                         .ok_or_else(|| {
                             anyhow::anyhow!(
                                 "ai_chunk_semantic (oauth) requires 'client_secret' or OAUTH_CLIENT_SECRET env var"
                             )
                         })?;
-                let scope = resolve_param(config, "scope", "OAUTH_SCOPE", &ctx);
-                let base_url = resolve_param(config, "base_url", "OAUTH_BASE_URL", &ctx)
+                let scope = resolve_param(config, "scope", "OAUTH_SCOPE", ctx);
+                let base_url = resolve_param(config, "base_url", "OAUTH_BASE_URL", ctx)
                     .ok_or_else(|| {
                         anyhow::anyhow!(
                             "ai_chunk_semantic (oauth) requires 'base_url' or OAUTH_BASE_URL env var"

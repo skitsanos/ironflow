@@ -16,7 +16,7 @@ impl Node for DelayNode {
         "Pause execution for a specified duration"
     }
 
-    async fn execute(&self, config: &serde_json::Value, _ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, _ctx: &Context) -> Result<NodeOutput> {
         let seconds = config
             .get("seconds")
             .and_then(|v| v.as_f64())

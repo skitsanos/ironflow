@@ -26,7 +26,7 @@ async fn s3_presign_url_requires_bucket() {
         "key": "demo.txt",
         "method": "GET"
     });
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     let error = result.unwrap_err().to_string();
     assert!(error.contains("s3_presign_url requires 'bucket'"));
@@ -41,7 +41,7 @@ async fn s3_presign_url_requires_key() {
         "bucket": "test-bucket",
         "method": "GET"
     });
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     let error = result.unwrap_err().to_string();
     assert!(error.contains("s3_presign_url requires 'key'"));
@@ -57,7 +57,7 @@ async fn s3_presign_url_rejects_invalid_method() {
         "key": "demo.txt",
         "method": "POST"
     });
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     let error = result.unwrap_err().to_string();
     assert!(error.contains("s3_presign_url method 'POST' is not supported"));
@@ -73,7 +73,7 @@ async fn s3_presign_url_rejects_invalid_expires_in() {
         "key": "demo.txt",
         "expires_in": 0
     });
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     let error = result.unwrap_err().to_string();
     assert!(
@@ -91,7 +91,7 @@ async fn s3_put_object_requires_bucket() {
         "key": "demo.txt",
         "content": "hello"
     });
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     let error = result.unwrap_err().to_string();
     assert!(error.contains("s3_put_object requires 'bucket'"));
@@ -106,7 +106,7 @@ async fn s3_put_object_requires_key() {
         "bucket": "test-bucket",
         "content": "hello"
     });
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     let error = result.unwrap_err().to_string();
     assert!(error.contains("s3_put_object requires 'key'"));
@@ -121,7 +121,7 @@ async fn s3_put_object_requires_payload() {
         "bucket": "test-bucket",
         "key": "demo.txt"
     });
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     let error = result.unwrap_err().to_string();
     assert!(error.contains("requires one of 'content', 'source_key', or 'source_path'"));
@@ -135,7 +135,7 @@ async fn s3_get_object_requires_bucket() {
     let config = serde_json::json!({
         "key": "demo.txt"
     });
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     let error = result.unwrap_err().to_string();
     assert!(error.contains("s3_get_object requires 'bucket'"));
@@ -149,7 +149,7 @@ async fn s3_delete_object_requires_key() {
     let config = serde_json::json!({
         "bucket": "test-bucket"
     });
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     assert!(
         result
@@ -169,7 +169,7 @@ async fn s3_copy_object_requires_source_bucket() {
         "bucket": "test-bucket",
         "key": "b.txt"
     });
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     let error = result.unwrap_err().to_string();
     assert!(error.contains("s3_copy_object requires 'source_bucket'"));

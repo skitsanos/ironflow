@@ -63,9 +63,16 @@ impl WorkflowEngine {
 
         info!(run_id = %run_id, flow = %flow_name, "Starting workflow execution");
 
-        // Build lookup maps
-        let step_map: HashMap<String, &StepDefinition> =
-            flow.steps.iter().map(|s| (s.name.clone(), s)).collect();
+        // Build lookup map once. Arc-sharing lets spawned tasks hold a cheap
+        // pointer instead of deep-cloning the whole StepDefinition (and the
+        // former per-task `step_map_clone` of every step's config JSON) on
+        // each scheduled attempt.
+        let step_map: Arc<HashMap<String, Arc<StepDefinition>>> = Arc::new(
+            flow.steps
+                .iter()
+                .map(|s| (s.name.clone(), Arc::new(s.clone())))
+                .collect(),
+        );
 
         // Collect steps that are on_error targets — they only run when triggered
         let error_only_steps: HashSet<String> = flow
@@ -74,7 +81,12 @@ impl WorkflowEngine {
             .filter_map(|s| s.on_error.clone())
             .collect();
 
-        let ctx = Arc::new(RwLock::new(initial_ctx));
+        // Wrap the context in an inner `Arc` so that readers (task attempts)
+        // take cheap pointer clones instead of deep-copying the whole map. On
+        // writes we use `Arc::make_mut`, which clones only when the current
+        // Arc is shared — in practice that means at most one structural clone
+        // per write, not one per read.
+        let ctx: Arc<RwLock<Arc<Context>>> = Arc::new(RwLock::new(Arc::new(initial_ctx)));
         let semaphore = Arc::new(Semaphore::new(self.max_concurrent_tasks));
         let completed: Arc<RwLock<HashSet<String>>> = Arc::new(RwLock::new(HashSet::new()));
         let failed: Arc<RwLock<HashSet<String>>> = Arc::new(RwLock::new(HashSet::new()));
@@ -87,6 +99,7 @@ impl WorkflowEngine {
 
             for step_name in phase {
                 let step = step_map[step_name].clone();
+                // `step` is now Arc<StepDefinition> — .clone() is a ref-count bump.
 
                 // Skip steps that are on_error targets — they only run
                 // when triggered by an error, never in normal scheduling
@@ -122,7 +135,7 @@ impl WorkflowEngine {
                 // Check route condition
                 if let Some(ref route) = step.route {
                     let ctx_read = ctx.read().await;
-                    let should_skip = !self.check_route(&step, route, &ctx_read);
+                    let should_skip = !self.check_route(&step, route, ctx_read.as_ref());
                     drop(ctx_read);
                     if should_skip {
                         info!(task = %step_name, route = %route, "Skipping task — route not matched");
@@ -142,10 +155,7 @@ impl WorkflowEngine {
                 let failed = failed.clone();
                 let error_handled = error_handled.clone();
                 let run_id = run_id.clone();
-                let step_map_clone: HashMap<String, StepDefinition> = step_map
-                    .iter()
-                    .map(|(k, v)| (k.clone(), (*v).clone()))
-                    .collect();
+                let step_map = step_map.clone();
 
                 let handle = tokio::spawn(async move {
                     let _permit = semaphore.acquire().await.unwrap();
@@ -167,22 +177,23 @@ impl WorkflowEngine {
                                 // Inject error details into context
                                 {
                                     let mut ctx_write = ctx.write().await;
-                                    ctx_write.insert(
+                                    let inner = Arc::make_mut(&mut *ctx_write);
+                                    inner.insert(
                                         "_error_message".to_string(),
                                         serde_json::Value::String(format!("{:#}", e)),
                                     );
-                                    ctx_write.insert(
+                                    inner.insert(
                                         "_error_step".to_string(),
                                         serde_json::Value::String(step.name.clone()),
                                     );
-                                    ctx_write.insert(
+                                    inner.insert(
                                         "_error_node_type".to_string(),
                                         serde_json::Value::String(step.node_type.clone()),
                                     );
                                 }
 
                                 // Run the error handler step
-                                if let Some(error_step) = step_map_clone.get(error_step_name) {
+                                if let Some(error_step) = step_map.get(error_step_name) {
                                     let err_result = Self::run_task(
                                         &registry, &store, &run_id, error_step, &ctx,
                                     )
@@ -244,7 +255,7 @@ impl WorkflowEngine {
 
         // Store final context
         let final_ctx = ctx.read().await;
-        self.store.update_ctx(&run_id, &final_ctx).await?;
+        self.store.update_ctx(&run_id, final_ctx.as_ref()).await?;
         self.store
             .set_run_status(&run_id, final_status.clone())
             .await?;
@@ -260,7 +271,7 @@ impl WorkflowEngine {
         store: &Arc<dyn StateStore>,
         run_id: &str,
         step: &StepDefinition,
-        ctx: &Arc<RwLock<Context>>,
+        ctx: &Arc<RwLock<Arc<Context>>>,
     ) -> Result<()> {
         let node = registry
             .get(&step.node_type)
@@ -279,34 +290,60 @@ impl WorkflowEngine {
 
             info!(task = %step.name, attempt = attempt, max = max_attempts, "Running task");
 
-            // Snapshot context for the node
-            let current_ctx = ctx.read().await.clone();
+            // Cheap snapshot — `Arc::clone` of the context pointer. The node
+            // borrows from the pointed-to `Context`; writers make-mut to a
+            // fresh Arc so this snapshot stays stable for the call.
+            let current_ctx: Arc<Context> = ctx.read().await.clone();
 
-            // Execute with optional timeout
             let result = if let Some(timeout_s) = step.timeout_s {
                 let duration = std::time::Duration::from_secs_f64(timeout_s);
-                match tokio::time::timeout(duration, node.execute(&step.config, current_ctx)).await
+                match tokio::time::timeout(duration, node.execute(&step.config, &current_ctx)).await
                 {
                     Ok(r) => r,
                     Err(_) => Err(anyhow::anyhow!("Task timed out after {}s", timeout_s)),
                 }
             } else {
-                node.execute(&step.config, current_ctx).await
+                node.execute(&step.config, &current_ctx).await
             };
 
             match result {
                 Ok(output) => {
-                    // Merge output into context
+                    // Merge output into context. `Arc::make_mut` clones the
+                    // inner HashMap only when it's shared with a live reader;
+                    // once cloned, future writes go in-place until the next
+                    // reader snapshot.
                     {
                         let mut ctx_write = ctx.write().await;
+                        let inner = Arc::make_mut(&mut *ctx_write);
                         for (k, v) in &output {
-                            ctx_write.insert(k.clone(), v.clone());
+                            inner.insert(k.clone(), v.clone());
                         }
                     }
 
-                    // Update task state to success
+                    // Update task state to success. `output` is a
+                    // HashMap<String, Value> — convert it to a JSON object
+                    // directly instead of going through `serde_json::to_value`,
+                    // which would walk every Value through the Serialize trait
+                    // even though each element is already a Value.
                     task_state.status = TaskStatus::Success;
-                    task_state.output = Some(serde_json::to_value(&output)?);
+                    let output_value = serde_json::Value::Object(
+                        output.into_iter().collect::<serde_json::Map<_, _>>(),
+                    );
+                    // Cap what we persist in task history — huge outputs
+                    // already landed in `ctx` via the merge above; there's
+                    // no need to duplicate them in the run record.
+                    let max_task_bytes = crate::util::limits::max_task_output_bytes() as usize;
+                    let serialized_size = output_value.to_string().len();
+                    task_state.output = if serialized_size > max_task_bytes {
+                        Some(serde_json::json!({
+                            "_truncated": true,
+                            "_original_bytes": serialized_size,
+                            "_limit_bytes": max_task_bytes,
+                            "_note": "Output exceeded IRONFLOW_MAX_TASK_OUTPUT_BYTES; full value is in workflow context.",
+                        }))
+                    } else {
+                        Some(output_value)
+                    };
                     task_state.finished = Some(Utc::now());
                     store.upsert_task(run_id, &task_state).await?;
 

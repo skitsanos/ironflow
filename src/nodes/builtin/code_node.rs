@@ -19,9 +19,9 @@ impl Node for CodeNode {
         "Execute inline Lua code with access to the workflow context"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let lua = Lua::new();
-        let ctx_table = lua_sandbox::setup_sandbox(&lua, &ctx)?;
+        let ctx_table = lua_sandbox::setup_sandbox(&lua, ctx)?;
 
         // Execute either bytecode (function handler) or source string
         let result: LuaValue =

@@ -210,19 +210,19 @@ impl Node for S3PutObjectNode {
         "Upload an object to S3 (or S3-compatible storage) from text or base64 input"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let bucket =
-            resolve_required(config, "bucket", Some("S3_BUCKET"), &ctx).ok_or_else(|| {
+            resolve_required(config, "bucket", Some("S3_BUCKET"), ctx).ok_or_else(|| {
                 anyhow::anyhow!("s3_put_object requires 'bucket' or S3_BUCKET env var")
             })?;
-        let key = resolve_required(config, "key", None, &ctx)
+        let key = resolve_required(config, "key", None, ctx)
             .ok_or_else(|| anyhow::anyhow!("s3_put_object requires 'key'"))?;
         let output_key = resolve_output_key(config);
-        let content_type = resolve_optional(config, "content_type", None, &ctx)
+        let content_type = resolve_optional(config, "content_type", None, ctx)
             .unwrap_or_else(|| "application/octet-stream".to_string());
 
-        let body = resolve_payload_bytes(config, &ctx).await?;
-        let client = build_s3_client(config, &ctx).await?;
+        let body = resolve_payload_bytes(config, ctx).await?;
+        let client = build_s3_client(config, ctx).await?;
         let response = client
             .put_object()
             .bucket(bucket.clone())
@@ -277,12 +277,12 @@ impl Node for S3PresignUrlNode {
         "Generate a presigned URL for a supported S3 operation"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let bucket =
-            resolve_required(config, "bucket", Some("S3_BUCKET"), &ctx).ok_or_else(|| {
+            resolve_required(config, "bucket", Some("S3_BUCKET"), ctx).ok_or_else(|| {
                 anyhow::anyhow!("s3_presign_url requires 'bucket' or S3_BUCKET env var")
             })?;
-        let key = resolve_required(config, "key", None, &ctx)
+        let key = resolve_required(config, "key", None, ctx)
             .ok_or_else(|| anyhow::anyhow!("s3_presign_url requires 'key'"))?;
         let method = config
             .get("method")
@@ -291,11 +291,11 @@ impl Node for S3PresignUrlNode {
             .to_ascii_uppercase();
         let expires_in = resolve_expires_in(config)?;
         let output_key = resolve_output_key(config);
-        let content_type = resolve_optional(config, "content_type", None, &ctx)
+        let content_type = resolve_optional(config, "content_type", None, ctx)
             .unwrap_or_else(|| "application/octet-stream".to_string());
         let content_length = resolve_content_length(config);
 
-        let client = build_s3_client(config, &ctx).await?;
+        let client = build_s3_client(config, ctx).await?;
         let presign_config =
             aws_sdk_s3::presigning::PresigningConfig::expires_in(Duration::from_secs(expires_in))
                 .map_err(|error| anyhow::anyhow!("s3_presign_url invalid expires_in: {}", error))?;
@@ -397,12 +397,12 @@ impl Node for S3GetObjectNode {
         "Download an object from S3"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let bucket =
-            resolve_required(config, "bucket", Some("S3_BUCKET"), &ctx).ok_or_else(|| {
+            resolve_required(config, "bucket", Some("S3_BUCKET"), ctx).ok_or_else(|| {
                 anyhow::anyhow!("s3_get_object requires 'bucket' or S3_BUCKET env var")
             })?;
-        let key = resolve_required(config, "key", None, &ctx)
+        let key = resolve_required(config, "key", None, ctx)
             .ok_or_else(|| anyhow::anyhow!("s3_get_object requires 'key'"))?;
         let output_key = resolve_output_key(config);
         let output_encoding = config
@@ -410,7 +410,7 @@ impl Node for S3GetObjectNode {
             .and_then(|value| value.as_str())
             .unwrap_or("text");
 
-        let client = build_s3_client(config, &ctx).await?;
+        let client = build_s3_client(config, ctx).await?;
         let response = client
             .get_object()
             .bucket(bucket.clone())
@@ -480,17 +480,17 @@ impl Node for S3DeleteObjectNode {
         "Delete an object from S3"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let bucket =
-            resolve_required(config, "bucket", Some("S3_BUCKET"), &ctx).ok_or_else(|| {
+            resolve_required(config, "bucket", Some("S3_BUCKET"), ctx).ok_or_else(|| {
                 anyhow::anyhow!("s3_delete_object requires 'bucket' or S3_BUCKET env var")
             })?;
-        let key = resolve_required(config, "key", None, &ctx)
+        let key = resolve_required(config, "key", None, ctx)
             .ok_or_else(|| anyhow::anyhow!("s3_delete_object requires 'key'"))?;
         let output_key = resolve_output_key(config);
-        let version_id = resolve_optional(config, "version_id", None, &ctx);
+        let version_id = resolve_optional(config, "version_id", None, ctx);
 
-        let client = build_s3_client(config, &ctx).await?;
+        let client = build_s3_client(config, ctx).await?;
         let mut request = client
             .delete_object()
             .bucket(bucket.clone())
@@ -535,25 +535,25 @@ impl Node for S3CopyObjectNode {
         "Copy an S3 object to another key or bucket"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
-        let source_bucket = resolve_required(config, "source_bucket", Some("S3_BUCKET"), &ctx)
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
+        let source_bucket = resolve_required(config, "source_bucket", Some("S3_BUCKET"), ctx)
             .ok_or_else(|| {
                 anyhow::anyhow!("s3_copy_object requires 'source_bucket' or S3_BUCKET env var")
             })?;
-        let source_key = resolve_required(config, "source_key", None, &ctx)
+        let source_key = resolve_required(config, "source_key", None, ctx)
             .ok_or_else(|| anyhow::anyhow!("s3_copy_object requires 'source_key'"))?;
-        let destination_bucket = resolve_required(config, "bucket", Some("S3_BUCKET"), &ctx)
+        let destination_bucket = resolve_required(config, "bucket", Some("S3_BUCKET"), ctx)
             .ok_or_else(|| {
                 anyhow::anyhow!(
                     "s3_copy_object requires 'bucket' (destination bucket) or S3_BUCKET env var"
                 )
             })?;
-        let destination_key = resolve_required(config, "key", None, &ctx)
+        let destination_key = resolve_required(config, "key", None, ctx)
             .ok_or_else(|| anyhow::anyhow!("s3_copy_object requires destination 'key'"))?;
         let output_key = resolve_output_key(config);
         let copy_source = format!("{}/{}", source_bucket, source_key);
 
-        let client = build_s3_client(config, &ctx).await?;
+        let client = build_s3_client(config, ctx).await?;
         let response = client
             .copy_object()
             .bucket(destination_bucket.clone())
@@ -631,12 +631,12 @@ impl Node for S3ListObjectsNode {
         "List objects under a S3 key prefix"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let bucket =
-            resolve_required(config, "bucket", Some("S3_BUCKET"), &ctx).ok_or_else(|| {
+            resolve_required(config, "bucket", Some("S3_BUCKET"), ctx).ok_or_else(|| {
                 anyhow::anyhow!("s3_list_objects requires 'bucket' or S3_BUCKET env var")
             })?;
-        let prefix = resolve_optional(config, "prefix", None, &ctx).unwrap_or_default();
+        let prefix = resolve_optional(config, "prefix", None, ctx).unwrap_or_default();
         let delimiter = config
             .get("delimiter")
             .and_then(|value| value.as_str())
@@ -645,7 +645,7 @@ impl Node for S3ListObjectsNode {
         let max_keys = config.get("max_keys").and_then(|value| value.as_u64());
         let max_keys = max_keys.and_then(|value| i32::try_from(value).ok());
 
-        let client = build_s3_client(config, &ctx).await?;
+        let client = build_s3_client(config, ctx).await?;
 
         let mut objects = Vec::new();
         let mut continuation_token: Option<String> = None;
@@ -725,9 +725,9 @@ impl Node for S3ListBucketsNode {
         "List available buckets in the S3 account"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let output_key = resolve_output_key(config);
-        let client = build_s3_client(config, &ctx).await?;
+        let client = build_s3_client(config, ctx).await?;
         let response = client.list_buckets().send().await?;
 
         let mut buckets = Vec::new();

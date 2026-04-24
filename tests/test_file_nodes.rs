@@ -32,7 +32,7 @@ async fn copy_file_happy_path() {
         "destination": dst.to_str().unwrap(),
     });
 
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     assert_eq!(
         result.get("copy_file_success").unwrap(),
         &serde_json::Value::Bool(true)
@@ -65,7 +65,7 @@ async fn copy_file_missing_source() {
         "destination": dst.to_str().unwrap(),
     });
 
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
 }
 
@@ -76,7 +76,7 @@ async fn copy_file_missing_config_param() {
 
     // Missing destination
     let config = serde_json::json!({ "source": "/tmp/x.txt" });
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("destination"));
 }
@@ -107,7 +107,7 @@ async fn copy_file_interpolates_context() {
         ),
     ]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     assert_eq!(
         result.get("copy_file_success").unwrap(),
         &serde_json::Value::Bool(true)
@@ -132,7 +132,7 @@ async fn move_file_happy_path() {
         "destination": dst.to_str().unwrap(),
     });
 
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     assert_eq!(
         result.get("move_file_success").unwrap(),
         &serde_json::Value::Bool(true)
@@ -165,7 +165,7 @@ async fn move_file_missing_source() {
         "destination": dst.to_str().unwrap(),
     });
 
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
 }
 
@@ -176,7 +176,7 @@ async fn move_file_missing_config_param() {
 
     // Missing source
     let config = serde_json::json!({ "destination": "/tmp/x.txt" });
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("source"));
 }
@@ -197,7 +197,7 @@ async fn delete_file_happy_path() {
         "path": file.to_str().unwrap(),
     });
 
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     assert_eq!(
         result.get("delete_file_success").unwrap(),
         &serde_json::Value::Bool(true)
@@ -221,7 +221,7 @@ async fn delete_file_nonexistent() {
         "path": file.to_str().unwrap(),
     });
 
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
 }
 
@@ -231,7 +231,7 @@ async fn delete_file_missing_config_param() {
     let node = reg.get("delete_file").unwrap();
 
     let config = serde_json::json!({});
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("path"));
 }
@@ -252,7 +252,7 @@ async fn list_directory_happy_path() {
         "path": dir.path().to_str().unwrap(),
     });
 
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     let files = result.get("files").unwrap().as_array().unwrap();
     assert_eq!(files.len(), 3);
 
@@ -293,7 +293,7 @@ async fn list_directory_nonexistent() {
         "path": bad_path.to_str().unwrap(),
     });
 
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
 }
 
@@ -310,7 +310,7 @@ async fn list_directory_custom_output_key() {
         "output_key": "entries",
     });
 
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     assert!(result.contains_key("entries"));
     assert!(!result.contains_key("files"));
     assert_eq!(result.get("entries").unwrap().as_array().unwrap().len(), 1);
@@ -332,7 +332,7 @@ async fn list_directory_recursive() {
         "recursive": true,
     });
 
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     let files = result.get("files").unwrap().as_array().unwrap();
     // Should have: root.txt, child (dir), nested.txt (from recursive)
     assert_eq!(files.len(), 3);
@@ -357,7 +357,7 @@ async fn list_directory_empty() {
         "path": dir.path().to_str().unwrap(),
     });
 
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     let files = result.get("files").unwrap().as_array().unwrap();
     assert!(files.is_empty());
 }
@@ -368,7 +368,7 @@ async fn list_directory_missing_config_param() {
     let node = reg.get("list_directory").unwrap();
 
     let config = serde_json::json!({});
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("path"));
 }
@@ -395,7 +395,7 @@ async fn zip_create_happy_path() {
         "include_root": false,
     });
 
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     assert_eq!(
         result.get("zip_create_files").unwrap(),
         &serde_json::json!(2)
@@ -424,7 +424,7 @@ async fn zip_create_missing_source() {
         "zip_path": zip_path.to_str().unwrap(),
     });
 
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
 }
 
@@ -447,7 +447,7 @@ async fn zip_list_happy_path() {
                 "source": source.to_str().unwrap(),
                 "zip_path": zip_path.to_str().unwrap(),
             }),
-            empty_ctx(),
+            &empty_ctx(),
         )
         .await
         .unwrap();
@@ -458,7 +458,7 @@ async fn zip_list_happy_path() {
                 "path": zip_path.to_str().unwrap(),
                 "output_key": "entries"
             }),
-            empty_ctx(),
+            &empty_ctx(),
         )
         .await
         .unwrap();
@@ -480,7 +480,7 @@ async fn zip_list_missing_archive() {
         "path": dir.path().join("missing.zip").to_str().unwrap(),
     });
 
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
 }
 
@@ -509,7 +509,7 @@ async fn zip_extract_happy_path() {
                 "source": source.to_str().unwrap(),
                 "zip_path": zip_path.to_str().unwrap(),
             }),
-            empty_ctx(),
+            &empty_ctx(),
         )
         .await
         .unwrap();
@@ -521,7 +521,7 @@ async fn zip_extract_happy_path() {
                 "destination": destination.to_str().unwrap(),
                 "output_key": "extracted",
             }),
-            empty_ctx(),
+            &empty_ctx(),
         )
         .await
         .unwrap();
@@ -561,7 +561,7 @@ async fn zip_extract_prevents_traversal() {
                 "path": zip_path.to_str().unwrap(),
                 "destination": destination.to_str().unwrap(),
             }),
-            empty_ctx(),
+            &empty_ctx(),
         )
         .await;
 

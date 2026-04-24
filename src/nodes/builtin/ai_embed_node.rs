@@ -1,12 +1,13 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use serde::Deserialize;
-use std::sync::Mutex;
+use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
+use crate::util::bounded_cache::BoundedCache;
 
 /// Simple percent-encoding for form data values.
 pub(crate) fn percent_encode(input: &str) -> String {
@@ -39,13 +40,32 @@ pub(crate) fn resolve_param(
 }
 
 // -- OAuth token cache --
+//
+// Keyed by `(token_url, client_id, scope)`. A single process-wide slot would
+// let one workflow overwrite another tenant's token; this prevents that.
 
+#[derive(Clone)]
 struct CachedToken {
     access_token: String,
     expires_at: Instant,
 }
 
-static OAUTH_TOKEN_CACHE: Mutex<Option<CachedToken>> = Mutex::new(None);
+/// Hard upper bound on distinct OAuth client tuples remembered across the process.
+/// Override with `IRONFLOW_OAUTH_CACHE_SIZE`.
+const DEFAULT_OAUTH_CACHE_SIZE: usize = 128;
+
+fn oauth_cache_capacity() -> usize {
+    std::env::var("IRONFLOW_OAUTH_CACHE_SIZE")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(DEFAULT_OAUTH_CACHE_SIZE)
+}
+
+type OauthKey = (String, String, Option<String>);
+
+static OAUTH_TOKEN_CACHE: LazyLock<BoundedCache<OauthKey, CachedToken>> =
+    LazyLock::new(|| BoundedCache::new(oauth_cache_capacity()));
 
 #[derive(Deserialize)]
 struct TokenResponse {
@@ -168,16 +188,18 @@ pub(crate) async fn acquire_oauth_token(
     client_secret: &str,
     scope: Option<&str>,
 ) -> Result<String> {
-    // Check cache
+    let cache_key: OauthKey = (
+        token_url.to_string(),
+        client_id.to_string(),
+        scope.map(|s| s.to_string()),
+    );
+
+    // Check cache — keyed by (token_url, client_id, scope) so tenants
+    // and scopes don't collide.
+    if let Some(cached) = OAUTH_TOKEN_CACHE.get(&cache_key)
+        && Instant::now() + Duration::from_secs(60) < cached.expires_at
     {
-        let cache = OAUTH_TOKEN_CACHE
-            .lock()
-            .map_err(|e| anyhow::anyhow!("OAuth token cache lock poisoned: {e}"))?;
-        if let Some(ref cached) = *cache
-            && Instant::now() + Duration::from_secs(60) < cached.expires_at
-        {
-            return Ok(cached.access_token.clone());
-        }
+        return Ok(cached.access_token);
     }
 
     // Fetch new token via form-encoded POST
@@ -214,14 +236,14 @@ pub(crate) async fn acquire_oauth_token(
     let expires_at = Instant::now() + Duration::from_secs(token_resp.expires_in);
     let access_token = token_resp.access_token.clone();
 
-    // Update cache
-    let mut cache = OAUTH_TOKEN_CACHE
-        .lock()
-        .map_err(|e| anyhow::anyhow!("OAuth token cache lock poisoned: {e}"))?;
-    *cache = Some(CachedToken {
-        access_token: token_resp.access_token,
-        expires_at,
-    });
+    OAUTH_TOKEN_CACHE.insert(
+        cache_key,
+        CachedToken {
+            access_token: token_resp.access_token,
+            expires_at,
+        },
+        None,
+    );
 
     Ok(access_token)
 }
@@ -240,7 +262,7 @@ impl Node for AiEmbedNode {
         "Generate text embeddings via OpenAI, Ollama, or OAuth providers"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let provider = config
             .get("provider")
             .and_then(|v| v.as_str())
@@ -250,7 +272,7 @@ impl Node for AiEmbedNode {
             .get("input_key")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("ai_embed requires 'input_key' parameter"))?;
-        let input_key = crate::lua::interpolate::interpolate_ctx(input_key, &ctx);
+        let input_key = crate::lua::interpolate::interpolate_ctx(input_key, ctx);
 
         let output_key = config
             .get("output_key")
@@ -299,12 +321,12 @@ impl Node for AiEmbedNode {
         let (embeddings, model_used) = match provider {
             "openai" => {
                 let api_key =
-                    resolve_param(config, "api_key", "OPENAI_API_KEY", &ctx).ok_or_else(|| {
+                    resolve_param(config, "api_key", "OPENAI_API_KEY", ctx).ok_or_else(|| {
                         anyhow::anyhow!(
                             "ai_embed (openai) requires 'api_key' or OPENAI_API_KEY env var"
                         )
                     })?;
-                let base_url = resolve_param(config, "base_url", "OPENAI_BASE_URL", &ctx)
+                let base_url = resolve_param(config, "base_url", "OPENAI_BASE_URL", ctx)
                     .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
                 let model = config
                     .get("model")
@@ -316,7 +338,7 @@ impl Node for AiEmbedNode {
                 (embs, model)
             }
             "ollama" => {
-                let host = resolve_param(config, "ollama_host", "OLLAMA_HOST", &ctx)
+                let host = resolve_param(config, "ollama_host", "OLLAMA_HOST", ctx)
                     .unwrap_or_else(|| "http://localhost:11434".to_string());
                 let model = config
                     .get("model")
@@ -328,13 +350,13 @@ impl Node for AiEmbedNode {
                 (embs, model)
             }
             "oauth" => {
-                let token_url = resolve_param(config, "token_url", "OAUTH_TOKEN_URL", &ctx)
+                let token_url = resolve_param(config, "token_url", "OAUTH_TOKEN_URL", ctx)
                     .ok_or_else(|| {
                         anyhow::anyhow!(
                             "ai_embed (oauth) requires 'token_url' or OAUTH_TOKEN_URL env var"
                         )
                     })?;
-                let client_id = resolve_param(config, "client_id", "OAUTH_CLIENT_ID", &ctx)
+                let client_id = resolve_param(config, "client_id", "OAUTH_CLIENT_ID", ctx)
                     .ok_or_else(|| {
                         anyhow::anyhow!(
                             "ai_embed (oauth) requires 'client_id' or OAUTH_CLIENT_ID env var"
@@ -344,15 +366,15 @@ impl Node for AiEmbedNode {
                     config,
                     "client_secret",
                     "OAUTH_CLIENT_SECRET",
-                    &ctx,
+                    ctx,
                 )
                 .ok_or_else(|| {
                     anyhow::anyhow!(
                         "ai_embed (oauth) requires 'client_secret' or OAUTH_CLIENT_SECRET env var"
                     )
                 })?;
-                let scope = resolve_param(config, "scope", "OAUTH_SCOPE", &ctx);
-                let base_url = resolve_param(config, "base_url", "OAUTH_BASE_URL", &ctx)
+                let scope = resolve_param(config, "scope", "OAUTH_SCOPE", ctx);
+                let base_url = resolve_param(config, "base_url", "OAUTH_BASE_URL", ctx)
                     .ok_or_else(|| {
                         anyhow::anyhow!(
                             "ai_embed (oauth) requires 'base_url' or OAUTH_BASE_URL env var"

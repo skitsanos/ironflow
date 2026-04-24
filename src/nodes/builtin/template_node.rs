@@ -17,7 +17,7 @@ impl Node for TemplateRenderNode {
         "Render a string template with context variable interpolation"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let template = config
             .get("template")
             .and_then(|v| v.as_str())
@@ -28,7 +28,7 @@ impl Node for TemplateRenderNode {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("template_render requires 'output_key'"))?;
 
-        let rendered = interpolate_ctx(template, &ctx);
+        let rendered = interpolate_ctx(template, ctx);
 
         let mut output = NodeOutput::new();
         output.insert(output_key.to_string(), serde_json::Value::String(rendered));

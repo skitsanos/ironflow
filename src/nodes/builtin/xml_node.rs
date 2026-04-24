@@ -19,13 +19,13 @@ impl Node for XmlParseNode {
         "Parse XML string into a JSON object"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let output_key = config
             .get("output_key")
             .and_then(|v| v.as_str())
             .unwrap_or("xml_data");
 
-        let input = get_input(config, &ctx, "xml_parse")?;
+        let input = get_input(config, ctx, "xml_parse")?;
 
         let parsed = parse_xml_to_json(&input)?;
 
@@ -47,7 +47,7 @@ impl Node for XmlStringifyNode {
         "Convert a JSON value to an XML string"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let source_key = config
             .get("source_key")
             .and_then(|v| v.as_str())

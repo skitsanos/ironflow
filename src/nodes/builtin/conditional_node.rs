@@ -16,7 +16,7 @@ impl Node for IfNode {
         "Evaluate a condition and set a route"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let condition = config
             .get("condition")
             .and_then(|v| v.as_str())
@@ -32,7 +32,7 @@ impl Node for IfNode {
             .and_then(|v| v.as_str())
             .unwrap_or("false");
 
-        let result = evaluate_condition(condition, &ctx);
+        let result = evaluate_condition(condition, ctx);
 
         let route = if result { true_route } else { false_route };
 
@@ -66,7 +66,7 @@ impl Node for SwitchNode {
         "Multi-case routing based on a value"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let value_expr = config
             .get("value")
             .and_then(|v| v.as_str())
@@ -88,7 +88,7 @@ impl Node for SwitchNode {
             .unwrap_or("switch");
 
         // Resolve the value from context
-        let resolved = resolve_ctx_value(value_expr, &ctx);
+        let resolved = resolve_ctx_value(value_expr, ctx);
 
         // Find matching case
         let route = cases
@@ -122,7 +122,7 @@ impl Node for IfHttpStatusNode {
         "Route execution based on an HTTP status code"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let status_key = config
             .get("status_key")
             .and_then(|v| v.as_str())
@@ -150,7 +150,7 @@ impl Node for IfHttpStatusNode {
             .and_then(|v| v.as_str())
             .unwrap_or("if_http_status");
 
-        let raw_status = resolve_nested(status_key, &ctx)
+        let raw_status = resolve_nested(status_key, ctx)
             .ok_or_else(|| anyhow::anyhow!("Key '{}' not found in context", status_key))?;
 
         let status = match raw_status {
@@ -232,7 +232,7 @@ impl Node for IfBodyContainsNode {
         "Route execution based on whether context content contains a pattern"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let source_key = config
             .get("source_key")
             .and_then(|v| v.as_str())
@@ -268,7 +268,7 @@ impl Node for IfBodyContainsNode {
             .and_then(|v| v.as_str())
             .unwrap_or("if_body_contains");
 
-        let raw_value = resolve_nested(source_key, &ctx);
+        let raw_value = resolve_nested(source_key, ctx);
         let source_text = match raw_value {
             Some(serde_json::Value::String(s)) => Some(s.clone()),
             Some(v) if !v.is_object() && !v.is_array() => Some(v.to_string()),

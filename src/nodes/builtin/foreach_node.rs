@@ -20,7 +20,7 @@ impl Node for ForEachNode {
         "Iterate over an array, execute a Lua function per item, and collect results"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let source_key = config
             .get("source_key")
             .and_then(|v| v.as_str())
@@ -50,7 +50,7 @@ impl Node for ForEachNode {
             .ok_or_else(|| anyhow::anyhow!("Value at '{}' is not an array", source_key))?;
 
         let lua = Lua::new();
-        lua_sandbox::setup_sandbox(&lua, &ctx)?;
+        lua_sandbox::setup_sandbox(&lua, ctx)?;
 
         // Decode and load the transform function
         let bytecode = base64::engine::general_purpose::STANDARD

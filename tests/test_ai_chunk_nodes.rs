@@ -34,7 +34,7 @@ async fn ai_chunk_fixed_splits_long_text() {
         "size": 100
     });
 
-    let out = node.execute(&config, ctx).await.unwrap();
+    let out = node.execute(&config, &ctx).await.unwrap();
     let chunks = out.get("chunks").unwrap().as_array().unwrap();
 
     assert!(
@@ -62,7 +62,7 @@ async fn ai_chunk_fixed_outputs_count() {
         "size": 100
     });
 
-    let out = node.execute(&config, ctx).await.unwrap();
+    let out = node.execute(&config, &ctx).await.unwrap();
     let chunks = out.get("chunks").unwrap().as_array().unwrap();
     let count = out.get("chunks_count").unwrap().as_u64().unwrap();
 
@@ -86,7 +86,7 @@ async fn ai_chunk_fixed_with_delimiter() {
         "delimiters": "\n"
     });
 
-    let out = node.execute(&config, ctx).await.unwrap();
+    let out = node.execute(&config, &ctx).await.unwrap();
     let chunks = out.get("chunks").unwrap().as_array().unwrap();
 
     assert!(
@@ -119,7 +119,7 @@ async fn ai_chunk_fixed_short_text_single_chunk() {
         "size": 100
     });
 
-    let out = node.execute(&config, ctx).await.unwrap();
+    let out = node.execute(&config, &ctx).await.unwrap();
     let chunks = out.get("chunks").unwrap().as_array().unwrap();
 
     assert_eq!(chunks.len(), 1);
@@ -139,7 +139,7 @@ async fn ai_chunk_fixed_empty_text() {
         "size": 100
     });
 
-    let out = node.execute(&config, ctx).await.unwrap();
+    let out = node.execute(&config, &ctx).await.unwrap();
     let chunks = out.get("chunks").unwrap().as_array().unwrap();
     assert_eq!(chunks.len(), 0);
 }
@@ -162,7 +162,7 @@ async fn ai_chunk_split_by_newline() {
         "delimiters": "\n"
     });
 
-    let out = node.execute(&config, ctx).await.unwrap();
+    let out = node.execute(&config, &ctx).await.unwrap();
     let chunks = out.get("chunks").unwrap().as_array().unwrap();
 
     // Should split at each \n — resulting in multiple segments
@@ -187,7 +187,7 @@ async fn ai_chunk_split_correct_count() {
         "delimiters": "."
     });
 
-    let out = node.execute(&config, ctx).await.unwrap();
+    let out = node.execute(&config, &ctx).await.unwrap();
     let chunks = out.get("chunks").unwrap().as_array().unwrap();
     let count = out.get("chunks_count").unwrap().as_u64().unwrap();
 
@@ -225,7 +225,7 @@ async fn ai_chunk_merge_reduces_chunk_count() {
         "chunk_size": 10
     });
 
-    let out = node.execute(&config, ctx).await.unwrap();
+    let out = node.execute(&config, &ctx).await.unwrap();
     let merged = out.get("merged").unwrap().as_array().unwrap();
     let count = out.get("merged_count").unwrap().as_u64().unwrap();
 
@@ -256,7 +256,7 @@ async fn ai_chunk_merge_all_fit_in_budget() {
         "chunk_size": 100
     });
 
-    let out = node.execute(&config, ctx).await.unwrap();
+    let out = node.execute(&config, &ctx).await.unwrap();
     let merged = out.get("merged").unwrap().as_array().unwrap();
 
     assert_eq!(merged.len(), 1, "All chunks should merge into one group");
@@ -279,7 +279,7 @@ async fn ai_chunk_merge_missing_source_key_errors() {
         "chunk_size": 100
     });
 
-    let result = node.execute(&config, ctx).await;
+    let result = node.execute(&config, &ctx).await;
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();
     assert!(
@@ -307,7 +307,7 @@ async fn ai_chunk_merge_custom_output_key() {
         "chunk_size": 100
     });
 
-    let out = node.execute(&config, ctx).await.unwrap();
+    let out = node.execute(&config, &ctx).await.unwrap();
     assert!(out.contains_key("result"));
     assert!(out.contains_key("result_count"));
     assert!(out.contains_key("result_success"));

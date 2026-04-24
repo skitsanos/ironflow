@@ -117,7 +117,7 @@ async fn mcp_client_stdio_initialize() {
     let response = r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{"listChanged":false}},"serverInfo":{"name":"mock","version":"1.0.0"}}}"#;
     let config = stdio_config("initialize", "mcp_init", response);
 
-    let output = node.execute(&config, empty_ctx()).await.unwrap();
+    let output = node.execute(&config, &empty_ctx()).await.unwrap();
     assert_eq!(
         output.get("mcp_init_action"),
         Some(&serde_json::Value::String("initialize".to_string()))
@@ -140,7 +140,7 @@ async fn mcp_client_stdio_list_tools() {
     let response =
         r#"{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"search"},{"name":"echo"}]}}"#;
     let config = stdio_config("list_tools", "mcp_tools", response);
-    let output = node.execute(&config, empty_ctx()).await.unwrap();
+    let output = node.execute(&config, &empty_ctx()).await.unwrap();
 
     let names = output
         .get("mcp_tools_tool_names")
@@ -177,7 +177,7 @@ async fn mcp_client_stdio_call_tool() {
         "output_key": "mcp_tool_call"
     });
 
-    let output = node.execute(&config, empty_ctx()).await.unwrap();
+    let output = node.execute(&config, &empty_ctx()).await.unwrap();
     assert_eq!(
         output.get("mcp_tool_call_tool_name"),
         Some(&serde_json::Value::String("echo_tool".to_string()))
@@ -202,7 +202,7 @@ async fn mcp_client_sse_list_tools() {
         "action": "list_tools",
         "output_key": "mcp_sse_tools"
     });
-    let output = node.execute(&config, empty_ctx()).await.unwrap();
+    let output = node.execute(&config, &empty_ctx()).await.unwrap();
 
     let names = output
         .get("mcp_sse_tools_tool_names")
@@ -247,7 +247,7 @@ async fn mcp_client_sse_auto_initialize_before_list_tools() {
         "output_key": "mcp_sse_init",
         "headers": { "Mcp-Session-Id": session_id }
     });
-    node.execute(&init_config, empty_ctx()).await.unwrap();
+    node.execute(&init_config, &empty_ctx()).await.unwrap();
 
     let config = serde_json::json!({
         "transport": "sse",
@@ -257,7 +257,7 @@ async fn mcp_client_sse_auto_initialize_before_list_tools() {
         "output_key": "mcp_sse_tools",
         "headers": { "Mcp-Session-Id": session_id }
     });
-    let output = node.execute(&config, empty_ctx()).await.unwrap();
+    let output = node.execute(&config, &empty_ctx()).await.unwrap();
 
     let captured_requests = requests.lock().unwrap().to_owned();
 

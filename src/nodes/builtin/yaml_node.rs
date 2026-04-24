@@ -17,7 +17,7 @@ impl Node for YamlParseNode {
         "Parse a YAML string into a JSON value"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let has_input = config.get("input").and_then(|v| v.as_str()).is_some();
         let has_source_key = config.get("source_key").and_then(|v| v.as_str()).is_some();
 
@@ -31,7 +31,7 @@ impl Node for YamlParseNode {
             .unwrap_or("yaml_data");
 
         let yaml_str = if let Some(input_str) = config.get("input").and_then(|v| v.as_str()) {
-            interpolate_ctx(input_str, &ctx)
+            interpolate_ctx(input_str, ctx)
         } else if let Some(source_key) = config.get("source_key").and_then(|v| v.as_str()) {
             let val = ctx
                 .get(source_key)
@@ -65,7 +65,7 @@ impl Node for YamlStringifyNode {
         "Convert a JSON value from context to a YAML string"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let source_key = config
             .get("source_key")
             .and_then(|v| v.as_str())

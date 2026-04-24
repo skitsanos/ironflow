@@ -67,8 +67,8 @@ impl Node for ExtractWordNode {
         "Extract text and metadata from a Word (.docx) document"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
-        let path = get_path(config, &ctx, "extract_word")?;
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
+        let path = get_path(config, ctx, "extract_word")?;
         let format = validate_format(config, "extract_word")?;
         let output_key = config
             .get("output_key")
@@ -158,12 +158,10 @@ fn extract_docx_metadata(archive: &mut zip::ZipArchive<std::fs::File>) -> BTreeM
                     in_meta = true;
                 }
             }
-            Ok(Event::Text(ref e)) => {
-                if in_meta {
-                    let text = String::from_utf8_lossy(e.as_ref()).trim().to_string();
-                    if !text.is_empty() {
-                        meta.insert(key_for_tag(&current_tag).to_string(), text);
-                    }
+            Ok(Event::Text(ref e)) if in_meta => {
+                let text = String::from_utf8_lossy(e.as_ref()).trim().to_string();
+                if !text.is_empty() {
+                    meta.insert(key_for_tag(&current_tag).to_string(), text);
                 }
             }
             Ok(Event::End(_)) => {
@@ -372,104 +370,76 @@ fn parse_docx_paragraphs(
                             is_numbered: false,
                         };
                     }
-                    "w:pPr" => {
-                        if in_paragraph {
-                            in_para_props = true;
-                        }
+                    "w:pPr" if in_paragraph => {
+                        in_para_props = true;
                     }
-                    "w:pStyle" => {
-                        if in_para_props {
-                            for attr in e.attributes().flatten() {
-                                if attr.key.as_ref() == b"w:val" {
-                                    current_para.style =
-                                        Some(String::from_utf8_lossy(&attr.value).to_string());
-                                }
+                    "w:pStyle" if in_para_props => {
+                        for attr in e.attributes().flatten() {
+                            if attr.key.as_ref() == b"w:val" {
+                                current_para.style =
+                                    Some(String::from_utf8_lossy(&attr.value).to_string());
                             }
                         }
                     }
-                    "w:numPr" => {
-                        if in_para_props {
-                            current_para.is_list_item = true;
-                        }
+                    "w:numPr" if in_para_props => {
+                        current_para.is_list_item = true;
                     }
-                    "w:ilvl" => {
-                        if in_para_props {
-                            for attr in e.attributes().flatten() {
-                                if attr.key.as_ref() == b"w:val"
-                                    && let Ok(level) =
-                                        String::from_utf8_lossy(&attr.value).parse::<u32>()
-                                {
-                                    current_para.list_level = level;
-                                }
+                    "w:ilvl" if in_para_props => {
+                        for attr in e.attributes().flatten() {
+                            if attr.key.as_ref() == b"w:val"
+                                && let Ok(level) =
+                                    String::from_utf8_lossy(&attr.value).parse::<u32>()
+                            {
+                                current_para.list_level = level;
                             }
                         }
                     }
-                    "w:numId" => {
-                        if in_para_props {
-                            for attr in e.attributes().flatten() {
-                                if attr.key.as_ref() == b"w:val" {
-                                    let num_id = String::from_utf8_lossy(&attr.value).to_string();
-                                    current_para.is_numbered =
-                                        numbering_defs.get(&num_id).copied().unwrap_or(false);
-                                }
+                    "w:numId" if in_para_props => {
+                        for attr in e.attributes().flatten() {
+                            if attr.key.as_ref() == b"w:val" {
+                                let num_id = String::from_utf8_lossy(&attr.value).to_string();
+                                current_para.is_numbered =
+                                    numbering_defs.get(&num_id).copied().unwrap_or(false);
                             }
                         }
                     }
-                    "w:r" => {
-                        if in_paragraph {
-                            in_run = true;
-                            current_run = DocxRun {
-                                text: String::new(),
-                                bold: false,
-                                italic: false,
-                                underline: false,
-                                strikethrough: false,
-                            };
-                        }
+                    "w:r" if in_paragraph => {
+                        in_run = true;
+                        current_run = DocxRun {
+                            text: String::new(),
+                            bold: false,
+                            italic: false,
+                            underline: false,
+                            strikethrough: false,
+                        };
                     }
-                    "w:rPr" => {
-                        if in_run {
-                            in_run_props = true;
-                        }
+                    "w:rPr" if in_run => {
+                        in_run_props = true;
                     }
-                    "w:b" => {
-                        if in_run_props {
-                            current_run.bold = true;
-                        }
+                    "w:b" if in_run_props => {
+                        current_run.bold = true;
                     }
-                    "w:i" => {
-                        if in_run_props {
-                            current_run.italic = true;
-                        }
+                    "w:i" if in_run_props => {
+                        current_run.italic = true;
                     }
-                    "w:u" => {
-                        if in_run_props {
-                            current_run.underline = true;
-                        }
+                    "w:u" if in_run_props => {
+                        current_run.underline = true;
                     }
-                    "w:strike" => {
-                        if in_run_props {
-                            current_run.strikethrough = true;
-                        }
+                    "w:strike" if in_run_props => {
+                        current_run.strikethrough = true;
                     }
-                    "w:tab" => {
-                        if in_run {
-                            current_run.text.push('\t');
-                        }
+                    "w:tab" if in_run => {
+                        current_run.text.push('\t');
                     }
-                    "w:br" => {
-                        if in_run {
-                            current_run.text.push('\n');
-                        }
+                    "w:br" if in_run => {
+                        current_run.text.push('\n');
                     }
                     _ => {}
                 }
             }
-            Ok(Event::Text(ref e)) => {
-                if in_run {
-                    let text = String::from_utf8_lossy(e.as_ref());
-                    current_run.text.push_str(&text);
-                }
+            Ok(Event::Text(ref e)) if in_run => {
+                let text = String::from_utf8_lossy(e.as_ref());
+                current_run.text.push_str(&text);
             }
             Ok(Event::End(ref e)) => {
                 let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
@@ -616,8 +586,8 @@ impl Node for ExtractPdfNode {
         "Extract text and metadata from a PDF document"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
-        let path = get_path(config, &ctx, "extract_pdf")?;
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
+        let path = get_path(config, ctx, "extract_pdf")?;
         let format = validate_format(config, "extract_pdf")?;
         let output_key = config
             .get("output_key")
@@ -736,8 +706,8 @@ impl Node for ExtractHtmlNode {
         "Extract text and metadata from an HTML file"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
-        let path = get_path(config, &ctx, "extract_html")?;
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
+        let path = get_path(config, ctx, "extract_html")?;
         let format = validate_format(config, "extract_html")?;
         let output_key = config
             .get("output_key")
@@ -857,8 +827,8 @@ impl Node for ExtractVttNode {
         "Extract text and metadata from WebVTT subtitle files"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
-        let path = get_path(config, &ctx, "extract_vtt")?;
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
+        let path = get_path(config, ctx, "extract_vtt")?;
         let format = validate_format(config, "extract_vtt")?;
         let output_key = config
             .get("output_key")
@@ -909,8 +879,8 @@ impl Node for ExtractSrtNode {
         "Extract text and metadata from SRT subtitle files"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
-        let path = get_path(config, &ctx, "extract_srt")?;
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
+        let path = get_path(config, ctx, "extract_srt")?;
         let format = validate_format(config, "extract_srt")?;
         let output_key = config
             .get("output_key")

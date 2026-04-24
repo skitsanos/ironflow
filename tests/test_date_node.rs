@@ -26,7 +26,7 @@ async fn date_format_rfc3339_input() {
         "output_key": "result"
     });
 
-    let output = node.execute(&config, empty_ctx()).await.unwrap();
+    let output = node.execute(&config, &empty_ctx()).await.unwrap();
     assert_eq!(
         output.get("result").unwrap(),
         &serde_json::json!("2024-06-15")
@@ -45,7 +45,7 @@ async fn date_format_date_only_input() {
         "output_key": "result"
     });
 
-    let output = node.execute(&config, empty_ctx()).await.unwrap();
+    let output = node.execute(&config, &empty_ctx()).await.unwrap();
     assert_eq!(
         output.get("result").unwrap(),
         &serde_json::json!("2024-06-15")
@@ -64,7 +64,7 @@ async fn date_format_custom_input_format() {
         "output_key": "result"
     });
 
-    let output = node.execute(&config, empty_ctx()).await.unwrap();
+    let output = node.execute(&config, &empty_ctx()).await.unwrap();
     assert_eq!(
         output.get("result").unwrap(),
         &serde_json::json!("2024-06-15")
@@ -82,7 +82,7 @@ async fn date_format_now() {
         "output_key": "year"
     });
 
-    let output = node.execute(&config, empty_ctx()).await.unwrap();
+    let output = node.execute(&config, &empty_ctx()).await.unwrap();
     let year = output.get("year").unwrap().as_str().unwrap();
     let year_num: i32 = year.parse().unwrap();
     assert!(year_num >= 2024);
@@ -100,7 +100,7 @@ async fn date_format_custom_output_format() {
         "output_key": "result"
     });
 
-    let output = node.execute(&config, empty_ctx()).await.unwrap();
+    let output = node.execute(&config, &empty_ctx()).await.unwrap();
     assert_eq!(
         output.get("result").unwrap(),
         &serde_json::json!("June 15, 2024")
@@ -117,7 +117,7 @@ async fn date_format_unix_output() {
         "output_key": "ts"
     });
 
-    let output = node.execute(&config, empty_ctx()).await.unwrap();
+    let output = node.execute(&config, &empty_ctx()).await.unwrap();
     let unix = output.get("ts_unix").unwrap().as_i64().unwrap();
     assert_eq!(unix, 1718447400);
 }
@@ -135,7 +135,7 @@ async fn date_format_via_source_key() {
         "output_key": "result"
     });
 
-    let output = node.execute(&config, ctx).await.unwrap();
+    let output = node.execute(&config, &ctx).await.unwrap();
     assert_eq!(
         output.get("result").unwrap(),
         &serde_json::json!("2024-06-15")
@@ -153,7 +153,7 @@ async fn date_format_custom_output_key() {
         "output_key": "my_custom_date"
     });
 
-    let output = node.execute(&config, empty_ctx()).await.unwrap();
+    let output = node.execute(&config, &empty_ctx()).await.unwrap();
     assert!(output.contains_key("my_custom_date"));
     assert!(output.contains_key("my_custom_date_unix"));
 }
@@ -168,7 +168,7 @@ async fn date_format_invalid_date_error() {
         "output_key": "result"
     });
 
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(err.contains("not-a-date"));
@@ -183,6 +183,6 @@ async fn date_format_missing_input_error() {
         "output_format": "%Y-%m-%d"
     });
 
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
 }

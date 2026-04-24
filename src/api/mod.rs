@@ -1,4 +1,4 @@
-mod errors;
+pub mod errors;
 pub mod handlers;
 
 use std::collections::HashMap;

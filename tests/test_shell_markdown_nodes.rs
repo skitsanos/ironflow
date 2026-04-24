@@ -29,7 +29,7 @@ async fn shell_echo_hello() {
         "args": ["hello"]
     });
 
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     let stdout = result.get("shell_stdout").unwrap().as_str().unwrap();
     assert!(
         stdout.contains("hello"),
@@ -47,7 +47,7 @@ async fn shell_echo_with_multiple_args() {
         "args": ["hello", "world"]
     });
 
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     let stdout = result.get("shell_stdout").unwrap().as_str().unwrap();
     assert!(
         stdout.contains("hello world"),
@@ -64,7 +64,7 @@ async fn shell_failing_command_returns_error() {
         "cmd": "false"
     });
 
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(
         result.is_err(),
         "Expected failing command to return an error"
@@ -89,7 +89,7 @@ async fn shell_with_env_vars() {
         }
     });
 
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     let stdout = result.get("shell_stdout").unwrap().as_str().unwrap();
     assert!(
         stdout.contains("ironflow_test_value"),
@@ -108,7 +108,7 @@ async fn shell_custom_output_key() {
         "output_key": "myout"
     });
 
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     assert!(result.contains_key("myout_stdout"));
     assert!(result.contains_key("myout_code"));
     assert!(result.contains_key("myout_success"));
@@ -127,7 +127,7 @@ async fn html_to_markdown_basic_tags() {
         "input": "<h1>Title</h1><p>A <b>bold</b> paragraph.</p>"
     });
 
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     let md = result.get("markdown").unwrap().as_str().unwrap();
     assert!(
         md.contains("Title"),
@@ -148,7 +148,7 @@ async fn html_to_markdown_with_links() {
         "input": "<p>Visit <a href=\"https://example.com\">Example</a> site.</p>"
     });
 
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     let md = result.get("markdown").unwrap().as_str().unwrap();
     assert!(
         md.contains("[Example](https://example.com)"),
@@ -165,7 +165,7 @@ async fn html_to_markdown_empty_input() {
         "input": ""
     });
 
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     let md = result.get("markdown").unwrap().as_str().unwrap();
     assert!(md.trim().is_empty(), "Expected empty markdown, got: {md}");
 }
@@ -181,7 +181,7 @@ async fn html_to_markdown_via_source_key() {
 
     let ctx = ctx_with(vec![("my_html", serde_json::json!("<h2>Heading</h2>"))]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     let md = result.get("markdown").unwrap().as_str().unwrap();
     assert!(
         md.contains("Heading"),
@@ -199,9 +199,49 @@ async fn html_to_markdown_custom_output_key() {
         "output_key": "md_out"
     });
 
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     assert!(
         result.contains_key("md_out"),
         "Expected custom output key 'md_out'"
+    );
+}
+
+// --- Shell output bounded by IRONFLOW_MAX_SHELL_OUTPUT_BYTES ---
+
+#[tokio::test]
+async fn shell_stdout_truncated_at_cap() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("shell_command").unwrap();
+
+    // Cap very low, then produce far more output — the node should
+    // truncate and mark the result rather than holding the full payload.
+    unsafe {
+        std::env::set_var("IRONFLOW_MAX_SHELL_OUTPUT_BYTES", "128");
+    }
+
+    // `yes` would loop forever; use a bounded producer for determinism.
+    // 2 KiB of `x\n` = 1024 lines.
+    let config = serde_json::json!({
+        "cmd": "sh",
+        "args": ["-c", "printf 'x%.0s' $(seq 1 2048)"]
+    });
+
+    let result = node.execute(&config, &empty_ctx()).await;
+
+    unsafe {
+        std::env::remove_var("IRONFLOW_MAX_SHELL_OUTPUT_BYTES");
+    }
+
+    let out = result.expect("shell_command should succeed even when output is truncated");
+    let stdout = out.get("shell_stdout").unwrap().as_str().unwrap();
+    assert!(
+        stdout.len() <= 128,
+        "stdout must not exceed the configured cap; got {} bytes",
+        stdout.len()
+    );
+    assert_eq!(
+        out.get("shell_output_truncated"),
+        Some(&serde_json::json!(true)),
+        "truncation marker must be set when output is capped"
     );
 }

@@ -41,6 +41,27 @@ async fn null_store_set_status() {
 
     let info = store.get_run_info("r1").await.unwrap();
     assert_eq!(info.status, RunStatus::Running);
+    assert!(
+        info.finished.is_none(),
+        "Running is non-terminal — finished must stay None"
+    );
+}
+
+#[tokio::test]
+async fn null_store_set_terminal_status_records_finished() {
+    let store = NullStateStore::new();
+    store.init_run("r1", "flow", &HashMap::new()).await.unwrap();
+    store
+        .set_run_status("r1", RunStatus::Success)
+        .await
+        .unwrap();
+
+    let info = store.get_run_info("r1").await.unwrap();
+    assert_eq!(info.status, RunStatus::Success);
+    assert!(
+        info.finished.is_some(),
+        "terminal status must set finished timestamp"
+    );
 }
 
 #[tokio::test]
@@ -244,4 +265,90 @@ async fn json_store_list_empty_dir() {
 
     let runs = store.list_runs(None).await.unwrap();
     assert!(runs.is_empty());
+}
+
+// --- Native list_run_summaries ---
+
+#[tokio::test]
+async fn json_store_writes_sidecar_summary() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = JsonStateStore::new(dir.path());
+
+    store.init_run("r1", "flow", &test_ctx()).await.unwrap();
+
+    let sidecar = dir.path().join("r1.summary.json");
+    assert!(
+        sidecar.exists(),
+        "write_run must create a `<id>.summary.json` sidecar"
+    );
+    let raw = tokio::fs::read_to_string(&sidecar).await.unwrap();
+    let summary: RunSummary = serde_json::from_str(&raw).unwrap();
+    assert_eq!(summary.id, "r1");
+    assert_eq!(summary.flow_name, "flow");
+    assert_eq!(summary.status, RunStatus::Pending);
+}
+
+#[tokio::test]
+async fn json_store_list_summaries_uses_sidecars_not_full_records() {
+    // Proof that `list_run_summaries` reads sidecars: write a run, then
+    // corrupt the main record. A full-record listing would fail; the
+    // sidecar-based listing must still succeed.
+    let dir = tempfile::tempdir().unwrap();
+    let store = JsonStateStore::new(dir.path());
+    store.init_run("r1", "flow", &test_ctx()).await.unwrap();
+
+    tokio::fs::write(dir.path().join("r1.json"), "{corrupt garbage}")
+        .await
+        .unwrap();
+
+    let summaries = store
+        .list_run_summaries(None)
+        .await
+        .expect("summary listing must not load the corrupt main record");
+    assert_eq!(summaries.len(), 1);
+    assert_eq!(summaries[0].id, "r1");
+}
+
+#[tokio::test]
+async fn json_store_delete_removes_sidecar() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = JsonStateStore::new(dir.path());
+    store.init_run("r1", "flow", &test_ctx()).await.unwrap();
+
+    assert!(dir.path().join("r1.summary.json").exists());
+
+    store.delete_run("r1").await.unwrap();
+
+    assert!(!dir.path().join("r1.json").exists());
+    assert!(
+        !dir.path().join("r1.summary.json").exists(),
+        "delete_run must also remove the sidecar"
+    );
+}
+
+#[tokio::test]
+async fn json_store_status_filter_in_summary_listing() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = JsonStateStore::new(dir.path());
+
+    store.init_run("r1", "a", &test_ctx()).await.unwrap();
+    store.init_run("r2", "b", &test_ctx()).await.unwrap();
+    store
+        .set_run_status("r2", RunStatus::Success)
+        .await
+        .unwrap();
+
+    let successes = store
+        .list_run_summaries(Some(RunStatus::Success))
+        .await
+        .unwrap();
+    assert_eq!(successes.len(), 1);
+    assert_eq!(successes[0].id, "r2");
+
+    let pending = store
+        .list_run_summaries(Some(RunStatus::Pending))
+        .await
+        .unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].id, "r1");
 }

@@ -32,6 +32,32 @@ pub trait StateStore: Send + Sync {
     /// List runs, optionally filtered by status.
     async fn list_runs(&self, status: Option<RunStatus>) -> Result<Vec<RunInfo>>;
 
+    /// List run summaries — cheaper than `list_runs` because it can skip
+    /// loading full `ctx` and per-task history. Default implementation falls
+    /// back to `list_runs`; concrete stores SHOULD override with a primitive
+    /// that reads only the summary fields.
+    async fn list_run_summaries(&self, status: Option<RunStatus>) -> Result<Vec<RunSummary>> {
+        let runs = self.list_runs(status).await?;
+        Ok(runs.iter().map(RunSummary::from).collect())
+    }
+
     /// Delete a run record.
     async fn delete_run(&self, run_id: &str) -> Result<()>;
+
+    /// Delete runs older than the given cutoff (UTC). Returns the number
+    /// removed. Default implementation scans via `list_runs`; stores that
+    /// track metadata separately MAY override with an index-only path.
+    async fn prune_before(&self, cutoff: chrono::DateTime<chrono::Utc>) -> Result<usize> {
+        let runs = self.list_runs(None).await?;
+        let mut removed = 0;
+        for r in runs {
+            if r.started.map(|t| t < cutoff).unwrap_or(false)
+                && r.status.is_terminal()
+                && self.delete_run(&r.id).await.is_ok()
+            {
+                removed += 1;
+            }
+        }
+        Ok(removed)
+    }
 }
