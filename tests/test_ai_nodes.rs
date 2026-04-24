@@ -3,6 +3,8 @@
 
 use std::collections::HashMap;
 
+use axum::Router;
+use axum::routing::post;
 use ironflow::engine::types::Context;
 use ironflow::nodes::NodeRegistry;
 
@@ -33,7 +35,7 @@ async fn ai_embed_missing_input_key() {
     let reg = NodeRegistry::with_builtins();
     let node = reg.get("ai_embed").unwrap();
     let config = serde_json::json!({});
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(
@@ -48,7 +50,7 @@ async fn ai_embed_missing_context_key() {
     let reg = NodeRegistry::with_builtins();
     let node = reg.get("ai_embed").unwrap();
     let config = serde_json::json!({ "input_key": "my_texts" });
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(
@@ -68,7 +70,7 @@ async fn ai_embed_missing_api_key() {
     let node = reg.get("ai_embed").unwrap();
     let config = serde_json::json!({ "input_key": "texts", "provider": "openai" });
     let ctx = ctx_with(vec![("texts", serde_json::json!("hello world"))]);
-    let result = node.execute(&config, ctx).await;
+    let result = node.execute(&config, &ctx).await;
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(
@@ -95,7 +97,7 @@ async fn ai_chunk_semantic_missing_source_key() {
     let reg = NodeRegistry::with_builtins();
     let node = reg.get("ai_chunk_semantic").unwrap();
     let config = serde_json::json!({});
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(
@@ -110,7 +112,7 @@ async fn ai_chunk_semantic_missing_context_key() {
     let reg = NodeRegistry::with_builtins();
     let node = reg.get("ai_chunk_semantic").unwrap();
     let config = serde_json::json!({ "source_key": "my_text" });
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(
@@ -126,7 +128,7 @@ async fn ai_chunk_semantic_empty_text_returns_zero_chunks() {
     let node = reg.get("ai_chunk_semantic").unwrap();
     let config = serde_json::json!({ "source_key": "text" });
     let ctx = ctx_with(vec![("text", serde_json::json!(""))]);
-    let result = node.execute(&config, ctx).await;
+    let result = node.execute(&config, &ctx).await;
     assert!(result.is_ok(), "Empty text should succeed without API call");
     let output = result.unwrap();
     assert_eq!(output.get("semantic_count"), Some(&serde_json::json!(0)));
@@ -158,7 +160,7 @@ async fn llm_missing_mode_input_and_messages() {
         "mode": "chat",
         "output_key": "demo"
     });
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(
@@ -179,7 +181,7 @@ async fn llm_missing_openai_api_key() {
         "mode": "chat",
         "output_key": "demo"
     });
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(
@@ -199,12 +201,55 @@ async fn llm_invalid_mode() {
         "mode": "weird",
         "output_key": "demo"
     });
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(
         err.contains("unsupported mode"),
         "Expected unsupported mode error, got: {}",
+        err
+    );
+}
+
+#[tokio::test]
+async fn llm_rejects_oversized_response_body() {
+    let app = Router::new().route(
+        "/chat/completions",
+        post(|| async {
+            let large_text = "x".repeat(1024);
+            axum::Json(serde_json::json!({
+                "choices": [{
+                    "message": {
+                        "content": large_text
+                    }
+                }]
+            }))
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("llm").unwrap();
+    let config = serde_json::json!({
+        "provider": "custom",
+        "mode": "chat",
+        "base_url": format!("http://{}", addr),
+        "auth_type": "none",
+        "prompt": "Hello",
+        "max_response_bytes": 64,
+        "output_key": "demo"
+    });
+
+    let result = node.execute(&config, &empty_ctx()).await;
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("max_response_bytes"),
+        "Expected max_response_bytes error, got: {}",
         err
     );
 }

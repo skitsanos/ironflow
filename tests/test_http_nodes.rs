@@ -75,7 +75,7 @@ async fn http_get_happy_path() {
     let reg = NodeRegistry::with_builtins();
     let node = reg.get("http_get").unwrap();
     let config = serde_json::json!({ "url": url });
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
 
     assert!(
         result.is_ok(),
@@ -99,7 +99,7 @@ async fn http_get_missing_url() {
     let reg = NodeRegistry::with_builtins();
     let node = reg.get("http_get").unwrap();
     let config = serde_json::json!({});
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
 
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();
@@ -123,7 +123,7 @@ async fn http_post_happy_path() {
         "url": url,
         "body": { "name": "test" }
     });
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
 
     assert!(
         result.is_ok(),
@@ -159,7 +159,7 @@ async fn http_post_with_headers() {
         },
         "body": { "data": 42 }
     });
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(
         result.is_ok(),
         "http_post with headers should succeed: {:?}",
@@ -195,7 +195,7 @@ async fn http_post_form_body() {
         },
         "output_key": "token_request"
     });
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
 
     assert!(
         result.is_ok(),
@@ -251,7 +251,7 @@ async fn http_post_text_body() {
         "body": "Hello text body",
         "output_key": "text_request"
     });
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
 
     assert!(
         result.is_ok(),
@@ -297,7 +297,7 @@ async fn http_put_happy_path() {
         "url": url,
         "body": { "field": "value" }
     });
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
 
     assert!(
         result.is_ok(),
@@ -331,7 +331,7 @@ async fn http_delete_happy_path() {
     let reg = NodeRegistry::with_builtins();
     let node = reg.get("http_delete").unwrap();
     let config = serde_json::json!({ "url": url });
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
 
     assert!(
         result.is_ok(),
@@ -365,7 +365,7 @@ async fn http_request_get_with_explicit_method() {
         "url": url,
         "method": "GET"
     });
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
 
     assert!(
         result.is_ok(),
@@ -393,7 +393,7 @@ async fn http_request_post_with_explicit_method() {
         "method": "POST",
         "body": { "key": "value" }
     });
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
 
     assert!(
         result.is_ok(),
@@ -424,7 +424,7 @@ async fn http_request_post_form_body() {
             "field": "value with spaces"
         }
     });
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
 
     assert!(
         result.is_ok(),
@@ -460,7 +460,7 @@ async fn http_request_invalid_body_type() {
         "body": { "a": 1 },
         "timeout": 2
     });
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
 
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
@@ -472,7 +472,7 @@ async fn http_request_missing_url() {
     let reg = NodeRegistry::with_builtins();
     let node = reg.get("http_request").unwrap();
     let config = serde_json::json!({ "method": "GET" });
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
 
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();
@@ -497,7 +497,7 @@ async fn http_request_connection_refused() {
         "method": "GET",
         "timeout": 2
     });
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
 
     assert!(result.is_err(), "Connection to closed port should fail");
 }
@@ -515,7 +515,7 @@ async fn http_get_custom_output_key() {
         "url": url,
         "output_key": "resp"
     });
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
 
     assert!(result.is_ok());
     let output = result.unwrap();
@@ -531,4 +531,56 @@ async fn http_get_custom_output_key() {
     assert!(!output.contains_key("http_status"));
 
     handle.join().unwrap();
+}
+
+// --- Response size limit regression tests ---
+
+fn spawn_oversized_honest_server(response_body: Vec<u8>) -> (String, std::thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let url = format!("http://{}", addr);
+    let response = {
+        let mut r = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\n\r\n",
+            response_body.len()
+        )
+        .into_bytes();
+        r.extend_from_slice(&response_body);
+        r
+    };
+    let handle = std::thread::spawn(move || {
+        for mut stream in listener.incoming().take(1).flatten() {
+            let mut buf = [0u8; 4096];
+            let _ = stream.read(&mut buf);
+            let _ = stream.write_all(&response);
+            let _ = stream.flush();
+        }
+    });
+    (url, handle)
+}
+
+#[tokio::test]
+async fn http_get_rejects_oversized_content_length() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("http_get").unwrap();
+
+    // SAFETY: tests in this file are single-threaded around env vars anyway;
+    // set + unset around the call.
+    unsafe {
+        std::env::set_var("IRONFLOW_MAX_HTTP_BODY_BYTES", "1024");
+    }
+
+    let payload = vec![b'x'; 16_384]; // 16× the cap
+    let (url, handle) = spawn_oversized_honest_server(payload);
+    let config = serde_json::json!({ "url": url });
+    let result = node.execute(&config, &empty_ctx()).await;
+
+    unsafe {
+        std::env::remove_var("IRONFLOW_MAX_HTTP_BODY_BYTES");
+    }
+
+    assert!(result.is_err(), "oversized Content-Length must fail");
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("exceeds"), "unexpected error: {err}");
+    let _ = handle.join();
 }

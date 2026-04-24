@@ -203,8 +203,35 @@ async fn do_http_request(
         })
         .collect();
 
+    // Size guard enforced during streaming — we do not buffer the full body
+    // in memory before deciding. An honest `Content-Length` fails fast; a
+    // liar gets cut off mid-stream the moment accumulated bytes cross the
+    // limit.
+    let max_body = crate::util::limits::max_http_body_bytes();
+    if let Some(len) = response.content_length()
+        && len > max_body
+    {
+        anyhow::bail!(
+            "HTTP response body {} bytes exceeds limit {} (set IRONFLOW_MAX_HTTP_BODY_BYTES to raise)",
+            len,
+            max_body
+        );
+    }
+
     let success = response.status().is_success();
-    let body_text = response.text().await?;
+
+    let mut buf: Vec<u8> = Vec::new();
+    let mut response = response;
+    while let Some(chunk) = response.chunk().await? {
+        if buf.len() as u64 + chunk.len() as u64 > max_body {
+            anyhow::bail!(
+                "HTTP response body exceeds limit {} bytes mid-stream (set IRONFLOW_MAX_HTTP_BODY_BYTES to raise)",
+                max_body
+            );
+        }
+        buf.extend_from_slice(&chunk);
+    }
+    let body_text = String::from_utf8_lossy(&buf).into_owned();
 
     // Try to parse as JSON, fall back to string
     let data: serde_json::Value =
@@ -244,12 +271,12 @@ impl Node for HttpRequestNode {
         "Generic HTTP request with configurable method"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let method = config
             .get("method")
             .and_then(|v| v.as_str())
             .unwrap_or("GET");
-        do_http_request(method, config, &ctx).await
+        do_http_request(method, config, ctx).await
     }
 }
 
@@ -265,8 +292,8 @@ impl Node for HttpGetNode {
         "HTTP GET request"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
-        do_http_request("GET", config, &ctx).await
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
+        do_http_request("GET", config, ctx).await
     }
 }
 
@@ -282,8 +309,8 @@ impl Node for HttpPostNode {
         "HTTP POST request"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
-        do_http_request("POST", config, &ctx).await
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
+        do_http_request("POST", config, ctx).await
     }
 }
 
@@ -299,8 +326,8 @@ impl Node for HttpPutNode {
         "HTTP PUT request"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
-        do_http_request("PUT", config, &ctx).await
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
+        do_http_request("PUT", config, ctx).await
     }
 }
 
@@ -316,7 +343,7 @@ impl Node for HttpDeleteNode {
         "HTTP DELETE request"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
-        do_http_request("DELETE", config, &ctx).await
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
+        do_http_request("DELETE", config, ctx).await
     }
 }

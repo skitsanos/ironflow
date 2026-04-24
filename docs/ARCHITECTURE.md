@@ -108,9 +108,17 @@ pub trait StateStore: Send + Sync {
 Implementations:
 - **JsonStateStore** — File-based, one JSON file per run with atomic writes and `RwLock`
 - **NullStateStore** — In-memory, transient (used by subworkflow nodes)
+- **SqlStateStore** — SQLite/Postgres-backed store with separate run, context, and task rows to avoid rewriting full run records on task updates.
 - **RedisStateStore** — Redis-backed (optional, `redis` feature flag). Uses a Redis Hash per run with a Set index for efficient listing. Supports configurable key prefix, TTL, and auto-reconnecting connection pool.
 
-Backend selection is controlled by the `store_backend` config field or `STORE_BACKEND` environment variable.
+State backend selection is controlled by the `store_backend` config field or `IRONFLOW_STORE` environment variable. SQLite/Postgres table names use `IRONFLOW_SQL_TABLE_PREFIX` / `sql_table_prefix`, defaulting to `ironflow_` so existing names such as `ironflow_runs` are preserved.
+
+Run execution events use a separate `EventStore` abstraction so monitoring can be scaled independently from run persistence:
+- **MemoryEventStore** — In-memory events for local or single-instance deployments.
+- **SqlEventStore** — SQLite/Postgres-backed event replay for shared API deployments.
+- **RedisEventStore** — Redis-backed event replay (optional, `redis` feature flag) using a per-run list and event ID index for cursor replay.
+
+Event backend selection is controlled by the `event_store` config field or `IRONFLOW_EVENT_STORE` environment variable. SQL event URLs use `event_store_url` or `IRONFLOW_EVENT_STORE_URL`, and SQL event tables use the same SQL table prefix as the state store; Redis uses the existing `REDIS_URL`, `REDIS_PREFIX`, and `REDIS_TTL` settings.
 
 ### 5. CLI (`cli/`)
 
@@ -132,6 +140,7 @@ Built with `axum`. Endpoints:
 - `POST /flows/validate` — Validate a flow without executing
 - `GET /runs` — List runs with optional `?status=` filter
 - `GET /runs/:id` — Get full run details (context, tasks, timing)
+- `GET /runs/:id/events` — Stream compact run/task lifecycle events over SSE
 - `DELETE /runs/:id` — Delete a run record
 - `GET /nodes` — List available nodes with descriptions
 - `POST /webhooks/{name}` — Execute a webhook-mapped flow (configured in `ironflow.yaml`)
@@ -141,8 +150,10 @@ Features:
 - Exactly one source field required per request (mutual exclusion enforced)
 - Base64 flow source support (`source_base64`) for escaping-free submission
 - Configurable request body size limit (default 1 MB, `--max-body` flag)
-- CORS support (permissive)
+- API key authentication for non-loopback servers via `IRONFLOW_API_KEY`
+- Configurable CORS support via `IRONFLOW_CORS_ORIGINS` / `cors_origins`
 - Request tracing via `tower-http`
+- Lua instruction, wall-clock, memory, and GC controls via `IRONFLOW_LUA_*` limits
 
 ## Data Flow
 

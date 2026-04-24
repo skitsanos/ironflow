@@ -19,6 +19,17 @@ pub enum RunStatus {
     Stalled,
 }
 
+impl RunStatus {
+    /// Whether this status represents a run that has reached a terminal state.
+    /// Only terminal runs should carry a `finished` timestamp.
+    pub fn is_terminal(&self) -> bool {
+        matches!(
+            self,
+            RunStatus::Success | RunStatus::Failed | RunStatus::Stalled
+        )
+    }
+}
+
 impl std::fmt::Display for RunStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -117,6 +128,31 @@ pub struct RunInfo {
     pub finished: Option<DateTime<Utc>>,
     pub ctx: Context,
     pub tasks: HashMap<String, TaskState>,
+}
+
+/// Compact view of a run, suitable for listing endpoints. Carries only the
+/// fields needed to render a table row — no `ctx`, no per-task outputs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RunSummary {
+    pub id: String,
+    pub flow_name: String,
+    pub status: RunStatus,
+    pub started: Option<DateTime<Utc>>,
+    pub finished: Option<DateTime<Utc>>,
+    pub task_count: usize,
+}
+
+impl From<&RunInfo> for RunSummary {
+    fn from(r: &RunInfo) -> Self {
+        Self {
+            id: r.id.clone(),
+            flow_name: r.flow_name.clone(),
+            status: r.status.clone(),
+            started: r.started,
+            finished: r.finished,
+            task_count: r.tasks.len(),
+        }
+    }
 }
 
 /// Definition of a single step in a flow (parsed from Lua).

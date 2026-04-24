@@ -2,9 +2,8 @@ use anyhow::{Result, anyhow, bail};
 use async_trait::async_trait;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde_json::{Map, Value, json};
-use std::collections::HashSet;
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
@@ -12,17 +11,41 @@ use tokio::process::Command;
 use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
+use crate::util::bounded_cache::BoundedCache;
 
 const DEFAULT_TIMEOUT_SECONDS: f64 = 30.0;
 const DEFAULT_CLIENT_NAME: &str = "ironflow";
 const DEFAULT_CLIENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const DEFAULT_PROTOCOL_VERSION: &str = "2024-11-05";
 
-static REQUEST_ID: AtomicI64 = AtomicI64::new(1);
-static INITIALIZED_SESSIONS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+/// Maximum distinct `(url, session_id)` pairs remembered as "already initialized".
+/// Override with `IRONFLOW_MCP_SESSION_CACHE_SIZE`.
+const DEFAULT_SESSION_CACHE_SIZE: usize = 1024;
+/// Idle TTL for a remembered MCP session. Override with
+/// `IRONFLOW_MCP_SESSION_TTL_SECS`.
+const DEFAULT_SESSION_TTL_SECS: u64 = 3600;
 
-fn initialized_sessions() -> &'static Mutex<HashSet<String>> {
-    INITIALIZED_SESSIONS.get_or_init(|| Mutex::new(HashSet::new()))
+static REQUEST_ID: AtomicI64 = AtomicI64::new(1);
+static INITIALIZED_SESSIONS: OnceLock<BoundedCache<String, ()>> = OnceLock::new();
+
+fn session_cache_capacity() -> usize {
+    std::env::var("IRONFLOW_MCP_SESSION_CACHE_SIZE")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(DEFAULT_SESSION_CACHE_SIZE)
+}
+
+fn session_cache_ttl() -> u64 {
+    std::env::var("IRONFLOW_MCP_SESSION_TTL_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(DEFAULT_SESSION_TTL_SECS)
+}
+
+fn initialized_sessions() -> &'static BoundedCache<String, ()> {
+    INITIALIZED_SESSIONS.get_or_init(|| BoundedCache::new(session_cache_capacity()))
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -174,17 +197,12 @@ fn session_cache_key(url: &str, session_id: &str) -> String {
 
 fn is_session_initialized(url: &str, session_id: &str) -> bool {
     let key = session_cache_key(url, session_id);
-    initialized_sessions()
-        .lock()
-        .map(|cache| cache.contains(&key))
-        .unwrap_or(false)
+    initialized_sessions().contains_key(&key)
 }
 
 fn mark_session_initialized(url: &str, session_id: &str) {
     let key = session_cache_key(url, session_id);
-    if let Ok(mut cache) = initialized_sessions().lock() {
-        let _ = cache.insert(key);
-    }
+    initialized_sessions().insert(key, (), Some(session_cache_ttl()));
 }
 
 fn normalize_header_name(name: &str) -> &str {
@@ -504,15 +522,58 @@ async fn execute_stdio(config: &Value, request_payload: &str, timeout_s: f64) ->
         anyhow!("mcp_client stdio requires stderr to be piped when waiting on command output")
     })?;
 
+    // Bounded reads so a runaway MCP child process can't push unbounded
+    // bytes into the parent's RSS. Cap is reused from the shell limit.
+    let max_bytes = crate::util::limits::max_shell_output_bytes() as usize;
     let stdout_handle = tokio::spawn(async move {
         let mut data = Vec::new();
-        let result = stdout.read_to_end(&mut data).await;
-        result.map(|_| data)
+        let mut tmp = [0u8; 8192];
+        loop {
+            match stdout.read(&mut tmp).await {
+                Ok(0) => break,
+                Ok(n) => {
+                    let remaining = max_bytes.saturating_sub(data.len());
+                    if n > remaining {
+                        data.extend_from_slice(&tmp[..remaining]);
+                        let mut sink = [0u8; 8192];
+                        while let Ok(k) = stdout.read(&mut sink).await {
+                            if k == 0 {
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                    data.extend_from_slice(&tmp[..n]);
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Ok::<_, std::io::Error>(data)
     });
     let stderr_handle = tokio::spawn(async move {
         let mut data = Vec::new();
-        let result = stderr.read_to_end(&mut data).await;
-        result.map(|_| data)
+        let mut tmp = [0u8; 8192];
+        loop {
+            match stderr.read(&mut tmp).await {
+                Ok(0) => break,
+                Ok(n) => {
+                    let remaining = max_bytes.saturating_sub(data.len());
+                    if n > remaining {
+                        data.extend_from_slice(&tmp[..remaining]);
+                        let mut sink = [0u8; 8192];
+                        while let Ok(k) = stderr.read(&mut sink).await {
+                            if k == 0 {
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                    data.extend_from_slice(&tmp[..n]);
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Ok::<_, std::io::Error>(data)
     });
 
     let status = tokio::select! {
@@ -629,7 +690,22 @@ async fn post_sse(
         .and_then(|value| value.to_str().ok())
         .map(|value| value.to_string());
 
-    let response_text = response.text().await?;
+    // Stream-bound the response body so a misbehaving server can't force
+    // unbounded allocation. The cap is the shared HTTP body limit.
+    let max_body = crate::util::limits::max_http_body_bytes();
+    let mut response = response;
+    let mut buf: Vec<u8> = Vec::new();
+    while let Some(chunk) = response.chunk().await? {
+        if buf.len() as u64 + chunk.len() as u64 > max_body {
+            bail!(
+                "mcp_client: SSE response exceeds {} bytes (set IRONFLOW_MAX_HTTP_BODY_BYTES to raise)",
+                max_body
+            );
+        }
+        buf.extend_from_slice(&chunk);
+    }
+    let response_text = String::from_utf8(buf)
+        .map_err(|e| anyhow!("mcp_client: SSE response is not valid UTF-8: {e}"))?;
     Ok((response_text, mcp_session_id))
 }
 
@@ -767,14 +843,14 @@ impl Node for McpClientNode {
         "MCP client with stdio and SSE transports"
     }
 
-    async fn execute(&self, config: &Value, ctx: Context) -> Result<NodeOutput> {
-        let config = interpolate_json_value(config, &ctx);
+    async fn execute(&self, config: &Value, ctx: &Context) -> Result<NodeOutput> {
+        let config = interpolate_json_value(config, ctx);
         let transport = transport_from_config(&config)?;
         let action = action_from_config(&config)?;
         let output_key = output_key(&config).to_string();
         let timeout_s = timeout_seconds(&config);
 
-        let request = build_request(action, &config, &ctx)?;
+        let request = build_request(action, &config, ctx)?;
         let request_id = request
             .get("id")
             .cloned()
@@ -803,7 +879,7 @@ impl Node for McpClientNode {
                 {
                     ensure_initialized_sse(
                         &config,
-                        &ctx,
+                        ctx,
                         url,
                         &headers,
                         Some(session_id),

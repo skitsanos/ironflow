@@ -21,7 +21,7 @@ impl Node for HtmlSanitizeNode {
         "Sanitize HTML by removing dangerous tags, attributes, and scripts"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let output_key = config
             .get("output_key")
             .and_then(|v| v.as_str())
@@ -37,7 +37,7 @@ impl Node for HtmlSanitizeNode {
             .and_then(|v| v.as_str())
             .unwrap_or("noopener noreferrer");
 
-        let input = get_input(config, &ctx, "html_sanitize")?;
+        let input = get_input(config, ctx, "html_sanitize")?;
 
         let has_custom_tags = config
             .get("allowed_tags")

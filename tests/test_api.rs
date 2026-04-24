@@ -5,12 +5,22 @@
 
 use std::sync::Arc;
 
+use axum::Router;
+use axum::body::Body;
+use axum::http::header::{ACCESS_CONTROL_ALLOW_ORIGIN, AUTHORIZATION, ORIGIN};
+use axum::http::{Request, StatusCode};
+use axum::middleware;
+use axum::routing::get;
+use http_body_util::BodyExt;
 use ironflow::engine::executor::WorkflowEngine;
 use ironflow::engine::types::*;
+use ironflow::engine::{RunEvent, RunEventType};
 use ironflow::lua::runtime::LuaRuntime;
 use ironflow::nodes::NodeRegistry;
 use ironflow::storage::StateStore;
+use ironflow::storage::event_store::{EventStore, MemoryEventStore};
 use ironflow::storage::json_store::JsonStateStore;
+use tower::ServiceExt;
 
 #[tokio::test]
 async fn api_flow_run_via_engine() {
@@ -181,6 +191,89 @@ async fn api_base64_source_decode() {
     assert_eq!(flow.name, "b64_test");
 }
 
+// --- Path resolution / traversal guards ---
+
+fn build_state_with_flows_dir(flows_dir: std::path::PathBuf) -> ironflow::api::AppState {
+    use ironflow::storage::event_store::MemoryEventStore;
+    use ironflow::storage::null_store::NullStateStore;
+    ironflow::api::AppState {
+        registry: Arc::new(NodeRegistry::with_builtins()),
+        store: Arc::new(NullStateStore::new()),
+        event_store: Arc::new(MemoryEventStore::new()),
+        flows_dir: Some(flows_dir),
+        max_concurrent_tasks: None,
+        webhooks: std::collections::HashMap::new(),
+    }
+}
+
+#[test]
+fn resolve_flow_path_accepts_file_inside_flows_dir() {
+    use ironflow::api::handlers::resolve_flow_path;
+
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::write(tmp.path().join("ok.lua"), "").unwrap();
+    let state = build_state_with_flows_dir(tmp.path().to_path_buf());
+
+    let resolved = resolve_flow_path("ok.lua", &state).expect("in-root file should resolve");
+    assert!(resolved.ends_with("ok.lua"));
+}
+
+#[test]
+fn resolve_flow_path_rejects_traversal_escape() {
+    use ironflow::api::errors::AppError;
+    use ironflow::api::handlers::resolve_flow_path;
+
+    let outer = tempfile::tempdir().unwrap();
+    std::fs::write(outer.path().join("secret.lua"), "").unwrap();
+
+    let inner = outer.path().join("flows");
+    std::fs::create_dir(&inner).unwrap();
+    let state = build_state_with_flows_dir(inner);
+
+    let err = resolve_flow_path("../secret.lua", &state)
+        .expect_err("path escaping flows_dir must be rejected");
+    assert!(
+        matches!(err, AppError::Forbidden(_)),
+        "expected Forbidden for traversal escape"
+    );
+}
+
+#[test]
+fn resolve_flow_path_rejects_absolute_path_outside_flows_dir() {
+    use ironflow::api::errors::AppError;
+    use ironflow::api::handlers::resolve_flow_path;
+
+    let outer = tempfile::tempdir().unwrap();
+    let outside = outer.path().join("other.lua");
+    std::fs::write(&outside, "").unwrap();
+
+    let inner = outer.path().join("flows");
+    std::fs::create_dir(&inner).unwrap();
+    let state = build_state_with_flows_dir(inner);
+
+    let err = resolve_flow_path(outside.to_str().unwrap(), &state)
+        .expect_err("absolute path outside flows_dir must be rejected");
+    assert!(
+        matches!(err, AppError::Forbidden(_)),
+        "expected Forbidden for absolute escape"
+    );
+}
+
+#[test]
+fn resolve_flow_path_no_cwd_fallback_when_flows_dir_set() {
+    use ironflow::api::errors::AppError;
+    use ironflow::api::handlers::resolve_flow_path;
+
+    let tmp = tempfile::tempdir().unwrap();
+    // Do NOT create the requested file under flows_dir; even if a file with
+    // that name exists in the process cwd, it must not be picked up.
+    let state = build_state_with_flows_dir(tmp.path().to_path_buf());
+
+    let err = resolve_flow_path("Cargo.toml", &state)
+        .expect_err("cwd fallback must be disabled when flows_dir is set");
+    assert!(matches!(err, AppError::NotFound(_)));
+}
+
 #[tokio::test]
 async fn api_nodes_list() {
     let registry = NodeRegistry::with_builtins();
@@ -196,4 +289,235 @@ async fn api_nodes_list() {
     assert!(names.contains(&"subworkflow"));
     assert!(names.contains(&"if_node"));
     assert!(names.contains(&"db_query"));
+}
+
+#[tokio::test]
+async fn api_run_events_streams_first_sse_event() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(JsonStateStore::new(dir.path()));
+    let event_store = Arc::new(MemoryEventStore::new());
+    let state = Arc::new(ironflow::api::AppState {
+        registry: Arc::new(NodeRegistry::with_builtins()),
+        store: store.clone(),
+        event_store: event_store.clone(),
+        flows_dir: None,
+        max_concurrent_tasks: None,
+        webhooks: std::collections::HashMap::new(),
+    });
+
+    store
+        .init_run("run-sse-1", "sse_flow", &Context::new())
+        .await
+        .unwrap();
+    event_store
+        .publish(RunEvent::run(
+            "run-sse-1",
+            "sse_flow",
+            RunEventType::RunStarted,
+            RunStatus::Running,
+        ))
+        .await
+        .unwrap();
+
+    let app = Router::new()
+        .route(
+            "/runs/{id}/events",
+            get(ironflow::api::handlers::run_events),
+        )
+        .with_state(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/runs/run-sse-1/events")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let frame = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        response.into_body().frame(),
+    )
+    .await
+    .expect("SSE stream should yield a frame")
+    .expect("SSE stream should not end")
+    .expect("SSE frame should be valid");
+    let data = frame
+        .data_ref()
+        .expect("first SSE frame should contain data");
+    let text = std::str::from_utf8(data).unwrap();
+
+    assert!(text.contains("event: run_started"));
+    assert!(text.contains("\"run_id\":\"run-sse-1\""));
+    assert!(text.contains("\"type\":\"run_started\""));
+    assert!(!text.contains("\"input\""));
+    assert!(!text.contains("\"output\""));
+}
+
+// --- CORS policy ---
+
+async fn cors_response(origin: &str, origins: Option<Vec<String>>) -> axum::response::Response {
+    let app = Router::new()
+        .route("/", get(|| async { "ok" }))
+        .layer(ironflow::api::cors_layer(origins).unwrap());
+
+    app.oneshot(
+        Request::builder()
+            .uri("/")
+            .header(ORIGIN, origin)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn cors_allows_configured_origin() {
+    let response = cors_response(
+        "https://app.example.com",
+        Some(vec!["https://app.example.com".to_string()]),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers().get(ACCESS_CONTROL_ALLOW_ORIGIN).unwrap(),
+        "https://app.example.com"
+    );
+}
+
+#[tokio::test]
+async fn cors_denies_unconfigured_origin() {
+    let response = cors_response(
+        "https://evil.example.com",
+        Some(vec!["https://app.example.com".to_string()]),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(
+        response
+            .headers()
+            .get(ACCESS_CONTROL_ALLOW_ORIGIN)
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn cors_denies_all_origins_when_unset() {
+    let response = cors_response("https://app.example.com", None).await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(
+        response
+            .headers()
+            .get(ACCESS_CONTROL_ALLOW_ORIGIN)
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn cors_wildcard_is_explicit() {
+    let response = cors_response("https://app.example.com", Some(vec!["*".to_string()])).await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers().get(ACCESS_CONTROL_ALLOW_ORIGIN).unwrap(),
+        "*"
+    );
+}
+
+#[test]
+fn cors_rejects_wildcard_mixed_with_explicit_origins() {
+    let result = ironflow::api::cors_layer(Some(vec![
+        "*".to_string(),
+        "https://app.example.com".to_string(),
+    ]));
+
+    assert!(result.is_err());
+}
+
+// --- API authentication ---
+
+fn auth_test_app() -> Router {
+    Router::new()
+        .route("/", get(|| async { "ok" }))
+        .layer(middleware::from_fn_with_state(
+            ironflow::api::ApiAuth::new("secret-token"),
+            ironflow::api::require_api_key,
+        ))
+}
+
+#[tokio::test]
+async fn api_auth_accepts_bearer_token() {
+    let response = auth_test_app()
+        .oneshot(
+            Request::builder()
+                .uri("/")
+                .header(AUTHORIZATION, "Bearer secret-token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn api_auth_accepts_x_api_key() {
+    let response = auth_test_app()
+        .oneshot(
+            Request::builder()
+                .uri("/")
+                .header("x-api-key", "secret-token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn api_auth_rejects_missing_token() {
+    let response = auth_test_app()
+        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+// --- Pagination edge cases ---
+
+#[tokio::test]
+async fn list_run_summaries_offset_beyond_returns_empty() {
+    use ironflow::storage::json_store::JsonStateStore;
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = JsonStateStore::new(dir.path());
+
+    for i in 0..5 {
+        store
+            .init_run(&format!("r{i}"), "flow", &std::collections::HashMap::new())
+            .await
+            .unwrap();
+    }
+
+    let all = store.list_run_summaries(None).await.unwrap();
+    assert_eq!(all.len(), 5);
+
+    // Simulate what the /runs handler does with offset past the end
+    let page: Vec<_> = all.iter().skip(100).take(10).collect();
+    assert!(
+        page.is_empty(),
+        "offset beyond result set must yield an empty page, not an error"
+    );
 }

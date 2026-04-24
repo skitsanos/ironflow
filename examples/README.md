@@ -73,6 +73,8 @@ Examples organized from basic to advanced. Each folder builds on concepts from t
 - **image_rotate.lua** — Rotate an image by 90/180/270 degrees
 - **image_flip.lua** — Flip an image horizontally or vertically
 - **image_grayscale.lua** — Convert an image to grayscale
+- **image_convert.lua** — Convert an image between supported formats
+- **image_watermark.lua** — Apply a text watermark to an image
 - **extract_html.lua** — Extract text and metadata from HTML
 - **pdf_merge.lua** — Merge multiple PDF files into one
 - **pdf_split.lua** — Split a PDF into individual pages
@@ -147,7 +149,9 @@ Examples organized from basic to advanced. Each folder builds on concepts from t
 
 ## 18-xml-yaml
 - **xml_parse.lua** — Parse XML into JSON and log the result
+- **xml_stringify.lua** — Convert JSON-like data into XML
 - **yaml_parse.lua** — Parse YAML into JSON and log the result
+- **yaml_stringify.lua** — Convert JSON-like data into YAML
 
 ## 19-html-sanitize
 - **html_sanitize.lua** — Sanitize HTML by removing scripts and event handlers

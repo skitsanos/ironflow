@@ -1,5 +1,9 @@
 /target
+.DS_Store
+.claude/settings.local.json
 .env
 .idea/
 data/
 .ironflow_cache/
+Taskfile.yaml
+

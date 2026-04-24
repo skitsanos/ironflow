@@ -7,14 +7,25 @@ use tokio::sync::{RwLock, Semaphore};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
+use crate::engine::events::{RunEvent, RunEventType};
 use crate::engine::types::*;
 use crate::nodes::NodeRegistry;
 use crate::storage::StateStore;
+use crate::storage::event_store::EventStore;
+
+fn task_duration_ms(
+    started: Option<chrono::DateTime<Utc>>,
+    finished: Option<chrono::DateTime<Utc>>,
+) -> Option<u64> {
+    let duration = finished?.signed_duration_since(started?);
+    duration.num_milliseconds().try_into().ok()
+}
 
 /// The core workflow execution engine.
 pub struct WorkflowEngine {
     registry: Arc<NodeRegistry>,
     store: Arc<dyn StateStore>,
+    events: Option<Arc<dyn EventStore>>,
     max_concurrent_tasks: usize,
 }
 
@@ -35,6 +46,29 @@ impl WorkflowEngine {
         Self {
             registry,
             store,
+            events: None,
+            max_concurrent_tasks,
+        }
+    }
+
+    pub fn new_with_events(
+        registry: Arc<NodeRegistry>,
+        store: Arc<dyn StateStore>,
+        events: Arc<dyn EventStore>,
+        max_concurrent_tasks: Option<usize>,
+    ) -> Self {
+        let max_concurrent_tasks = max_concurrent_tasks
+            .or_else(|| {
+                std::env::var("IRONFLOW_MAX_CONCURRENT_TASKS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+            })
+            .unwrap_or_else(num_cpus::get);
+
+        Self {
+            registry,
+            store,
+            events: Some(events),
             max_concurrent_tasks,
         }
     }
@@ -54,6 +88,13 @@ impl WorkflowEngine {
         self.store
             .set_run_status(&run_id, RunStatus::Running)
             .await?;
+        self.publish_event(RunEvent::run(
+            &run_id,
+            &flow_name,
+            RunEventType::RunStarted,
+            RunStatus::Running,
+        ))
+        .await;
 
         // Initialize all task states
         for step in &flow.steps {
@@ -63,9 +104,16 @@ impl WorkflowEngine {
 
         info!(run_id = %run_id, flow = %flow_name, "Starting workflow execution");
 
-        // Build lookup maps
-        let step_map: HashMap<String, &StepDefinition> =
-            flow.steps.iter().map(|s| (s.name.clone(), s)).collect();
+        // Build lookup map once. Arc-sharing lets spawned tasks hold a cheap
+        // pointer instead of deep-cloning the whole StepDefinition (and the
+        // former per-task `step_map_clone` of every step's config JSON) on
+        // each scheduled attempt.
+        let step_map: Arc<HashMap<String, Arc<StepDefinition>>> = Arc::new(
+            flow.steps
+                .iter()
+                .map(|s| (s.name.clone(), Arc::new(s.clone())))
+                .collect(),
+        );
 
         // Collect steps that are on_error targets — they only run when triggered
         let error_only_steps: HashSet<String> = flow
@@ -74,7 +122,12 @@ impl WorkflowEngine {
             .filter_map(|s| s.on_error.clone())
             .collect();
 
-        let ctx = Arc::new(RwLock::new(initial_ctx));
+        // Wrap the context in an inner `Arc` so that readers (task attempts)
+        // take cheap pointer clones instead of deep-copying the whole map. On
+        // writes we use `Arc::make_mut`, which clones only when the current
+        // Arc is shared — in practice that means at most one structural clone
+        // per write, not one per read.
+        let ctx: Arc<RwLock<Arc<Context>>> = Arc::new(RwLock::new(Arc::new(initial_ctx)));
         let semaphore = Arc::new(Semaphore::new(self.max_concurrent_tasks));
         let completed: Arc<RwLock<HashSet<String>>> = Arc::new(RwLock::new(HashSet::new()));
         let failed: Arc<RwLock<HashSet<String>>> = Arc::new(RwLock::new(HashSet::new()));
@@ -87,6 +140,7 @@ impl WorkflowEngine {
 
             for step_name in phase {
                 let step = step_map[step_name].clone();
+                // `step` is now Arc<StepDefinition> — .clone() is a ref-count bump.
 
                 // Skip steps that are on_error targets — they only run
                 // when triggered by an error, never in normal scheduling
@@ -100,6 +154,18 @@ impl WorkflowEngine {
                         let mut task_state = TaskState::new(&step.name, &step.node_type);
                         task_state.status = TaskStatus::Skipped;
                         self.store.upsert_task(&run_id, &task_state).await?;
+                        self.publish_event(
+                            RunEvent::task(
+                                &run_id,
+                                &step.name,
+                                &step.node_type,
+                                RunEventType::TaskSkipped,
+                                TaskStatus::Skipped,
+                                None,
+                            )
+                            .with_reason("error handler was not triggered"),
+                        )
+                        .await;
                     }
                     // Either way, skip normal scheduling
                     continue;
@@ -115,6 +181,18 @@ impl WorkflowEngine {
                     let mut task_state = TaskState::new(&step.name, &step.node_type);
                     task_state.status = TaskStatus::Skipped;
                     self.store.upsert_task(&run_id, &task_state).await?;
+                    self.publish_event(
+                        RunEvent::task(
+                            &run_id,
+                            &step.name,
+                            &step.node_type,
+                            RunEventType::TaskSkipped,
+                            TaskStatus::Skipped,
+                            None,
+                        )
+                        .with_reason("dependency failed"),
+                    )
+                    .await;
                     failed.write().await.insert(step_name.clone());
                     continue;
                 }
@@ -122,13 +200,25 @@ impl WorkflowEngine {
                 // Check route condition
                 if let Some(ref route) = step.route {
                     let ctx_read = ctx.read().await;
-                    let should_skip = !self.check_route(&step, route, &ctx_read);
+                    let should_skip = !self.check_route(&step, route, ctx_read.as_ref());
                     drop(ctx_read);
                     if should_skip {
                         info!(task = %step_name, route = %route, "Skipping task — route not matched");
                         let mut task_state = TaskState::new(&step.name, &step.node_type);
                         task_state.status = TaskStatus::Skipped;
                         self.store.upsert_task(&run_id, &task_state).await?;
+                        self.publish_event(
+                            RunEvent::task(
+                                &run_id,
+                                &step.name,
+                                &step.node_type,
+                                RunEventType::TaskSkipped,
+                                TaskStatus::Skipped,
+                                None,
+                            )
+                            .with_reason("route condition was not matched"),
+                        )
+                        .await;
                         completed.write().await.insert(step_name.clone());
                         continue;
                     }
@@ -136,20 +226,20 @@ impl WorkflowEngine {
 
                 let registry = self.registry.clone();
                 let store = self.store.clone();
+                let events = self.events.clone();
                 let ctx = ctx.clone();
                 let semaphore = semaphore.clone();
                 let completed = completed.clone();
                 let failed = failed.clone();
                 let error_handled = error_handled.clone();
                 let run_id = run_id.clone();
-                let step_map_clone: HashMap<String, StepDefinition> = step_map
-                    .iter()
-                    .map(|(k, v)| (k.clone(), (*v).clone()))
-                    .collect();
+                let step_map = step_map.clone();
 
                 let handle = tokio::spawn(async move {
                     let _permit = semaphore.acquire().await.unwrap();
-                    let result = Self::run_task(&registry, &store, &run_id, &step, &ctx).await;
+                    let result =
+                        Self::run_task(&registry, &store, events.as_ref(), &run_id, &step, &ctx)
+                            .await;
 
                     match result {
                         Ok(()) => {
@@ -167,24 +257,30 @@ impl WorkflowEngine {
                                 // Inject error details into context
                                 {
                                     let mut ctx_write = ctx.write().await;
-                                    ctx_write.insert(
+                                    let inner = Arc::make_mut(&mut *ctx_write);
+                                    inner.insert(
                                         "_error_message".to_string(),
                                         serde_json::Value::String(format!("{:#}", e)),
                                     );
-                                    ctx_write.insert(
+                                    inner.insert(
                                         "_error_step".to_string(),
                                         serde_json::Value::String(step.name.clone()),
                                     );
-                                    ctx_write.insert(
+                                    inner.insert(
                                         "_error_node_type".to_string(),
                                         serde_json::Value::String(step.node_type.clone()),
                                     );
                                 }
 
                                 // Run the error handler step
-                                if let Some(error_step) = step_map_clone.get(error_step_name) {
+                                if let Some(error_step) = step_map.get(error_step_name) {
                                     let err_result = Self::run_task(
-                                        &registry, &store, &run_id, error_step, &ctx,
+                                        &registry,
+                                        &store,
+                                        events.as_ref(),
+                                        &run_id,
+                                        error_step,
+                                        &ctx,
                                     )
                                     .await;
 
@@ -244,10 +340,24 @@ impl WorkflowEngine {
 
         // Store final context
         let final_ctx = ctx.read().await;
-        self.store.update_ctx(&run_id, &final_ctx).await?;
+        self.store.update_ctx(&run_id, final_ctx.as_ref()).await?;
+        self.publish_event(RunEvent::run(
+            &run_id,
+            &flow_name,
+            RunEventType::ContextUpdated,
+            RunStatus::Running,
+        ))
+        .await;
         self.store
             .set_run_status(&run_id, final_status.clone())
             .await?;
+        self.publish_event(RunEvent::run(
+            &run_id,
+            &flow_name,
+            RunEventType::RunFinished,
+            final_status.clone(),
+        ))
+        .await;
 
         info!(run_id = %run_id, status = %final_status, "Workflow execution complete");
 
@@ -258,9 +368,10 @@ impl WorkflowEngine {
     async fn run_task(
         registry: &NodeRegistry,
         store: &Arc<dyn StateStore>,
+        events: Option<&Arc<dyn EventStore>>,
         run_id: &str,
         step: &StepDefinition,
-        ctx: &Arc<RwLock<Context>>,
+        ctx: &Arc<RwLock<Arc<Context>>>,
     ) -> Result<()> {
         let node = registry
             .get(&step.node_type)
@@ -276,39 +387,91 @@ impl WorkflowEngine {
             task_state.attempt = attempt;
             task_state.started = Some(Utc::now());
             store.upsert_task(run_id, &task_state).await?;
+            Self::publish_event_ref(
+                events,
+                RunEvent::task(
+                    run_id,
+                    &step.name,
+                    &step.node_type,
+                    RunEventType::TaskStarted,
+                    TaskStatus::Running,
+                    Some(attempt),
+                ),
+            )
+            .await;
 
             info!(task = %step.name, attempt = attempt, max = max_attempts, "Running task");
 
-            // Snapshot context for the node
-            let current_ctx = ctx.read().await.clone();
+            // Cheap snapshot — `Arc::clone` of the context pointer. The node
+            // borrows from the pointed-to `Context`; writers make-mut to a
+            // fresh Arc so this snapshot stays stable for the call.
+            let current_ctx: Arc<Context> = ctx.read().await.clone();
 
-            // Execute with optional timeout
             let result = if let Some(timeout_s) = step.timeout_s {
                 let duration = std::time::Duration::from_secs_f64(timeout_s);
-                match tokio::time::timeout(duration, node.execute(&step.config, current_ctx)).await
+                match tokio::time::timeout(duration, node.execute(&step.config, &current_ctx)).await
                 {
                     Ok(r) => r,
                     Err(_) => Err(anyhow::anyhow!("Task timed out after {}s", timeout_s)),
                 }
             } else {
-                node.execute(&step.config, current_ctx).await
+                node.execute(&step.config, &current_ctx).await
             };
 
             match result {
                 Ok(output) => {
-                    // Merge output into context
+                    // Merge output into context. `Arc::make_mut` clones the
+                    // inner HashMap only when it's shared with a live reader;
+                    // once cloned, future writes go in-place until the next
+                    // reader snapshot.
                     {
                         let mut ctx_write = ctx.write().await;
+                        let inner = Arc::make_mut(&mut *ctx_write);
                         for (k, v) in &output {
-                            ctx_write.insert(k.clone(), v.clone());
+                            inner.insert(k.clone(), v.clone());
                         }
                     }
 
-                    // Update task state to success
+                    // Update task state to success. `output` is a
+                    // HashMap<String, Value> — convert it to a JSON object
+                    // directly instead of going through `serde_json::to_value`,
+                    // which would walk every Value through the Serialize trait
+                    // even though each element is already a Value.
                     task_state.status = TaskStatus::Success;
-                    task_state.output = Some(serde_json::to_value(&output)?);
+                    let output_value = serde_json::Value::Object(
+                        output.into_iter().collect::<serde_json::Map<_, _>>(),
+                    );
+                    // Cap what we persist in task history — huge outputs
+                    // already landed in `ctx` via the merge above; there's
+                    // no need to duplicate them in the run record.
+                    let max_task_bytes = crate::util::limits::max_task_output_bytes() as usize;
+                    let serialized_size = output_value.to_string().len();
+                    task_state.output = if serialized_size > max_task_bytes {
+                        Some(serde_json::json!({
+                            "_truncated": true,
+                            "_original_bytes": serialized_size,
+                            "_limit_bytes": max_task_bytes,
+                            "_note": "Output exceeded IRONFLOW_MAX_TASK_OUTPUT_BYTES; full value is in workflow context.",
+                        }))
+                    } else {
+                        Some(output_value)
+                    };
                     task_state.finished = Some(Utc::now());
+                    let duration_ms = task_duration_ms(task_state.started, task_state.finished);
                     store.upsert_task(run_id, &task_state).await?;
+                    Self::publish_event_ref(
+                        events,
+                        RunEvent::task(
+                            run_id,
+                            &step.name,
+                            &step.node_type,
+                            RunEventType::TaskSucceeded,
+                            TaskStatus::Success,
+                            Some(attempt),
+                        )
+                        .with_duration_ms(duration_ms),
+                    )
+                    .await;
 
                     info!(task = %step.name, "Task completed successfully");
                     return Ok(());
@@ -320,7 +483,22 @@ impl WorkflowEngine {
                     task_state.status = TaskStatus::Failed;
                     task_state.error = Some(err_msg.clone());
                     task_state.finished = Some(Utc::now());
+                    let duration_ms = task_duration_ms(task_state.started, task_state.finished);
                     store.upsert_task(run_id, &task_state).await?;
+                    Self::publish_event_ref(
+                        events,
+                        RunEvent::task(
+                            run_id,
+                            &step.name,
+                            &step.node_type,
+                            RunEventType::TaskFailed,
+                            TaskStatus::Failed,
+                            Some(attempt),
+                        )
+                        .with_duration_ms(duration_ms)
+                        .with_error(err_msg.clone()),
+                    )
+                    .await;
 
                     last_error = Some(err_msg);
 
@@ -328,6 +506,18 @@ impl WorkflowEngine {
                     if attempt < max_attempts {
                         let delay = step.retry.backoff_s * 2.0_f64.powi((attempt - 1) as i32);
                         info!(task = %step.name, delay_s = delay, "Retrying after backoff");
+                        Self::publish_event_ref(
+                            events,
+                            RunEvent::task(
+                                run_id,
+                                &step.name,
+                                &step.node_type,
+                                RunEventType::TaskRetrying,
+                                TaskStatus::Running,
+                                Some(attempt + 1),
+                            ),
+                        )
+                        .await;
                         tokio::time::sleep(std::time::Duration::from_secs_f64(delay)).await;
                     }
                 }
@@ -354,6 +544,18 @@ impl WorkflowEngine {
             }
         }
         false
+    }
+
+    async fn publish_event(&self, event: RunEvent) {
+        Self::publish_event_ref(self.events.as_ref(), event).await;
+    }
+
+    async fn publish_event_ref(events: Option<&Arc<dyn EventStore>>, event: RunEvent) {
+        if let Some(events) = events
+            && let Err(err) = events.publish(event).await
+        {
+            warn!(error = %err, "Failed to publish workflow event");
+        }
     }
 
     /// Topological sort using Kahn's algorithm. Returns execution phases.

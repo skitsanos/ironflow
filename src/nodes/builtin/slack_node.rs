@@ -52,8 +52,8 @@ impl Node for SlackNotificationNode {
         "Send a Slack message through an incoming webhook URL"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
-        let webhook_url = resolve_webhook_url(config, &ctx).ok_or_else(|| {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
+        let webhook_url = resolve_webhook_url(config, ctx).ok_or_else(|| {
             anyhow::anyhow!("slack_notification requires 'webhook_url' or SLACK_WEBHOOK env var")
         })?;
 
@@ -66,7 +66,7 @@ impl Node for SlackNotificationNode {
 
         let mut payload = config
             .get("payload")
-            .map(|value| interpolate_json_value(value, &ctx))
+            .map(|value| interpolate_json_value(value, ctx))
             .unwrap_or_else(|| serde_json::json!({}));
 
         let payload_obj = payload.as_object_mut().ok_or_else(|| {
@@ -78,7 +78,7 @@ impl Node for SlackNotificationNode {
             .and_then(|value| value.as_str())
             .or_else(|| config.get("message").and_then(|value| value.as_str()))
             .or_else(|| payload_obj.get("text").and_then(|value| value.as_str()))
-            .map(|value| interpolate_ctx(value, &ctx));
+            .map(|value| interpolate_ctx(value, ctx));
 
         if let Some(text) = text {
             payload_obj.insert("text".to_string(), serde_json::Value::String(text));

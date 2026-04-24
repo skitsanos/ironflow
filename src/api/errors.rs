@@ -11,9 +11,11 @@ pub struct ErrorResponse {
 }
 
 /// Application error type that converts to HTTP responses.
+#[derive(Debug)]
 pub enum AppError {
     BadRequest(String),
     NotFound(String),
+    Forbidden(String),
     Internal(anyhow::Error),
 }
 
@@ -22,6 +24,7 @@ impl IntoResponse for AppError {
         let (status, error, details) = match self {
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg, None),
             AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg, None),
+            AppError::Forbidden(msg) => (StatusCode::FORBIDDEN, msg, None),
             AppError::Internal(err) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Internal server error".to_string(),

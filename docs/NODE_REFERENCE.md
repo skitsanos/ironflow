@@ -328,3 +328,15 @@ flow:step("stamp", function()
     return { epoch_ms = now_unix_ms() }
 end)
 ```
+
+## Runtime Limits
+
+Lua flow parsing and `code` / `foreach` execution enforce process-wide budgets by default:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `IRONFLOW_LUA_MAX_INSTRUCTIONS` | `5000000` | Max Lua VM instructions per Lua state; `0` disables. |
+| `IRONFLOW_LUA_MAX_SECONDS` | `10` | Max wall-clock seconds per Lua state; `0` disables. |
+| `IRONFLOW_LUA_MAX_MEMORY_BYTES` | `134217728` | Max Lua VM memory per Lua state; `0` disables. |
+| `IRONFLOW_LUA_HOOK_INTERVAL` | `10000` | Instruction interval for checking budgets. |
+| `IRONFLOW_LUA_GC_AFTER_EXECUTION` | `true` | Run Lua garbage collection after parsing/execution. |

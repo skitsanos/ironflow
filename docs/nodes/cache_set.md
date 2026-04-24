@@ -10,13 +10,14 @@ Store a value in the cache (memory or file-based) with optional TTL.
 | `source_key` | string | one of `source_key` or `value` | — | Context key whose value will be cached. |
 | `value` | any | one of `source_key` or `value` | — | Literal JSON value to cache. |
 | `ttl` | integer | no | — | Time-to-live in seconds. When omitted the entry never expires. |
-| `backend` | string | no | `"memory"` | Storage backend: `"memory"` (in-process global HashMap) or `"file"` (JSON files on disk). |
-| `cache_dir` | string | no | `".ironflow_cache"` | Directory for file-based cache entries. Only used when `backend` is `"file"`. |
+| `backend` | string | no | `"memory"` | Storage backend: `"memory"` (process-global bounded cache) or `"file"` (JSON files on disk). |
+| `cache_dir` | string | no | `IRONFLOW_CACHE_DIR` / `".ironflow_cache"` | Directory for file-based cache entries. Only used when `backend` is `"file"`. Per-node value overrides the env var. |
 
 ## Context Output
 
 - `cache_key` — the cache key that was written.
 - `cache_stored` — always `true` on success.
+- `cache_size` — current memory cache entry count; only returned for the `"memory"` backend.
 
 ## Example
 
@@ -38,6 +39,11 @@ flow:step("done", nodes.log({
 
 return flow
 ```
+
+## Environment
+
+- `IRONFLOW_CACHE_MAX_ENTRIES` controls the process-global memory backend size. Default: `10000`.
+- `IRONFLOW_CACHE_DIR` controls the default file backend directory when `cache_dir` is not set. Default: `.ironflow_cache`.
 
 ### File backend
 

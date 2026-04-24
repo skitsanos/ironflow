@@ -68,7 +68,7 @@ impl Node for DateFormatNode {
         "Parse and format dates/timestamps"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let output_format = config
             .get("output_format")
             .and_then(|v| v.as_str())
@@ -90,7 +90,7 @@ impl Node for DateFormatNode {
         }
 
         let raw_input = if let Some(input_str) = config.get("input").and_then(|v| v.as_str()) {
-            interpolate_ctx(input_str, &ctx)
+            interpolate_ctx(input_str, ctx)
         } else if let Some(source_key) = config.get("source_key").and_then(|v| v.as_str()) {
             let val = ctx
                 .get(source_key)

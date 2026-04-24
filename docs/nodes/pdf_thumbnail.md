@@ -49,3 +49,11 @@ flow:step("show", nodes.log({
 
 return flow
 ```
+
+## Limits
+
+`pdf_thumbnail` shares the PDF rendering safeguards used by `pdf_to_image`:
+
+- `IRONFLOW_MAX_PDF_BYTES` — maximum PDF file size, default `104857600`.
+- `IRONFLOW_MAX_PDF_RENDER_PIXELS` — maximum pixels in the rendered thumbnail, default `25000000`.
+- `IRONFLOW_MAX_PDF_DPI` — maximum accepted DPI, default `300`.

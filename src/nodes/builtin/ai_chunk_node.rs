@@ -155,7 +155,7 @@ impl Node for AiChunkNode {
         "Split text into chunks using fixed-size or delimiter strategies"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let mode = config
             .get("mode")
             .and_then(|v| v.as_str())
@@ -165,7 +165,7 @@ impl Node for AiChunkNode {
             .get("source_key")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("ai_chunk requires 'source_key' parameter"))?;
-        let source_key = interpolate_ctx(source_key, &ctx);
+        let source_key = interpolate_ctx(source_key, ctx);
 
         let output_key = config
             .get("output_key")

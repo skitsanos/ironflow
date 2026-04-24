@@ -92,8 +92,10 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
 - [x] Mutual exclusion — reject requests with multiple source fields
 - [x] Configurable request body size limit (default 1 MB, `--max-body` flag)
 - [x] Error responses with consistent JSON format (`error` + optional `details`)
-- [x] CORS support (permissive, via `tower-http`)
+- [x] API key authentication for non-loopback servers via `IRONFLOW_API_KEY`
+- [x] Configurable CORS support via `IRONFLOW_CORS_ORIGINS` / `cors_origins`
 - [x] Request tracing (via `tower-http` TraceLayer)
+- [x] Lua instruction, wall-clock, memory, and GC controls for flow parsing and Lua nodes
 
 ### 3.2 Redis State Store ✅
 - [x] Implement `RedisStateStore` behind `redis` cargo feature flag
@@ -104,6 +106,24 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
 - [x] `create_store()` factory function for backend selection (config + env var)
 - [x] `AppState.store` refactored to `Arc<dyn StateStore>` for runtime backend selection
 - [x] 8 integration tests against real Redis
+
+### 3.3 SQL State Store ✅
+- [x] `SqlStateStore` for SQLite/Postgres via `sqlx::AnyPool`
+- [x] Separate SQL tables for runs and tasks to avoid rewriting full run records on task updates
+- [x] Backend selection via `IRONFLOW_STORE=json|sqlite|postgres|redis`
+- [x] SQL store URL via `IRONFLOW_STORE_URL` / `store_url`
+- [x] SQL table prefix via `IRONFLOW_SQL_TABLE_PREFIX` / `sql_table_prefix` for shared SQLite/Postgres databases
+
+### 3.4 Run Event Streaming ✅
+- [x] Define compact `RunEvent` payloads for run/task lifecycle monitoring; include step name, `node_type`, attempt, status, timing, and error metadata, but never full node input/output.
+- [x] Add separate event backend selection via `IRONFLOW_EVENT_STORE=memory|sqlite|postgres|redis` and `IRONFLOW_EVENT_STORE_URL`; do not reuse `IRONFLOW_STORE` so deployments can store runs and events in different systems.
+- [x] Implement in-memory event store for single-instance/local deployments.
+- [x] Implement SQL event store for SQLite/Postgres shared event backends.
+- [x] Apply the shared SQL table prefix to SQL event tables.
+- [x] Implement Redis event store behind the `redis` cargo feature flag, using `REDIS_URL`, `REDIS_PREFIX`, and optional `REDIS_TTL`.
+- [x] Emit events from the workflow engine next to run/task state transitions.
+- [x] Add `GET /runs/{id}/events` SSE endpoint with replay support from the selected event backend.
+- [x] Defer Redis Streams, NATS, Kafka/Redpanda, and other event backends to a later phase.
 
 ---
 
@@ -148,3 +168,28 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
 - [x] GitHub Actions CI (check, clippy, fmt, test, build, validate examples) — path-filtered to skip docs-only changes
 - [x] GitHub Actions Release workflow — builds Linux (musl), macOS (x86_64 + aarch64), Windows on version tags
 - [x] Shared Lua sandbox module (`lua_sandbox.rs`) for consistent VM setup
+
+### 5.6 Memory Hardening ✅
+- [x] Bounded in-memory cache with LRU eviction + proactive TTL sweep (`src/util/bounded_cache.rs`)
+- [x] `cache_set`/`cache_get` memory backend bounded by `IRONFLOW_CACHE_MAX_ENTRIES` (default 10 000)
+- [x] MCP `INITIALIZED_SESSIONS` migrated to bounded cache with TTL — `IRONFLOW_MCP_SESSION_CACHE_SIZE` (default 1 024), `IRONFLOW_MCP_SESSION_TTL_SECS` (default 3 600)
+- [x] OAuth token cache keyed by `(token_url, client_id, scope)`; bounded by `IRONFLOW_OAUTH_CACHE_SIZE` (default 128) — prevents cross-tenant token collision
+- [x] Executor `step_map` shared via `Arc<HashMap<String, Arc<StepDefinition>>>`; per-task step and step_map clones removed
+- [x] Task output persisted via direct `Value::Object` construction instead of `serde_json::to_value` round-trip
+- [x] Node trait migrated to `&Context`; executor wraps context in `Arc<RwLock<Arc<Context>>>` with copy-on-write via `Arc::make_mut` — per-attempt deep clone eliminated
+- [x] Subworkflow fan-out backpressure: `parallel_subworkflows` accepts `max_concurrent` (default: num_cpus, capped at 1 024); detached `subworkflow(wait=false)` bounded by process-wide semaphore `IRONFLOW_MAX_DETACHED_SUBWORKFLOWS` (default 64)
+- [x] Run persistence: `RunSummary` type + `StateStore::list_run_summaries()` + `prune_before(cutoff)` trait methods; task outputs larger than `IRONFLOW_MAX_TASK_OUTPUT_BYTES` (default 2 MB) replaced with truncation marker
+- [x] I/O size guards: `http_*`, `read_file`, `write_file`, `shell_command` all enforce configurable caps — `IRONFLOW_MAX_HTTP_BODY_BYTES` (50 MB), `IRONFLOW_MAX_FILE_BYTES` (50 MB), `IRONFLOW_MAX_SHELL_OUTPUT_BYTES` (10 MB, truncates with `_output_truncated` marker)
+
+### 5.7 Correctness & Hardening ✅
+- [x] `RunStatus::is_terminal()` helper; all three stores (`json`, `redis`, `null`) only stamp `finished` for terminal states
+- [x] API flow-path resolver canonicalizes and confines paths under configured `flows_dir`; cwd fallback disabled in that mode; traversal and absolute-path escapes return HTTP 403
+- [x] API `/runs` pagination: `?limit` (default 50, max 500), `?offset`; response includes `total`, `limit`, `offset`, `returned`
+
+### 5.8 Streaming I/O & Native Summary Listings ✅
+- [x] HTTP node: body streamed via `response.chunk()` with running byte counter; `Content-Length` pre-flight plus mid-stream overrun bail
+- [x] Shell node: `wait_with_output()` replaced with concurrent bounded reads via `tokio::join!`; per-stream cap with drain-to-EOF to avoid pipe deadlock
+- [x] MCP node: stdio bounded reads (same pattern as shell); SSE response consumed via `response.chunk()` with size guard
+- [x] `JsonStateStore::list_run_summaries()` reads only `<id>.summary.json` sidecars — proven by test where corrupting the main record does not break the listing
+- [x] `RedisStateStore::list_run_summaries()` fetches only the `summary` hash field, never the `info` blob
+- [x] Regression tests: HTTP oversized-Content-Length rejection, shell output truncation marker, sidecar-based listing correctness under corrupt main record, pagination offset past the end yields empty page, status filter in summary listing

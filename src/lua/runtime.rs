@@ -8,6 +8,7 @@ use uuid::Uuid;
 use crate::engine::types::{FlowDefinition, RetryConfig, StepDefinition};
 use crate::nodes::NodeRegistry;
 use crate::nodes::builtin::code_node::json_value_to_lua_table;
+use crate::util::limits::{LuaExecutionLimits, apply_lua_limits, collect_lua_garbage};
 
 /// Lua runtime for loading and parsing flow definitions.
 pub struct LuaRuntime;
@@ -16,6 +17,8 @@ impl LuaRuntime {
     /// Load a flow definition from a Lua file.
     pub fn load_flow(path: &str, registry: &NodeRegistry) -> Result<FlowDefinition> {
         let lua = Lua::new();
+        let limits = LuaExecutionLimits::from_env();
+        apply_lua_limits(&lua, limits)?;
 
         // Sandbox: remove dangerous modules
         Self::setup_sandbox(&lua)?;
@@ -32,6 +35,7 @@ impl LuaRuntime {
             .set_name(path)
             .eval()
             .map_err(|e| anyhow::anyhow!("Failed to evaluate flow file '{}': {}", path, e))?;
+        collect_lua_garbage(&lua, limits)?;
 
         // Extract the flow definition from the returned table
         Self::extract_flow(&flow_table)
@@ -40,6 +44,8 @@ impl LuaRuntime {
     /// Load a flow definition from a Lua string.
     pub fn load_flow_from_string(source: &str, registry: &NodeRegistry) -> Result<FlowDefinition> {
         let lua = Lua::new();
+        let limits = LuaExecutionLimits::from_env();
+        apply_lua_limits(&lua, limits)?;
         Self::setup_sandbox(&lua)?;
         Self::register_flow_api(&lua, registry)?;
 
@@ -48,6 +54,7 @@ impl LuaRuntime {
             .set_name("<inline>")
             .eval()
             .map_err(|e| anyhow::anyhow!("Failed to evaluate flow source: {}", e))?;
+        collect_lua_garbage(&lua, limits)?;
 
         Self::extract_flow(&flow_table)
     }

@@ -23,6 +23,7 @@ Run a chat-style request against OpenAI, OpenAI-compatible, Azure, or custom end
 | `extra` | object | no | — | Extra request fields merged into payload |
 | `output_key` | string | no | `"llm"` | Prefix for output context keys |
 | `timeout` | number | no | `30` | Request timeout in seconds |
+| `max_response_bytes` | number/string | no | `IRONFLOW_LLM_MAX_RESPONSE_BYTES` / `26214400` | Maximum provider response body size before failing. |
 | `azure_endpoint` | string | conditional | `AZURE_OPENAI_ENDPOINT` | Azure endpoint URL |
 | `azure_api_version` | string | no | `AZURE_OPENAI_API_VERSION` | Azure API version |
 | `azure_chat_deployment` | string | conditional | `AZURE_OPENAI_CHAT_DEPLOYMENT` | Azure deployment for chat mode |
@@ -49,6 +50,7 @@ Run a chat-style request against OpenAI, OpenAI-compatible, Azure, or custom end
 | `azure_chat_deployment` | `AZURE_OPENAI_CHAT_DEPLOYMENT` | azure |
 | `azure_responses_deployment` | `AZURE_OPENAI_RESPONSES_DEPLOYMENT` | azure |
 | `api_key` | `AZURE_OPENAI_API_KEY` | azure |
+| `max_response_bytes` | `IRONFLOW_LLM_MAX_RESPONSE_BYTES` | all providers |
 
 ## Context Output
 
@@ -63,6 +65,8 @@ Run a chat-style request against OpenAI, OpenAI-compatible, Azure, or custom end
 - `{output_key}_tool_calls` — parsed tool call objects (if any)
 - `{output_key}_tool_call_needed` — `true` when model returned one or more tool calls
 - `{output_key}_tool_call_names` — list of called function names
+
+Provider response bodies are streamed with a hard byte cap before JSON parsing. Set `IRONFLOW_LLM_MAX_RESPONSE_BYTES=0` to disable the global cap, or use per-node `max_response_bytes` for a specific trusted workflow.
 
 ## Examples
 

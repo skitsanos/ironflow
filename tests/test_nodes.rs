@@ -153,7 +153,7 @@ async fn log_node_basic() {
         "level": "info"
     });
 
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     assert_eq!(
         result.get("log_message").unwrap(),
         &serde_json::Value::String("Hello World".to_string())
@@ -171,7 +171,7 @@ async fn log_node_interpolation() {
     });
     let ctx = ctx_with(vec![("name", serde_json::json!("Alice"))]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     assert_eq!(
         result.get("log_message").unwrap(),
         &serde_json::Value::String("Hello Alice!".to_string())
@@ -191,7 +191,7 @@ async fn json_parse_node() {
     });
     let ctx = ctx_with(vec![("raw", serde_json::json!(r#"{"a": 1}"#))]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     let parsed = result.get("parsed").unwrap();
     assert_eq!(parsed, &serde_json::json!({"a": 1}));
 }
@@ -206,7 +206,7 @@ async fn json_parse_missing_key() {
         "output_key": "parsed"
     });
 
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
 }
 
@@ -223,7 +223,7 @@ async fn json_stringify_node() {
     });
     let ctx = ctx_with(vec![("data", serde_json::json!({"x": 42}))]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     let s = result.get("json_str").unwrap().as_str().unwrap();
     let back: serde_json::Value = serde_json::from_str(s).unwrap();
     assert_eq!(back, serde_json::json!({"x": 42}));
@@ -245,7 +245,7 @@ async fn csv_parse_node() {
         serde_json::json!("name,age\nAlice,30\nBob,25"),
     )]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     let rows = result.get("rows").unwrap().as_array().unwrap();
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0].get("name").unwrap(), "Alice");
@@ -265,7 +265,7 @@ async fn csv_parse_without_header() {
     });
     let ctx = ctx_with(vec![("raw_csv", serde_json::json!("Alice;30\nBob;25"))]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     let rows = result.get("rows").unwrap().as_array().unwrap();
     let row = rows[0].as_array().unwrap();
     assert_eq!(row[0], "Alice");
@@ -290,7 +290,7 @@ async fn csv_stringify_node_objects() {
         ]),
     )]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     let csv_text = result.get("csv").unwrap().as_str().unwrap();
     let lines: Vec<&str> = csv_text.lines().collect();
     assert_eq!(lines[0], "age,name");
@@ -310,7 +310,7 @@ async fn csv_stringify_node_arrays() {
     });
     let ctx = ctx_with(vec![("rows", serde_json::json!([[1, 2], [3, 4]]))]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     let csv_text = result.get("csv").unwrap().as_str().unwrap();
     let lines: Vec<&str> = csv_text.lines().collect();
     assert_eq!(lines[0], "1,2");
@@ -334,7 +334,7 @@ async fn select_fields_node() {
         serde_json::json!({"name": "Alice", "email": "a@b.com", "age": 30}),
     )]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     let selected = result.get("selected").unwrap();
     assert_eq!(selected.get("name").unwrap(), "Alice");
     assert_eq!(selected.get("email").unwrap(), "a@b.com");
@@ -358,7 +358,7 @@ async fn rename_fields_node() {
         serde_json::json!({"first_name": "Alice", "age": 30}),
     )]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     let renamed = result.get("renamed").unwrap();
     assert_eq!(renamed.get("name").unwrap(), "Alice");
     assert_eq!(renamed.get("age").unwrap(), 30);
@@ -388,7 +388,7 @@ async fn data_filter_eq() {
         ]),
     )]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     let filtered = result.get("filtered").unwrap().as_array().unwrap();
     assert_eq!(filtered.len(), 2);
     assert_eq!(result.get("filtered_count").unwrap(), 2);
@@ -415,7 +415,7 @@ async fn data_filter_gt() {
         ]),
     )]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     let filtered = result.get("filtered").unwrap().as_array().unwrap();
     assert_eq!(filtered.len(), 2);
 }
@@ -440,7 +440,7 @@ async fn data_filter_exists() {
         ]),
     )]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     let filtered = result.get("filtered").unwrap().as_array().unwrap();
     assert_eq!(filtered.len(), 1); // only "a" has non-null email
 }
@@ -459,7 +459,7 @@ async fn batch_node() {
     });
     let ctx = ctx_with(vec![("items", serde_json::json!([1, 2, 3, 4, 5]))]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     let batches = result.get("batches").unwrap().as_array().unwrap();
     assert_eq!(batches.len(), 3); // [1,2], [3,4], [5]
     assert_eq!(result.get("batches_count").unwrap(), 3);
@@ -479,7 +479,7 @@ async fn batch_node_zero_size_fails() {
     });
     let ctx = ctx_with(vec![("items", serde_json::json!([1, 2]))]);
 
-    let result = node.execute(&config, ctx).await;
+    let result = node.execute(&config, &ctx).await;
     assert!(result.is_err());
 }
 
@@ -496,7 +496,7 @@ async fn deduplicate_node_by_value() {
     });
     let ctx = ctx_with(vec![("items", serde_json::json!([1, 2, 2, 3, 1]))]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     let unique = result.get("unique").unwrap().as_array().unwrap();
     assert_eq!(unique.len(), 3);
     assert_eq!(result.get("unique_removed").unwrap(), 2);
@@ -521,7 +521,7 @@ async fn deduplicate_node_by_field() {
         ]),
     )]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     let unique = result.get("unique").unwrap().as_array().unwrap();
     assert_eq!(unique.len(), 2);
 }
@@ -541,7 +541,7 @@ async fn if_node_true_condition() {
     });
     let ctx = ctx_with(vec![("amount", serde_json::json!(250))]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     assert_eq!(
         result.get("_route_check").unwrap(),
         &serde_json::json!("high")
@@ -565,7 +565,7 @@ async fn if_node_false_condition() {
     });
     let ctx = ctx_with(vec![("amount", serde_json::json!(50))]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     assert_eq!(
         result.get("_route_check").unwrap(),
         &serde_json::json!("low")
@@ -583,7 +583,7 @@ async fn if_node_string_equality() {
     });
     let ctx = ctx_with(vec![("status", serde_json::json!("active"))]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     assert_eq!(
         result.get("_condition_result_check").unwrap(),
         &serde_json::json!(true)
@@ -601,7 +601,7 @@ async fn if_node_exists() {
     });
     let ctx = ctx_with(vec![("token", serde_json::json!("abc"))]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     assert_eq!(
         result.get("_condition_result_check").unwrap(),
         &serde_json::json!(true)
@@ -618,7 +618,7 @@ async fn if_node_missing_key_exists_false() {
         "_step_name": "check"
     });
 
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     assert_eq!(
         result.get("_condition_result_check").unwrap(),
         &serde_json::json!(false)
@@ -637,7 +637,7 @@ async fn if_http_status_node_success() {
 
     let ctx = ctx_with(vec![("probe_status", serde_json::json!(204))]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     assert_eq!(
         result.get("_route_probe").unwrap(),
         &serde_json::json!("success")
@@ -665,7 +665,7 @@ async fn if_http_status_node_error() {
 
     let ctx = ctx_with(vec![("probe_status", serde_json::json!(404))]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     assert_eq!(
         result.get("_route_probe").unwrap(),
         &serde_json::json!("bad")
@@ -690,7 +690,7 @@ async fn if_http_status_node_routes_map() {
     let unauthorized = node
         .execute(
             &config,
-            ctx_with(vec![("probe_status", serde_json::json!(401))]),
+            &ctx_with(vec![("probe_status", serde_json::json!(401))]),
         )
         .await
         .unwrap();
@@ -702,7 +702,7 @@ async fn if_http_status_node_routes_map() {
     let redirected = node
         .execute(
             &config,
-            ctx_with(vec![("probe_status", serde_json::json!(500))]),
+            &ctx_with(vec![("probe_status", serde_json::json!(500))]),
         )
         .await
         .unwrap();
@@ -726,7 +726,7 @@ async fn if_body_contains_node_case_sensitive_match() {
     });
     let ctx = ctx_with(vec![("response", serde_json::json!("Hello world"))]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     assert_eq!(
         result.get("_route_resp").unwrap(),
         &serde_json::json!("found")
@@ -750,7 +750,7 @@ async fn if_body_contains_node_case_insensitive_match() {
     });
     let ctx = ctx_with(vec![("payload", serde_json::json!("hello world"))]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     assert_eq!(
         result.get("_route_payload").unwrap(),
         &serde_json::json!("true")
@@ -774,7 +774,7 @@ async fn if_body_contains_node_no_match() {
     });
     let ctx = ctx_with(vec![("payload", serde_json::json!("hello world"))]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     assert_eq!(
         result.get("_route_payload").unwrap(),
         &serde_json::json!("notfound")
@@ -796,7 +796,7 @@ async fn if_body_contains_node_required_key_missing() {
         "required": true
     });
 
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
 }
 
@@ -818,7 +818,7 @@ async fn switch_node_match() {
     });
     let ctx = ctx_with(vec![("tier", serde_json::json!("gold"))]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     assert_eq!(
         result.get("_route_sw").unwrap(),
         &serde_json::json!("premium")
@@ -840,7 +840,7 @@ async fn switch_node_default() {
     });
     let ctx = ctx_with(vec![("tier", serde_json::json!("bronze"))]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     assert_eq!(
         result.get("_route_sw").unwrap(),
         &serde_json::json!("basic")
@@ -864,7 +864,7 @@ async fn json_extract_path_node() {
         serde_json::json!({"user":{"profile":{"roles":["admin","editor"]}}}),
     )]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     assert_eq!(
         result.get("second_role").unwrap(),
         &serde_json::json!("editor")
@@ -887,7 +887,7 @@ async fn json_extract_path_node_missing_with_default() {
         serde_json::json!({"user":{"profile":{"roles":["admin","editor"]}}}),
     )]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     assert_eq!(
         result.get("email").unwrap(),
         &serde_json::json!("not-found")
@@ -910,7 +910,7 @@ async fn json_extract_path_node_required_missing_fails() {
         serde_json::json!({"user":{"profile":{"roles":["admin","editor"]}}}),
     )]);
 
-    let result = node.execute(&config, ctx).await;
+    let result = node.execute(&config, &ctx).await;
     assert!(result.is_err());
 }
 
@@ -926,7 +926,7 @@ async fn hash_node_sha256() {
         "algorithm": "sha256"
     });
 
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     let hash = result.get("hash").unwrap().as_str().unwrap();
     assert_eq!(hash.len(), 64); // SHA-256 hex is 64 chars
 }
@@ -940,7 +940,7 @@ async fn delay_node() {
 
     let config = serde_json::json!({ "seconds": 0.01 });
     let start = std::time::Instant::now();
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     let elapsed = start.elapsed();
 
     assert!(elapsed.as_millis() >= 9); // at least ~10ms
@@ -960,7 +960,7 @@ async fn template_render_node() {
     });
     let ctx = ctx_with(vec![("name", serde_json::json!("World"))]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     assert_eq!(
         result.get("greeting").unwrap(),
         &serde_json::json!("Hello, World!")
@@ -986,7 +986,7 @@ async fn validate_schema_valid() {
     });
     let ctx = ctx_with(vec![("data", serde_json::json!({"name": "Alice"}))]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     assert_eq!(
         result.get("validation_success").unwrap(),
         &serde_json::json!(true)
@@ -1010,7 +1010,7 @@ async fn validate_schema_invalid() {
     });
     let ctx = ctx_with(vec![("data", serde_json::json!({"age": 30}))]);
 
-    let result = node.execute(&config, ctx).await;
+    let result = node.execute(&config, &ctx).await;
     // validate_schema should either return errors or fail
     // Let's check what the node does
     match result {
@@ -1046,7 +1046,7 @@ async fn json_validate_node_valid() {
         serde_json::json!(r#"{"name":"Alice"}"#),
     )]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     assert_eq!(
         result.get("validation_success").unwrap(),
         &serde_json::json!(true)
@@ -1070,7 +1070,7 @@ async fn json_validate_node_invalid() {
     });
     let ctx = ctx_with(vec![("payload_raw", serde_json::json!(r#"{"age":30}"#))]);
 
-    let result = node.execute(&config, ctx).await;
+    let result = node.execute(&config, &ctx).await;
     assert!(result.is_err());
 }
 
@@ -1085,7 +1085,7 @@ async fn json_validate_node_bad_json() {
     });
     let ctx = ctx_with(vec![("payload_raw", serde_json::json!("\"unclosed\""))]);
 
-    let result = node.execute(&config, ctx).await;
+    let result = node.execute(&config, &ctx).await;
     assert!(result.is_err());
 }
 
@@ -1102,7 +1102,7 @@ async fn markdown_to_html() {
     });
     let ctx = ctx_with(vec![("md", serde_json::json!("# Hello"))]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     let html = result.get("html").unwrap().as_str().unwrap();
     assert!(html.contains("<h1>"));
     assert!(html.contains("Hello"));
@@ -1119,7 +1119,7 @@ async fn code_node_source_string() {
         "source": "return { result = 42 }"
     });
 
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     assert_eq!(result.get("result").unwrap(), &serde_json::json!(42));
 }
 
@@ -1147,7 +1147,7 @@ async fn code_node_has_json_helpers() {
         "#
     });
 
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     assert_eq!(result.get("a").unwrap(), &serde_json::json!(1));
     assert_eq!(result.get("b").unwrap(), &serde_json::json!(true));
     assert_eq!(result.get("has_ts").unwrap(), &serde_json::json!(true));
@@ -1171,7 +1171,7 @@ async fn code_node_accesses_context() {
     });
     let ctx = ctx_with(vec![("name", serde_json::json!("World"))]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     assert_eq!(
         result.get("greeting").unwrap(),
         &serde_json::json!("Hello World")
@@ -1184,7 +1184,7 @@ async fn code_node_missing_source_fails() {
     let node = reg.get("code").unwrap();
 
     let config = serde_json::json!({});
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
 }
 
@@ -1208,7 +1208,7 @@ async fn data_transform_single_object() {
         serde_json::json!({"name": "Alice", "email": "a@b.com", "age": 30}),
     )]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     let transformed = result.get("result").unwrap();
     assert_eq!(transformed.get("full_name").unwrap(), "Alice");
     assert_eq!(transformed.get("mail").unwrap(), "a@b.com");
@@ -1230,7 +1230,7 @@ async fn data_transform_array() {
         serde_json::json!([{"name": "Alice"}, {"name": "Bob"}]),
     )]);
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     let arr = result.get("result").unwrap().as_array().unwrap();
     assert_eq!(arr.len(), 2);
     assert_eq!(arr[0].get("n").unwrap(), "Alice");

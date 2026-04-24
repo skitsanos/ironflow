@@ -62,7 +62,7 @@ async fn send_email_requires_api_key() {
         "text": "Hello"
     });
 
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(
@@ -83,7 +83,7 @@ async fn send_email_requires_to_field() {
         "text": "Hello"
     });
 
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(
@@ -104,7 +104,7 @@ async fn send_email_requires_subject_field() {
         "text": "Hello"
     });
 
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(
@@ -127,7 +127,7 @@ async fn send_email_unsupported_provider() {
         "text": "Hello"
     });
 
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(
@@ -151,7 +151,7 @@ async fn send_email_smtp_requires_server() {
         "text": "Hello"
     });
 
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(
@@ -180,7 +180,7 @@ async fn send_email_sends_correct_request() {
         "timeout": 5
     });
 
-    let out = node.execute(&config, empty_ctx()).await.unwrap();
+    let out = node.execute(&config, &empty_ctx()).await.unwrap();
     assert_eq!(out.get("email_status").unwrap().as_u64(), Some(200));
     assert_eq!(out.get("email_success").unwrap().as_bool(), Some(true));
     assert_eq!(
@@ -235,7 +235,7 @@ async fn send_email_interpolates_context() {
         "timeout": 5
     });
 
-    let out = node.execute(&config, ctx).await.unwrap();
+    let out = node.execute(&config, &ctx).await.unwrap();
     assert!(out.get("email_success").unwrap().as_bool().unwrap());
 
     let received = handle.join().unwrap();
@@ -275,7 +275,7 @@ async fn send_email_custom_output_key() {
         "timeout": 5
     });
 
-    let out = node.execute(&config, empty_ctx()).await.unwrap();
+    let out = node.execute(&config, &empty_ctx()).await.unwrap();
     assert!(out.contains_key("notification_status"));
     assert!(out.contains_key("notification_data"));
     assert!(out.contains_key("notification_success"));
@@ -300,7 +300,7 @@ async fn send_email_handles_server_error() {
         "timeout": 5
     });
 
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(
@@ -328,7 +328,7 @@ async fn send_email_accepts_array_recipients() {
         "timeout": 5
     });
 
-    let out = node.execute(&config, empty_ctx()).await.unwrap();
+    let out = node.execute(&config, &empty_ctx()).await.unwrap();
     assert!(out.get("email_success").unwrap().as_bool().unwrap());
 
     let received = handle.join().unwrap();

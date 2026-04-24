@@ -1,4 +1,4 @@
-# parallel_subworkflows
+# `parallel_subworkflows`
 
 Execute multiple subworkflows concurrently and collect their results.
 
@@ -9,6 +9,7 @@ Execute multiple subworkflows concurrently and collect their results.
 | `flows` | array | yes | — | Array of flow configurations to execute in parallel |
 | `output_key` | string | no | `"parallel_results"` | Key for the results array in context |
 | `on_error` | string | no | `"fail_fast"` | Error handling: `"fail_fast"` (fail on any error) or `"ignore"` (collect all results) |
+| `max_concurrent` | number | no | CPU count | Maximum child workflows executing at the same time. Hard-capped at `1024`. |
 
 ### Flow Entry Parameters
 
@@ -38,7 +39,7 @@ Each result entry contains:
 | `error` | string | Error message (only present on failure) |
 | *context keys* | any | Child flow output (merged directly or under per-flow `output_key`) |
 
-## Lua Example
+## Example
 
 ```lua
 local flow = Flow.new("parallel_workers")
@@ -49,7 +50,8 @@ flow:step("run_all", nodes.parallel_subworkflows({
         { flow = "fetch_users.lua", output_key = "users" },
         { flow = "fetch_orders.lua", output_key = "orders" },
         { flow = "fetch_metrics.lua", output_key = "metrics" }
-    }
+    },
+    max_concurrent = 3
 }))
 
 -- Use results from all three

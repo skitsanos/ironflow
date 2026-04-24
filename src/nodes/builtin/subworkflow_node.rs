@@ -3,12 +3,31 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use async_trait::async_trait;
+use tokio::sync::Semaphore;
 
 use crate::engine::executor::WorkflowEngine;
 use crate::engine::types::{Context, NodeOutput, RunStatus};
 use crate::lua::runtime::LuaRuntime;
 use crate::nodes::{Node, NodeRegistry};
 use crate::storage::null_store::NullStateStore;
+
+/// Process-global cap on concurrently-running fire-and-forget subworkflows.
+/// Override with `IRONFLOW_MAX_DETACHED_SUBWORKFLOWS`.
+const DEFAULT_MAX_DETACHED_SUBWORKFLOWS: usize = 64;
+
+pub(crate) fn detached_subworkflow_capacity() -> usize {
+    std::env::var("IRONFLOW_MAX_DETACHED_SUBWORKFLOWS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(DEFAULT_MAX_DETACHED_SUBWORKFLOWS)
+}
+
+pub(crate) fn detached_subworkflow_semaphore() -> &'static Arc<Semaphore> {
+    use std::sync::OnceLock;
+    static SEMAPHORE: OnceLock<Arc<Semaphore>> = OnceLock::new();
+    SEMAPHORE.get_or_init(|| Arc::new(Semaphore::new(detached_subworkflow_capacity())))
+}
 
 pub struct SubworkflowNode {
     /// Registry containing all non-subworkflow nodes.
@@ -37,7 +56,7 @@ impl Node for SubworkflowNode {
         "Load and execute another .lua flow as a reusable module"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let flow_file = config
             .get("flow")
             .and_then(|v| v.as_str())
@@ -148,10 +167,24 @@ impl Node for SubworkflowNode {
 
             Ok(output)
         } else {
-            // Fire-and-forget — spawn in background
+            // Fire-and-forget — spawn in background under a process-global
+            // semaphore so a caller cannot fan out unbounded background work.
+            let permit = detached_subworkflow_semaphore()
+                .clone()
+                .try_acquire_owned()
+                .map_err(|_| {
+                    anyhow::anyhow!(
+                        "subworkflow: detached fan-out limit reached ({}); refusing to spawn. \
+                         Raise IRONFLOW_MAX_DETACHED_SUBWORKFLOWS or wait for in-flight flows to complete.",
+                        detached_subworkflow_capacity()
+                    )
+                })?;
+
             let flow_name = flow.name.clone();
             let flow_name2 = flow_name.clone();
             tokio::spawn(async move {
+                // Permit is dropped when this task exits, releasing one slot.
+                let _permit = permit;
                 let engine = WorkflowEngine::new(child_registry, store, None);
                 if let Err(e) = engine.execute(&flow, sub_ctx).await {
                     tracing::error!(

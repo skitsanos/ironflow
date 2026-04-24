@@ -20,7 +20,7 @@ async fn xml_parse_simple_element() {
     let config = serde_json::json!({
         "input": "<root><name>Alice</name></root>"
     });
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     let data = result.get("xml_data").unwrap();
     assert_eq!(data["root"]["name"], "Alice");
 }
@@ -32,7 +32,7 @@ async fn xml_parse_with_attributes() {
     let config = serde_json::json!({
         "input": r#"<book id="1" lang="en"><title>Rust</title></book>"#
     });
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     let data = result.get("xml_data").unwrap();
     assert_eq!(data["book"]["@id"], "1");
     assert_eq!(data["book"]["@lang"], "en");
@@ -46,7 +46,7 @@ async fn xml_parse_nested() {
     let config = serde_json::json!({
         "input": "<root><person><name>Bob</name><age>30</age></person></root>"
     });
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     let data = result.get("xml_data").unwrap();
     assert_eq!(data["root"]["person"]["name"], "Bob");
     assert_eq!(data["root"]["person"]["age"], "30");
@@ -63,7 +63,7 @@ async fn xml_parse_via_source_key() {
         "my_xml",
         serde_json::Value::String("<item><name>Test</name></item>".to_string()),
     )]);
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     let data = result.get("xml_data").unwrap();
     assert_eq!(data["item"]["name"], "Test");
 }
@@ -76,7 +76,7 @@ async fn xml_parse_custom_output_key() {
         "input": "<root><x>1</x></root>",
         "output_key": "parsed"
     });
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     assert!(result.contains_key("parsed"));
     assert_eq!(result.get("parsed").unwrap()["root"]["x"], "1");
 }
@@ -86,7 +86,7 @@ async fn xml_parse_empty_input_error() {
     let reg = NodeRegistry::with_builtins();
     let node = reg.get("xml_parse").unwrap();
     let config = serde_json::json!({});
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
 }
 
@@ -104,7 +104,7 @@ async fn xml_stringify_simple() {
         "data",
         serde_json::json!({"name": "Alice", "age": 30}),
     )]);
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     let xml = result.get("xml_out").unwrap().as_str().unwrap();
     assert!(xml.contains("<root>"));
     assert!(xml.contains("<name>Alice</name>"));
@@ -121,7 +121,7 @@ async fn xml_stringify_pretty() {
         "pretty": true
     });
     let ctx = ctx_with(vec![("data", serde_json::json!({"key": "value"}))]);
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     let xml = result.get("xml").unwrap().as_str().unwrap();
     assert!(xml.contains('\n'));
     assert!(xml.contains("  <key>"));
@@ -136,7 +136,7 @@ async fn xml_stringify_custom_root_tag() {
         "root_tag": "catalog"
     });
     let ctx = ctx_with(vec![("data", serde_json::json!({"item": "book"}))]);
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
     let xml = result.get("xml").unwrap().as_str().unwrap();
     assert!(xml.contains("<catalog>"));
     assert!(xml.contains("</catalog>"));

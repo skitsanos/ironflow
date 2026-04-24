@@ -102,18 +102,20 @@ Start the REST API server.
 |------|----------|---------|---------|-------------|
 | `--host <HOST>` | no | `0.0.0.0` | `HOST` | Address to bind to |
 | `-p, --port <PORT>` | no | `3000` | `PORT` | Port to listen on |
-| `--store-dir <DIR>` | no | `data/runs` | `STORE_DIR` | State store directory |
+| `--store-dir <DIR>` | no | `data/runs` | `IRONFLOW_STORE_DIR` | State store directory |
 | `--flows-dir <DIR>` | no | — | `FLOWS_DIR` | Directory for `.lua` flow files |
 | `--max-body <BYTES>` | no | `1048576` | `MAX_BODY` | Maximum request body size in bytes |
 
 CLI flags take precedence over environment variables.
+API authentication is required when binding to a non-loopback address. Set `IRONFLOW_API_KEY`; clients must send either `Authorization: Bearer <key>` or `X-API-Key: <key>`.
+Browser CORS access is denied by default. Set `IRONFLOW_CORS_ORIGINS` or `cors_origins` in config to allow specific frontend origins.
 
 ```bash
 # Local development
-ironflow serve --port 8080
+ironflow serve --host 127.0.0.1 --port 8080
 
 # Docker / Railway / Fly.io (reads PORT from environment)
-ironflow serve
+IRONFLOW_API_KEY="change-me" ironflow serve
 ```
 
 ### Configuration File
@@ -126,34 +128,95 @@ ironflow -C /path/to/ironflow.yaml serve
 
 #### Storage Backend
 
-IronFlow supports two state storage backends:
+IronFlow supports these state storage backends:
 
 - **json** (default) — File-based JSON storage in `store_dir`
+- **sqlite** — SQL storage in a local SQLite database
+- **postgres** — SQL storage in Postgres (requires building with `--features postgres`)
 - **redis** — Redis-backed storage (requires building with `--features redis`)
 
 Configure via `ironflow.yaml`:
 
 ```yaml
-store_backend: redis
-redis_url: "redis://127.0.0.1:6379"
-redis_prefix: "ironflow:"    # key prefix (default: "ironflow:")
-redis_ttl: 86400              # optional: TTL in seconds for run keys
+store_backend: sqlite
+store_url: "sqlite://data/runs/ironflow.sqlite?mode=rwc"
+event_store: memory
+sql_table_prefix: "ironflow_"
 ```
 
 Or via environment variables (override config file):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `STORE_BACKEND` | `json` | Storage backend: `json` or `redis` |
+| `IRONFLOW_STORE` | `json` | Storage backend: `json`, `sqlite`, `postgres`, or `redis` |
+| `IRONFLOW_STORE_URL` | SQLite auto path for `sqlite`; required for `postgres` | SQL store URL |
+| `IRONFLOW_EVENT_STORE` | `memory` | Event backend for `/runs/{id}/events`: `memory`, `sqlite`, `postgres`, or `redis` |
+| `IRONFLOW_EVENT_STORE_URL` | SQLite auto path for `sqlite`; required for `postgres` | SQL event store URL |
+| `IRONFLOW_SQL_TABLE_PREFIX` | `ironflow_` | SQL table/index prefix for SQLite/Postgres state and event stores |
 | `REDIS_URL` | `redis://127.0.0.1:6379` | Redis connection URL |
 | `REDIS_PREFIX` | `ironflow:` | Key prefix for Redis keys |
 | `REDIS_TTL` | — | TTL in seconds for run keys (no expiration if unset) |
 
-To build with Redis support:
+When `IRONFLOW_STORE=sqlite` and no URL is configured, IronFlow creates `ironflow.sqlite` under `IRONFLOW_STORE_DIR`.
+When `IRONFLOW_EVENT_STORE=sqlite` and no URL is configured, IronFlow creates `ironflow-events.sqlite` under `IRONFLOW_STORE_DIR`.
+Run state and run events are configured separately, so a deployment can store run records in one backend and stream event replay from another. Redis event storage is available behind `--features redis` and uses `REDIS_URL`, `REDIS_PREFIX`, and optional `REDIS_TTL`.
+For shared SQL databases, set `IRONFLOW_SQL_TABLE_PREFIX` or `sql_table_prefix` to isolate IronFlow tables. Prefixes are strictly validated and may contain only ASCII letters, digits, and underscores after deriving table names.
+
+To build with optional backends:
 
 ```bash
+cargo build --release --features postgres
 cargo build --release --features redis
 ```
+
+#### CORS
+
+By default, the API does not send `Access-Control-Allow-Origin`, so browser cross-origin requests are denied. Configure exact allowed origins in `ironflow.yaml`:
+
+```yaml
+cors_origins:
+  - "https://app.example.com"
+  - "https://admin.example.com"
+```
+
+Or via environment variable:
+
+```bash
+IRONFLOW_CORS_ORIGINS="https://app.example.com,https://admin.example.com" ironflow serve
+```
+
+Use `IRONFLOW_CORS_ORIGINS="*"` only when intentionally allowing any browser origin.
+
+#### API Authentication
+
+When the API is bound to a public interface, IronFlow requires an API key:
+
+```bash
+IRONFLOW_API_KEY="change-me" ironflow serve
+```
+
+Clients can authenticate with either header:
+
+```bash
+curl http://localhost:3000/runs \
+  -H "Authorization: Bearer change-me"
+
+curl http://localhost:3000/runs \
+  -H "X-API-Key: change-me"
+```
+
+To intentionally run without API authentication, set `IRONFLOW_ALLOW_UNAUTHENTICATED_API=true` or `allow_unauthenticated_api: true` in config. Loopback-only servers (`127.0.0.1`, `localhost`, `::1`) are allowed without a key for local development.
+
+#### Run Events
+
+`GET /runs/{id}/events` streams compact run/task lifecycle events as Server-Sent Events. Events include run/task status, step name, node type, attempts, timing, errors, and skip reasons, but never full node input/output.
+
+```bash
+curl -N http://localhost:3000/runs/<run_id>/events \
+  -H "Authorization: Bearer change-me"
+```
+
+Use `?after=<event_id>` to replay events after a known event cursor.
 
 #### Webhook Routes
 
@@ -191,15 +254,35 @@ These are read by the `serve` command. CLI flags override them.
 |----------|---------|-------------|
 | `HOST` | `0.0.0.0` | Server bind address |
 | `PORT` | `3000` | Server listen port |
-| `STORE_DIR` | `data/runs` | State store directory |
+| `IRONFLOW_STORE_DIR` | `data/runs` | State store directory |
+| `IRONFLOW_STORE` | `json` | State store backend: `json`, `sqlite`, `postgres`, or `redis` |
+| `IRONFLOW_STORE_URL` | — | SQL store URL for `sqlite` / `postgres` |
+| `IRONFLOW_EVENT_STORE` | `memory` | Event backend for `/runs/{id}/events`: `memory`, `sqlite`, `postgres`, or `redis` |
+| `IRONFLOW_EVENT_STORE_URL` | — | SQL event store URL for `sqlite` / `postgres` |
+| `IRONFLOW_SQL_TABLE_PREFIX` | `ironflow_` | SQL table/index prefix for SQLite/Postgres state and event stores |
 | `FLOWS_DIR` | — | Flow files directory |
 | `MAX_BODY` | `1048576` | Max request body size (bytes) |
+| `IRONFLOW_API_KEY` | — | API key required for non-loopback API servers |
+| `IRONFLOW_ALLOW_UNAUTHENTICATED_API` | `false` | Explicitly allow unauthenticated API access |
+| `IRONFLOW_CORS_ORIGINS` | — | Comma-separated allowed browser origins; use `*` to allow any origin |
 
 ### Engine
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `IRONFLOW_MAX_CONCURRENT_TASKS` | number of CPUs | Maximum tasks running in parallel per workflow execution |
+| `IRONFLOW_LUA_MAX_INSTRUCTIONS` | `5000000` | Max Lua VM instructions per flow parse/code execution; `0` disables |
+| `IRONFLOW_LUA_MAX_SECONDS` | `10` | Max wall-clock seconds per Lua state; `0` disables |
+| `IRONFLOW_LUA_MAX_MEMORY_BYTES` | `134217728` | Max Lua VM memory per Lua state; `0` disables |
+| `IRONFLOW_LUA_HOOK_INTERVAL` | `10000` | Instruction interval for budget checks |
+| `IRONFLOW_LUA_GC_AFTER_EXECUTION` | `true` | Run a Lua garbage-collection cycle after flow parsing/code execution |
+| `IRONFLOW_CACHE_MAX_ENTRIES` | `10000` | Max entries retained by the process-global `cache_set` / `cache_get` memory backend |
+| `IRONFLOW_CACHE_DIR` | `.ironflow_cache` | Default directory for the `cache_set` / `cache_get` file backend when `cache_dir` is not set |
+| `IRONFLOW_DB_MAX_ROWS` | `1000` | Max rows returned by `db_query`; `0` disables |
+| `IRONFLOW_DB_MAX_RESULT_BYTES` | `10485760` | Max serialized JSON result size for `db_query`; `0` disables |
+| `IRONFLOW_LLM_MAX_RESPONSE_BYTES` | `26214400` | Max LLM provider response body size; `0` disables |
+
+Lua limits apply to flow parsing, `code` nodes, and `foreach` transform functions. For trusted dedicated-server workloads that intentionally run long Lua computations, raise the budgets or set the relevant budget to `0`.
 
 ### Dotenv
 

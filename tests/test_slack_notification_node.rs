@@ -59,7 +59,7 @@ async fn slack_notification_requires_webhook_when_missing_config_and_env() {
         "text": "hello"
     });
 
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(
@@ -79,7 +79,7 @@ async fn slack_notification_uses_env_webhook_then_validates_text_first() {
         "webhook_url": "https://example.invalid/slack_webhook",
         "payload": {}
     });
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(
@@ -100,7 +100,7 @@ async fn slack_notification_rejects_non_object_payload() {
         "payload": "not-an-object"
     });
 
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(
@@ -123,7 +123,7 @@ async fn slack_notification_sends_text_to_webhook() {
         "timeout": 5
     });
 
-    let out = node.execute(&config, empty_ctx()).await.unwrap();
+    let out = node.execute(&config, &empty_ctx()).await.unwrap();
     assert_eq!(out.get("slack_status").unwrap().as_u64(), Some(200));
     assert_eq!(out.get("slack_success").unwrap().as_bool(), Some(true));
 
@@ -152,7 +152,7 @@ async fn slack_notification_sends_payload_with_blocks() {
         "timeout": 5
     });
 
-    let out = node.execute(&config, empty_ctx()).await.unwrap();
+    let out = node.execute(&config, &empty_ctx()).await.unwrap();
     assert_eq!(out.get("slack_status").unwrap().as_u64(), Some(200));
 
     let received = handle.join().unwrap();
@@ -177,7 +177,7 @@ async fn slack_notification_interpolates_context() {
         "timeout": 5
     });
 
-    let out = node.execute(&config, ctx).await.unwrap();
+    let out = node.execute(&config, &ctx).await.unwrap();
     assert!(out.get("slack_success").unwrap().as_bool().unwrap());
 
     let received = handle.join().unwrap();
@@ -201,7 +201,7 @@ async fn slack_notification_uses_message_alias() {
         "timeout": 5
     });
 
-    let out = node.execute(&config, empty_ctx()).await.unwrap();
+    let out = node.execute(&config, &empty_ctx()).await.unwrap();
     assert!(out.get("slack_success").unwrap().as_bool().unwrap());
 
     let received = handle.join().unwrap();
@@ -221,7 +221,7 @@ async fn slack_notification_fails_on_server_error() {
         "timeout": 5
     });
 
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(
@@ -245,7 +245,7 @@ async fn slack_notification_custom_output_key() {
         "timeout": 5
     });
 
-    let out = node.execute(&config, empty_ctx()).await.unwrap();
+    let out = node.execute(&config, &empty_ctx()).await.unwrap();
     assert!(out.contains_key("notif_status"));
     assert!(out.contains_key("notif_data"));
     assert!(out.contains_key("notif_success"));

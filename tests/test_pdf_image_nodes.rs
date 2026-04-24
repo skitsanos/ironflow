@@ -53,7 +53,7 @@ async fn pdf_to_image_generates_base64_pages() {
         "output_key": "images"
     });
 
-    let result = match node.execute(&config, empty_ctx()).await {
+    let result = match node.execute(&config, &empty_ctx()).await {
         Ok(result) => result,
         Err(err) => {
             if is_pdfium_error(&err) {
@@ -67,6 +67,25 @@ async fn pdf_to_image_generates_base64_pages() {
     assert_eq!(images.len(), 1);
     assert!(images[0].get("image_base64").is_some());
     assert_eq!(result.get("page_count").unwrap().as_u64().unwrap(), 1);
+}
+
+#[tokio::test]
+async fn pdf_to_image_rejects_excessive_dpi_before_loading() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("pdf_to_image").unwrap();
+
+    let result = node
+        .execute(
+            &serde_json::json!({
+                "path": "/definitely/missing.pdf",
+                "dpi": 10_000,
+            }),
+            &empty_ctx(),
+        )
+        .await;
+
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("dpi"));
 }
 
 #[tokio::test]
@@ -87,7 +106,7 @@ async fn pdf_thumbnail_generates_one_thumbnail() {
         "output_key": "thumb"
     });
 
-    let result = match node.execute(&config, empty_ctx()).await {
+    let result = match node.execute(&config, &empty_ctx()).await {
         Ok(result) => result,
         Err(err) => {
             if is_pdfium_error(&err) {
@@ -126,7 +145,7 @@ async fn image_to_pdf_accepts_paths() {
         "output_key": "pdf_path"
     });
 
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
 
     assert_eq!(result.get("pdf_path_count").unwrap().as_u64().unwrap(), 2);
     assert_eq!(result.get("image_count").unwrap().as_u64().unwrap(), 2);
@@ -180,7 +199,7 @@ async fn image_to_pdf_accepts_source_key_with_base64_and_paths() {
         "output_key": "pdf"
     });
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
 
     assert_eq!(result.get("pdf_count").unwrap().as_u64().unwrap(), 3);
     assert_eq!(result.get("image_count").unwrap().as_u64().unwrap(), 3);
@@ -206,7 +225,7 @@ async fn image_resize_generates_resized_file() {
         "output_key": "resized"
     });
 
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
 
     assert_eq!(result.get("resized_width").unwrap().as_u64().unwrap(), 96);
     assert!(result.get("resized_height").unwrap().as_u64().unwrap() > 0);
@@ -250,7 +269,7 @@ async fn image_crop_generates_cropped_file() {
         "output_key": "cropped"
     });
 
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
 
     assert_eq!(result.get("cropped_x").unwrap().as_u64().unwrap(), 10);
     assert_eq!(result.get("cropped_y").unwrap().as_u64().unwrap(), 8);
@@ -281,7 +300,7 @@ async fn pdf_metadata_extracts_key_fields() {
         "output_key": "meta"
     });
 
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     let meta = result.get("meta").unwrap().as_object().unwrap();
     assert!(meta.contains_key("pages"));
     assert!(meta.get("pages").unwrap().as_u64().unwrap() > 0);
@@ -307,7 +326,7 @@ async fn image_rotate_generates_rotated_file() {
         "output_key": "rotated"
     });
 
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
 
     assert_eq!(
         result.get("rotated").unwrap().as_str().unwrap(),
@@ -351,7 +370,7 @@ async fn image_flip_and_grayscale() {
         "output_key": "flipped"
     });
 
-    let flip_result = flip.execute(&flip_config, empty_ctx()).await.unwrap();
+    let flip_result = flip.execute(&flip_config, &empty_ctx()).await.unwrap();
     assert!(
         flip_result
             .get("flipped_success")
@@ -382,7 +401,7 @@ async fn image_flip_and_grayscale() {
         "output_key": "gray"
     });
 
-    let gray_result = gray.execute(&gray_config, empty_ctx()).await.unwrap();
+    let gray_result = gray.execute(&gray_config, &empty_ctx()).await.unwrap();
     assert_eq!(gray_result.get("gray_format").unwrap(), "png");
     assert!(gray_result.get("gray_success").unwrap().as_bool().unwrap());
 

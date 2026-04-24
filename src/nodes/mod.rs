@@ -18,7 +18,13 @@ pub trait Node: Send + Sync {
     fn description(&self) -> &str;
 
     /// Execute the node with the given configuration and current context.
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput>;
+    ///
+    /// Nodes receive `ctx` by shared reference and must not assume they can
+    /// mutate it — the engine merges the returned `NodeOutput` back into the
+    /// workflow context. Taking `&Context` lets the executor share a single
+    /// `Arc<Context>` across parallel attempts instead of deep-cloning the
+    /// whole map on every attempt.
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput>;
 }
 
 /// Registry of available node types.

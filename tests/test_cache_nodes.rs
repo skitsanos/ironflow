@@ -1,9 +1,13 @@
 //! Tests for cache_set and cache_get nodes.
 
 use std::collections::HashMap;
+use std::sync::LazyLock;
 
 use ironflow::engine::types::Context;
 use ironflow::nodes::NodeRegistry;
+
+static CACHE_ENV_LOCK: LazyLock<tokio::sync::Mutex<()>> =
+    LazyLock::new(|| tokio::sync::Mutex::new(()));
 
 // --- Helpers ---
 
@@ -25,7 +29,7 @@ async fn cache_set_memory_happy_path() {
     });
 
     let output = node
-        .execute(&config, empty_ctx())
+        .execute(&config, &empty_ctx())
         .await
         .expect("cache_set succeeds");
 
@@ -56,7 +60,7 @@ async fn cache_get_memory_happy_path() {
         "backend": "memory"
     });
     set_node
-        .execute(&set_config, empty_ctx())
+        .execute(&set_config, &empty_ctx())
         .await
         .expect("cache_set succeeds");
 
@@ -65,7 +69,7 @@ async fn cache_get_memory_happy_path() {
         "backend": "memory"
     });
     let output = get_node
-        .execute(&get_config, empty_ctx())
+        .execute(&get_config, &empty_ctx())
         .await
         .expect("cache_get succeeds");
 
@@ -85,7 +89,7 @@ async fn cache_get_memory_missing_key() {
         "backend": "memory"
     });
     let output = get_node
-        .execute(&config, empty_ctx())
+        .execute(&config, &empty_ctx())
         .await
         .expect("cache_get succeeds");
 
@@ -114,7 +118,7 @@ async fn cache_set_file_backend() {
     });
 
     let output = node
-        .execute(&config, empty_ctx())
+        .execute(&config, &empty_ctx())
         .await
         .expect("cache_set file succeeds");
 
@@ -150,7 +154,7 @@ async fn cache_get_file_backend() {
         "cache_dir": cache_dir
     });
     set_node
-        .execute(&set_config, empty_ctx())
+        .execute(&set_config, &empty_ctx())
         .await
         .expect("cache_set file succeeds");
 
@@ -160,7 +164,7 @@ async fn cache_get_file_backend() {
         "cache_dir": cache_dir
     });
     let output = get_node
-        .execute(&get_config, empty_ctx())
+        .execute(&get_config, &empty_ctx())
         .await
         .expect("cache_get file succeeds");
 
@@ -169,4 +173,168 @@ async fn cache_get_file_backend() {
         &serde_json::json!([1, 2, 3])
     );
     assert_eq!(output.get("cache_hit").unwrap(), &serde_json::json!(true));
+}
+
+#[tokio::test]
+async fn cache_file_backend_uses_env_default_directory() {
+    let _guard = CACHE_ENV_LOCK.lock().await;
+    let previous = std::env::var("IRONFLOW_CACHE_DIR").ok();
+
+    let tmp = tempfile::tempdir().expect("create tempdir");
+    unsafe { std::env::set_var("IRONFLOW_CACHE_DIR", tmp.path()) };
+
+    let reg = NodeRegistry::with_builtins();
+    let set_node = reg.get("cache_set").expect("cache_set node exists");
+    let get_node = reg.get("cache_get").expect("cache_get node exists");
+
+    let set_config = serde_json::json!({
+        "key": "env_default_file_cache",
+        "value": {"from": "env"},
+        "backend": "file"
+    });
+    set_node
+        .execute(&set_config, &empty_ctx())
+        .await
+        .expect("cache_set file succeeds with env cache dir");
+
+    let get_config = serde_json::json!({
+        "key": "env_default_file_cache",
+        "backend": "file"
+    });
+    let output = get_node
+        .execute(&get_config, &empty_ctx())
+        .await
+        .expect("cache_get file succeeds with env cache dir");
+
+    assert_eq!(
+        output.get("cached_value").unwrap(),
+        &serde_json::json!({"from": "env"})
+    );
+    assert_eq!(output.get("cache_hit").unwrap(), &serde_json::json!(true));
+    assert!(tmp.path().join("env_default_file_cache.json").exists());
+
+    match previous {
+        Some(value) => unsafe { std::env::set_var("IRONFLOW_CACHE_DIR", value) },
+        None => unsafe { std::env::remove_var("IRONFLOW_CACHE_DIR") },
+    }
+}
+
+// --- Memory backend: TTL expiry reclaims entry on get ---
+
+#[tokio::test]
+async fn cache_get_memory_expired_entry_is_reclaimed() {
+    let reg = NodeRegistry::with_builtins();
+    let set_node = reg.get("cache_set").expect("cache_set node exists");
+    let get_node = reg.get("cache_get").expect("cache_get node exists");
+
+    let key = "ttl_expiry_test_key";
+
+    // Write with ttl=0 → expires immediately (now >= now+0)
+    let set_config = serde_json::json!({
+        "key": key,
+        "value": "ephemeral",
+        "backend": "memory",
+        "ttl": 0
+    });
+    set_node
+        .execute(&set_config, &empty_ctx())
+        .await
+        .expect("cache_set succeeds");
+
+    // Sleep past the second boundary to guarantee expiry
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+
+    let get_config = serde_json::json!({"key": key, "backend": "memory"});
+    let output = get_node
+        .execute(&get_config, &empty_ctx())
+        .await
+        .expect("cache_get succeeds");
+
+    assert_eq!(
+        output.get("cached_value").unwrap(),
+        &serde_json::Value::Null
+    );
+    assert_eq!(output.get("cache_hit").unwrap(), &serde_json::json!(false));
+}
+
+// --- Memory backend: cache_set returns a cache_size field ---
+
+#[tokio::test]
+async fn cache_set_memory_reports_size() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("cache_set").expect("cache_set node exists");
+
+    let config = serde_json::json!({
+        "key": "size_probe_key_unique",
+        "value": 1,
+        "backend": "memory"
+    });
+    let output = node
+        .execute(&config, &empty_ctx())
+        .await
+        .expect("cache_set succeeds");
+
+    let size = output
+        .get("cache_size")
+        .and_then(|v| v.as_u64())
+        .expect("memory cache_set should report cache_size");
+    assert!(
+        size >= 1,
+        "cache_size should be at least 1 after an insert (got {size})"
+    );
+}
+
+// --- BoundedCache primitive tested via direct import ---
+
+#[test]
+fn bounded_cache_enforces_hard_upper_bound() {
+    use ironflow::util::bounded_cache::BoundedCache;
+
+    let cache: BoundedCache<String, u64> = BoundedCache::new(32);
+    for i in 0..1_000 {
+        cache.insert(format!("entry_{i}"), i, None);
+    }
+    assert_eq!(
+        cache.len(),
+        32,
+        "BoundedCache must never exceed max_entries — that is the whole point"
+    );
+}
+
+#[test]
+fn bounded_cache_lru_evicts_oldest_unused() {
+    use ironflow::util::bounded_cache::BoundedCache;
+
+    let cache: BoundedCache<String, u64> = BoundedCache::new(3);
+    cache.insert("a".into(), 1, None);
+    cache.insert("b".into(), 2, None);
+    cache.insert("c".into(), 3, None);
+
+    // Touch a and b, leaving c as LRU
+    assert_eq!(cache.get(&"a".into()), Some(1));
+    assert_eq!(cache.get(&"b".into()), Some(2));
+
+    // Insert a fourth entry — c must be evicted
+    cache.insert("d".into(), 4, None);
+    assert_eq!(cache.get(&"c".into()), None);
+    assert_eq!(cache.get(&"d".into()), Some(4));
+}
+
+#[test]
+fn bounded_cache_sweep_reclaims_expired_without_read() {
+    use ironflow::util::bounded_cache::BoundedCache;
+
+    let cache: BoundedCache<String, u64> = BoundedCache::new(16);
+    // ttl=1 keeps entries alive long enough to survive the implicit sweep
+    // that runs inside the third `insert` below.
+    cache.insert("short_1".into(), 1, Some(1));
+    cache.insert("short_2".into(), 2, Some(1));
+    cache.insert("forever".into(), 3, None);
+
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+
+    let removed = cache.sweep_expired();
+    assert_eq!(removed, 2);
+    assert_eq!(cache.len(), 1);
+    assert_eq!(cache.get(&"forever".into()), Some(3));
 }

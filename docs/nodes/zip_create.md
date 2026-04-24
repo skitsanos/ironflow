@@ -10,6 +10,8 @@ Create a ZIP archive from a file or directory.
 | `zip_path` | string | yes | — | Output path for the generated ZIP file. Supports `${ctx.*}` interpolation. |
 | `include_root` | bool | no | `false` | When `true`, include the top-level source directory name as the archive root entry when zipping a directory. |
 | `compression` | string | no | `"deflated"` | Compression algorithm: `"stored"` (no compression) or `"deflated"`. |
+| `max_entries` | number | no | `IRONFLOW_MAX_ZIP_ENTRIES` / `10000` | Maximum number of files added to the archive. |
+| `max_total_uncompressed_bytes` | number | no | `IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES` / `536870912` | Maximum total source bytes before compression. |
 
 ## Context Output
 
@@ -37,3 +39,7 @@ flow:step("log", nodes.log({
 
 return flow
 ```
+
+## Limits
+
+`zip_create` walks the input tree before writing the archive. It fails when the file count or total uncompressed source size exceeds the configured limits, which prevents unexpectedly large archives from consuming CPU, memory, or storage.

@@ -1,4 +1,4 @@
-# html_sanitize
+# `html_sanitize`
 
 Sanitize HTML by removing dangerous tags, attributes, and scripts using the [ammonia](https://crates.io/crates/ammonia) crate.
 
@@ -15,7 +15,7 @@ Sanitize HTML by removing dangerous tags, attributes, and scripts using the [amm
 
 *One of `input` or `source_key` is required (not both).
 
-## Output
+## Context Output
 
 | Key            | Type   | Description          |
 |----------------|--------|----------------------|

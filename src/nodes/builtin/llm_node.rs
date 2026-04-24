@@ -1,5 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
+use futures_util::TryStreamExt;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde_json::{Map, Value, json};
 use std::time::Duration;
@@ -7,6 +8,7 @@ use std::time::Duration;
 use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
+use crate::util::limits;
 
 use super::ai_embed_node::resolve_param;
 
@@ -108,13 +110,11 @@ fn parse_mode(config: &serde_json::Value) -> Result<LlmMode> {
 
 fn extract_text(value: &serde_json::Value, out: &mut String) {
     match value {
-        Value::String(s) => {
-            if !s.is_empty() {
-                if !out.is_empty() {
-                    out.push(' ');
-                }
-                out.push_str(s);
+        Value::String(s) if !s.is_empty() => {
+            if !out.is_empty() {
+                out.push(' ');
             }
+            out.push_str(s);
         }
         Value::Array(items) => {
             for item in items {
@@ -247,6 +247,51 @@ fn parse_timeout(config: &serde_json::Value) -> f64 {
         .get("timeout")
         .and_then(|v| v.as_f64())
         .unwrap_or(30.0)
+}
+
+fn optional_u64_config(config: &serde_json::Value, key: &str) -> Option<u64> {
+    config.get(key).and_then(|value| match value {
+        serde_json::Value::Number(n) => n.as_u64(),
+        serde_json::Value::String(s) => s.parse::<u64>().ok(),
+        _ => None,
+    })
+}
+
+async fn read_capped_response_body(
+    response: reqwest::Response,
+    max_bytes: Option<u64>,
+) -> Result<String> {
+    if let Some(max_bytes) = max_bytes
+        && let Some(content_length) = response.content_length()
+        && content_length > max_bytes
+    {
+        anyhow::bail!(
+            "llm: response body content-length {} exceeds max_response_bytes limit of {}",
+            content_length,
+            max_bytes
+        );
+    }
+
+    let mut body = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream
+        .try_next()
+        .await
+        .map_err(|e| anyhow::anyhow!("llm: failed to read response body: {}", e))?
+    {
+        if let Some(max_bytes) = max_bytes
+            && body.len() as u64 + chunk.len() as u64 > max_bytes
+        {
+            anyhow::bail!(
+                "llm: response body exceeded max_response_bytes limit of {}",
+                max_bytes
+            );
+        }
+        body.extend_from_slice(&chunk);
+    }
+
+    String::from_utf8(body)
+        .map_err(|e| anyhow::anyhow!("llm: response body is not valid UTF-8: {}", e))
 }
 
 fn resolve_tools(config: &serde_json::Value, ctx: &Context) -> Result<Option<serde_json::Value>> {
@@ -613,20 +658,23 @@ impl Node for LlmNode {
         "Run Chat Completions or Responses against OpenAI, OpenAI-compatible, Azure, or custom providers"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let mode = parse_mode(config)?;
         let timeout_s = parse_timeout(config);
-        let tools = resolve_tools(config, &ctx)?;
-        let tool_choice = resolve_tool_choice(config, &ctx)?;
+        let tools = resolve_tools(config, ctx)?;
+        let tool_choice = resolve_tool_choice(config, ctx)?;
         let output_key = config
             .get("output_key")
             .and_then(|v| v.as_str())
             .unwrap_or("llm")
             .to_string();
+        let max_response_bytes = optional_u64_config(config, "max_response_bytes")
+            .filter(|limit| *limit > 0)
+            .or_else(limits::max_llm_response_bytes);
 
-        let messages = resolve_messages(config, &ctx)?;
+        let messages = resolve_messages(config, ctx)?;
         let prompt = if messages.is_none() {
-            resolve_prompt(config, &ctx)?
+            resolve_prompt(config, ctx)?
         } else {
             String::new()
         };
@@ -637,14 +685,14 @@ impl Node for LlmNode {
                 config,
                 "azure_chat_deployment",
                 "AZURE_OPENAI_CHAT_DEPLOYMENT",
-                &ctx,
+                ctx,
             )
             .or_else(|| {
                 resolve_param(
                     config,
                     "azure_responses_deployment",
                     "AZURE_OPENAI_RESPONSES_DEPLOYMENT",
-                    &ctx,
+                    ctx,
                 )
             })
             .or_else(|| Some("".to_string()))
@@ -652,14 +700,14 @@ impl Node for LlmNode {
             None
         };
         let model = resolve_model(config, mode, azure_deployment.as_deref());
-        let (url, headers, provider_name) = resolve_provider_config(config, &ctx, mode)?;
+        let (url, headers, provider_name) = resolve_provider_config(config, ctx, mode)?;
         let request_input = LlmBodyInput {
             mode,
             model: &model,
             messages,
             prompt: &prompt,
             config,
-            ctx: &ctx,
+            ctx,
             tools,
             tool_choice,
         };
@@ -678,10 +726,7 @@ impl Node for LlmNode {
             .map_err(|e| anyhow::anyhow!("llm: request failed: {}", e))?;
 
         let status = response.status();
-        let response_text = response
-            .text()
-            .await
-            .map_err(|e| anyhow::anyhow!("llm: failed to read response body: {}", e))?;
+        let response_text = read_capped_response_body(response, max_response_bytes).await?;
 
         if !status.is_success() {
             anyhow::bail!(

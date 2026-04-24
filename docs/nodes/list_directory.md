@@ -9,6 +9,8 @@ List files and directories within a given path.
 | `path` | string | yes | — | Directory to list. Supports `${ctx.*}` interpolation. |
 | `recursive` | bool | no | `false` | When `true`, descend into subdirectories and include their entries as well. |
 | `output_key` | string | no | `"files"` | Context key where the resulting array is stored. |
+| `max_entries` | number | no | `IRONFLOW_MAX_DIRECTORY_ENTRIES` / `10000` | Maximum entries returned before failing. |
+| `max_depth` | number | no | `IRONFLOW_MAX_DIRECTORY_DEPTH` / `32` | Maximum recursive traversal depth. |
 
 ## Context Output
 
@@ -35,3 +37,7 @@ flow:step("show", nodes.log({
 
 return flow
 ```
+
+## Limits
+
+`list_directory` accumulates entries into workflow context, so recursive listings are capped by default. Raise `max_entries` / `max_depth` for a trusted workflow, or set `IRONFLOW_MAX_DIRECTORY_ENTRIES` / `IRONFLOW_MAX_DIRECTORY_DEPTH` for the process.

@@ -27,7 +27,7 @@ async fn image_metadata_basic() {
         "path": img_path.to_string_lossy()
     });
 
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     assert_eq!(
         result
             .get("image_metadata_width")
@@ -69,7 +69,7 @@ async fn image_metadata_custom_output_key() {
         "output_key": "my_img"
     });
 
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     assert_eq!(result.get("my_img_width").unwrap().as_u64().unwrap(), 300);
     assert_eq!(result.get("my_img_height").unwrap().as_u64().unwrap(), 150);
     assert_eq!(
@@ -88,7 +88,7 @@ async fn image_metadata_missing_file_error() {
         "path": "/tmp/nonexistent_image_12345.png"
     });
 
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
 }
 
@@ -108,7 +108,7 @@ async fn image_convert_png_to_jpeg() {
         "quality": 90
     });
 
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     assert!(out_path.exists());
     assert!(
         result
@@ -140,7 +140,7 @@ async fn image_convert_missing_file_error() {
         "output_path": out_path.to_string_lossy()
     });
 
-    let result = node.execute(&config, empty_ctx()).await;
+    let result = node.execute(&config, &empty_ctx()).await;
     assert!(result.is_err());
 }
 
@@ -161,7 +161,7 @@ async fn image_watermark_basic() {
         "opacity": 0.5
     });
 
-    let result = node.execute(&config, empty_ctx()).await.unwrap();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
     assert!(out_path.exists());
     assert!(
         result
@@ -204,7 +204,7 @@ async fn image_watermark_positions() {
             "position": position
         });
 
-        let result = node.execute(&config, empty_ctx()).await.unwrap();
+        let result = node.execute(&config, &empty_ctx()).await.unwrap();
         assert!(
             out_path.exists(),
             "Output missing for position {}",

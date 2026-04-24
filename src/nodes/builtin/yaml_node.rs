@@ -17,7 +17,7 @@ impl Node for YamlParseNode {
         "Parse a YAML string into a JSON value"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let has_input = config.get("input").and_then(|v| v.as_str()).is_some();
         let has_source_key = config.get("source_key").and_then(|v| v.as_str()).is_some();
 
@@ -31,7 +31,7 @@ impl Node for YamlParseNode {
             .unwrap_or("yaml_data");
 
         let yaml_str = if let Some(input_str) = config.get("input").and_then(|v| v.as_str()) {
-            interpolate_ctx(input_str, &ctx)
+            interpolate_ctx(input_str, ctx)
         } else if let Some(source_key) = config.get("source_key").and_then(|v| v.as_str()) {
             let val = ctx
                 .get(source_key)
@@ -44,7 +44,7 @@ impl Node for YamlParseNode {
             anyhow::bail!("yaml_parse requires either 'input' or 'source_key'");
         };
 
-        let yaml_value: serde_yaml::Value = serde_yaml::from_str(&yaml_str)?;
+        let yaml_value: serde_yml::Value = serde_yml::from_str(&yaml_str)?;
         let json_value = yaml_to_json(yaml_value);
 
         let mut output = NodeOutput::new();
@@ -65,7 +65,7 @@ impl Node for YamlStringifyNode {
         "Convert a JSON value from context to a YAML string"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let source_key = config
             .get("source_key")
             .and_then(|v| v.as_str())
@@ -80,7 +80,7 @@ impl Node for YamlStringifyNode {
             .get(source_key)
             .ok_or_else(|| anyhow::anyhow!("Key '{}' not found in context", source_key))?;
 
-        let yaml_str = serde_yaml::to_string(source)?;
+        let yaml_str = serde_yml::to_string(source)?;
 
         let mut output = NodeOutput::new();
         output.insert(output_key.to_string(), serde_json::Value::String(yaml_str));
@@ -88,12 +88,12 @@ impl Node for YamlStringifyNode {
     }
 }
 
-/// Convert a serde_yaml::Value into a serde_json::Value.
-fn yaml_to_json(yaml: serde_yaml::Value) -> serde_json::Value {
+/// Convert a serde_yml::Value into a serde_json::Value.
+fn yaml_to_json(yaml: serde_yml::Value) -> serde_json::Value {
     match yaml {
-        serde_yaml::Value::Null => serde_json::Value::Null,
-        serde_yaml::Value::Bool(b) => serde_json::Value::Bool(b),
-        serde_yaml::Value::Number(n) => {
+        serde_yml::Value::Null => serde_json::Value::Null,
+        serde_yml::Value::Bool(b) => serde_json::Value::Bool(b),
+        serde_yml::Value::Number(n) => {
             if let Some(i) = n.as_i64() {
                 serde_json::Value::Number(i.into())
             } else if let Some(u) = n.as_u64() {
@@ -106,18 +106,18 @@ fn yaml_to_json(yaml: serde_yaml::Value) -> serde_json::Value {
                 serde_json::Value::Null
             }
         }
-        serde_yaml::Value::String(s) => serde_json::Value::String(s),
-        serde_yaml::Value::Sequence(seq) => {
+        serde_yml::Value::String(s) => serde_json::Value::String(s),
+        serde_yml::Value::Sequence(seq) => {
             serde_json::Value::Array(seq.into_iter().map(yaml_to_json).collect())
         }
-        serde_yaml::Value::Mapping(map) => {
+        serde_yml::Value::Mapping(map) => {
             let obj: serde_json::Map<String, serde_json::Value> = map
                 .into_iter()
                 .filter_map(|(k, v)| {
                     let key = match k {
-                        serde_yaml::Value::String(s) => s,
-                        serde_yaml::Value::Number(n) => n.to_string(),
-                        serde_yaml::Value::Bool(b) => b.to_string(),
+                        serde_yml::Value::String(s) => s,
+                        serde_yml::Value::Number(n) => n.to_string(),
+                        serde_yml::Value::Bool(b) => b.to_string(),
                         _ => return None,
                     };
                     Some((key, yaml_to_json(v)))
@@ -125,6 +125,6 @@ fn yaml_to_json(yaml: serde_yaml::Value) -> serde_json::Value {
                 .collect();
             serde_json::Value::Object(obj)
         }
-        serde_yaml::Value::Tagged(tagged) => yaml_to_json(tagged.value),
+        serde_yml::Value::Tagged(tagged) => yaml_to_json(tagged.value),
     }
 }

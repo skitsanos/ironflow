@@ -17,7 +17,7 @@ impl Node for LogNode {
         "Write a message to the workflow log"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let message = config.get("message").and_then(|v| v.as_str()).unwrap_or("");
 
         let level = config
@@ -25,7 +25,7 @@ impl Node for LogNode {
             .and_then(|v| v.as_str())
             .unwrap_or("info");
 
-        let rendered = interpolate_ctx(message, &ctx);
+        let rendered = interpolate_ctx(message, ctx);
 
         match level {
             "debug" => tracing::debug!("{}", rendered),

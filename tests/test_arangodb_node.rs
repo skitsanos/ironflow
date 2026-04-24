@@ -115,7 +115,7 @@ async fn arangodb_aql_node_returns_result_and_outputs_metadata() {
     });
 
     let ctx = ctx_with(vec![("owner", serde_json::json!("Alice"))]);
-    let result = node.execute(&config, ctx).await.unwrap();
+    let result = node.execute(&config, &ctx).await.unwrap();
 
     assert_eq!(
         result.get("docs_result").unwrap().as_array().unwrap().len(),
@@ -172,7 +172,7 @@ async fn arangodb_aql_node_reports_http_error() {
         "query": "FOR d IN docs RETURN d"
     });
 
-    let result = node.execute(&config, Context::new()).await;
+    let result = node.execute(&config, &Context::new()).await;
 
     assert!(result.is_err());
     let error = result.unwrap_err().to_string();
@@ -192,7 +192,7 @@ async fn arangodb_aql_node_requires_url_or_env() {
         "query": "RETURN 1"
     });
 
-    let result = node.execute(&config, Context::new()).await;
+    let result = node.execute(&config, &Context::new()).await;
     assert!(result.is_err());
     assert!(
         result

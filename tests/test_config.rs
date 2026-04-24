@@ -9,9 +9,19 @@ fn load_valid_config_all_fields() {
 host: "127.0.0.1"
 port: 8080
 store_dir: "custom/runs"
+store_backend: "sqlite"
+store_url: "sqlite://custom/runs/ironflow.sqlite?mode=rwc"
+event_store: "postgres"
+event_store_url: "postgres://example"
+sql_table_prefix: "tenant_a_"
 flows_dir: "my_flows"
 max_body: 2097152
 max_concurrent_tasks: 8
+api_key: "from-config"
+allow_unauthenticated_api: true
+cors_origins:
+  - "https://app.example.com"
+  - "https://admin.example.com"
 "#;
 
     let mut f = NamedTempFile::new().unwrap();
@@ -22,9 +32,26 @@ max_concurrent_tasks: 8
     assert_eq!(cfg.host.as_deref(), Some("127.0.0.1"));
     assert_eq!(cfg.port, Some(8080));
     assert_eq!(cfg.store_dir.as_deref(), Some("custom/runs"));
+    assert_eq!(cfg.store_backend.as_deref(), Some("sqlite"));
+    assert_eq!(
+        cfg.store_url.as_deref(),
+        Some("sqlite://custom/runs/ironflow.sqlite?mode=rwc")
+    );
+    assert_eq!(cfg.event_store.as_deref(), Some("postgres"));
+    assert_eq!(cfg.event_store_url.as_deref(), Some("postgres://example"));
+    assert_eq!(cfg.sql_table_prefix.as_deref(), Some("tenant_a_"));
     assert_eq!(cfg.flows_dir.as_deref(), Some("my_flows"));
     assert_eq!(cfg.max_body, Some(2097152));
     assert_eq!(cfg.max_concurrent_tasks, Some(8));
+    assert_eq!(cfg.api_key.as_deref(), Some("from-config"));
+    assert_eq!(cfg.allow_unauthenticated_api, Some(true));
+    assert_eq!(
+        cfg.cors_origins,
+        Some(vec![
+            "https://app.example.com".to_string(),
+            "https://admin.example.com".to_string()
+        ])
+    );
 }
 
 #[test]
@@ -41,9 +68,17 @@ port: 9090
     assert_eq!(cfg.port, Some(9090));
     assert!(cfg.host.is_none());
     assert!(cfg.store_dir.is_none());
+    assert!(cfg.store_backend.is_none());
+    assert!(cfg.store_url.is_none());
+    assert!(cfg.event_store.is_none());
+    assert!(cfg.event_store_url.is_none());
+    assert!(cfg.sql_table_prefix.is_none());
     assert!(cfg.flows_dir.is_none());
     assert!(cfg.max_body.is_none());
     assert!(cfg.max_concurrent_tasks.is_none());
+    assert!(cfg.api_key.is_none());
+    assert!(cfg.allow_unauthenticated_api.is_none());
+    assert!(cfg.cors_origins.is_none());
 }
 
 #[test]
@@ -70,9 +105,17 @@ fn missing_auto_detect_returns_defaults() {
     assert!(cfg.host.is_none());
     assert!(cfg.port.is_none());
     assert!(cfg.store_dir.is_none());
+    assert!(cfg.store_backend.is_none());
+    assert!(cfg.store_url.is_none());
+    assert!(cfg.event_store.is_none());
+    assert!(cfg.event_store_url.is_none());
+    assert!(cfg.sql_table_prefix.is_none());
     assert!(cfg.flows_dir.is_none());
     assert!(cfg.max_body.is_none());
     assert!(cfg.max_concurrent_tasks.is_none());
+    assert!(cfg.api_key.is_none());
+    assert!(cfg.allow_unauthenticated_api.is_none());
+    assert!(cfg.cors_origins.is_none());
     drop(dir);
     drop(original_dir);
 }

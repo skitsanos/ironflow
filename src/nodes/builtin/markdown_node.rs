@@ -19,7 +19,7 @@ impl Node for MarkdownToHtmlNode {
         "Convert Markdown text to HTML"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let output_key = config
             .get("output_key")
             .and_then(|v| v.as_str())
@@ -30,7 +30,7 @@ impl Node for MarkdownToHtmlNode {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
-        let input = get_input(config, &ctx, "markdown_to_html")?;
+        let input = get_input(config, ctx, "markdown_to_html")?;
 
         let mut options = Options::default();
         options.extension.strikethrough = true;
@@ -65,13 +65,13 @@ impl Node for HtmlToMarkdownNode {
         "Convert HTML to Markdown (best-effort, lossy on complex HTML)"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let output_key = config
             .get("output_key")
             .and_then(|v| v.as_str())
             .unwrap_or("markdown");
 
-        let input = get_input(config, &ctx, "html_to_markdown")?;
+        let input = get_input(config, ctx, "html_to_markdown")?;
 
         let markdown = html2md::parse_html(&input);
 

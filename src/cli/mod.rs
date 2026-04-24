@@ -13,9 +13,13 @@ use crate::engine::types::Context;
 use crate::lua::LuaRuntime;
 use crate::nodes::NodeRegistry;
 use crate::storage::StateStore;
+#[cfg(feature = "redis")]
+use crate::storage::event_store::RedisEventStore;
+use crate::storage::event_store::{EventStore, MemoryEventStore, SqlEventStore};
 use crate::storage::json_store::JsonStateStore;
 #[cfg(feature = "redis")]
 use crate::storage::redis_store::RedisStateStore;
+use crate::storage::sql_store::SqlStateStore;
 
 #[derive(Parser)]
 #[command(name = "ironflow", version, about = "Lightweight workflow engine")]
@@ -97,7 +101,7 @@ pub enum Commands {
         port: u16,
 
         /// State store directory
-        #[arg(long, default_value = "data/runs", env = "STORE_DIR")]
+        #[arg(long, default_value = "data/runs", env = "IRONFLOW_STORE_DIR")]
         store_dir: PathBuf,
 
         /// Directory to look for .lua flow files
@@ -155,6 +159,7 @@ pub async fn run_cli() -> Result<()> {
         } => {
             let store_dir = apply_config_path(store_dir, "data/runs", cfg.store_dir.as_deref());
             let store = create_store(&cfg, &store_dir).await?;
+            let event_store = create_event_store(&cfg, &store_dir).await?;
             let host = if host == "0.0.0.0" {
                 cfg.host.unwrap_or(host)
             } else {
@@ -171,15 +176,25 @@ pub async fn run_cli() -> Result<()> {
             } else {
                 max_body
             };
+            let api_key = resolve_api_key(cfg.api_key);
+            let allow_unauthenticated_api =
+                resolve_allow_unauthenticated_api(cfg.allow_unauthenticated_api.unwrap_or(false));
+            let cors_origins = resolve_cors_origins(cfg.cors_origins);
             let webhooks = cfg.webhooks.unwrap_or_default();
             crate::api::serve(
-                &host,
-                port,
                 store,
-                flows_dir,
-                max_body,
-                cfg.max_concurrent_tasks,
-                webhooks,
+                event_store,
+                crate::api::ServeOptions {
+                    host,
+                    port,
+                    flows_dir,
+                    max_body,
+                    max_concurrent_tasks: cfg.max_concurrent_tasks,
+                    webhooks,
+                    cors_origins,
+                    api_key,
+                    allow_unauthenticated_api,
+                },
             )
             .await
         }
@@ -193,6 +208,31 @@ fn apply_config_path(cli_value: PathBuf, default: &str, config_value: Option<&st
     } else {
         cli_value
     }
+}
+
+fn resolve_cors_origins(config_value: Option<Vec<String>>) -> Option<Vec<String>> {
+    std::env::var("IRONFLOW_CORS_ORIGINS")
+        .ok()
+        .map(|value| {
+            value
+                .split(',')
+                .map(str::trim)
+                .filter(|origin| !origin.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .or(config_value)
+}
+
+fn resolve_api_key(config_value: Option<String>) -> Option<String> {
+    std::env::var("IRONFLOW_API_KEY").ok().or(config_value)
+}
+
+fn resolve_allow_unauthenticated_api(config_value: bool) -> bool {
+    std::env::var("IRONFLOW_ALLOW_UNAUTHENTICATED_API")
+        .ok()
+        .and_then(|value| value.parse::<bool>().ok())
+        .unwrap_or(config_value)
 }
 
 /// Load environment variables from a .env file.
@@ -227,18 +267,37 @@ fn load_dotenv(explicit_path: Option<&std::path::Path>) {
 
 /// Create a state store based on configuration.
 ///
-/// If `store_backend` is `"redis"`, connects to Redis using the configured URL.
-/// Otherwise, falls back to the JSON file-based store using `store_dir`.
+/// Selects a state store backend.
 ///
 /// Config fields can be overridden by environment variables:
-/// `STORE_BACKEND`, `REDIS_URL`, `REDIS_PREFIX`, `REDIS_TTL`.
+/// `IRONFLOW_STORE`, `IRONFLOW_STORE_URL`, `REDIS_URL`, `REDIS_PREFIX`, `REDIS_TTL`.
 pub async fn create_store(cfg: &IronFlowConfig, store_dir: &Path) -> Result<Arc<dyn StateStore>> {
-    let backend = std::env::var("STORE_BACKEND")
+    let backend = std::env::var("IRONFLOW_STORE")
         .ok()
         .or_else(|| cfg.store_backend.clone())
         .unwrap_or_else(|| "json".to_string());
 
     match backend.as_str() {
+        "json" => {
+            info!("Using JSON state store at {}", store_dir.display());
+            Ok(Arc::new(JsonStateStore::new(store_dir)))
+        }
+        "sqlite" => {
+            let url = resolve_sql_store_url(cfg, store_dir, "sqlite")?;
+            let table_prefix = resolve_sql_table_prefix(cfg);
+            info!("Using SQLite state store at {}", url);
+            Ok(Arc::new(
+                SqlStateStore::new_with_prefix(&url, table_prefix.as_deref()).await?,
+            ))
+        }
+        "postgres" => {
+            let url = resolve_sql_store_url(cfg, store_dir, "postgres")?;
+            let table_prefix = resolve_sql_table_prefix(cfg);
+            info!("Using Postgres state store");
+            Ok(Arc::new(
+                SqlStateStore::new_with_prefix(&url, table_prefix.as_deref()).await?,
+            ))
+        }
         #[cfg(feature = "redis")]
         "redis" => {
             let url = std::env::var("REDIS_URL")
@@ -266,10 +325,137 @@ pub async fn create_store(cfg: &IronFlowConfig, store_dir: &Path) -> Result<Arc<
                  Rebuild with: cargo build --features redis"
             );
         }
-        _ => {
-            info!("Using JSON state store at {}", store_dir.display());
-            Ok(Arc::new(JsonStateStore::new(store_dir)))
+        other => {
+            anyhow::bail!(
+                "Unknown state store backend '{}'. Use one of: json, sqlite, postgres, redis",
+                other
+            );
         }
+    }
+}
+
+/// Create an event store based on configuration.
+///
+/// Event backend selection is deliberately separate from run state storage:
+/// `IRONFLOW_EVENT_STORE`, `IRONFLOW_EVENT_STORE_URL`.
+pub async fn create_event_store(
+    cfg: &IronFlowConfig,
+    store_dir: &Path,
+) -> Result<Arc<dyn EventStore>> {
+    let backend = std::env::var("IRONFLOW_EVENT_STORE")
+        .ok()
+        .or_else(|| cfg.event_store.clone())
+        .unwrap_or_else(|| "memory".to_string());
+
+    match backend.as_str() {
+        "memory" => {
+            info!("Using in-memory event store");
+            Ok(Arc::new(MemoryEventStore::new()))
+        }
+        "sqlite" => {
+            let url = resolve_sql_event_store_url(cfg, store_dir, "sqlite")?;
+            let table_prefix = resolve_sql_table_prefix(cfg);
+            info!("Using SQLite event store at {}", url);
+            Ok(Arc::new(
+                SqlEventStore::new_with_prefix(&url, table_prefix.as_deref()).await?,
+            ))
+        }
+        "postgres" => {
+            let url = resolve_sql_event_store_url(cfg, store_dir, "postgres")?;
+            let table_prefix = resolve_sql_table_prefix(cfg);
+            info!("Using Postgres event store");
+            Ok(Arc::new(
+                SqlEventStore::new_with_prefix(&url, table_prefix.as_deref()).await?,
+            ))
+        }
+        #[cfg(feature = "redis")]
+        "redis" => {
+            let url = std::env::var("REDIS_URL")
+                .ok()
+                .or_else(|| cfg.redis_url.clone())
+                .unwrap_or_else(|| "redis://127.0.0.1:6379".to_string());
+
+            let prefix = std::env::var("REDIS_PREFIX")
+                .ok()
+                .or_else(|| cfg.redis_prefix.clone());
+
+            let ttl = std::env::var("REDIS_TTL")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .or(cfg.redis_ttl);
+
+            info!("Using Redis event store at {}", url);
+            Ok(Arc::new(RedisEventStore::new(&url, prefix, ttl).await?))
+        }
+        #[cfg(not(feature = "redis"))]
+        "redis" => {
+            anyhow::bail!(
+                "Redis event backend requested but the 'redis' feature is not enabled. \
+                 Rebuild with: cargo build --features redis"
+            );
+        }
+        other => {
+            anyhow::bail!(
+                "Unknown event store backend '{}'. Use one of: memory, sqlite, postgres, redis",
+                other
+            );
+        }
+    }
+}
+
+fn resolve_sql_table_prefix(cfg: &IronFlowConfig) -> Option<String> {
+    std::env::var("IRONFLOW_SQL_TABLE_PREFIX")
+        .ok()
+        .or_else(|| cfg.sql_table_prefix.clone())
+}
+
+fn resolve_sql_store_url(cfg: &IronFlowConfig, store_dir: &Path, backend: &str) -> Result<String> {
+    if let Some(url) = std::env::var("IRONFLOW_STORE_URL")
+        .ok()
+        .or_else(|| cfg.store_url.clone())
+    {
+        return Ok(url);
+    }
+
+    match backend {
+        "sqlite" => {
+            std::fs::create_dir_all(store_dir)
+                .with_context(|| format!("Failed to create store dir: {}", store_dir.display()))?;
+            let path = store_dir.join("ironflow.sqlite");
+            Ok(format!("sqlite://{}?mode=rwc", path.to_string_lossy()))
+        }
+        "postgres" => {
+            anyhow::bail!("Postgres state store requires IRONFLOW_STORE_URL or store_url in config")
+        }
+        _ => anyhow::bail!("Unsupported SQL state store backend '{}'", backend),
+    }
+}
+
+fn resolve_sql_event_store_url(
+    cfg: &IronFlowConfig,
+    store_dir: &Path,
+    backend: &str,
+) -> Result<String> {
+    if let Some(url) = std::env::var("IRONFLOW_EVENT_STORE_URL")
+        .ok()
+        .or_else(|| cfg.event_store_url.clone())
+    {
+        return Ok(url);
+    }
+
+    match backend {
+        "sqlite" => {
+            std::fs::create_dir_all(store_dir)
+                .with_context(|| format!("Failed to create store dir: {}", store_dir.display()))?;
+            let path = store_dir.join("ironflow-events.sqlite");
+            Ok(format!("sqlite://{}?mode=rwc", path.to_string_lossy()))
+        }
+        "postgres" => {
+            anyhow::bail!(
+                "Postgres event store requires IRONFLOW_EVENT_STORE_URL or event_store_url in config"
+            )
+        }
+        _ => anyhow::bail!("Unsupported SQL event store backend '{}'", backend),
     }
 }
 

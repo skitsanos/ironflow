@@ -48,7 +48,7 @@ async fn parallel_subworkflows_basic_two_flows() {
     });
 
     let ctx = ctx_with_flow_dir(dir.path());
-    let out = node.execute(&config, ctx).await.unwrap();
+    let out = node.execute(&config, &ctx).await.unwrap();
 
     let results = out.get("parallel_results").unwrap().as_array().unwrap();
     assert_eq!(results.len(), 2);
@@ -91,7 +91,7 @@ async fn parallel_subworkflows_with_input_mapping() {
     ctx.insert("first".to_string(), serde_json::json!(5));
     ctx.insert("second".to_string(), serde_json::json!(15));
 
-    let out = node.execute(&config, ctx).await.unwrap();
+    let out = node.execute(&config, &ctx).await.unwrap();
 
     let results = out.get("parallel_results").unwrap().as_array().unwrap();
     assert_eq!(results[0].get("doubled").unwrap(), 10);
@@ -122,7 +122,7 @@ async fn parallel_subworkflows_per_flow_output_key() {
     });
 
     let ctx = ctx_with_flow_dir(dir.path());
-    let out = node.execute(&config, ctx).await.unwrap();
+    let out = node.execute(&config, &ctx).await.unwrap();
 
     let results = out.get("parallel_results").unwrap().as_array().unwrap();
     // With output_key, the child context is nested under that key
@@ -152,7 +152,7 @@ async fn parallel_subworkflows_custom_output_key() {
     });
 
     let ctx = ctx_with_flow_dir(dir.path());
-    let out = node.execute(&config, ctx).await.unwrap();
+    let out = node.execute(&config, &ctx).await.unwrap();
 
     assert!(out.contains_key("my_results"));
     assert!(out.contains_key("my_results_count"));
@@ -185,7 +185,7 @@ async fn parallel_subworkflows_fail_fast_on_error() {
     });
 
     let ctx = ctx_with_flow_dir(dir.path());
-    let result = node.execute(&config, ctx).await;
+    let result = node.execute(&config, &ctx).await;
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("failed"));
 }
@@ -210,7 +210,7 @@ async fn parallel_subworkflows_invalid_on_error_value() {
     });
 
     let ctx = ctx_with_flow_dir(dir.path());
-    let err = node.execute(&config, ctx).await.unwrap_err();
+    let err = node.execute(&config, &ctx).await.unwrap_err();
     assert!(err.to_string().contains("invalid on_error"));
 }
 
@@ -239,7 +239,7 @@ async fn parallel_subworkflows_collect_errors_on_ignore() {
     });
 
     let ctx = ctx_with_flow_dir(dir.path());
-    let out = node.execute(&config, ctx).await.unwrap();
+    let out = node.execute(&config, &ctx).await.unwrap();
 
     let results = out.get("parallel_results").unwrap().as_array().unwrap();
     assert!(results[0].get("success").unwrap().as_bool().unwrap());
@@ -281,7 +281,7 @@ async fn parallel_subworkflows_input_mapping_string_literal() {
 
     let ctx = ctx_with_flow_dir(dir.path());
 
-    let out = node.execute(&config, ctx).await.unwrap();
+    let out = node.execute(&config, &ctx).await.unwrap();
     let results = out.get("parallel_results").unwrap().as_array().unwrap();
     assert_eq!(results[0].get("greeting").unwrap(), "hello from parent?");
 }
@@ -294,7 +294,7 @@ async fn parallel_subworkflows_missing_flows_error() {
     let config = serde_json::json!({});
     let ctx = Context::new();
 
-    let err = node.execute(&config, ctx).await.unwrap_err();
+    let err = node.execute(&config, &ctx).await.unwrap_err();
     assert!(err.to_string().contains("requires 'flows' array"));
 }
 
@@ -306,7 +306,7 @@ async fn parallel_subworkflows_empty_flows_error() {
     let config = serde_json::json!({ "flows": [] });
     let ctx = Context::new();
 
-    let err = node.execute(&config, ctx).await.unwrap_err();
+    let err = node.execute(&config, &ctx).await.unwrap_err();
     assert!(err.to_string().contains("must not be empty"));
 }
 
@@ -322,7 +322,7 @@ async fn parallel_subworkflows_missing_flow_dir_error() {
     });
 
     let ctx = Context::new();
-    let err = node.execute(&config, ctx).await.unwrap_err();
+    let err = node.execute(&config, &ctx).await.unwrap_err();
     assert!(err.to_string().contains("_flow_dir not set"));
 }
 
@@ -355,7 +355,7 @@ async fn parallel_subworkflows_three_flows_all_succeed() {
     });
 
     let ctx = ctx_with_flow_dir(dir.path());
-    let out = node.execute(&config, ctx).await.unwrap();
+    let out = node.execute(&config, &ctx).await.unwrap();
 
     let results = out.get("parallel_results").unwrap().as_array().unwrap();
     assert_eq!(results.len(), 3);

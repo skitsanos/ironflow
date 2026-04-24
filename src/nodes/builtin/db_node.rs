@@ -1,11 +1,13 @@
 use anyhow::Result;
 use async_trait::async_trait;
+use futures_util::TryStreamExt;
 use sqlx::any::AnyRow;
 use sqlx::{AnyPool, Arguments, Column, Row, TypeInfo};
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
+use crate::util::limits;
 
 /// Resolve query parameters from config with context interpolation,
 /// preserving JSON types (string, number, bool, null) for proper SQL binding.
@@ -25,6 +27,14 @@ fn resolve_params(config: &serde_json::Value, ctx: &Context) -> Vec<serde_json::
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn optional_u64_config(config: &serde_json::Value, key: &str) -> Option<u64> {
+    config.get(key).and_then(|value| match value {
+        serde_json::Value::Number(n) => n.as_u64(),
+        serde_json::Value::String(s) => s.parse::<u64>().ok(),
+        _ => None,
+    })
 }
 
 /// Bind typed JSON parameters to an sqlx AnyArguments buffer.
@@ -144,29 +154,62 @@ impl Node for DbQueryNode {
         "Execute a SELECT query and return rows as JSON"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let query = config
             .get("query")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("db_query requires 'query' parameter"))?;
 
-        let query = interpolate_ctx(query, &ctx);
-        let params = resolve_params(config, &ctx);
+        let query = interpolate_ctx(query, ctx);
+        let params = resolve_params(config, ctx);
         let output_key = config
             .get("output_key")
             .and_then(|v| v.as_str())
             .unwrap_or("rows");
+        let max_rows = optional_u64_config(config, "max_rows")
+            .filter(|limit| *limit > 0)
+            .or_else(limits::max_db_rows);
+        let max_result_bytes = optional_u64_config(config, "max_result_bytes")
+            .filter(|limit| *limit > 0)
+            .or_else(limits::max_db_result_bytes);
 
-        let pool = connect(config, &ctx).await?;
+        let pool = connect(config, ctx).await?;
         let args = bind_params(&params)?;
 
-        let rows: Vec<AnyRow> = sqlx::query_with(&query, args)
-            .fetch_all(&pool)
-            .await
-            .map_err(|e| anyhow::anyhow!("db_query failed: {}", e))?;
+        let mut stream = sqlx::query_with(&query, args).fetch(&pool);
+        let mut json_rows = Vec::new();
+        let mut serialized_bytes = 2u64; // '[' + ']'
 
-        let json_rows: Vec<serde_json::Value> =
-            rows.iter().map(row_to_json).collect::<Result<Vec<_>>>()?;
+        while let Some(row) = stream
+            .try_next()
+            .await
+            .map_err(|e| anyhow::anyhow!("db_query failed: {}", e))?
+        {
+            if let Some(max_rows) = max_rows
+                && json_rows.len() as u64 >= max_rows
+            {
+                anyhow::bail!(
+                    "db_query exceeded max_rows limit of {}. Add pagination or raise max_rows / IRONFLOW_DB_MAX_ROWS.",
+                    max_rows
+                );
+            }
+
+            let json_row = row_to_json(&row)?;
+            let row_bytes = serde_json::to_vec(&json_row)?.len() as u64;
+            let separator_bytes = u64::from(!json_rows.is_empty());
+            let next_size = serialized_bytes + row_bytes + separator_bytes;
+            if let Some(max_result_bytes) = max_result_bytes
+                && next_size > max_result_bytes
+            {
+                anyhow::bail!(
+                    "db_query exceeded max_result_bytes limit of {}. Add pagination or raise max_result_bytes / IRONFLOW_DB_MAX_RESULT_BYTES.",
+                    max_result_bytes
+                );
+            }
+
+            serialized_bytes = next_size;
+            json_rows.push(json_row);
+        }
 
         let count = json_rows.len();
 
@@ -193,16 +236,16 @@ impl Node for DbExecNode {
         "Execute an INSERT, UPDATE, or DELETE statement"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let query = config
             .get("query")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("db_exec requires 'query' parameter"))?;
 
-        let query = interpolate_ctx(query, &ctx);
-        let params = resolve_params(config, &ctx);
+        let query = interpolate_ctx(query, ctx);
+        let params = resolve_params(config, ctx);
 
-        let pool = connect(config, &ctx).await?;
+        let pool = connect(config, ctx).await?;
         let args = bind_params(&params)?;
 
         let result = sqlx::query_with(&query, args)

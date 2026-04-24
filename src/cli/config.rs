@@ -15,8 +15,24 @@ pub struct IronFlowConfig {
     pub flows_dir: Option<String>,
     pub max_body: Option<usize>,
     pub max_concurrent_tasks: Option<usize>,
+    /// API key required for HTTP API access.
+    /// Prefer IRONFLOW_API_KEY or a secret manager in production.
+    pub api_key: Option<String>,
+    /// Explicitly allow serving HTTP API endpoints without an API key.
+    pub allow_unauthenticated_api: Option<bool>,
+    /// Allowed CORS origins for the API server.
+    /// Use ["*"] only when intentionally allowing browser access from any origin.
+    pub cors_origins: Option<Vec<String>>,
     /// Storage backend: "json" (default) or "redis"
     pub store_backend: Option<String>,
+    /// SQL state store URL for `sqlite` / `postgres`.
+    pub store_url: Option<String>,
+    /// Event backend: "memory" (default), "sqlite", "postgres", or "redis".
+    pub event_store: Option<String>,
+    /// SQL event store URL for `sqlite` / `postgres`.
+    pub event_store_url: Option<String>,
+    /// SQL table prefix for SQLite/Postgres state and event stores.
+    pub sql_table_prefix: Option<String>,
     /// Redis connection URL, e.g. "redis://127.0.0.1:6379"
     pub redis_url: Option<String>,
     /// Redis key prefix (default: "ironflow:")
@@ -53,7 +69,7 @@ impl IronFlowConfig {
         let contents = std::fs::read_to_string(&file_path)
             .with_context(|| format!("Failed to read config file: {}", file_path.display()))?;
 
-        let config: IronFlowConfig = serde_yaml::from_str(&contents)
+        let config: IronFlowConfig = serde_yml::from_str(&contents)
             .with_context(|| format!("Failed to parse config file: {}", file_path.display()))?;
 
         Ok(config)
