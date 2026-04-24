@@ -12,8 +12,12 @@ Iterate over an array, execute a Lua function per item, and collect results.
 | `filter_nulls` | bool | no | `true` | When `true`, items where the transform returns `nil` are excluded from the results. |
 
 > The function is serialized to bytecode at parse time (same mechanism as function handlers on `flow:step()`).
-> The `ctx` table and `env()` function are available as globals inside the transform.
+> The `ctx` table, `env()`, JSON helpers, base64 helpers, logging helpers, UUID, and timestamp helpers are available as globals inside the transform.
 > The Lua environment is sandboxed: `os`, `io`, `debug`, `loadfile`, and `dofile` are removed.
+
+## Execution Limits
+
+Each `foreach` transform runs inside the Lua execution budgets configured by `IRONFLOW_LUA_MAX_INSTRUCTIONS`, `IRONFLOW_LUA_MAX_SECONDS`, `IRONFLOW_LUA_MAX_MEMORY_BYTES`, `IRONFLOW_LUA_HOOK_INTERVAL`, and `IRONFLOW_LUA_GC_AFTER_EXECUTION`.
 
 ## Context Output
 

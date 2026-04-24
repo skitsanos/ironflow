@@ -8,6 +8,8 @@ List all entries in a ZIP archive.
 |-----------|------|----------|---------|-------------|
 | `path` | string | yes | — | Path to a ZIP file. Supports `${ctx.*}` interpolation. |
 | `output_key` | string | no | `"zip_entries"` | Context key where the listing array is stored. |
+| `max_entries` | number | no | `IRONFLOW_MAX_ZIP_ENTRIES` / `10000` | Maximum archive entries listed before failing. |
+| `max_total_uncompressed_bytes` | number | no | `IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES` / `536870912` | Maximum total uncompressed entry size accepted while listing. |
 
 ## Context Output
 
@@ -39,3 +41,7 @@ flow:step("log", nodes.log({
 
 return flow
 ```
+
+## Limits
+
+`zip_list` validates entry count and total uncompressed bytes while reading archive metadata. This protects workflow context from very large listings and catches likely zip-bomb inputs before extraction.

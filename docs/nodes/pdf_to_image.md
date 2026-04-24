@@ -45,3 +45,12 @@ flow:step("done", nodes.log({
 
 return flow
 ```
+
+## Limits
+
+`pdf_to_image` reads the PDF into memory and stores rendered images as base64 in workflow context. The following process limits are enforced:
+
+- `IRONFLOW_MAX_PDF_BYTES` — maximum PDF file size, default `104857600`.
+- `IRONFLOW_MAX_PDF_RENDER_PAGES` — maximum pages rendered by one node call, default `25`.
+- `IRONFLOW_MAX_PDF_RENDER_PIXELS` — maximum pixels per rendered page, default `25000000`.
+- `IRONFLOW_MAX_PDF_DPI` — maximum accepted DPI, default `300`.

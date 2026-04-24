@@ -10,6 +10,8 @@ Extract a ZIP archive into a destination directory.
 | `destination` | string | yes | — | Target directory for extracted files. Supports `${ctx.*}` interpolation. |
 | `output_key` | string | no | `"extracted_files"` | Context key for extracted entry names. |
 | `overwrite` | bool | no | `true` | When `false`, fail if a target file already exists. |
+| `max_entries` | number | no | `IRONFLOW_MAX_ZIP_ENTRIES` / `10000` | Maximum archive entries extracted before failing. |
+| `max_total_uncompressed_bytes` | number | no | `IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES` / `536870912` | Maximum total uncompressed bytes extracted. |
 
 ## Context Output
 
@@ -38,3 +40,7 @@ flow:step("log", nodes.log({
 
 return flow
 ```
+
+## Limits
+
+`zip_extract` rejects unsafe paths and enforces entry and total uncompressed byte caps before writing files. Raise the per-node limits only for archives you trust.

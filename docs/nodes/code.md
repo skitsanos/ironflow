@@ -36,6 +36,24 @@ The Lua environment is sandboxed. The following modules and globals are removed 
 
 - `ctx` -- read-only table containing the full workflow context (JSON values are converted to Lua types)
 - `env(key)` -- function to read environment variables; returns the value as a string or `nil` if not set
+- `json_parse(str)` -- parse JSON text into a Lua table
+- `json_stringify(value)` -- serialize a Lua value to JSON text
+- `base64_encode(str)` -- encode bytes/text to base64
+- `base64_decode(str)` -- decode base64 to bytes/text
+- `log([level], message...)` -- write a Lua log line
+- `uuid4()` -- generate a random UUID string
+- `now_rfc3339()` -- current UTC timestamp in RFC3339 format
+- `now_unix_ms()` -- current Unix timestamp in milliseconds
+
+### Execution limits
+
+Lua execution uses process-wide budgets:
+
+- `IRONFLOW_LUA_MAX_INSTRUCTIONS` — default `5000000`; `0` disables.
+- `IRONFLOW_LUA_MAX_SECONDS` — default `10`; `0` disables.
+- `IRONFLOW_LUA_MAX_MEMORY_BYTES` — default `134217728`; `0` disables.
+- `IRONFLOW_LUA_HOOK_INTERVAL` — default `10000`.
+- `IRONFLOW_LUA_GC_AFTER_EXECUTION` — default `true`.
 
 ## Return Value Handling
 
