@@ -143,11 +143,11 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
 - [x] Per-task timing in state store (started/finished timestamps)
 - [x] Workflow execution summary on completion (CLI prints task statuses)
 
-### 5.2 Configuration
+### 5.2 Configuration ✅
 - [x] Config file support (`ironflow.yaml`) — auto-detected in cwd or via `--config` flag
 - [x] Environment variable overrides (CLI flags > config file > env vars > defaults)
 - [x] Webhook routes via config — `webhooks:` map in `ironflow.yaml` creates `POST /webhooks/{name}` endpoints
-- [ ] Storage backend selection via config
+- [x] Storage backend selection via config — `store_backend`, `store_url`, `event_store`, `event_store_url`, `sql_table_prefix` fields in `ironflow.yaml` (see `src/cli/config.rs:26-34`); env-var equivalents `IRONFLOW_STORE` / `IRONFLOW_STORE_URL` / `IRONFLOW_EVENT_STORE` / `IRONFLOW_EVENT_STORE_URL` / `IRONFLOW_SQL_TABLE_PREFIX`
 
 ### 5.3 Testing ✅
 - [x] Unit tests for each node (in `test_nodes` and domain-specific suites)
