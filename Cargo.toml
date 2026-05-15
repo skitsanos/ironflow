@@ -37,7 +37,7 @@ comrak = "0.52"
 html2md = "0.2.15"
 ammonia = "4.1.2"
 zip = "8.5.1"
-quick-xml = "0.39.2"
+quick-xml = "0.40.0"
 lopdf = { version = "0.40", features = ["chrono", "embed_image"] }
 pdf-extract = "0.10.0"
 image = "0.25.10"
