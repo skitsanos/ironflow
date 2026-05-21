@@ -5,7 +5,7 @@ edition = "2024"
 description = "Lightweight workflow engine — Rust core, Lua scripting, single binary"
 
 [dependencies]
-tokio = { version = "1.52.1", features = ["full"] }
+tokio = { version = "1.52.3", features = ["full"] }
 mlua = { version = "0.11.6", features = ["lua54", "async", "serialize", "send", "vendored"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
@@ -18,11 +18,11 @@ chrono = { version = "0.4.44", features = ["serde"] }
 async-trait = "0.1.89"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-reqwest = { version = "0.13.2", features = ["json", "stream"] }
-aws-config = "1.8.16"
-aws-sdk-s3 = "1.131.0"
-aws-sdk-s3vectors = "1.24.0"
-aws-smithy-types = "1.4.7"
+reqwest = { version = "0.13.3", features = ["json", "stream"] }
+aws-config = "1.8.17"
+aws-sdk-s3 = "1.133.0"
+aws-sdk-s3vectors = "1.25.0"
+aws-smithy-types = "1.4.8"
 csv = "1.4.0"
 jsonschema = "0.46"
 num_cpus = "1.17.0"
@@ -31,20 +31,20 @@ sha2 = "0.11"
 md-5 = "0.11"
 hex = "0.4.3"
 axum = "0.8.9"
-tower-http = { version = "0.6.8", features = ["cors", "trace"] }
+tower-http = { version = "0.6.11", features = ["cors", "trace"] }
 base64 = "0.22.1"
 comrak = "0.52"
 html2md = "0.2.15"
 ammonia = "4.1.2"
-zip = "8.5.1"
-quick-xml = "0.39.2"
+zip = "8.6.0"
+quick-xml = "0.40.1"
 lopdf = { version = "0.40", features = ["chrono", "embed_image"] }
 pdf-extract = "0.10.0"
 image = "0.25.10"
 pdfium-render = "0.9"
 sqlx = { version = "0.8", features = ["runtime-tokio", "any", "sqlite"] }
 futures-util = "0.3"
-lettre = { version = "0.11.21", default-features = false, features = ["builder", "hostname", "pool", "smtp-transport", "tokio1", "tokio1-rustls-tls"] }
+lettre = { version = "0.11.22", default-features = false, features = ["builder", "hostname", "pool", "smtp-transport", "tokio1", "tokio1-rustls-tls"] }
 redis = { version = "1.2", features = ["aio", "tokio-comp", "connection-manager"], optional = true }
 
 [features]
