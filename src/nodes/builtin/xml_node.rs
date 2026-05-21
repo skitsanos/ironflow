@@ -1,6 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use quick_xml::Reader;
+use quick_xml::XmlVersion;
 use quick_xml::events::Event;
 
 use crate::engine::types::{Context, NodeOutput};
@@ -159,7 +160,7 @@ fn parse_xml_to_json(xml: &str) -> Result<serde_json::Value> {
             }
             Ok(Event::Text(ref e)) => {
                 let text = e
-                    .xml_content()
+                    .xml_content(XmlVersion::Implicit1_0)
                     .map_err(|err| anyhow::anyhow!("XML text decode error: {}", err))?
                     .to_string();
                 if !text.is_empty()
