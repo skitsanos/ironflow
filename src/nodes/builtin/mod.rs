@@ -81,6 +81,7 @@ pub fn register_all(registry: &mut NodeRegistry) {
     registry.register(Arc::new(markdown_node::MarkdownToHtmlNode));
     registry.register(Arc::new(markdown_node::HtmlToMarkdownNode));
     registry.register(Arc::new(extract_node::ExtractWordNode));
+    registry.register(Arc::new(extract_node::ExtractPptxNode));
     registry.register(Arc::new(extract_node::ExtractPdfNode));
     registry.register(Arc::new(extract_node::ExtractHtmlNode));
     registry.register(Arc::new(extract_node::ExtractVttNode));
