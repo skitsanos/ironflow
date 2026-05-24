@@ -62,3 +62,39 @@ flow:step("split", nodes.ai_chunk({
     min_chars = 50
 }))
 ```
+
+## Mode: `cues` (timestamp-preserving)
+
+Groups an ordered array of subtitle **cues** (as produced by `extract_vtt` /
+`extract_srt` under their `cues_key`, default `cues`) into size-bounded chunks
+that keep each chunk's start/end timecodes. A single cue is never split; a cue
+whose text alone exceeds `size` becomes its own chunk.
+
+**Parameters**
+
+| Param | Type | Default | Notes |
+|-------|------|---------|-------|
+| `mode` | string | — | Set to `"cues"`. |
+| `source_key` | string | — | Context key holding the cues array (each cue: `text`, `start_ms`, `end_ms`, `start`, `end`). |
+| `size` | number | `1200` | Max characters per chunk (cue boundaries are respected). |
+| `output_key` | string | `chunks` | Base key for outputs. |
+
+**Output**
+
+- `<output_key>` — array of `{ text, ts_start, ts_end, start_ms, end_ms, cue_count }`
+- `<output_key>_texts` — parallel array of the chunk text strings (feed straight into `ai_embed`'s `input_key`)
+- `<output_key>_count` — number of chunks
+- `<output_key>_success` — `true`
+
+**Sample segment**
+
+```json
+{
+  "text": "We propose the new telemetry pipeline ...",
+  "ts_start": "00:03:12.120",
+  "ts_end": "00:03:27.940",
+  "start_ms": 192120,
+  "end_ms": 207940,
+  "cue_count": 3
+}
+```
