@@ -1,8 +1,9 @@
-pub mod embeddings;
+mod embeddings;
 
 mod chunking;
 mod chunking_merge;
 mod chunking_semantic;
+mod chunking_semantic_engine;
 mod llm;
 mod llm_providers;
 mod llm_response;

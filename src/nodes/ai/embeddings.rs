@@ -10,7 +10,7 @@ use crate::nodes::Node;
 use crate::util::bounded_cache::BoundedCache;
 
 /// Simple percent-encoding for form data values.
-pub(crate) fn percent_encode(input: &str) -> String {
+fn percent_encode(input: &str) -> String {
     let mut result = String::with_capacity(input.len());
     for byte in input.bytes() {
         match byte {
@@ -26,7 +26,7 @@ pub(crate) fn percent_encode(input: &str) -> String {
 }
 
 /// Resolve a config string parameter, falling back to an environment variable.
-pub(crate) fn resolve_param(
+pub(super) fn resolve_param(
     config: &serde_json::Value,
     key: &str,
     env_key: &str,
@@ -109,7 +109,7 @@ struct OllamaErrorResponse {
 
 // -- Provider helpers --
 
-pub(crate) async fn embed_openai(
+pub(super) async fn embed_openai(
     client: &reqwest::Client,
     base_url: &str,
     api_key: &str,
@@ -146,7 +146,7 @@ pub(crate) async fn embed_openai(
     Ok(parsed.data.into_iter().map(|d| d.embedding).collect())
 }
 
-pub(crate) async fn embed_ollama(
+pub(super) async fn embed_ollama(
     client: &reqwest::Client,
     host: &str,
     model: &str,
@@ -181,7 +181,7 @@ pub(crate) async fn embed_ollama(
     Ok(parsed.embeddings)
 }
 
-pub(crate) async fn acquire_oauth_token(
+pub(super) async fn acquire_oauth_token(
     client: &reqwest::Client,
     token_url: &str,
     client_id: &str,
