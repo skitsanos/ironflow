@@ -17,11 +17,7 @@ fn doc_xml(body: &str) -> String {
 
 /// Build a minimal .docx (a zip containing just word/document.xml, optionally word/theme/theme1.xml).
 /// Returns the path to the created file. The TempDir keeps the file alive for the duration of the test.
-fn make_docx(
-    dir: &Path,
-    document_xml: &str,
-    theme_xml: Option<&str>,
-) -> PathBuf {
+fn make_docx(dir: &Path, document_xml: &str, theme_xml: Option<&str>) -> PathBuf {
     let path = dir.join("test.docx");
     let file = fs::File::create(&path).unwrap();
     let mut zw = zip::ZipWriter::new(file);
@@ -40,11 +36,7 @@ fn make_docx(
     path
 }
 
-fn make_docx_with_comments(
-    dir: &Path,
-    document_xml: &str,
-    comments_xml: &str,
-) -> PathBuf {
+fn make_docx_with_comments(dir: &Path, document_xml: &str, comments_xml: &str) -> PathBuf {
     let path = dir.join("test_comments.docx");
     let file = fs::File::create(&path).unwrap();
     let mut zw = zip::ZipWriter::new(file);
@@ -61,7 +53,11 @@ fn make_docx_with_comments(
 /// Build a minimal .pptx with N slides + optional notes and one comment.
 fn make_pptx(
     dir: &Path,
-    slides: &[(&str /*xml*/, Option<&str> /*notes*/, Option<&str> /*comment_xml*/)],
+    slides: &[(
+        &str,         /*xml*/
+        Option<&str>, /*notes*/
+        Option<&str>, /*comment_xml*/
+    )],
     authors_xml: Option<&str>,
 ) -> PathBuf {
     let path = dir.join("test.pptx");
@@ -72,14 +68,17 @@ fn make_pptx(
 
     for (i, (xml, notes, comment)) in slides.iter().enumerate() {
         let idx = i + 1;
-        zw.start_file(format!("ppt/slides/slide{}.xml", idx), opts).unwrap();
+        zw.start_file(format!("ppt/slides/slide{}.xml", idx), opts)
+            .unwrap();
         zw.write_all(xml.as_bytes()).unwrap();
         if let Some(n) = notes {
-            zw.start_file(format!("ppt/notesSlides/notesSlide{}.xml", idx), opts).unwrap();
+            zw.start_file(format!("ppt/notesSlides/notesSlide{}.xml", idx), opts)
+                .unwrap();
             zw.write_all(n.as_bytes()).unwrap();
         }
         if let Some(c) = comment {
-            zw.start_file(format!("ppt/comments/comment{}.xml", idx), opts).unwrap();
+            zw.start_file(format!("ppt/comments/comment{}.xml", idx), opts)
+                .unwrap();
             zw.write_all(c.as_bytes()).unwrap();
         }
     }
@@ -107,7 +106,8 @@ fn make_pptx_with_image(
         .compression_method(zip::CompressionMethod::Deflated);
     zw.start_file("ppt/slides/slide1.xml", opts).unwrap();
     zw.write_all(slide_xml.as_bytes()).unwrap();
-    zw.start_file("ppt/slides/_rels/slide1.xml.rels", opts).unwrap();
+    zw.start_file("ppt/slides/_rels/slide1.xml.rels", opts)
+        .unwrap();
     zw.write_all(rels_xml.as_bytes()).unwrap();
     zw.start_file(image_path_in_zip, opts).unwrap();
     zw.write_all(image_bytes).unwrap();
@@ -476,11 +476,17 @@ async fn extract_word_resolves_theme_color() {
         .await
         .unwrap();
 
-    let run = &out.get("doc").unwrap()
-        .get("blocks").unwrap()
-        .as_array().unwrap()[0]
-        .get("runs").unwrap()
-        .as_array().unwrap()[0];
+    let run = &out
+        .get("doc")
+        .unwrap()
+        .get("blocks")
+        .unwrap()
+        .as_array()
+        .unwrap()[0]
+        .get("runs")
+        .unwrap()
+        .as_array()
+        .unwrap()[0];
     assert_eq!(run.get("color").unwrap(), "FF0000");
 }
 
@@ -505,9 +511,13 @@ async fn extract_word_drops_auto_color() {
         .await
         .unwrap();
 
-    let para = &out.get("doc").unwrap()
-        .get("blocks").unwrap()
-        .as_array().unwrap()[0];
+    let para = &out
+        .get("doc")
+        .unwrap()
+        .get("blocks")
+        .unwrap()
+        .as_array()
+        .unwrap()[0];
     assert!(para.get("colors").is_none(), "no colors field expected");
     let run = &para.get("runs").unwrap().as_array().unwrap()[0];
     assert!(run.get("color").is_none(), "run.color should not be set");
@@ -543,9 +553,13 @@ async fn extract_word_captures_table() {
         .await
         .unwrap();
 
-    let blocks = out.get("doc").unwrap()
-        .get("blocks").unwrap()
-        .as_array().unwrap();
+    let blocks = out
+        .get("doc")
+        .unwrap()
+        .get("blocks")
+        .unwrap()
+        .as_array()
+        .unwrap();
     assert_eq!(blocks.len(), 1);
     let table = &blocks[0];
     assert_eq!(table.get("type").unwrap(), "table");
@@ -553,13 +567,21 @@ async fn extract_word_captures_table() {
     assert_eq!(rows.len(), 2);
     let cells0 = rows[0].get("cells").unwrap().as_array().unwrap();
     assert_eq!(cells0.len(), 2);
-    let cell00_text = cells0[0]
-        .get("paragraphs").unwrap().as_array().unwrap()[0]
-        .get("text").unwrap().as_str().unwrap();
+    let cell00_text = cells0[0].get("paragraphs").unwrap().as_array().unwrap()[0]
+        .get("text")
+        .unwrap()
+        .as_str()
+        .unwrap();
     assert_eq!(cell00_text, "A1");
     let cell11_text = rows[1].get("cells").unwrap().as_array().unwrap()[1]
-        .get("paragraphs").unwrap().as_array().unwrap()[0]
-        .get("text").unwrap().as_str().unwrap();
+        .get("paragraphs")
+        .unwrap()
+        .as_array()
+        .unwrap()[0]
+        .get("text")
+        .unwrap()
+        .as_str()
+        .unwrap();
     assert_eq!(cell11_text, "B2");
 }
 
@@ -590,9 +612,13 @@ async fn extract_word_preserves_block_order() {
         .await
         .unwrap();
 
-    let blocks = out.get("doc").unwrap()
-        .get("blocks").unwrap()
-        .as_array().unwrap();
+    let blocks = out
+        .get("doc")
+        .unwrap()
+        .get("blocks")
+        .unwrap()
+        .as_array()
+        .unwrap();
     assert_eq!(blocks.len(), 3);
     assert_eq!(blocks[0].get("type").unwrap(), "paragraph");
     assert_eq!(blocks[0].get("text").unwrap(), "before");
@@ -639,7 +665,11 @@ async fn extract_word_text_mode_renders_table_rows() {
 #[tokio::test]
 async fn extract_word_rejects_unknown_format() {
     let dir = tempfile::tempdir().unwrap();
-    let path = make_docx(dir.path(), &doc_xml("<w:p><w:r><w:t>x</w:t></w:r></w:p>"), None);
+    let path = make_docx(
+        dir.path(),
+        &doc_xml("<w:p><w:r><w:t>x</w:t></w:r></w:p>"),
+        None,
+    );
     let node = NodeRegistry::with_builtins().get("extract_word").unwrap();
     let err = node
         .execute(
@@ -661,14 +691,16 @@ async fn extract_word_rejects_unknown_format() {
 
 #[tokio::test]
 async fn extract_word_comments() {
-    let document = doc_xml(r#"
+    let document = doc_xml(
+        r#"
         <w:p><w:r><w:t>Before. </w:t></w:r>
           <w:commentRangeStart w:id="1"/>
           <w:r><w:t>quick brown fox</w:t></w:r>
           <w:commentRangeEnd w:id="1"/>
           <w:r><w:commentReference w:id="1"/></w:r>
           <w:r><w:t> after.</w:t></w:r></w:p>
-    "#);
+    "#,
+    );
     let comments = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:comments xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
   <w:comment w:id="1" w:author="Jane Reviewer" w:initials="JR" w:date="2026-03-15T10:30:00Z">
@@ -742,10 +774,7 @@ fn slide_xml(title: &str, body_paras: &[(&str, Option<u32>)]) -> String {
                 ));
             }
             None => {
-                paras_xml.push_str(&format!(
-                    r#"<a:p><a:r><a:t>{}</a:t></a:r></a:p>"#,
-                    text
-                ));
+                paras_xml.push_str(&format!(r#"<a:p><a:r><a:t>{}</a:t></a:r></a:p>"#, text));
             }
         }
     }
@@ -863,10 +892,7 @@ async fn extract_pptx_slides_text_table_notes_and_comment() {
 
     let path = make_pptx(
         dir.path(),
-        &[
-            (&s1, None, Some(&comment1)),
-            (&s2, Some(&notes2), None),
-        ],
+        &[(&s1, None, Some(&comment1)), (&s2, Some(&notes2), None)],
         Some(authors),
     );
 
@@ -911,7 +937,10 @@ async fn extract_pptx_slides_text_table_notes_and_comment() {
     let s2_out = &slides[1];
     assert_eq!(s2_out.get("slide_index").unwrap(), 2);
     let s2_elements = s2_out.get("elements").unwrap().as_array().unwrap();
-    let table = s2_elements.iter().find(|el| el.get("type").unwrap() == "table").unwrap();
+    let table = s2_elements
+        .iter()
+        .find(|el| el.get("type").unwrap() == "table")
+        .unwrap();
     let rows = table.get("rows").unwrap().as_array().unwrap();
     assert_eq!(rows.len(), 3);
     assert_eq!(rows[0][0].as_str().unwrap(), "Field");
@@ -961,11 +990,11 @@ async fn extract_pptx_resolves_image_rels_and_bytes() {
 
     // Minimal 1x1 transparent PNG.
     let png_bytes: &[u8] = &[
-        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
-        0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00,
-        0x00, 0x1F, 0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78,
-        0x9C, 0x63, 0x00, 0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
-        0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
+        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00,
+        0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49,
+        0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
     ];
 
     let slide = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -995,13 +1024,7 @@ async fn extract_pptx_resolves_image_rels_and_bytes() {
   <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image1.png"/>
 </Relationships>"#;
 
-    let path = make_pptx_with_image(
-        dir.path(),
-        slide,
-        rels,
-        "ppt/media/image1.png",
-        png_bytes,
-    );
+    let path = make_pptx_with_image(dir.path(), slide, rels, "ppt/media/image1.png", png_bytes);
 
     let node = NodeRegistry::with_builtins().get("extract_pptx").unwrap();
     let out = node
@@ -1041,7 +1064,9 @@ async fn extract_pptx_resolves_image_rels_and_bytes() {
     let b64 = image.get("media_b64").unwrap().as_str().unwrap();
     assert!(!b64.is_empty(), "expected non-empty base64");
     use base64::Engine;
-    let decoded = base64::engine::general_purpose::STANDARD.decode(b64).unwrap();
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(b64)
+        .unwrap();
     assert_eq!(decoded, png_bytes);
 }
 
@@ -1064,13 +1089,7 @@ async fn extract_pptx_image_no_bytes_by_default() {
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="image" Target="../media/x.png"/>
 </Relationships>"#;
-    let path = make_pptx_with_image(
-        dir.path(),
-        slide,
-        rels,
-        "ppt/media/x.png",
-        png_bytes,
-    );
+    let path = make_pptx_with_image(dir.path(), slide, rels, "ppt/media/x.png", png_bytes);
 
     let node = NodeRegistry::with_builtins().get("extract_pptx").unwrap();
     let out = node
@@ -1086,9 +1105,17 @@ async fn extract_pptx_image_no_bytes_by_default() {
         .await
         .unwrap();
 
-    let image = out.get("deck").unwrap()
-        .get("slides").unwrap().as_array().unwrap()[0]
-        .get("elements").unwrap().as_array().unwrap()
+    let image = out
+        .get("deck")
+        .unwrap()
+        .get("slides")
+        .unwrap()
+        .as_array()
+        .unwrap()[0]
+        .get("elements")
+        .unwrap()
+        .as_array()
+        .unwrap()
         .iter()
         .find(|el| el.get("type").unwrap() == "image")
         .unwrap();

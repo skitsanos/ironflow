@@ -1,4 +1,5 @@
 pub mod builtin;
+pub mod extract;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -49,6 +50,7 @@ impl NodeRegistry {
     pub fn with_builtins() -> Self {
         let mut registry = Self::new();
         builtin::register_all(&mut registry);
+        extract::register_all(&mut registry);
 
         // Snapshot the base registry (all nodes except subworkflow) and give
         // it to SubworkflowNode. It adds itself back at execution time so
