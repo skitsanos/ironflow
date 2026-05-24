@@ -1,4 +1,5 @@
 pub mod builtin;
+pub mod cloud;
 pub mod extract;
 pub mod image;
 pub mod s3vector;
@@ -52,6 +53,7 @@ impl NodeRegistry {
     pub fn with_builtins() -> Self {
         let mut registry = Self::new();
         builtin::register_all(&mut registry);
+        cloud::register_all(&mut registry);
         extract::register_all(&mut registry);
         image::register_all(&mut registry);
         s3vector::register_all(&mut registry);
