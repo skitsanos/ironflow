@@ -8,7 +8,6 @@ mod html_sanitize_node;
 mod log_node;
 pub(crate) mod lua_sandbox;
 mod markdown_node;
-mod mcp_node;
 mod shell_node;
 mod template_node;
 mod validate_node;
@@ -31,8 +30,6 @@ pub fn register_all(registry: &mut NodeRegistry) {
     registry.register(Arc::new(markdown_node::HtmlToMarkdownNode));
     registry.register(Arc::new(cache_node::CacheSetNode));
     registry.register(Arc::new(cache_node::CacheGetNode));
-
-    registry.register(Arc::new(mcp_node::McpClientNode));
 
     registry.register(Arc::new(date_node::DateFormatNode));
 
