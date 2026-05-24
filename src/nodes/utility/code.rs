@@ -4,8 +4,8 @@ use base64::Engine;
 use mlua::prelude::*;
 
 use crate::engine::types::{Context, NodeOutput};
+use crate::lua::sandbox;
 use crate::nodes::Node;
-use crate::nodes::builtin::lua_sandbox;
 use crate::util::limits::{LuaExecutionLimits, apply_lua_limits, collect_lua_garbage};
 
 pub struct CodeNode;
@@ -24,7 +24,7 @@ impl Node for CodeNode {
         let lua = Lua::new();
         let limits = LuaExecutionLimits::from_env();
         apply_lua_limits(&lua, limits)?;
-        let ctx_table = lua_sandbox::setup_sandbox(&lua, ctx)?;
+        let ctx_table = sandbox::setup_sandbox(&lua, ctx)?;
 
         // Execute either bytecode (function handler) or source string
         let result: LuaValue =
@@ -78,7 +78,7 @@ impl Node for CodeNode {
 }
 
 /// Convert a serde_json::Value into a Lua value.
-pub fn json_value_to_lua_table(lua: &Lua, value: &serde_json::Value) -> Result<LuaValue> {
+pub(crate) fn json_value_to_lua_table(lua: &Lua, value: &serde_json::Value) -> Result<LuaValue> {
     match value {
         serde_json::Value::Null => Ok(LuaValue::Nil),
         serde_json::Value::Bool(b) => Ok(LuaValue::Boolean(*b)),
@@ -110,7 +110,7 @@ pub fn json_value_to_lua_table(lua: &Lua, value: &serde_json::Value) -> Result<L
 }
 
 /// Convert a Lua value back to serde_json::Value.
-pub fn lua_value_to_json(value: &LuaValue) -> Result<serde_json::Value> {
+pub(crate) fn lua_value_to_json(value: &LuaValue) -> Result<serde_json::Value> {
     match value {
         LuaValue::Nil => Ok(serde_json::Value::Null),
         LuaValue::Boolean(b) => Ok(serde_json::Value::Bool(*b)),

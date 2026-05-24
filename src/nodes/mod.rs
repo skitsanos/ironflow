@@ -11,6 +11,7 @@ pub mod mcp;
 pub mod notify;
 pub mod s3vector;
 pub mod transform;
+pub mod utility;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -61,6 +62,7 @@ impl NodeRegistry {
     pub fn with_builtins() -> Self {
         let mut registry = Self::new();
         builtin::register_all(&mut registry);
+        utility::register_all(&mut registry);
         ai::register_all(&mut registry);
         cloud::register_all(&mut registry);
         composition::register_all(&mut registry);

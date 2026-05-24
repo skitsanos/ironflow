@@ -4,9 +4,9 @@ use base64::Engine;
 use mlua::prelude::*;
 
 use crate::engine::types::{Context, NodeOutput};
+use crate::lua::sandbox;
 use crate::nodes::Node;
-use crate::nodes::builtin::code_node::{json_value_to_lua_table, lua_value_to_json};
-use crate::nodes::builtin::lua_sandbox;
+use crate::nodes::utility::code::{json_value_to_lua_table, lua_value_to_json};
 use crate::util::limits::{LuaExecutionLimits, apply_lua_limits, collect_lua_garbage};
 
 pub struct ForEachNode;
@@ -53,7 +53,7 @@ impl Node for ForEachNode {
         let lua = Lua::new();
         let limits = LuaExecutionLimits::from_env();
         apply_lua_limits(&lua, limits)?;
-        lua_sandbox::setup_sandbox(&lua, ctx)?;
+        sandbox::setup_sandbox(&lua, ctx)?;
 
         // Decode and load the transform function
         let bytecode = base64::engine::general_purpose::STANDARD

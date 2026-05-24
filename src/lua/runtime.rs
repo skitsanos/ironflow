@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::engine::types::{FlowDefinition, RetryConfig, StepDefinition};
 use crate::nodes::NodeRegistry;
-use crate::nodes::builtin::code_node::json_value_to_lua_table;
+use crate::nodes::utility::code::json_value_to_lua_table;
 use crate::util::limits::{LuaExecutionLimits, apply_lua_limits, collect_lua_garbage};
 
 /// Lua runtime for loading and parsing flow definitions.

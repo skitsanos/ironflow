@@ -6,7 +6,7 @@ use tracing::{debug, error, info, trace, warn};
 use uuid::Uuid;
 
 use crate::engine::types::Context;
-use crate::nodes::builtin::code_node::{json_value_to_lua_table, lua_value_to_json};
+use crate::nodes::utility::code::{json_value_to_lua_table, lua_value_to_json};
 
 /// Set up the sandboxed Lua environment with standard globals.
 ///
@@ -16,7 +16,7 @@ use crate::nodes::builtin::code_node::{json_value_to_lua_table, lua_value_to_jso
 /// - Exposes the workflow `ctx` table
 ///
 /// Returns the `ctx` Lua value for callers that need it.
-pub fn setup_sandbox(lua: &Lua, ctx: &Context) -> Result<LuaValue> {
+pub(crate) fn setup_sandbox(lua: &Lua, ctx: &Context) -> Result<LuaValue> {
     let globals = lua.globals();
 
     // Remove dangerous modules
