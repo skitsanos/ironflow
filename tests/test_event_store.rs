@@ -145,9 +145,12 @@ fn unique_sql_prefix(label: &str) -> String {
 #[cfg(feature = "postgres")]
 async fn cleanup_postgres_event_tables(url: &str, prefix: &str) {
     if let Ok(pool) = sqlx::AnyPool::connect(url).await {
-        let _ = sqlx::query(&format!("DROP TABLE IF EXISTS {}events", prefix))
-            .execute(&pool)
-            .await;
+        let _ = sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DROP TABLE IF EXISTS {}events",
+            prefix
+        )))
+        .execute(&pool)
+        .await;
     }
 }
 

@@ -1,6 +1,6 @@
 # IronFlow — Node Reference
 
-Complete reference for all 96 built-in nodes. Click any node name for full documentation with parameters, context output, and Lua examples.
+Complete reference for all 97 built-in nodes. Click any node name for full documentation with parameters, context output, and Lua examples.
 
 For adding or maintaining node implementations, see [Node Contributor Manual](NODE_CONTRIBUTING.md).
 
@@ -151,6 +151,7 @@ For adding or maintaining node implementations, see [Node Contributor Manual](NO
 | Node | Description |
 |------|-------------|
 | [`extract_word`](nodes/extract_word.md) | Extract text and metadata from Word (.docx) |
+| [`extract_pptx`](nodes/extract_pptx.md) | Extract text, tables, notes, and comments from PowerPoint (.pptx) |
 | [`extract_pdf`](nodes/extract_pdf.md) | Extract text and metadata from PDF |
 | [`extract_html`](nodes/extract_html.md) | Extract text and metadata from HTML |
 | [`extract_vtt`](nodes/extract_vtt.md) | Extract text and metadata from WebVTT subtitles |
@@ -184,7 +185,7 @@ For adding or maintaining node implementations, see [Node Contributor Manual](NO
 |------|-------------|
 | [`llm`](nodes/llm.md) | Unified request node for Chat Completions/Responses across providers |
 | [`ai_embed`](nodes/ai_embed.md) | Generate text embeddings via OpenAI, Ollama, or OAuth providers |
-| [`ai_chunk`](nodes/ai_chunk.md) | Split text into chunks using fixed-size or delimiter strategies |
+| [`ai_chunk`](nodes/ai_chunk.md) | Split text into chunks (fixed/split), or group timestamped subtitle cues into time-anchored chunks (mode "cues") |
 | [`ai_chunk_merge`](nodes/ai_chunk_merge.md) | Merge small text chunks into token-budget groups |
 | [`ai_chunk_semantic`](nodes/ai_chunk_semantic.md) | Split text into semantic chunks using embedding similarity |
 

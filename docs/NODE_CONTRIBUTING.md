@@ -98,22 +98,22 @@ Use this for user-provided strings (URLs, paths, templates, SQL statements, etc.
 
 ## 6) Place the node in the right folder
 
-Most nodes go in:
-- `src/nodes/builtin/<node>_node.rs`
+Nodes live in category folders under `src/nodes/<category>/`, one file per node (or a small group of closely related nodes), with shared helpers in their own files within the folder. Pick the category that fits — e.g.:
+- `src/nodes/http/`, `src/nodes/file/`, `src/nodes/transform/`, `src/nodes/database/`, `src/nodes/extract/`, `src/nodes/image/`, `src/nodes/ai/`, `src/nodes/cloud/`, `src/nodes/s3vector/`, `src/nodes/notify/`, `src/nodes/mcp/`, `src/nodes/composition/`, `src/nodes/utility/`.
 
-If you add cross-cutting code (helpers/utilities), place those in existing shared modules or add a new internal module under `src/nodes/`.
+Add your node's struct to the appropriate file (e.g. `src/nodes/transform/json.rs`), or create a new file in the folder if it's a distinct responsibility. Keep files focused and under ~400 LOC; move large helpers/parsers into their own sibling file. If your node needs a brand-new category, create `src/nodes/<category>/mod.rs` with a `pub fn register_all(registry: &mut NodeRegistry)` and add `pub mod <category>;` to `src/nodes/mod.rs`.
 
 ## 7) Register the node
 
 Update:
 
-1) `src/nodes/builtin/mod.rs`
-- add module import if not already present
-- add to `register_all(registry)` with a new `registry.register(Arc::new(YourNode))` line
+1) The category's `src/nodes/<category>/mod.rs`
+- add the `mod` declaration / `pub use` re-export for your node's file if needed
+- add a `registry.register(Arc::new(YourNode))` line inside that folder's `register_all(registry)` function
 
-2) `src/nodes/builtin/mod.rs` should continue to compile with one line per node.
+2) `src/nodes/mod.rs::with_builtins()` calls each category's `register_all(&mut registry)` directly. If you added a new category, add its `register_all` call there.
 
-3) If the node is special for subflow execution (child registry behavior), update `src/nodes/builtin/subworkflow_node.rs` only if needed.
+3) If the node is special for subflow execution (child registry behavior), update `src/nodes/composition/subworkflow.rs` only if needed.
 
 ## 8) Lua API exposure
 

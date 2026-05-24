@@ -1,4 +1,16 @@
-pub mod builtin;
+pub mod ai;
+pub mod cloud;
+pub mod composition;
+pub mod database;
+pub mod extract;
+pub mod file;
+pub mod http;
+pub mod image;
+pub mod mcp;
+pub mod notify;
+pub mod s3vector;
+pub mod transform;
+pub mod utility;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -48,20 +60,30 @@ impl NodeRegistry {
     /// Create a registry with all built-in nodes registered.
     pub fn with_builtins() -> Self {
         let mut registry = Self::new();
-        builtin::register_all(&mut registry);
+        utility::register_all(&mut registry);
+        ai::register_all(&mut registry);
+        cloud::register_all(&mut registry);
+        composition::register_all(&mut registry);
+        extract::register_all(&mut registry);
+        file::register_all(&mut registry);
+        http::register_all(&mut registry);
+        notify::register_all(&mut registry);
+        database::register_all(&mut registry);
+        image::register_all(&mut registry);
+        mcp::register_all(&mut registry);
+        s3vector::register_all(&mut registry);
+        transform::register_all(&mut registry);
 
         // Snapshot the base registry (all nodes except subworkflow) and give
         // it to SubworkflowNode. It adds itself back at execution time so
         // child engines can also run subworkflows (nested execution).
         let base = Arc::new(registry.snapshot());
-        registry.register(Arc::new(builtin::subworkflow_node::SubworkflowNode {
+        registry.register(Arc::new(composition::SubworkflowNode {
             base_registry: base.clone(),
         }));
-        registry.register(Arc::new(
-            builtin::parallel_subworkflows_node::ParallelSubworkflowsNode {
-                base_registry: base,
-            },
-        ));
+        registry.register(Arc::new(composition::ParallelSubworkflowsNode {
+            base_registry: base,
+        }));
 
         registry
     }
