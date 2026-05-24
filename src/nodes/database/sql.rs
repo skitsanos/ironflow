@@ -38,7 +38,7 @@ fn optional_u64_config(config: &serde_json::Value, key: &str) -> Option<u64> {
 }
 
 /// Bind typed JSON parameters to an sqlx AnyArguments buffer.
-fn bind_params(params: &[serde_json::Value]) -> Result<sqlx::any::AnyArguments> {
+pub(super) fn bind_params(params: &[serde_json::Value]) -> Result<sqlx::any::AnyArguments> {
     let mut args = sqlx::any::AnyArguments::default();
     for (i, param) in params.iter().enumerate() {
         match param {
@@ -70,7 +70,7 @@ fn bind_params(params: &[serde_json::Value]) -> Result<sqlx::any::AnyArguments> 
 }
 
 /// Convert a row to a JSON object by inspecting column types at runtime.
-fn row_to_json(row: &AnyRow) -> Result<serde_json::Value> {
+pub(super) fn row_to_json(row: &AnyRow) -> Result<serde_json::Value> {
     let mut map = serde_json::Map::new();
 
     for col in row.columns() {
@@ -124,7 +124,7 @@ fn row_to_json(row: &AnyRow) -> Result<serde_json::Value> {
 }
 
 /// Connect to a database using the `connection` config parameter.
-async fn connect(config: &serde_json::Value, ctx: &Context) -> Result<AnyPool> {
+pub(super) async fn connect(config: &serde_json::Value, ctx: &Context) -> Result<AnyPool> {
     let url = config
         .get("connection")
         .and_then(|v| v.as_str())

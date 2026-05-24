@@ -1,9 +1,7 @@
-mod arangodb_node;
 mod cache_node;
 pub(crate) mod code_node;
 mod conditional_node;
 mod date_node;
-mod db_node;
 mod delay_node;
 mod encoding_node;
 mod foreach_node;
@@ -42,9 +40,6 @@ pub fn register_all(registry: &mut NodeRegistry) {
     registry.register(Arc::new(foreach_node::ForEachNode));
     registry.register(Arc::new(cache_node::CacheSetNode));
     registry.register(Arc::new(cache_node::CacheGetNode));
-    registry.register(Arc::new(db_node::DbQueryNode));
-    registry.register(Arc::new(db_node::DbExecNode));
-    registry.register(Arc::new(arangodb_node::ArangoDbAqlNode));
 
     registry.register(Arc::new(mcp_node::McpClientNode));
 

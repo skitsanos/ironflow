@@ -1,6 +1,7 @@
 pub mod ai;
 pub mod builtin;
 pub mod cloud;
+pub mod database;
 pub mod extract;
 pub mod file;
 pub mod http;
@@ -64,6 +65,7 @@ impl NodeRegistry {
         file::register_all(&mut registry);
         http::register_all(&mut registry);
         notify::register_all(&mut registry);
+        database::register_all(&mut registry);
         image::register_all(&mut registry);
         s3vector::register_all(&mut registry);
         transform::register_all(&mut registry);
