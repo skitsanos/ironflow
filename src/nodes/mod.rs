@@ -1,6 +1,7 @@
 pub mod builtin;
 pub mod extract;
 pub mod image;
+pub mod s3vector;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -53,6 +54,7 @@ impl NodeRegistry {
         builtin::register_all(&mut registry);
         extract::register_all(&mut registry);
         image::register_all(&mut registry);
+        s3vector::register_all(&mut registry);
 
         // Snapshot the base registry (all nodes except subworkflow) and give
         // it to SubworkflowNode. It adds itself back at execution time so
