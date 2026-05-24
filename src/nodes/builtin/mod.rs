@@ -21,7 +21,6 @@ mod lua_sandbox;
 mod markdown_node;
 mod mcp_node;
 pub(crate) mod parallel_subworkflows_node;
-mod pdf_image_node;
 mod s3_node;
 mod s3vector_node;
 mod send_email_node;
@@ -109,21 +108,6 @@ pub fn register_all(registry: &mut NodeRegistry) {
     registry.register(Arc::new(llm_node::LlmNode));
     registry.register(Arc::new(mcp_node::McpClientNode));
 
-    registry.register(Arc::new(pdf_image_node::PdfToImageNode));
-    registry.register(Arc::new(pdf_image_node::PdfThumbnailNode));
-    registry.register(Arc::new(pdf_image_node::ImageToPdfNode));
-    registry.register(Arc::new(pdf_image_node::PdfMetadataNode));
-    registry.register(Arc::new(pdf_image_node::ImageResizeNode));
-    registry.register(Arc::new(pdf_image_node::ImageCropNode));
-    registry.register(Arc::new(pdf_image_node::ImageRotateNode));
-    registry.register(Arc::new(pdf_image_node::ImageFlipNode));
-    registry.register(Arc::new(pdf_image_node::ImageGrayscaleNode));
-    registry.register(Arc::new(pdf_image_node::ImageMetadataNode));
-    registry.register(Arc::new(pdf_image_node::ImageConvertNode));
-    registry.register(Arc::new(pdf_image_node::ImageWatermarkNode));
-    registry.register(Arc::new(pdf_image_node::PdfMergeNode));
-    registry.register(Arc::new(pdf_image_node::PdfSplitNode));
-
     registry.register(Arc::new(xml_node::XmlParseNode));
     registry.register(Arc::new(xml_node::XmlStringifyNode));
 
@@ -134,4 +118,6 @@ pub fn register_all(registry: &mut NodeRegistry) {
 
     registry.register(Arc::new(encoding_node::Base64EncodeNode));
     registry.register(Arc::new(encoding_node::Base64DecodeNode));
+
+    crate::nodes::image::register_all(registry);
 }

@@ -1,5 +1,6 @@
 pub mod builtin;
 pub mod extract;
+pub mod image;
 
 use std::collections::HashMap;
 use std::sync::Arc;
