@@ -312,3 +312,132 @@ async fn ai_chunk_merge_custom_output_key() {
     assert!(out.contains_key("result_count"));
     assert!(out.contains_key("result_success"));
 }
+
+// --- ai_chunk mode = "cues" (timestamp-preserving) ---
+
+fn cue(start_ms: u64, end_ms: u64, start: &str, end: &str, text: &str) -> serde_json::Value {
+    serde_json::json!({
+        "start_ms": start_ms, "end_ms": end_ms,
+        "start": start, "end": end, "text": text
+    })
+}
+
+async fn run_cues(cues: Vec<serde_json::Value>, size: u64) -> ironflow::engine::types::NodeOutput {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("ai_chunk").expect("ai_chunk node exists");
+    let mut ctx: HashMap<String, serde_json::Value> = HashMap::new();
+    ctx.insert("cues".to_string(), serde_json::Value::Array(cues));
+    let config = serde_json::json!({
+        "mode": "cues", "source_key": "cues", "output_key": "segments", "size": size
+    });
+    node.execute(&config, &ctx)
+        .await
+        .expect("ai_chunk cues succeeds")
+}
+
+#[tokio::test]
+async fn ai_chunk_cues_merges_small_cues_into_one_segment() {
+    let cues = vec![
+        cue(0, 2000, "00:00:00.000", "00:00:02.000", "hello there"),
+        cue(2000, 4000, "00:00:02.000", "00:00:04.000", "second cue"),
+    ];
+    let out = run_cues(cues, 1000).await;
+    let segs = out.get("segments").unwrap().as_array().unwrap();
+    assert_eq!(segs.len(), 1);
+    let s = &segs[0];
+    assert_eq!(s.get("text").unwrap(), "hello there second cue");
+    assert_eq!(s.get("ts_start").unwrap(), "00:00:00.000");
+    assert_eq!(s.get("ts_end").unwrap(), "00:00:04.000");
+    assert_eq!(s.get("start_ms").unwrap(), 0);
+    assert_eq!(s.get("end_ms").unwrap(), 4000);
+    assert_eq!(s.get("cue_count").unwrap(), 2);
+    let texts = out.get("segments_texts").unwrap().as_array().unwrap();
+    assert_eq!(texts.len(), 1);
+    assert_eq!(texts[0], "hello there second cue");
+    assert_eq!(out.get("segments_count").unwrap(), 1);
+    assert_eq!(
+        out.get("segments_success").unwrap(),
+        &serde_json::json!(true)
+    );
+}
+
+#[tokio::test]
+async fn ai_chunk_cues_splits_on_size_with_per_group_timestamps() {
+    let cues = vec![
+        cue(0, 1000, "00:00:00.000", "00:00:01.000", "alpha line"),
+        cue(1000, 2000, "00:00:01.000", "00:00:02.000", "bravo line"),
+        cue(2000, 3000, "00:00:02.000", "00:00:03.000", "charlie ln"),
+    ];
+    let out = run_cues(cues, 12).await;
+    let segs = out.get("segments").unwrap().as_array().unwrap();
+    assert_eq!(segs.len(), 3);
+    assert_eq!(segs[0].get("ts_start").unwrap(), "00:00:00.000");
+    assert_eq!(segs[0].get("ts_end").unwrap(), "00:00:01.000");
+    assert_eq!(segs[2].get("start_ms").unwrap(), 2000);
+    assert_eq!(segs[2].get("end_ms").unwrap(), 3000);
+    for s in segs {
+        assert!(s.get("text").unwrap().as_str().unwrap().chars().count() <= 12);
+    }
+    let texts = out.get("segments_texts").unwrap().as_array().unwrap();
+    for (i, s) in segs.iter().enumerate() {
+        assert_eq!(&texts[i], s.get("text").unwrap());
+    }
+}
+
+#[tokio::test]
+async fn ai_chunk_cues_oversize_single_cue_is_its_own_segment() {
+    let big = "x".repeat(50);
+    let cues = vec![cue(0, 1000, "00:00:00.000", "00:00:01.000", &big)];
+    let out = run_cues(cues, 10).await;
+    let segs = out.get("segments").unwrap().as_array().unwrap();
+    assert_eq!(segs.len(), 1);
+    assert_eq!(
+        segs[0]
+            .get("text")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .chars()
+            .count(),
+        50
+    );
+    assert_eq!(segs[0].get("cue_count").unwrap(), 1);
+}
+
+#[tokio::test]
+async fn ai_chunk_cues_empty_array_yields_empty_output() {
+    let out = run_cues(vec![], 1000).await;
+    assert_eq!(out.get("segments").unwrap().as_array().unwrap().len(), 0);
+    assert_eq!(
+        out.get("segments_texts").unwrap().as_array().unwrap().len(),
+        0
+    );
+    assert_eq!(out.get("segments_count").unwrap(), 0);
+    assert_eq!(
+        out.get("segments_success").unwrap(),
+        &serde_json::json!(true)
+    );
+}
+
+#[tokio::test]
+async fn ai_chunk_cues_rejects_non_array_source() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("ai_chunk").unwrap();
+    let mut ctx: HashMap<String, serde_json::Value> = HashMap::new();
+    ctx.insert("cues".to_string(), serde_json::json!("not an array"));
+    let config = serde_json::json!({ "mode": "cues", "source_key": "cues" });
+    assert!(node.execute(&config, &ctx).await.is_err());
+}
+
+#[tokio::test]
+async fn ai_chunk_cues_rejects_cue_missing_text() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("ai_chunk").unwrap();
+    let mut ctx: HashMap<String, serde_json::Value> = HashMap::new();
+    ctx.insert(
+        "cues".to_string(),
+        serde_json::json!([{ "start_ms": 0, "end_ms": 1000, "start": "x", "end": "y" }]),
+    );
+    let config = serde_json::json!({ "mode": "cues", "source_key": "cues" });
+    assert!(node.execute(&config, &ctx).await.is_err());
+}
