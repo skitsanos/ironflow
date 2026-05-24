@@ -441,3 +441,29 @@ async fn ai_chunk_cues_rejects_cue_missing_text() {
     let config = serde_json::json!({ "mode": "cues", "source_key": "cues" });
     assert!(node.execute(&config, &ctx).await.is_err());
 }
+
+#[tokio::test]
+async fn ai_chunk_cues_rejects_cue_missing_start_ms() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("ai_chunk").unwrap();
+    let mut ctx: HashMap<String, serde_json::Value> = HashMap::new();
+    ctx.insert(
+        "cues".to_string(),
+        serde_json::json!([{ "text": "hi", "end_ms": 1000, "start": "x", "end": "y" }]),
+    );
+    let config = serde_json::json!({ "mode": "cues", "source_key": "cues" });
+    assert!(node.execute(&config, &ctx).await.is_err());
+}
+
+#[tokio::test]
+async fn ai_chunk_cues_rejects_cue_missing_end_ms() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("ai_chunk").unwrap();
+    let mut ctx: HashMap<String, serde_json::Value> = HashMap::new();
+    ctx.insert(
+        "cues".to_string(),
+        serde_json::json!([{ "text": "hi", "start_ms": 0, "start": "x", "end": "y" }]),
+    );
+    let config = serde_json::json!({ "mode": "cues", "source_key": "cues" });
+    assert!(node.execute(&config, &ctx).await.is_err());
+}
