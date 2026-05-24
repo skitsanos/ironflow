@@ -6,6 +6,11 @@ pub mod redis_store;
 pub mod sql_names;
 pub mod sql_store;
 
+#[cfg(feature = "redis")]
+pub use event_store::RedisEventStore;
+pub use event_store::{EventStore, MemoryEventStore, SqlEventStore};
+pub use sql_store::SqlStateStore;
+
 use anyhow::Result;
 use async_trait::async_trait;
 

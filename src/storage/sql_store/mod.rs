@@ -10,14 +10,16 @@ use crate::engine::types::*;
 use crate::storage::StateStore;
 use crate::storage::sql_names::{SqlDialect, SqlStateTableNames};
 
+mod schema;
+
 /// SQL-backed state store for SQLite and Postgres.
 ///
 /// Runs, context, and tasks are stored separately so task/status updates avoid
 /// rewriting the whole `RunInfo` blob on every state transition.
 pub struct SqlStateStore {
-    pool: AnyPool,
-    tables: SqlStateTableNames,
-    dialect: SqlDialect,
+    pub(super) pool: AnyPool,
+    pub(super) tables: SqlStateTableNames,
+    pub(super) dialect: SqlDialect,
 }
 
 impl SqlStateStore {
@@ -41,61 +43,6 @@ impl SqlStateStore {
         };
         store.ensure_schema().await?;
         Ok(store)
-    }
-
-    async fn ensure_schema(&self) -> Result<()> {
-        sqlx::query(sqlx::AssertSqlSafe(format!(
-            r#"
-            CREATE TABLE IF NOT EXISTS {} (
-                id TEXT PRIMARY KEY,
-                flow_name TEXT NOT NULL,
-                status TEXT NOT NULL,
-                started TEXT,
-                finished TEXT,
-                ctx TEXT NOT NULL
-            )
-            "#,
-            self.tables.runs
-        )))
-        .execute(&self.pool)
-        .await?;
-
-        sqlx::query(sqlx::AssertSqlSafe(format!(
-            r#"
-            CREATE TABLE IF NOT EXISTS {} (
-                run_id TEXT NOT NULL,
-                name TEXT NOT NULL,
-                node_type TEXT NOT NULL,
-                status TEXT NOT NULL,
-                attempt INTEGER NOT NULL,
-                input TEXT,
-                output TEXT,
-                error TEXT,
-                started TEXT,
-                finished TEXT,
-                PRIMARY KEY (run_id, name)
-            )
-            "#,
-            self.tables.tasks
-        )))
-        .execute(&self.pool)
-        .await?;
-
-        sqlx::query(sqlx::AssertSqlSafe(format!(
-            "CREATE INDEX IF NOT EXISTS {} ON {}(status, started)",
-            self.tables.runs_status_started_idx, self.tables.runs
-        )))
-        .execute(&self.pool)
-        .await?;
-
-        sqlx::query(sqlx::AssertSqlSafe(format!(
-            "CREATE INDEX IF NOT EXISTS {} ON {}(run_id)",
-            self.tables.tasks_run_id_idx, self.tables.tasks
-        )))
-        .execute(&self.pool)
-        .await?;
-
-        Ok(())
     }
 
     async fn upsert_run(&self, info: &RunInfo) -> Result<()> {
