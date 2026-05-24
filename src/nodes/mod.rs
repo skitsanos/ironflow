@@ -1,5 +1,4 @@
 pub mod ai;
-pub mod builtin;
 pub mod cloud;
 pub mod composition;
 pub mod database;
@@ -61,7 +60,6 @@ impl NodeRegistry {
     /// Create a registry with all built-in nodes registered.
     pub fn with_builtins() -> Self {
         let mut registry = Self::new();
-        builtin::register_all(&mut registry);
         utility::register_all(&mut registry);
         ai::register_all(&mut registry);
         cloud::register_all(&mut registry);
