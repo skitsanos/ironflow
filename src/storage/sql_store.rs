@@ -44,7 +44,7 @@ impl SqlStateStore {
     }
 
     async fn ensure_schema(&self) -> Result<()> {
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             r#"
             CREATE TABLE IF NOT EXISTS {} (
                 id TEXT PRIMARY KEY,
@@ -56,11 +56,11 @@ impl SqlStateStore {
             )
             "#,
             self.tables.runs
-        ))
+        )))
         .execute(&self.pool)
         .await?;
 
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             r#"
             CREATE TABLE IF NOT EXISTS {} (
                 run_id TEXT NOT NULL,
@@ -77,21 +77,21 @@ impl SqlStateStore {
             )
             "#,
             self.tables.tasks
-        ))
+        )))
         .execute(&self.pool)
         .await?;
 
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "CREATE INDEX IF NOT EXISTS {} ON {}(status, started)",
             self.tables.runs_status_started_idx, self.tables.runs
-        ))
+        )))
         .execute(&self.pool)
         .await?;
 
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "CREATE INDEX IF NOT EXISTS {} ON {}(run_id)",
             self.tables.tasks_run_id_idx, self.tables.tasks
-        ))
+        )))
         .execute(&self.pool)
         .await?;
 
@@ -112,7 +112,7 @@ impl SqlStateStore {
             self.placeholder(6),
         );
 
-        sqlx::query(&sql)
+        sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
             .bind(&info.id)
             .bind(&info.flow_name)
             .bind(info.status.to_string())
@@ -132,7 +132,10 @@ impl SqlStateStore {
             self.placeholder(1)
         );
 
-        let rows = sqlx::query(&sql).bind(run_id).fetch_all(&self.pool).await?;
+        let rows = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+            .bind(run_id)
+            .fetch_all(&self.pool)
+            .await?;
         let mut tasks = HashMap::with_capacity(rows.len());
         for row in rows {
             let name: String = row.try_get("name")?;
@@ -209,7 +212,7 @@ impl StateStore for SqlStateStore {
                 self.placeholder(2),
                 self.placeholder(3)
             );
-            sqlx::query(&sql)
+            sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
                 .bind(status.to_string())
                 .bind(Utc::now().to_rfc3339())
                 .bind(run_id)
@@ -223,7 +226,7 @@ impl StateStore for SqlStateStore {
                 self.placeholder(1),
                 self.placeholder(2)
             );
-            sqlx::query(&sql)
+            sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
                 .bind(status.to_string())
                 .bind(run_id)
                 .execute(&self.pool)
@@ -257,7 +260,7 @@ impl StateStore for SqlStateStore {
             self.placeholder(10),
         );
 
-        sqlx::query(&sql)
+        sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
             .bind(run_id)
             .bind(&task.name)
             .bind(&task.node_type)
@@ -279,7 +282,7 @@ impl StateStore for SqlStateStore {
             self.tables.runs,
             self.placeholder(1)
         );
-        let row = sqlx::query(&sql)
+        let row = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
             .bind(run_id)
             .fetch_optional(&self.pool)
             .await?
@@ -299,7 +302,7 @@ impl StateStore for SqlStateStore {
             self.placeholder(1),
             self.placeholder(2)
         );
-        let affected = sqlx::query(&sql)
+        let affected = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
             .bind(serde_json::to_string(&current)?)
             .bind(run_id)
             .execute(&self.pool)
@@ -317,7 +320,7 @@ impl StateStore for SqlStateStore {
             self.tables.runs,
             self.placeholder(1)
         );
-        let row = sqlx::query(&sql)
+        let row = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
             .bind(run_id)
             .fetch_optional(&self.pool)
             .await?
@@ -351,7 +354,7 @@ impl StateStore for SqlStateStore {
             sql.push_str(
                 " GROUP BY r.id, r.flow_name, r.status, r.started, r.finished ORDER BY r.started DESC",
             );
-            let rows = sqlx::query(&sql)
+            let rows = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
                 .bind(status.to_string())
                 .fetch_all(&self.pool)
                 .await?;
@@ -361,7 +364,9 @@ impl StateStore for SqlStateStore {
         sql.push_str(
             " GROUP BY r.id, r.flow_name, r.status, r.started, r.finished ORDER BY r.started DESC",
         );
-        let rows = sqlx::query(&sql).fetch_all(&self.pool).await?;
+        let rows = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+            .fetch_all(&self.pool)
+            .await?;
         rows.iter().map(Self::row_to_summary).collect()
     }
 
@@ -371,14 +376,20 @@ impl StateStore for SqlStateStore {
             self.tables.tasks,
             self.placeholder(1)
         );
-        sqlx::query(&sql).bind(run_id).execute(&self.pool).await?;
+        sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+            .bind(run_id)
+            .execute(&self.pool)
+            .await?;
 
         let sql = format!(
             "DELETE FROM {} WHERE id = {}",
             self.tables.runs,
             self.placeholder(1)
         );
-        sqlx::query(&sql).bind(run_id).execute(&self.pool).await?;
+        sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+            .bind(run_id)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
@@ -394,7 +405,7 @@ impl StateStore for SqlStateStore {
             self.placeholder(1)
         );
 
-        let rows = sqlx::query(&sql)
+        let rows = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
             .bind(cutoff.to_rfc3339())
             .fetch_all(&self.pool)
             .await?;

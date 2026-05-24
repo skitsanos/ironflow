@@ -104,7 +104,7 @@ impl SqlEventStore {
     }
 
     async fn ensure_schema(&self) -> Result<()> {
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             r#"
             CREATE TABLE IF NOT EXISTS {} (
                 id TEXT PRIMARY KEY,
@@ -115,14 +115,14 @@ impl SqlEventStore {
             )
             "#,
             self.tables.events
-        ))
+        )))
         .execute(&self.pool)
         .await?;
 
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(format!(
             "CREATE INDEX IF NOT EXISTS {} ON {}(run_id, timestamp, id)",
             self.tables.events_run_time_idx, self.tables.events
-        ))
+        )))
         .execute(&self.pool)
         .await?;
 
@@ -259,7 +259,7 @@ impl EventStore for SqlEventStore {
             self.placeholder(5),
         );
 
-        sqlx::query(&sql)
+        sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
             .bind(&event.id)
             .bind(&event.run_id)
             .bind(event.event_type.as_sse_name())
@@ -284,7 +284,7 @@ impl EventStore for SqlEventStore {
                 self.placeholder(1),
                 self.placeholder(2)
             );
-            sqlx::query(&sql)
+            sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
                 .bind(run_id)
                 .bind(after_id)
                 .fetch_optional(&self.pool)
@@ -306,7 +306,7 @@ impl EventStore for SqlEventStore {
                 self.placeholder(4),
                 self.placeholder(5),
             );
-            sqlx::query(&sql)
+            sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
                 .bind(run_id)
                 .bind(timestamp.clone())
                 .bind(timestamp)
@@ -321,7 +321,7 @@ impl EventStore for SqlEventStore {
                 self.placeholder(1),
                 self.placeholder(2),
             );
-            sqlx::query(&sql)
+            sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
                 .bind(run_id)
                 .bind(limit)
                 .fetch_all(&self.pool)
