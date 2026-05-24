@@ -5,6 +5,7 @@ pub mod extract;
 pub mod file;
 pub mod http;
 pub mod image;
+pub mod notify;
 pub mod s3vector;
 pub mod transform;
 
@@ -62,6 +63,7 @@ impl NodeRegistry {
         extract::register_all(&mut registry);
         file::register_all(&mut registry);
         http::register_all(&mut registry);
+        notify::register_all(&mut registry);
         image::register_all(&mut registry);
         s3vector::register_all(&mut registry);
         transform::register_all(&mut registry);

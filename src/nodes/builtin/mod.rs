@@ -14,9 +14,7 @@ mod lua_sandbox;
 mod markdown_node;
 mod mcp_node;
 pub(crate) mod parallel_subworkflows_node;
-mod send_email_node;
 mod shell_node;
-mod slack_node;
 pub(crate) mod subworkflow_node;
 mod template_node;
 mod validate_node;
@@ -42,8 +40,6 @@ pub fn register_all(registry: &mut NodeRegistry) {
     registry.register(Arc::new(markdown_node::MarkdownToHtmlNode));
     registry.register(Arc::new(markdown_node::HtmlToMarkdownNode));
     registry.register(Arc::new(foreach_node::ForEachNode));
-    registry.register(Arc::new(slack_node::SlackNotificationNode));
-    registry.register(Arc::new(send_email_node::SendEmailNode));
     registry.register(Arc::new(cache_node::CacheSetNode));
     registry.register(Arc::new(cache_node::CacheGetNode));
     registry.register(Arc::new(db_node::DbQueryNode));
