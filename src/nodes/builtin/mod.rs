@@ -21,10 +21,7 @@ mod shell_node;
 mod slack_node;
 pub(crate) mod subworkflow_node;
 mod template_node;
-mod transform_node;
 mod validate_node;
-mod xml_node;
-mod yaml_node;
 
 use crate::nodes::NodeRegistry;
 use std::sync::Arc;
@@ -48,17 +45,6 @@ pub fn register_all(registry: &mut NodeRegistry) {
     registry.register(Arc::new(file_node::ZipCreateNode));
     registry.register(Arc::new(file_node::ZipListNode));
     registry.register(Arc::new(file_node::ZipExtractNode));
-    registry.register(Arc::new(transform_node::JsonParseNode));
-    registry.register(Arc::new(transform_node::JsonStringifyNode));
-    registry.register(Arc::new(transform_node::JsonExtractPathNode));
-    registry.register(Arc::new(transform_node::CsvParseNode));
-    registry.register(Arc::new(transform_node::CsvStringifyNode));
-    registry.register(Arc::new(transform_node::SelectFieldsNode));
-    registry.register(Arc::new(transform_node::RenameFieldsNode));
-    registry.register(Arc::new(transform_node::DataFilterNode));
-    registry.register(Arc::new(transform_node::DataTransformNode));
-    registry.register(Arc::new(transform_node::BatchNode));
-    registry.register(Arc::new(transform_node::DeduplicateNode));
     registry.register(Arc::new(conditional_node::IfNode));
     registry.register(Arc::new(conditional_node::SwitchNode));
     registry.register(Arc::new(conditional_node::IfHttpStatusNode));
@@ -81,12 +67,6 @@ pub fn register_all(registry: &mut NodeRegistry) {
     registry.register(Arc::new(arangodb_node::ArangoDbAqlNode));
 
     registry.register(Arc::new(mcp_node::McpClientNode));
-
-    registry.register(Arc::new(xml_node::XmlParseNode));
-    registry.register(Arc::new(xml_node::XmlStringifyNode));
-
-    registry.register(Arc::new(yaml_node::YamlParseNode));
-    registry.register(Arc::new(yaml_node::YamlStringifyNode));
 
     registry.register(Arc::new(date_node::DateFormatNode));
 
