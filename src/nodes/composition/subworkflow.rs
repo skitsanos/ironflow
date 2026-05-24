@@ -44,7 +44,7 @@ impl SubworkflowNode {
             base_registry: self.base_registry.clone(),
         }));
         child.register(Arc::new(
-            super::parallel_subworkflows_node::ParallelSubworkflowsNode {
+            super::parallel_subworkflows::ParallelSubworkflowsNode {
                 base_registry: self.base_registry.clone(),
             },
         ));

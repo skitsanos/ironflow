@@ -1,19 +1,15 @@
 mod cache_node;
 pub(crate) mod code_node;
-mod conditional_node;
 mod date_node;
 mod delay_node;
 mod encoding_node;
-mod foreach_node;
 mod hash_node;
 mod html_sanitize_node;
 mod log_node;
-mod lua_sandbox;
+pub(crate) mod lua_sandbox;
 mod markdown_node;
 mod mcp_node;
-pub(crate) mod parallel_subworkflows_node;
 mod shell_node;
-pub(crate) mod subworkflow_node;
 mod template_node;
 mod validate_node;
 
@@ -25,10 +21,6 @@ pub fn register_all(registry: &mut NodeRegistry) {
     registry.register(Arc::new(log_node::LogNode));
     registry.register(Arc::new(delay_node::DelayNode));
     registry.register(Arc::new(shell_node::ShellCommandNode));
-    registry.register(Arc::new(conditional_node::IfNode));
-    registry.register(Arc::new(conditional_node::SwitchNode));
-    registry.register(Arc::new(conditional_node::IfHttpStatusNode));
-    registry.register(Arc::new(conditional_node::IfBodyContainsNode));
     registry.register(Arc::new(validate_node::ValidateSchemaNode));
     registry.register(Arc::new(validate_node::JsonValidateNode));
     registry.register(Arc::new(template_node::TemplateRenderNode));
@@ -37,7 +29,6 @@ pub fn register_all(registry: &mut NodeRegistry) {
     registry.register(Arc::new(html_sanitize_node::HtmlSanitizeNode));
     registry.register(Arc::new(markdown_node::MarkdownToHtmlNode));
     registry.register(Arc::new(markdown_node::HtmlToMarkdownNode));
-    registry.register(Arc::new(foreach_node::ForEachNode));
     registry.register(Arc::new(cache_node::CacheSetNode));
     registry.register(Arc::new(cache_node::CacheGetNode));
 

@@ -1,6 +1,7 @@
 pub mod ai;
 pub mod builtin;
 pub mod cloud;
+pub mod composition;
 pub mod database;
 pub mod extract;
 pub mod file;
@@ -61,6 +62,7 @@ impl NodeRegistry {
         builtin::register_all(&mut registry);
         ai::register_all(&mut registry);
         cloud::register_all(&mut registry);
+        composition::register_all(&mut registry);
         extract::register_all(&mut registry);
         file::register_all(&mut registry);
         http::register_all(&mut registry);
@@ -74,14 +76,12 @@ impl NodeRegistry {
         // it to SubworkflowNode. It adds itself back at execution time so
         // child engines can also run subworkflows (nested execution).
         let base = Arc::new(registry.snapshot());
-        registry.register(Arc::new(builtin::subworkflow_node::SubworkflowNode {
+        registry.register(Arc::new(composition::SubworkflowNode {
             base_registry: base.clone(),
         }));
-        registry.register(Arc::new(
-            builtin::parallel_subworkflows_node::ParallelSubworkflowsNode {
-                base_registry: base,
-            },
-        ));
+        registry.register(Arc::new(composition::ParallelSubworkflowsNode {
+            base_registry: base,
+        }));
 
         registry
     }

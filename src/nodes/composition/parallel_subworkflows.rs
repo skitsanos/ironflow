@@ -11,7 +11,7 @@ use crate::lua::runtime::LuaRuntime;
 use crate::nodes::{Node, NodeRegistry};
 use crate::storage::null_store::NullStateStore;
 
-use super::subworkflow_node::SubworkflowNode;
+use super::subworkflow::SubworkflowNode;
 
 /// Hard cap on `max_concurrent` to guard against pathological config values.
 const MAX_PARALLEL_SUBWORKFLOWS_CAP: usize = 1024;
