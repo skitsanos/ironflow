@@ -5,7 +5,7 @@ use std::time::Duration;
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
 
-use super::ai_embed_node::{acquire_oauth_token, embed_ollama, embed_openai, resolve_param};
+use super::embeddings::{acquire_oauth_token, embed_ollama, embed_openai, resolve_param};
 
 // =============================================================================
 // Sentence Splitting

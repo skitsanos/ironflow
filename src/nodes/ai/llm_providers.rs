@@ -1,25 +1,20 @@
 use anyhow::Result;
-use async_trait::async_trait;
-use futures_util::TryStreamExt;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
-use serde_json::{Map, Value, json};
-use std::time::Duration;
+use serde_json::{Map, Value};
 
-use crate::engine::types::{Context, NodeOutput};
+use crate::engine::types::Context;
 use crate::lua::interpolate::interpolate_ctx;
-use crate::nodes::Node;
-use crate::util::limits;
 
-use super::ai_embed_node::resolve_param;
+use super::embeddings::resolve_param;
 
 #[derive(Clone, Copy)]
-enum LlmMode {
+pub(super) enum LlmMode {
     Chat,
     Responses,
 }
 
 impl LlmMode {
-    fn as_str(self) -> &'static str {
+    pub(super) fn as_str(self) -> &'static str {
         match self {
             Self::Chat => "chat",
             Self::Responses => "responses",
@@ -28,7 +23,7 @@ impl LlmMode {
 }
 
 #[derive(Clone, Copy)]
-enum Provider {
+pub(super) enum Provider {
     OpenAI,
     OpenAICompatible,
     Azure,
@@ -36,7 +31,7 @@ enum Provider {
 }
 
 impl Provider {
-    fn resolve(config: &serde_json::Value) -> Self {
+    pub(super) fn resolve(config: &serde_json::Value) -> Self {
         match config
             .get("provider")
             .and_then(|v| v.as_str())
@@ -51,7 +46,7 @@ impl Provider {
         }
     }
 
-    fn name(self) -> &'static str {
+    pub(super) fn name(self) -> &'static str {
         match self {
             Self::OpenAI => "openai",
             Self::OpenAICompatible => "openai_compatible",
@@ -61,7 +56,10 @@ impl Provider {
     }
 }
 
-fn interpolate_json_value(value: &serde_json::Value, ctx: &Context) -> serde_json::Value {
+pub(super) fn interpolate_json_value(
+    value: &serde_json::Value,
+    ctx: &Context,
+) -> serde_json::Value {
     match value {
         serde_json::Value::String(s) => serde_json::Value::String(interpolate_ctx(s, ctx)),
         serde_json::Value::Array(arr) => {
@@ -78,7 +76,7 @@ fn interpolate_json_value(value: &serde_json::Value, ctx: &Context) -> serde_jso
     }
 }
 
-fn parse_mode(config: &serde_json::Value) -> Result<LlmMode> {
+pub(super) fn parse_mode(config: &serde_json::Value) -> Result<LlmMode> {
     let mode = config
         .get("mode")
         .and_then(|v| v.as_str())
@@ -108,148 +106,14 @@ fn parse_mode(config: &serde_json::Value) -> Result<LlmMode> {
     }
 }
 
-fn extract_text(value: &serde_json::Value, out: &mut String) {
-    match value {
-        Value::String(s) if !s.is_empty() => {
-            if !out.is_empty() {
-                out.push(' ');
-            }
-            out.push_str(s);
-        }
-        Value::Array(items) => {
-            for item in items {
-                extract_text(item, out);
-            }
-        }
-        Value::Object(map) => {
-            if let Some(text) = map
-                .get("text")
-                .or_else(|| map.get("content"))
-                .or_else(|| map.get("message").and_then(|m| m.get("content")))
-            {
-                extract_text(text, out);
-                return;
-            }
-
-            for value in map.values() {
-                extract_text(value, out);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn extract_chat_tool_calls(data: &serde_json::Value) -> Vec<serde_json::Value> {
-    let Some(choices) = data.get("choices").and_then(Value::as_array) else {
-        return Vec::new();
-    };
-    let Some(first_choice) = choices.first() else {
-        return Vec::new();
-    };
-    let Some(message) = first_choice
-        .get("message")
-        .or_else(|| first_choice.get("delta"))
-    else {
-        return Vec::new();
-    };
-
-    message
-        .get("tool_calls")
-        .and_then(Value::as_array)
-        .map(|tool_calls| {
-            tool_calls
-                .iter()
-                .filter_map(|call| {
-                    if call.is_object() {
-                        Some(call.clone())
-                    } else {
-                        None
-                    }
-                })
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-fn extract_tool_call_names(tool_calls: &[serde_json::Value]) -> Vec<String> {
-    tool_calls
-        .iter()
-        .filter_map(|call| {
-            call.get("function")
-                .and_then(|f| f.get("name"))
-                .and_then(Value::as_str)
-                .or_else(|| call.get("name").and_then(Value::as_str))
-                .map(str::to_string)
-        })
-        .collect()
-}
-
-fn extract_chat_reply(data: &serde_json::Value) -> Option<String> {
-    let choices = data.get("choices")?.as_array()?;
-    let first = choices.first()?;
-    let msg = first.get("message");
-    let mut out = String::new();
-
-    if let Some(content) = msg.and_then(|m| m.get("content")) {
-        extract_text(content, &mut out);
-    }
-
-    if out.is_empty()
-        && let Some(text) = first.get("text").and_then(|v| v.as_str())
-    {
-        out.push_str(text);
-    }
-
-    if out.is_empty()
-        && let Some(content) = first.get("content")
-    {
-        extract_text(content, &mut out);
-    }
-
-    if out.is_empty() { None } else { Some(out) }
-}
-
-fn extract_responses_reply(data: &serde_json::Value) -> Option<String> {
-    let mut out = String::new();
-
-    if let Some(output_text) = data.get("output_text").and_then(|v| v.as_str()) {
-        out.push_str(output_text);
-    }
-
-    if out.is_empty()
-        && let Some(output) = data.get("output").and_then(|v| v.as_array())
-    {
-        for item in output {
-            if let Some(content) = item.get("content") {
-                extract_text(content, &mut out);
-            }
-            if let Some(text) = item.get("text").and_then(|v| v.as_str()) {
-                if !out.is_empty() {
-                    out.push(' ');
-                }
-                out.push_str(text);
-            }
-        }
-    }
-
-    if out.is_empty()
-        && let Some(output) = data.get("output").and_then(|v| v.as_array())
-        && let Some(first) = output.first()
-    {
-        extract_text(first, &mut out);
-    }
-
-    if out.is_empty() { None } else { Some(out) }
-}
-
-fn parse_timeout(config: &serde_json::Value) -> f64 {
+pub(super) fn parse_timeout(config: &serde_json::Value) -> f64 {
     config
         .get("timeout")
         .and_then(|v| v.as_f64())
         .unwrap_or(30.0)
 }
 
-fn optional_u64_config(config: &serde_json::Value, key: &str) -> Option<u64> {
+pub(super) fn optional_u64_config(config: &serde_json::Value, key: &str) -> Option<u64> {
     config.get(key).and_then(|value| match value {
         serde_json::Value::Number(n) => n.as_u64(),
         serde_json::Value::String(s) => s.parse::<u64>().ok(),
@@ -257,44 +121,10 @@ fn optional_u64_config(config: &serde_json::Value, key: &str) -> Option<u64> {
     })
 }
 
-async fn read_capped_response_body(
-    response: reqwest::Response,
-    max_bytes: Option<u64>,
-) -> Result<String> {
-    if let Some(max_bytes) = max_bytes
-        && let Some(content_length) = response.content_length()
-        && content_length > max_bytes
-    {
-        anyhow::bail!(
-            "llm: response body content-length {} exceeds max_response_bytes limit of {}",
-            content_length,
-            max_bytes
-        );
-    }
-
-    let mut body = Vec::new();
-    let mut stream = response.bytes_stream();
-    while let Some(chunk) = stream
-        .try_next()
-        .await
-        .map_err(|e| anyhow::anyhow!("llm: failed to read response body: {}", e))?
-    {
-        if let Some(max_bytes) = max_bytes
-            && body.len() as u64 + chunk.len() as u64 > max_bytes
-        {
-            anyhow::bail!(
-                "llm: response body exceeded max_response_bytes limit of {}",
-                max_bytes
-            );
-        }
-        body.extend_from_slice(&chunk);
-    }
-
-    String::from_utf8(body)
-        .map_err(|e| anyhow::anyhow!("llm: response body is not valid UTF-8: {}", e))
-}
-
-fn resolve_tools(config: &serde_json::Value, ctx: &Context) -> Result<Option<serde_json::Value>> {
+pub(super) fn resolve_tools(
+    config: &serde_json::Value,
+    ctx: &Context,
+) -> Result<Option<serde_json::Value>> {
     let Some(raw_tools) = config.get("tools") else {
         return Ok(None);
     };
@@ -307,7 +137,7 @@ fn resolve_tools(config: &serde_json::Value, ctx: &Context) -> Result<Option<ser
     }
 }
 
-fn resolve_tool_choice(
+pub(super) fn resolve_tool_choice(
     config: &serde_json::Value,
     ctx: &Context,
 ) -> Result<Option<serde_json::Value>> {
@@ -322,7 +152,7 @@ fn resolve_tool_choice(
     }
 }
 
-fn resolve_model(
+pub(super) fn resolve_model(
     config: &serde_json::Value,
     mode: LlmMode,
     azure_deployment: Option<&str>,
@@ -347,7 +177,7 @@ fn resolve_model(
     "gpt-5-mini".to_string()
 }
 
-fn resolve_provider_config(
+pub(super) fn resolve_provider_config(
     config: &serde_json::Value,
     ctx: &Context,
     mode: LlmMode,
@@ -522,7 +352,10 @@ fn resolve_provider_config(
     }
 }
 
-fn resolve_messages(config: &serde_json::Value, ctx: &Context) -> Result<Option<Vec<Value>>> {
+pub(super) fn resolve_messages(
+    config: &serde_json::Value,
+    ctx: &Context,
+) -> Result<Option<Vec<Value>>> {
     let Some(messages_value) = config.get("messages") else {
         return Ok(None);
     };
@@ -539,7 +372,7 @@ fn resolve_messages(config: &serde_json::Value, ctx: &Context) -> Result<Option<
     Ok(Some(items))
 }
 
-fn resolve_prompt(config: &serde_json::Value, ctx: &Context) -> Result<String> {
+pub(super) fn resolve_prompt(config: &serde_json::Value, ctx: &Context) -> Result<String> {
     if let Some(prompt) = config.get("prompt").and_then(|v| v.as_str()) {
         return Ok(interpolate_ctx(prompt, ctx));
     }
@@ -556,18 +389,20 @@ fn resolve_prompt(config: &serde_json::Value, ctx: &Context) -> Result<String> {
     anyhow::bail!("llm: either 'prompt', 'input_key', or 'messages' is required");
 }
 
-struct LlmBodyInput<'a> {
-    mode: LlmMode,
-    model: &'a str,
-    messages: Option<Vec<Value>>,
-    prompt: &'a str,
-    config: &'a serde_json::Value,
-    ctx: &'a Context,
-    tools: Option<Value>,
-    tool_choice: Option<Value>,
+pub(super) struct LlmBodyInput<'a> {
+    pub(super) mode: LlmMode,
+    pub(super) model: &'a str,
+    pub(super) messages: Option<Vec<Value>>,
+    pub(super) prompt: &'a str,
+    pub(super) config: &'a serde_json::Value,
+    pub(super) ctx: &'a Context,
+    pub(super) tools: Option<Value>,
+    pub(super) tool_choice: Option<Value>,
 }
 
-fn build_body(input: &LlmBodyInput<'_>) -> Result<Value> {
+pub(super) fn build_body(input: &LlmBodyInput<'_>) -> Result<Value> {
+    use serde_json::json;
+
     let LlmBodyInput {
         mode,
         model,
@@ -644,167 +479,4 @@ fn build_body(input: &LlmBodyInput<'_>) -> Result<Value> {
     }
 
     Ok(Value::Object(body_obj))
-}
-
-pub struct LlmNode;
-
-#[async_trait]
-impl Node for LlmNode {
-    fn node_type(&self) -> &str {
-        "llm"
-    }
-
-    fn description(&self) -> &str {
-        "Run Chat Completions or Responses against OpenAI, OpenAI-compatible, Azure, or custom providers"
-    }
-
-    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
-        let mode = parse_mode(config)?;
-        let timeout_s = parse_timeout(config);
-        let tools = resolve_tools(config, ctx)?;
-        let tool_choice = resolve_tool_choice(config, ctx)?;
-        let output_key = config
-            .get("output_key")
-            .and_then(|v| v.as_str())
-            .unwrap_or("llm")
-            .to_string();
-        let max_response_bytes = optional_u64_config(config, "max_response_bytes")
-            .filter(|limit| *limit > 0)
-            .or_else(limits::max_llm_response_bytes);
-
-        let messages = resolve_messages(config, ctx)?;
-        let prompt = if messages.is_none() {
-            resolve_prompt(config, ctx)?
-        } else {
-            String::new()
-        };
-
-        let provider = Provider::resolve(config);
-        let azure_deployment = if matches!(provider, Provider::Azure) {
-            resolve_param(
-                config,
-                "azure_chat_deployment",
-                "AZURE_OPENAI_CHAT_DEPLOYMENT",
-                ctx,
-            )
-            .or_else(|| {
-                resolve_param(
-                    config,
-                    "azure_responses_deployment",
-                    "AZURE_OPENAI_RESPONSES_DEPLOYMENT",
-                    ctx,
-                )
-            })
-            .or_else(|| Some("".to_string()))
-        } else {
-            None
-        };
-        let model = resolve_model(config, mode, azure_deployment.as_deref());
-        let (url, headers, provider_name) = resolve_provider_config(config, ctx, mode)?;
-        let request_input = LlmBodyInput {
-            mode,
-            model: &model,
-            messages,
-            prompt: &prompt,
-            config,
-            ctx,
-            tools,
-            tool_choice,
-        };
-        let body = build_body(&request_input)?;
-
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs_f64(timeout_s))
-            .build()?;
-
-        let response = client
-            .post(&url)
-            .headers(headers)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| anyhow::anyhow!("llm: request failed: {}", e))?;
-
-        let status = response.status();
-        let response_text = read_capped_response_body(response, max_response_bytes).await?;
-
-        if !status.is_success() {
-            anyhow::bail!(
-                "llm: request to {} returned {}: {}",
-                provider_name,
-                url,
-                response_text
-            );
-        }
-
-        let parsed: Value =
-            serde_json::from_str(&response_text).unwrap_or(Value::String(response_text));
-
-        let reply = match mode {
-            LlmMode::Chat => extract_chat_reply(&parsed),
-            LlmMode::Responses => extract_responses_reply(&parsed),
-        };
-        let tool_calls = if matches!(mode, LlmMode::Chat) {
-            extract_chat_tool_calls(&parsed)
-        } else {
-            Vec::new()
-        };
-        let has_tool_calls = !tool_calls.is_empty();
-        let tool_call_names = extract_tool_call_names(&tool_calls);
-
-        let mut output = NodeOutput::new();
-        output.insert(format!("{}_model", output_key), Value::String(model));
-        output.insert(
-            format!("{}_provider", output_key),
-            Value::String(provider.name().to_string()),
-        );
-        output.insert(
-            format!("{}_mode", output_key),
-            Value::String(mode.as_str().to_string()),
-        );
-        output.insert(
-            format!("{}_status", output_key),
-            Value::Number(status.as_u16().into()),
-        );
-        output.insert(format!("{}_raw", output_key), parsed);
-        output.insert(format!("{}_success", output_key), Value::Bool(true));
-        if let Some(usage) = output
-            .get(&format!("{}_raw", output_key))
-            .and_then(|value| value.get("usage"))
-        {
-            output.insert(format!("{}_usage", output_key), usage.clone());
-        }
-        if let Some(reply) = reply {
-            output.insert(format!("{}_text", output_key), Value::String(reply));
-        } else if !tool_calls.is_empty() {
-            output.insert(
-                format!("{}_text", output_key),
-                Value::String("<tool call requested>".to_string()),
-            );
-        } else {
-            output.insert(
-                format!("{}_text", output_key),
-                Value::String("<no reply>".to_string()),
-            );
-        }
-        output.insert(
-            format!("{}_tool_calls", output_key),
-            Value::Array(tool_calls),
-        );
-        output.insert(
-            format!("{}_tool_call_needed", output_key),
-            Value::Bool(has_tool_calls),
-        );
-        output.insert(
-            format!("{}_tool_call_names", output_key),
-            Value::Array(
-                tool_call_names
-                    .into_iter()
-                    .map(serde_json::Value::String)
-                    .collect(),
-            ),
-        );
-
-        Ok(output)
-    }
 }

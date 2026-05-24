@@ -1,7 +1,3 @@
-mod ai_chunk_merge_node;
-mod ai_chunk_node;
-mod ai_chunk_semantic_node;
-pub(crate) mod ai_embed_node;
 mod arangodb_node;
 mod cache_node;
 pub(crate) mod code_node;
@@ -15,7 +11,6 @@ mod foreach_node;
 mod hash_node;
 mod html_sanitize_node;
 mod http_node;
-mod llm_node;
 mod log_node;
 mod lua_sandbox;
 mod markdown_node;
@@ -85,11 +80,6 @@ pub fn register_all(registry: &mut NodeRegistry) {
     registry.register(Arc::new(db_node::DbExecNode));
     registry.register(Arc::new(arangodb_node::ArangoDbAqlNode));
 
-    registry.register(Arc::new(ai_chunk_node::AiChunkNode));
-    registry.register(Arc::new(ai_chunk_merge_node::AiChunkMergeNode));
-    registry.register(Arc::new(ai_chunk_semantic_node::AiChunkSemanticNode));
-    registry.register(Arc::new(ai_embed_node::AiEmbedNode));
-    registry.register(Arc::new(llm_node::LlmNode));
     registry.register(Arc::new(mcp_node::McpClientNode));
 
     registry.register(Arc::new(xml_node::XmlParseNode));

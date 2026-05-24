@@ -1,3 +1,4 @@
+pub mod ai;
 pub mod builtin;
 pub mod cloud;
 pub mod extract;
@@ -53,6 +54,7 @@ impl NodeRegistry {
     pub fn with_builtins() -> Self {
         let mut registry = Self::new();
         builtin::register_all(&mut registry);
+        ai::register_all(&mut registry);
         cloud::register_all(&mut registry);
         extract::register_all(&mut registry);
         image::register_all(&mut registry);
