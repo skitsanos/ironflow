@@ -99,10 +99,8 @@ fn create_multi_page_pdf(path: &std::path::Path, num_pages: u32) {
 #[tokio::test]
 async fn pdf_merge_two_files() {
     use ironflow::nodes::NodeRegistry;
-    use ironflow::nodes::builtin::register_all;
 
-    let mut registry = NodeRegistry::new();
-    register_all(&mut registry);
+    let registry = NodeRegistry::with_builtins();
     let node = registry.get("pdf_merge").expect("pdf_merge not registered");
 
     let dir = tempfile::tempdir().unwrap();
@@ -133,10 +131,8 @@ async fn pdf_merge_two_files() {
 #[tokio::test]
 async fn pdf_merge_missing_file_error() {
     use ironflow::nodes::NodeRegistry;
-    use ironflow::nodes::builtin::register_all;
 
-    let mut registry = NodeRegistry::new();
-    register_all(&mut registry);
+    let registry = NodeRegistry::with_builtins();
     let node = registry.get("pdf_merge").expect("pdf_merge not registered");
 
     let dir = tempfile::tempdir().unwrap();
@@ -157,10 +153,8 @@ async fn pdf_merge_missing_file_error() {
 #[tokio::test]
 async fn pdf_split_single_page() {
     use ironflow::nodes::NodeRegistry;
-    use ironflow::nodes::builtin::register_all;
 
-    let mut registry = NodeRegistry::new();
-    register_all(&mut registry);
+    let registry = NodeRegistry::with_builtins();
     let node = registry.get("pdf_split").expect("pdf_split not registered");
 
     let dir = tempfile::tempdir().unwrap();
@@ -188,10 +182,8 @@ async fn pdf_split_single_page() {
 #[tokio::test]
 async fn pdf_split_specific_pages() {
     use ironflow::nodes::NodeRegistry;
-    use ironflow::nodes::builtin::register_all;
 
-    let mut registry = NodeRegistry::new();
-    register_all(&mut registry);
+    let registry = NodeRegistry::with_builtins();
     let node = registry.get("pdf_split").expect("pdf_split not registered");
 
     let dir = tempfile::tempdir().unwrap();
@@ -222,10 +214,8 @@ async fn pdf_split_specific_pages() {
 #[tokio::test]
 async fn pdf_split_missing_file_error() {
     use ironflow::nodes::NodeRegistry;
-    use ironflow::nodes::builtin::register_all;
 
-    let mut registry = NodeRegistry::new();
-    register_all(&mut registry);
+    let registry = NodeRegistry::with_builtins();
     let node = registry.get("pdf_split").expect("pdf_split not registered");
 
     let dir = tempfile::tempdir().unwrap();

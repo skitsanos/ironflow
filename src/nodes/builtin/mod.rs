@@ -118,6 +118,4 @@ pub fn register_all(registry: &mut NodeRegistry) {
 
     registry.register(Arc::new(encoding_node::Base64EncodeNode));
     registry.register(Arc::new(encoding_node::Base64DecodeNode));
-
-    crate::nodes::image::register_all(registry);
 }

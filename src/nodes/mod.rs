@@ -52,6 +52,7 @@ impl NodeRegistry {
         let mut registry = Self::new();
         builtin::register_all(&mut registry);
         extract::register_all(&mut registry);
+        image::register_all(&mut registry);
 
         // Snapshot the base registry (all nodes except subworkflow) and give
         // it to SubworkflowNode. It adds itself back at execution time so
