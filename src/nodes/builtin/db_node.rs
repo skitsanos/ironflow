@@ -38,7 +38,7 @@ fn optional_u64_config(config: &serde_json::Value, key: &str) -> Option<u64> {
 }
 
 /// Bind typed JSON parameters to an sqlx AnyArguments buffer.
-fn bind_params(params: &[serde_json::Value]) -> Result<sqlx::any::AnyArguments<'_>> {
+fn bind_params(params: &[serde_json::Value]) -> Result<sqlx::any::AnyArguments> {
     let mut args = sqlx::any::AnyArguments::default();
     for (i, param) in params.iter().enumerate() {
         match param {
@@ -176,7 +176,7 @@ impl Node for DbQueryNode {
         let pool = connect(config, ctx).await?;
         let args = bind_params(&params)?;
 
-        let mut stream = sqlx::query_with(&query, args).fetch(&pool);
+        let mut stream = sqlx::query_with(sqlx::AssertSqlSafe(query.as_str()), args).fetch(&pool);
         let mut json_rows = Vec::new();
         let mut serialized_bytes = 2u64; // '[' + ']'
 
@@ -248,7 +248,7 @@ impl Node for DbExecNode {
         let pool = connect(config, ctx).await?;
         let args = bind_params(&params)?;
 
-        let result = sqlx::query_with(&query, args)
+        let result = sqlx::query_with(sqlx::AssertSqlSafe(query.as_str()), args)
             .execute(&pool)
             .await
             .map_err(|e| anyhow::anyhow!("db_exec failed: {}", e))?;
