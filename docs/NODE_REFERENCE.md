@@ -1,6 +1,6 @@
 # IronFlow — Node Reference
 
-Complete reference for all 96 built-in nodes. Click any node name for full documentation with parameters, context output, and Lua examples.
+Complete reference for all 97 built-in nodes. Click any node name for full documentation with parameters, context output, and Lua examples.
 
 For adding or maintaining node implementations, see [Node Contributor Manual](NODE_CONTRIBUTING.md).
 
@@ -151,6 +151,7 @@ For adding or maintaining node implementations, see [Node Contributor Manual](NO
 | Node | Description |
 |------|-------------|
 | [`extract_word`](nodes/extract_word.md) | Extract text and metadata from Word (.docx) |
+| [`extract_pptx`](nodes/extract_pptx.md) | Extract text, tables, notes, and comments from PowerPoint (.pptx) |
 | [`extract_pdf`](nodes/extract_pdf.md) | Extract text and metadata from PDF |
 | [`extract_html`](nodes/extract_html.md) | Extract text and metadata from HTML |
 | [`extract_vtt`](nodes/extract_vtt.md) | Extract text and metadata from WebVTT subtitles |
