@@ -99,4 +99,13 @@ Order: start with the 3 mega-files (highest payoff, most self-contained), then r
 
 ## Verification
 
-Per unit and at campaign end: `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all-features` (452 passing). Node count and registration unchanged (verified by `ironflow nodes` / registry tests). Lua node names, REST routes, config keys, env vars unchanged.
+**Per unit:** `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all-features` (452 passing). Tree green before the next unit.
+
+**At campaign end (acceptance criteria):**
+- `cargo fmt --check` / `clippy -D warnings` / `cargo test --all-features` all green.
+- Node count and registration unchanged — verified by `ironflow nodes` and registry tests.
+- **All 117 example flows pass `ironflow validate`** (the CI `validate-examples` job, run locally over `examples/**/*.lua`). A spot-run of representative examples that exercise refactored nodes (extract, image, transform, http, subworkflow) against `data/samples/` fixtures.
+- **Docs reconciled with the new structure:** `docs/NODE_REFERENCE.md`, the per-node files under `docs/nodes/`, `docs/ARCHITECTURE.md`, and any file/module paths referenced in docs updated to match the new `src/nodes/<category>/` layout. Node-count statements corrected (note: `extract_pptx` already makes the true count 97; reconcile during this campaign).
+- Lua node names, REST routes, config keys, and env vars unchanged.
+
+**Test fixtures:** `data/samples/` holds the binary fixtures (docx, pdf, pptx, vtt, images) used by extract/image tests. Any new sample data needed for refactor verification is written there.
