@@ -295,7 +295,7 @@ Progressive examples from basic to advanced:
 | [13-ai](examples/13-ai/) | Text embeddings (OpenAI, Ollama, OAuth), text chunking (fixed, split, merge, semantic) |
 | [14-notifications](examples/14-notifications/) | Email via Resend or SMTP, Slack webhooks |
 | [15-webhooks](examples/15-webhooks/) | Webhook routes with auth header validation, config-driven endpoints |
-| [16-s3vector](examples/16-s3vector/) | S3 Vectors RAG pipelines, similarity search, metadata filtering, query expansion |
+| [16-s3vector](examples/16-s3vector/) | S3 Vectors RAG pipelines, transcript indexing with time-anchored chunks, similarity search, metadata filtering, query expansion |
 | [17-mcp](examples/17-mcp/) | MCP stdio and SSE client workflows (initialize, tools/list, tools/call) |
 | [18-xml-yaml](examples/18-xml-yaml/) | XML and YAML parsing/stringifying |
 | [19-html-sanitize](examples/19-html-sanitize/) | HTML sanitization with configurable allowed tags |

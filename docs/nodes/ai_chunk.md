@@ -1,13 +1,13 @@
 # `ai_chunk`
 
-Split text into chunks using fixed-size or delimiter strategies.
+Split text into chunks using fixed-size, delimiter, or subtitle cue strategies.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `mode` | string | No | `"fixed"` | Chunking strategy: `"fixed"` or `"split"` |
-| `source_key` | string | Yes | — | Context key holding the text to chunk |
+| `mode` | string | No | `"fixed"` | Chunking strategy: `"fixed"`, `"split"`, or `"cues"` |
+| `source_key` | string | Yes | — | Context key holding text to chunk (`fixed`/`split`) or a subtitle cues array (`cues`) |
 | `output_key` | string | No | `"chunks"` | Prefix for output context keys |
 | `size` | number | No | `4096` | Target chunk size in bytes (mode=fixed) |
 | `delimiters` | string | No | see below | Delimiter characters (e.g. `"\n."`) |
@@ -23,7 +23,7 @@ Split text into chunks using fixed-size or delimiter strategies.
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `{output_key}` | array | Array of chunk strings |
+| `{output_key}` | array | Array of chunk strings (`fixed`/`split`) or cue segment objects (`cues`) |
 | `{output_key}_count` | number | Number of chunks |
 | `{output_key}_success` | boolean | `true` on success |
 
