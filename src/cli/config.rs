@@ -69,7 +69,7 @@ impl IronFlowConfig {
         let contents = std::fs::read_to_string(&file_path)
             .with_context(|| format!("Failed to read config file: {}", file_path.display()))?;
 
-        let config: IronFlowConfig = serde_yml::from_str(&contents)
+        let config: IronFlowConfig = noyalib::compat::serde_yaml::from_str(&contents)
             .with_context(|| format!("Failed to parse config file: {}", file_path.display()))?;
 
         Ok(config)
