@@ -8,20 +8,20 @@ description = "Lightweight workflow engine — Rust core, Lua scripting, single 
 tokio = { version = "1.52.3", features = ["full"] }
 mlua = { version = "0.11.6", features = ["lua54", "async", "serialize", "send", "vendored"] }
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.149"
-serde_yml = "0.0.12"
+serde_json = "1.0.150"
+noyalib = { version = "0.0.6", features = ["compat-serde-yaml"] }
 clap = { version = "4.6.1", features = ["derive", "env"] }
 anyhow = "1.0.102"
 thiserror = "2.0.18"
-uuid = { version = "1.23.1", features = ["v4"] }
+uuid = { version = "1.23.2", features = ["v4"] }
 chrono = { version = "0.4.44", features = ["serde"] }
 async-trait = "0.1.89"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-reqwest = { version = "0.13.3", features = ["json", "stream"] }
+reqwest = { version = "0.13.4", features = ["json", "stream"] }
 aws-config = "1.8.17"
-aws-sdk-s3 = "1.133.0"
-aws-sdk-s3vectors = "1.25.0"
+aws-sdk-s3 = "1.134.0"
+aws-sdk-s3vectors = "1.26.0"
 aws-smithy-types = "1.4.8"
 csv = "1.4.0"
 jsonschema = "0.46"
