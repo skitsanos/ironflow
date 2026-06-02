@@ -9,7 +9,7 @@ tokio = { version = "1.52.3", features = ["full"] }
 mlua = { version = "0.11.6", features = ["lua54", "async", "serialize", "send", "vendored"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
-noyalib = { version = "0.0.6", features = ["compat-serde-yaml"] }
+noyalib = { version = "0.0.7", features = ["compat-serde-yaml"] }
 clap = { version = "4.6.1", features = ["derive", "env"] }
 anyhow = "1.0.102"
 thiserror = "2.0.18"
