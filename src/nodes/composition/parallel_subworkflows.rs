@@ -1,8 +1,9 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context as AnyhowContext, Result};
 use async_trait::async_trait;
+use serde_json::{Map, Value};
 use tokio::sync::Semaphore;
 
 use crate::engine::executor::WorkflowEngine;
@@ -37,6 +38,89 @@ impl ParallelSubworkflowsNode {
     }
 }
 
+fn build_dynamic_flow_entries(config: &Value, ctx: &Context) -> Result<Vec<Value>> {
+    let flow_file = config.get("flow").and_then(|v| v.as_str()).ok_or_else(|| {
+        anyhow::anyhow!(
+            "parallel_subworkflows dynamic mode requires 'flow' when 'flows' is not provided"
+        )
+    })?;
+    let source_key = config
+        .get("source_key")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "parallel_subworkflows dynamic mode requires 'source_key' when 'flows' is not provided"
+            )
+        })?;
+    let source = ctx
+        .get(source_key)
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "parallel_subworkflows: source_key '{}' not found or not an array",
+                source_key
+            )
+        })?;
+
+    let item_key = config
+        .get("item_key")
+        .and_then(|v| v.as_str())
+        .unwrap_or("item");
+    let index_key = config
+        .get("index_key")
+        .and_then(|v| v.as_str())
+        .unwrap_or("index");
+    let child_output_key = config.get("child_output_key").and_then(|v| v.as_str());
+
+    let base_input = config.get("input").and_then(|v| v.as_object());
+    let mut entries = Vec::with_capacity(source.len());
+    for (idx, item) in source.iter().enumerate() {
+        let mut entry = Map::new();
+        entry.insert("flow".to_string(), Value::String(flow_file.to_string()));
+        if let Some(child_output_key) = child_output_key {
+            entry.insert(
+                "output_key".to_string(),
+                Value::String(child_output_key.to_string()),
+            );
+        }
+
+        let mut input = Map::new();
+        if let Some(base_input) = base_input {
+            for (key, value) in base_input {
+                input.insert(key.clone(), value.clone());
+            }
+        }
+        input.insert(item_key.to_string(), item.clone());
+        input.insert(index_key.to_string(), Value::Number((idx + 1).into()));
+        entry.insert("input".to_string(), Value::Object(input));
+        entries.push(Value::Object(entry));
+    }
+
+    Ok(entries)
+}
+
+fn resolve_flow_entries(config: &Value, ctx: &Context) -> Result<Vec<Value>> {
+    if let Some(flows) = config.get("flows") {
+        let flows = flows.as_array().ok_or_else(|| {
+            anyhow::anyhow!("parallel_subworkflows requires 'flows' array parameter")
+        })?;
+        if flows.is_empty() {
+            return Err(anyhow::anyhow!(
+                "parallel_subworkflows: 'flows' array must not be empty"
+            ));
+        }
+        return Ok(flows.clone());
+    }
+
+    if config.get("flow").is_some() || config.get("source_key").is_some() {
+        return build_dynamic_flow_entries(config, ctx);
+    }
+
+    Err(anyhow::anyhow!(
+        "parallel_subworkflows requires either 'flows' array or dynamic 'flow' + 'source_key'"
+    ))
+}
+
 #[async_trait]
 impl Node for ParallelSubworkflowsNode {
     fn node_type(&self) -> &str {
@@ -48,18 +132,7 @@ impl Node for ParallelSubworkflowsNode {
     }
 
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
-        let flows = config
-            .get("flows")
-            .and_then(|v| v.as_array())
-            .ok_or_else(|| {
-                anyhow::anyhow!("parallel_subworkflows requires 'flows' array parameter")
-            })?;
-
-        if flows.is_empty() {
-            return Err(anyhow::anyhow!(
-                "parallel_subworkflows: 'flows' array must not be empty"
-            ));
-        }
+        let flows = resolve_flow_entries(config, ctx)?;
 
         let fail_fast = match config
             .get("on_error")
@@ -154,11 +227,10 @@ impl Node for ParallelSubworkflowsNode {
 
             let flow_path_str = flow_path
                 .canonicalize()
-                .map_err(|e| {
-                    anyhow::anyhow!(
-                        "parallel_subworkflows: cannot find '{}': {}",
-                        flow_path.display(),
-                        e
+                .with_context(|| {
+                    format!(
+                        "parallel_subworkflows: cannot find '{}'",
+                        flow_path.display()
                     )
                 })?
                 .to_string_lossy()

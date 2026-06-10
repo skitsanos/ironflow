@@ -18,7 +18,7 @@ Run a chat-style request against OpenAI, OpenAI-compatible, Azure, or custom end
 | `system` | string | no | — | Alias for `system_prompt` |
 | `temperature` | number | no | — | Sampling temperature |
 | `max_tokens` | number | no | — | OpenAI chat `max_tokens` (mapped to `max_tokens` for chat and `max_output_tokens` for responses) |
-| `max_output_tokens` | number | no | — | Direct `max_output_tokens` passthrough |
+| `max_output_tokens` | number | no | — | Output-token limit. Mapped to `max_completion_tokens` for chat mode and `max_output_tokens` for responses mode. |
 | `response_format` | object | no | — | OpenAI-compatible response format override. Useful aliases: `{ type = "json_object" }` or `{ type = "json_schema", json_schema = { ... } }` |
 | `extra` | object | no | — | Extra request fields merged into payload |
 | `output_key` | string | no | `"llm"` | Prefix for output context keys |
@@ -230,3 +230,5 @@ flow:step("ask", nodes.llm({
 `llm` exposes tool-calling details as `{output_key}_tool_calls`, `{output_key}_tool_call_needed`, and `{output_key}_tool_call_names`.
 
 `llm` also merges `extra` into the request body as-is for providers that do not yet expose all fields in this table.
+
+For reasoning-style chat models whose names start with `gpt-5`, `o1`, or `o3`, explicit `temperature` is omitted because those providers commonly require default sampling behavior.
