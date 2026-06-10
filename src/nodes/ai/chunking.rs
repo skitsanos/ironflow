@@ -226,7 +226,7 @@ impl Node for AiChunkNode {
     }
 
     fn description(&self) -> &str {
-        "Split text into chunks using fixed-size or delimiter strategies"
+        "Split text into chunks using fixed-size, delimiter, or subtitle cue strategies"
     }
 
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {

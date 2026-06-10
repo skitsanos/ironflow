@@ -353,10 +353,10 @@ By now every node has moved. `src/nodes/builtin/` should contain only `mod.rs` (
 ## Task 20: Reconcile docs + confirm examples (acceptance)
 
 **Files:**
-- Modify: `docs/NODE_REFERENCE.md`, `docs/nodes/*.md` (any that reference `src/nodes/builtin/...` paths), `docs/ARCHITECTURE.md`, `README.md`, `docs/IMPLEMENTATION_PLAN.md` — update node count to **97** (96 + `extract_pptx`) and any module-path references to the new `src/nodes/<category>/` layout. The `docs/nodes/extract_pptx.md` already exists (from the rich_docx merge).
+- Modify: `docs/NODE_REFERENCE.md`, `docs/nodes/*.md` (any that reference `src/nodes/builtin/...` paths), `docs/ARCHITECTURE.md`, `README.md`, `docs/IMPLEMENTATION_PLAN.md` — update node count to the registry count and any module-path references to the new `src/nodes/<category>/` layout. The `docs/nodes/extract_pptx.md` already exists (from the rich_docx merge). Current registry count is **99**.
 - No source changes.
 
-- [ ] **Step 1:** Grep docs for stale references: `grep -rn "builtin/" docs/ README.md` and `grep -rni "96 " docs/ README.md | grep -i node`. Fix each to the new layout / count 97.
+- [ ] **Step 1:** Grep docs for stale references: `grep -rn "builtin/" docs/ README.md` and `grep -rni "96 " docs/ README.md | grep -i node`. Fix each to the new layout / current registry count.
 - [ ] **Step 2:** Build release binary: `cargo build --release`.
 - [ ] **Step 3:** Validate ALL example flows (mirrors CI `validate-examples`):
 ```bash
@@ -379,5 +379,5 @@ Expected: every file validates, exit 0.
 - **Stable-API requirement:** Tasks 15/16/18/19 explicitly preserve `engine::WorkflowEngine`, `lua::LuaRuntime`, `api::handlers::*`, `storage::*` re-exports. ✓
 - **De-dup of `percent_encode`/`interpolate_json_value`:** owned by `http/helpers.rs` (Task 8), consumed by `ai/embeddings.rs`. ✓ (one owner, no contradiction).
 - **`pub(crate)` cross-module items** (`code_node`, `ai_embed` helpers, subworkflow constructors) called out in their tasks with path-fix instructions. ✓
-- **Acceptance criteria** (examples validate, docs reconciled, node count 97, fixtures in data/samples) covered by Task 20. ✓
+- **Acceptance criteria** (examples validate, docs reconciled, node count matches registry, fixtures in data/samples) covered by Task 20. ✓
 - **No behavior change**: standard procedure forbids logic edits; only the Task 8 de-dup and Task 13 sandbox relocation move code between files, still no logic change. ✓

@@ -84,4 +84,4 @@ The grouping logic is pure (no network), so it is fully unit-testable. Add to `t
 
 ## Verification
 
-`cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all-features` (new cue-chunking tests green), `cargo run -- nodes | grep -cE '^[a-z]'` still **97** (no new node), and `ironflow validate` on the updated example.
+`cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo test --all-features` (new cue-chunking tests green), `cargo run -- nodes` still shows no new node for cue chunking; current registry count is **99**, and `ironflow validate` passes on the updated example.
