@@ -32,6 +32,32 @@ fn build_validation_output(success: bool, errors: Vec<String>) -> NodeOutput {
     output
 }
 
+fn schema_from_config<'a>(
+    config: &'a serde_json::Value,
+    ctx: &'a Context,
+    node_type: &str,
+) -> Result<serde_json::Value> {
+    if let Some(schema) = config.get("schema") {
+        return Ok(schema.clone());
+    }
+
+    let schema_key = config
+        .get("schema_key")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("{} requires 'schema' or 'schema_key'", node_type))?;
+
+    let schema = ctx
+        .get(schema_key)
+        .ok_or_else(|| anyhow::anyhow!("Key '{}' not found in context", schema_key))?;
+
+    if let Some(raw) = schema.as_str() {
+        serde_json::from_str(raw)
+            .map_err(|e| anyhow::anyhow!("Invalid JSON schema string in '{}': {}", schema_key, e))
+    } else {
+        Ok(schema.clone())
+    }
+}
+
 pub struct ValidateSchemaNode;
 
 #[async_trait]
@@ -50,15 +76,13 @@ impl Node for ValidateSchemaNode {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("validate_schema requires 'source_key'"))?;
 
-        let schema = config
-            .get("schema")
-            .ok_or_else(|| anyhow::anyhow!("validate_schema requires 'schema'"))?;
+        let schema = schema_from_config(config, ctx, "validate_schema")?;
 
         let data = ctx
             .get(source_key)
             .ok_or_else(|| anyhow::anyhow!("Key '{}' not found in context", source_key))?;
 
-        let (success, errors) = validate_against_schema(data, schema)?;
+        let (success, errors) = validate_against_schema(data, &schema)?;
         let output = build_validation_output(success, errors);
 
         if !success {
@@ -100,9 +124,7 @@ impl Node for JsonValidateNode {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("json_validate requires 'source_key'"))?;
 
-        let schema = config
-            .get("schema")
-            .ok_or_else(|| anyhow::anyhow!("json_validate requires 'schema'"))?;
+        let schema = schema_from_config(config, ctx, "json_validate")?;
 
         let raw = ctx
             .get(source_key)
@@ -115,7 +137,7 @@ impl Node for JsonValidateNode {
             raw.clone()
         };
 
-        let (success, errors) = validate_against_schema(&data, schema)?;
+        let (success, errors) = validate_against_schema(&data, &schema)?;
         let output = build_validation_output(success, errors);
 
         if !success {

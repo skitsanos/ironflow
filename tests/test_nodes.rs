@@ -1027,6 +1027,36 @@ async fn validate_schema_invalid() {
 }
 
 #[tokio::test]
+async fn validate_schema_with_schema_key() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("validate_schema").unwrap();
+
+    let config = serde_json::json!({
+        "source_key": "data",
+        "schema_key": "loaded_schema"
+    });
+    let ctx = ctx_with(vec![
+        ("data", serde_json::json!({"name": "Alice"})),
+        (
+            "loaded_schema",
+            serde_json::json!({
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                    "name": { "type": "string" }
+                }
+            }),
+        ),
+    ]);
+
+    let result = node.execute(&config, &ctx).await.unwrap();
+    assert_eq!(
+        result.get("validation_success").unwrap(),
+        &serde_json::json!(true)
+    );
+}
+
+#[tokio::test]
 async fn json_validate_node_valid() {
     let reg = NodeRegistry::with_builtins();
     let node = reg.get("json_validate").unwrap();
@@ -1045,6 +1075,32 @@ async fn json_validate_node_valid() {
         "payload_raw",
         serde_json::json!(r#"{"name":"Alice"}"#),
     )]);
+
+    let result = node.execute(&config, &ctx).await.unwrap();
+    assert_eq!(
+        result.get("validation_success").unwrap(),
+        &serde_json::json!(true)
+    );
+}
+
+#[tokio::test]
+async fn json_validate_node_with_schema_key_from_string() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("json_validate").unwrap();
+
+    let config = serde_json::json!({
+        "source_key": "payload_raw",
+        "schema_key": "schema_raw"
+    });
+    let ctx = ctx_with(vec![
+        ("payload_raw", serde_json::json!(r#"{"name":"Alice"}"#)),
+        (
+            "schema_raw",
+            serde_json::json!(
+                r#"{"type":"object","required":["name"],"properties":{"name":{"type":"string"}}}"#
+            ),
+        ),
+    ]);
 
     let result = node.execute(&config, &ctx).await.unwrap();
     assert_eq!(
