@@ -322,7 +322,7 @@ Expected: clean.
 - [ ] **Step 7: Confirm node count unchanged.**
 
 Run: `cargo run --quiet -- nodes 2>/dev/null | grep -cE '^[a-z]'`
-Expected: `97` (no new node added).
+Expected: no registry count increase from cue chunking (current registry count is `99`).
 
 - [ ] **Step 8: Commit.**
 
@@ -488,7 +488,7 @@ Co-Authored-By: gedankrayze <info@gedankrayze>"
 
 ## Self-review
 
-- **Spec coverage:** `mode="cues"` placement (Task 1 Step 3-4) ✓; greedy size packing + never-split-cue (chunk_cues) ✓; per-group min-start/max-end (build_cue_segment) ✓; dual output objects + `_texts` + `_count` + `_success` (Step 4 cues arm) ✓; empty/non-array/missing-text/missing-ms errors (chunk_cues + tests) ✓; docs (Task 2 Steps 1-2) ✓; example with ts metadata (Task 2 Step 3) ✓; node count 97 (Task 1 Step 7) ✓; example validates (Task 2 Steps 4-5) ✓.
+- **Spec coverage:** `mode="cues"` placement (Task 1 Step 3-4) ✓; greedy size packing + never-split-cue (chunk_cues) ✓; per-group min-start/max-end (build_cue_segment) ✓; dual output objects + `_texts` + `_count` + `_success` (Step 4 cues arm) ✓; empty/non-array/missing-text/missing-ms errors (chunk_cues + tests) ✓; docs (Task 2 Steps 1-2) ✓; example with ts metadata (Task 2 Step 3) ✓; node count unchanged by cue chunking (Task 1 Step 7) ✓; example validates (Task 2 Steps 4-5) ✓.
 - **Placeholder scan:** none — all code blocks complete.
 - **Type consistency:** `chunk_cues(&[Value], usize) -> Result<Vec<Value>>` and `build_cue_segment(&[&Value]) -> Value` used consistently; output keys `segments`/`segments_texts`/`segments_count`/`segments_success` consistent across node code, tests, and example (`output_key="segments"`); example reads `ctx.segments` + `ctx.chunk_vectors_embeddings` matching the `embed` step's `output_key="chunk_vectors"` (embeddings surface as `<output_key>_embeddings`, per the existing RAG example).
 - **Deferred (not in plan, per spec):** speaker attribution, overlap, parser/`ai_embed` changes.

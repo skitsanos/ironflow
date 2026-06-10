@@ -9,20 +9,20 @@ tokio = { version = "1.52.3", features = ["full"] }
 mlua = { version = "0.11.6", features = ["lua54", "async", "serialize", "send", "vendored"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
-noyalib = { version = "0.0.6", features = ["compat-serde-yaml"] }
+noyalib = { version = "0.0.7", features = ["compat-serde-yaml"] }
 clap = { version = "4.6.1", features = ["derive", "env"] }
 anyhow = "1.0.102"
 thiserror = "2.0.18"
-uuid = { version = "1.23.2", features = ["v4"] }
-chrono = { version = "0.4.44", features = ["serde"] }
+uuid = { version = "1.23.3", features = ["v4"] }
+chrono = { version = "0.4.45", features = ["serde"] }
 async-trait = "0.1.89"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 reqwest = { version = "0.13.4", features = ["json", "stream"] }
-aws-config = "1.8.17"
-aws-sdk-s3 = "1.134.0"
-aws-sdk-s3vectors = "1.26.0"
-aws-smithy-types = "1.4.8"
+aws-config = "1.8.18"
+aws-sdk-s3 = "1.135.0"
+aws-sdk-s3vectors = "1.27.0"
+aws-smithy-types = "1.4.9"
 csv = "1.4.0"
 jsonschema = "0.46"
 num_cpus = "1.17.0"
@@ -38,7 +38,7 @@ html2md = "0.2.15"
 ammonia = "4.1.2"
 zip = "8.6.0"
 quick-xml = "0.40.1"
-lopdf = { version = "0.40", features = ["chrono", "embed_image"] }
+lopdf = { version = "0.41", features = ["chrono", "embed_image"] }
 pdf-extract = "0.10.0"
 image = "0.25.10"
 pdfium-render = "0.9"

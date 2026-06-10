@@ -1,6 +1,6 @@
 # IronFlow — Node Reference
 
-Complete reference for all 97 built-in nodes. Click any node name for full documentation with parameters, context output, and Lua examples.
+Complete reference for all 99 built-in nodes. Click any node name for full documentation with parameters, context output, and Lua examples.
 
 For adding or maintaining node implementations, see [Node Contributor Manual](NODE_CONTRIBUTING.md).
 
