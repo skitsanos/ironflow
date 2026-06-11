@@ -77,6 +77,46 @@ async fn cache_get_memory_happy_path() {
     assert_eq!(output.get("cache_hit").unwrap(), &serde_json::json!(true));
 }
 
+#[tokio::test]
+async fn cache_set_memory_interpolates_context_key() {
+    let reg = NodeRegistry::with_builtins();
+    let set_node = reg.get("cache_set").expect("cache_set node exists");
+    let get_node = reg.get("cache_get").expect("cache_get node exists");
+
+    let mut ctx = empty_ctx();
+    ctx.insert("user_id".to_string(), serde_json::json!("abc123"));
+
+    let set_config = serde_json::json!({
+        "key": "user:${ctx.user_id}",
+        "value": {"status": "cached"},
+        "backend": "memory"
+    });
+    let set_output = set_node
+        .execute(&set_config, &ctx)
+        .await
+        .expect("cache_set succeeds");
+
+    assert_eq!(
+        set_output.get("cache_key").unwrap(),
+        &serde_json::json!("user:abc123")
+    );
+
+    let get_config = serde_json::json!({
+        "key": "user:${ctx.user_id}",
+        "backend": "memory"
+    });
+    let output = get_node
+        .execute(&get_config, &ctx)
+        .await
+        .expect("cache_get succeeds");
+
+    assert_eq!(
+        output.get("cached_value").unwrap(),
+        &serde_json::json!({"status": "cached"})
+    );
+    assert_eq!(output.get("cache_hit").unwrap(), &serde_json::json!(true));
+}
+
 // --- cache_get: missing key ---
 
 #[tokio::test]
@@ -171,6 +211,55 @@ async fn cache_get_file_backend() {
     assert_eq!(
         output.get("cached_value").unwrap(),
         &serde_json::json!([1, 2, 3])
+    );
+    assert_eq!(output.get("cache_hit").unwrap(), &serde_json::json!(true));
+}
+
+#[tokio::test]
+async fn cache_set_file_interpolates_context_key() {
+    let reg = NodeRegistry::with_builtins();
+    let set_node = reg.get("cache_set").expect("cache_set node exists");
+    let get_node = reg.get("cache_get").expect("cache_get node exists");
+
+    let tmp = tempfile::tempdir().expect("create tempdir");
+    let cache_dir = tmp.path().to_str().unwrap();
+
+    let mut ctx = empty_ctx();
+    ctx.insert("hash".to_string(), serde_json::json!("abc123"));
+
+    let set_config = serde_json::json!({
+        "key": "llm:${ctx.hash}",
+        "value": "response body",
+        "backend": "file",
+        "cache_dir": cache_dir
+    });
+    let set_output = set_node
+        .execute(&set_config, &ctx)
+        .await
+        .expect("cache_set file succeeds");
+
+    assert_eq!(
+        set_output.get("cache_key").unwrap(),
+        &serde_json::json!("llm:abc123")
+    );
+    assert!(
+        tmp.path().join("llm_abc123.json").exists(),
+        "cache file should use the interpolated key"
+    );
+
+    let get_config = serde_json::json!({
+        "key": "llm:${ctx.hash}",
+        "backend": "file",
+        "cache_dir": cache_dir
+    });
+    let output = get_node
+        .execute(&get_config, &ctx)
+        .await
+        .expect("cache_get file succeeds");
+
+    assert_eq!(
+        output.get("cached_value").unwrap(),
+        &serde_json::json!("response body")
     );
     assert_eq!(output.get("cache_hit").unwrap(), &serde_json::json!(true));
 }

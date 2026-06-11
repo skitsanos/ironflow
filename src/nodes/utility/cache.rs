@@ -77,6 +77,7 @@ impl Node for CacheSetNode {
             .get("key")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("cache_set requires 'key'"))?;
+        let key = crate::lua::interpolate::interpolate_ctx(key, ctx);
 
         let value = if let Some(source_key) = config.get("source_key").and_then(|v| v.as_str()) {
             ctx.get(source_key)
@@ -97,7 +98,7 @@ impl Node for CacheSetNode {
 
         match backend {
             "memory" => {
-                MEMORY_CACHE.insert(key.to_string(), value, ttl_secs);
+                MEMORY_CACHE.insert(key.clone(), value, ttl_secs);
             }
             "file" => {
                 let expires_at = ttl_secs.map(|ttl| {
@@ -109,7 +110,7 @@ impl Node for CacheSetNode {
                 });
                 let entry = CacheEntry { value, expires_at };
                 let cache_dir = cache_dir_from_config(config);
-                write_file_entry(&cache_dir, key, &entry)?;
+                write_file_entry(&cache_dir, &key, &entry)?;
             }
             other => anyhow::bail!(
                 "cache_set: unsupported backend '{}'. Must be 'memory' or 'file'.",
