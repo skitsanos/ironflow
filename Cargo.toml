@@ -31,7 +31,7 @@ sha2 = "0.11"
 md-5 = "0.11"
 hex = "0.4.3"
 axum = "0.8.9"
-tower-http = { version = "0.6.11", features = ["cors", "trace"] }
+tower-http = { version = "0.7.0", features = ["cors", "trace"] }
 base64 = "0.22.1"
 comrak = "0.52"
 html2md = "0.2.15"
