@@ -39,6 +39,7 @@ Examples organized from basic to advanced. Each folder builds on concepts from t
 - **oauth_access_token.lua** — OAuth token flow (get access_token + authenticated request)
 - **oauth_access_token_form_encoded.lua** — OAuth token via native form-encoded POST (`body_type = "form"`)
 - **if_http_status.lua** — Route by HTTP status with success/code-class routes
+- **status_inspection_retry.lua** — Return non-2xx responses for flow-level classification with status retry controls
 - **if_body_contains.lua** — Route by checking whether response content includes a pattern
 - **openai_chat_completions.lua** — OpenAI Chat Completions API (gpt-4o-mini)
 - **openai_responses.lua** — OpenAI Responses API (gpt-4o-mini)
@@ -83,6 +84,7 @@ Examples organized from basic to advanced. Each folder builds on concepts from t
 ## 09-cache
 - **cache_memory.lua** — In-memory key-value cache with TTL
 - **cache_file.lua** — File-based persistent cache with TTL
+- **cache_context_keys.lua** — Use `${ctx.*}` interpolation consistently in `cache_set` and `cache_get` keys
 
 ## 10-database
 - **sqlite_crud.lua** — SQLite CRUD operations using `db_exec` and `db_query`

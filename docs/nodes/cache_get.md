@@ -13,6 +13,8 @@ Retrieve a value from the cache (memory or file-based).
 
 > Expired entries are automatically removed on access (from both memory and file backends).
 
+`cache_get` and `cache_set` apply the same interpolation rules to `key`, so a value stored with `key = "llm:${ctx.prompt_hash}"` can be read back with the same expression. The interpolated key is also returned by `cache_set` as `cache_key`.
+
 ## Context Output
 
 - `<output_key>` (default `cached_value`) — the cached value, or `null` if not found / expired.
@@ -26,7 +28,7 @@ Retrieve a value from the cache (memory or file-based).
 local flow = Flow.new("read_from_memory_cache")
 
 flow:step("lookup", nodes.cache_get({
-    key = "user_token",
+    key = "user_token:${ctx.user_id}",
     output_key = "token",
     backend = "memory"
 }))
