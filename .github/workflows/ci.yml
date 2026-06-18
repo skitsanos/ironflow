@@ -38,6 +38,8 @@ jobs:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@1.96.0
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
       - run: cargo check --all-targets
 
   clippy:
@@ -49,6 +51,8 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
       - run: cargo clippy --all-targets -- -D warnings
 
   fmt:
@@ -71,6 +75,8 @@ jobs:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@1.96.0
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
       - run: cargo test --all-targets
 
   build:
@@ -83,6 +89,8 @@ jobs:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@1.96.0
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
       - run: cargo build --release
 
   validate-examples:
@@ -93,6 +101,8 @@ jobs:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@1.96.0
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
       - run: cargo build --release
       - name: Validate all example flows
         run: |
