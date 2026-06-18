@@ -82,6 +82,9 @@ impl NodeRegistry {
             base_registry: base.clone(),
         }));
         registry.register(Arc::new(composition::ParallelSubworkflowsNode {
+            base_registry: base.clone(),
+        }));
+        registry.register(Arc::new(composition::ToolDispatchNode {
             base_registry: base,
         }));
 

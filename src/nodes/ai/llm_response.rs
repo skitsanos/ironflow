@@ -76,6 +76,56 @@ pub(super) fn extract_tool_call_names(tool_calls: &[serde_json::Value]) -> Vec<S
         .collect()
 }
 
+pub(crate) fn normalize_tool_calls(tool_calls: &[serde_json::Value]) -> Vec<serde_json::Value> {
+    tool_calls
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, call)| normalize_tool_call(call, idx))
+        .collect()
+}
+
+fn normalize_tool_call(call: &serde_json::Value, idx: usize) -> Option<serde_json::Value> {
+    if !call.is_object() {
+        return None;
+    }
+
+    let function = call.get("function");
+    let name = function
+        .and_then(|f| f.get("name"))
+        .and_then(Value::as_str)
+        .or_else(|| call.get("name").and_then(Value::as_str))
+        .unwrap_or("unknown");
+    let raw_arguments = function
+        .and_then(|f| f.get("arguments"))
+        .or_else(|| call.get("arguments"));
+    let raw_arguments_string = match raw_arguments {
+        Some(Value::String(s)) => s.clone(),
+        Some(value) => value.to_string(),
+        None => "{}".to_string(),
+    };
+    let parsed_arguments = serde_json::from_str::<Value>(&raw_arguments_string)
+        .unwrap_or_else(|_| Value::String(raw_arguments_string.clone()));
+    let id = call
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("call_{}", idx + 1));
+    let call_type = call
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or("function");
+
+    Some(serde_json::json!({
+        "id": id,
+        "index": idx,
+        "type": call_type,
+        "name": name,
+        "arguments": parsed_arguments,
+        "raw_arguments": raw_arguments_string,
+        "raw_call": call
+    }))
+}
+
 pub(super) fn extract_chat_reply(data: &serde_json::Value) -> Option<String> {
     let choices = data.get("choices")?.as_array()?;
     let first = choices.first()?;

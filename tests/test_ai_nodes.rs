@@ -253,3 +253,67 @@ async fn llm_rejects_oversized_response_body() {
         err
     );
 }
+
+#[tokio::test]
+async fn llm_outputs_normalized_tool_calls() {
+    let app = Router::new().route(
+        "/chat/completions",
+        post(|| async {
+            axum::Json(serde_json::json!({
+                "choices": [{
+                    "message": {
+                        "content": null,
+                        "tool_calls": [{
+                            "id": "call_weather",
+                            "type": "function",
+                            "function": {
+                                "name": "get_weather",
+                                "arguments": "{\"city\":\"Paris\",\"units\":\"metric\"}"
+                            }
+                        }]
+                    }
+                }],
+                "usage": { "prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3 }
+            }))
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("llm").unwrap();
+    let config = serde_json::json!({
+        "provider": "custom",
+        "mode": "chat",
+        "base_url": format!("http://{}", addr),
+        "auth_type": "none",
+        "prompt": "Call the weather tool",
+        "output_key": "demo"
+    });
+
+    let output = node.execute(&config, &empty_ctx()).await.unwrap();
+    assert_eq!(output.get("demo_tool_call_needed").unwrap(), true);
+    assert_eq!(
+        output.get("demo_tool_call_names").unwrap(),
+        &serde_json::json!(["get_weather"])
+    );
+
+    let normalized = output
+        .get("demo_tool_calls_normalized")
+        .and_then(|v| v.as_array())
+        .unwrap();
+    assert_eq!(normalized.len(), 1);
+    assert_eq!(normalized[0].get("id").unwrap(), "call_weather");
+    assert_eq!(normalized[0].get("name").unwrap(), "get_weather");
+    assert_eq!(
+        normalized[0].get("arguments").unwrap(),
+        &serde_json::json!({ "city": "Paris", "units": "metric" })
+    );
+    assert_eq!(
+        normalized[0].get("raw_arguments").unwrap(),
+        "{\"city\":\"Paris\",\"units\":\"metric\"}"
+    );
+}

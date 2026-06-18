@@ -67,7 +67,7 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 │  DAG resolution · Parallel execution · Retry/timeout     │
 │  Context propagation · Conditional routing · State store │
 ├─────────────────────────────────────────────────────────┤
-│                   99 Built-in Nodes                        │
+│                   100 Built-in Nodes                       │
 │  HTTP · Files · Shell · Transforms · Conditionals · ...  │
 │  All implemented in pure Rust for performance & safety   │
 └─────────────────────────────────────────────────────────┘
@@ -84,7 +84,7 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 
 ## Features
 
-- **99 built-in nodes** — HTTP (GET/POST/PUT/DELETE), file I/O, ZIP utilities (`zip_create`, `zip_list`, `zip_extract`), S3 operations, shell commands, JSON/CSV/XML/YAML transforms, foreach iteration, key-value caching (memory + file), conditional routing, schema validation, hashing, templating, Markdown conversion, HTML sanitization, document extraction (Word/PDF/HTML/VTT/SRT), PDF merge/split, database queries (SQLite via sqlx, ArangoDB via HTTP), AI text embeddings/chunking (`ai_*`) and chat/completions (`llm`) across providers, MCP client (`mcp_client`), notification integrations (`send_email`, `slack_notification`), data extraction helpers (`json_extract_path`, `if_body_contains`, `if_http_status`), delays, inline code execution, subworkflow composition, presigned S3 URL support, base64 encoding/decoding, date formatting, image helpers (`pdf_to_image`, `pdf_thumbnail`, `image_to_pdf`, `image_resize`, `image_crop`, `image_rotate`, `image_flip`, `image_grayscale`, `image_metadata`, `image_convert`, `image_watermark`, `pdf_metadata`).
+- **100 built-in nodes** — HTTP (GET/POST/PUT/DELETE), file I/O, ZIP utilities (`zip_create`, `zip_list`, `zip_extract`), S3 operations, shell commands, JSON/CSV/XML/YAML transforms, foreach iteration, key-value caching (memory + file), conditional routing, schema validation, hashing, templating, Markdown conversion, HTML sanitization, document extraction (Word/PDF/PPTX/HTML/VTT/SRT), PDF merge/split, database queries (SQLite via sqlx, ArangoDB via HTTP), AI text embeddings/chunking (`ai_*`) and chat/completions (`llm`) across providers, MCP client (`mcp_client`), notification integrations (`send_email`, `slack_notification`), data extraction helpers (`json_extract_path`, `if_body_contains`, `if_http_status`), delays, inline code execution, subworkflow composition, LLM tool dispatch (`tool_dispatch`), presigned S3 URL support, base64 encoding/decoding, date formatting, image helpers (`pdf_to_image`, `pdf_thumbnail`, `image_to_pdf`, `image_resize`, `image_crop`, `image_rotate`, `image_flip`, `image_grayscale`, `image_metadata`, `image_convert`, `image_watermark`, `pdf_metadata`).
 - **Function handlers** — pass Lua functions directly as step handlers, no boilerplate needed
 - **Conditional step shorthand** — `step_if(condition, name, handler)` for concise branching
 - **DAG-based scheduling** — steps run in parallel unless dependencies are declared
@@ -259,7 +259,7 @@ flow:step("standard_flow", nodes.log({
 | **Cache** | `cache_set`, `cache_get` |
 | **Notification** | `send_email`, `slack_notification` |
 | **Database** | `db_query`, `db_exec`, `arangodb_aql` |
-| **Composition** | `subworkflow`, `parallel_subworkflows`, `code` |
+| **Composition** | `subworkflow`, `parallel_subworkflows`, `tool_dispatch`, `code` |
 | **XML** | `xml_parse`, `xml_stringify` |
 | **YAML** | `yaml_parse`, `yaml_stringify` |
 | **HTML** | `html_sanitize` |
@@ -269,7 +269,7 @@ flow:step("standard_flow", nodes.log({
 | **ZIP** | `zip_create`, `zip_list`, `zip_extract` |
 | **MCP** | `mcp_client` |
 | **AI** | `ai_embed`, `ai_chunk`, `ai_chunk_merge`, `ai_chunk_semantic`, `llm` |
-| **Extraction** | `extract_word`, `extract_pdf`, `extract_html`, `extract_vtt`, `extract_srt`, `pdf_to_image`, `pdf_thumbnail`, `pdf_metadata`, `image_to_pdf`, `pdf_merge`, `pdf_split` |
+| **Extraction** | `extract_word`, `extract_pdf`, `extract_pptx`, `extract_html`, `extract_vtt`, `extract_srt`, `pdf_to_image`, `pdf_thumbnail`, `pdf_metadata`, `image_to_pdf`, `pdf_merge`, `pdf_split` |
 | **Image Processing** | `image_resize`, `image_crop`, `image_rotate`, `image_flip`, `image_grayscale`, `image_metadata`, `image_convert`, `image_watermark` |
 
 See [docs/NODE_REFERENCE.md](docs/NODE_REFERENCE.md) for the complete reference with parameters and examples.
@@ -287,7 +287,7 @@ Progressive examples from basic to advanced:
 | [05-http](examples/05-http/) | API calls, authentication, OpenAI integration |
 | [06-shell](examples/06-shell/) | Shell commands with args, env vars, timeouts |
 | [07-advanced](examples/07-advanced/) | Hashing, schema validation, full data pipelines, function handlers, base64 encoding |
-| [08-extraction](examples/08-extraction/) | Word/PDF/HTML text extraction, metadata, PDF-to-image rendering, image resize/crop, PDF merge/split, image metadata |
+| [08-extraction](examples/08-extraction/) | Word/PDF/PPTX/HTML text extraction, metadata, PDF-to-image rendering, image resize/crop, PDF merge/split, image metadata |
 | [09-cache](examples/09-cache/) | In-memory and file-based key-value caching with TTL |
 | [10-database](examples/10-database/) | SQLite CRUD operations with db_query and db_exec |
 | [11-subworkflow](examples/11-subworkflow/) | Subworkflow composition, fire-and-forget, on_error handling |

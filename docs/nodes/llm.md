@@ -65,6 +65,8 @@ Run a chat-style request against OpenAI, OpenAI-compatible, Azure, or custom end
 - `{output_key}_tool_calls` — parsed tool call objects (if any)
 - `{output_key}_tool_call_needed` — `true` when model returned one or more tool calls
 - `{output_key}_tool_call_names` — list of called function names
+- `{output_key}_tool_calls_normalized` — provider-neutral tool calls with parsed arguments:
+  `{ id, index, type, name, arguments, raw_arguments, raw_call }`
 
 Provider response bodies are streamed with a hard byte cap before JSON parsing. Set `IRONFLOW_LLM_MAX_RESPONSE_BYTES=0` to disable the global cap, or use per-node `max_response_bytes` for a specific trusted workflow.
 
@@ -217,7 +219,7 @@ flow:step("ask", nodes.llm({
     output_key = "weather_tool",
 }))
 
--- `weather_tool_tool_calls` contains the tool call payload:
+-- `weather_tool_tool_calls` contains the raw provider tool call payload:
 -- {
 --   {
 --     id = "call_xxx",
@@ -225,9 +227,22 @@ flow:step("ask", nodes.llm({
 --     function = { name = "get_weather", arguments = '{"city":"Paris"}' }
 --   }
 -- }
+--
+-- `weather_tool_tool_calls_normalized` contains the easier dispatch shape:
+-- {
+--   {
+--     id = "call_xxx",
+--     index = 0,
+--     type = "function",
+--     name = "get_weather",
+--     arguments = { city = "Paris" },
+--     raw_arguments = '{"city":"Paris"}',
+--     raw_call = { ... }
+--   }
+-- }
 ```
 
-`llm` exposes tool-calling details as `{output_key}_tool_calls`, `{output_key}_tool_call_needed`, and `{output_key}_tool_call_names`.
+`llm` exposes tool-calling details as `{output_key}_tool_calls`, `{output_key}_tool_calls_normalized`, `{output_key}_tool_call_needed`, and `{output_key}_tool_call_names`. Use [`tool_dispatch`](tool_dispatch.md) to execute returned tool calls through mapped subworkflows.
 
 `llm` also merges `extra` into the request body as-is for providers that do not yet expose all fields in this table.
 

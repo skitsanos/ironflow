@@ -12,6 +12,7 @@ Extract slides, speaker notes, and comments from a PowerPoint (`.pptx`) deck.
 | `output_key` | string | no | `"content"` | Context key where the extracted output is stored. For `text`/`markdown` the value is a string; for `json` it is an object. |
 | `metadata_key` | string | no | — | If set, deck metadata (slide count + Dublin Core fields) is stored under this context key. |
 | `comments_key` | string | no | — | If set, slide comments (from `ppt/comments/comment*.xml` plus author lookup in `ppt/commentAuthors.xml`) are stored under this context key as a flat array. Comments are also attached per-slide in the JSON output. |
+| `include_image_bytes` | boolean | no | `false` | When `format = "json"`, include embedded image bytes as base64 (`media_b64`) plus `mime_type` when the image relationship can be resolved. |
 
 > Providing both `path` and `source_key` is an error. `format` accepts `"text"`, `"markdown"`, or `"json"`.
 
@@ -75,7 +76,7 @@ Extract slides, speaker notes, and comments from a PowerPoint (`.pptx`) deck.
 
 - `text_block` — a non-title shape's text. `placeholder` carries the OOXML placeholder type (`subTitle`, `body`, etc.) when present. `paragraphs[]` carry `text` and optional `list_level` (0-based indent for bulleted items).
 - `table` — rendered as `rows: [[string]]`.
-- `image` — placeholder for picture shapes. `alt_text` is included when available.
+- `image` — picture shape metadata. `alt_text`, `embed_id`, and `embedded_path` are included when available. With `include_image_bytes = true`, the JSON output also includes `media_b64` and `mime_type` for resolved embedded images.
 
 The slide's `title` is taken from the placeholder with `type="title"` or `type="ctrTitle"`. If no title placeholder exists, the `title` field is omitted.
 
@@ -93,6 +94,7 @@ The node currently parses **legacy** comments (`ppt/comments/comment*.xml`, inde
 flow:step("extract_deck", nodes.extract_pptx({
     path = "${ctx.deck_path}",
     format = "json",
+    include_image_bytes = true,
     output_key = "deck",
     comments_key = "deck_comments",
     metadata_key = "deck_meta"

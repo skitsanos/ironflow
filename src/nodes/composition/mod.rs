@@ -2,11 +2,13 @@ mod conditional;
 mod foreach;
 pub mod parallel_subworkflows;
 pub mod subworkflow;
+pub mod tool_dispatch;
 
 pub use conditional::{IfBodyContainsNode, IfHttpStatusNode, IfNode, SwitchNode};
 pub use foreach::ForEachNode;
 pub use parallel_subworkflows::ParallelSubworkflowsNode;
 pub use subworkflow::SubworkflowNode;
+pub use tool_dispatch::ToolDispatchNode;
 
 use crate::nodes::NodeRegistry;
 use std::sync::Arc;
