@@ -55,6 +55,17 @@ jobs:
           cache-targets: false
       - run: cargo clippy --all-targets -- -D warnings
 
+  full-features:
+    name: Full feature check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@1.96.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
+      - run: cargo check --all-targets --features postgres,redis
+
   fmt:
     name: Format
     runs-on: ubuntu-latest

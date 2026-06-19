@@ -132,8 +132,8 @@ IronFlow supports these state storage backends:
 
 - **json** (default) — File-based JSON storage in `store_dir`
 - **sqlite** — SQL storage in a local SQLite database
-- **postgres** — SQL storage in Postgres (requires building with `--features postgres`)
-- **redis** — Redis-backed storage (requires building with `--features redis`)
+- **postgres** — SQL storage in Postgres (requires a `-full` release binary or building with `--features postgres`)
+- **redis** — Redis-backed storage (requires a `-full` release binary or building with `--features redis`)
 
 Configure via `ironflow.yaml`:
 
@@ -162,11 +162,14 @@ When `IRONFLOW_EVENT_STORE=sqlite` and no URL is configured, IronFlow creates `i
 Run state and run events are configured separately, so a deployment can store run records in one backend and stream event replay from another. Redis event storage is available behind `--features redis` and uses `REDIS_URL`, `REDIS_PREFIX`, and optional `REDIS_TTL`.
 For shared SQL databases, set `IRONFLOW_SQL_TABLE_PREFIX` or `sql_table_prefix` to isolate IronFlow tables. Prefixes are strictly validated and may contain only ASCII letters, digits, and underscores after deriving table names.
 
-To build with optional backends:
+GitHub releases include default binaries and `-full` binaries. Use the `-full` artifact when you need both Postgres and Redis support.
+
+To build with optional backends locally:
 
 ```bash
 cargo build --release --features postgres
 cargo build --release --features redis
+cargo build --release --features postgres,redis
 ```
 
 #### CORS
