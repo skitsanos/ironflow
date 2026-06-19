@@ -39,6 +39,7 @@ Examples organized from basic to advanced. Each folder builds on concepts from t
 - **oauth_access_token.lua** — OAuth token flow (get access_token + authenticated request)
 - **oauth_access_token_form_encoded.lua** — OAuth token via native form-encoded POST (`body_type = "form"`)
 - **if_http_status.lua** — Route by HTTP status with success/code-class routes
+- **status_inspection_retry.lua** — Return non-2xx responses for flow-level classification with status retry controls
 - **if_body_contains.lua** — Route by checking whether response content includes a pattern
 - **openai_chat_completions.lua** — OpenAI Chat Completions API (gpt-4o-mini)
 - **openai_responses.lua** — OpenAI Responses API (gpt-4o-mini)
@@ -62,6 +63,7 @@ Examples organized from basic to advanced. Each folder builds on concepts from t
 ## 08-extraction
 - **extract_word.lua** — Extract text and metadata from Word (.docx) files
 - **extract_pdf.lua** — Extract text and metadata from PDF files
+- **extract_pptx.lua** — Extract slides, metadata, and comments from PowerPoint (.pptx) files
 - **extract_vtt.lua** — Extract text and metadata from WebVTT subtitle files
 - **extract_srt.lua** — Extract text and metadata from SRT subtitle files
 - **pdf_to_image.lua** — Render PDF pages to images
@@ -83,6 +85,7 @@ Examples organized from basic to advanced. Each folder builds on concepts from t
 ## 09-cache
 - **cache_memory.lua** — In-memory key-value cache with TTL
 - **cache_file.lua** — File-based persistent cache with TTL
+- **cache_context_keys.lua** — Use `${ctx.*}` interpolation consistently in `cache_set` and `cache_get` keys
 
 ## 10-database
 - **sqlite_crud.lua** — SQLite CRUD operations using `db_exec` and `db_query`
@@ -111,12 +114,16 @@ Examples organized from basic to advanced. Each folder builds on concepts from t
 - **llm_openai_function_tools.lua** — Function/tool-calling with `nodes.llm` against OpenAI-compatible responses
 - **llm_openai_response_format.lua** — OpenAI `response_format` demo (`json_object` + `json_schema`)
 - **llm_openai_tool_web_search.lua** — OpenAI Responses API internal web search tool demo
-- **llm_openai_tool_subworkflow_dispatch.lua** — Pass tool calls to subworkflows via `nodes.llm` and dispatch by tool name
+- **llm_openai_tool_subworkflow_dispatch.lua** — Dispatch `nodes.llm` tool calls to subworkflow handlers with `tool_dispatch`
 - **tool_weather_subworkflow.lua** — Reusable weather lookup subworkflow used by tool dispatch example
 - **tool_time_subworkflow.lua** — Reusable current-time subworkflow used by tool dispatch example
 - **tool_unknown_subworkflow.lua** — Handles unknown tool calls for fallback/error demonstration
 - **llm_azure_chat.lua** — Unified `nodes.llm` chat example using Azure OpenAI deployment
 - **llm_gemini_chat.lua** — Unified `nodes.llm` chat example using Gemini OpenAI-compatible endpoint
+- **pdf_gemini_rag_schema.lua** — Convert an image-first PDF into generic page blocks and RAG chunks with Gemini `json_schema`
+- **pdf_gemini_reconstruct_schema.lua** — Reconstruct a complex one-page PDF with Gemini using extracted text plus rendered page image
+- **pptx_gemini_reconstruct.lua** — Reconstruct the first PPTX slides as text using Gemini with structured extraction plus a rendered preview image
+- **pptx_gemini_reconstruct_schema.lua** — Reconstruct the full sample PPTX deck with Gemini `json_schema` batches
 - **pipeline_foreach_embed.lua** — Multi-page PDF embeddings with chunk -> foreach -> embed
 - **chunk_fixed.lua** — Fixed-size text chunking with delimiter boundaries
 - **chunk_split.lua** — Delimiter-based text splitting

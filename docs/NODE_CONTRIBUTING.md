@@ -12,7 +12,7 @@ A flow step stores:
 
 At execution:
 1. `engine::executor` resolves the `node_type` from `NodeRegistry`.
-2. It calls `node.execute(config, context)`.
+2. It calls `node.execute(config, &context)`.
 3. The returned `NodeOutput` is merged into the global flow context.
 4. Execution errors are handled with retries and optionally timeouts.
 
@@ -33,7 +33,7 @@ use crate::nodes::Node;
 impl Node for YourNode {
     fn node_type(&self) -> &str;
     fn description(&self) -> &str;
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> anyhow::Result<NodeOutput>;
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> anyhow::Result<NodeOutput>;
 }
 ```
 
@@ -45,7 +45,7 @@ Implemented in:
 
 - `node_type` must be unique across all nodes.
 - `description` should be short and user-facing (single line).
-- `execute` receives an **owned context** (`Context`) to keep the signature simple and thread-safe across async calls.
+- `execute` receives a shared, read-only context reference (`&Context`). Do not mutate input context directly; return a `NodeOutput` map and let the executor merge it back into workflow context.
 - `Node` must be `Send + Sync` because `Node` is used across async execution.
 - Return errors with actionable messages (`anyhow::anyhow!(...)`).
 
@@ -176,7 +176,7 @@ impl Node for MyNode {
         "Short one-line description"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let input = config
             .get("input")
             .and_then(|v| v.as_str())

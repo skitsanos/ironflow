@@ -7,7 +7,10 @@ Validate context data against a JSON Schema.
 | Parameter    | Type   | Required | Default | Description                                              |
 |--------------|--------|----------|---------|----------------------------------------------------------|
 | `source_key` | string | Yes      | --      | Top-level context key whose value will be validated      |
-| `schema`     | object | Yes      | --      | A JSON Schema object to validate the data against        |
+| `schema`     | object | No*      | --      | A JSON Schema object to validate the data against        |
+| `schema_key` | string | No*      | --      | Context key containing a JSON Schema object or JSON Schema string |
+
+*Provide exactly one of `schema` or `schema_key`.
 
 The node retrieves the value stored under `source_key` in the workflow context and validates it using the provided JSON Schema. If validation fails, the node returns an error and the workflow step is marked as failed.
 
@@ -42,6 +45,24 @@ flow:step("validate", nodes.validate_schema({
 flow:step("done", nodes.log({
     message = "Validation passed for ${ctx.payload.name} (${ctx.payload.email})"
 })):depends_on("validate")
+
+return flow
+```
+
+### Validate with a schema loaded from context
+
+```lua
+local flow = Flow.new("validate_from_context")
+
+flow:step("read_schema", nodes.read_file({
+    path = "schemas/user.schema.json",
+    output_key = "schema"
+}))
+
+flow:step("validate", nodes.validate_schema({
+    source_key = "payload",
+    schema_key = "schema_content"
+})):depends_on("read_schema")
 
 return flow
 ```

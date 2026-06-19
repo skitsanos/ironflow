@@ -7,6 +7,13 @@ use std::net::TcpListener;
 use ironflow::engine::types::Context;
 use ironflow::nodes::NodeRegistry;
 
+type MockResponse = (
+    u16,
+    &'static str,
+    Vec<(&'static str, &'static str)>,
+    &'static str,
+);
+
 // --- Helpers ---
 
 fn empty_ctx() -> Context {
@@ -25,6 +32,73 @@ fn spawn_mock_server(response_body: &str) -> (String, std::thread::JoinHandle<()
     );
     let handle = std::thread::spawn(move || {
         for mut stream in listener.incoming().take(1).flatten() {
+            let mut buf = [0u8; 4096];
+            let _ = stream.read(&mut buf);
+            let _ = stream.write_all(response.as_bytes());
+            let _ = stream.flush();
+        }
+    });
+    (url, handle)
+}
+
+/// Spawn a mock HTTP server that returns one response with the requested status.
+fn spawn_status_mock_server(
+    status: u16,
+    reason: &str,
+    headers: &[(&str, &str)],
+    response_body: &str,
+) -> (String, std::thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let url = format!("http://{}", addr);
+    let header_text = headers
+        .iter()
+        .map(|(name, value)| format!("{name}: {value}\r\n"))
+        .collect::<String>();
+    let response = format!(
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\n{header_text}Content-Length: {}\r\n\r\n{}",
+        response_body.len(),
+        response_body
+    );
+    let handle = std::thread::spawn(move || {
+        for mut stream in listener.incoming().take(1).flatten() {
+            let mut buf = [0u8; 4096];
+            let _ = stream.read(&mut buf);
+            let _ = stream.write_all(response.as_bytes());
+            let _ = stream.flush();
+        }
+    });
+    (url, handle)
+}
+
+fn spawn_sequence_mock_server(
+    responses: Vec<MockResponse>,
+) -> (String, std::thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let url = format!("http://{}", addr);
+    let response_bytes = responses
+        .into_iter()
+        .map(|(status, reason, headers, response_body)| {
+            let header_text = headers
+                .iter()
+                .map(|(name, value)| format!("{name}: {value}\r\n"))
+                .collect::<String>();
+            format!(
+                "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nConnection: close\r\n{header_text}Content-Length: {}\r\n\r\n{}",
+                response_body.len(),
+                response_body
+            )
+        })
+        .collect::<Vec<_>>();
+    let connection_count = response_bytes.len();
+    let handle = std::thread::spawn(move || {
+        for (mut stream, response) in listener
+            .incoming()
+            .take(connection_count)
+            .flatten()
+            .zip(response_bytes)
+        {
             let mut buf = [0u8; 4096];
             let _ = stream.read(&mut buf);
             let _ = stream.write_all(response.as_bytes());
@@ -108,6 +182,109 @@ async fn http_get_missing_url() {
         "Error should mention 'url': {}",
         err_msg
     );
+}
+
+#[tokio::test]
+async fn http_get_fails_on_non_success_status_by_default() {
+    let body = r#"{"error":{"message":"rate limited"}}"#;
+    let (url, handle) = spawn_status_mock_server(429, "Too Many Requests", &[], body);
+
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("http_get").unwrap();
+    let config = serde_json::json!({ "url": url });
+    let result = node.execute(&config, &empty_ctx()).await;
+
+    assert!(result.is_err(), "non-2xx should fail by default");
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("returned status 429")
+    );
+
+    handle.join().unwrap();
+}
+
+#[tokio::test]
+async fn http_get_can_return_non_success_status_output() {
+    let body = r#"{"error":{"message":"rate limited"}}"#;
+    let (url, handle) =
+        spawn_status_mock_server(429, "Too Many Requests", &[("Retry-After", "7")], body);
+
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("http_get").unwrap();
+    let config = serde_json::json!({
+        "url": url,
+        "fail_on_status": false,
+        "output_key": "provider"
+    });
+    let result = node.execute(&config, &empty_ctx()).await;
+
+    assert!(
+        result.is_ok(),
+        "fail_on_status=false should return non-2xx output: {:?}",
+        result.err()
+    );
+    let output = result.unwrap();
+    assert_eq!(output.get("provider_status"), Some(&serde_json::json!(429)));
+    assert_eq!(
+        output.get("provider_data"),
+        Some(&serde_json::json!({"error": {"message": "rate limited"}}))
+    );
+    assert_eq!(
+        output.get("provider_success"),
+        Some(&serde_json::json!(false))
+    );
+    assert_eq!(
+        output
+            .get("provider_headers")
+            .and_then(|v| v.get("retry-after")),
+        Some(&serde_json::json!("7"))
+    );
+
+    handle.join().unwrap();
+}
+
+#[tokio::test]
+async fn http_get_retries_configured_status_before_returning_success() {
+    let (url, handle) = spawn_sequence_mock_server(vec![
+        (
+            429,
+            "Too Many Requests",
+            vec![("Retry-After", "0")],
+            r#"{"error":{"message":"slow down"}}"#,
+        ),
+        (200, "OK", vec![], r#"{"ok":true}"#),
+    ]);
+
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("http_get").unwrap();
+    let config = serde_json::json!({
+        "url": url,
+        "retry_statuses": [429],
+        "status_retries": 1,
+        "output_key": "provider"
+    });
+    let result = node.execute(&config, &empty_ctx()).await;
+
+    assert!(
+        result.is_ok(),
+        "configured retry should recover from one 429: {:?}",
+        result.err()
+    );
+    let output = result.unwrap();
+    assert_eq!(output.get("provider_status"), Some(&serde_json::json!(200)));
+    assert_eq!(
+        output.get("provider_data"),
+        Some(&serde_json::json!({"ok": true}))
+    );
+    assert_eq!(
+        output.get("provider_success"),
+        Some(&serde_json::json!(true))
+    );
+    assert_eq!(output.get("provider_attempts"), Some(&serde_json::json!(2)));
+
+    handle.join().unwrap();
 }
 
 // ==================== http_post ====================

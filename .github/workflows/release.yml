@@ -17,7 +17,7 @@ jobs:
     name: Verify tag is on main
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -30,7 +30,7 @@ jobs:
           fi
 
   build:
-    name: Build ${{ matrix.target }}
+    name: Build ${{ matrix.target }}${{ matrix.artifact_suffix }}
     needs: guard
     runs-on: ${{ matrix.os }}
     strategy:
@@ -39,18 +39,38 @@ jobs:
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             archive: tar.gz
+            artifact_suffix: ""
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            archive: tar.gz
+            artifact_suffix: "-full"
           - target: x86_64-apple-darwin
             os: macos-latest
             archive: tar.gz
+            artifact_suffix: ""
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            archive: tar.gz
+            artifact_suffix: "-full"
           - target: aarch64-apple-darwin
             os: macos-latest
             archive: tar.gz
+            artifact_suffix: ""
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            archive: tar.gz
+            artifact_suffix: "-full"
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             archive: zip
+            artifact_suffix: ""
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            archive: zip
+            artifact_suffix: "-full"
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@1.96.0
         with:
@@ -58,41 +78,46 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.target }}
+          key: ${{ matrix.target }}${{ matrix.artifact_suffix }}
 
       - name: Install musl tools (Linux)
         if: matrix.target == 'x86_64-unknown-linux-musl'
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
-      - name: Build release binary
+      - name: Build default release binary
+        if: matrix.artifact_suffix == ''
         run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Build full release binary
+        if: matrix.artifact_suffix == '-full'
+        run: cargo build --release --target ${{ matrix.target }} --features postgres,redis
 
       - name: Package (unix)
         if: matrix.archive == 'tar.gz'
         shell: bash
         run: |
           cd target/${{ matrix.target }}/release
-          tar czf ../../../ironflow-${{ github.ref_name }}-${{ matrix.target }}.tar.gz ironflow
+          tar czf ../../../ironflow-${{ github.ref_name }}-${{ matrix.target }}${{ matrix.artifact_suffix }}.tar.gz ironflow
           cd ../../..
 
       - name: Package (windows)
         if: matrix.archive == 'zip'
         shell: pwsh
         run: |
-          Compress-Archive -Path "target/${{ matrix.target }}/release/ironflow.exe" -DestinationPath "ironflow-${{ github.ref_name }}-${{ matrix.target }}.zip"
+          Compress-Archive -Path "target/${{ matrix.target }}/release/ironflow.exe" -DestinationPath "ironflow-${{ github.ref_name }}-${{ matrix.target }}${{ matrix.artifact_suffix }}.zip"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: ironflow-${{ matrix.target }}
-          path: ironflow-${{ github.ref_name }}-${{ matrix.target }}.*
+          name: ironflow-${{ matrix.target }}${{ matrix.artifact_suffix }}
+          path: ironflow-${{ github.ref_name }}-${{ matrix.target }}${{ matrix.artifact_suffix }}.*
 
   release:
     name: Create GitHub Release
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Download all artifacts
         uses: actions/download-artifact@v8

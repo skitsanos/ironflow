@@ -15,6 +15,7 @@ use super::llm_providers::{
 };
 use super::llm_response::{
     extract_chat_reply, extract_chat_tool_calls, extract_responses_reply, extract_tool_call_names,
+    normalize_tool_calls,
 };
 
 async fn read_capped_response_body(
@@ -159,6 +160,7 @@ impl Node for LlmNode {
         };
         let has_tool_calls = !tool_calls.is_empty();
         let tool_call_names = extract_tool_call_names(&tool_calls);
+        let normalized_tool_calls = normalize_tool_calls(&tool_calls);
 
         let mut output = NodeOutput::new();
         output.insert(format!("{}_model", output_key), Value::String(model));
@@ -211,6 +213,10 @@ impl Node for LlmNode {
                     .map(serde_json::Value::String)
                     .collect(),
             ),
+        );
+        output.insert(
+            format!("{}_tool_calls_normalized", output_key),
+            Value::Array(normalized_tool_calls),
         );
 
         Ok(output)

@@ -295,7 +295,10 @@ async fn parallel_subworkflows_missing_flows_error() {
     let ctx = Context::new();
 
     let err = node.execute(&config, &ctx).await.unwrap_err();
-    assert!(err.to_string().contains("requires 'flows' array"));
+    assert!(
+        err.to_string()
+            .contains("requires either 'flows' array or dynamic 'flow' + 'source_key'")
+    );
 }
 
 #[tokio::test]
@@ -372,5 +375,128 @@ async fn parallel_subworkflows_three_flows_all_succeed() {
             .as_u64()
             .unwrap(),
         0
+    );
+}
+
+#[tokio::test]
+async fn parallel_subworkflows_dynamic_fanout_injects_item_and_index() {
+    let dir = tempfile::tempdir().unwrap();
+
+    write_flow(
+        &dir.path().join("worker.lua"),
+        r#"flow:step("s", nodes.code({ source = "return { label = ctx.item.label, position = ctx.index, prefix = ctx.prefix }" }))"#,
+    );
+
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("parallel_subworkflows").unwrap();
+
+    let config = serde_json::json!({
+        "flow": "worker.lua",
+        "source_key": "jobs",
+        "input": { "prefix": "shared_prefix" },
+        "max_concurrent": 2
+    });
+
+    let mut ctx = ctx_with_flow_dir(dir.path());
+    ctx.insert("shared_prefix".to_string(), serde_json::json!("batch"));
+    ctx.insert(
+        "jobs".to_string(),
+        serde_json::json!([
+            { "label": "first" },
+            { "label": "second" }
+        ]),
+    );
+
+    let out = node.execute(&config, &ctx).await.unwrap();
+
+    let results = out.get("parallel_results").unwrap().as_array().unwrap();
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].get("label").unwrap(), "first");
+    assert_eq!(results[0].get("position").unwrap(), 1);
+    assert_eq!(results[0].get("prefix").unwrap(), "batch");
+    assert_eq!(results[1].get("label").unwrap(), "second");
+    assert_eq!(results[1].get("position").unwrap(), 2);
+    assert_eq!(
+        out.get("parallel_results_count").unwrap().as_u64().unwrap(),
+        2
+    );
+}
+
+#[tokio::test]
+async fn parallel_subworkflows_dynamic_fanout_supports_custom_keys_and_child_output_key() {
+    let dir = tempfile::tempdir().unwrap();
+
+    write_flow(
+        &dir.path().join("worker.lua"),
+        r#"flow:step("s", nodes.code({ source = "return { value = ctx.job.value, ordinal = ctx.ordinal }" }))"#,
+    );
+
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("parallel_subworkflows").unwrap();
+
+    let config = serde_json::json!({
+        "flow": "worker.lua",
+        "source_key": "jobs",
+        "item_key": "job",
+        "index_key": "ordinal",
+        "child_output_key": "child",
+        "output_key": "job_results"
+    });
+
+    let mut ctx = ctx_with_flow_dir(dir.path());
+    ctx.insert(
+        "jobs".to_string(),
+        serde_json::json!([
+            { "value": 7 }
+        ]),
+    );
+
+    let out = node.execute(&config, &ctx).await.unwrap();
+
+    let results = out.get("job_results").unwrap().as_array().unwrap();
+    let child = results[0].get("child").unwrap();
+    assert_eq!(child.get("value").unwrap(), 7);
+    assert_eq!(child.get("ordinal").unwrap(), 1);
+    assert_eq!(out.get("job_results_count").unwrap().as_u64().unwrap(), 1);
+}
+
+#[tokio::test]
+async fn parallel_subworkflows_dynamic_fanout_allows_empty_source() {
+    let dir = tempfile::tempdir().unwrap();
+
+    write_flow(
+        &dir.path().join("worker.lua"),
+        r#"flow:step("s", nodes.code({ source = "return { ok = true }" }))"#,
+    );
+
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("parallel_subworkflows").unwrap();
+
+    let config = serde_json::json!({
+        "flow": "worker.lua",
+        "source_key": "jobs"
+    });
+
+    let mut ctx = ctx_with_flow_dir(dir.path());
+    ctx.insert("jobs".to_string(), serde_json::json!([]));
+
+    let out = node.execute(&config, &ctx).await.unwrap();
+    assert_eq!(
+        out.get("parallel_results")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+    assert_eq!(
+        out.get("parallel_results_count").unwrap().as_u64().unwrap(),
+        0
+    );
+    assert!(
+        out.get("parallel_results_all_succeeded")
+            .unwrap()
+            .as_bool()
+            .unwrap()
     );
 }

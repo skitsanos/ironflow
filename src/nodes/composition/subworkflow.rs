@@ -48,6 +48,9 @@ impl SubworkflowNode {
                 base_registry: self.base_registry.clone(),
             },
         ));
+        child.register(Arc::new(super::tool_dispatch::ToolDispatchNode {
+            base_registry: self.base_registry.clone(),
+        }));
         Arc::new(child)
     }
 }

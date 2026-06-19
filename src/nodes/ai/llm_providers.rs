@@ -177,6 +177,13 @@ pub(super) fn resolve_model(
     "gpt-5-mini".to_string()
 }
 
+fn model_supports_temperature(model: &str) -> bool {
+    let model = model.to_ascii_lowercase();
+    !["o1", "o3", "gpt-5"]
+        .iter()
+        .any(|prefix| model.starts_with(prefix))
+}
+
 pub(super) fn resolve_provider_config(
     config: &serde_json::Value,
     ctx: &Context,
@@ -420,7 +427,9 @@ pub(super) fn build_body(input: &LlmBodyInput<'_>) -> Result<Value> {
         .cloned()
         .ok_or_else(|| anyhow::anyhow!("llm: failed to initialize request body"))?;
 
-    if let Some(temperature) = config.get("temperature").and_then(|v| v.as_f64()) {
+    if model_supports_temperature(model)
+        && let Some(temperature) = config.get("temperature").and_then(|v| v.as_f64())
+    {
         body_obj.insert("temperature".to_string(), Value::from(temperature));
     }
     if let Some(max_tokens) = config.get("max_tokens").and_then(|v| v.as_u64()) {
@@ -431,7 +440,14 @@ pub(super) fn build_body(input: &LlmBodyInput<'_>) -> Result<Value> {
         }
     }
     if let Some(max_output_tokens) = config.get("max_output_tokens").and_then(|v| v.as_u64()) {
-        body_obj.insert("max_output_tokens".to_string(), json!(max_output_tokens));
+        if matches!(mode, LlmMode::Chat) {
+            body_obj.insert(
+                "max_completion_tokens".to_string(),
+                json!(max_output_tokens),
+            );
+        } else {
+            body_obj.insert("max_output_tokens".to_string(), json!(max_output_tokens));
+        }
     }
 
     if matches!(mode, LlmMode::Chat) {
@@ -479,4 +495,81 @@ pub(super) fn build_body(input: &LlmBodyInput<'_>) -> Result<Value> {
     }
 
     Ok(Value::Object(body_obj))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn chat_reasoning_model_omits_temperature_and_maps_max_output_tokens() {
+        let config = serde_json::json!({
+            "temperature": 0.2,
+            "max_output_tokens": 123,
+        });
+        let ctx = Context::new();
+        let body = build_body(&LlmBodyInput {
+            mode: LlmMode::Chat,
+            model: "gpt-5",
+            messages: None,
+            prompt: "hello",
+            config: &config,
+            ctx: &ctx,
+            tools: None,
+            tool_choice: None,
+        })
+        .unwrap();
+
+        assert!(body.get("temperature").is_none());
+        assert_eq!(body.get("max_completion_tokens"), Some(&json!(123)));
+        assert!(body.get("max_output_tokens").is_none());
+    }
+
+    #[test]
+    fn chat_non_reasoning_model_keeps_temperature() {
+        let config = serde_json::json!({
+            "temperature": 0.2,
+            "max_output_tokens": 123,
+        });
+        let ctx = Context::new();
+        let body = build_body(&LlmBodyInput {
+            mode: LlmMode::Chat,
+            model: "gpt-4o-mini",
+            messages: None,
+            prompt: "hello",
+            config: &config,
+            ctx: &ctx,
+            tools: None,
+            tool_choice: None,
+        })
+        .unwrap();
+
+        assert_eq!(body.get("temperature"), Some(&json!(0.2)));
+        assert_eq!(body.get("max_completion_tokens"), Some(&json!(123)));
+    }
+
+    #[test]
+    fn responses_mode_uses_max_output_tokens() {
+        let config = serde_json::json!({
+            "temperature": 0.2,
+            "max_output_tokens": 123,
+        });
+        let ctx = Context::new();
+        let body = build_body(&LlmBodyInput {
+            mode: LlmMode::Responses,
+            model: "gpt-5",
+            messages: None,
+            prompt: "hello",
+            config: &config,
+            ctx: &ctx,
+            tools: None,
+            tool_choice: None,
+        })
+        .unwrap();
+
+        assert!(body.get("temperature").is_none());
+        assert_eq!(body.get("max_output_tokens"), Some(&json!(123)));
+        assert!(body.get("max_completion_tokens").is_none());
+    }
 }

@@ -9,6 +9,13 @@ use crate::nodes::Node;
 
 use super::helpers::{body_value_to_text, build_form_body, interpolate_json_value};
 
+struct HttpResponseOutput {
+    status: u16,
+    success: bool,
+    output: NodeOutput,
+    retry_after_secs: Option<f64>,
+}
+
 pub(super) async fn do_http_request(
     method: &str,
     config: &serde_json::Value,
@@ -30,6 +37,30 @@ pub(super) async fn do_http_request(
         .get("output_key")
         .and_then(|v| v.as_str())
         .unwrap_or("http");
+    let fail_on_status = config
+        .get("fail_on_status")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let retry_statuses = parse_retry_statuses(config)?;
+    let status_retries = config
+        .get("status_retries")
+        .or_else(|| config.get("max_status_retries"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let status_retry_backoff_s = config
+        .get("status_retry_backoff")
+        .and_then(|v| v.as_f64())
+        .filter(|v| *v >= 0.0)
+        .unwrap_or(1.0);
+    let respect_retry_after = config
+        .get("respect_retry_after")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let max_retry_after_s = config
+        .get("max_retry_after")
+        .and_then(|v| v.as_f64())
+        .filter(|v| *v >= 0.0)
+        .unwrap_or(60.0);
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs_f64(timeout_s))
@@ -131,9 +162,84 @@ pub(super) async fn do_http_request(
         }
     }
 
-    let response = request.send().await?;
+    let request_template = request
+        .try_clone()
+        .ok_or_else(|| anyhow::anyhow!("HTTP request body is not retryable"))?;
 
+    let mut attempt = 0_u64;
+    loop {
+        let response = request_template
+            .try_clone()
+            .ok_or_else(|| anyhow::anyhow!("HTTP request body is not retryable"))?
+            .send()
+            .await?;
+        let result = response_to_output(response, output_key).await?;
+        let should_retry =
+            attempt < status_retries && retry_statuses.contains(&result.status) && !result.success;
+
+        if should_retry {
+            let delay_s = if respect_retry_after {
+                result.retry_after_secs.unwrap_or_else(|| {
+                    status_retry_backoff_s * 2_f64.powi(i32::try_from(attempt).unwrap_or(30))
+                })
+            } else {
+                status_retry_backoff_s * 2_f64.powi(i32::try_from(attempt).unwrap_or(30))
+            }
+            .min(max_retry_after_s);
+
+            attempt += 1;
+            if delay_s > 0.0 {
+                tokio::time::sleep(Duration::from_secs_f64(delay_s)).await;
+            }
+            continue;
+        }
+
+        let mut output = result.output;
+        output.insert(
+            format!("{}_attempts", output_key),
+            serde_json::Value::Number((attempt + 1).into()),
+        );
+
+        if fail_on_status && !result.success {
+            anyhow::bail!("HTTP {} {} returned status {}", method, url, result.status);
+        }
+
+        return Ok(output);
+    }
+}
+
+fn parse_retry_statuses(config: &serde_json::Value) -> Result<Vec<u16>> {
+    let Some(values) = config.get("retry_statuses").and_then(|v| v.as_array()) else {
+        return Ok(Vec::new());
+    };
+
+    values
+        .iter()
+        .map(|value| match value {
+            serde_json::Value::Number(number) => number
+                .as_u64()
+                .and_then(|n| u16::try_from(n).ok())
+                .ok_or_else(|| anyhow::anyhow!("retry_statuses values must fit in u16")),
+            serde_json::Value::String(text) => text
+                .parse::<u16>()
+                .map_err(|_| anyhow::anyhow!("retry_statuses values must be HTTP status codes")),
+            _ => anyhow::bail!("retry_statuses values must be numbers or numeric strings"),
+        })
+        .collect()
+}
+
+async fn response_to_output(
+    response: reqwest::Response,
+    output_key: &str,
+) -> Result<HttpResponseOutput> {
     let status = response.status().as_u16();
+    let success = response.status().is_success();
+    let retry_after_secs = response
+        .headers()
+        .get(reqwest::header::RETRY_AFTER)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<f64>().ok())
+        .filter(|value| *value >= 0.0);
     let resp_headers: serde_json::Map<String, serde_json::Value> = response
         .headers()
         .iter()
@@ -159,8 +265,6 @@ pub(super) async fn do_http_request(
             max_body
         );
     }
-
-    let success = response.status().is_success();
 
     let mut buf: Vec<u8> = Vec::new();
     let mut response = response;
@@ -194,11 +298,12 @@ pub(super) async fn do_http_request(
         serde_json::Value::Bool(success),
     );
 
-    if !success {
-        anyhow::bail!("HTTP {} {} returned status {}", method, url, status);
-    }
-
-    Ok(output)
+    Ok(HttpResponseOutput {
+        status,
+        success,
+        output,
+        retry_after_secs,
+    })
 }
 
 pub struct HttpRequestNode;

@@ -6,7 +6,13 @@ Execute multiple subworkflows concurrently and collect their results.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `flows` | array | yes | — | Array of flow configurations to execute in parallel |
+| `flows` | array | conditional | — | Static array of flow configurations to execute in parallel. Use either `flows` or dynamic `flow` + `source_key`. |
+| `flow` | string | conditional | — | Dynamic fan-out child flow path. Required when `flows` is omitted. |
+| `source_key` | string | conditional | — | Context key containing the runtime array to fan out over. Required when `flows` is omitted. |
+| `input` | object | no | — | In dynamic mode, base input mapping applied to every child run. |
+| `item_key` | string | no | `"item"` | Dynamic mode child context key that receives the current source item. |
+| `index_key` | string | no | `"index"` | Dynamic mode child context key that receives the 1-based source item index. |
+| `child_output_key` | string | no | — | Dynamic mode namespace for each child context inside its result entry. |
 | `output_key` | string | no | `"parallel_results"` | Key for the results array in context |
 | `on_error` | string | no | `"fail_fast"` | Error handling: `"fail_fast"` (fail on any error) or `"ignore"` (collect all results) |
 | `max_concurrent` | number | no | CPU count | Maximum child workflows executing at the same time. Hard-capped at `1024`. |
@@ -78,6 +84,36 @@ flow:step("process", nodes.parallel_subworkflows({
     on_error = "ignore"
 }))
 ```
+
+### Dynamic fan-out from context
+
+Use `flow` + `source_key` when the parent workflow discovers work items at runtime. The child flow receives the current item under `item` and its 1-based position under `index` by default.
+
+```lua
+flow:step("run_jobs", nodes.parallel_subworkflows({
+    flow = "worker.lua",
+    source_key = "jobs",
+    input = {
+        run_id = "parent_run_id",
+    },
+    item_key = "job",
+    index_key = "job_index",
+    child_output_key = "result",
+    max_concurrent = 5,
+    output_key = "job_results",
+}))
+```
+
+If `ctx.jobs` is:
+
+```json
+[
+  { "id": "a", "path": "/tmp/a.txt" },
+  { "id": "b", "path": "/tmp/b.txt" }
+]
+```
+
+then `worker.lua` runs twice. Each child context receives `job`, `job_index`, plus any mapped `input` fields. Dynamic mode allows an empty source array and returns an empty results array with `{output_key}_all_succeeded = true`.
 
 ### Error handling
 

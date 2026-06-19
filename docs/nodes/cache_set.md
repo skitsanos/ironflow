@@ -6,7 +6,7 @@ Store a value in the cache (memory or file-based) with optional TTL.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `key` | string | yes | — | Cache key to store the value under. |
+| `key` | string | yes | — | Cache key to store the value under. Supports `${ctx.*}` interpolation. |
 | `source_key` | string | one of `source_key` or `value` | — | Context key whose value will be cached. |
 | `value` | any | one of `source_key` or `value` | — | Literal JSON value to cache. |
 | `ttl` | integer | no | — | Time-to-live in seconds. When omitted the entry never expires. |
@@ -15,9 +15,11 @@ Store a value in the cache (memory or file-based) with optional TTL.
 
 ## Context Output
 
-- `cache_key` — the cache key that was written.
+- `cache_key` — the interpolated cache key that was written.
 - `cache_stored` — always `true` on success.
 - `cache_size` — current memory cache entry count; only returned for the `"memory"` backend.
+
+`cache_set` and `cache_get` apply the same interpolation rules to `key`, so wrappers can compute a key once from context and use the same expression for both write and read. For example, `llm:${ctx.prompt_hash}` writes and reads the concrete key `llm:<hash>`.
 
 ## Example
 
@@ -27,7 +29,7 @@ Store a value in the cache (memory or file-based) with optional TTL.
 local flow = Flow.new("cache_to_memory")
 
 flow:step("store", nodes.cache_set({
-    key = "user_token",
+    key = "user_token:${ctx.user_id}",
     source_key = "auth_response",
     ttl = 3600,
     backend = "memory"
@@ -51,7 +53,7 @@ return flow
 local flow = Flow.new("cache_to_file")
 
 flow:step("store", nodes.cache_set({
-    key = "report_data",
+    key = "report:${ctx.report_id}",
     value = { status = "complete", score = 95 },
     ttl = 86400,
     backend = "file",
