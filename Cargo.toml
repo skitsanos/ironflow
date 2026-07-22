@@ -33,7 +33,7 @@ hex = "0.4.3"
 axum = "0.8.9"
 tower-http = { version = "0.7.0", features = ["cors", "trace"] }
 base64 = "0.22.1"
-comrak = "0.52"
+comrak = "0.54"
 html2md = "0.2.15"
 ammonia = "4.1.2"
 zip = "8.6.0"
