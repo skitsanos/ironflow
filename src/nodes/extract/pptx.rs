@@ -13,6 +13,7 @@ use super::pptx_parser::{
     PptxElement, PptxSlide, extract_pptx_comments, normalize_pptx_path, parse_pptx_notes,
     parse_pptx_rels, parse_pptx_slide, read_pptx_media,
 };
+use crate::util::node_config::config_bool;
 
 pub struct ExtractPptxNode;
 
@@ -35,10 +36,7 @@ impl Node for ExtractPptxNode {
             .unwrap_or("content");
         let metadata_key = config.get("metadata_key").and_then(|v| v.as_str());
         let comments_key = config.get("comments_key").and_then(|v| v.as_str());
-        let include_image_bytes = config
-            .get("include_image_bytes")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        let include_image_bytes = config_bool(config, "include_image_bytes", ctx).unwrap_or(false);
 
         let file = std::fs::File::open(&path)
             .map_err(|e| anyhow::anyhow!("Failed to open '{}': {}", path, e))?;

@@ -10,6 +10,7 @@ use crate::engine::types::{Context, NodeOutput, RunStatus};
 use crate::lua::runtime::LuaRuntime;
 use crate::nodes::{Node, NodeRegistry};
 use crate::storage::null_store::NullStateStore;
+use crate::util::node_config::config_bool;
 
 /// Process-global cap on concurrently-running fire-and-forget subworkflows.
 /// Override with `IRONFLOW_MAX_DETACHED_SUBWORKFLOWS`.
@@ -71,7 +72,7 @@ impl Node for SubworkflowNode {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("subworkflow requires 'flow' parameter"))?;
 
-        let wait = config.get("wait").and_then(|v| v.as_bool()).unwrap_or(true);
+        let wait = config_bool(config, "wait", ctx).unwrap_or(true);
 
         let output_key = config
             .get("output_key")

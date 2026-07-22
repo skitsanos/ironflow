@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
+use crate::util::node_config::config_u64;
 
 pub struct AiChunkMergeNode;
 
@@ -67,10 +68,7 @@ impl Node for AiChunkMergeNode {
             .unwrap_or("merged")
             .to_string();
 
-        let chunk_size = config
-            .get("chunk_size")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(512) as usize;
+        let chunk_size = config_u64(config, "chunk_size", ctx).unwrap_or(512) as usize;
 
         // Get source chunks from context
         let source_value = ctx.get(&source_key).ok_or_else(|| {

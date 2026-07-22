@@ -5,6 +5,7 @@ use comrak::{Options, markdown_to_html};
 use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
+use crate::util::node_config::config_bool;
 
 /// Convert Markdown to HTML using comrak (CommonMark + GFM).
 pub struct MarkdownToHtmlNode;
@@ -25,10 +26,7 @@ impl Node for MarkdownToHtmlNode {
             .and_then(|v| v.as_str())
             .unwrap_or("html");
 
-        let sanitize = config
-            .get("sanitize")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        let sanitize = config_bool(config, "sanitize", ctx).unwrap_or(false);
 
         let input = get_input(config, ctx, "markdown_to_html")?;
 

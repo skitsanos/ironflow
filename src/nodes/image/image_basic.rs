@@ -10,6 +10,7 @@ use super::common::{
     parse_rotation_angle, resolve_image_output_format, save_dynamic_image, target_size,
 };
 use super::image_sources::resolve_single_image_source;
+use crate::util::node_config::config_u64;
 
 pub(crate) struct ImageResizeNode;
 pub(crate) struct ImageCropNode;
@@ -43,14 +44,8 @@ impl Node for ImageResizeNode {
             "image_resize",
         )?;
 
-        let width = config
-            .get("width")
-            .and_then(|v| v.as_u64())
-            .map(|v| parse_positive_u32(v, "width"));
-        let height = config
-            .get("height")
-            .and_then(|v| v.as_u64())
-            .map(|v| parse_positive_u32(v, "height"));
+        let width = config_u64(config, "width", ctx).map(|v| parse_positive_u32(v, "width"));
+        let height = config_u64(config, "height", ctx).map(|v| parse_positive_u32(v, "height"));
         let width = width.transpose()?;
         let height = height.transpose()?;
 
@@ -130,8 +125,8 @@ impl Node for ImageCropNode {
             "image_crop",
         )?;
 
-        let x = parse_non_negative_u32(config.get("x").and_then(|v| v.as_u64()).unwrap_or(0), "x")?;
-        let y = parse_non_negative_u32(config.get("y").and_then(|v| v.as_u64()).unwrap_or(0), "y")?;
+        let x = parse_non_negative_u32(config_u64(config, "x", ctx).unwrap_or(0), "x")?;
+        let y = parse_non_negative_u32(config_u64(config, "y", ctx).unwrap_or(0), "y")?;
 
         let (crop_w, crop_w_field) = if let Some(width_val) = config.get("crop_width") {
             (

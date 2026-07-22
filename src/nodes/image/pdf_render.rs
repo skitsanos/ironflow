@@ -5,6 +5,8 @@ use base64::Engine;
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
 
+use crate::util::node_config::{config_f64, config_u64};
+
 use super::common::{
     load_pdfium, parse_pages_spec, parse_positive_u32, read_pdf_bytes_capped, resolve_image_format,
     validate_pdf_dpi, validate_pdf_render_page_count,
@@ -158,7 +160,7 @@ impl Node for PdfToImageNode {
             .get("output_key")
             .and_then(|v| v.as_str())
             .unwrap_or("images");
-        let dpi = config.get("dpi").and_then(|v| v.as_f64()).unwrap_or(150.0) as f32;
+        let dpi = config_f64(config, "dpi", ctx).unwrap_or(150.0) as f32;
         validate_pdf_dpi(dpi, "pdf_to_image")?;
 
         let bytes = read_pdf_bytes_capped(&path, "pdf_to_image")?;
@@ -216,7 +218,7 @@ impl Node for PdfThumbnailNode {
 
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let path = super::common::resolve_path(config, ctx, "pdf_thumbnail")?;
-        let page = config.get("page").and_then(|v| v.as_u64()).unwrap_or(1) as usize;
+        let page = config_u64(config, "page", ctx).unwrap_or(1) as usize;
         if page == 0 {
             anyhow::bail!("pdf_thumbnail: 'page' must be 1-based and >= 1");
         }
@@ -230,19 +232,13 @@ impl Node for PdfThumbnailNode {
             config.get("format").and_then(|v| v.as_str()),
             "pdf_thumbnail",
         )?;
-        let dpi = config.get("dpi").and_then(|v| v.as_f64()).unwrap_or(150.0) as f32;
+        let dpi = config_f64(config, "dpi", ctx).unwrap_or(150.0) as f32;
         validate_pdf_dpi(dpi, "pdf_thumbnail")?;
-        let width = config
-            .get("width")
-            .and_then(|v| v.as_u64())
-            .map(|v| parse_positive_u32(v, "width"));
-        let height = config
-            .get("height")
-            .and_then(|v| v.as_u64())
-            .map(|v| parse_positive_u32(v, "height"));
+        let width = config_u64(config, "width", ctx).map(|v| parse_positive_u32(v, "width"));
+        let height = config_u64(config, "height", ctx).map(|v| parse_positive_u32(v, "height"));
         let width = width.transpose()?;
         let height = height.transpose()?;
-        let max_side = config.get("size").and_then(|v| v.as_u64()).unwrap_or(256);
+        let max_side = config_u64(config, "size", ctx).unwrap_or(256);
         let max_side = parse_positive_u32(max_side, "size")?;
 
         let bytes = read_pdf_bytes_capped(&path, "pdf_thumbnail")?;

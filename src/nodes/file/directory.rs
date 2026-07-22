@@ -6,6 +6,7 @@ use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
 
 use super::helpers::{DirectoryListLimits, directory_list_limits};
+use crate::util::node_config::config_bool;
 
 pub struct ListDirectoryNode;
 
@@ -31,12 +32,10 @@ impl Node for ListDirectoryNode {
             .and_then(|v| v.as_str())
             .unwrap_or("files");
 
-        let recursive = config
-            .get("recursive")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        let recursive = config_bool(config, "recursive", ctx).unwrap_or(false);
 
-        let entries = list_dir_entries(&path, recursive, directory_list_limits(config)).await?;
+        let entries =
+            list_dir_entries(&path, recursive, directory_list_limits(config, ctx)).await?;
 
         let mut output = NodeOutput::new();
         output.insert(output_key.to_string(), serde_json::Value::Array(entries));

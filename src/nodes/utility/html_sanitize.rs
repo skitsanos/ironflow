@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
+use crate::util::node_config::config_bool;
 
 /// Sanitize HTML by removing dangerous tags, attributes, and scripts.
 pub struct HtmlSanitizeNode;
@@ -27,10 +28,7 @@ impl Node for HtmlSanitizeNode {
             .and_then(|v| v.as_str())
             .unwrap_or("sanitized_html");
 
-        let strip_comments = config
-            .get("strip_comments")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true);
+        let strip_comments = config_bool(config, "strip_comments", ctx).unwrap_or(true);
 
         let link_rel = config
             .get("link_rel")

@@ -9,6 +9,7 @@ use super::common::{
     image_format_name, load_image_bytes, resolve_image_output_format, save_dynamic_image,
 };
 use super::image_sources::resolve_single_image_source;
+use crate::util::node_config::{config_f64, config_u64};
 
 pub(crate) struct ImageGrayscaleNode;
 pub(crate) struct ImageConvertNode;
@@ -91,7 +92,7 @@ impl Node for ImageConvertNode {
             .get("output_key")
             .and_then(|v| v.as_str())
             .unwrap_or("image_convert");
-        let quality = config.get("quality").and_then(|v| v.as_u64()).unwrap_or(85) as u8;
+        let quality = config_u64(config, "quality", ctx).unwrap_or(85) as u8;
 
         let img = image::open(&path)
             .map_err(|e| anyhow::anyhow!("image_convert: failed to open '{}': {}", path, e))?;
@@ -166,9 +167,7 @@ impl Node for ImageWatermarkNode {
             .get("position")
             .and_then(|v| v.as_str())
             .unwrap_or("bottom-right");
-        let opacity = config
-            .get("opacity")
-            .and_then(|v| v.as_f64())
+        let opacity = config_f64(config, "opacity", ctx)
             .unwrap_or(0.5)
             .clamp(0.0, 1.0) as f32;
 

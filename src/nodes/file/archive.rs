@@ -9,6 +9,7 @@ use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
 
 use super::helpers::{ZipLimits, validate_zip_entry_name, zip_limits};
+use crate::util::node_config::config_bool;
 
 pub struct ZipCreateNode;
 
@@ -35,10 +36,7 @@ impl Node for ZipCreateNode {
 
         let source = interpolate_ctx(source, ctx);
         let zip_path = interpolate_ctx(zip_path, ctx);
-        let include_root = config
-            .get("include_root")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        let include_root = config_bool(config, "include_root", ctx).unwrap_or(false);
 
         let compression = parse_zip_compression(
             config
@@ -161,10 +159,7 @@ impl Node for ZipExtractNode {
             .and_then(|v| v.as_str())
             .unwrap_or("extracted_files");
 
-        let overwrite = config
-            .get("overwrite")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true);
+        let overwrite = config_bool(config, "overwrite", ctx).unwrap_or(true);
 
         let zip_path = interpolate_ctx(zip_path, ctx);
         let destination = interpolate_ctx(destination, ctx);

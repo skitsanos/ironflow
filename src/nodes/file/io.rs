@@ -5,6 +5,7 @@ use base64::Engine;
 use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
+use crate::util::node_config::config_bool;
 
 pub struct ReadFileNode;
 
@@ -99,10 +100,7 @@ impl Node for WriteFileNode {
             .get("encoding")
             .and_then(|v| v.as_str())
             .unwrap_or("text");
-        let append = config
-            .get("append")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        let append = config_bool(config, "append", ctx).unwrap_or(false);
 
         // Resolve content bytes: from `content` string or `source_key` context value
         let bytes: Vec<u8> =

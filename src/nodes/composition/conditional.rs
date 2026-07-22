@@ -3,6 +3,7 @@ use async_trait::async_trait;
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
+use crate::util::node_config::config_bool;
 
 pub struct IfNode;
 
@@ -253,15 +254,9 @@ impl Node for IfBodyContainsNode {
             .and_then(|v| v.as_str())
             .unwrap_or("false");
 
-        let case_sensitive = config
-            .get("case_sensitive")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true);
+        let case_sensitive = config_bool(config, "case_sensitive", ctx).unwrap_or(true);
 
-        let required = config
-            .get("required")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        let required = config_bool(config, "required", ctx).unwrap_or(false);
 
         let step_name = config
             .get("_step_name")

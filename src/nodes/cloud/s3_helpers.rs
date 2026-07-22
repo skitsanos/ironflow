@@ -40,10 +40,13 @@ pub(super) fn resolve_output_key(config: &serde_json::Value) -> String {
         .to_string()
 }
 
-pub(super) fn resolve_bool(config: &serde_json::Value, key: &str, env_key: Option<&str>) -> bool {
-    config
-        .get(key)
-        .and_then(|value| value.as_bool())
+pub(super) fn resolve_bool(
+    config: &serde_json::Value,
+    key: &str,
+    env_key: Option<&str>,
+    ctx: &Context,
+) -> bool {
+    crate::util::node_config::config_bool(config, key, ctx)
         .or_else(|| env_key.and_then(parse_bool_env))
         .unwrap_or(false)
 }
@@ -85,8 +88,12 @@ pub(super) fn resolve_content_length(config: &serde_json::Value) -> Option<i64> 
 }
 
 pub(super) async fn build_s3_client(config: &serde_json::Value, ctx: &Context) -> Result<Client> {
-    let force_path_style =
-        resolve_bool(config, "force_path_style", Some("AWS_S3_FORCE_PATH_STYLE"));
+    let force_path_style = resolve_bool(
+        config,
+        "force_path_style",
+        Some("AWS_S3_FORCE_PATH_STYLE"),
+        ctx,
+    );
     let endpoint_url = resolve_optional(config, "endpoint_url", Some("AWS_ENDPOINT_URL"), ctx);
     let region = resolve_region(config, ctx);
 

@@ -4,6 +4,7 @@ use tokio::io::AsyncReadExt;
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
+use crate::util::node_config::config_f64;
 
 /// Read up to `limit + 1` bytes from a child pipe into `buf`. Returns whether
 /// the cap was exceeded. The extra byte is needed to distinguish "at limit"
@@ -43,7 +44,7 @@ impl Node for ShellCommandNode {
         "Execute a shell command and capture output"
     }
 
-    async fn execute(&self, config: &serde_json::Value, _ctx: &Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let cmd = config
             .get("cmd")
             .and_then(|v| v.as_str())
@@ -57,10 +58,7 @@ impl Node for ShellCommandNode {
 
         let cwd = config.get("cwd").and_then(|v| v.as_str());
 
-        let timeout_s = config
-            .get("timeout")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(60.0);
+        let timeout_s = config_f64(config, "timeout", ctx).unwrap_or(60.0);
 
         let output_key = config
             .get("output_key")

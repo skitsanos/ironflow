@@ -13,6 +13,7 @@ use crate::nodes::{Node, NodeRegistry};
 use crate::storage::null_store::NullStateStore;
 
 use super::subworkflow::SubworkflowNode;
+use crate::util::node_config::config_u64;
 
 /// Hard cap on `max_concurrent` to guard against pathological config values.
 const MAX_PARALLEL_SUBWORKFLOWS_CAP: usize = 1024;
@@ -160,9 +161,7 @@ impl Node for ParallelSubworkflowsNode {
         // Concurrency cap. Default: num_cpus. Users can raise or lower it per
         // node. Hard-capped at MAX_PARALLEL_SUBWORKFLOWS_CAP to block pathological
         // config values from saturating the runtime.
-        let max_concurrent = config
-            .get("max_concurrent")
-            .and_then(|v| v.as_u64())
+        let max_concurrent = config_u64(config, "max_concurrent", ctx)
             .map(|n| n as usize)
             .filter(|n| *n > 0)
             .unwrap_or_else(num_cpus::get)

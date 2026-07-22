@@ -5,6 +5,7 @@ use std::time::Duration;
 use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
+use crate::util::node_config::config_f64;
 
 /// Recursively interpolate `${ctx.key}` in all string values within a JSON value.
 fn interpolate_json_value(value: &serde_json::Value, ctx: &Context) -> serde_json::Value {
@@ -73,10 +74,7 @@ impl Node for ArangoDbAqlNode {
             .and_then(|v| v.as_str())
             .unwrap_or("aql");
 
-        let timeout_s = config
-            .get("timeout")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(30.0);
+        let timeout_s = config_f64(config, "timeout", ctx).unwrap_or(30.0);
 
         // Build the cursor API URL
         let base_url = url.trim_end_matches('/');

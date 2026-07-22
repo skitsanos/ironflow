@@ -8,6 +8,7 @@ use std::time::Duration;
 use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
+use crate::util::node_config::{config_f64, config_u64};
 
 fn interpolate_json_value(value: &serde_json::Value, ctx: &Context) -> serde_json::Value {
     match value {
@@ -126,10 +127,7 @@ fn extract_common_params(config: &serde_json::Value, ctx: &Context) -> Result<Em
         .unwrap_or_else(|| "onboarding@resend.dev".to_string());
 
     let output_key = resolve_output_key(config);
-    let timeout_s = config
-        .get("timeout")
-        .and_then(|v| v.as_f64())
-        .unwrap_or(30.0);
+    let timeout_s = config_f64(config, "timeout", ctx).unwrap_or(30.0);
     let timeout = Duration::from_secs_f64(timeout_s);
 
     let html = config
@@ -249,9 +247,7 @@ impl SendEmailNode {
                 )
             })?;
 
-        let smtp_port = config
-            .get("smtp_port")
-            .and_then(|v| v.as_u64())
+        let smtp_port = config_u64(config, "smtp_port", ctx)
             .map(|v| v as u16)
             .or_else(|| std::env::var("SMTP_PORT").ok().and_then(|v| v.parse().ok()));
 

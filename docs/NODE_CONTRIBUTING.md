@@ -71,17 +71,32 @@ Common conventions used by existing nodes:
 Prefer strict required/optional parsing with clear errors:
 
 ```rust
+use crate::util::node_config::{config_bool, config_f64, config_u64};
+
 let path = config
     .get("path")
     .and_then(|v| v.as_str())
     .ok_or_else(|| anyhow::anyhow!("node requires 'path'"))?;
 
-let timeout = config.get("timeout").and_then(|v| v.as_f64()).unwrap_or(1.0);
+let timeout = config_f64(config, "timeout", ctx).unwrap_or(1.0);
+let retries = config_u64(config, "retries", ctx).unwrap_or(0);
+let pretty = config_bool(config, "pretty", ctx).unwrap_or(false);
 ```
+
+**Read numeric and boolean parameters with `config_f64` / `config_u64` / `config_bool`,
+never with a bare `as_f64()` / `as_u64()` / `as_bool()`.** Flow authors write parameters
+as `"${ctx.key}"` templates, and interpolation always produces a *string*. A bare
+`as_f64()` returns `None` for that string, so `unwrap_or(default)` silently discards the
+caller's value — no error, no warning. The helpers accept a native JSON value, a string
+form, or a `${ctx.*}` template resolving to either. `config_bool` accepts
+`true`/`yes`/`on`/`1` and `false`/`no`/`off`/`0`, case-insensitive.
+
+This applies only to **node config**. Values read from an API response or another
+non-config JSON document should keep using the plain `as_*` accessors.
 
 Guidelines:
 - Keep config keys backward compatible when possible.
-- For booleans, numbers, strings, and arrays, validate expected type exactly.
+- For strings and arrays, validate expected type exactly.
 - For optional values use `unwrap_or` defaults and document them.
 - Include `{ctx}` interpolation where user data should be templated.
   - Helpers are available in `crate::lua::interpolate::interpolate_ctx`.

@@ -6,6 +6,7 @@ use base64::engine::general_purpose::{STANDARD, URL_SAFE};
 use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
+use crate::util::node_config::config_bool;
 
 pub struct Base64EncodeNode;
 
@@ -25,10 +26,7 @@ impl Node for Base64EncodeNode {
             .and_then(|v| v.as_str())
             .unwrap_or("base64_encoded");
 
-        let url_safe = config
-            .get("url_safe")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        let url_safe = config_bool(config, "url_safe", ctx).unwrap_or(false);
 
         let has_input = config.get("input").is_some();
         let has_source_key = config.get("source_key").is_some();
@@ -87,10 +85,7 @@ impl Node for Base64DecodeNode {
             .and_then(|v| v.as_str())
             .unwrap_or("base64_decoded");
 
-        let url_safe = config
-            .get("url_safe")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        let url_safe = config_bool(config, "url_safe", ctx).unwrap_or(false);
 
         let output_file = config.get("output_file").and_then(|v| v.as_str());
 

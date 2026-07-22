@@ -6,6 +6,7 @@ use crate::engine::types::Context;
 use crate::lua::interpolate::interpolate_ctx;
 
 use super::embeddings::resolve_param;
+use crate::util::node_config::{config_bool, config_f64, config_u64};
 
 #[derive(Clone, Copy)]
 pub(super) enum LlmMode {
@@ -76,7 +77,7 @@ pub(super) fn interpolate_json_value(
     }
 }
 
-pub(super) fn parse_mode(config: &serde_json::Value) -> Result<LlmMode> {
+pub(super) fn parse_mode(config: &serde_json::Value, ctx: &Context) -> Result<LlmMode> {
     let mode = config
         .get("mode")
         .and_then(|v| v.as_str())
@@ -89,11 +90,7 @@ pub(super) fn parse_mode(config: &serde_json::Value) -> Result<LlmMode> {
         "auto" => {
             if config.get("messages").is_some() {
                 Ok(LlmMode::Chat)
-            } else if config
-                .get("responses_input")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false)
-            {
+            } else if config_bool(config, "responses_input", ctx).unwrap_or(false) {
                 Ok(LlmMode::Responses)
             } else {
                 Ok(LlmMode::Chat)
@@ -106,11 +103,8 @@ pub(super) fn parse_mode(config: &serde_json::Value) -> Result<LlmMode> {
     }
 }
 
-pub(super) fn parse_timeout(config: &serde_json::Value) -> f64 {
-    config
-        .get("timeout")
-        .and_then(|v| v.as_f64())
-        .unwrap_or(30.0)
+pub(super) fn parse_timeout(config: &serde_json::Value, ctx: &Context) -> f64 {
+    config_f64(config, "timeout", ctx).unwrap_or(30.0)
 }
 
 pub(super) fn optional_u64_config(config: &serde_json::Value, key: &str) -> Option<u64> {
@@ -428,18 +422,18 @@ pub(super) fn build_body(input: &LlmBodyInput<'_>) -> Result<Value> {
         .ok_or_else(|| anyhow::anyhow!("llm: failed to initialize request body"))?;
 
     if model_supports_temperature(model)
-        && let Some(temperature) = config.get("temperature").and_then(|v| v.as_f64())
+        && let Some(temperature) = config_f64(config, "temperature", ctx)
     {
         body_obj.insert("temperature".to_string(), Value::from(temperature));
     }
-    if let Some(max_tokens) = config.get("max_tokens").and_then(|v| v.as_u64()) {
+    if let Some(max_tokens) = config_u64(config, "max_tokens", ctx) {
         if matches!(mode, LlmMode::Responses) {
             body_obj.insert("max_output_tokens".to_string(), json!(max_tokens));
         } else {
             body_obj.insert("max_tokens".to_string(), json!(max_tokens));
         }
     }
-    if let Some(max_output_tokens) = config.get("max_output_tokens").and_then(|v| v.as_u64()) {
+    if let Some(max_output_tokens) = config_u64(config, "max_output_tokens", ctx) {
         if matches!(mode, LlmMode::Chat) {
             body_obj.insert(
                 "max_completion_tokens".to_string(),

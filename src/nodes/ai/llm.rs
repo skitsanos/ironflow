@@ -68,8 +68,8 @@ impl Node for LlmNode {
     }
 
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
-        let mode = parse_mode(config)?;
-        let timeout_s = parse_timeout(config);
+        let mode = parse_mode(config, ctx)?;
+        let timeout_s = parse_timeout(config, ctx);
         let tools = resolve_tools(config, ctx)?;
         let tool_choice = resolve_tool_choice(config, ctx)?;
         let output_key = config

@@ -8,6 +8,7 @@ use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
 use crate::util::bounded_cache::BoundedCache;
+use crate::util::node_config::config_f64;
 
 /// Simple percent-encoding for form data values.
 fn percent_encode(input: &str) -> String {
@@ -279,10 +280,7 @@ impl Node for AiEmbedNode {
             .and_then(|v| v.as_str())
             .unwrap_or("embed");
 
-        let timeout_s = config
-            .get("timeout")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(120.0);
+        let timeout_s = config_f64(config, "timeout", ctx).unwrap_or(120.0);
 
         // Get input texts from context
         let input_value = ctx.get(&input_key).ok_or_else(|| {

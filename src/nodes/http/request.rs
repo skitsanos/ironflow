@@ -8,6 +8,7 @@ use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
 
 use super::helpers::{body_value_to_text, build_form_body, interpolate_json_value};
+use crate::util::node_config::{config_bool, config_f64};
 
 struct HttpResponseOutput {
     status: u16,
@@ -28,37 +29,24 @@ pub(super) async fn do_http_request(
 
     let url = interpolate_ctx(url, ctx);
 
-    let timeout_s = config
-        .get("timeout")
-        .and_then(|v| v.as_f64())
-        .unwrap_or(30.0);
+    let timeout_s = config_f64(config, "timeout", ctx).unwrap_or(30.0);
 
     let output_key = config
         .get("output_key")
         .and_then(|v| v.as_str())
         .unwrap_or("http");
-    let fail_on_status = config
-        .get("fail_on_status")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true);
+    let fail_on_status = config_bool(config, "fail_on_status", ctx).unwrap_or(true);
     let retry_statuses = parse_retry_statuses(config)?;
     let status_retries = config
         .get("status_retries")
         .or_else(|| config.get("max_status_retries"))
         .and_then(|v| v.as_u64())
         .unwrap_or(0);
-    let status_retry_backoff_s = config
-        .get("status_retry_backoff")
-        .and_then(|v| v.as_f64())
+    let status_retry_backoff_s = config_f64(config, "status_retry_backoff", ctx)
         .filter(|v| *v >= 0.0)
         .unwrap_or(1.0);
-    let respect_retry_after = config
-        .get("respect_retry_after")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true);
-    let max_retry_after_s = config
-        .get("max_retry_after")
-        .and_then(|v| v.as_f64())
+    let respect_retry_after = config_bool(config, "respect_retry_after", ctx).unwrap_or(true);
+    let max_retry_after_s = config_f64(config, "max_retry_after", ctx)
         .filter(|v| *v >= 0.0)
         .unwrap_or(60.0);
 

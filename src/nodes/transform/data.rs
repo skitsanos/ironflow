@@ -5,6 +5,7 @@ use async_trait::async_trait;
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
+use crate::util::node_config::config_u64;
 
 pub struct SelectFieldsNode;
 
@@ -320,9 +321,7 @@ impl Node for BatchNode {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("batch requires 'output_key'"))?;
 
-        let size = config
-            .get("size")
-            .and_then(|v| v.as_u64())
+        let size = config_u64(config, "size", ctx)
             .ok_or_else(|| anyhow::anyhow!("batch requires 'size' (positive integer)"))?
             as usize;
 

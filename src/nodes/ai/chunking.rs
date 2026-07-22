@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
+use crate::util::node_config::{config_bool, config_u64};
 
 pub struct AiChunkNode;
 
@@ -262,25 +263,19 @@ impl Node for AiChunkNode {
                     })?;
 
                 let chunks = if mode == "fixed" {
-                    let size = config.get("size").and_then(|v| v.as_u64()).unwrap_or(4096) as usize;
+                    let size = config_u64(config, "size", ctx).unwrap_or(4096) as usize;
                     let delimiters_str = config
                         .get("delimiters")
                         .and_then(|v| v.as_str())
                         .unwrap_or("");
-                    let prefix = config
-                        .get("prefix")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false);
+                    let prefix = config_bool(config, "prefix", ctx).unwrap_or(false);
                     chunk_fixed(&text, size, delimiters_str.as_bytes(), prefix)
                 } else {
                     let delimiters_str = config
                         .get("delimiters")
                         .and_then(|v| v.as_str())
                         .unwrap_or("\n.?");
-                    let min_chars = config
-                        .get("min_chars")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0) as usize;
+                    let min_chars = config_u64(config, "min_chars", ctx).unwrap_or(0) as usize;
                     chunk_split(&text, delimiters_str.as_bytes(), min_chars)
                 };
 
@@ -291,7 +286,7 @@ impl Node for AiChunkNode {
                 output.insert(format!("{}_count", output_key), serde_json::json!(count));
             }
             "cues" => {
-                let size = config.get("size").and_then(|v| v.as_u64()).unwrap_or(1200) as usize;
+                let size = config_u64(config, "size", ctx).unwrap_or(1200) as usize;
                 let cues = ctx
                     .get(&source_key)
                     .and_then(|v| v.as_array())

@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
 use crate::util::bounded_cache::BoundedCache;
+use crate::util::node_config::config_u64;
 
 /// A cached entry with value and optional expiry (unix timestamp in seconds).
 /// Serialization is used only by the file backend; memory entries live in a
@@ -89,7 +90,7 @@ impl Node for CacheSetNode {
             anyhow::bail!("cache_set requires 'source_key' or 'value'");
         };
 
-        let ttl_secs = config.get("ttl").and_then(|v| v.as_u64());
+        let ttl_secs = config_u64(config, "ttl", ctx);
 
         let backend = config
             .get("backend")

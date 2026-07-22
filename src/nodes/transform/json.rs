@@ -3,6 +3,7 @@ use async_trait::async_trait;
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
+use crate::util::node_config::config_bool;
 
 pub struct JsonParseNode;
 
@@ -106,15 +107,9 @@ impl Node for JsonExtractPathNode {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("json_extract_path requires 'output_key'"))?;
 
-        let parse_json = config
-            .get("parse_json")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        let parse_json = config_bool(config, "parse_json", ctx).unwrap_or(false);
 
-        let required = config
-            .get("required")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        let required = config_bool(config, "required", ctx).unwrap_or(false);
 
         let default_value = config.get("default").cloned();
 

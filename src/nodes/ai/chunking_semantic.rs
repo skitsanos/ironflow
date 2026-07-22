@@ -10,6 +10,63 @@ use super::chunking_semantic_engine::{
     group_sentences_at_boundaries, savgol_filter, split_sentences, windowed_cross_similarity,
 };
 use super::embeddings::{acquire_oauth_token, embed_ollama, embed_openai, resolve_param};
+use crate::util::node_config::{config_f64, config_u64};
+
+// =============================================================================
+// Parameters
+// =============================================================================
+
+/// Tuning parameters for the semantic splitter, with defaults and range clamping applied.
+///
+/// Read through `config_f64` / `config_u64` so a parameter written as `"${ctx.key}"`
+/// resolves like any string parameter would.
+struct SemanticChunkParams {
+    timeout_s: f64,
+    sim_window: usize,
+    sg_window: usize,
+    poly_order: usize,
+    threshold: f64,
+    min_distance: usize,
+}
+
+impl SemanticChunkParams {
+    fn from_config(config: &serde_json::Value, ctx: &Context) -> Self {
+        let sim_window = config_u64(config, "sim_window", ctx)
+            .map(|v| v as usize)
+            .unwrap_or(3);
+        let sim_window = if sim_window < 3 {
+            3
+        } else if sim_window.is_multiple_of(2) {
+            sim_window + 1
+        } else {
+            sim_window
+        };
+
+        let sg_window = config_u64(config, "sg_window", ctx)
+            .map(|v| v as usize)
+            .unwrap_or(11);
+        let sg_window = if sg_window.is_multiple_of(2) {
+            sg_window + 1
+        } else {
+            sg_window
+        };
+
+        Self {
+            timeout_s: config_f64(config, "timeout", ctx).unwrap_or(120.0),
+            sim_window,
+            sg_window,
+            poly_order: config_u64(config, "poly_order", ctx)
+                .map(|v| v as usize)
+                .unwrap_or(3),
+            threshold: config_f64(config, "threshold", ctx)
+                .unwrap_or(0.5)
+                .clamp(0.0, 1.0),
+            min_distance: config_u64(config, "min_distance", ctx)
+                .map(|v| v as usize)
+                .unwrap_or(2),
+        }
+    }
+}
 
 // =============================================================================
 // Node Implementation
@@ -44,52 +101,14 @@ impl Node for AiChunkSemanticNode {
             .and_then(|v| v.as_str())
             .unwrap_or("openai");
 
-        let timeout_s = config
-            .get("timeout")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(120.0);
-
-        let sim_window = config
-            .get("sim_window")
-            .and_then(|v| v.as_u64())
-            .map(|v| v as usize)
-            .unwrap_or(3);
-        let sim_window = if sim_window < 3 {
-            3
-        } else if sim_window.is_multiple_of(2) {
-            sim_window + 1
-        } else {
-            sim_window
-        };
-
-        let sg_window = config
-            .get("sg_window")
-            .and_then(|v| v.as_u64())
-            .map(|v| v as usize)
-            .unwrap_or(11);
-        let sg_window = if sg_window.is_multiple_of(2) {
-            sg_window + 1
-        } else {
-            sg_window
-        };
-
-        let poly_order = config
-            .get("poly_order")
-            .and_then(|v| v.as_u64())
-            .map(|v| v as usize)
-            .unwrap_or(3);
-
-        let threshold = config
-            .get("threshold")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.5)
-            .clamp(0.0, 1.0);
-
-        let min_distance = config
-            .get("min_distance")
-            .and_then(|v| v.as_u64())
-            .map(|v| v as usize)
-            .unwrap_or(2);
+        let SemanticChunkParams {
+            timeout_s,
+            sim_window,
+            sg_window,
+            poly_order,
+            threshold,
+            min_distance,
+        } = SemanticChunkParams::from_config(config, ctx);
 
         // Get source text from context
         let text = ctx
@@ -285,5 +304,78 @@ impl Node for AiChunkSemanticNode {
         );
 
         Ok(output)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn ctx_with(key: &str, value: serde_json::Value) -> Context {
+        let mut ctx = Context::new();
+        ctx.insert(key.to_string(), value);
+        ctx
+    }
+
+    #[test]
+    fn threshold_resolves_from_interpolated_context() {
+        let ctx = ctx_with("threshold", json!(0.3));
+        let config = json!({ "threshold": "${ctx.threshold}" });
+        assert_eq!(
+            SemanticChunkParams::from_config(&config, &ctx).threshold,
+            0.3
+        );
+    }
+
+    #[test]
+    fn threshold_defaults_when_absent() {
+        let params = SemanticChunkParams::from_config(&json!({}), &Context::new());
+        assert_eq!(params.threshold, 0.5);
+    }
+
+    #[test]
+    fn threshold_is_clamped_to_unit_range() {
+        let params =
+            SemanticChunkParams::from_config(&json!({ "threshold": 4.2 }), &Context::new());
+        assert_eq!(params.threshold, 1.0);
+    }
+
+    #[test]
+    fn sim_window_is_forced_odd_and_at_least_three() {
+        let ctx = Context::new();
+        assert_eq!(
+            SemanticChunkParams::from_config(&json!({ "sim_window": 1 }), &ctx).sim_window,
+            3
+        );
+        assert_eq!(
+            SemanticChunkParams::from_config(&json!({ "sim_window": 6 }), &ctx).sim_window,
+            7
+        );
+    }
+
+    #[test]
+    fn sg_window_is_forced_odd() {
+        let params = SemanticChunkParams::from_config(&json!({ "sg_window": 10 }), &Context::new());
+        assert_eq!(params.sg_window, 11);
+    }
+
+    #[test]
+    fn windows_resolve_from_interpolated_context() {
+        let ctx = ctx_with("window", json!(15));
+        let config = json!({ "sg_window": "${ctx.window}", "min_distance": "${ctx.window}" });
+        let params = SemanticChunkParams::from_config(&config, &ctx);
+        assert_eq!(params.sg_window, 15);
+        assert_eq!(params.min_distance, 15);
+    }
+
+    #[test]
+    fn timeout_resolves_from_interpolated_context() {
+        let ctx = ctx_with("timeout", json!(45));
+        let config = json!({ "timeout": "${ctx.timeout}" });
+        assert_eq!(
+            SemanticChunkParams::from_config(&config, &ctx).timeout_s,
+            45.0
+        );
     }
 }

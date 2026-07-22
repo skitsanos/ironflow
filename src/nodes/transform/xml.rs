@@ -7,6 +7,7 @@ use quick_xml::events::Event;
 use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
+use crate::util::node_config::config_bool;
 
 pub struct XmlParseNode;
 
@@ -64,10 +65,7 @@ impl Node for XmlStringifyNode {
             .and_then(|v| v.as_str())
             .unwrap_or("root");
 
-        let pretty = config
-            .get("pretty")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        let pretty = config_bool(config, "pretty", ctx).unwrap_or(false);
 
         let source = ctx
             .get(source_key)

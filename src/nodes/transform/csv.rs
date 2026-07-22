@@ -6,6 +6,7 @@ use csv::{QuoteStyle, ReaderBuilder, Trim, WriterBuilder};
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
+use crate::util::node_config::config_bool;
 
 pub struct CsvParseNode;
 
@@ -30,25 +31,13 @@ impl Node for CsvParseNode {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("csv_parse requires 'output_key'"))?;
 
-        let has_header = config
-            .get("has_header")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true);
+        let has_header = config_bool(config, "has_header", ctx).unwrap_or(true);
 
-        let trim_fields = config
-            .get("trim")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        let trim_fields = config_bool(config, "trim", ctx).unwrap_or(false);
 
-        let skip_empty_lines = config
-            .get("skip_empty_lines")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true);
+        let skip_empty_lines = config_bool(config, "skip_empty_lines", ctx).unwrap_or(true);
 
-        let infer_types = config
-            .get("infer_types")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        let infer_types = config_bool(config, "infer_types", ctx).unwrap_or(false);
 
         let delimiter = parse_csv_single_byte(config, "delimiter", b',')?;
         let quote = parse_csv_single_byte(config, "quote_char", b'"')?;
@@ -144,14 +133,8 @@ impl Node for CsvStringifyNode {
 
         let delimiter = parse_csv_single_byte(config, "delimiter", b',')?;
         let quote = parse_csv_single_byte(config, "quote_char", b'"')?;
-        let include_headers = config
-            .get("include_headers")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true);
-        let quote_all = config
-            .get("quote_all")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        let include_headers = config_bool(config, "include_headers", ctx).unwrap_or(true);
+        let quote_all = config_bool(config, "quote_all", ctx).unwrap_or(false);
 
         let source = ctx
             .get(source_key)

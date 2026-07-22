@@ -1,6 +1,9 @@
 use anyhow::Result;
 use std::path::{Component, Path};
 
+use crate::engine::types::Context;
+use crate::util::node_config::config_u64;
+
 #[derive(Clone, Copy)]
 pub(super) struct DirectoryListLimits {
     pub(super) max_entries: usize,
@@ -25,13 +28,14 @@ pub(super) fn optional_u64(config: &serde_json::Value, key: &str) -> Option<u64>
     config.get(key).and_then(|v| v.as_u64()).filter(|v| *v > 0)
 }
 
-pub(super) fn directory_list_limits(config: &serde_json::Value) -> DirectoryListLimits {
+pub(super) fn directory_list_limits(
+    config: &serde_json::Value,
+    ctx: &Context,
+) -> DirectoryListLimits {
     DirectoryListLimits {
         max_entries: optional_usize(config, "max_entries")
             .unwrap_or_else(|| crate::util::limits::max_directory_entries() as usize),
-        max_depth: config
-            .get("max_depth")
-            .and_then(|v| v.as_u64())
+        max_depth: config_u64(config, "max_depth", ctx)
             .and_then(|v| usize::try_from(v).ok())
             .unwrap_or_else(|| crate::util::limits::max_directory_depth() as usize),
     }

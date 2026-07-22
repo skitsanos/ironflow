@@ -8,6 +8,7 @@ use crate::lua::sandbox;
 use crate::nodes::Node;
 use crate::nodes::utility::code::{json_value_to_lua_table, lua_value_to_json};
 use crate::util::limits::{LuaExecutionLimits, apply_lua_limits, collect_lua_garbage};
+use crate::util::node_config::config_bool;
 
 pub struct ForEachNode;
 
@@ -37,10 +38,7 @@ impl Node for ForEachNode {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("foreach requires 'transform' to be a function"))?;
 
-        let filter_nulls = config
-            .get("filter_nulls")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(true);
+        let filter_nulls = config_bool(config, "filter_nulls", ctx).unwrap_or(true);
 
         let source = ctx
             .get(source_key)
