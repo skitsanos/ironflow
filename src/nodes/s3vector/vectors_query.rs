@@ -119,12 +119,9 @@ impl Node for S3VectorQueryVectorsNode {
             .iter()
             .filter_map(|vector| {
                 if should_apply_min_similarity {
-                    if let Some(distance) = vector.distance() {
-                        let similarity = 1.0_f64 - f64::from(distance);
-                        if similarity < min_similarity_value {
-                            return None;
-                        }
-                    } else {
+                    let distance = vector.distance()?;
+                    let similarity = 1.0_f64 - f64::from(distance);
+                    if similarity < min_similarity_value {
                         return None;
                     }
                 }
