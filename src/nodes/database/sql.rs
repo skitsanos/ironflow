@@ -11,6 +11,23 @@ use crate::util::limits;
 use crate::util::node_config::config_u64;
 use crate::util::sensitive_url::{Connection, redact_sensitive_text};
 
+/// Reject `${ctx...}` interpolation inside a SQL query body.
+///
+/// The query text is passed to `sqlx::AssertSqlSafe`, which bypasses sqlx's
+/// compile-time SQL-safety guard, so interpolating a runtime value directly
+/// into the query is a SQL-injection vector. Runtime values must be supplied
+/// through the `params` array and bound as `?`/`$1` placeholders instead.
+fn reject_query_interpolation(query: &str, node: &str) -> Result<()> {
+    if query.contains("${ctx") {
+        anyhow::bail!(
+            "{node}: the query must not interpolate context values with '${{ctx...}}' \
+             (SQL injection risk). Supply runtime values via the 'params' array with \
+             '?'/'$1' placeholders instead."
+        );
+    }
+    Ok(())
+}
+
 /// Resolve query parameters from config with context interpolation,
 /// preserving JSON types (string, number, bool, null) for proper SQL binding.
 fn resolve_params(config: &serde_json::Value, ctx: &Context) -> Vec<serde_json::Value> {
@@ -161,6 +178,7 @@ impl Node for DbQueryNode {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("db_query requires 'query' parameter"))?;
 
+        reject_query_interpolation(query, "db_query")?;
         let query = interpolate_ctx(query, ctx);
         let params = resolve_params(config, ctx);
         let output_key = config
@@ -244,6 +262,7 @@ impl Node for DbExecNode {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("db_exec requires 'query' parameter"))?;
 
+        reject_query_interpolation(query, "db_exec")?;
         let query = interpolate_ctx(query, ctx);
         let params = resolve_params(config, ctx);
 

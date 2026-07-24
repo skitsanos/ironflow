@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::io::Read;
 
 #[derive(serde::Serialize, Default)]
 pub(super) struct DocxComment {
@@ -35,9 +34,13 @@ pub(super) fn extract_docx_comments(
 }
 
 fn read_archive_string(archive: &mut zip::ZipArchive<std::fs::File>, path: &str) -> Option<String> {
-    let mut entry = archive.by_name(path).ok()?;
-    let mut xml = String::new();
-    entry.read_to_string(&mut xml).ok()?;
+    let entry = archive.by_name(path).ok()?;
+    let xml = crate::util::bounded_read::read_to_string_capped(
+        entry,
+        crate::util::limits::max_zip_uncompressed_bytes(),
+        "extract_word",
+    )
+    .ok()?;
     Some(xml)
 }
 

@@ -48,12 +48,31 @@ impl Node for ReadFileNode {
             );
         }
 
+        // Bound the actual read as well: the metadata pre-flight trusts
+        // `len()`, which is 0 for special files such as `/dev/zero` or fifos,
+        // so a bounded read is needed to stop them streaming unbounded.
+        let path_ref = std::path::Path::new(&path);
         let content = match encoding {
             "base64" => {
-                let bytes = tokio::fs::read(&path).await?;
+                let bytes = crate::util::bounded_read::read_file_capped_async(
+                    path_ref,
+                    max_bytes,
+                    "read_file",
+                )
+                .await?;
                 base64::engine::general_purpose::STANDARD.encode(&bytes)
             }
-            "text" => tokio::fs::read_to_string(&path).await?,
+            "text" => {
+                let bytes = crate::util::bounded_read::read_file_capped_async(
+                    path_ref,
+                    max_bytes,
+                    "read_file",
+                )
+                .await?;
+                String::from_utf8(bytes).map_err(|e| {
+                    anyhow::anyhow!("read_file: '{}' is not valid UTF-8: {}", path, e)
+                })?
+            }
             other => anyhow::bail!(
                 "read_file: unsupported encoding '{}'. Must be 'text' or 'base64'.",
                 other

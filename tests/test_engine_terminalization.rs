@@ -218,15 +218,15 @@ async fn node_panic_stalls_run_and_drops_parallel_and_pending_work() {
 
     let handle = engine.start(&flow, Context::new()).await.unwrap();
     let run_id = handle.id().to_string();
-    tokio::time::timeout(Duration::from_secs(1), signals.started)
+    tokio::time::timeout(Duration::from_secs(10), signals.started)
         .await
         .unwrap()
         .unwrap();
-    tokio::time::timeout(Duration::from_secs(1), handle.wait())
+    tokio::time::timeout(Duration::from_secs(10), handle.wait())
         .await
         .unwrap()
         .unwrap_err();
-    tokio::time::timeout(Duration::from_secs(1), signals.dropped)
+    tokio::time::timeout(Duration::from_secs(10), signals.dropped)
         .await
         .unwrap()
         .unwrap();

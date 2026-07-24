@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::io::Read;
 
 /// Parse `word/theme/theme1.xml` into OOXML theme-name to hex-color mappings.
 pub(in crate::nodes::extract) fn parse_theme_colors(
@@ -7,13 +6,14 @@ pub(in crate::nodes::extract) fn parse_theme_colors(
 ) -> HashMap<String, String> {
     let mut colors = HashMap::new();
     let xml = match archive.by_name("word/theme/theme1.xml") {
-        Ok(mut entry) => {
-            let mut xml = String::new();
-            if entry.read_to_string(&mut xml).is_err() {
-                return colors;
-            }
-            xml
-        }
+        Ok(entry) => match crate::util::bounded_read::read_to_string_capped(
+            entry,
+            crate::util::limits::max_zip_uncompressed_bytes(),
+            "extract_word",
+        ) {
+            Ok(xml) => xml,
+            Err(_) => return colors,
+        },
         Err(_) => return colors,
     };
 

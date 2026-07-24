@@ -56,6 +56,13 @@ fn get_input(config: &serde_json::Value, ctx: &Context) -> Result<String> {
     }
 }
 
+/// Maximum element-nesting depth accepted by `xml_parse`. Beyond this the
+/// resulting `serde_json::Value` is deep enough that recursively dropping or
+/// serializing it can overflow the worker thread's stack (an uncatchable
+/// process abort), so pathological input is rejected as an ordinary node error.
+/// Matches the YAML parser's own nesting limit for a uniform contract.
+const MAX_XML_NESTING_DEPTH: usize = 128;
+
 fn parse_xml_to_json(xml: &str) -> Result<serde_json::Value> {
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(true);
@@ -65,6 +72,12 @@ fn parse_xml_to_json(xml: &str) -> Result<serde_json::Value> {
     loop {
         match reader.read_event() {
             Ok(Event::Start(element)) => {
+                if stack.len() >= MAX_XML_NESTING_DEPTH {
+                    anyhow::bail!(
+                        "XML nesting depth exceeds the limit of {}",
+                        MAX_XML_NESTING_DEPTH
+                    );
+                }
                 stack.push((element_name(&element), attributes(&element)));
             }
             Ok(Event::Empty(element)) => {

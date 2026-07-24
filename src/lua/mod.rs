@@ -1,3 +1,4 @@
+pub(crate) mod bytecode;
 pub(crate) mod conversion;
 pub mod interpolate;
 pub mod runtime;

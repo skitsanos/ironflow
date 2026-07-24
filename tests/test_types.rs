@@ -167,6 +167,62 @@ fn validate_dag_rejects_invalid_retry_and_timeout_values() {
 }
 
 #[test]
+fn validate_dag_rejects_excessive_retry_count() {
+    // IF-046: a large-but-not-u32::MAX retry count with zero backoff produces a
+    // near-infinite retry storm; validation must cap the count.
+    let mut flow = FlowDefinition {
+        name: "retry_storm".to_string(),
+        steps: vec![make_step("loop", vec![])],
+    };
+    flow.steps[0].retry.max_retries = 1_000_000;
+    flow.steps[0].retry.backoff_s = 0.0;
+
+    let errors = flow.validate_dag().join("\n");
+    assert!(errors.contains("retry count"), "{errors}");
+}
+
+#[test]
+fn validate_dag_allows_reasonable_retry_count() {
+    let mut flow = FlowDefinition {
+        name: "sane_retry".to_string(),
+        steps: vec![make_step("ok", vec![])],
+    };
+    flow.steps[0].retry.max_retries = 10;
+
+    let errors = flow.validate_dag().join("\n");
+    assert!(!errors.contains("retry count"), "{errors}");
+}
+
+#[test]
+fn validate_dag_rejects_route_without_dependencies() {
+    // IF-052: a routed step with no dependencies can never match its route and
+    // would be silently always skipped.
+    let mut flow = FlowDefinition {
+        name: "orphan_route".to_string(),
+        steps: vec![make_step("routed", vec![])],
+    };
+    flow.steps[0].route = Some("some_route".to_string());
+
+    let errors = flow.validate_dag().join("\n");
+    assert!(errors.contains("route"), "{errors}");
+}
+
+#[test]
+fn validate_dag_allows_route_with_dependency() {
+    let mut flow = FlowDefinition {
+        name: "routed_ok".to_string(),
+        steps: vec![make_step("gate", vec![]), make_step("routed", vec!["gate"])],
+    };
+    flow.steps[1].route = Some("some_route".to_string());
+
+    let errors = flow.validate_dag().join("\n");
+    assert!(
+        !errors.contains("route but has no dependencies"),
+        "{errors}"
+    );
+}
+
+#[test]
 fn validate_dag_rejects_duplicate_steps_for_library_callers() {
     let flow = FlowDefinition {
         name: "duplicate_steps".to_string(),

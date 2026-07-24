@@ -90,3 +90,67 @@ pub trait StateStore: Send + Sync {
         Ok(removed)
     }
 }
+
+/// Prune terminal runs older than `cutoff` by walking bounded newest-first
+/// summary pages instead of loading the entire catalog into memory. Uses
+/// O(page-size) memory. Delete-safe: the keyset cursor is anchored on
+/// `(started, id)`, so removing an already-visited run does not shift the
+/// position of later pages (IF-051).
+pub(crate) async fn prune_before_via_summary_pages(
+    store: &(impl StateStore + ?Sized),
+    cutoff: chrono::DateTime<chrono::Utc>,
+) -> StorageResult<usize> {
+    let page_size = PageSize::new(256)?;
+    let mut removed = 0;
+    let mut after: Option<RunCursor> = None;
+    loop {
+        let query = RunListQuery::new(None, after, page_size)?;
+        let page = store.list_run_summaries_page(&query).await?;
+        for summary in &page.items {
+            if summary.status.is_terminal()
+                && summary.started.is_some_and(|started| started < cutoff)
+            {
+                match store.delete_run(&summary.id).await {
+                    Ok(()) => removed += 1,
+                    Err(error) if error.is_not_found() => {}
+                    Err(error) => return Err(error),
+                }
+            }
+        }
+        match page.next {
+            Some(cursor) => after = Some(cursor),
+            None => return Ok(removed),
+        }
+    }
+}
+
+/// Reconcile runs left non-terminal by a previous process. Because IronFlow does
+/// not resume runs across restarts, any `Pending`/`Running` run in the store at
+/// startup is a zombie from a crash/kill and is marked `Stalled` so listings and
+/// SSE consumers see a terminal state (IF-043). Returns the number reconciled.
+/// Ids are collected via bounded summary pages before mutation, so it uses
+/// O(non-terminal-run count) memory rather than loading the whole catalog.
+pub async fn reconcile_nonterminal_runs(
+    store: &(impl StateStore + ?Sized),
+) -> StorageResult<usize> {
+    let page_size = PageSize::new(256)?;
+    let mut stranded = Vec::new();
+    for status in [RunStatus::Pending, RunStatus::Running] {
+        let mut after: Option<RunCursor> = None;
+        loop {
+            let query = RunListQuery::new(Some(status.clone()), after, page_size)?;
+            let page = store.list_run_summaries_page(&query).await?;
+            for summary in &page.items {
+                stranded.push(summary.id.clone());
+            }
+            match page.next {
+                Some(cursor) => after = Some(cursor),
+                None => break,
+            }
+        }
+    }
+    for run_id in &stranded {
+        store.set_run_status(run_id, RunStatus::Stalled).await?;
+    }
+    Ok(stranded.len())
+}

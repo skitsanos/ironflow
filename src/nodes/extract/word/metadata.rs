@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::io::Read;
 
 const KNOWN_TAGS: [&str; 10] = [
     "dc:title",
@@ -24,9 +23,13 @@ pub(super) fn extract_docx_metadata(
 }
 
 fn read_core_properties(archive: &mut zip::ZipArchive<std::fs::File>) -> Option<String> {
-    let mut entry = archive.by_name("docProps/core.xml").ok()?;
-    let mut xml = String::new();
-    entry.read_to_string(&mut xml).ok()?;
+    let entry = archive.by_name("docProps/core.xml").ok()?;
+    let xml = crate::util::bounded_read::read_to_string_capped(
+        entry,
+        crate::util::limits::max_zip_uncompressed_bytes(),
+        "extract_word",
+    )
+    .ok()?;
     Some(xml)
 }
 

@@ -42,6 +42,12 @@ impl ExecutionPlan {
     }
 }
 
+/// Upper bound on a step's retry count. A count near `u32::MAX` combined with
+/// `backoff(0)` produces a near-infinite retry storm (each attempt writes task
+/// state and publishes events), so counts beyond this are rejected at
+/// validation. Real workflows never need more than a handful of retries.
+const MAX_RETRY_COUNT: u32 = 100;
+
 fn validate_step_options(flow: &FlowDefinition) -> Vec<String> {
     let mut errors = Vec::new();
 
@@ -50,8 +56,11 @@ fn validate_step_options(flow: &FlowDefinition) -> Vec<String> {
             errors.push(format!("Step '{}' {path}: {error}", step.name));
         }
 
-        if step.retry.max_retries == u32::MAX {
-            errors.push(format!("Step '{}' retry count is too large", step.name));
+        if step.retry.max_retries > MAX_RETRY_COUNT {
+            errors.push(format!(
+                "Step '{}' retry count is too large (max {MAX_RETRY_COUNT})",
+                step.name
+            ));
         }
         if !step.retry.backoff_s.is_finite() || step.retry.backoff_s < 0.0 {
             errors.push(format!(
@@ -64,6 +73,15 @@ fn validate_step_options(flow: &FlowDefinition) -> Vec<String> {
         {
             errors.push(format!(
                 "Step '{}' timeout must be a finite number greater than zero",
+                step.name
+            ));
+        }
+        // A route is matched against `_route_<dep>` keys emitted by the step's
+        // dependencies, so a routed step with no dependencies can never match
+        // and is silently always skipped (IF-052).
+        if step.route.is_some() && step.dependencies.is_empty() {
+            errors.push(format!(
+                "Step '{}' declares a route but has no dependencies; a routed step must depend on the step that emits the route decision",
                 step.name
             ));
         }

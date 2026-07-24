@@ -64,9 +64,13 @@ pub(in crate::nodes::extract) fn read_pptx_media(
     archive: &mut zip::ZipArchive<std::fs::File>,
     path: &str,
 ) -> Option<(Vec<u8>, String)> {
-    let mut entry = archive.by_name(path).ok()?;
-    let mut bytes = Vec::new();
-    std::io::copy(&mut entry, &mut bytes).ok()?;
+    let entry = archive.by_name(path).ok()?;
+    let bytes = crate::util::bounded_read::read_capped(
+        entry,
+        crate::util::limits::max_zip_uncompressed_bytes(),
+        "extract_pptx",
+    )
+    .ok()?;
     Some((bytes, media_mime_type(path).to_string()))
 }
 

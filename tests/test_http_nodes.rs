@@ -793,3 +793,45 @@ async fn http_get_rejects_oversized_content_length() {
     assert!(err.contains("exceeds"), "unexpected error: {err}");
     let _ = handle.join();
 }
+
+// IF-041: opt-in SSRF guard blocks the initial URL when it targets a private
+// network. Blocked before any connection, so no server is required.
+#[tokio::test]
+async fn http_get_blocks_private_network_when_configured() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("http_get").unwrap();
+    let config = serde_json::json!({
+        "url": "http://169.254.169.254/latest/meta-data/",
+        "block_private_network": true
+    });
+    let err = node
+        .execute(&config, &empty_ctx())
+        .await
+        .expect_err("private network target must be blocked")
+        .to_string();
+    assert!(
+        err.contains("private network"),
+        "expected an SSRF-guard error, got: {err}"
+    );
+}
+
+#[tokio::test]
+async fn http_get_allows_private_network_by_default() {
+    // Without the opt-in guard, a private target is attempted (and fails to
+    // connect) rather than being refused by the guard.
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("http_get").unwrap();
+    let config = serde_json::json!({
+        "url": "http://127.0.0.1:1/",
+        "timeout": 2.0
+    });
+    let err = node
+        .execute(&config, &empty_ctx())
+        .await
+        .expect_err("connection to 127.0.0.1:1 should fail")
+        .to_string();
+    assert!(
+        !err.contains("private network"),
+        "guard must not fire when not configured: {err}"
+    );
+}

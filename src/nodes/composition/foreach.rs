@@ -1,6 +1,5 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use base64::Engine;
 use mlua::prelude::*;
 
 use crate::engine::types::{Context, NodeOutput};
@@ -67,10 +66,9 @@ fn execute_foreach(
     sandbox::setup_sandbox(&lua, ctx)?;
     execution.checkpoint()?;
 
-    // Decode and load the transform function
-    let bytecode = base64::engine::general_purpose::STANDARD
-        .decode(b64)
-        .map_err(|e| anyhow::anyhow!("Failed to decode transform bytecode: {}", e))?;
+    // Authenticate and load the transform function. Only bytecode this process
+    // compiled verifies (IF-035).
+    let bytecode = crate::lua::bytecode::verify(b64)?;
     let func: LuaFunction = lua
         .load(&bytecode)
         .into_function()

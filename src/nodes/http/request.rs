@@ -42,8 +42,41 @@ pub(super) async fn do_http_request(
     let max_retry_after_s = config_f64_or(config, "max_retry_after", ctx, 60.0)?;
     nonnegative_duration(max_retry_after_s, "HTTP max_retry_after")?;
 
+    // SSRF controls. `max_redirects` bounds (or disables) redirect following;
+    // `block_private_network` additionally refuses the initial URL and any
+    // redirect hop that targets the local host or a private network.
+    let max_redirects = config_u64(config, "max_redirects", ctx).unwrap_or(10) as usize;
+    let block_private = config_bool(config, "block_private_network", ctx).unwrap_or(false);
+
+    if block_private
+        && let Ok(parsed) = url::Url::parse(&url)
+        && crate::nodes::http::helpers::url_targets_internal_network(&parsed)
+    {
+        anyhow::bail!(
+            "HTTP request to {} blocked: target is a private network address (block_private_network is enabled)",
+            SecretEndpoint::new(&url)
+        );
+    }
+
+    let redirect_policy = if max_redirects == 0 {
+        reqwest::redirect::Policy::none()
+    } else if block_private {
+        reqwest::redirect::Policy::custom(move |attempt| {
+            if attempt.previous().len() >= max_redirects {
+                attempt.error("too many redirects")
+            } else if crate::nodes::http::helpers::url_targets_internal_network(attempt.url()) {
+                attempt.error("redirect to a private network address is blocked")
+            } else {
+                attempt.follow()
+            }
+        })
+    } else {
+        reqwest::redirect::Policy::limited(max_redirects)
+    };
+
     let client = reqwest::Client::builder()
         .timeout(timeout)
+        .redirect(redirect_policy)
         .build()
         .map_err(|error| {
             anyhow::anyhow!(

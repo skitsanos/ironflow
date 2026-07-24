@@ -1,6 +1,5 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use base64::Engine;
 use mlua::prelude::*;
 
 use crate::engine::types::{Context, NodeOutput};
@@ -43,10 +42,9 @@ fn execute_code(
 
     // Execute either bytecode (function handler) or source string
     let result: LuaValue = if let Some(b64) = config.get("bytecode_b64").and_then(|v| v.as_str()) {
-        // Function handler mode: decode bytecode, load, call with ctx
-        let bytecode = base64::engine::general_purpose::STANDARD
-            .decode(b64)
-            .map_err(|e| anyhow::anyhow!("Failed to decode function bytecode: {}", e))?;
+        // Function handler mode: authenticate bytecode, load, call with ctx.
+        // Only bytecode this process compiled verifies (IF-035).
+        let bytecode = crate::lua::bytecode::verify(b64)?;
         let func: LuaFunction = lua
             .load(&bytecode)
             .into_function()

@@ -226,4 +226,10 @@ impl StateStore for JsonStateStore {
         let _lock = self.lock.read().await;
         catalog::list_page(self, query).await
     }
+
+    /// Prune via bounded summary pages rather than the default full-catalog scan
+    /// (IF-051).
+    async fn prune_before(&self, cutoff: chrono::DateTime<chrono::Utc>) -> StorageResult<usize> {
+        crate::storage::prune_before_via_summary_pages(self, cutoff).await
+    }
 }

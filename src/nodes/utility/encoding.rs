@@ -48,9 +48,12 @@ impl Node for Base64EncodeNode {
             }
         } else if let Some(file_path) = config.get("file").and_then(|v| v.as_str()) {
             let path = interpolate_ctx(file_path, ctx);
-            tokio::fs::read(&path)
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to read file '{}': {}", path, e))?
+            crate::util::bounded_read::read_file_capped_async(
+                std::path::Path::new(&path),
+                crate::util::limits::max_file_bytes(),
+                "base64_encode",
+            )
+            .await?
         } else {
             anyhow::bail!("base64_encode requires one of 'input', 'source_key', or 'file'");
         };
@@ -121,6 +124,14 @@ impl Node for Base64DecodeNode {
         let mut output = NodeOutput::new();
 
         if let Some(file_path) = output_file {
+            let max_bytes = crate::util::limits::max_file_bytes();
+            if decoded_bytes.len() as u64 > max_bytes {
+                anyhow::bail!(
+                    "base64_decode: decoded payload {} bytes exceeds limit {} (set IRONFLOW_MAX_FILE_BYTES to raise)",
+                    decoded_bytes.len(),
+                    max_bytes
+                );
+            }
             let path = interpolate_ctx(file_path, ctx);
             tokio::fs::write(&path, &decoded_bytes)
                 .await

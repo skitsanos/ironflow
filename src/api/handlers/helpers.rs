@@ -1,9 +1,31 @@
 use base64::Engine as _;
 
 use crate::engine::types::RunStatus;
+use crate::util::sensitive_url::redact_sensitive_text;
 
 use super::super::AppState;
 use super::super::errors::AppError;
+
+/// Generic message returned for any failed file-mode flow load.
+pub(super) const FLOW_FILE_LOAD_ERROR: &str = "Failed to load flow file";
+
+/// Log a failed file-mode flow load. The underlying Lua error echoes
+/// file-derived tokens (`near '<token>'`) and confirms the named path is
+/// readable, so it is logged (redacted) server-side and never returned to the
+/// caller.
+pub(super) fn log_flow_file_load_failure(path: &str, error: &anyhow::Error) {
+    tracing::warn!(
+        path = %path,
+        error = %redact_sensitive_text(&format!("{error:#}")),
+        "failed to load flow file"
+    );
+}
+
+/// Public error for a failed file-mode flow load (generic; detail is logged).
+pub(super) fn flow_file_load_error(path: &str, error: &anyhow::Error) -> AppError {
+    log_flow_file_load_failure(path, error);
+    AppError::BadRequest(FLOW_FILE_LOAD_ERROR.to_string())
+}
 
 pub(super) fn decode_base64_source(b64: &str) -> Result<String, AppError> {
     let bytes = base64::engine::general_purpose::STANDARD

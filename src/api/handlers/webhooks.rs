@@ -25,7 +25,10 @@ pub async fn run_webhook(
         .ok_or_else(|| AppError::NotFound(format!("Webhook '{}' not found", name)))?;
 
     let path = resolve_flow_path(webhook.flow(), &state)?;
-    let flow = LuaRuntime::load_flow(&path, &state.registry)
+    // Parse off the async runtime so a pathological flow cannot pin a worker
+    // thread and stall the whole server (IF-038).
+    let flow = LuaRuntime::load_flow_async(&path, &state.registry)
+        .await
         .map_err(|e| AppError::BadRequest(format!("Failed to load flow: {:#}", e)))?;
 
     let mut initial_ctx = body.map(|Json(ctx)| ctx).unwrap_or_default();
@@ -53,6 +56,10 @@ pub async fn run_webhook(
             serde_json::Value::String(dir.to_string_lossy().to_string()),
         );
     }
+
+    // Bound concurrent API-triggered runs process-wide; held until the run
+    // finishes (IF-042).
+    let _run_permit = crate::api::acquire_run_permit()?;
 
     let engine = WorkflowEngine::new_with_events(
         state.registry.clone(),

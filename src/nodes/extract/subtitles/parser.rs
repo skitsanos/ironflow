@@ -24,8 +24,11 @@ pub(super) fn extract(
         .and_then(|v| v.as_str())
         .unwrap_or("cues");
     let metadata_key = config.get("metadata_key").and_then(|v| v.as_str());
-    let input = std::fs::read_to_string(&path)
-        .map_err(|error| anyhow::anyhow!("Failed to read '{}': {}", path, error))?;
+    let input = crate::util::bounded_read::read_file_to_string_capped(
+        std::path::Path::new(&path),
+        crate::util::limits::max_file_bytes(),
+        "extract_subtitles",
+    )?;
 
     let cues = parse_subtitle_cues(&input, is_vtt);
     let mut output = NodeOutput::new();

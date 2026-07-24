@@ -1,5 +1,3 @@
-use std::io::Read;
-
 use anyhow::Result;
 
 use crate::nodes::extract::docx_parser::{
@@ -12,12 +10,14 @@ pub(super) fn extract_docx_content(
     format: &str,
 ) -> Result<serde_json::Value> {
     let xml = {
-        let mut entry = archive
+        let entry = archive
             .by_name("word/document.xml")
             .map_err(|error| anyhow::anyhow!("Missing word/document.xml: {}", error))?;
-        let mut xml = String::new();
-        entry.read_to_string(&mut xml)?;
-        xml
+        crate::util::bounded_read::read_to_string_capped(
+            entry,
+            crate::util::limits::max_zip_uncompressed_bytes(),
+            "extract_word",
+        )?
     };
     let numbering = parse_numbering_defs(archive);
     let theme_colors = parse_theme_colors(archive);

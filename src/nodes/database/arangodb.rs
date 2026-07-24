@@ -55,6 +55,15 @@ impl Node for ArangoDbAqlNode {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("arangodb_aql requires 'query' parameter"))?;
 
+        // Interpolating runtime values into the AQL text is an injection vector;
+        // values must be supplied through `bindVars` (@var placeholders).
+        if query.contains("${ctx") {
+            anyhow::bail!(
+                "arangodb_aql: the query must not interpolate context values with \
+                 '${{ctx...}}' (AQL injection risk). Supply runtime values via \
+                 'bindVars' with @var placeholders instead."
+            );
+        }
         let query = interpolate_ctx(query, ctx);
 
         let output_key = config

@@ -8,7 +8,10 @@ use crate::lua::LuaRuntime;
 
 use super::super::AppState;
 use super::super::errors::AppError;
-use super::helpers::{decode_base64_source, resolve_flow_path};
+use super::helpers::{
+    FLOW_FILE_LOAD_ERROR, decode_base64_source, flow_file_load_error, log_flow_file_load_failure,
+    resolve_flow_path,
+};
 use super::types::{RunFlowRequest, RunFlowResponse, ValidateFlowRequest, ValidateResponse};
 
 /// POST /flows/run
@@ -36,18 +39,23 @@ pub async fn run_flow(
         ));
     }
 
+    // Parse off the async runtime so a pathological flow cannot pin a worker
+    // thread and stall the whole server (IF-038).
     let flow = if let Some(source) = &req.source {
-        LuaRuntime::load_flow_from_string(source, &state.registry)
+        LuaRuntime::load_flow_from_string_async(source, &state.registry)
+            .await
             .map_err(|e| AppError::BadRequest(format!("Failed to parse flow: {:#}", e)))?
     } else if let Some(b64) = &req.source_base64 {
         let source = decode_base64_source(b64)?;
-        LuaRuntime::load_flow_from_string(&source, &state.registry)
+        LuaRuntime::load_flow_from_string_async(&source, &state.registry)
+            .await
             .map_err(|e| AppError::BadRequest(format!("Failed to parse flow: {:#}", e)))?
     } else {
         let file_path = req.file.as_ref().unwrap();
         let path = resolve_flow_path(file_path, &state)?;
-        LuaRuntime::load_flow(&path, &state.registry)
-            .map_err(|e| AppError::BadRequest(format!("Failed to load flow: {:#}", e)))?
+        LuaRuntime::load_flow_async(&path, &state.registry)
+            .await
+            .map_err(|e| flow_file_load_error(&path, &e))?
     };
 
     let mut initial_ctx = req.context.unwrap_or_default();
@@ -69,6 +77,10 @@ pub async fn run_flow(
             serde_json::Value::String(flows_dir.to_string_lossy().to_string()),
         );
     }
+
+    // Bound concurrent API-triggered runs process-wide; held until the run
+    // finishes (IF-042).
+    let _run_permit = crate::api::acquire_run_permit()?;
 
     let engine = WorkflowEngine::new_with_events(
         state.registry.clone(),
@@ -112,15 +124,29 @@ pub async fn validate_flow(
         ));
     }
 
+    // Parse off the async runtime (IF-038).
     let flow_result = if let Some(source) = &req.source {
-        LuaRuntime::load_flow_from_string(source, &state.registry)
+        LuaRuntime::load_flow_from_string_async(source, &state.registry).await
     } else if let Some(b64) = &req.source_base64 {
         let source = decode_base64_source(b64)?;
-        LuaRuntime::load_flow_from_string(&source, &state.registry)
+        LuaRuntime::load_flow_from_string_async(&source, &state.registry).await
     } else {
         let file_path = req.file.as_ref().unwrap();
         let path = resolve_flow_path(file_path, &state)?;
-        LuaRuntime::load_flow(&path, &state.registry)
+        // File-mode parse errors must not echo file-derived detail (IF-045);
+        // return a generic validation failure instead of the raw Lua error.
+        match LuaRuntime::load_flow_async(&path, &state.registry).await {
+            Ok(flow) => Ok(flow),
+            Err(e) => {
+                log_flow_file_load_failure(&path, &e);
+                return Ok(Json(ValidateResponse {
+                    valid: false,
+                    flow_name: None,
+                    steps: None,
+                    errors: vec![FLOW_FILE_LOAD_ERROR.to_string()],
+                }));
+            }
+        }
     };
 
     match flow_result {

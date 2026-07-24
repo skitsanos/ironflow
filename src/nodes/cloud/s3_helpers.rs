@@ -119,7 +119,12 @@ pub(super) async fn resolve_payload_bytes(
 
     if let Some(source_path) = config.get("source_path").and_then(|value| value.as_str()) {
         let source_path = interpolate_ctx(source_path, ctx);
-        return Ok(tokio::fs::read(source_path).await?);
+        return crate::util::bounded_read::read_file_capped_async(
+            std::path::Path::new(&source_path),
+            crate::util::limits::max_file_bytes(),
+            "s3_put_object",
+        )
+        .await;
     }
 
     if let Some(source_key) = config.get("source_key").and_then(|value| value.as_str()) {

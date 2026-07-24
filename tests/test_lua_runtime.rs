@@ -272,6 +272,31 @@ async fn code_node_does_not_expose_package_loader_or_system_libraries() {
     }
 }
 
+#[tokio::test]
+async fn code_node_rejects_forged_bytecode() {
+    // IF-035: a flow author cannot smuggle arbitrary (memory-unsafe) Lua
+    // bytecode via a hand-crafted bytecode_b64 config string. Only bytecode this
+    // process compiled and signed may load.
+    use base64::Engine as _;
+    let reg = registry();
+    let node = reg.get("code").unwrap();
+
+    let forged =
+        base64::engine::general_purpose::STANDARD.encode(b"\x1bLua forged bytecode payload");
+    let err = node
+        .execute(
+            &serde_json::json!({ "bytecode_b64": forged }),
+            &Default::default(),
+        )
+        .await
+        .expect_err("forged bytecode must be rejected")
+        .to_string();
+    assert!(
+        err.contains("authenticat"),
+        "expected an authentication failure, got: {err}"
+    );
+}
+
 #[test]
 fn sandbox_keeps_computation_libraries() {
     let reg = registry();

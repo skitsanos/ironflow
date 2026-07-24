@@ -25,6 +25,7 @@ pub enum AppError {
     EventCursorGone(String),
     Forbidden(String),
     Conflict(String),
+    ServiceUnavailable(String),
     Storage(StorageError),
     Internal(anyhow::Error),
 }
@@ -41,6 +42,11 @@ impl IntoResponse for AppError {
             }
             AppError::Forbidden(error) => public_error(StatusCode::FORBIDDEN, error, "forbidden"),
             AppError::Conflict(error) => public_error(StatusCode::CONFLICT, error, "conflict"),
+            AppError::ServiceUnavailable(error) => public_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                error,
+                "service_unavailable",
+            ),
             AppError::Storage(error) => match error.kind() {
                 StorageErrorKind::InvalidInput => {
                     public_error(StatusCode::BAD_REQUEST, error.to_string(), "bad_request")

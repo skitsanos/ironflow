@@ -38,6 +38,49 @@ pub struct AppState {
     pub webhooks: HashMap<String, WebhookConfig>,
 }
 
+/// Optional process-wide cap on concurrently-executing API-triggered runs,
+/// configured via `IRONFLOW_MAX_CONCURRENT_RUNS` (unset or `0` = unlimited).
+/// `max_concurrent_tasks` only bounds tasks within a single run's coordinator,
+/// so without this a burst of requests could multiply total concurrency
+/// unboundedly (IF-042).
+fn run_admission() -> Option<&'static Arc<tokio::sync::Semaphore>> {
+    static SEM: std::sync::OnceLock<Option<Arc<tokio::sync::Semaphore>>> =
+        std::sync::OnceLock::new();
+    SEM.get_or_init(|| {
+        let max = std::env::var("IRONFLOW_MAX_CONCURRENT_RUNS")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(0);
+        (max > 0).then(|| Arc::new(tokio::sync::Semaphore::new(max)))
+    })
+    .as_ref()
+}
+
+/// Acquire a run-admission permit held for the duration of an API-triggered run,
+/// or return `503` when the process is at capacity. Returns `None` (no gating)
+/// when the cap is not configured.
+pub(crate) fn acquire_run_permit()
+-> Result<Option<tokio::sync::OwnedSemaphorePermit>, errors::AppError> {
+    acquire_run_permit_from(run_admission())
+}
+
+fn acquire_run_permit_from(
+    semaphore: Option<&Arc<tokio::sync::Semaphore>>,
+) -> Result<Option<tokio::sync::OwnedSemaphorePermit>, errors::AppError> {
+    match semaphore {
+        None => Ok(None),
+        Some(semaphore) => semaphore
+            .clone()
+            .try_acquire_owned()
+            .map(Some)
+            .map_err(|_| {
+                errors::AppError::ServiceUnavailable(
+                    "server is at maximum concurrent run capacity; retry later".to_string(),
+                )
+            }),
+    }
+}
+
 /// Configuration for the REST API server.
 pub struct ServeOptions {
     pub host: String,
@@ -223,19 +266,34 @@ fn request_has_api_key(headers: &HeaderMap, expected: &str) -> bool {
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "))
-        .is_some_and(|token| token == expected);
+        .is_some_and(|token| constant_time_eq(token.as_bytes(), expected.as_bytes()));
 
     let api_key = headers
         .get("x-api-key")
         .and_then(|value| value.to_str().ok())
-        .is_some_and(|token| token == expected);
+        .is_some_and(|token| constant_time_eq(token.as_bytes(), expected.as_bytes()));
 
     bearer || api_key
 }
 
+/// Compare two byte strings without short-circuiting on the first differing
+/// byte, so comparison time does not leak how much of a candidate API key
+/// matched. The length check leaks only the key length, not its contents.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    std::hint::black_box(diff) == 0
+}
+
 #[cfg(test)]
 mod tests {
-    use super::bind_listener;
+    use super::{bind_listener, constant_time_eq, request_has_api_key};
+    use axum::http::HeaderMap;
 
     #[tokio::test]
     async fn bind_listener_accepts_hostname_and_ipv4_loopback() {
@@ -249,5 +307,55 @@ mod tests {
     async fn bind_listener_accepts_unbracketed_ipv6_loopback() {
         let listener = bind_listener("::1", 0).await.unwrap();
         assert!(listener.local_addr().unwrap().ip().is_loopback());
+    }
+
+    #[test]
+    fn constant_time_eq_matches_only_identical_bytes() {
+        assert!(constant_time_eq(b"secret-token", b"secret-token"));
+        assert!(!constant_time_eq(b"secret-token", b"secret-toke!"));
+        assert!(!constant_time_eq(b"secret-token", b"secret")); // different length
+        assert!(!constant_time_eq(b"", b"x"));
+        assert!(constant_time_eq(b"", b""));
+    }
+
+    #[test]
+    fn run_admission_permit_gating() {
+        // No configured cap: never gated.
+        assert!(super::acquire_run_permit_from(None).unwrap().is_none());
+
+        // Cap of 1: first acquire succeeds, the second is refused (503), and
+        // releasing the first restores capacity.
+        let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(1));
+        let first = super::acquire_run_permit_from(Some(&semaphore)).unwrap();
+        assert!(first.is_some());
+        assert!(super::acquire_run_permit_from(Some(&semaphore)).is_err());
+        drop(first);
+        assert!(
+            super::acquire_run_permit_from(Some(&semaphore))
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn request_has_api_key_accepts_valid_and_rejects_invalid() {
+        let expected = "s3cr3t-key";
+
+        let mut bearer = HeaderMap::new();
+        bearer.insert(
+            axum::http::header::AUTHORIZATION,
+            "Bearer s3cr3t-key".parse().unwrap(),
+        );
+        assert!(request_has_api_key(&bearer, expected));
+
+        let mut api_key = HeaderMap::new();
+        api_key.insert("x-api-key", "s3cr3t-key".parse().unwrap());
+        assert!(request_has_api_key(&api_key, expected));
+
+        let mut wrong = HeaderMap::new();
+        wrong.insert("x-api-key", "wrong-key!!".parse().unwrap());
+        assert!(!request_has_api_key(&wrong, expected));
+
+        assert!(!request_has_api_key(&HeaderMap::new(), expected));
     }
 }

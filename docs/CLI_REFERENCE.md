@@ -696,6 +696,8 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `IRONFLOW_MAX_CONCURRENT_TASKS` | number of CPUs | Maximum tasks running in parallel per workflow execution |
+| `IRONFLOW_MAX_CONCURRENT_RUNS` | unlimited | Process-wide cap on concurrently-executing API/webhook-triggered runs. When at capacity, new run requests receive `503 Service Unavailable`. `0` or unset means unlimited. |
+| `IRONFLOW_MAX_RUN_SECONDS` | unlimited | Run-level wall-clock deadline. A run exceeding it is cancelled (terminal status `cancelled`), reclaiming a step that hangs without its own `timeout()`. `0` or unset means no deadline. |
 | `IRONFLOW_LUA_MAX_INSTRUCTIONS` | `5000000` | Max Lua VM instructions per flow parse/code execution; `0` disables |
 | `IRONFLOW_LUA_MAX_SECONDS` | `10` | Max wall-clock seconds per Lua state; `0` disables |
 | `IRONFLOW_LUA_MAX_MEMORY_BYTES` | `134217728` | Max Lua VM memory per Lua state; `0` disables |

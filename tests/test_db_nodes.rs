@@ -203,3 +203,45 @@ async fn db_query_respects_max_result_bytes() {
         "expected max_result_bytes error, got: {err}"
     );
 }
+
+// IF-039: the query body must not interpolate ${ctx...} values (SQL injection).
+
+#[tokio::test]
+async fn db_query_rejects_ctx_interpolation_in_query_body() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("db_query").unwrap();
+    let config = serde_json::json!({
+        "connection": "sqlite::memory:",
+        "query": "SELECT * FROM users WHERE name = '${ctx.name}'"
+    });
+
+    let err = node
+        .execute(&config, &empty_ctx())
+        .await
+        .expect_err("ctx interpolation in the query body must be rejected")
+        .to_string();
+    assert!(
+        err.contains("params") && err.contains("db_query"),
+        "expected a params-directed injection error, got: {err}"
+    );
+}
+
+#[tokio::test]
+async fn db_exec_rejects_ctx_interpolation_in_query_body() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("db_exec").unwrap();
+    let config = serde_json::json!({
+        "connection": "sqlite::memory:",
+        "query": "DELETE FROM users WHERE id = ${ctx.id}"
+    });
+
+    let err = node
+        .execute(&config, &empty_ctx())
+        .await
+        .expect_err("ctx interpolation in the query body must be rejected")
+        .to_string();
+    assert!(
+        err.contains("params"),
+        "expected params-directed error, got: {err}"
+    );
+}

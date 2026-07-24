@@ -29,8 +29,11 @@ impl Node for ExtractHtmlNode {
             .unwrap_or("content");
         let metadata_key = config.get("metadata_key").and_then(|v| v.as_str());
 
-        let html = std::fs::read_to_string(&path)
-            .map_err(|e| anyhow::anyhow!("Failed to read '{}': {}", path, e))?;
+        let html = crate::util::bounded_read::read_file_to_string_capped(
+            std::path::Path::new(&path),
+            crate::util::limits::max_file_bytes(),
+            "extract_html",
+        )?;
 
         let content = match format {
             "markdown" => html2md::parse_html(&html),

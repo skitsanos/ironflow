@@ -23,20 +23,24 @@ impl RunCoordinator {
         }
 
         let final_ctx = self.ctx.read().await.clone();
-        let durable_final_ctx = self.execution_overlay.redact_context(final_ctx.as_ref());
+        let durable_final_ctx =
+            super::output::bound_context(self.execution_overlay.redact_context(final_ctx.as_ref()));
         match self
             .store
             .update_ctx(&self.run_id, &durable_final_ctx)
             .await
         {
             Ok(()) => {
+                // The final context is persisted during terminalization, so
+                // stamp the event with the resolved terminal status rather than
+                // a misleading `Running` (IF-052).
                 WorkflowEngine::publish_event_ref(
                     self.events.as_ref(),
                     RunEvent::run(
                         &self.run_id,
                         &self.flow.name,
                         RunEventType::ContextUpdated,
-                        RunStatus::Running,
+                        status.clone(),
                     ),
                 )
                 .await;

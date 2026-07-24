@@ -272,7 +272,11 @@ async fn extract_pdf_missing_file_errors() {
         )
         .await
         .expect_err("expected missing-file error");
-    assert!(err.to_string().contains("Failed to read"));
+    let message = err.to_string();
+    assert!(
+        message.contains("extract_pdf") && message.contains("failed to read"),
+        "unexpected error: {message}"
+    );
 }
 
 #[tokio::test]

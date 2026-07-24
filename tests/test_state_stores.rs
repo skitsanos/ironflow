@@ -188,6 +188,111 @@ async fn json_store_set_status_sets_finished() {
     assert!(info.finished.is_some());
 }
 
+// IF-051: the JSON store prunes via bounded summary pages and removes only
+// terminal runs older than the cutoff.
+#[tokio::test]
+async fn json_store_prune_before_removes_only_old_terminal_runs() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = JsonStateStore::new(dir.path());
+
+    for id in ["done-1", "done-2"] {
+        store.init_run(id, "flow", &HashMap::new()).await.unwrap();
+        store.set_run_status(id, RunStatus::Success).await.unwrap();
+    }
+    store
+        .init_run("live", "flow", &HashMap::new())
+        .await
+        .unwrap();
+    store
+        .set_run_status("live", RunStatus::Running)
+        .await
+        .unwrap();
+
+    // Future cutoff: all runs started before it, but only terminal runs prune.
+    let cutoff = chrono::Utc::now() + chrono::Duration::minutes(1);
+    assert_eq!(store.prune_before(cutoff).await.unwrap(), 2);
+    assert!(store.get_run_info("done-1").await.is_err());
+    assert!(store.get_run_info("done-2").await.is_err());
+    assert_eq!(
+        store.get_run_info("live").await.unwrap().status,
+        RunStatus::Running
+    );
+}
+
+#[tokio::test]
+async fn json_store_prune_before_keeps_runs_newer_than_cutoff() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = JsonStateStore::new(dir.path());
+    store
+        .init_run("recent", "flow", &HashMap::new())
+        .await
+        .unwrap();
+    store
+        .set_run_status("recent", RunStatus::Success)
+        .await
+        .unwrap();
+
+    // Past cutoff: nothing is old enough to prune.
+    let cutoff = chrono::Utc::now() - chrono::Duration::minutes(5);
+    assert_eq!(store.prune_before(cutoff).await.unwrap(), 0);
+    assert!(store.get_run_info("recent").await.is_ok());
+}
+
+// IF-043: startup reconciliation marks runs left Pending/Running by a previous
+// process as Stalled, leaving terminal runs untouched.
+#[tokio::test]
+async fn reconcile_nonterminal_runs_stalls_stranded_runs() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = JsonStateStore::new(dir.path());
+
+    store
+        .init_run("running", "flow", &HashMap::new())
+        .await
+        .unwrap();
+    store
+        .set_run_status("running", RunStatus::Running)
+        .await
+        .unwrap();
+    store
+        .init_run("pending", "flow", &HashMap::new())
+        .await
+        .unwrap(); // stays Pending
+    store
+        .init_run("done", "flow", &HashMap::new())
+        .await
+        .unwrap();
+    store
+        .set_run_status("done", RunStatus::Success)
+        .await
+        .unwrap();
+
+    let reconciled = ironflow::storage::reconcile_nonterminal_runs(&store)
+        .await
+        .unwrap();
+    assert_eq!(reconciled, 2);
+
+    assert_eq!(
+        store.get_run_info("running").await.unwrap().status,
+        RunStatus::Stalled
+    );
+    assert_eq!(
+        store.get_run_info("pending").await.unwrap().status,
+        RunStatus::Stalled
+    );
+    assert_eq!(
+        store.get_run_info("done").await.unwrap().status,
+        RunStatus::Success
+    );
+
+    // Idempotent: a second run has nothing left to reconcile.
+    assert_eq!(
+        ironflow::storage::reconcile_nonterminal_runs(&store)
+            .await
+            .unwrap(),
+        0
+    );
+}
+
 #[tokio::test]
 async fn json_store_running_no_finished() {
     let dir = tempfile::tempdir().unwrap();

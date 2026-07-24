@@ -1,5 +1,4 @@
 use anyhow::Result;
-use base64::Engine;
 use mlua::prelude::*;
 
 use crate::nodes::NodeRegistry;
@@ -24,7 +23,7 @@ pub(super) fn register_flow_api(lua: &Lua, registry: &NodeRegistry) -> Result<()
                     LuaValue::Table(tbl) => tbl,
                     LuaValue::Function(func) => {
                         let bytecode = func.dump(false);
-                        let b64 = base64::engine::general_purpose::STANDARD.encode(&bytecode);
+                        let b64 = crate::lua::bytecode::sign(&bytecode);
                         let tbl = lua.create_table()?;
                         tbl.set("_node_type", "code")?;
                         tbl.set("bytecode_b64", b64)?;
@@ -166,7 +165,7 @@ pub(super) fn register_flow_api(lua: &Lua, registry: &NodeRegistry) -> Result<()
                         LuaValue::Table(tbl) => tbl,
                         LuaValue::Function(func) => {
                             let bytecode = func.dump(false);
-                            let b64 = base64::engine::general_purpose::STANDARD.encode(&bytecode);
+                            let b64 = crate::lua::bytecode::sign(&bytecode);
                             let tbl = lua.create_table()?;
                             tbl.set("_node_type", "code")?;
                             tbl.set("bytecode_b64", b64)?;
@@ -280,7 +279,7 @@ pub(super) fn register_flow_api(lua: &Lua, registry: &NodeRegistry) -> Result<()
                 && let Ok(LuaValue::Function(func)) = tbl.get::<LuaValue>("source")
             {
                 let bytecode = func.dump(false);
-                let b64 = base64::engine::general_purpose::STANDARD.encode(&bytecode);
+                let b64 = crate::lua::bytecode::sign(&bytecode);
                 tbl.set("bytecode_b64", b64)?;
                 tbl.set("source", LuaValue::Nil)?;
             }
@@ -290,7 +289,7 @@ pub(super) fn register_flow_api(lua: &Lua, registry: &NodeRegistry) -> Result<()
                 && let Ok(LuaValue::Function(func)) = tbl.get::<LuaValue>("transform")
             {
                 let bytecode = func.dump(false);
-                let b64 = base64::engine::general_purpose::STANDARD.encode(&bytecode);
+                let b64 = crate::lua::bytecode::sign(&bytecode);
                 tbl.set("transform_bytecode_b64", b64)?;
                 tbl.set("transform", LuaValue::Nil)?;
             }

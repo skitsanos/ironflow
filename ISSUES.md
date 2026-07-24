@@ -86,6 +86,24 @@ Static validation must be supplemented with representative runtime probes.
 | IF-032 | P2 | Resolved | S3 Vectors | Resource targets can mix explicit and environment identifiers |
 | IF-033 | P3 | Resolved | JSON storage | Projection-changing writes replace the complete run catalog |
 | IF-034 | P3 | Resolved | Architecture | Module-size policy has no automated regression guard |
+| IF-035 | P0 | Resolved | Lua security | Flow-controlled Lua bytecode is loaded in binary (`bt`) mode |
+| IF-036 | P0 | Resolved | Runtime safety | Extract/encoding/S3 reads bypass `IRONFLOW_MAX_*` byte limits |
+| IF-037 | P0 | Resolved | Runtime safety | Deeply nested XML/YAML overflows the stack (uncatchable) |
+| IF-038 | P1 | Resolved | API DoS | Parse-time Lua pattern backtracking pins runtime workers |
+| IF-039 | P1 | Resolved | Nodes/security | `db_query`/`db_exec` interpolate ctx into `AssertSqlSafe` query text |
+| IF-040 | P1 | Resolved | Supply chain | Vulnerable dependencies (RUSTSEC) with no CI audit gate |
+| IF-041 | P1 | Resolved | Nodes/security | `http_request` allows SSRF via ctx URL and unrestricted redirects |
+| IF-042 | P2 | Resolved | Engine | `IRONFLOW_MAX_CONCURRENT_TASKS` is per-run, not process-wide |
+| IF-043 | P2 | Resolved | Engine | No crash/restart reconciliation; runs stay `Running` forever |
+| IF-044 | P2 | Resolved | API security | API key compared in non-constant time |
+| IF-045 | P2 | Resolved | API security | Flow-load parse errors disclose arbitrary local-file contents |
+| IF-046 | P2 | Resolved | Engine | `max_retries` is effectively unbounded (retry storm) |
+| IF-047 | P2 | Resolved | Engine | Dropped `RunHandle` cannot cancel a hung untimed node |
+| IF-048 | P2 | Resolved | Engine | Task-output cap does not bound shared/final context |
+| IF-049 | P2 | Resolved | Nodes | `read_file` size guard bypassed for special files |
+| IF-050 | P2 | Resolved | Nodes | `base64_decode` performs unbounded arbitrary-path writes |
+| IF-051 | P2 | Resolved | Storage | `prune_before` default loads the full catalog into memory |
+| IF-052 | P3 | In progress | Maintainability | Assorted consistency/operability follow-ups |
 
 ## P0 — release-blocking safety and durability
 
@@ -1489,6 +1507,353 @@ counting. GitHub Actions runs both those tests and the live-repository check;
 `scripts/**` is included in push path filtering. Automation verifies that a
 rationale is present and conspicuous, while human review remains responsible
 for deciding whether it is sound.
+
+## Fresh audit 2026-07-24 (IF-035+)
+
+Second deep Rust/Lua/documentation audit on `develop` at v1.12.0, independent of
+IF-001..IF-034 (which were re-verified as genuinely resolved). Baseline was
+healthy: `cargo fmt --check`, `cargo clippy --all-features --all-targets`, the
+default `cargo test`, and `cargo test --features postgres` all passed. The
+recurring theme is that existing safety machinery (the `IRONFLOW_MAX_*` limits,
+the IF-001 sandbox, the IF-006 blocking-pool offload) is not uniformly applied
+to every node and API path.
+
+### IF-035 — Flow-controlled Lua bytecode is loaded in binary (`bt`) mode
+
+**Status:** Resolved on 2026-07-24.
+
+`code`/`foreach` loaded handler bytecode with `lua.load(&bytecode)` in the
+default `"bt"` mode, which accepts precompiled binary chunks. The
+`bytecode_b64`/`transform_bytecode_b64` config fields were unauthenticated
+strings, so a flow author could substitute a crafted base64 chunk and load
+untrusted Lua 5.4 bytecode — a memory-safety hole that defeats the IF-001
+sandbox.
+
+Resolution: handler bytecode is now authenticated with an HMAC-SHA256 tag over a
+per-process ephemeral key (new `src/lua/bytecode.rs`, HMAC built on the existing
+`sha2` — no new dependency). `func.dump()` output is signed at all four
+flow-parse sites in `src/lua/runtime/api.rs` (`bytecode::sign`), and
+`code`/`foreach` call `bytecode::verify` before `into_function`, which rejects
+any payload whose tag this process did not produce (constant-time comparison).
+Because the key is ephemeral and never persisted, only bytecode compiled by the
+running process can load. Regressions: `bytecode` unit tests (round-trip, forged,
+tampered) and an end-to-end `code`-node test in `tests/test_lua_runtime.rs`
+proving a hand-crafted `bytecode_b64` is refused while legitimate function
+handlers still execute.
+
+### IF-036 — Extract/encoding/S3 reads bypass `IRONFLOW_MAX_*` byte limits
+
+**Status:** Resolved on 2026-07-24.
+
+`max_file_bytes`, `max_pdf_bytes`, and `max_zip_uncompressed_bytes` were enforced
+in `read_file`/`write_file` and the HTTP node, but no node under `extract/`,
+`utility/encoding.rs`, or `cloud/` consulted them. `extract_pdf` used
+`std::fs::read`, the OOXML extractors called `entry.read_to_string` with no
+per-entry size check (a 10 KB zip bomb inflates to gigabytes), and
+`base64_encode(file)`/`s3_put_object`/`s3_get_object` read whole payloads into
+memory. An allocation abort is not caught by the run-level `catch_unwind`, so it
+kills the process.
+
+Resolution: a new `src/util/bounded_read.rs` provides size-bounded reads
+(`read_capped`/`read_to_string_capped`, sync/async `read_file_capped`) that bound
+the actual bytes read via `Read::take`, so neither an over-length regular file
+nor a special file such as `/dev/zero` can stream unbounded. It is wired into
+`extract_pdf` (`max_pdf_bytes`), `extract_html`/`extract_srt`/`extract_vtt`/
+`base64_encode(file)`/`s3_put_object` (`max_file_bytes`), every DOCX/PPTX
+zip-entry read (`max_zip_uncompressed_bytes`), and a content-length pre-flight in
+`s3_get_object`. Regressions: `bounded_read` unit tests for the cap boundaries,
+and `tests/test_extract_limits.rs` proving `extract_word` rejects an oversized
+zip entry under a low cap yet parses it under a generous one.
+
+### IF-037 — Deeply nested XML/YAML overflows the stack
+
+**Status:** Resolved on 2026-07-24.
+
+`xml_parse` builds an iterative element stack but the resulting deeply nested
+`serde_json::Value` overflows the worker thread's stack when it is recursively
+dropped/serialized. Probed empirically: depth 20,000 parsed, depth 200,000
+aborted the process with SIGABRT (uncatchable). `yaml_parse` was found NOT
+vulnerable — `noyalib`'s `serde_yaml` (libyaml-style) enforces its own nesting
+limit and rejects input past ~128 levels with a clean error before `yaml_to_json`
+ever recurses.
+
+Resolution: `parse_xml_to_json` now rejects element nesting beyond
+`MAX_XML_NESTING_DEPTH = 128` (matching the YAML parser's limit) with a bounded
+node error, so the pathological structure is never built. Regressions in
+`tests/test_xml_yaml_nodes.rs` cover moderate-depth rejection (300 → error),
+pathological depth not aborting (200,000 → error, previously SIGABRT), reasonable
+nesting still accepted (64 → ok), and YAML deep input rejected without a crash.
+
+### IF-038 — Parse-time Lua pattern backtracking pins runtime workers
+
+**Status:** Resolved on 2026-07-24.
+
+Every API flow-parse site called the synchronous `LuaRuntime::load_flow*` inline
+on the async runtime, so a pathological flow definition (e.g. `string.match`
+catastrophic backtracking, which the between-instruction hook cannot preempt)
+pinned an async worker thread; enough concurrent requests could stall the whole
+server including `/health`.
+
+Resolution: all API parse sites (`run_flow`, `validate_flow`, `run_webhook`)
+now call the `load_flow_async` / `load_flow_from_string_async` variants, which
+run the parse on the blocking pool under the same `LuaExecutionLimits` and
+deadline/cancellation control IF-006 established. A wedged parse now occupies a
+blocking-pool thread instead of an async worker, so the runtime (and `/health`)
+stays responsive, and pure-Lua runaway loops are bounded by the instruction/time
+limit. Regression `tests/test_flow_file_disclosure.rs` submits a runaway-loop
+flow and asserts the request returns a bounded error rather than hanging.
+
+Residual: a C-side pattern backtrack still runs to completion on its blocking
+thread (it cannot be preempted), so a determined attacker can still consume
+blocking-pool threads; fully bounding that needs a hard per-parse wall-clock kill
+or restricting the `string` pattern surface, tracked as future hardening.
+
+### IF-039 — `db_query`/`db_exec` interpolate ctx into `AssertSqlSafe` query text
+
+**Status:** Resolved on 2026-07-24.
+
+`db_query`/`db_exec` (and `arangodb_aql`) interpolated `${ctx.*}` directly into
+the query text before passing it to `AssertSqlSafe` (which bypasses sqlx's
+compile-time guard), so a ctx value from a webhook/HTTP source could alter query
+structure.
+
+Resolution: all three nodes now reject a query body containing `${ctx...}` with a
+clear error directing the author to the safe binding channel — `params` (`?`/`$1`
+placeholders) for SQL and `bindVars` (`@var`) for AQL, both of which continue to
+interpolate and bind values safely. No example or existing test used query-body
+interpolation for values; the one arangodb test that exercised it was updated to
+the `@bindVar` pattern. Regressions in `tests/test_db_nodes.rs` and
+`tests/test_arangodb_node.rs` prove ctx interpolation in the query body is
+rejected.
+
+### IF-040 — Vulnerable dependencies (RUSTSEC) with no CI audit gate
+
+**Status:** Resolved on 2026-07-24.
+
+`cargo audit` reported 7 advisories with no CI gate.
+
+Resolution: `cargo update -p quinn-proto -p crossbeam-epoch` cleared
+RUSTSEC-2026-0185 and RUSTSEC-2026-0204. A new `.cargo/audit.toml` documents a
+reviewed, shrinking ignore list for the 5 remaining advisories, all transitive
+and not yet fixable upstream: `quick-xml` 0.39 (RUSTSEC-2026-0194/0195, via
+`comrak→syntect→plist`; our direct XML nodes use the patched 0.41) and
+`rustls-webpki` 0.101 (RUSTSEC-2026-0098/0099/0104, via `aws-smithy`'s
+rustls 0.21). A new `audit` CI job (`.github/workflows/ci.yml`) installs
+`cargo-audit` and runs `cargo audit`, which now exits 0 and will fail on any new
+advisory outside the ignore list. The unmaintained/yanked entries remain
+non-failing warnings. `.cargo/audit.toml` is included in the CI path filter.
+
+### IF-041 — `http_request` allows SSRF via ctx URL and unrestricted redirects
+
+**Status:** Resolved on 2026-07-24.
+
+The client set no redirect policy, so reqwest followed up to 10 redirects with no
+internal-address guard, and there was no way to restrict either.
+
+Resolution: the HTTP nodes now accept `max_redirects` (default 10; `0` disables
+redirect following) and an opt-in `block_private_network` (default false).
+When enabled, the initial URL and every redirect hop are refused if the host is
+`localhost` or a literal private/loopback/link-local/unique-local IP (including
+the cloud-metadata `169.254.169.254`), via
+`url_targets_internal_network` in `src/nodes/http/helpers.rs`. The default is
+opt-in because IronFlow legitimately calls internal services; the point is to
+provide the previously-absent control. DNS-rebinding (a public hostname
+resolving to an internal IP) needs connection-level enforcement and remains out
+of scope. Regressions cover the address classifier (loopback/private/ULA/metadata
+vs public) and the initial-URL block; body and CRLF limits already existed.
+
+### IF-042 — `IRONFLOW_MAX_CONCURRENT_TASKS` is per-run, not process-wide
+
+**Status:** Resolved on 2026-07-24.
+
+The task semaphore is per-run and a fresh `WorkflowEngine` is built per request,
+so N concurrent requests yielded N×cap concurrent node executions with no
+process-level back-pressure.
+
+Resolution: an opt-in process-wide admission semaphore
+(`IRONFLOW_MAX_CONCURRENT_RUNS`, unset/`0` = unlimited) is acquired in `run_flow`
+and `run_webhook` and held for the run's duration (`acquire_run_permit` in
+`src/api/mod.rs`); at capacity, new run requests receive `503 Service
+Unavailable` via the new `AppError::ServiceUnavailable`. Nested subworkflow
+children run through the engine directly, not the API handlers, so they are
+unaffected and cannot deadlock against the cap. The default is opt-in to preserve
+existing throughput. Documented in `docs/CLI_REFERENCE.md`; unit tests cover the
+acquire/refuse/release gating.
+
+### IF-043 — No crash/restart reconciliation; runs stay `Running` forever
+
+**Status:** Resolved on 2026-07-24.
+
+`RunStatus::Stalled` was only written by the in-process finalizer, so a
+`kill -9`/OOM/deploy stranded every in-flight run as a permanent `Running` zombie
+that `list_runs` reported and SSE consumers waited on forever.
+
+Resolution: `cmd_serve` now runs `reconcile_nonterminal_runs`
+(`src/storage/mod.rs`) before accepting traffic. Because IronFlow does not resume
+runs across restarts, any `Pending`/`Running` run present at startup is a zombie
+and is marked `Stalled` (terminal, with `finished` set). Ids are gathered via
+bounded summary pages, so the sweep uses memory proportional to the number of
+stranded runs, not the whole catalog; a reconciliation failure is logged and does
+not block startup. Regression `tests/test_state_stores.rs` proves stranded
+Pending/Running runs become `Stalled`, terminal runs are untouched, and the sweep
+is idempotent. Graceful shutdown (`with_graceful_shutdown`) remains a separate
+follow-up; this closes the operability gap of permanently-`Running` zombies.
+
+### IF-044 — API key compared in non-constant time
+
+**Status:** Resolved on 2026-07-24.
+
+`request_has_api_key` used `token == expected` for both `Bearer` and
+`x-api-key`, and `str` `==` short-circuits on the first differing byte (a timing
+side channel).
+
+Resolution: comparison now goes through a `constant_time_eq` helper that XOR-
+accumulates over all bytes without short-circuiting (`std::hint::black_box`
+guards against the optimizer reintroducing an early exit); only the key length is
+observable, not its contents. Unit tests in `src/api/mod.rs` cover the helper's
+equal/unequal/different-length cases and `request_has_api_key`'s accept/reject
+behavior for both header forms.
+
+### IF-045 — Flow-load parse errors disclose arbitrary local-file contents
+
+**Status:** Resolved on 2026-07-24.
+
+File-mode flow loads echoed the raw Lua error verbatim: `POST /flows/run` and
+`/flows/validate` returned `Failed to load flow: ... malformed number near
+'<token>'`, leaking file-derived tokens and confirming the path was readable.
+(`resolve_flow_path` already enforces `flows_dir` containment when configured;
+this leak occurs in the documented permissive mode.)
+
+Resolution: both handlers now return a generic "Failed to load flow file" for
+file-mode load failures and log the redacted detail server-side
+(`log_flow_file_load_failure`/`flow_file_load_error` in
+`src/api/handlers/helpers.rs`). `source`/`source_base64` modes still surface
+their parse errors, since that is the caller's own input. Regression
+`tests/test_flow_file_disclosure.rs` posts a file whose contents surface in the
+Lua lexer error and asserts the response contains neither the parse detail nor
+the file token.
+
+### IF-046 — `max_retries` is effectively unbounded (retry storm)
+
+**Status:** Resolved on 2026-07-24.
+
+Validation only rejected `max_retries == u32::MAX`, so `:retries(4000000000)
+:backoff(0)` passed and produced ~4.3 billion no-delay attempts, each writing
+task state and publishing three events — an event-store flood that stalls the
+owning phase.
+
+Resolution: `validate_step_options` now rejects `max_retries > MAX_RETRY_COUNT`
+(100) before a run initializes. Regressions in `tests/test_types.rs` cover
+rejection of an excessive count (1,000,000) and acceptance of a reasonable one
+(10). No example or test uses a retry count above the cap.
+
+### IF-047 — Dropped `RunHandle` cannot cancel a hung untimed node
+
+**Status:** Resolved on 2026-07-24.
+
+Once a `RunHandle` was dropped, there was no cancellation path and `timeout_s`
+was opt-in with no run-level default, so a node stuck on a non-terminating future
+kept its coordinator task alive forever.
+
+Resolution: an opt-in run-level deadline (`IRONFLOW_MAX_RUN_SECONDS`, unset/`0` =
+none) is enforced in `RunCoordinator::spawn`. When set, a timer fires the same
+cooperative cancel signal `RunHandle::cancel` uses; the coordinator then cancels
+and finalizes the run as `Cancelled`, and dropping the in-flight node futures
+runs their IF-006 cancel-on-drop cleanup — reclaiming a hung untimed step even
+after every waiter has detached. The timer is aborted when the run finishes
+normally, so completed runs leave no lingering task, and the default (no env var)
+path is byte-for-byte unchanged. Regression `tests/test_run_deadline.rs` proves a
+30 s step under a 1 s deadline is cancelled in about a second rather than
+hanging.
+
+### IF-048 — Task-output cap does not bound shared/final context
+
+**Status:** Resolved on 2026-07-24.
+
+`IRONFLOW_MAX_TASK_OUTPUT_BYTES` truncated only persisted task history; the full
+oversized value still entered the final durable context, so large node outputs
+produced a multi-hundred-MB run document.
+
+Resolution: the finalizer now passes the redacted final context through
+`output::bound_context`, which replaces any individual value whose serialized
+form exceeds the per-task-output limit with a truncation marker while preserving
+small values. This bounds only the durable end-of-run snapshot used for
+inspection; the in-flight context that carried full values between steps during
+execution is deliberately unchanged, so data flow is not affected. Unit test in
+`src/engine/executor/output.rs` verifies oversized values are truncated and small
+ones preserved.
+
+### IF-049 — `read_file` size guard bypassed for special files
+
+**Status:** Resolved on 2026-07-24.
+
+The guard trusted `metadata().len()`, which is 0 for `/dev/zero`, fifos, and many
+`/proc` files, so the subsequent read streamed unbounded.
+
+Resolution: `read_file` keeps the fast metadata pre-flight but now performs the
+actual read through `bounded_read::read_file_capped_async`, which bounds bytes
+via `Read::take`. Regression `tests/test_read_file_special.rs` (Unix-only) reads
+`/dev/zero` under a small cap and asserts a bounded error within a timeout
+instead of hanging.
+
+### IF-050 — `base64_decode` performs unbounded arbitrary-path writes
+
+**Status:** Resolved on 2026-07-24.
+
+`base64_decode` wrote its decoded payload to `output_file` with no size cap.
+Resolution: it now rejects a decoded payload larger than `max_file_bytes()`
+before writing, matching `write_file`'s existing cap. Regression
+`tests/test_base64_decode_limit.rs` proves an 8 KB decode over a 1 KB cap is
+rejected and the file is not created. (Path confinement remains a broader
+`flows_dir`-jail decision shared with the other unrestricted file nodes and is
+out of scope here.)
+
+### IF-051 — `prune_before` default loads the full catalog into memory
+
+**Status:** Resolved on 2026-07-24.
+
+`StateStore::prune_before`'s default called `list_runs(None)`, materializing
+every run's full record; only SQL overrode it. JSON and Redis inherited the
+O(N)-memory scan.
+
+Resolution: a shared `prune_before_via_summary_pages` helper
+(`src/storage/mod.rs`) walks bounded newest-first summary pages (256 at a time),
+deleting terminal runs older than the cutoff with O(page) memory. It is
+delete-safe because the keyset cursor is anchored on `(started, id)`, so removing
+an already-visited run does not shift later pages. `JsonStateStore` and
+`RedisStateStore` now override `prune_before` to call it. Regressions in
+`tests/test_state_stores.rs` verify the JSON store removes only old terminal runs
+and keeps non-terminal and newer ones.
+
+### IF-052 — Assorted consistency/operability follow-ups
+
+**Status:** In progress (2026-07-24). **Done:** (a) CI toolchain bumped to
+`1.97.1` across all jobs to match `rust-toolchain.toml`; (c) the finalizer's
+`ContextUpdated` event is now stamped with the resolved terminal status instead
+of a misleading `Running`; (e) flow validation now rejects a routed step with no
+dependencies (previously silently always-skipped). **Still open:** (b) `env()`
+allowlist (a design decision — `env()` exposure is documented and intentional),
+(d) deadline completion race, (f) orphaned temp-file startup sweep, (g)
+cross-store `finished`-timestamp preservation, (h) `pcall` budget evasion (a
+documented cooperative-cancellation boundary), (i) stale `docs/superpowers/` node
+counts (historical point-in-time records, intentionally not rewritten).
+
+Low-severity items to batch: (a) CI pins Rust `1.96.0`
+(`.github/workflows/ci.yml`) while `rust-toolchain.toml` pins `1.97.1`; (b)
+`env(key)` exposes the entire process environment to any flow/code node — decide
+whether an allowlist is wanted; (c) the finalizer emits a `ContextUpdated` event
+stamped `RunStatus::Running` during terminalization
+(`src/engine/executor/finalizer.rs:33`); (d) the post-hoc deadline check can
+convert a completed success into a timeout failure in a race window
+(`src/engine/executor/deadline.rs:48`); (e) a route-gated step with no
+dependencies is silently always-skipped with no validation
+(`src/engine/executor/scheduler.rs:22`); (f) orphaned `.*.tmp` files leak on hard
+crash with no startup sweep (`src/storage/json_store/temp.rs:65`); (g) the
+`finished` timestamp is overwritten on repeated terminal transitions in
+JSON/Redis/SQL but preserved in `NullStateStore`; (h) the instruction/time budget
+is evadable via `pcall`; (i) `docs/superpowers/` planning files still say "99
+nodes" and reference the removed `nodes/builtin/` layout. Each is independently
+small; group or split as convenient.
 
 ## Audit evidence snapshot
 

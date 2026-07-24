@@ -134,10 +134,25 @@ impl RunCoordinator {
         let cancel_owner = cancel.clone();
         let (completion_tx, completion) = oneshot::channel();
 
+        // Optional run-level deadline. When a run outlives it, the same
+        // cooperative cancel signal that `RunHandle::cancel` uses is fired, so a
+        // hung node without its own `timeout_s` is reclaimed even after every
+        // waiter has detached (IF-047). The timer is aborted once the run ends.
+        let deadline_timer = run_deadline().map(|deadline| {
+            let timer_cancel = cancel.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(deadline).await;
+                let _ = timer_cancel.send(true);
+            })
+        });
+
         tokio::spawn(async move {
             // Keep the watch channel open when every external waiter detaches.
             let _cancel_owner = cancel_owner;
             let result = self.supervise(cancel_rx).await;
+            if let Some(timer) = deadline_timer {
+                timer.abort();
+            }
             let _ = completion_tx.send(result);
         });
 
@@ -165,6 +180,16 @@ impl RunCoordinator {
 
         self.finalize(outcome).await
     }
+}
+
+/// Optional process-wide run-level wall-clock deadline, from
+/// `IRONFLOW_MAX_RUN_SECONDS` (unset or `0` = no deadline).
+fn run_deadline() -> Option<std::time::Duration> {
+    std::env::var("IRONFLOW_MAX_RUN_SECONDS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|seconds| *seconds > 0)
+        .map(std::time::Duration::from_secs)
 }
 
 fn panic_message(payload: &(dyn Any + Send)) -> String {

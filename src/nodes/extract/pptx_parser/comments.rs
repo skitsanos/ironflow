@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::io::Read;
 
 use super::PptxComment;
 
@@ -31,9 +30,13 @@ fn read_authors(archive: &mut zip::ZipArchive<std::fs::File>) -> HashMap<String,
 }
 
 fn read_archive_string(archive: &mut zip::ZipArchive<std::fs::File>, path: &str) -> Option<String> {
-    let mut entry = archive.by_name(path).ok()?;
-    let mut xml = String::new();
-    entry.read_to_string(&mut xml).ok()?;
+    let entry = archive.by_name(path).ok()?;
+    let xml = crate::util::bounded_read::read_to_string_capped(
+        entry,
+        crate::util::limits::max_zip_uncompressed_bytes(),
+        "extract_pptx",
+    )
+    .ok()?;
     (!xml.is_empty()).then_some(xml)
 }
 

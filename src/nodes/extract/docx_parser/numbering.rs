@@ -1,18 +1,18 @@
 use std::collections::HashMap;
-use std::io::Read;
 
 /// Parse `word/numbering.xml` into `numId -> is_numbered` mappings.
 pub(in crate::nodes::extract) fn parse_numbering_defs(
     archive: &mut zip::ZipArchive<std::fs::File>,
 ) -> HashMap<String, bool> {
     let xml = match archive.by_name("word/numbering.xml") {
-        Ok(mut entry) => {
-            let mut xml = String::new();
-            if entry.read_to_string(&mut xml).is_err() {
-                return HashMap::new();
-            }
-            xml
-        }
+        Ok(entry) => match crate::util::bounded_read::read_to_string_capped(
+            entry,
+            crate::util::limits::max_zip_uncompressed_bytes(),
+            "extract_word",
+        ) {
+            Ok(xml) => xml,
+            Err(_) => return HashMap::new(),
+        },
         Err(_) => return HashMap::new(),
     };
 
