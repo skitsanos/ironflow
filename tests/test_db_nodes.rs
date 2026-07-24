@@ -10,6 +10,32 @@ fn sqlite_url(path: &std::path::Path) -> String {
 }
 
 #[tokio::test]
+async fn db_connection_errors_do_not_disclose_url_credentials() {
+    let reg = NodeRegistry::with_builtins();
+    let db_query = reg.get("db_query").unwrap();
+    let config = serde_json::json!({
+        "connection": "postgres://db-user-sentinel:db-password-sentinel@127.0.0.1:1/app?sslmode=db-query-sentinel#db-fragment-sentinel",
+        "query": "SELECT 1"
+    });
+
+    let error = db_query
+        .execute(&config, &empty_ctx())
+        .await
+        .unwrap_err()
+        .to_string();
+
+    assert!(error.contains("Failed to connect to database at postgres://127.0.0.1:1/app"));
+    for secret in [
+        "db-user-sentinel",
+        "db-password-sentinel",
+        "db-query-sentinel",
+        "db-fragment-sentinel",
+    ] {
+        assert!(!error.contains(secret), "error disclosed {secret}: {error}");
+    }
+}
+
+#[tokio::test]
 async fn db_exec_and_query_round_trip_with_typed_params() {
     let reg = NodeRegistry::with_builtins();
     let db_query = reg.get("db_query").unwrap();
@@ -175,5 +201,47 @@ async fn db_query_respects_max_result_bytes() {
     assert!(
         err.to_string().contains("max_result_bytes"),
         "expected max_result_bytes error, got: {err}"
+    );
+}
+
+// IF-039: the query body must not interpolate ${ctx...} values (SQL injection).
+
+#[tokio::test]
+async fn db_query_rejects_ctx_interpolation_in_query_body() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("db_query").unwrap();
+    let config = serde_json::json!({
+        "connection": "sqlite::memory:",
+        "query": "SELECT * FROM users WHERE name = '${ctx.name}'"
+    });
+
+    let err = node
+        .execute(&config, &empty_ctx())
+        .await
+        .expect_err("ctx interpolation in the query body must be rejected")
+        .to_string();
+    assert!(
+        err.contains("params") && err.contains("db_query"),
+        "expected a params-directed injection error, got: {err}"
+    );
+}
+
+#[tokio::test]
+async fn db_exec_rejects_ctx_interpolation_in_query_body() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("db_exec").unwrap();
+    let config = serde_json::json!({
+        "connection": "sqlite::memory:",
+        "query": "DELETE FROM users WHERE id = ${ctx.id}"
+    });
+
+    let err = node
+        .execute(&config, &empty_ctx())
+        .await
+        .expect_err("ctx interpolation in the query body must be rejected")
+        .to_string();
+    assert!(
+        err.contains("params"),
+        "expected params-directed error, got: {err}"
     );
 }

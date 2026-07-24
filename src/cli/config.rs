@@ -4,6 +4,8 @@ use std::path::Path;
 use anyhow::{Context as _, Result};
 use serde::Deserialize;
 
+use crate::api::WebhookConfig;
+
 /// Configuration loaded from `ironflow.yaml`.
 /// All fields are optional — missing fields fall back to CLI/env/defaults.
 #[derive(Debug, Deserialize, Default)]
@@ -31,6 +33,9 @@ pub struct IronFlowConfig {
     pub event_store: Option<String>,
     /// SQL event store URL for `sqlite` / `postgres`.
     pub event_store_url: Option<String>,
+    /// Maximum event payloads and deletion fences retained across all runs by
+    /// the in-memory event store.
+    pub event_memory_capacity: Option<usize>,
     /// SQL table prefix for SQLite/Postgres state and event stores.
     pub sql_table_prefix: Option<String>,
     /// Redis connection URL, e.g. "redis://127.0.0.1:6379"
@@ -39,9 +44,9 @@ pub struct IronFlowConfig {
     pub redis_prefix: Option<String>,
     /// TTL in seconds for Redis run keys (optional, no expiration if unset)
     pub redis_ttl: Option<u64>,
-    /// Webhook name → flow file path mappings.
-    /// e.g. `hello: hello_world.lua` → POST /webhooks/hello executes hello_world.lua
-    pub webhooks: Option<HashMap<String, String>>,
+    /// Named webhook route definitions. String values retain the legacy
+    /// flow-only form; object values may explicitly forward business headers.
+    pub webhooks: Option<HashMap<String, WebhookConfig>>,
 }
 
 impl IronFlowConfig {

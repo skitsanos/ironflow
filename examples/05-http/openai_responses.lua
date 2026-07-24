@@ -1,12 +1,13 @@
 -- OpenAI Responses API
 -- Uses POST /v1/responses with gpt-5-nano
+-- Requirements: network access and OPENAI_API_KEY.
 local flow = Flow.new("openai_responses")
 
--- Provide a default prompt so the example runs without explicit context.
+-- Default only an omitted prompt so invalid caller input is not hidden.
 flow:step("prepare_input", nodes.code({
     source = function(ctx)
         local prompt = ctx.prompt
-        if type(prompt) ~= "string" or prompt == "" then
+        if prompt == nil then
             prompt = "What is the capital of France?"
         end
         return { prompt = prompt }

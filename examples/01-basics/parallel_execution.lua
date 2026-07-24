@@ -1,19 +1,19 @@
 -- Demonstrates parallel execution and dependencies
 local flow = Flow.new("parallel_demo")
 
--- These two run in parallel (no dependencies)
-flow:step("task_a", nodes.log({
-    message = "Task A running...",
-    level = "info"
+-- These run in parallel from the same context snapshot. Use distinct keys so
+-- both outputs remain available after their phase commits.
+flow:step("task_a", nodes.code({
+    source = "return { task_a_result = 'A complete' }"
 }))
 
-flow:step("task_b", nodes.delay({
-    seconds = 1
+flow:step("task_b", nodes.code({
+    source = "return { task_b_result = 'B complete' }"
 }))
 
--- This runs after both A and B complete
+-- This dependency phase sees both committed outputs.
 flow:step("merge", nodes.log({
-    message = "Both tasks complete!",
+    message = "${ctx.task_a_result}; ${ctx.task_b_result}",
     level = "info"
 })):depends_on("task_a", "task_b")
 

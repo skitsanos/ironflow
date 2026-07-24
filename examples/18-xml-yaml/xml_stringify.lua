@@ -1,16 +1,18 @@
 local flow = Flow.new("xml_stringify_demo")
 
 flow:step("prepare", nodes.code({
-    source = function()
-        return {
+    source = function(ctx)
+        local catalog = ctx.catalog
+        if catalog == nil then
             catalog = {
                 book = {
                     id = "1",
                     title = "Rust in Action",
                     price = 39.99,
                 },
-            },
-        }
+            }
+        end
+        return { catalog = catalog }
     end,
 }))
 

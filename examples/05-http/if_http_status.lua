@@ -7,9 +7,9 @@ local flow = Flow.new("if_http_status")
 
 flow:step("seed", nodes.code({
     source = function(ctx)
-        return {
-            target_status = ctx.target_status or "200"
-        }
+        local target_status = ctx.target_status
+        if target_status == nil then target_status = "200" end
+        return { target_status = target_status }
     end
 }))
 

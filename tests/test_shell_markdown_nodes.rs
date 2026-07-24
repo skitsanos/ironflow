@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use ironflow::engine::types::Context;
-use ironflow::nodes::NodeRegistry;
+use ironflow::nodes::{NodeFailure, NodeRegistry};
 
 // --- Helpers ---
 
@@ -94,6 +94,79 @@ async fn shell_with_env_vars() {
     assert!(
         stdout.contains("ironflow_test_value"),
         "Expected stdout to contain env var value, got: {stdout}"
+    );
+}
+
+#[tokio::test]
+async fn shell_interpolates_nested_and_indexed_config_values() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("shell_command").unwrap();
+    let working_directory = tempfile::tempdir().unwrap();
+    std::fs::write(working_directory.path().join("marker.txt"), "present").unwrap();
+
+    let ctx = ctx_with(vec![(
+        "shell",
+        serde_json::json!({
+            "command": "sh",
+            "arguments": ["-c"],
+            "directories": [working_directory.path().to_string_lossy()],
+            "environment": { "message": "nested-value" },
+            "labels": ["indexed-value"]
+        }),
+    )]);
+    let config = serde_json::json!({
+        "cmd": "${ctx.shell.command}",
+        "args": [
+            "${ctx.shell.arguments[0]}",
+            "test -f marker.txt && printf '%s|%s|%s' \"$IF_MESSAGE\" \"${TMPDIR:-/tmp}\" \"${ctx.shell.labels[0]}\""
+        ],
+        "cwd": "${ctx.shell.directories[0]}",
+        "env": {
+            "IF_MESSAGE": "${ctx.shell.environment.message}",
+            "TMPDIR": "/tmp/foreign-template"
+        }
+    });
+
+    let result = node.execute(&config, &ctx).await.unwrap();
+    assert_eq!(
+        result
+            .get("shell_stdout")
+            .and_then(serde_json::Value::as_str),
+        Some("nested-value|/tmp/foreign-template|indexed-value")
+    );
+}
+
+#[tokio::test]
+async fn shell_rejects_non_string_arguments() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("shell_command").unwrap();
+    let config = serde_json::json!({
+        "cmd": "echo",
+        "args": ["valid", 42]
+    });
+
+    let error = node.execute(&config, &empty_ctx()).await.unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("expects every 'args' entry to be a string")
+    );
+}
+
+#[tokio::test]
+async fn shell_rejects_non_string_environment_values() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("shell_command").unwrap();
+    let config = serde_json::json!({
+        "cmd": "echo",
+        "env": { "INVALID": true }
+    });
+
+    let error = node.execute(&config, &empty_ctx()).await.unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("expects every 'env' value to be a string")
     );
 }
 
@@ -227,6 +300,18 @@ async fn shell_stdout_truncated_at_cap() {
     });
 
     let result = node.execute(&config, &empty_ctx()).await;
+    let failure = node
+        .execute(
+            &serde_json::json!({
+                "cmd": "sh",
+                "args": [
+                    "-c",
+                    "printf 'o%.0s' $(seq 1 2048); printf 'e%.0s' $(seq 1 2048) >&2; exit 6"
+                ]
+            }),
+            &empty_ctx(),
+        )
+        .await;
 
     unsafe {
         std::env::remove_var("IRONFLOW_MAX_SHELL_OUTPUT_BYTES");
@@ -244,4 +329,12 @@ async fn shell_stdout_truncated_at_cap() {
         Some(&serde_json::json!(true)),
         "truncation marker must be set when output is capped"
     );
+
+    let failure = failure.unwrap_err();
+    let output = failure.downcast_ref::<NodeFailure>().unwrap().output();
+    assert!(output["shell_stdout"].as_str().unwrap().len() <= 128);
+    assert!(output["shell_stderr"].as_str().unwrap().len() <= 128);
+    assert_eq!(output["shell_code"], 6);
+    assert_eq!(output["shell_success"], false);
+    assert_eq!(output["shell_output_truncated"], true);
 }

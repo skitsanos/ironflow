@@ -141,3 +141,76 @@ async fn xml_stringify_custom_root_tag() {
     assert!(xml.contains("<catalog>"));
     assert!(xml.contains("</catalog>"));
 }
+
+// --- IF-037: deeply nested input must not overflow the stack ---
+
+fn nested_xml(depth: usize) -> String {
+    let mut s = String::with_capacity(depth * 7);
+    for _ in 0..depth {
+        s.push_str("<a>");
+    }
+    for _ in 0..depth {
+        s.push_str("</a>");
+    }
+    s
+}
+
+#[tokio::test]
+async fn xml_parse_rejects_moderately_deep_nesting() {
+    // Depth 300 parses fine today (no crash) but exceeds the safe limit; it must
+    // become a bounded node error rather than build an unbounded structure.
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("xml_parse").unwrap();
+    let config = serde_json::json!({ "input": nested_xml(300) });
+    let result = node.execute(&config, &empty_ctx()).await;
+    assert!(
+        result.is_err(),
+        "expected deeply nested XML to be rejected, got Ok"
+    );
+    let message = result.unwrap_err().to_string();
+    assert!(
+        message.contains("nesting") || message.contains("depth"),
+        "error should mention nesting/depth, got: {message}"
+    );
+}
+
+#[tokio::test]
+async fn xml_parse_pathological_depth_does_not_abort() {
+    // Without a depth guard this input overflows the stack and aborts the
+    // process (SIGABRT) when the deep serde_json::Value is dropped.
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("xml_parse").unwrap();
+    let config = serde_json::json!({ "input": nested_xml(200_000) });
+    let result = node.execute(&config, &empty_ctx()).await;
+    assert!(
+        result.is_err(),
+        "pathologically deep XML must error, not abort"
+    );
+}
+
+#[tokio::test]
+async fn xml_parse_allows_reasonable_nesting() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("xml_parse").unwrap();
+    let config = serde_json::json!({ "input": nested_xml(64) });
+    let result = node.execute(&config, &empty_ctx()).await;
+    assert!(result.is_ok(), "64-deep XML is well within limits");
+}
+
+#[tokio::test]
+async fn yaml_parse_rejects_deeply_nested_input_without_crash() {
+    // The YAML parser already enforces its own nesting limit; lock in that deep
+    // input is a clean error rather than a crash.
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("yaml_parse").unwrap();
+    let mut input = String::new();
+    for _ in 0..5000 {
+        input.push('[');
+    }
+    for _ in 0..5000 {
+        input.push(']');
+    }
+    let config = serde_json::json!({ "input": input });
+    let result = node.execute(&config, &empty_ctx()).await;
+    assert!(result.is_err(), "deeply nested YAML must be rejected");
+}

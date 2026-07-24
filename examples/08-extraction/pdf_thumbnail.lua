@@ -1,8 +1,11 @@
+-- Requirements: native Pdfium must be installed system-wide, available in the
+-- working directory, or selected with PDFIUM_LIB_PATH.
+-- Effects: the thumbnail is returned in workflow context; no file is written.
 local flow = Flow.new("pdf_thumbnail_demo")
 
 -- Render the first page as a thumbnail image.
 flow:step("thumb", nodes.pdf_thumbnail({
-    path = "data/samples/Bill26022026_121916AM_8000951511_fc72420d-72e1-460b-b714-8a7388ea90d4_.pdf",
+    path = "${ctx._flow_dir}/../fixtures/ironflow-sample.pdf",
     page = 1,
     format = "png",
     size = 320,

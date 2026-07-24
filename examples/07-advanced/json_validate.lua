@@ -2,10 +2,12 @@
 local flow = Flow.new("json_validate_flow")
 
 flow:step("prepare_input", nodes.code({
-    source = function()
-        return {
+    source = function(ctx)
+        local payload_json = ctx.payload_json
+        if payload_json == nil then
             payload_json = '{"id":"ORD-123","name":"Alice","status":"new","age":29}'
-        }
+        end
+        return { payload_json = payload_json }
     end,
 }))
 

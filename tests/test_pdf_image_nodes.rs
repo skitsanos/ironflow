@@ -20,7 +20,7 @@ fn is_pdfium_error(err: &anyhow::Error) -> bool {
 }
 
 fn sample_root() -> std::path::PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("data/samples")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/fixtures")
 }
 
 fn write_temp_png(path: &std::path::Path, color: [u8; 4], width: u32, height: u32) {
@@ -38,12 +38,7 @@ fn write_temp_png(path: &std::path::Path, color: [u8; 4], width: u32, height: u3
 
 #[tokio::test]
 async fn pdf_to_image_generates_base64_pages() {
-    let sample_pdf = sample_root()
-        .join("Bill26022026_121916AM_8000951511_fc72420d-72e1-460b-b714-8a7388ea90d4_.pdf");
-    if !sample_pdf.exists() {
-        eprintln!("Skipping: sample pdf not found at {}", sample_pdf.display());
-        return;
-    }
+    let sample_pdf = sample_root().join("ironflow-sample.pdf");
     let reg = NodeRegistry::with_builtins();
     let node = reg.get("pdf_to_image").unwrap();
 
@@ -66,7 +61,7 @@ async fn pdf_to_image_generates_base64_pages() {
     let images = result.get("images").unwrap().as_array().unwrap();
     assert_eq!(images.len(), 1);
     assert!(images[0].get("image_base64").is_some());
-    assert_eq!(result.get("page_count").unwrap().as_u64().unwrap(), 1);
+    assert_eq!(result.get("page_count").unwrap().as_u64().unwrap(), 3);
 }
 
 #[tokio::test]
@@ -90,12 +85,7 @@ async fn pdf_to_image_rejects_excessive_dpi_before_loading() {
 
 #[tokio::test]
 async fn pdf_thumbnail_generates_one_thumbnail() {
-    let sample_pdf = sample_root()
-        .join("Bill26022026_121916AM_8000951511_fc72420d-72e1-460b-b714-8a7388ea90d4_.pdf");
-    if !sample_pdf.exists() {
-        eprintln!("Skipping: sample pdf not found at {}", sample_pdf.display());
-        return;
-    }
+    let sample_pdf = sample_root().join("ironflow-sample.pdf");
     let reg = NodeRegistry::with_builtins();
     let node = reg.get("pdf_thumbnail").unwrap();
 
@@ -286,12 +276,7 @@ async fn image_crop_generates_cropped_file() {
 
 #[tokio::test]
 async fn pdf_metadata_extracts_key_fields() {
-    let sample_pdf = sample_root()
-        .join("Bill26022026_121916AM_8000951511_fc72420d-72e1-460b-b714-8a7388ea90d4_.pdf");
-    if !sample_pdf.exists() {
-        eprintln!("Skipping: sample pdf not found at {}", sample_pdf.display());
-        return;
-    }
+    let sample_pdf = sample_root().join("ironflow-sample.pdf");
     let reg = NodeRegistry::with_builtins();
     let node = reg.get("pdf_metadata").unwrap();
 
@@ -303,7 +288,7 @@ async fn pdf_metadata_extracts_key_fields() {
     let result = node.execute(&config, &empty_ctx()).await.unwrap();
     let meta = result.get("meta").unwrap().as_object().unwrap();
     assert!(meta.contains_key("pages"));
-    assert!(meta.get("pages").unwrap().as_u64().unwrap() > 0);
+    assert_eq!(meta.get("pages").unwrap().as_u64().unwrap(), 3);
 }
 
 #[tokio::test]

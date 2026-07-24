@@ -12,9 +12,65 @@ async fn s3vector_nodes_are_registered() {
     assert!(reg.get("s3vector_get_bucket").is_some());
     assert!(reg.get("s3vector_create_index").is_some());
     assert!(reg.get("s3vector_get_index").is_some());
+    assert!(reg.get("s3vector_delete_index").is_some());
+    assert!(reg.get("s3vector_delete_bucket").is_some());
     assert!(reg.get("s3vector_put_vectors").is_some());
     assert!(reg.get("s3vector_query_vectors").is_some());
     assert!(reg.get("s3vector_delete_vectors").is_some());
+}
+
+#[tokio::test]
+async fn s3vector_delete_bucket_requires_bucket_identifier() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("s3vector_delete_bucket").unwrap();
+
+    let err = node
+        .execute(&serde_json::json!({}), &empty_ctx())
+        .await
+        .unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "s3vector_delete_bucket requires 'vector_bucket_name' or 'vector_bucket_arn'"
+    );
+}
+
+#[tokio::test]
+async fn s3vector_delete_index_requires_index_identifier() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("s3vector_delete_index").unwrap();
+
+    let err = node
+        .execute(
+            &serde_json::json!({ "vector_bucket_name": "demo-bucket" }),
+            &empty_ctx(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "s3vector_delete_index requires 'index_name' or 'index_arn'"
+    );
+}
+
+#[tokio::test]
+async fn s3vector_delete_index_name_requires_bucket_name() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("s3vector_delete_index").unwrap();
+
+    let err = node
+        .execute(
+            &serde_json::json!({
+                "vector_bucket_arn": "arn:aws:s3vectors:us-east-1:123456789012:bucket/demo",
+                "index_name": "demo-index"
+            }),
+            &empty_ctx(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "s3vector_delete_index requires 'vector_bucket_name' when using 'index_name'"
+    );
 }
 
 #[tokio::test]

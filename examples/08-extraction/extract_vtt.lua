@@ -1,7 +1,7 @@
 local flow = Flow.new("extract_vtt_demo")
 
 flow:step("extract", nodes.extract_vtt({
-    path = "data/samples/sample_subtitles.vtt",
+    path = "${ctx._flow_dir}/../fixtures/ironflow-transcript.vtt",
     format = "markdown",
     output_key = "subtitles",
     metadata_key = "subtitles_meta"
@@ -15,11 +15,11 @@ flow:step("log", nodes.log({
 flow:step("show", nodes.log({
     message = "Transcript: ${ctx.transcript}",
     level = "info"
-})):depends_on("extract")
+})):depends_on("log")
 
 flow:step("show_cues", nodes.log({
     message = "Cue list keys: ${ctx.cues}",
     level = "info"
-})):depends_on("extract")
+})):depends_on("show")
 
 return flow

@@ -2,7 +2,7 @@
 RAG ingestion + query-expansion search pattern with S3 Vectors.
 
 Flow:
-1) Build deterministic bucket/index names for this run.
+1) Build unique bucket/index names for this run.
 2) Create bucket and index in S3 Vectors.
 3) Extract an interview VTT transcript.
 4) Chunk transcript text and normalize chunks.
@@ -12,7 +12,7 @@ Flow:
 8) Expand the query using `nodes.llm` (multiple variants).
 9) Merge base + expanded variants into one rich retrieval prompt.
 10) Embed that expanded search prompt and run semantic query.
-11) Log retrieved results and clean up test vectors.
+11) Log results, then delete vectors, index, and bucket in dependency order.
 
 This demonstrates a simple query expansion technique:
 - use the LLM to generate paraphrases/alternative formulations,
@@ -23,6 +23,12 @@ Requirements:
 - OPENAI_API_KEY
 - AWS credentials for S3 Vector
 - AWS_REGION or equivalent AWS_REGION-compatible env var
+
+Effects:
+- Creates a UUID-scoped bucket and index. After reporting, successful teardown
+  deletes vectors, then the index, then the bucket.
+- Cleanup is not a finally block; failure or interruption can retain remote
+  resources that may incur provider cost.
 ]]
 
 local flow = Flow.new("s3vector_rag_query_expansion")
@@ -30,7 +36,7 @@ local flow = Flow.new("s3vector_rag_query_expansion")
 --[[ Step 1: create stable names for a temporary index ]]
 flow:step("naming", nodes.code({
     source = function()
-        local suffix = now_unix_ms()
+        local suffix = uuid4():gsub("-", "")
         return {
             bucket_name = "ironflow-rag-expansion-" .. suffix,
             index_name = "ironflow-rag-expansion-index-" .. suffix
@@ -56,7 +62,7 @@ flow:step("create_index", nodes.s3vector_create_index({
 
 --[[ Step 4: extract interview transcript text ]]
 flow:step("extract_vtt", nodes.extract_vtt({
-    path = "data/samples/interview_long.vtt",
+    path = "${ctx._flow_dir}/../fixtures/ironflow-transcript.vtt",
     format = "text",
     output_key = "transcript"
 })):depends_on("create_index")
@@ -114,7 +120,7 @@ flow:step("build_vectors", nodes.code({
                     key = key,
                     data = vector,
                     metadata = {
-                        source_file = "interview_long.vtt",
+                        source_file = "ironflow-transcript.vtt",
                         chunk_index = i,
                         source = "vtt",
                         char_count = #text
@@ -258,15 +264,26 @@ flow:step("query_vectors", nodes.s3vector_query_vectors({
 
 --[[ Step 16: print summary with query expansion + retrieval ]]
 flow:step("log_results", nodes.log({
-    message = "Query expansion count=${ctx.expanded_query_count}; query variants=${ctx.query_expansions[1]}, ${ctx.query_expansions[2]}, ${ctx.query_expansions[3]}; results=${ctx.rag_query_count}"
+    message = "Query expansion count=${ctx.expanded_query_count}; query variants=${ctx.query_expansions[0]}, ${ctx.query_expansions[1]}, ${ctx.query_expansions[2]}; results=${ctx.rag_query_count}"
 })):depends_on("query_vectors")
 
---[[ Step 17: cleanup inserted vectors ]]
-flow:step("cleanup", nodes.s3vector_delete_vectors({
+--[[ Step 17: teardown after reporting: vectors -> index -> bucket ]]
+flow:step("delete_vectors", nodes.s3vector_delete_vectors({
     vector_bucket_name = "${ctx.bucket_name}",
     index_name = "${ctx.index_name}",
     keys_source_key = "vector_keys",
-    output_key = "cleanup"
-})):depends_on("query_vectors")
+    output_key = "deleted_vectors"
+})):depends_on("log_results")
+
+flow:step("delete_index", nodes.s3vector_delete_index({
+    vector_bucket_name = "${ctx.bucket_name}",
+    index_name = "${ctx.index_name}",
+    output_key = "deleted_index"
+})):depends_on("delete_vectors")
+
+flow:step("delete_bucket", nodes.s3vector_delete_bucket({
+    vector_bucket_name = "${ctx.bucket_name}",
+    output_key = "deleted_bucket"
+})):depends_on("delete_index")
 
 return flow

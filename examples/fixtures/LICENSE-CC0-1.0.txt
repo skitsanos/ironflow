@@ -1,0 +1,7 @@
+SPDX-License-Identifier: CC0-1.0
+
+The synthetic fixtures in this directory are dedicated to the public domain
+under the Creative Commons CC0 1.0 Universal Public Domain Dedication.
+
+The full legal text is available at:
+https://creativecommons.org/publicdomain/zero/1.0/legalcode

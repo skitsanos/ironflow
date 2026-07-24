@@ -144,6 +144,82 @@ async fn ai_chunk_fixed_empty_text() {
     assert_eq!(chunks.len(), 0);
 }
 
+#[tokio::test]
+async fn ai_chunk_fixed_rejects_zero_size() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("ai_chunk").unwrap();
+    let ctx = ctx_with(vec![("body", serde_json::json!("text"))]);
+    let config = serde_json::json!({
+        "source_key": "body",
+        "mode": "fixed",
+        "size": 0
+    });
+
+    let error = node.execute(&config, &ctx).await.unwrap_err().to_string();
+    assert!(error.contains("'size' must be greater than 0 for mode 'fixed'"));
+}
+
+#[tokio::test]
+async fn ai_chunk_fixed_preserves_utf8_across_hard_byte_limits() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("ai_chunk").unwrap();
+
+    // `size` is a byte budget. The emoji is wider than that budget, so it must
+    // become one oversize chunk rather than being split and lossily decoded.
+    let text = "aé🙂中b";
+    let ctx = ctx_with(vec![("body", serde_json::json!(text))]);
+    let config = serde_json::json!({
+        "source_key": "body",
+        "mode": "fixed",
+        "size": 3
+    });
+
+    let out = node.execute(&config, &ctx).await.unwrap();
+    let chunks: Vec<&str> = out
+        .get("chunks")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|chunk| chunk.as_str().unwrap())
+        .collect();
+
+    assert_eq!(chunks, vec!["aé", "🙂", "中", "b"]);
+    assert_eq!(chunks.concat(), text);
+    assert!(chunks.iter().all(|chunk| !chunk.contains('\u{fffd}')));
+}
+
+#[tokio::test]
+async fn ai_chunk_fixed_treats_multibyte_delimiter_as_one_character() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("ai_chunk").unwrap();
+
+    // The byte window ends inside the second ideographic full stop. Searching
+    // delimiter bytes independently used to split there and emit U+FFFD.
+    let text = "alpha。beta。gamma";
+    let ctx = ctx_with(vec![("body", serde_json::json!(text))]);
+    let config = serde_json::json!({
+        "source_key": "body",
+        "mode": "fixed",
+        "size": 13,
+        "delimiters": "。"
+    });
+
+    let out = node.execute(&config, &ctx).await.unwrap();
+    let chunks: Vec<&str> = out
+        .get("chunks")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|chunk| chunk.as_str().unwrap())
+        .collect();
+
+    assert_eq!(chunks, vec!["alpha。", "beta。gamma"]);
+    assert_eq!(chunks.concat(), text);
+    assert!(chunks.iter().all(|chunk| !chunk.contains('\u{fffd}')));
+}
+
 // ============================================================
 // ai_chunk — split mode
 // ============================================================
@@ -196,6 +272,54 @@ async fn ai_chunk_split_correct_count() {
     assert_eq!(chunks.len(), 3, "Expected 3 chunks, got {:?}", chunks);
 }
 
+#[tokio::test]
+async fn ai_chunk_split_preserves_multilingual_text_and_emoji_delimiters() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("ai_chunk").unwrap();
+
+    let text = "你好。Привет🙂مرحبا。done";
+    let ctx = ctx_with(vec![("body", serde_json::json!(text))]);
+    let config = serde_json::json!({
+        "source_key": "body",
+        "mode": "split",
+        "delimiters": "。🙂"
+    });
+
+    let out = node.execute(&config, &ctx).await.unwrap();
+    let chunks: Vec<&str> = out
+        .get("chunks")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|chunk| chunk.as_str().unwrap())
+        .collect();
+
+    assert_eq!(chunks, vec!["你好。", "Привет🙂", "مرحبا。", "done"]);
+    assert_eq!(chunks.concat(), text);
+    assert!(chunks.iter().all(|chunk| !chunk.contains('\u{fffd}')));
+}
+
+#[tokio::test]
+async fn ai_chunk_split_min_chars_counts_unicode_scalars_not_bytes() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("ai_chunk").unwrap();
+
+    let text = "é.a.";
+    let ctx = ctx_with(vec![("body", serde_json::json!(text))]);
+    let config = serde_json::json!({
+        "source_key": "body",
+        "mode": "split",
+        "delimiters": ".",
+        "min_chars": 3
+    });
+
+    let out = node.execute(&config, &ctx).await.unwrap();
+    let chunks = out.get("chunks").unwrap().as_array().unwrap();
+
+    assert_eq!(chunks, &vec![serde_json::json!(text)]);
+}
+
 // ============================================================
 // ai_chunk_merge
 // ============================================================
@@ -236,6 +360,20 @@ async fn ai_chunk_merge_reduces_chunk_count() {
         merged.len()
     );
     assert!(!merged.is_empty());
+}
+
+#[tokio::test]
+async fn ai_chunk_merge_rejects_zero_budget() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("ai_chunk_merge").unwrap();
+    let ctx = ctx_with(vec![("parts", serde_json::json!(["one", "two"]))]);
+    let config = serde_json::json!({
+        "source_key": "parts",
+        "chunk_size": 0
+    });
+
+    let error = node.execute(&config, &ctx).await.unwrap_err();
+    assert!(error.to_string().contains("greater than 0"));
 }
 
 #[tokio::test]
@@ -417,6 +555,21 @@ async fn ai_chunk_cues_empty_array_yields_empty_output() {
         out.get("segments_success").unwrap(),
         &serde_json::json!(true)
     );
+}
+
+#[tokio::test]
+async fn ai_chunk_cues_rejects_zero_size() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("ai_chunk").unwrap();
+    let ctx = ctx_with(vec![("cues", serde_json::json!([]))]);
+    let config = serde_json::json!({
+        "source_key": "cues",
+        "mode": "cues",
+        "size": 0
+    });
+
+    let error = node.execute(&config, &ctx).await.unwrap_err().to_string();
+    assert!(error.contains("'size' must be greater than 0 for mode 'cues'"));
 }
 
 #[tokio::test]

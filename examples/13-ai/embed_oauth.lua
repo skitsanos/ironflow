@@ -1,11 +1,11 @@
 -- Generate text embeddings using an OAuth-authenticated endpoint from a sample PDF document
 -- Requires OAUTH_TOKEN_URL, OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, OAUTH_BASE_URL in .env
--- Document source: data/samples/Bill26022026_121916AM_8000951511_fc72420d-72e1-460b-b714-8a7388ea90d4_.pdf
+-- Document source: examples/fixtures/ironflow-sample.pdf (resolved from this flow)
 
 local flow = Flow.new("embed_oauth")
 
 flow:step("load_document", nodes.extract_pdf({
-    path = "data/samples/Bill26022026_121916AM_8000951511_fc72420d-72e1-460b-b714-8a7388ea90d4_.pdf",
+    path = "${ctx._flow_dir}/../fixtures/ironflow-sample.pdf",
     format = "text",
     output_key = "document"
 }))

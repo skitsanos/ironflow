@@ -148,10 +148,7 @@ pub(crate) fn parse_non_negative_u32(value: u64, field: &str) -> Result<u32> {
         .map_err(|_| anyhow::anyhow!("{}: value {} is too large (max {})", field, value, u32::MAX))
 }
 
-pub(crate) fn parse_rotation_angle(value: &serde_json::Value, field: &str) -> Result<u16> {
-    let angle = value
-        .as_u64()
-        .ok_or_else(|| anyhow::anyhow!("{}: must be one of 90, 180, or 270", field))?;
+pub(crate) fn parse_rotation_angle(angle: u64, field: &str) -> Result<u16> {
     match angle {
         90 | 180 | 270 => Ok(angle as u16),
         0 => Ok(90),

@@ -2,7 +2,7 @@ local flow = Flow.new("extract_pptx_demo")
 
 -- Extract a PowerPoint deck as structured JSON with metadata and comments.
 flow:step("extract_deck", nodes.extract_pptx({
-    path = "data/samples/sample.pptx",
+    path = "${ctx._flow_dir}/../fixtures/ironflow-sample.pptx",
     format = "json",
     output_key = "deck",
     metadata_key = "deck_meta",

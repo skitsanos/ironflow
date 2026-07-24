@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
 use crate::util::bounded_cache::BoundedCache;
+use crate::util::node_config::config_u64_strict;
 
 /// A cached entry with value and optional expiry (unix timestamp in seconds).
 /// Serialization is used only by the file backend; memory entries live in a
@@ -89,7 +90,7 @@ impl Node for CacheSetNode {
             anyhow::bail!("cache_set requires 'source_key' or 'value'");
         };
 
-        let ttl_secs = config.get("ttl").and_then(|v| v.as_u64());
+        let ttl_secs = config_u64_strict(config, "ttl", ctx)?;
 
         let backend = config
             .get("backend")
@@ -101,13 +102,19 @@ impl Node for CacheSetNode {
                 MEMORY_CACHE.insert(key.clone(), value, ttl_secs);
             }
             "file" => {
-                let expires_at = ttl_secs.map(|ttl| {
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_secs()
-                        + ttl
-                });
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                let expires_at = ttl_secs
+                    .map(|ttl| {
+                        now.checked_add(ttl).ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "cache_set: 'ttl' produces an expiry timestamp overflow"
+                            )
+                        })
+                    })
+                    .transpose()?;
                 let entry = CacheEntry { value, expires_at };
                 let cache_dir = cache_dir_from_config(config);
                 write_file_entry(&cache_dir, &key, &entry)?;

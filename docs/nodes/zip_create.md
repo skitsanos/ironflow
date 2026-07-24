@@ -6,8 +6,8 @@ Create a ZIP archive from a file or directory.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `source` | string | yes | — | File or directory path to archive. Supports `${ctx.*}` interpolation. |
-| `zip_path` | string | yes | — | Output path for the generated ZIP file. Supports `${ctx.*}` interpolation. |
+| `source` | string | yes | — | File or directory path to archive. Supports `${ctx.key}` interpolation. |
+| `zip_path` | string | yes | — | Output path for the generated ZIP file. Supports `${ctx.key}` interpolation. |
 | `include_root` | bool | no | `false` | When `true`, include the top-level source directory name as the archive root entry when zipping a directory. |
 | `compression` | string | no | `"deflated"` | Compression algorithm: `"stored"` (no compression) or `"deflated"`. |
 | `max_entries` | number | no | `IRONFLOW_MAX_ZIP_ENTRIES` / `10000` | Maximum number of files added to the archive. |

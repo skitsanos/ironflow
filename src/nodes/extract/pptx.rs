@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::io::Read;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -13,6 +12,7 @@ use super::pptx_parser::{
     PptxElement, PptxSlide, extract_pptx_comments, normalize_pptx_path, parse_pptx_notes,
     parse_pptx_rels, parse_pptx_slide, read_pptx_media,
 };
+use crate::util::node_config::config_bool;
 
 pub struct ExtractPptxNode;
 
@@ -35,10 +35,7 @@ impl Node for ExtractPptxNode {
             .unwrap_or("content");
         let metadata_key = config.get("metadata_key").and_then(|v| v.as_str());
         let comments_key = config.get("comments_key").and_then(|v| v.as_str());
-        let include_image_bytes = config
-            .get("include_image_bytes")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        let include_image_bytes = config_bool(config, "include_image_bytes", ctx).unwrap_or(false);
 
         let file = std::fs::File::open(&path)
             .map_err(|e| anyhow::anyhow!("Failed to open '{}': {}", path, e))?;
@@ -88,11 +85,12 @@ fn extract_pptx_metadata(
 
     // Dublin Core metadata from docProps/core.xml (same as DOCX).
     let xml = match archive.by_name("docProps/core.xml") {
-        Ok(mut entry) => {
-            let mut buf = String::new();
-            entry.read_to_string(&mut buf).ok();
-            buf
-        }
+        Ok(entry) => crate::util::bounded_read::read_to_string_capped(
+            entry,
+            crate::util::limits::max_zip_uncompressed_bytes(),
+            "extract_pptx",
+        )
+        .unwrap_or_default(),
         Err(_) => return meta,
     };
     if xml.is_empty() {
@@ -168,12 +166,14 @@ fn extract_pptx_slides(
     let mut slides = Vec::with_capacity(slide_names.len());
     for (idx, name) in slide_names.iter().enumerate() {
         let slide_index = (idx + 1) as u32;
-        let xml = {
-            let mut buf = String::new();
-            if let Ok(mut entry) = archive.by_name(name) {
-                entry.read_to_string(&mut buf).ok();
-            }
-            buf
+        let xml = match archive.by_name(name) {
+            Ok(entry) => crate::util::bounded_read::read_to_string_capped(
+                entry,
+                crate::util::limits::max_zip_uncompressed_bytes(),
+                "extract_pptx",
+            )
+            .unwrap_or_default(),
+            Err(_) => String::new(),
         };
 
         let (title, mut elements) = parse_pptx_slide(&xml);
@@ -181,9 +181,13 @@ fn extract_pptx_slides(
         // Resolve image embed_id → media path via the slide's rels file.
         let rels_name = format!("ppt/slides/_rels/slide{}.xml.rels", slide_index);
         let rels = match archive.by_name(&rels_name) {
-            Ok(mut entry) => {
-                let mut buf = String::new();
-                entry.read_to_string(&mut buf).ok();
+            Ok(entry) => {
+                let buf = crate::util::bounded_read::read_to_string_capped(
+                    entry,
+                    crate::util::limits::max_zip_uncompressed_bytes(),
+                    "extract_pptx",
+                )
+                .unwrap_or_default();
                 parse_pptx_rels(&buf)
             }
             Err(_) => std::collections::HashMap::new(),
@@ -216,9 +220,13 @@ fn extract_pptx_slides(
         // Try to load matching notes file.
         let notes_name = format!("ppt/notesSlides/notesSlide{}.xml", slide_index);
         let speaker_notes = match archive.by_name(&notes_name) {
-            Ok(mut entry) => {
-                let mut buf = String::new();
-                entry.read_to_string(&mut buf).ok();
+            Ok(entry) => {
+                let buf = crate::util::bounded_read::read_to_string_capped(
+                    entry,
+                    crate::util::limits::max_zip_uncompressed_bytes(),
+                    "extract_pptx",
+                )
+                .unwrap_or_default();
                 let notes = parse_pptx_notes(&buf);
                 if notes.trim().is_empty() {
                     None

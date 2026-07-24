@@ -2,15 +2,17 @@
 local flow = Flow.new("filter_and_batch")
 
 flow:step("prepare_input", nodes.code({
-    source = function()
-        return {
+    source = function(ctx)
+        local users = ctx.users
+        if users == nil then
             users = {
                 { name = "Alice", email = "alice@example.com", status = "active" },
                 { name = "Bob", email = "bob@example.com", status = "inactive" },
                 { name = "Carol", email = "carol@example.com", status = "active" },
                 { name = "Dave", email = "dave@example.com", status = "active" }
             }
-        }
+        end
+        return { users = users }
     end,
 }))
 

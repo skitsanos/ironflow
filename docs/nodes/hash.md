@@ -7,7 +7,7 @@ Compute a cryptographic hash of a string or context value.
 | Parameter    | Type   | Required | Default    | Description                                                            |
 |--------------|--------|----------|------------|------------------------------------------------------------------------|
 | `algorithm`  | string | No       | `"sha256"` | Hash algorithm to use (see Supported Algorithms)                       |
-| `input`      | string | No*      | --         | Literal string to hash; supports `${ctx.*}` interpolation              |
+| `input`      | string | No*      | --         | Literal string to hash; supports `${ctx.key}` interpolation              |
 | `source_key` | string | No*      | --         | Context key whose value will be hashed                                 |
 | `output_key` | string | No       | `"hash"`   | Context key under which the hex-encoded hash is stored                 |
 

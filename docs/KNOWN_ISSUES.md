@@ -1,7 +1,7 @@
 # IronFlow — Known Issues
 
-Issues discovered during development and testing. Resolved issues are removed from this list.
+The active, evidence-backed issue backlog is maintained in
+[`../ISSUES.md`](../ISSUES.md).
 
----
-
-No known issues at this time.
+This file remains as a compatibility entry point for existing documentation
+links. Do not maintain a second issue list here.

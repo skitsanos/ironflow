@@ -13,7 +13,6 @@ from a separate flow or service.
 
 Reusable via context — override any input with --context:
   ironflow run examples/16-s3vector/s3vector_transcript_index.lua --context '{
-    "transcript_path": "data/samples/interview_long.vtt",
     "bucket_name": "my-transcripts",
     "index_name": "my-transcripts-index"
   }'
@@ -21,6 +20,12 @@ Reusable via context — override any input with --context:
 Requirements:
 - OPENAI_API_KEY (for ai_embed)
 - AWS credentials + AWS_REGION (for S3 Vectors)
+
+Effects:
+- Creates a UUID-scoped bucket and index and intentionally retains both the
+  resources and vectors for later querying; remove them manually when done.
+- Manual teardown must delete the stored vectors first, then the index with
+  `s3vector_delete_index`, then the bucket with `s3vector_delete_bucket`.
 
 Notes:
 - extract_vtt handles WebVTT; for .srt use nodes.extract_srt (same output shape).
@@ -30,18 +35,26 @@ Notes:
 
 local flow = Flow.new("s3vector_transcript_index")
 
---[[ Step 0: resolve inputs with safe fallbacks so the flow runs as-is. ]]
+--[[ Step 0: default only omitted inputs so invalid caller values stay visible. ]]
 flow:step("inputs", nodes.code({
     source = function(ctx)
         local path = ctx.transcript_path
-        if type(path) ~= "string" or path == "" then
-            path = "data/samples/interview_long.vtt"
+        if path == nil then
+            path = ctx._flow_dir .. "/../fixtures/ironflow-transcript.vtt"
         end
-        local suffix = now_unix_ms()
+        local suffix = uuid4():gsub("-", "")
+        local bucket_name = ctx.bucket_name
+        if bucket_name == nil then
+            bucket_name = "ironflow-transcripts-" .. suffix
+        end
+        local index_name = ctx.index_name
+        if index_name == nil then
+            index_name = "ironflow-transcripts-index-" .. suffix
+        end
         return {
             transcript_path = path,
-            bucket_name = ctx.bucket_name or ("ironflow-transcripts-" .. suffix),
-            index_name = ctx.index_name or ("ironflow-transcripts-index-" .. suffix)
+            bucket_name = bucket_name,
+            index_name = index_name
         }
     end
 }))

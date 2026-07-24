@@ -2,25 +2,31 @@
 Store VTT chunk embeddings with metadata and query using a metadata filter.
 
 Flow:
-1) Generate a deterministic bucket/index name for temporary storage.
+1) Generate a unique bucket/index name for temporary storage.
 2) Create the S3 Vector bucket and index.
 3) Extract a VTT transcript and split it into chunks.
 4) Convert each chunk into a vector and attach metadata.
 5) Store the vectors in S3 Vectors.
 6) Query the index with a metadata filter and inspect returned metadata.
-7) Delete inserted vectors to keep the namespace clean.
+7) Report the query, then delete vectors, index, and bucket in dependency order.
 
 Prerequisites:
 - OPENAI_API_KEY for embeddings.
 - AWS credentials and region configured.
+
+Effects:
+- Creates a UUID-scoped bucket and index. After reporting, successful teardown
+  deletes vectors, then the index, then the bucket.
+- Cleanup is not a finally block; failure or interruption can retain remote
+  resources that may incur provider cost.
 ]]
 
 local flow = Flow.new("s3vector_metadata_query")
 
---[[ Step 1: create deterministic names ]]
+--[[ Step 1: create unique names ]]
 flow:step("naming", nodes.code({
     source = function()
-        local suffix = now_unix_ms()
+        local suffix = uuid4():gsub("-", "")
         return {
             bucket_name = "ironflow-meta-" .. suffix,
             index_name = "ironflow-meta-index-" .. suffix,
@@ -45,7 +51,7 @@ flow:step("create_index", nodes.s3vector_create_index({
 
 --[[ Step 3: extract interview transcript and split into chunks ]]
 flow:step("extract_vtt", nodes.extract_vtt({
-    path = "data/samples/interview_long.vtt",
+    path = "${ctx._flow_dir}/../fixtures/ironflow-transcript.vtt",
     format = "text",
     output_key = "transcript"
 })):depends_on("create_index")
@@ -101,7 +107,7 @@ flow:step("build_vectors", nodes.code({
                     key = key,
                     data = embedding,
                     metadata = {
-                        source_file = "interview_long.vtt",
+                        source_file = "ironflow-transcript.vtt",
                         chunk_index = i,
                         char_count = #text,
                     }
@@ -159,7 +165,7 @@ flow:step("query_metadata", nodes.s3vector_query_vectors({
     top_k = 3,
     query_vector_key = "query_vector",
     filter = {
-        source_file = "interview_long.vtt"
+        source_file = "ironflow-transcript.vtt"
     },
     return_metadata = true,
     return_distance = true,
@@ -168,15 +174,26 @@ flow:step("query_metadata", nodes.s3vector_query_vectors({
 
 --[[ Step 8: log query summary and first key ]]
 flow:step("log_result", nodes.log({
-    message = "Metadata query returned ${ctx.meta_query_count} vector(s), first hit=${ctx.meta_query_vectors[1].key}"
+    message = "Metadata query returned ${ctx.meta_query_count} vector(s), first hit=${ctx.meta_query_vectors[0].key}"
 })):depends_on("query_metadata")
 
---[[ Step 9: cleanup inserted vectors by key ]]
-flow:step("cleanup_vectors", nodes.s3vector_delete_vectors({
+--[[ Step 9: teardown after reporting: vectors -> index -> bucket ]]
+flow:step("delete_vectors", nodes.s3vector_delete_vectors({
     vector_bucket_name = "${ctx.bucket_name}",
     index_name = "${ctx.index_name}",
     keys_source_key = "vector_keys",
-    output_key = "cleanup"
-})):depends_on("query_metadata")
+    output_key = "deleted_vectors"
+})):depends_on("log_result")
+
+flow:step("delete_index", nodes.s3vector_delete_index({
+    vector_bucket_name = "${ctx.bucket_name}",
+    index_name = "${ctx.index_name}",
+    output_key = "deleted_index"
+})):depends_on("delete_vectors")
+
+flow:step("delete_bucket", nodes.s3vector_delete_bucket({
+    vector_bucket_name = "${ctx.bucket_name}",
+    output_key = "deleted_bucket"
+})):depends_on("delete_index")
 
 return flow

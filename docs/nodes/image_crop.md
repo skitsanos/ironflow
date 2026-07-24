@@ -6,7 +6,7 @@ Crop a single image file.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | one of `path` or `source_key` | — | Source image path (supports `${ctx.*}` interpolation). |
+| `path` | string | one of `path` or `source_key` | — | Source image path (supports `${ctx.key}` interpolation). |
 | `source_key` | string | one of `path` or `source_key` | — | Context key containing either a path string, or an object entry `{ path = "..." }` / `{ base64 = "..." }`. |
 | `output_path` | string | yes | — | Destination file path for the cropped image. |
 | `x` | number | no | `0` | Left offset in pixels. |
@@ -34,7 +34,7 @@ Crop a single image file.
 local flow = Flow.new("image_crop_demo")
 
 flow:step("crop", nodes.image_crop({
-    path = "data/samples/sample_front.png",
+    path = "examples/fixtures/ironflow-sample.png",
     output_path = "outputs/sample_front_cropped.png",
     x = 10,
     y = 8,

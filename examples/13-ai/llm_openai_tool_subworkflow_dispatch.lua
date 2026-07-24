@@ -5,6 +5,9 @@ Flow:
 1) Call nodes.llm with tool definitions for `get_weather` and `get_time`.
 2) Dispatch every returned tool call to a mapped subworkflow.
 3) Use the resulting structured tool payload to produce a user-facing summary.
+
+Requirements:
+- Network access and OPENAI_API_KEY.
 ]]
 
 local flow = Flow.new("llm_openai_tool_subworkflow_dispatch")

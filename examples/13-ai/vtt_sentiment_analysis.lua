@@ -3,7 +3,7 @@ This example performs sentiment analysis on a VTT conversation file using OAuth-
 chat completions.
 
 Flow:
-1. Extract transcript from `data/samples/interview.vtt`.
+1. Extract the versioned synthetic transcript from `examples/fixtures`.
 2. Exchange OAuth client credentials for an access token.
 3. Build `${OAUTH_BASE_URL}/chat/completions`.
 4. Send the full transcript to `gpt-5-mini` with a sentiment analysis prompt.
@@ -22,7 +22,7 @@ local flow = Flow.new("vtt_sentiment_analysis")
 
 --[[ Step 1: parse the VTT sample and keep transcript + cue list. ]]
 flow:step("extract_vtt", nodes.extract_vtt({
-    path = "data/samples/interview.vtt",
+    path = "${ctx._flow_dir}/../fixtures/ironflow-transcript.vtt",
     format = "text",
     output_key = "interview_transcript",
     metadata_key = "interview_meta"

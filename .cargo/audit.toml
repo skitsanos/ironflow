@@ -1,0 +1,19 @@
+# cargo-audit configuration (IF-040).
+#
+# `cargo audit` fails CI on any advisory that is NOT listed here. Every entry
+# below is TRANSITIVE (IronFlow has no direct dependency on the vulnerable
+# crate) and cannot be resolved without an upstream release. Each MUST be
+# removed once the upstream dependency ships a fix, so the ignore list stays a
+# reviewed, shrinking set rather than a dumping ground.
+
+[advisories]
+ignore = [
+    # rustls-webpki 0.101 — reachable CRL-parsing panic (RUSTSEC-2026-0104) and
+    # incorrect name-constraint acceptance (RUSTSEC-2026-0098/-0099). Pulled in
+    # only by aws-smithy-http-client's rustls 0.21; IronFlow uses rustls-tls
+    # elsewhere via a newer rustls. Remove once the AWS SDK moves to
+    # rustls 0.23 / rustls-webpki >= 0.103.
+    "RUSTSEC-2026-0098",
+    "RUSTSEC-2026-0099",
+    "RUSTSEC-2026-0104",
+]

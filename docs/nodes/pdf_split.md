@@ -6,9 +6,9 @@ Split a PDF into individual pages or page ranges, saving each as a separate PDF 
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | one of `path` or `source_key` | — | File path to the PDF; supports `${ctx.*}` interpolation. |
+| `path` | string | one of `path` or `source_key` | — | File path to the PDF; supports `${ctx.key}` interpolation. |
 | `source_key` | string | one of `path` or `source_key` | — | Context key whose value is the file path (must be a string). |
-| `output_dir` | string | yes | — | Directory for output files; supports `${ctx.*}` interpolation. |
+| `output_dir` | string | yes | — | Directory for output files; supports `${ctx.key}` interpolation. |
 | `pages` | string | no | `"all"` | Page specification: `"all"`, a single page `"3"`, a range `"1-5"`, or a combination `"1-3,7,9-11"`. Pages are 1-based. |
 | `output_key` | string | no | `"pdf_split"` | Context key prefix for output values. |
 

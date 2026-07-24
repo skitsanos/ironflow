@@ -1,95 +1,185 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use tokio::sync::RwLock;
-use tracing::error;
+use tokio::sync::{RwLock, Semaphore};
+use tracing::{error, info, warn};
 
 use crate::engine::types::{Context, StepDefinition};
-use crate::nodes::NodeRegistry;
-use crate::storage::StateStore;
-use crate::storage::event_store::EventStore;
 
+use super::coordinator::RunCoordinator;
 use super::engine::WorkflowEngine;
+use super::phase_output::StepCompletion;
+use super::task_runner::{TaskRunError, TaskRuntime};
 
-impl WorkflowEngine {
-    /// Handle an error for a step that has an `on_error` handler configured.
-    /// Injects `_error_message`, `_error_step`, `_error_node_type` into context,
-    /// runs the handler step, and updates `completed`/`failed`/`error_handled` sets.
-    #[allow(clippy::too_many_arguments)]
-    pub(super) async fn handle_step_error(
-        registry: &NodeRegistry,
-        store: &Arc<dyn StateStore>,
-        events: Option<&Arc<dyn EventStore>>,
-        run_id: &str,
-        step: &Arc<StepDefinition>,
-        step_map: &Arc<std::collections::HashMap<String, Arc<StepDefinition>>>,
-        ctx: &Arc<RwLock<Arc<Context>>>,
-        completed: &Arc<RwLock<HashSet<String>>>,
-        failed: &Arc<RwLock<HashSet<String>>>,
-        error_handled: &Arc<RwLock<HashSet<String>>>,
-        e: anyhow::Error,
-    ) {
-        let error_step_name = match &step.on_error {
-            Some(name) => name.clone(),
-            None => {
-                error!(task = %step.name, error = %e, "Task failed");
-                failed.write().await.insert(step.name.clone());
-                return;
-            }
-        };
+/// A controlled node failure that may be resolved by one recovery step.
+#[derive(Clone, Debug)]
+pub(super) struct StepFailure {
+    message: String,
+    node_type: String,
+    output: Option<Arc<Context>>,
+}
 
-        tracing::warn!(
-            task = %step.name,
-            error_handler = %error_step_name,
-            "Task failed — routing to error handler"
-        );
+impl StepFailure {
+    fn new(step: &StepDefinition, error: &anyhow::Error, output: Option<Arc<Context>>) -> Self {
+        Self {
+            message: format!("{error:#}"),
+            node_type: step.node_type.clone(),
+            output,
+        }
+    }
 
-        // Inject error details into context
-        {
-            let mut ctx_write = ctx.write().await;
-            let inner = Arc::make_mut(&mut *ctx_write);
-            inner.insert(
+    fn input_overlay(&self, source: &str) -> Context {
+        let mut overlay = Context::from([
+            (
                 "_error_message".to_string(),
-                serde_json::Value::String(format!("{:#}", e)),
-            );
-            inner.insert(
+                serde_json::Value::String(self.message.clone()),
+            ),
+            (
                 "_error_step".to_string(),
-                serde_json::Value::String(step.name.clone()),
-            );
-            inner.insert(
+                serde_json::Value::String(source.to_string()),
+            ),
+            (
                 "_error_node_type".to_string(),
-                serde_json::Value::String(step.node_type.clone()),
+                serde_json::Value::String(self.node_type.clone()),
+            ),
+        ]);
+        if let Some(output) = &self.output {
+            overlay.insert(
+                "_error_output".to_string(),
+                serde_json::Value::Object(
+                    output
+                        .iter()
+                        .map(|(key, value)| (key.clone(), value.clone()))
+                        .collect(),
+                ),
             );
         }
+        overlay
+    }
+}
 
-        // Run the error handler step
-        if let Some(error_step) = step_map.get(&error_step_name) {
-            let err_result = Self::run_task(registry, store, events, run_id, error_step, ctx).await;
+/// Scheduling state distinct from durable task state.
+///
+/// `failures` contains only unresolved task failures and therefore determines
+/// the final run status. `unavailable` contains steps skipped because required
+/// work was unavailable; it propagates dependency skips without inventing a
+/// second failure or overwriting the original failed task.
+#[derive(Debug, Default)]
+pub(super) struct ExecutionState {
+    failures: HashMap<String, StepFailure>,
+    unavailable: HashSet<String>,
+}
 
-            match err_result {
-                Ok(()) => {
-                    // Error was handled — mark original step as completed (error handled)
-                    completed.write().await.insert(step.name.clone());
-                    completed.write().await.insert(error_step_name.clone());
-                    // Prevent the handler from running again in its normal phase
-                    error_handled.write().await.insert(error_step_name.clone());
-                }
-                Err(handler_err) => {
-                    error!(
-                        task = %error_step_name,
-                        error = %handler_err,
-                        "Error handler also failed"
+impl ExecutionState {
+    pub(super) fn record_failure(
+        &mut self,
+        step: &StepDefinition,
+        error: &anyhow::Error,
+        output: Option<Arc<Context>>,
+    ) {
+        self.failures
+            .insert(step.name.clone(), StepFailure::new(step, error, output));
+    }
+
+    pub(super) fn resolve_failure(&mut self, step_name: &str) {
+        self.failures.remove(step_name);
+    }
+
+    pub(super) fn failure(&self, step_name: &str) -> Option<StepFailure> {
+        self.failures.get(step_name).cloned()
+    }
+
+    pub(super) fn mark_unavailable(&mut self, step_name: &str) {
+        self.unavailable.insert(step_name.to_string());
+    }
+
+    pub(super) fn blocked_dependency(&self, dependencies: &[String]) -> Option<String> {
+        dependencies
+            .iter()
+            .find(|dependency| {
+                self.failures.contains_key(dependency.as_str())
+                    || self.unavailable.contains(dependency.as_str())
+            })
+            .cloned()
+    }
+
+    pub(super) fn has_failures(&self) -> bool {
+        !self.failures.is_empty()
+    }
+}
+
+pub(super) struct RecoveryInvocation {
+    pub(super) source: String,
+    pub(super) failure: StepFailure,
+}
+
+impl RunCoordinator {
+    /// Execute one phase-planned step and update the in-memory dependency
+    /// state. Recovery handlers use a private input overlay; only their node
+    /// output is published into the shared workflow context.
+    pub(super) async fn execute_planned_step(
+        &self,
+        step: Arc<StepDefinition>,
+        semaphore: Arc<Semaphore>,
+        state: Arc<RwLock<ExecutionState>>,
+        phase_ctx: Arc<Context>,
+        recovery: Option<RecoveryInvocation>,
+    ) -> anyhow::Result<StepCompletion> {
+        let _permit = semaphore
+            .acquire_owned()
+            .await
+            .map_err(|_| anyhow::anyhow!("Workflow task semaphore closed unexpectedly"))?;
+        let input_overlay = recovery
+            .as_ref()
+            .map(|invocation| invocation.failure.input_overlay(&invocation.source));
+
+        let runtime = TaskRuntime::new(
+            &self.registry,
+            &self.store,
+            self.events.as_ref(),
+            &self.run_id,
+            &phase_ctx,
+            &self.execution_overlay,
+        );
+        match WorkflowEngine::run_task(&runtime, &step, input_overlay.as_ref()).await {
+            Ok(output) => {
+                if let Some(recovery) = recovery {
+                    state.write().await.resolve_failure(&recovery.source);
+                    info!(
+                        task = %step.name,
+                        recovered_task = %recovery.source,
+                        "Recovery handler completed"
                     );
-                    failed.write().await.insert(step.name.clone());
                 }
+                Ok(StepCompletion::published(step.name.clone(), output))
             }
-        } else {
-            error!(
-                task = %step.name,
-                error_handler = %error_step_name,
-                "Error handler step not found"
-            );
-            failed.write().await.insert(step.name.clone());
+            Err(TaskRunError::Workflow {
+                error: workflow_error,
+                output,
+            }) => {
+                if step.on_error.is_some() {
+                    warn!(
+                        task = %step.name,
+                        error = %workflow_error,
+                        "Task failed; its recovery handler remains scheduled in the DAG"
+                    );
+                } else if recovery.is_some() {
+                    error!(
+                        task = %step.name,
+                        error = %workflow_error,
+                        "Recovery handler failed"
+                    );
+                } else {
+                    error!(task = %step.name, error = %workflow_error, "Task failed");
+                }
+                let completion = StepCompletion::new(step.name.clone(), output.clone());
+                state
+                    .write()
+                    .await
+                    .record_failure(&step, &workflow_error, output);
+                Ok(completion)
+            }
+            Err(TaskRunError::Infrastructure(infrastructure_error)) => Err(infrastructure_error),
         }
     }
 }

@@ -162,6 +162,24 @@ async fn send_email_smtp_requires_server() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn send_email_smtp_rejects_port_overflow() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("send_email").unwrap();
+    let config = serde_json::json!({
+        "provider": "smtp",
+        "smtp_server": "localhost",
+        "smtp_port": 65536,
+        "to": "test@example.com",
+        "from": "sender@example.com",
+        "subject": "Test",
+        "text": "Hello"
+    });
+
+    let error = node.execute(&config, &empty_ctx()).await.unwrap_err();
+    assert!(error.to_string().contains("at most 65535"));
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn send_email_sends_correct_request() {
     let resend_response = r#"{"id":"email_123"}"#;
     let (url, handle) = spawn_mock_server(resend_response, 200);
@@ -284,8 +302,9 @@ async fn send_email_custom_output_key() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn send_email_handles_server_error() {
-    let error_body = r#"{"message":"Invalid API key"}"#;
-    let (url, _handle) = spawn_mock_server(error_body, 403);
+    let error_body = r#"{"message":"password=email-body-sentinel"}"#;
+    let (base_url, _handle) = spawn_mock_server(error_body, 403);
+    let url = format!("{base_url}/send/email-path-sentinel?token=email-query-sentinel");
 
     let reg = NodeRegistry::with_builtins();
     let node = reg.get("send_email").unwrap();
@@ -308,6 +327,14 @@ async fn send_email_handles_server_error() {
         "Expected status 403 in error, got: {}",
         err
     );
+    for secret in [
+        "email-path-sentinel",
+        "email-query-sentinel",
+        "email-body-sentinel",
+        "re_bad_key",
+    ] {
+        assert!(!err.contains(secret), "error disclosed {secret}: {err}");
+    }
 }
 
 #[tokio::test(flavor = "current_thread")]

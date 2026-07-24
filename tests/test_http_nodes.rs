@@ -206,6 +206,38 @@ async fn http_get_fails_on_non_success_status_by_default() {
 }
 
 #[tokio::test]
+async fn http_status_errors_do_not_disclose_url_credentials() {
+    let (base_url, handle) =
+        spawn_status_mock_server(401, "Unauthorized", &[], r#"{"error":"denied"}"#);
+    let authority = base_url
+        .strip_prefix("http://")
+        .expect("mock server URL uses HTTP");
+    let url = format!(
+        "http://http-user-sentinel:http-password-sentinel@{authority}/http-path-sentinel?token=http-query-sentinel#http-fragment-sentinel"
+    );
+
+    let node = NodeRegistry::with_builtins().get("http_get").unwrap();
+    let error = node
+        .execute(&serde_json::json!({ "url": url }), &empty_ctx())
+        .await
+        .unwrap_err()
+        .to_string();
+
+    assert!(error.contains("returned status 401"));
+    for secret in [
+        "http-user-sentinel",
+        "http-password-sentinel",
+        "http-path-sentinel",
+        "http-query-sentinel",
+        "http-fragment-sentinel",
+    ] {
+        assert!(!error.contains(secret), "error disclosed {secret}: {error}");
+    }
+
+    handle.join().unwrap();
+}
+
+#[tokio::test]
 async fn http_get_can_return_non_success_status_output() {
     let body = r#"{"error":{"message":"rate limited"}}"#;
     let (url, handle) =
@@ -760,4 +792,46 @@ async fn http_get_rejects_oversized_content_length() {
     let err = result.unwrap_err().to_string();
     assert!(err.contains("exceeds"), "unexpected error: {err}");
     let _ = handle.join();
+}
+
+// IF-041: opt-in SSRF guard blocks the initial URL when it targets a private
+// network. Blocked before any connection, so no server is required.
+#[tokio::test]
+async fn http_get_blocks_private_network_when_configured() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("http_get").unwrap();
+    let config = serde_json::json!({
+        "url": "http://169.254.169.254/latest/meta-data/",
+        "block_private_network": true
+    });
+    let err = node
+        .execute(&config, &empty_ctx())
+        .await
+        .expect_err("private network target must be blocked")
+        .to_string();
+    assert!(
+        err.contains("private network"),
+        "expected an SSRF-guard error, got: {err}"
+    );
+}
+
+#[tokio::test]
+async fn http_get_allows_private_network_by_default() {
+    // Without the opt-in guard, a private target is attempted (and fails to
+    // connect) rather than being refused by the guard.
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("http_get").unwrap();
+    let config = serde_json::json!({
+        "url": "http://127.0.0.1:1/",
+        "timeout": 2.0
+    });
+    let err = node
+        .execute(&config, &empty_ctx())
+        .await
+        .expect_err("connection to 127.0.0.1:1 should fail")
+        .to_string();
+    assert!(
+        !err.contains("private network"),
+        "guard must not fire when not configured: {err}"
+    );
 }

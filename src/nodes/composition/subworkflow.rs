@@ -5,11 +5,13 @@ use anyhow::Result;
 use async_trait::async_trait;
 use tokio::sync::Semaphore;
 
+use crate::engine::executor::ExecutionOverlay;
 use crate::engine::executor::WorkflowEngine;
 use crate::engine::types::{Context, NodeOutput, RunStatus};
 use crate::lua::runtime::LuaRuntime;
 use crate::nodes::{Node, NodeRegistry};
 use crate::storage::null_store::NullStateStore;
+use crate::util::node_config::config_bool;
 
 /// Process-global cap on concurrently-running fire-and-forget subworkflows.
 /// Override with `IRONFLOW_MAX_DETACHED_SUBWORKFLOWS`.
@@ -71,7 +73,7 @@ impl Node for SubworkflowNode {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("subworkflow requires 'flow' parameter"))?;
 
-        let wait = config.get("wait").and_then(|v| v.as_bool()).unwrap_or(true);
+        let wait = config_bool(config, "wait", ctx).unwrap_or(true);
 
         let output_key = config
             .get("output_key")
@@ -128,17 +130,24 @@ impl Node for SubworkflowNode {
             );
         }
 
+        let execution_overlay = ExecutionOverlay::current();
+        execution_overlay.strip_from_context(&mut sub_ctx);
+
         // Build a full registry (with subworkflow support) for the child engine
         let child_registry = self.child_registry();
 
         // Load the subworkflow
-        let flow = LuaRuntime::load_flow(&flow_path_str, &child_registry)?;
+        let flow = LuaRuntime::load_flow_async(&flow_path_str, &child_registry).await?;
 
         let store: Arc<dyn crate::storage::StateStore> = Arc::new(NullStateStore::new());
 
         if wait {
             let engine = WorkflowEngine::new(child_registry, store.clone(), None);
-            let run_id = engine.execute(&flow, sub_ctx).await?;
+            let run_id = engine
+                .start_with_execution_overlay(&flow, sub_ctx, execution_overlay)
+                .await?
+                .wait_cancel_on_drop()
+                .await?;
             let run_info = store.get_run_info(&run_id).await?;
 
             let child_succeeded = matches!(run_info.status, RunStatus::Success);
@@ -195,7 +204,14 @@ impl Node for SubworkflowNode {
                 // Permit is dropped when this task exits, releasing one slot.
                 let _permit = permit;
                 let engine = WorkflowEngine::new(child_registry, store, None);
-                if let Err(e) = engine.execute(&flow, sub_ctx).await {
+                let result = engine
+                    .start_with_execution_overlay(&flow, sub_ctx, execution_overlay)
+                    .await;
+                let result = match result {
+                    Ok(handle) => handle.wait().await.map(|_| ()),
+                    Err(error) => Err(error),
+                };
+                if let Err(e) = result {
                     tracing::error!(
                         flow = %flow_name,
                         error = %e,

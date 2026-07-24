@@ -6,8 +6,8 @@ Move (rename) a file to a new location.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `source` | string | yes | — | Path to the file to move. Supports `${ctx.*}` interpolation. |
-| `destination` | string | yes | — | New path for the file. Supports `${ctx.*}` interpolation. |
+| `source` | string | yes | — | Path to the file to move. Supports `${ctx.key}` interpolation. |
+| `destination` | string | yes | — | New path for the file. Supports `${ctx.key}` interpolation. |
 
 ## Context Output
 

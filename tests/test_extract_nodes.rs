@@ -116,22 +116,19 @@ fn make_pptx_with_image(
 }
 
 fn sample_docx_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("data/samples/Ballerina_vs_Java_Comparison_Matrix.docx")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/fixtures/ironflow-sample.docx")
 }
 
 fn sample_pdf_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
-        "data/samples/Bill26022026_121916AM_8000951511_fc72420d-72e1-460b-b714-8a7388ea90d4_.pdf",
-    )
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/fixtures/ironflow-sample.pdf")
 }
 
 fn sample_vtt_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("data/samples/sample_subtitles.vtt")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/fixtures/ironflow-transcript.vtt")
 }
 
 fn sample_srt_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("data/samples/sample_subtitles.srt")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/fixtures/ironflow-transcript.srt")
 }
 
 fn html_sample() -> &'static str {
@@ -141,10 +138,6 @@ fn html_sample() -> &'static str {
 #[tokio::test]
 async fn extract_word_text_output() {
     let path = sample_docx_path();
-    if !path.exists() {
-        eprintln!("Skipping: sample docx not found at {}", path.display());
-        return;
-    }
     let node = NodeRegistry::with_builtins().get("extract_word").unwrap();
 
     let config = serde_json::json!({
@@ -154,16 +147,13 @@ async fn extract_word_text_output() {
 
     let out = node.execute(&config, &Context::new()).await.unwrap();
     let content = out.get("content").unwrap().as_str().unwrap();
-    assert!(content.contains("Technology Comparison Matrix"));
+    assert!(content.contains("IronFlow Sample Document"));
+    assert!(content.contains("Deterministic sample"));
 }
 
 #[tokio::test]
 async fn extract_word_markdown_with_metadata() {
     let path = sample_docx_path();
-    if !path.exists() {
-        eprintln!("Skipping: sample docx not found at {}", path.display());
-        return;
-    }
     let node = NodeRegistry::with_builtins().get("extract_word").unwrap();
 
     let config = serde_json::json!({
@@ -175,8 +165,9 @@ async fn extract_word_markdown_with_metadata() {
 
     let out = node.execute(&config, &Context::new()).await.unwrap();
     let content = out.get("content_md").unwrap().as_str().unwrap();
-    assert!(content.contains("Technology Comparison Matrix"));
-    assert_eq!(out.get("meta").unwrap().get("author").unwrap(), "Un-named");
+    assert!(content.contains("IronFlow Sample Document"));
+    assert!(content.contains("| **Engine** | **IronFlow** |"));
+    assert_eq!(out.get("meta").unwrap().get("author").unwrap(), "IronFlow");
 }
 
 #[tokio::test]
@@ -241,10 +232,6 @@ async fn extract_html_text_and_markdown() {
 #[tokio::test]
 async fn extract_pdf_returns_content_and_metadata() {
     let path = sample_pdf_path();
-    if !path.exists() {
-        eprintln!("Skipping: sample pdf not found at {}", path.display());
-        return;
-    }
     let node = NodeRegistry::with_builtins().get("extract_pdf").unwrap();
 
     let out = node
@@ -261,14 +248,14 @@ async fn extract_pdf_returns_content_and_metadata() {
         .unwrap();
 
     let content = out.get("pdf_content").unwrap().as_str().unwrap();
-    assert!(!content.trim().is_empty());
+    assert!(content.contains("IronFlow Clean-Checkout Fixture"));
     let pages = out
         .get("pdf_meta")
         .unwrap()
         .get("pages")
         .and_then(|v| v.as_u64())
         .unwrap_or(0);
-    assert!(pages > 0);
+    assert_eq!(pages, 3);
 }
 
 #[tokio::test]
@@ -285,16 +272,16 @@ async fn extract_pdf_missing_file_errors() {
         )
         .await
         .expect_err("expected missing-file error");
-    assert!(err.to_string().contains("Failed to read"));
+    let message = err.to_string();
+    assert!(
+        message.contains("extract_pdf") && message.contains("failed to read"),
+        "unexpected error: {message}"
+    );
 }
 
 #[tokio::test]
 async fn extract_vtt_text_and_metadata() {
     let path = sample_vtt_path();
-    if !path.exists() {
-        eprintln!("Skipping: sample vtt not found at {}", path.display());
-        return;
-    }
     let node = NodeRegistry::with_builtins().get("extract_vtt").unwrap();
 
     let out = node
@@ -311,38 +298,34 @@ async fn extract_vtt_text_and_metadata() {
 
     let transcript = out.get("transcript").unwrap().as_str().unwrap();
     let text = transcript;
-    assert!(text.contains("Welcome"));
-    assert!(text.contains("Great to see you"));
+    assert!(text.contains("clean-checkout workflow"));
+    assert!(text.contains("real prerequisites"));
     let cue_count = out
         .get("subtitle_meta")
         .unwrap()
         .get("cue_count")
         .and_then(|v| v.as_u64())
         .unwrap_or(0);
-    assert_eq!(cue_count, 2);
+    assert_eq!(cue_count, 12);
 
     let cues = out.get("cues").and_then(|v| v.as_array()).unwrap();
-    assert_eq!(cues.len(), 2);
+    assert_eq!(cues.len(), 12);
     let first = &cues[0];
     assert_eq!(first.get("start_ms").and_then(|v| v.as_u64()), Some(0));
-    assert_eq!(first.get("end_ms").and_then(|v| v.as_u64()), Some(3000));
+    assert_eq!(first.get("end_ms").and_then(|v| v.as_u64()), Some(3500));
     assert_eq!(
         first.get("start").and_then(|v| v.as_str()),
         Some("00:00:00.000")
     );
     assert_eq!(
         first.get("text").and_then(|v| v.as_str()),
-        Some("Welcome to IronFlow subtitle extraction.")
+        Some("Alex: The clean-checkout workflow starts with versioned inputs.")
     );
 }
 
 #[tokio::test]
 async fn extract_vtt_markdown() {
     let path = sample_vtt_path();
-    if !path.exists() {
-        eprintln!("Skipping: sample vtt not found at {}", path.display());
-        return;
-    }
     let node = NodeRegistry::with_builtins().get("extract_vtt").unwrap();
 
     let out = node
@@ -361,17 +344,13 @@ async fn extract_vtt_markdown() {
     assert!(md.contains("->"));
     assert!(md.contains("00:00:00.000"));
     let transcript = out.get("transcript").unwrap().as_str().unwrap();
-    assert!(transcript.contains("Welcome"));
-    assert!(transcript.contains("Great to see you"));
+    assert!(transcript.contains("clean-checkout workflow"));
+    assert!(transcript.contains("real prerequisites"));
 }
 
 #[tokio::test]
 async fn extract_srt_text_and_metadata() {
     let path = sample_srt_path();
-    if !path.exists() {
-        eprintln!("Skipping: sample srt not found at {}", path.display());
-        return;
-    }
     let node = NodeRegistry::with_builtins().get("extract_srt").unwrap();
 
     let out = node
@@ -387,15 +366,15 @@ async fn extract_srt_text_and_metadata() {
         .unwrap();
 
     let text = out.get("transcript").unwrap().as_str().unwrap();
-    assert!(text.contains("Welcome"));
-    assert!(text.contains("Great to see you"));
+    assert!(text.contains("clean-checkout workflow"));
+    assert!(text.contains("real prerequisites"));
     let cue_count = out
         .get("subtitle_meta")
         .unwrap()
         .get("cue_count")
         .and_then(|v| v.as_u64())
         .unwrap_or(0);
-    assert_eq!(cue_count, 2);
+    assert_eq!(cue_count, 12);
 }
 
 // ---------------------------------------------------------------------------

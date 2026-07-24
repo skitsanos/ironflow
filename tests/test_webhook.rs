@@ -1,223 +1,137 @@
-//! Tests for webhook route handling.
+//! Baseline end-to-end tests for webhook routing and durable business context.
 
 use std::collections::HashMap;
-use std::io::Write;
-use std::sync::Arc;
 
-use axum::Router;
 use axum::body::Body;
-use axum::http::{Request, StatusCode};
-use axum::routing::post;
-use http_body_util::BodyExt;
-use tower::ServiceExt;
+use axum::http::{Method, Request, StatusCode};
+use ironflow::storage::StateStore as _;
 
-use ironflow::nodes::NodeRegistry;
-use ironflow::storage::event_store::MemoryEventStore;
-use ironflow::storage::json_store::JsonStateStore;
+#[path = "support/webhook.rs"]
+mod webhook_support;
 
-/// Build a test router with the webhook route wired up, mirroring src/api/mod.rs.
-fn build_test_app(flows_dir: std::path::PathBuf, webhooks: HashMap<String, String>) -> Router {
-    let registry = Arc::new(NodeRegistry::with_builtins());
-    let store = Arc::new(JsonStateStore::new(tempfile::tempdir().unwrap().keep()));
+use webhook_support::{
+    PLATFORM_API_KEY, authenticated_json_request, authenticated_request, build_test_app, send_json,
+    setup_flow_dir, webhook, write_flow,
+};
 
-    let state = Arc::new(ironflow::api::AppState {
-        registry,
-        store,
-        event_store: Arc::new(MemoryEventStore::new()),
-        flows_dir: Some(flows_dir),
-        max_concurrent_tasks: None,
-        webhooks,
-    });
+#[tokio::test]
+async fn webhook_executes_flow_and_returns_persisted_run() {
+    let flows = setup_flow_dir();
+    let app = build_test_app(
+        flows.path().to_path_buf(),
+        HashMap::from([("hello".to_string(), webhook("hello_world.lua", &[]))]),
+    );
 
-    Router::new()
-        .route(
-            "/webhooks/{name}",
-            post(ironflow::api::handlers::run_webhook),
-        )
-        .with_state(state)
-}
-
-/// Helper: create a temp dir with a Lua flow file, return the dir path.
-fn setup_flow_dir() -> (tempfile::TempDir, std::path::PathBuf) {
-    let dir = tempfile::tempdir().unwrap();
-    let flow_path = dir.path().join("hello_world.lua");
-    let mut f = std::fs::File::create(&flow_path).unwrap();
-    f.write_all(
-        br#"
-        local flow = Flow.new("webhook_test")
-        flow:step("greet", nodes.log({ message = "hello from webhook" }))
-        return flow
-    "#,
+    let (status, body) = send_json(
+        &app.router,
+        authenticated_json_request("/webhooks/hello", "{}"),
     )
-    .unwrap();
-    let dir_path = dir.path().to_path_buf();
-    (dir, dir_path)
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["flow_name"], "webhook_test");
+    assert_eq!(body["status"], "success");
+    let run_id = body["run_id"].as_str().unwrap();
+    let info = app.store.get_run_info(run_id).await.unwrap();
+    assert_eq!(info.flow_name, "webhook_test");
+    assert!(info.status.is_terminal());
 }
 
 #[tokio::test]
-async fn webhook_executes_flow_and_returns_run_id() {
-    let (_dir, dir_path) = setup_flow_dir();
+async fn webhook_routes_are_protected_by_platform_authentication() {
+    let flows = setup_flow_dir();
+    let app = build_test_app(
+        flows.path().to_path_buf(),
+        HashMap::from([("hello".to_string(), webhook("hello_world.lua", &[]))]),
+    );
 
-    let mut webhooks = HashMap::new();
-    webhooks.insert("hello".to_string(), "hello_world.lua".to_string());
+    let (missing_status, _) = send_json(
+        &app.router,
+        Request::builder()
+            .method(Method::POST)
+            .uri("/webhooks/hello")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(missing_status, StatusCode::UNAUTHORIZED);
 
-    let app = build_test_app(dir_path, webhooks);
-
-    let req = Request::builder()
-        .method("POST")
+    let request = Request::builder()
+        .method(Method::POST)
         .uri("/webhooks/hello")
-        .header("content-type", "application/json")
-        .body(Body::from("{}"))
+        .header("x-api-key", PLATFORM_API_KEY)
+        .body(Body::empty())
         .unwrap();
-
-    let resp = app.oneshot(req).await.unwrap();
-    assert_eq!(resp.status(), StatusCode::OK);
-
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-
-    assert!(json.get("run_id").is_some());
-    assert_eq!(json["flow_name"], "webhook_test");
-    assert_eq!(json["status"], "success");
+    let (valid_status, _) = send_json(&app.router, request).await;
+    assert_eq!(valid_status, StatusCode::OK);
 }
 
 #[tokio::test]
 async fn webhook_unknown_name_returns_404() {
-    let (_dir, dir_path) = setup_flow_dir();
+    let flows = setup_flow_dir();
+    let app = build_test_app(flows.path().to_path_buf(), HashMap::new());
 
-    let app = build_test_app(dir_path, HashMap::new());
+    let (status, _) = send_json(
+        &app.router,
+        authenticated_json_request("/webhooks/nonexistent", "{}"),
+    )
+    .await;
 
-    let req = Request::builder()
-        .method("POST")
-        .uri("/webhooks/nonexistent")
-        .header("content-type", "application/json")
-        .body(Body::from("{}"))
-        .unwrap();
-
-    let resp = app.oneshot(req).await.unwrap();
-    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
-async fn webhook_passes_json_body_as_context() {
-    let dir = tempfile::tempdir().unwrap();
-    let flow_path = dir.path().join("echo_ctx.lua");
-    let mut f = std::fs::File::create(&flow_path).unwrap();
-    f.write_all(
-        br#"
+async fn webhook_passes_json_body_and_webhook_name_as_durable_context() {
+    let flows = tempfile::tempdir().unwrap();
+    write_flow(
+        flows.path(),
+        "echo_ctx.lua",
+        r#"
         local flow = Flow.new("echo_ctx")
-        flow:step("check", nodes.code({
-            source = "ctx.greeting_received = ctx.greeting"
-        }))
+        flow:step("check", function(ctx)
+            return {
+                greeting_received = ctx.greeting,
+                hook_name = ctx._webhook
+            }
+        end)
         return flow
-    "#,
+        "#,
+    );
+    let app = build_test_app(
+        flows.path().to_path_buf(),
+        HashMap::from([("echo".to_string(), webhook("echo_ctx.lua", &[]))]),
+    );
+
+    let (status, body) = send_json(
+        &app.router,
+        authenticated_json_request("/webhooks/echo", r#"{"greeting":"hi"}"#),
     )
-    .unwrap();
+    .await;
 
-    let mut webhooks = HashMap::new();
-    webhooks.insert("echo".to_string(), "echo_ctx.lua".to_string());
-
-    let app = build_test_app(dir.path().to_path_buf(), webhooks);
-
-    let req = Request::builder()
-        .method("POST")
-        .uri("/webhooks/echo")
-        .header("content-type", "application/json")
-        .body(Body::from(r#"{"greeting": "hi"}"#))
+    assert_eq!(status, StatusCode::OK);
+    let info = app
+        .store
+        .get_run_info(body["run_id"].as_str().unwrap())
+        .await
         .unwrap();
-
-    let resp = app.oneshot(req).await.unwrap();
-    assert_eq!(resp.status(), StatusCode::OK);
-
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["status"], "success");
+    assert_eq!(info.ctx["greeting_received"], "hi");
+    assert_eq!(info.ctx["hook_name"], "echo");
+    assert_eq!(info.ctx["_webhook"], "echo");
 }
 
 #[tokio::test]
 async fn webhook_works_with_no_body() {
-    let (_dir, dir_path) = setup_flow_dir();
+    let flows = setup_flow_dir();
+    let app = build_test_app(
+        flows.path().to_path_buf(),
+        HashMap::from([("hello".to_string(), webhook("hello_world.lua", &[]))]),
+    );
 
-    let mut webhooks = HashMap::new();
-    webhooks.insert("hello".to_string(), "hello_world.lua".to_string());
-
-    let app = build_test_app(dir_path, webhooks);
-
-    // Send POST with no body at all
-    let req = Request::builder()
-        .method("POST")
-        .uri("/webhooks/hello")
-        .body(Body::empty())
-        .unwrap();
-
-    let resp = app.oneshot(req).await.unwrap();
-    assert_eq!(resp.status(), StatusCode::OK);
-}
-
-#[tokio::test]
-async fn webhook_injects_headers_into_context() {
-    let dir = tempfile::tempdir().unwrap();
-    let flow_path = dir.path().join("check_auth.lua");
-    let mut f = std::fs::File::create(&flow_path).unwrap();
-    f.write_all(
-        br#"
-        local flow = Flow.new("check_auth")
-        flow:step("check", nodes.code({
-            source = "ctx.got_auth = ctx._headers.authorization"
-        }))
-        return flow
-    "#,
+    let (status, _) = send_json(
+        &app.router,
+        authenticated_request(Method::POST, "/webhooks/hello", Body::empty()),
     )
-    .unwrap();
+    .await;
 
-    let mut webhooks = HashMap::new();
-    webhooks.insert("auth".to_string(), "check_auth.lua".to_string());
-
-    let app = build_test_app(dir.path().to_path_buf(), webhooks);
-
-    let req = Request::builder()
-        .method("POST")
-        .uri("/webhooks/auth")
-        .header("content-type", "application/json")
-        .header("authorization", "Bearer test-token-123")
-        .body(Body::from("{}"))
-        .unwrap();
-
-    let resp = app.oneshot(req).await.unwrap();
-    assert_eq!(resp.status(), StatusCode::OK);
-
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(json["status"], "success");
-}
-
-#[tokio::test]
-async fn webhook_injects_webhook_name_into_context() {
-    let dir = tempfile::tempdir().unwrap();
-    let flow_path = dir.path().join("check_name.lua");
-    let mut f = std::fs::File::create(&flow_path).unwrap();
-    f.write_all(
-        br#"
-        local flow = Flow.new("check_name")
-        flow:step("check", nodes.code({
-            source = "ctx.hook_name = ctx._webhook"
-        }))
-        return flow
-    "#,
-    )
-    .unwrap();
-
-    let mut webhooks = HashMap::new();
-    webhooks.insert("my-hook".to_string(), "check_name.lua".to_string());
-
-    let app = build_test_app(dir.path().to_path_buf(), webhooks);
-
-    let req = Request::builder()
-        .method("POST")
-        .uri("/webhooks/my-hook")
-        .body(Body::empty())
-        .unwrap();
-
-    let resp = app.oneshot(req).await.unwrap();
-    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(status, StatusCode::OK);
 }

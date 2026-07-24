@@ -1,0 +1,47 @@
+1
+00:00:00,000 --> 00:00:03,500
+Alex: The clean-checkout workflow starts with versioned inputs.
+
+2
+00:00:03,500 --> 00:00:07,000
+Morgan: That makes the extraction example reliable on a new machine.
+
+3
+00:00:07,000 --> 00:00:10,500
+Alex: The PDF, document, presentation, and image are all synthetic.
+
+4
+00:00:10,500 --> 00:00:14,000
+Morgan: Good. We should never use an invoice or internal slide deck as a fixture.
+
+5
+00:00:14,000 --> 00:00:17,500
+Alex: The checksum test will catch accidental binary changes.
+
+6
+00:00:17,500 --> 00:00:21,000
+Morgan: The runtime matrix also proves that file paths are flow-relative.
+
+7
+00:00:21,000 --> 00:00:24,500
+Alex: Offline examples run without network access or credentials.
+
+8
+00:00:24,500 --> 00:00:28,000
+Morgan: Service-backed examples remain documented but are classified separately.
+
+9
+00:00:28,000 --> 00:00:31,500
+Alex: Generated files belong in an isolated temporary directory.
+
+10
+00:00:31,500 --> 00:00:35,000
+Morgan: That prevents examples from overwriting their own source fixtures.
+
+11
+00:00:35,000 --> 00:00:38,500
+Alex: Small assets keep the repository fast to clone and easy to inspect.
+
+12
+00:00:38,500 --> 00:00:42,000
+Morgan: Now every example can state its real prerequisites clearly.

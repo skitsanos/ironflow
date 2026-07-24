@@ -25,7 +25,7 @@ Convert a single image to grayscale.
 local flow = Flow.new("image_grayscale_demo")
 
 flow:step("grayscale", nodes.image_grayscale({
-    path = "data/samples/sample_front.png",
+    path = "examples/fixtures/ironflow-sample.png",
     output_path = "output/sample_front_gray.png",
     output_key = "gray"
 }))

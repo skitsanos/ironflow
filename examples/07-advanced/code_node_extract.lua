@@ -1,5 +1,6 @@
 -- Code Node: Extract content from OpenAI Chat Completions response
 -- Demonstrates using inline Lua to process API responses
+-- Requirements: network access and OPENAI_API_KEY.
 local flow = Flow.new("code_node_extract")
 
 -- Call OpenAI Chat Completions API

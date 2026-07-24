@@ -13,7 +13,7 @@ local flow = Flow.new("semantic_chunks_embed")
 
 --[[ Step 1: load a multi-page document. ]]
 flow:step("load_document", nodes.extract_pdf({
-    path = "data/samples/Bill26022026_121916AM_8000951511_fc72420d-72e1-460b-b714-8a7388ea90d4_.pdf",
+    path = "${ctx._flow_dir}/../fixtures/ironflow-sample.pdf",
     format = "text",
     output_key = "document_text"
 }))

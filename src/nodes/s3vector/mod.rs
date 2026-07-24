@@ -3,7 +3,9 @@ mod client;
 mod config;
 mod document;
 mod index;
+mod lifecycle;
 mod parameters;
+mod target;
 mod vectors;
 mod vectors_delete;
 mod vectors_put;
@@ -11,6 +13,7 @@ mod vectors_query;
 
 pub use bucket::{S3VectorCreateBucketNode, S3VectorGetBucketNode};
 pub use index::{S3VectorCreateIndexNode, S3VectorGetIndexNode};
+pub use lifecycle::{S3VectorDeleteBucketNode, S3VectorDeleteIndexNode};
 pub use vectors_delete::S3VectorDeleteVectorsNode;
 pub use vectors_put::S3VectorPutVectorsNode;
 pub use vectors_query::S3VectorQueryVectorsNode;
@@ -22,6 +25,8 @@ pub fn register_all(registry: &mut crate::nodes::NodeRegistry) {
     registry.register(Arc::new(S3VectorGetBucketNode));
     registry.register(Arc::new(S3VectorCreateIndexNode));
     registry.register(Arc::new(S3VectorGetIndexNode));
+    registry.register(Arc::new(S3VectorDeleteIndexNode));
+    registry.register(Arc::new(S3VectorDeleteBucketNode));
     registry.register(Arc::new(S3VectorPutVectorsNode));
     registry.register(Arc::new(S3VectorQueryVectorsNode));
     registry.register(Arc::new(S3VectorDeleteVectorsNode));

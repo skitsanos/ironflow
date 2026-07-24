@@ -13,6 +13,7 @@ store_backend: "sqlite"
 store_url: "sqlite://custom/runs/ironflow.sqlite?mode=rwc"
 event_store: "postgres"
 event_store_url: "postgres://example"
+event_memory_capacity: 4096
 sql_table_prefix: "tenant_a_"
 flows_dir: "my_flows"
 max_body: 2097152
@@ -39,6 +40,7 @@ cors_origins:
     );
     assert_eq!(cfg.event_store.as_deref(), Some("postgres"));
     assert_eq!(cfg.event_store_url.as_deref(), Some("postgres://example"));
+    assert_eq!(cfg.event_memory_capacity, Some(4096));
     assert_eq!(cfg.sql_table_prefix.as_deref(), Some("tenant_a_"));
     assert_eq!(cfg.flows_dir.as_deref(), Some("my_flows"));
     assert_eq!(cfg.max_body, Some(2097152));
@@ -72,6 +74,7 @@ port: 9090
     assert!(cfg.store_url.is_none());
     assert!(cfg.event_store.is_none());
     assert!(cfg.event_store_url.is_none());
+    assert!(cfg.event_memory_capacity.is_none());
     assert!(cfg.sql_table_prefix.is_none());
     assert!(cfg.flows_dir.is_none());
     assert!(cfg.max_body.is_none());
@@ -109,6 +112,7 @@ fn missing_auto_detect_returns_defaults() {
     assert!(cfg.store_url.is_none());
     assert!(cfg.event_store.is_none());
     assert!(cfg.event_store_url.is_none());
+    assert!(cfg.event_memory_capacity.is_none());
     assert!(cfg.sql_table_prefix.is_none());
     assert!(cfg.flows_dir.is_none());
     assert!(cfg.max_body.is_none());
@@ -138,12 +142,16 @@ fn invalid_yaml_returns_error() {
 }
 
 #[test]
-fn webhooks_parsed_from_yaml() {
+fn webhooks_parse_legacy_and_detailed_yaml_forms() {
     let yaml = r#"
 flows_dir: "data/flows"
 webhooks:
   hello: hello_world.lua
-  process-order: orders/process.lua
+  process-order:
+    flow: orders/process.lua
+    forward_headers:
+      - Stripe-Signature
+      - stripe-signature
 "#;
 
     let mut f = NamedTempFile::new().unwrap();
@@ -153,8 +161,66 @@ webhooks:
 
     let webhooks = cfg.webhooks.unwrap();
     assert_eq!(webhooks.len(), 2);
-    assert_eq!(webhooks.get("hello").unwrap(), "hello_world.lua");
-    assert_eq!(webhooks.get("process-order").unwrap(), "orders/process.lua");
+    let hello = webhooks.get("hello").unwrap();
+    assert_eq!(hello.flow(), "hello_world.lua");
+    assert!(hello.forward_headers().next().is_none());
+
+    let process_order = webhooks.get("process-order").unwrap();
+    assert_eq!(process_order.flow(), "orders/process.lua");
+    assert_eq!(
+        process_order.forward_headers().collect::<Vec<_>>(),
+        ["stripe-signature"]
+    );
+}
+
+#[test]
+fn webhook_detailed_config_rejects_unknown_security_fields() {
+    let yaml = r#"
+webhooks:
+  signed:
+    flow: signed.lua
+    forward_header:
+      - stripe-signature
+"#;
+
+    let mut f = NamedTempFile::new().unwrap();
+    f.write_all(yaml.as_bytes()).unwrap();
+
+    let error = IronFlowConfig::load(Some(f.path())).unwrap_err();
+    let message = format!("{error:#}");
+    assert!(
+        message.contains("Failed to parse config file"),
+        "unexpected error: {message}"
+    );
+}
+
+#[test]
+fn webhook_config_rejects_reserved_platform_and_session_headers() {
+    for header in [
+        "authorization",
+        "cookie",
+        "proxy-authorization",
+        "x-api-key",
+        "x-amz-security-token",
+        "cf-access-client-secret",
+    ] {
+        let yaml = format!(
+            r#"
+webhooks:
+  signed:
+    flow: signed.lua
+    forward_headers:
+      - {header}
+"#
+        );
+        let mut f = NamedTempFile::new().unwrap();
+        f.write_all(yaml.as_bytes()).unwrap();
+
+        let error = IronFlowConfig::load(Some(f.path())).unwrap_err();
+        let message = format!("{error:#}");
+        assert!(message.contains("reserved"), "{header}: {message}");
+        assert!(message.contains(header), "{header}: {message}");
+    }
 }
 
 #[test]

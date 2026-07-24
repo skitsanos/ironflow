@@ -423,6 +423,26 @@ async fn parallel_subworkflows_dynamic_fanout_injects_item_and_index() {
 }
 
 #[tokio::test]
+async fn parallel_subworkflows_rejects_zero_concurrency() {
+    let dir = tempfile::tempdir().unwrap();
+    write_flow(
+        &dir.path().join("worker.lua"),
+        r#"flow:step("s", nodes.code({ source = "return { ok = true }" }))"#,
+    );
+
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("parallel_subworkflows").unwrap();
+    let config = serde_json::json!({
+        "flows": [{ "flow": "worker.lua" }],
+        "max_concurrent": 0
+    });
+    let ctx = ctx_with_flow_dir(dir.path());
+
+    let error = node.execute(&config, &ctx).await.unwrap_err();
+    assert!(error.to_string().contains("greater than 0"));
+}
+
+#[tokio::test]
 async fn parallel_subworkflows_dynamic_fanout_supports_custom_keys_and_child_output_key() {
     let dir = tempfile::tempdir().unwrap();
 

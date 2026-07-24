@@ -6,7 +6,7 @@ Parse a YAML string into a JSON object.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `input` | string | one of `input` or `source_key` | — | YAML string; supports `${ctx.*}` interpolation. |
+| `input` | string | one of `input` or `source_key` | — | YAML string; supports `${ctx.key}` interpolation. |
 | `source_key` | string | one of `input` or `source_key` | — | Context key containing the YAML string. |
 | `output_key` | string | no | `"yaml_data"` | Context key for the parsed JSON output. |
 

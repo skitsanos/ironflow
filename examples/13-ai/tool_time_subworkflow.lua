@@ -15,7 +15,7 @@ local flow = Flow.new("tool_time_subworkflow")
 flow:step("time_tool", nodes.code({
     source = function(ctx)
         local city = ctx.city
-        if type(city) ~= "string" or city == "" then
+        if city == nil then
             city = "Paris"
         end
 

@@ -2,7 +2,7 @@
 End-to-end RAG ingestion and query pattern with S3 Vectors.
 
 Flow:
-1) Build deterministic bucket/index names.
+1) Build unique bucket/index names.
 2) Create bucket and index.
 3) Extract a VTT transcript.
 4) Chunk transcript into fixed-size chunks.
@@ -11,7 +11,7 @@ Flow:
 7) Build vector payloads with chunk metadata and upload them.
 8) Embed a user query text.
 9) Query vectors by metadata + semantic similarity.
-10) Log top results and clean up test vectors.
+10) Log top results, then delete vectors, index, and bucket in dependency order.
 
 This is the full “chunk → embed → store → query” sequence for retrieval workflows.
 
@@ -19,6 +19,12 @@ Requirements:
 - OPENAI_API_KEY
 - AWS credentials for S3 Vector
 - AWS_REGION or equivalent AWS_REGION-compatible env var
+
+Effects:
+- Creates a UUID-scoped bucket and index. After reporting, successful teardown
+  deletes vectors, then the index, then the bucket.
+- Cleanup is not a finally block; failure or interruption can retain remote
+  resources that may incur provider cost.
 ]]
 
 local flow = Flow.new("s3vector_rag_ingest_query")
@@ -26,7 +32,7 @@ local flow = Flow.new("s3vector_rag_ingest_query")
 --[[ Step 1: generate stable names for this run ]]
 flow:step("naming", nodes.code({
     source = function()
-        local suffix = now_unix_ms()
+        local suffix = uuid4():gsub("-", "")
         return {
             bucket_name = "ironflow-rag-" .. suffix,
             index_name = "ironflow-rag-index-" .. suffix
@@ -51,7 +57,7 @@ flow:step("create_index", nodes.s3vector_create_index({
 
 --[[ Step 3: extract transcript content ]]
 flow:step("extract_vtt", nodes.extract_vtt({
-    path = "data/samples/interview_long.vtt",
+    path = "${ctx._flow_dir}/../fixtures/ironflow-transcript.vtt",
     format = "text",
     output_key = "transcript"
 })):depends_on("create_index")
@@ -108,7 +114,7 @@ flow:step("build_vectors", nodes.code({
                     key = key,
                     data = vector,
                     metadata = {
-                        source_file = "interview_long.vtt",
+                        source_file = "ironflow-transcript.vtt",
                         chunk_index = i,
                         source = "vtt",
                         char_count = #texts[i]
@@ -176,15 +182,26 @@ flow:step("query_vectors", nodes.s3vector_query_vectors({
 
 --[[ Step 11: log top result for quick validation ]]
 flow:step("log_results", nodes.log({
-    message = "RAG query returned ${ctx.rag_query_count} result(s), first=${ctx.rag_query_vectors[1].key}"
+    message = "RAG query returned ${ctx.rag_query_count} result(s), first=${ctx.rag_query_vectors[0].key}"
 })):depends_on("query_vectors")
 
---[[ Step 12: optional cleanup ]]
-flow:step("cleanup", nodes.s3vector_delete_vectors({
+--[[ Step 12: teardown after reporting: vectors -> index -> bucket ]]
+flow:step("delete_vectors", nodes.s3vector_delete_vectors({
     vector_bucket_name = "${ctx.bucket_name}",
     index_name = "${ctx.index_name}",
     keys_source_key = "vector_keys",
-    output_key = "cleanup"
-})):depends_on("query_vectors")
+    output_key = "deleted_vectors"
+})):depends_on("log_results")
+
+flow:step("delete_index", nodes.s3vector_delete_index({
+    vector_bucket_name = "${ctx.bucket_name}",
+    index_name = "${ctx.index_name}",
+    output_key = "deleted_index"
+})):depends_on("delete_vectors")
+
+flow:step("delete_bucket", nodes.s3vector_delete_bucket({
+    vector_bucket_name = "${ctx.bucket_name}",
+    output_key = "deleted_bucket"
+})):depends_on("delete_index")
 
 return flow

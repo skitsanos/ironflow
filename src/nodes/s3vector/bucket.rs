@@ -1,12 +1,42 @@
 use anyhow::Result;
 use async_trait::async_trait;
+use aws_sdk_s3vectors::operation::create_vector_bucket::builders::CreateVectorBucketInputBuilder;
+use aws_sdk_s3vectors::operation::get_vector_bucket::builders::GetVectorBucketInputBuilder;
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
 
 use super::client::build_s3vector_client;
-use super::config::{resolve_bucket_id, resolve_output_key};
-use super::parameters::resolve_non_empty_string;
+use super::config::resolve_output_key;
+use super::target::{
+    BucketTarget, TargetPolicy, resolve_bucket_target, resolve_create_bucket_name,
+};
+
+fn prepare_create_bucket_input(
+    config: &serde_json::Value,
+    ctx: &Context,
+) -> Result<(CreateVectorBucketInputBuilder, String)> {
+    let bucket_name = resolve_create_bucket_name(config, ctx, "s3vector_create_bucket")?;
+    let request = CreateVectorBucketInputBuilder::default().vector_bucket_name(bucket_name.clone());
+    Ok((request, bucket_name))
+}
+
+fn prepare_get_bucket_input(
+    config: &serde_json::Value,
+    ctx: &Context,
+) -> Result<GetVectorBucketInputBuilder> {
+    let target = resolve_bucket_target(
+        config,
+        ctx,
+        "s3vector_get_bucket",
+        TargetPolicy::AllowEnvironment,
+    )?;
+    let request = match target {
+        BucketTarget::Name(name) => GetVectorBucketInputBuilder::default().vector_bucket_name(name),
+        BucketTarget::Arn(arn) => GetVectorBucketInputBuilder::default().vector_bucket_arn(arn),
+    };
+    Ok(request)
+}
 
 pub struct S3VectorCreateBucketNode;
 
@@ -21,22 +51,11 @@ impl Node for S3VectorCreateBucketNode {
     }
 
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
-        let bucket_name = resolve_non_empty_string(
-            config,
-            &["vector_bucket_name", "bucket"],
-            &["S3VECTOR_BUCKET_NAME", "S3_BUCKET"],
-            ctx,
-            "s3vector_create_bucket",
-            "vector_bucket_name",
-        )?;
+        let (request, bucket_name) = prepare_create_bucket_input(config, ctx)?;
         let output_key = resolve_output_key(config);
 
         let client = build_s3vector_client(config, ctx).await?;
-        let response = client
-            .create_vector_bucket()
-            .vector_bucket_name(bucket_name.clone())
-            .send()
-            .await?;
+        let response = request.send_with(&client).await?;
 
         let mut output = NodeOutput::new();
         output.insert(
@@ -71,25 +90,9 @@ impl Node for S3VectorGetBucketNode {
 
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let output_key = resolve_output_key(config);
-        let (bucket_name, bucket_arn) = resolve_bucket_id(config, ctx, "s3vector_get_bucket")?;
-        if bucket_name.is_none() && bucket_arn.is_none() {
-            return Err(anyhow::anyhow!(
-                "s3vector_get_bucket requires 'vector_bucket_name' or 'vector_bucket_arn'"
-            ));
-        }
-
-        let mut request = build_s3vector_client(config, ctx)
-            .await?
-            .get_vector_bucket();
-
-        if let Some(name) = bucket_name {
-            request = request.vector_bucket_name(name);
-        }
-        if let Some(arn) = bucket_arn {
-            request = request.vector_bucket_arn(arn);
-        }
-
-        let response = request.send().await?;
+        let request = prepare_get_bucket_input(config, ctx)?;
+        let client = build_s3vector_client(config, ctx).await?;
+        let response = request.send_with(&client).await?;
         let bucket = response.vector_bucket();
 
         let mut output = NodeOutput::new();
@@ -121,3 +124,6 @@ impl Node for S3VectorGetBucketNode {
         Ok(output)
     }
 }
+
+#[cfg(test)]
+mod tests;

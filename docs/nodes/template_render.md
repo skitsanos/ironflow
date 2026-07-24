@@ -6,10 +6,22 @@ Render a string template with context variable interpolation.
 
 | Parameter    | Type   | Required | Default | Description                                                  |
 |--------------|--------|----------|---------|--------------------------------------------------------------|
-| `template`   | string | Yes      | --      | Template string containing `${ctx.*}` placeholders           |
+| `template`   | string | Yes      | --      | Template string containing context path placeholders         |
 | `output_key` | string | Yes      | --      | Context key under which the rendered result will be stored   |
 
-The template engine replaces `${ctx.key}` placeholders with the corresponding values from the workflow context. Dotted paths are supported for nested access (e.g., `${ctx.user.email}`). Missing keys resolve to an empty string.
+The `template` parameter supports the shared context path grammar:
+
+- dotted object access: `${ctx.user.email}`
+- zero-based array access: `${ctx.items[0].name}`
+- JSON double-quoted bracket keys: `${ctx["key.with.dots"]}`
+
+These forms can be combined. Missing paths, out-of-range indexes, and `null`
+values resolve to an empty string. Expressions, function calls, and fallback
+operators are invalid; compute derived/default values in an explicit workflow
+step. Non-`ctx` placeholders such as `${HOME}` remain literal. To render
+`${ctx.user}` literally, pass `\${ctx.user}` at runtime (written as
+`"\\${ctx.user}"` in a Lua string). Rendering is one pass, so placeholder text
+inside a resolved context string is not evaluated again.
 
 ## Context Output
 
@@ -21,7 +33,7 @@ The template engine replaces `${ctx.key}` placeholders with the corresponding va
 local flow = Flow.new("order_confirmation")
 
 flow:step("render", nodes.template_render({
-    template = "Hello ${ctx.user.name}, your order #${ctx.order_id} is confirmed.",
+    template = "Hello ${ctx.users[0].name}, your order #${ctx.order_id} is confirmed.",
     output_key = "confirmation_message"
 }))
 
@@ -32,7 +44,8 @@ flow:step("done", nodes.log({
 return flow
 ```
 
-Given a context with `user.name = "Alice"` and `order_id = 42`, the output key `confirmation_message` will contain:
+Given a context with `users[0].name = "Alice"` and `order_id = 42`, the output
+key `confirmation_message` will contain:
 
 ```
 Hello Alice, your order #42 is confirmed.

@@ -6,7 +6,7 @@ Parse an XML string into a JSON object.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `input` | string | one of `input` or `source_key` | — | XML string; supports `${ctx.*}` interpolation. |
+| `input` | string | one of `input` or `source_key` | — | XML string; supports `${ctx.key}` interpolation. |
 | `source_key` | string | one of `input` or `source_key` | — | Context key containing the XML string. |
 | `output_key` | string | no | `"xml_data"` | Context key for the parsed JSON output. |
 

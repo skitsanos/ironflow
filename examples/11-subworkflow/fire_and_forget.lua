@@ -4,7 +4,11 @@ local flow = Flow.new("fire_and_forget")
 
 flow:step("prepare", nodes.code({
     source = function(ctx)
-        return { name = "Background" }
+        local name = ctx.name
+        if name == nil then
+            name = "Background"
+        end
+        return { name = name }
     end
 }))
 

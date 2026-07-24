@@ -117,3 +117,47 @@ async fn foreach_filter_nulls_false_preserves_nil_results() {
     assert_eq!(arr[1], serde_json::Value::Null);
     assert_eq!(out.get("mapped_count").unwrap(), 4);
 }
+
+#[tokio::test]
+async fn foreach_does_not_expose_package_loader_or_system_libraries() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("foreach").unwrap();
+
+    let config = foreach_config(
+        r#"
+        local flow = Flow.new("foreach_sandbox")
+        flow:step("x", nodes.foreach({
+            source_key = "items",
+            output_key = "sandbox_types",
+            transform = function()
+                return {
+                    require_type = type(require),
+                    package_type = type(package),
+                    os_type = type(os),
+                    io_type = type(io),
+                    load_type = type(load),
+                    collectgarbage_type = type(collectgarbage),
+                    string_dump_type = type(string.dump)
+                }
+            end
+        }))
+        return flow
+    "#,
+    );
+
+    let ctx = ctx_with(vec![("items", serde_json::json!([1]))]);
+    let out = node.execute(&config, &ctx).await.unwrap();
+    let result = &out["sandbox_types"][0];
+
+    for key in [
+        "require_type",
+        "package_type",
+        "os_type",
+        "io_type",
+        "load_type",
+        "collectgarbage_type",
+        "string_dump_type",
+    ] {
+        assert_eq!(result.get(key), Some(&serde_json::json!("nil")), "{key}");
+    }
+}

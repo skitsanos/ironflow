@@ -20,8 +20,12 @@ If the value is already a JSON object/array/etc., it is validated directly.
 - `validation_success` — boolean indicating whether validation passed
 - `validation_errors` — array of validation error strings (empty on success)
 
-The node returns an error when validation fails so downstream steps are skipped unless
-`on_error` is configured.
+The node returns a structured error when validation fails. Downstream steps are
+skipped unless a dedicated `on_error` handler runs successfully and resolves
+the failure. After retries are exhausted, the final validation result is
+buffered for the source phase barrier and the handler receives its source-exact
+copy in `_error_output`. Normal shared keys still follow declaration-order
+collision precedence if a parallel step publishes the same names.
 
 ## Example
 

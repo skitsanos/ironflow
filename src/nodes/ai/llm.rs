@@ -5,6 +5,7 @@ use serde_json::Value;
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
+use crate::util::duration::positive_duration;
 use crate::util::limits;
 
 use super::embeddings::resolve_param;
@@ -68,8 +69,8 @@ impl Node for LlmNode {
     }
 
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
-        let mode = parse_mode(config)?;
-        let timeout_s = parse_timeout(config);
+        let mode = parse_mode(config, ctx)?;
+        let timeout_s = parse_timeout(config, ctx)?;
         let tools = resolve_tools(config, ctx)?;
         let tool_choice = resolve_tool_choice(config, ctx)?;
         let output_key = config
@@ -77,7 +78,7 @@ impl Node for LlmNode {
             .and_then(|v| v.as_str())
             .unwrap_or("llm")
             .to_string();
-        let max_response_bytes = optional_u64_config(config, "max_response_bytes")
+        let max_response_bytes = optional_u64_config(config, "max_response_bytes", ctx)
             .filter(|limit| *limit > 0)
             .or_else(limits::max_llm_response_bytes);
 
@@ -123,7 +124,7 @@ impl Node for LlmNode {
         let body = build_body(&request_input)?;
 
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs_f64(timeout_s))
+            .timeout(positive_duration(timeout_s, "llm timeout")?)
             .build()?;
 
         let response = client

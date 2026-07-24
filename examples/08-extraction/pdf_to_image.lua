@@ -1,8 +1,11 @@
+-- Requirements: native Pdfium must be installed system-wide, available in the
+-- working directory, or selected with PDFIUM_LIB_PATH.
+-- Effects: rendered images are returned in workflow context; no files are written.
 local flow = Flow.new("pdf_to_image_demo")
 
 -- Render page 1 of a PDF to PNG at 150 DPI
 flow:step("render", nodes.pdf_to_image({
-    path = "data/samples/Bill26022026_121916AM_8000951511_fc72420d-72e1-460b-b714-8a7388ea90d4_.pdf",
+    path = "${ctx._flow_dir}/../fixtures/ironflow-sample.pdf",
     pages = "1",
     format = "png",
     dpi = 150,

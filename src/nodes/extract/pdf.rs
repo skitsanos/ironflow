@@ -29,8 +29,11 @@ impl Node for ExtractPdfNode {
             .unwrap_or("content");
         let metadata_key = config.get("metadata_key").and_then(|v| v.as_str());
 
-        let bytes = std::fs::read(&path)
-            .map_err(|e| anyhow::anyhow!("Failed to read '{}': {}", path, e))?;
+        let bytes = crate::util::bounded_read::read_file_capped(
+            std::path::Path::new(&path),
+            crate::util::limits::max_pdf_bytes(),
+            "extract_pdf",
+        )?;
 
         // Extract text
         let text = pdf_extract::extract_text_from_mem(&bytes)

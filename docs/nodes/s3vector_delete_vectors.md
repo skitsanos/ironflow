@@ -2,21 +2,33 @@
 
 Delete vectors by keys from an Amazon S3 Vector index.
 
+For complete teardown, run this node before `s3vector_delete_index`, then run
+`s3vector_delete_bucket` after every index in the bucket has been deleted.
+
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `vector_bucket_name` | string | yes* | `S3VECTOR_BUCKET_NAME` / `S3_BUCKET` env vars | Bucket that owns the index. |
+| `vector_bucket_name` | string | yes* | -- | Explicit bucket name that owns a named index. |
 | `bucket` | string | no | no | Alias for `vector_bucket_name`. |
-| `vector_bucket_arn` | string | no | `S3VECTOR_BUCKET_ARN` env var | Alternative to `vector_bucket_name`. |
-| `index_name` | string | yes* | `S3VECTOR_INDEX_NAME` env var | Target index name. |
+| `index_name` | string | yes* | -- | Explicit target index name. |
 | `index` | string | no | no | Alias for `index_name`. |
-| `index_arn` | string | no | `S3VECTOR_INDEX_ARN` env var | Alternative to `index_name`. |
+| `index_arn` | string | yes* | -- | Explicit self-contained alternative target. |
 | `keys` | array<string> | yes | -- | Keys to delete from the index. |
 | `keys_source_key` | string | no | -- | Context key containing string-array keys. |
+| `region` | string | no | AWS region chain | Override `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, or `AWS_DEFAULT_REGION`. |
+| `endpoint_url` | string | no | `AWS_ENDPOINT_URL` env var | Override the S3 Vectors service endpoint. |
 | `output_key` | string | no | `s3vector` | Prefix for context output keys. |
 
-`index_name`/`index` require a bucket reference unless `index_arn` is provided.
+## Target Resolution and Safety
+
+Use exactly one explicit configured shape after interpolation:
+`vector_bucket_name`/`bucket` plus `index_name`/`index`, or `index_arn` by
+itself. Bucket ARN plus index name is not supported. Resource identifier
+environment variables are deliberately never consulted for vector deletion;
+region, endpoint, and AWS credentials may still come from the environment.
+Conflicting forms and non-string, incomplete, or blank targets fail before the
+AWS client is built.
 
 ## Context Output
 

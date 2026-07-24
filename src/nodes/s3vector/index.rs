@@ -1,13 +1,102 @@
 use anyhow::Result;
 use async_trait::async_trait;
+use aws_sdk_s3vectors::operation::create_index::builders::CreateIndexInputBuilder;
+use aws_sdk_s3vectors::operation::get_index::builders::GetIndexInputBuilder;
+use aws_sdk_s3vectors::types::{DataType, DistanceMetric};
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
 
 use super::client::build_s3vector_client;
-use super::config::{resolve_bucket_id, resolve_index_id, resolve_output_key};
+use super::config::resolve_output_key;
 use super::document::{parse_data_type, parse_distance_metric};
-use super::parameters::{resolve_non_empty_string, resolve_u32};
+use super::parameters::resolve_u32;
+use super::target::{
+    BucketTarget, CreateIndexTarget, IndexTarget, TargetPolicy, resolve_create_index_target,
+    resolve_index_target,
+};
+
+struct PreparedCreateIndex {
+    request: CreateIndexInputBuilder,
+    bucket_name: Option<String>,
+    bucket_arn: Option<String>,
+    index_name: String,
+    data_type: DataType,
+    distance_metric: DistanceMetric,
+    dimension: u32,
+}
+
+fn prepare_create_index_input(
+    config: &serde_json::Value,
+    ctx: &Context,
+) -> Result<PreparedCreateIndex> {
+    let CreateIndexTarget { bucket, index_name } =
+        resolve_create_index_target(config, ctx, "s3vector_create_index")?;
+    let data_type = parse_data_type(
+        config
+            .get("data_type")
+            .ok_or_else(|| anyhow::anyhow!("s3vector_create_index requires 'data_type'"))?,
+        "s3vector_create_index",
+    )?;
+    let distance_metric = parse_distance_metric(
+        config
+            .get("distance_metric")
+            .ok_or_else(|| anyhow::anyhow!("s3vector_create_index requires 'distance_metric'"))?,
+        "s3vector_create_index",
+    )?;
+    let dimension = resolve_u32(
+        config,
+        &["dimension"],
+        ctx,
+        "s3vector_create_index",
+        "dimension",
+    )?;
+    if dimension == 0 {
+        anyhow::bail!("s3vector_create_index requires 'dimension' to be greater than zero");
+    }
+
+    let request = CreateIndexInputBuilder::default()
+        .data_type(data_type.clone())
+        .distance_metric(distance_metric.clone())
+        .index_name(index_name.clone())
+        .dimension(dimension as i32);
+    let (request, bucket_name, bucket_arn) = match bucket {
+        BucketTarget::Name(name) => (request.vector_bucket_name(name.clone()), Some(name), None),
+        BucketTarget::Arn(arn) => (request.vector_bucket_arn(arn.clone()), None, Some(arn)),
+    };
+
+    Ok(PreparedCreateIndex {
+        request,
+        bucket_name,
+        bucket_arn,
+        index_name,
+        data_type,
+        distance_metric,
+        dimension,
+    })
+}
+
+fn prepare_get_index_input(
+    config: &serde_json::Value,
+    ctx: &Context,
+) -> Result<GetIndexInputBuilder> {
+    let target = resolve_index_target(
+        config,
+        ctx,
+        "s3vector_get_index",
+        TargetPolicy::AllowEnvironment,
+    )?;
+    let request = match target {
+        IndexTarget::Names {
+            bucket_name,
+            index_name,
+        } => GetIndexInputBuilder::default()
+            .vector_bucket_name(bucket_name)
+            .index_name(index_name),
+        IndexTarget::Arn(arn) => GetIndexInputBuilder::default().index_arn(arn),
+    };
+    Ok(request)
+}
 
 pub struct S3VectorCreateIndexNode;
 
@@ -23,82 +112,38 @@ impl Node for S3VectorCreateIndexNode {
 
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let output_key = resolve_output_key(config);
-        let (bucket_name, bucket_arn) = resolve_bucket_id(config, ctx, "s3vector_create_index")?;
-        if bucket_name.is_none() && bucket_arn.is_none() {
-            return Err(anyhow::anyhow!(
-                "s3vector_create_index requires 'vector_bucket_name' or 'vector_bucket_arn'"
-            ));
-        }
-
-        let index_name = resolve_non_empty_string(
-            config,
-            &["index_name", "index"],
-            &["S3VECTOR_INDEX_NAME"],
-            ctx,
-            "s3vector_create_index",
-            "index_name",
-        )?;
-        let data_type = parse_data_type(
-            config
-                .get("data_type")
-                .ok_or_else(|| anyhow::anyhow!("s3vector_create_index requires 'data_type'"))?,
-            "s3vector_create_index",
-        )?;
-        let distance_metric = parse_distance_metric(
-            config.get("distance_metric").ok_or_else(|| {
-                anyhow::anyhow!("s3vector_create_index requires 'distance_metric'")
-            })?,
-            "s3vector_create_index",
-        )?;
-        let dimension = resolve_u32(config, &["dimension"], "s3vector_create_index", "dimension")?;
-        if dimension == 0 {
-            anyhow::bail!("s3vector_create_index requires 'dimension' to be greater than zero");
-        }
-
-        let mut request = build_s3vector_client(config, ctx)
-            .await?
-            .create_index()
-            .data_type(data_type.clone())
-            .distance_metric(distance_metric.clone())
-            .index_name(index_name.clone())
-            .dimension(dimension as i32);
-
-        if let Some(bucket_name) = bucket_name.clone() {
-            request = request.vector_bucket_name(bucket_name);
-        } else if let Some(bucket_arn) = bucket_arn.clone() {
-            request = request.vector_bucket_arn(bucket_arn);
-        }
-
-        let response = request.send().await?;
+        let prepared = prepare_create_index_input(config, ctx)?;
+        let client = build_s3vector_client(config, ctx).await?;
+        let response = prepared.request.send_with(&client).await?;
 
         let mut output = NodeOutput::new();
         output.insert(
             format!("{}_index_name", output_key),
-            serde_json::Value::String(index_name),
+            serde_json::Value::String(prepared.index_name),
         );
-        if let Some(bucket_name) = &bucket_name {
+        if let Some(bucket_name) = prepared.bucket_name {
             output.insert(
                 format!("{}_bucket_name", output_key),
-                serde_json::Value::String(bucket_name.clone()),
+                serde_json::Value::String(bucket_name),
             );
         }
-        if let Some(bucket_arn) = &bucket_arn {
+        if let Some(bucket_arn) = prepared.bucket_arn {
             output.insert(
                 format!("{}_bucket_arn", output_key),
-                serde_json::Value::String(bucket_arn.clone()),
+                serde_json::Value::String(bucket_arn),
             );
         }
         output.insert(
             format!("{}_distance_metric", output_key),
-            serde_json::Value::String(distance_metric.as_str().to_string()),
+            serde_json::Value::String(prepared.distance_metric.as_str().to_string()),
         );
         output.insert(
             format!("{}_data_type", output_key),
-            serde_json::Value::String(data_type.as_str().to_string()),
+            serde_json::Value::String(prepared.data_type.as_str().to_string()),
         );
         output.insert(
             format!("{}_dimension", output_key),
-            serde_json::json!(dimension),
+            serde_json::json!(prepared.dimension),
         );
         if let Some(index_arn) = response.index_arn() {
             output.insert(
@@ -128,31 +173,9 @@ impl Node for S3VectorGetIndexNode {
 
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let output_key = resolve_output_key(config);
-        let (bucket_name, _bucket_arn) = resolve_bucket_id(config, ctx, "s3vector_get_index")?;
-        let (index_name, index_arn) = resolve_index_id(config, ctx, "s3vector_get_index")?;
-        if index_name.is_none() && index_arn.is_none() {
-            return Err(anyhow::anyhow!(
-                "s3vector_get_index requires 'index_name' or 'index_arn'"
-            ));
-        }
-        if index_name.is_some() && bucket_name.is_none() {
-            return Err(anyhow::anyhow!(
-                "s3vector_get_index requires a vector bucket when using 'index_name'"
-            ));
-        }
-
-        let mut request = build_s3vector_client(config, ctx).await?.get_index();
-
-        if let Some(bucket_name) = bucket_name {
-            request = request.vector_bucket_name(bucket_name);
-        }
-        if let Some(index_name) = index_name.clone() {
-            request = request.index_name(index_name);
-        } else if let Some(index_arn) = index_arn.clone() {
-            request = request.index_arn(index_arn);
-        }
-
-        let response = request.send().await?;
+        let request = prepare_get_index_input(config, ctx)?;
+        let client = build_s3vector_client(config, ctx).await?;
+        let response = request.send_with(&client).await?;
         let index = response.index();
 
         let mut output = NodeOutput::new();
@@ -200,3 +223,6 @@ impl Node for S3VectorGetIndexNode {
         Ok(output)
     }
 }
+
+#[cfg(test)]
+mod tests;

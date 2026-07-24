@@ -11,7 +11,7 @@ The subworkflow node allows you to compose workflows by calling one flow from an
 | `flow` | string | yes | — | Path to the `.lua` flow file to execute. Resolved relative to the parent flow's directory. |
 | `wait` | bool | no | `true` | When `true`, the parent blocks until the subworkflow completes. When `false`, the subworkflow is launched in the background (fire-and-forget). |
 | `input` | object | no | `nil` | Key mapping from parent context to child context. Each entry maps `child_key = "parent_key"`. |
-| `output_key` | string | no | `nil` | If set, the child's output context is namespaced under this key instead of being merged directly into the parent context. |
+| `output_key` | string | no | `nil` | If set, the child's output context is namespaced under this key instead of being merged directly into the parent context. Recommended for parallel subworkflows. |
 
 ## Context Injection
 
@@ -23,6 +23,12 @@ When `wait = true` (default):
 
 - All context keys produced by the child flow are merged into the parent context (or namespaced under `output_key` if specified).
 - `subworkflow_name` — the name of the executed subworkflow.
+
+The subworkflow's returned map follows the normal phase collision contract: a
+later-declared parallel parent step wins duplicate keys. Without `output_key`,
+the child returns a broad flattened context that can also contain inherited
+input keys, so namespacing is the safest composition boundary when parallel
+results must coexist.
 
 When `wait = false`:
 

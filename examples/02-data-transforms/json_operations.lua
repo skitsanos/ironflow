@@ -2,12 +2,14 @@
 local flow = Flow.new("json_operations")
 
 flow:step("prepare_input", nodes.code({
-    source = function()
-        return {
+    source = function(ctx)
+        local raw_json = ctx.raw_json
+        if raw_json == nil then
             raw_json = [[
 {"name":"Alice","email":"alice@example.com","age":30,"role":"admin"}
             ]]
-        }
+        end
+        return { raw_json = raw_json }
     end,
 }))
 

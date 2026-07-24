@@ -7,19 +7,19 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::body::Body;
-use axum::http::header::{ACCESS_CONTROL_ALLOW_ORIGIN, AUTHORIZATION, ORIGIN};
+use axum::http::header::{ACCESS_CONTROL_ALLOW_ORIGIN, AUTHORIZATION, CONTENT_TYPE, ORIGIN};
 use axum::http::{Request, StatusCode};
 use axum::middleware;
-use axum::routing::get;
+use axum::routing::{delete, get};
 use http_body_util::BodyExt;
 use ironflow::engine::executor::WorkflowEngine;
 use ironflow::engine::types::*;
 use ironflow::engine::{RunEvent, RunEventType};
 use ironflow::lua::runtime::LuaRuntime;
 use ironflow::nodes::NodeRegistry;
-use ironflow::storage::StateStore;
 use ironflow::storage::event_store::{EventStore, MemoryEventStore};
 use ironflow::storage::json_store::JsonStateStore;
+use ironflow::storage::{PageSize, RunListQuery, StateStore};
 use tower::ServiceExt;
 
 #[tokio::test]
@@ -172,6 +172,94 @@ async fn api_delete_run() {
 }
 
 #[tokio::test]
+async fn delete_endpoint_cleans_events_and_recovers_an_orphaned_stream() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(JsonStateStore::new(dir.path()));
+    let events = Arc::new(MemoryEventStore::new());
+    store
+        .init_run("delete-with-events", "flow", &Context::new())
+        .await
+        .unwrap();
+    let event = RunEvent::run(
+        "delete-with-events",
+        "flow",
+        RunEventType::RunStarted,
+        RunStatus::Running,
+    );
+    events.publish(event).await.unwrap();
+
+    let state = Arc::new(ironflow::api::AppState {
+        registry: Arc::new(NodeRegistry::with_builtins()),
+        store: store.clone(),
+        event_store: events.clone(),
+        flows_dir: None,
+        max_concurrent_tasks: None,
+        listing_policy: ironflow::util::listing::ListingPolicy::default(),
+        webhooks: std::collections::HashMap::new(),
+    });
+    let app = Router::new()
+        .route("/runs/{id}", delete(ironflow::api::handlers::delete_run))
+        .with_state(state);
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/runs/delete-with-events")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(store.get_run_info("delete-with-events").await.is_err());
+    assert!(
+        events
+            .list_since("delete-with-events", None, 10)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let late = RunEvent::run(
+        "delete-with-events",
+        "flow",
+        RunEventType::RunFinished,
+        RunStatus::Success,
+    );
+    assert_eq!(
+        events.publish(late).await.unwrap_err().kind(),
+        ironflow::storage::StorageErrorKind::Conflict
+    );
+
+    let orphan = RunEvent::run(
+        "orphaned-events",
+        "flow",
+        RunEventType::RunFinished,
+        RunStatus::Success,
+    );
+    events.publish(orphan).await.unwrap();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/runs/orphaned-events")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(
+        events
+            .list_since("orphaned-events", None, 10)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
 async fn api_base64_source_decode() {
     let registry = Arc::new(NodeRegistry::with_builtins());
 
@@ -202,6 +290,7 @@ fn build_state_with_flows_dir(flows_dir: std::path::PathBuf) -> ironflow::api::A
         event_store: Arc::new(MemoryEventStore::new()),
         flows_dir: Some(flows_dir),
         max_concurrent_tasks: None,
+        listing_policy: ironflow::util::listing::ListingPolicy::default(),
         webhooks: std::collections::HashMap::new(),
     }
 }
@@ -302,6 +391,7 @@ async fn api_run_events_streams_first_sse_event() {
         event_store: event_store.clone(),
         flows_dir: None,
         max_concurrent_tasks: None,
+        listing_policy: ironflow::util::listing::ListingPolicy::default(),
         webhooks: std::collections::HashMap::new(),
     });
 
@@ -495,10 +585,10 @@ async fn api_auth_rejects_missing_token() {
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 }
 
-// --- Pagination edge cases ---
+// --- Run-list pagination ---
 
 #[tokio::test]
-async fn list_run_summaries_offset_beyond_returns_empty() {
+async fn list_run_summaries_cursor_walks_the_catalog_without_duplicates() {
     use ironflow::storage::json_store::JsonStateStore;
 
     let dir = tempfile::tempdir().unwrap();
@@ -511,13 +601,104 @@ async fn list_run_summaries_offset_beyond_returns_empty() {
             .unwrap();
     }
 
-    let all = store.list_run_summaries(None).await.unwrap();
-    assert_eq!(all.len(), 5);
+    let mut after = None;
+    let mut ids = Vec::new();
+    loop {
+        let query = RunListQuery::new(None, after, PageSize::new(2).unwrap()).unwrap();
+        let page = store.list_run_summaries_page(&query).await.unwrap();
+        ids.extend(page.items.into_iter().map(|summary| summary.id));
+        let Some(next) = page.next else {
+            break;
+        };
+        after = Some(next);
+    }
 
-    // Simulate what the /runs handler does with offset past the end
-    let page: Vec<_> = all.iter().skip(100).take(10).collect();
-    assert!(
-        page.is_empty(),
-        "offset beyond result set must yield an empty page, not an error"
-    );
+    assert_eq!(ids.len(), 5);
+    ids.sort();
+    ids.dedup();
+    assert_eq!(ids, ["r0", "r1", "r2", "r3", "r4"]);
+}
+
+#[tokio::test]
+async fn runs_endpoint_enforces_cap_and_uses_filter_bound_cursors() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(JsonStateStore::new(dir.path()));
+    for i in 0..5 {
+        store
+            .init_run(&format!("r{i}"), "flow", &Context::new())
+            .await
+            .unwrap();
+    }
+    store.set_run_status("r0", RunStatus::Failed).await.unwrap();
+
+    let state = Arc::new(ironflow::api::AppState {
+        registry: Arc::new(NodeRegistry::with_builtins()),
+        store,
+        event_store: Arc::new(MemoryEventStore::new()),
+        flows_dir: None,
+        max_concurrent_tasks: None,
+        listing_policy: ironflow::util::listing::ListingPolicy::from_value(Some("3")).unwrap(),
+        webhooks: std::collections::HashMap::new(),
+    });
+    let app = Router::new()
+        .route("/runs", get(ironflow::api::handlers::list_runs))
+        .with_state(state);
+
+    let first = app
+        .clone()
+        .oneshot(Request::builder().uri("/runs").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(first.status(), StatusCode::OK);
+    let body = first.into_body().collect().await.unwrap().to_bytes();
+    let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(body["limit"], 3);
+    assert_eq!(body["returned"], 3);
+    assert_eq!(body["has_more"], true);
+    assert!(body.get("total").is_none());
+    let cursor = body["next_cursor"].as_str().unwrap();
+
+    let second = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/runs?after={cursor}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(second.status(), StatusCode::OK);
+    let second_body = second.into_body().collect().await.unwrap().to_bytes();
+    let second_body: serde_json::Value = serde_json::from_slice(&second_body).unwrap();
+    assert_eq!(second_body["returned"], 2);
+    assert_eq!(second_body["has_more"], false);
+
+    for uri in [
+        "/runs?limit=0".to_string(),
+        "/runs?limit=4".to_string(),
+        "/runs?limit=abc".to_string(),
+        "/runs?limit=1&limit=2".to_string(),
+        "/runs?offset=1".to_string(),
+        format!("/runs?status=failed&after={cursor}"),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            response.headers().get(CONTENT_TYPE).unwrap(),
+            "application/json"
+        );
+        let error = response.into_body().collect().await.unwrap().to_bytes();
+        let error: serde_json::Value = serde_json::from_slice(&error).unwrap();
+        assert_eq!(error["code"], "bad_request");
+        assert!(
+            error["error"]
+                .as_str()
+                .is_some_and(|message| !message.is_empty())
+        );
+    }
 }

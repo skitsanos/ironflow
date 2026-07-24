@@ -5,12 +5,15 @@ use tracing::{debug, error, info, trace, warn};
 use uuid::Uuid;
 
 use crate::engine::types::FlowDefinition;
+use crate::lua::conversion::{lua_to_log_string, register_json_globals};
+use crate::lua::sandbox::new_sandboxed_lua;
 use crate::nodes::NodeRegistry;
-use crate::nodes::utility::code::json_value_to_lua_table;
-use crate::util::limits::{LuaExecutionLimits, apply_lua_limits, collect_lua_garbage};
+use crate::util::execution::{ExecutionControl, run_blocking_step};
+use crate::util::limits::{
+    LuaExecutionLimits, apply_lua_limits, apply_lua_limits_with_control, collect_lua_garbage,
+};
 
 use super::api::register_flow_api;
-use super::conversion::{lua_to_log_string, lua_value_to_json};
 use super::extractor::extract_flow;
 
 /// Lua runtime for loading and parsing flow definitions.
@@ -19,82 +22,122 @@ pub struct LuaRuntime;
 impl LuaRuntime {
     /// Load a flow definition from a Lua file.
     pub fn load_flow(path: &str, registry: &NodeRegistry) -> Result<FlowDefinition> {
-        let lua = Lua::new();
+        Self::load_flow_controlled(path, registry, None)
+    }
+
+    /// Load a flow file off the async runtime worker while observing the
+    /// enclosing step deadline and cancellation.
+    pub async fn load_flow_async(path: &str, registry: &NodeRegistry) -> Result<FlowDefinition> {
+        let path = path.to_owned();
+        let registry = registry.snapshot();
+        run_blocking_step(move |execution| {
+            Self::load_flow_controlled(&path, &registry, Some(execution))
+        })
+        .await
+    }
+
+    fn load_flow_controlled(
+        path: &str,
+        registry: &NodeRegistry,
+        execution: Option<ExecutionControl>,
+    ) -> Result<FlowDefinition> {
+        checkpoint(&execution)?;
+        let lua = new_sandboxed_lua()?;
         let limits = LuaExecutionLimits::from_env();
-        apply_lua_limits(&lua, limits)?;
+        apply_limits(&lua, limits, execution.clone())?;
 
         // Sandbox: remove dangerous modules
         Self::setup_sandbox(&lua)?;
+        checkpoint(&execution)?;
 
         // Register the Flow class and nodes table
         register_flow_api(&lua, registry)?;
+        checkpoint(&execution)?;
 
         // Load and execute the Lua file
         let source = std::fs::read_to_string(path)
             .map_err(|e| anyhow::anyhow!("Failed to read flow file '{}': {}", path, e))?;
+        checkpoint(&execution)?;
 
         let flow_table: LuaTable = lua
             .load(&source)
             .set_name(path)
             .eval()
             .map_err(|e| anyhow::anyhow!("Failed to evaluate flow file '{}': {}", path, e))?;
+        checkpoint(&execution)?;
         collect_lua_garbage(&lua, limits)?;
+        checkpoint(&execution)?;
 
         // Extract the flow definition from the returned table
-        extract_flow(&flow_table)
+        let flow = extract_flow(&lua, &flow_table)?;
+        checkpoint(&execution)?;
+        Ok(flow)
     }
 
     /// Load a flow definition from a Lua string.
     pub fn load_flow_from_string(source: &str, registry: &NodeRegistry) -> Result<FlowDefinition> {
-        let lua = Lua::new();
+        Self::load_flow_from_string_controlled(source, registry, None)
+    }
+
+    /// Load an inline flow off the async runtime worker while observing the
+    /// enclosing step deadline and cancellation.
+    pub async fn load_flow_from_string_async(
+        source: &str,
+        registry: &NodeRegistry,
+    ) -> Result<FlowDefinition> {
+        let source = source.to_owned();
+        let registry = registry.snapshot();
+        run_blocking_step(move |execution| {
+            Self::load_flow_from_string_controlled(&source, &registry, Some(execution))
+        })
+        .await
+    }
+
+    fn load_flow_from_string_controlled(
+        source: &str,
+        registry: &NodeRegistry,
+        execution: Option<ExecutionControl>,
+    ) -> Result<FlowDefinition> {
+        checkpoint(&execution)?;
+        let lua = new_sandboxed_lua()?;
         let limits = LuaExecutionLimits::from_env();
-        apply_lua_limits(&lua, limits)?;
+        apply_limits(&lua, limits, execution.clone())?;
         Self::setup_sandbox(&lua)?;
+        checkpoint(&execution)?;
         register_flow_api(&lua, registry)?;
+        checkpoint(&execution)?;
 
         let flow_table: LuaTable = lua
             .load(source)
             .set_name("<inline>")
             .eval()
             .map_err(|e| anyhow::anyhow!("Failed to evaluate flow source: {}", e))?;
+        checkpoint(&execution)?;
         collect_lua_garbage(&lua, limits)?;
+        checkpoint(&execution)?;
 
-        extract_flow(&flow_table)
+        let flow = extract_flow(&lua, &flow_table)?;
+        checkpoint(&execution)?;
+        Ok(flow)
     }
 
     fn setup_sandbox(lua: &Lua) -> Result<()> {
-        // Remove dangerous globals
         let globals = lua.globals();
-        for name in &["os", "io", "debug", "loadfile", "dofile"] {
-            globals.set(*name, LuaValue::Nil)?;
-        }
 
-        // Expose a safe env(key) function to read environment variables
-        let env_fn = lua.create_function(|lua_ctx, key: String| match std::env::var(&key) {
-            Ok(val) => Ok(LuaValue::String(lua_ctx.create_string(&val)?)),
-            Err(_) => Ok(LuaValue::Nil),
+        // Expose a safe env(key) function to read environment variables,
+        // honoring the optional IRONFLOW_ENV_ALLOWLIST (IF-052b).
+        let env_fn = lua.create_function(|lua_ctx, key: String| {
+            match crate::lua::sandbox::env_lookup(&key) {
+                Some(val) => Ok(LuaValue::String(lua_ctx.create_string(&val)?)),
+                None => Ok(LuaValue::Nil),
+            }
         })?;
         globals.set("env", env_fn)?;
 
-        // json_parse(str) -> Lua table
-        let parse_fn = lua.create_function(|lua_ctx, data: String| {
-            let json: serde_json::Value = serde_json::from_str(&data)
-                .map_err(|e| LuaError::RuntimeError(format!("json_parse failed: {}", e)))?;
-            json_value_to_lua_table(lua_ctx, &json).map_err(LuaError::external)
-        })?;
-        globals.set("json_parse", parse_fn)?;
-
-        // json_stringify(value) -> string
-        let stringify_fn = lua.create_function(|_, value: LuaValue| {
-            let json_val = lua_value_to_json(&value).map_err(LuaError::external)?;
-            let serialized = serde_json::to_string(&json_val)
-                .map_err(|e| LuaError::RuntimeError(e.to_string()))?;
-            Ok(serialized)
-        })?;
-        globals.set("json_stringify", stringify_fn)?;
+        register_json_globals(lua)?;
 
         // log([level], message...)
-        let log_fn = lua.create_function(|_, args: LuaMultiValue| {
+        let log_fn = lua.create_function(|lua, args: LuaMultiValue| {
             let values = args.into_iter().collect::<Vec<LuaValue>>();
             if values.is_empty() {
                 return Err(LuaError::RuntimeError(
@@ -120,7 +163,7 @@ impl LuaRuntime {
             let parts = values
                 .into_iter()
                 .skip(start_idx)
-                .map(|value| lua_to_log_string(&value).map_err(LuaError::external))
+                .map(|value| lua_to_log_string(lua, &value).map_err(LuaError::external))
                 .collect::<Result<Vec<_>, _>>()?;
             let message = parts.join(" ");
 
@@ -150,4 +193,23 @@ impl LuaRuntime {
 
         Ok(())
     }
+}
+
+fn apply_limits(
+    lua: &Lua,
+    limits: LuaExecutionLimits,
+    execution: Option<ExecutionControl>,
+) -> Result<()> {
+    if execution.is_some() {
+        apply_lua_limits_with_control(lua, limits, execution)
+    } else {
+        apply_lua_limits(lua, limits)
+    }
+}
+
+fn checkpoint(execution: &Option<ExecutionControl>) -> Result<()> {
+    if let Some(execution) = execution {
+        execution.checkpoint()?;
+    }
+    Ok(())
 }

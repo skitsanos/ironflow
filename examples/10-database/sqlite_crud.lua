@@ -3,11 +3,19 @@
 --
 -- Demonstrates db_exec and db_query nodes with a file-based SQLite database.
 -- Each step connects to the same file, so the data persists between steps.
+-- Effects:
+-- - Creates and removes one UUID-scoped SQLite file under TMPDIR, TMP, TEMP,
+--   or `.`. A failed run may leave that uniquely named database for inspection.
 --
 
 local flow = Flow.new("sqlite_crud")
 
-local db = "sqlite:/tmp/ironflow_test.db?mode=rwc"
+local temp_root = env("TMPDIR")
+if temp_root == nil or temp_root == "" then temp_root = env("TMP") end
+if temp_root == nil or temp_root == "" then temp_root = env("TEMP") end
+if temp_root == nil or temp_root == "" then temp_root = "." end
+local database_path = temp_root .. "/ironflow-sqlite-" .. uuid4() .. ".db"
+local db = "sqlite:" .. database_path .. "?mode=rwc"
 
 -- Create table
 flow:step("create_table", nodes.db_exec({
@@ -38,5 +46,9 @@ flow:step("query_all", nodes.db_query({
 flow:step("done", nodes.log({
     message = "Found ${ctx.users_count} users"
 })):depends_on("query_all")
+
+flow:step("cleanup", nodes.delete_file({
+    path = database_path
+})):depends_on("done")
 
 return flow

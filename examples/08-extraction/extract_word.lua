@@ -2,7 +2,7 @@ local flow = Flow.new("extract_word_demo")
 
 -- Extract as text with metadata
 flow:step("extract_text", nodes.extract_word({
-    path = "data/samples/Ballerina_vs_Java_Comparison_Matrix.docx",
+    path = "${ctx._flow_dir}/../fixtures/ironflow-sample.docx",
     format = "text",
     output_key = "text_content",
     metadata_key = "metadata"
@@ -14,17 +14,17 @@ flow:step("show_meta", nodes.log({
 
 flow:step("show_text", nodes.log({
     message = "Text content: ${ctx.text_content}"
-})):depends_on("extract_text")
+})):depends_on("show_meta")
 
 -- Extract as markdown (no metadata_key = metadata not emitted again)
 flow:step("extract_md", nodes.extract_word({
-    path = "data/samples/Ballerina_vs_Java_Comparison_Matrix.docx",
+    path = "${ctx._flow_dir}/../fixtures/ironflow-sample.docx",
     format = "markdown",
     output_key = "md_content"
 })):depends_on("extract_text")
 
 flow:step("show_md", nodes.log({
     message = "Markdown content: ${ctx.md_content}"
-})):depends_on("extract_md")
+})):depends_on("extract_md", "show_text")
 
 return flow

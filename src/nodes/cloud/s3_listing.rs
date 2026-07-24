@@ -3,6 +3,7 @@ use async_trait::async_trait;
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
+use crate::util::node_config::config_u64;
 
 use super::s3_helpers::{build_s3_client, resolve_optional, resolve_output_key, resolve_required};
 
@@ -29,7 +30,7 @@ impl Node for S3ListObjectsNode {
             .and_then(|value| value.as_str())
             .unwrap_or("");
         let output_key = resolve_output_key(config);
-        let max_keys = config.get("max_keys").and_then(|value| value.as_u64());
+        let max_keys = config_u64(config, "max_keys", ctx);
         let max_keys = max_keys.and_then(|value| i32::try_from(value).ok());
 
         let client = build_s3_client(config, ctx).await?;

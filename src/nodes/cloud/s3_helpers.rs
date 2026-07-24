@@ -5,6 +5,7 @@ use base64::Engine;
 
 use crate::engine::types::Context;
 use crate::lua::interpolate::interpolate_ctx;
+use crate::util::node_config::config_u64;
 
 pub(super) fn resolve_required(
     config: &serde_json::Value,
@@ -40,10 +41,13 @@ pub(super) fn resolve_output_key(config: &serde_json::Value) -> String {
         .to_string()
 }
 
-pub(super) fn resolve_bool(config: &serde_json::Value, key: &str, env_key: Option<&str>) -> bool {
-    config
-        .get(key)
-        .and_then(|value| value.as_bool())
+pub(super) fn resolve_bool(
+    config: &serde_json::Value,
+    key: &str,
+    env_key: Option<&str>,
+    ctx: &Context,
+) -> bool {
+    crate::util::node_config::config_bool(config, key, ctx)
         .or_else(|| env_key.and_then(parse_bool_env))
         .unwrap_or(false)
 }
@@ -64,29 +68,28 @@ pub(super) fn resolve_region(config: &serde_json::Value, ctx: &Context) -> Optio
         .or_else(|| std::env::var("AWS_DEFAULT_REGION").ok())
 }
 
-pub(super) fn resolve_expires_in(config: &serde_json::Value) -> Result<u64> {
-    let expires_in = config.get("expires_in").and_then(|value| value.as_u64());
-    let expires_in = expires_in.unwrap_or(3600);
+pub(super) fn resolve_expires_in(config: &serde_json::Value, ctx: &Context) -> Result<u64> {
+    let expires_in = config_u64(config, "expires_in", ctx).unwrap_or(3600);
     if expires_in == 0 || expires_in > 604800 {
         anyhow::bail!("s3_presign_url requires 'expires_in' to be between 1 and 604800 seconds");
     }
     Ok(expires_in)
 }
 
-pub(super) fn resolve_content_length(config: &serde_json::Value) -> Option<i64> {
-    let value = config
-        .get("content_length")
-        .or_else(|| config.get("contentLength"))
-        .and_then(|value| value.as_i64())?;
-    if value <= 0 {
-        return None;
-    }
-    Some(value)
+pub(super) fn resolve_content_length(config: &serde_json::Value, ctx: &Context) -> Option<i64> {
+    config_u64(config, "content_length", ctx)
+        .or_else(|| config_u64(config, "contentLength", ctx))
+        .and_then(|value| i64::try_from(value).ok())
+        .filter(|value| *value > 0)
 }
 
 pub(super) async fn build_s3_client(config: &serde_json::Value, ctx: &Context) -> Result<Client> {
-    let force_path_style =
-        resolve_bool(config, "force_path_style", Some("AWS_S3_FORCE_PATH_STYLE"));
+    let force_path_style = resolve_bool(
+        config,
+        "force_path_style",
+        Some("AWS_S3_FORCE_PATH_STYLE"),
+        ctx,
+    );
     let endpoint_url = resolve_optional(config, "endpoint_url", Some("AWS_ENDPOINT_URL"), ctx);
     let region = resolve_region(config, ctx);
 
@@ -116,7 +119,12 @@ pub(super) async fn resolve_payload_bytes(
 
     if let Some(source_path) = config.get("source_path").and_then(|value| value.as_str()) {
         let source_path = interpolate_ctx(source_path, ctx);
-        return Ok(tokio::fs::read(source_path).await?);
+        return crate::util::bounded_read::read_file_capped_async(
+            std::path::Path::new(&source_path),
+            crate::util::limits::max_file_bytes(),
+            "s3_put_object",
+        )
+        .await;
     }
 
     if let Some(source_key) = config.get("source_key").and_then(|value| value.as_str()) {

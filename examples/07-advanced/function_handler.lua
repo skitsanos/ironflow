@@ -4,13 +4,15 @@ local flow = Flow.new("function_handler_demo")
 
 -- Step 1: Set up some data using a function handler
 flow:step("setup", function(ctx)
-    return {
+    local users = ctx.users
+    if users == nil then
         users = {
             { name = "Alice", age = 30, role = "admin" },
             { name = "Bob", age = 25, role = "user" },
             { name = "Charlie", age = 35, role = "admin" }
         }
-    }
+    end
+    return { users = users }
 end)
 
 -- Step 2: Filter and transform using another function handler

@@ -6,7 +6,7 @@ Encode a string or file contents to base64.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `input` | string | one of `input`, `source_key`, or `file` | — | String to encode; supports `${ctx.*}` interpolation. |
+| `input` | string | one of `input`, `source_key`, or `file` | — | String to encode; supports `${ctx.key}` interpolation. |
 | `source_key` | string | see above | — | Context key containing the string to encode. |
 | `file` | string | see above | — | File path to read and encode. |
 | `output_key` | string | no | `"base64_encoded"` | Context key for the encoded output. |

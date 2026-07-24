@@ -6,9 +6,9 @@ Execute a SQL SELECT query against a database and return the result rows.
 
 | Parameter    | Type   | Required | Default  | Description                                                                                                           |
 |--------------|--------|----------|----------|-----------------------------------------------------------------------------------------------------------------------|
-| `connection` | string | yes      | --       | Database URL string (e.g., `sqlite:/path/to/db?mode=rwc`). Supports `${ctx.*}` interpolation.                        |
+| `connection` | string | yes      | --       | Database URL string (e.g., `sqlite:/path/to/db?mode=rwc`). Supports `${ctx.key}` interpolation.                        |
 | `query`      | string | yes      | --       | SQL SELECT query with `?` placeholders for bound parameters.                                                          |
-| `params`     | array  | no       | `[]`     | Query parameters. Strings support `${ctx.*}` interpolation. Numbers, booleans, and null are bound with their native SQL types. |
+| `params`     | array  | no       | `[]`     | Query parameters. Strings support `${ctx.key}` interpolation. Numbers, booleans, and null are bound with their native SQL types. |
 | `output_key` | string | no       | `"rows"` | Context key prefix for the output.                                                                                    |
 | `max_rows` | number/string | no | `IRONFLOW_DB_MAX_ROWS` / `1000` | Maximum rows returned before failing. Use pagination or raise this limit for trusted jobs. |
 | `max_result_bytes` | number/string | no | `IRONFLOW_DB_MAX_RESULT_BYTES` / `10485760` | Maximum serialized JSON result size before failing. |
@@ -49,7 +49,7 @@ return flow
 
 - The `connection` string follows the sqlx URL format. For SQLite, use `sqlite:/path/to/file?mode=rwc`.
 - Query parameters use positional `?` placeholders. The `params` array values are bound in order.
-- String parameters support context interpolation (`${ctx.*}`), so you can dynamically construct queries based on upstream step outputs.
+- String parameters support context interpolation (`${ctx.key}`), so you can dynamically construct queries based on upstream step outputs.
 - Null values in `params` are bound as SQL NULL.
 - Boolean values are bound as their native SQL type (e.g., INTEGER 0/1 for SQLite).
 - Results are streamed from the database, but returned rows are still accumulated into workflow context. Use SQL pagination (`LIMIT`/`OFFSET` or keyset pagination) for large datasets.

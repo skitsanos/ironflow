@@ -1,0 +1,386 @@
+{
+  "schema_version": 2,
+  "categories": {
+    "offline": {
+      "description": "Runs without network access or credentials; some entries declare a native capability or an expected failure.",
+      "flows": [
+        "examples/01-basics/base64_globals.lua",
+        "examples/01-basics/context_passing.lua",
+        "examples/01-basics/environment_variables.lua",
+        "examples/01-basics/hello_world.lua",
+        "examples/01-basics/lua_globals.lua",
+        "examples/01-basics/parallel_execution.lua",
+        "examples/01-basics/retries_and_timeout.lua",
+        "examples/02-data-transforms/csv_parse_stringify.lua",
+        "examples/02-data-transforms/filter_and_batch.lua",
+        "examples/02-data-transforms/foreach_function.lua",
+        "examples/02-data-transforms/json_operations.lua",
+        "examples/02-data-transforms/transform_pipeline.lua",
+        "examples/03-control-flow/conditional_routing.lua",
+        "examples/03-control-flow/step_if.lua",
+        "examples/03-control-flow/switch_routing.lua",
+        "examples/07-advanced/base64_encode_decode.lua",
+        "examples/07-advanced/data_pipeline.lua",
+        "examples/07-advanced/function_handler.lua",
+        "examples/07-advanced/hashing.lua",
+        "examples/07-advanced/json_validate.lua",
+        "examples/07-advanced/markdown_conversion.lua",
+        "examples/07-advanced/schema_validation.lua",
+        "examples/08-extraction/extract_pdf.lua",
+        "examples/08-extraction/extract_pptx.lua",
+        "examples/08-extraction/extract_srt.lua",
+        "examples/08-extraction/extract_vtt.lua",
+        "examples/08-extraction/extract_word.lua",
+        "examples/08-extraction/image_metadata.lua",
+        "examples/08-extraction/pdf_metadata.lua",
+        "examples/08-extraction/pdf_thumbnail.lua",
+        "examples/08-extraction/pdf_to_image.lua",
+        "examples/09-cache/cache_memory.lua",
+        "examples/11-subworkflow/on_error_example.lua",
+        "examples/13-ai/chunk_fixed.lua",
+        "examples/13-ai/chunk_merge.lua",
+        "examples/13-ai/chunk_split.lua",
+        "examples/18-xml-yaml/xml_parse.lua",
+        "examples/18-xml-yaml/xml_stringify.lua",
+        "examples/18-xml-yaml/yaml_parse.lua",
+        "examples/18-xml-yaml/yaml_stringify.lua",
+        "examples/19-html-sanitize/html_sanitize.lua",
+        "examples/20-date/date_format.lua"
+      ]
+    },
+    "offline_output": {
+      "description": "Runs offline but creates files, processes, cache state, or a local database and therefore needs isolated output paths.",
+      "flows": [
+        "examples/04-file-operations/binary_file_io.lua",
+        "examples/04-file-operations/copy_move_files.lua",
+        "examples/04-file-operations/read_write_files.lua",
+        "examples/04-file-operations/zip_workflow.lua",
+        "examples/06-shell/run_commands.lua",
+        "examples/08-extraction/extract_html.lua",
+        "examples/08-extraction/image_convert.lua",
+        "examples/08-extraction/image_crop.lua",
+        "examples/08-extraction/image_flip.lua",
+        "examples/08-extraction/image_grayscale.lua",
+        "examples/08-extraction/image_resize.lua",
+        "examples/08-extraction/image_rotate.lua",
+        "examples/08-extraction/image_to_pdf.lua",
+        "examples/08-extraction/image_watermark.lua",
+        "examples/08-extraction/pdf_merge.lua",
+        "examples/08-extraction/pdf_split.lua",
+        "examples/09-cache/cache_file.lua",
+        "examples/09-cache/cache_context_keys.lua",
+        "examples/10-database/sqlite_crud.lua",
+        "examples/17-mcp/mcp_stdio.lua"
+      ]
+    },
+    "public_network": {
+      "description": "Uses a public endpoint or local service without repository-managed credentials; excluded from deterministic CI.",
+      "flows": [
+        "examples/02-data-transforms/json_extract_path.lua",
+        "examples/05-http/api_call.lua",
+        "examples/05-http/authenticated_request.lua",
+        "examples/05-http/http_methods.lua",
+        "examples/05-http/if_body_contains.lua",
+        "examples/05-http/if_http_status.lua",
+        "examples/05-http/status_inspection_retry.lua",
+        "examples/13-ai/embed_ollama.lua",
+        "examples/17-mcp/mcp_streamable_http.lua"
+      ]
+    },
+    "credentialed_external": {
+      "description": "Requires credentials and/or mutates an external service; never runs in the default example gate.",
+      "flows": [
+        "examples/04-file-operations/s3_copy.lua",
+        "examples/04-file-operations/s3_presign_url.lua",
+        "examples/04-file-operations/s3_put_get_list.lua",
+        "examples/05-http/oauth_access_token.lua",
+        "examples/05-http/oauth_access_token_form_encoded.lua",
+        "examples/05-http/openai_chat_completions.lua",
+        "examples/05-http/openai_responses.lua",
+        "examples/05-http/openai_with_extract.lua",
+        "examples/05-http/s3_presigned_upload.lua",
+        "examples/07-advanced/code_node_extract.lua",
+        "examples/12-arangodb/aql_query.lua",
+        "examples/12-arangodb/aql_with_bind_vars.lua",
+        "examples/13-ai/chunk_embed_openai_word.lua",
+        "examples/13-ai/chunk_semantic.lua",
+        "examples/13-ai/embed_oauth.lua",
+        "examples/13-ai/embed_openai.lua",
+        "examples/13-ai/embed_openai_from_ctx.lua",
+        "examples/13-ai/llm_azure_chat.lua",
+        "examples/13-ai/llm_gemini_chat.lua",
+        "examples/13-ai/llm_groq_chat.lua",
+        "examples/13-ai/llm_oauth_chat_completion.lua",
+        "examples/13-ai/llm_openai_chat.lua",
+        "examples/13-ai/llm_openai_function_tools.lua",
+        "examples/13-ai/llm_openai_response_format.lua",
+        "examples/13-ai/llm_openai_tool_subworkflow_dispatch.lua",
+        "examples/13-ai/llm_openai_tool_web_search.lua",
+        "examples/13-ai/oauth_chat_completion.lua",
+        "examples/13-ai/pdf_gemini_rag_schema.lua",
+        "examples/13-ai/pdf_gemini_reconstruct_schema.lua",
+        "examples/13-ai/pipeline_foreach_embed.lua",
+        "examples/13-ai/pptx_gemini_reconstruct.lua",
+        "examples/13-ai/pptx_gemini_reconstruct_schema.lua",
+        "examples/13-ai/semantic_chunks_embed.lua",
+        "examples/13-ai/vtt_sentiment_analysis.lua",
+        "examples/13-ai/vtt_sentiment_analysis_compare.lua",
+        "examples/14-notifications/send_email_resend.lua",
+        "examples/14-notifications/send_email_smtp.lua",
+        "examples/14-notifications/slack_notification.lua",
+        "examples/16-s3vector/s3vector_metadata_query.lua",
+        "examples/16-s3vector/s3vector_rag_ingest_query.lua",
+        "examples/16-s3vector/s3vector_rag_query_evaluator.lua",
+        "examples/16-s3vector/s3vector_rag_query_expansion.lua",
+        "examples/16-s3vector/s3vector_similarity_threshold.lua",
+        "examples/16-s3vector/s3vector_transcript_index.lua",
+        "examples/16-s3vector/s3vector_vector_workflow.lua"
+      ]
+    },
+    "server_manual": {
+      "description": "Loaded by the API server and exercised through HTTP rather than run as a standalone CLI flow.",
+      "flows": [
+        "examples/15-webhooks/auth_check.lua",
+        "examples/15-webhooks/simple_webhook.lua"
+      ]
+    },
+    "composition": {
+      "description": "Composition parent and reusable child flows exercised as coordinated cases rather than the default standalone matrix.",
+      "flows": [
+        "examples/11-subworkflow/basic_subworkflow.lua",
+        "examples/11-subworkflow/fire_and_forget.lua",
+        "examples/11-subworkflow/greet.lua",
+        "examples/11-subworkflow/parallel_subworkflows.lua",
+        "examples/13-ai/tool_time_subworkflow.lua",
+        "examples/13-ai/tool_unknown_subworkflow.lua",
+        "examples/13-ai/tool_weather_subworkflow.lua"
+      ]
+    }
+  },
+  "labels": {
+    "external_service": {
+      "description": "Contacts a public, local, or hosted service; execution is excluded from deterministic offline CI.",
+      "flows": [
+        "examples/02-data-transforms/json_extract_path.lua",
+        "examples/04-file-operations/s3_copy.lua",
+        "examples/04-file-operations/s3_presign_url.lua",
+        "examples/04-file-operations/s3_put_get_list.lua",
+        "examples/05-http/api_call.lua",
+        "examples/05-http/authenticated_request.lua",
+        "examples/05-http/http_methods.lua",
+        "examples/05-http/if_body_contains.lua",
+        "examples/05-http/if_http_status.lua",
+        "examples/05-http/oauth_access_token.lua",
+        "examples/05-http/oauth_access_token_form_encoded.lua",
+        "examples/05-http/openai_chat_completions.lua",
+        "examples/05-http/openai_responses.lua",
+        "examples/05-http/openai_with_extract.lua",
+        "examples/05-http/s3_presigned_upload.lua",
+        "examples/05-http/status_inspection_retry.lua",
+        "examples/07-advanced/code_node_extract.lua",
+        "examples/12-arangodb/aql_query.lua",
+        "examples/12-arangodb/aql_with_bind_vars.lua",
+        "examples/13-ai/chunk_embed_openai_word.lua",
+        "examples/13-ai/chunk_semantic.lua",
+        "examples/13-ai/embed_oauth.lua",
+        "examples/13-ai/embed_ollama.lua",
+        "examples/13-ai/embed_openai.lua",
+        "examples/13-ai/embed_openai_from_ctx.lua",
+        "examples/13-ai/llm_azure_chat.lua",
+        "examples/13-ai/llm_gemini_chat.lua",
+        "examples/13-ai/llm_groq_chat.lua",
+        "examples/13-ai/llm_oauth_chat_completion.lua",
+        "examples/13-ai/llm_openai_chat.lua",
+        "examples/13-ai/llm_openai_function_tools.lua",
+        "examples/13-ai/llm_openai_response_format.lua",
+        "examples/13-ai/llm_openai_tool_subworkflow_dispatch.lua",
+        "examples/13-ai/llm_openai_tool_web_search.lua",
+        "examples/13-ai/oauth_chat_completion.lua",
+        "examples/13-ai/pdf_gemini_rag_schema.lua",
+        "examples/13-ai/pdf_gemini_reconstruct_schema.lua",
+        "examples/13-ai/pipeline_foreach_embed.lua",
+        "examples/13-ai/pptx_gemini_reconstruct.lua",
+        "examples/13-ai/pptx_gemini_reconstruct_schema.lua",
+        "examples/13-ai/semantic_chunks_embed.lua",
+        "examples/13-ai/vtt_sentiment_analysis.lua",
+        "examples/13-ai/vtt_sentiment_analysis_compare.lua",
+        "examples/14-notifications/send_email_resend.lua",
+        "examples/14-notifications/send_email_smtp.lua",
+        "examples/14-notifications/slack_notification.lua",
+        "examples/16-s3vector/s3vector_metadata_query.lua",
+        "examples/16-s3vector/s3vector_rag_ingest_query.lua",
+        "examples/16-s3vector/s3vector_rag_query_evaluator.lua",
+        "examples/16-s3vector/s3vector_rag_query_expansion.lua",
+        "examples/16-s3vector/s3vector_similarity_threshold.lua",
+        "examples/16-s3vector/s3vector_transcript_index.lua",
+        "examples/16-s3vector/s3vector_vector_workflow.lua",
+        "examples/17-mcp/mcp_streamable_http.lua"
+      ]
+    },
+    "credentialed": {
+      "description": "Requires provider credentials or a configured credential chain; secrets must come from environment/configuration, never source.",
+      "flows": [
+        "examples/04-file-operations/s3_copy.lua",
+        "examples/04-file-operations/s3_presign_url.lua",
+        "examples/04-file-operations/s3_put_get_list.lua",
+        "examples/05-http/oauth_access_token.lua",
+        "examples/05-http/oauth_access_token_form_encoded.lua",
+        "examples/05-http/openai_chat_completions.lua",
+        "examples/05-http/openai_responses.lua",
+        "examples/05-http/openai_with_extract.lua",
+        "examples/05-http/s3_presigned_upload.lua",
+        "examples/07-advanced/code_node_extract.lua",
+        "examples/12-arangodb/aql_query.lua",
+        "examples/12-arangodb/aql_with_bind_vars.lua",
+        "examples/13-ai/chunk_embed_openai_word.lua",
+        "examples/13-ai/chunk_semantic.lua",
+        "examples/13-ai/embed_oauth.lua",
+        "examples/13-ai/embed_openai.lua",
+        "examples/13-ai/embed_openai_from_ctx.lua",
+        "examples/13-ai/llm_azure_chat.lua",
+        "examples/13-ai/llm_gemini_chat.lua",
+        "examples/13-ai/llm_groq_chat.lua",
+        "examples/13-ai/llm_oauth_chat_completion.lua",
+        "examples/13-ai/llm_openai_chat.lua",
+        "examples/13-ai/llm_openai_function_tools.lua",
+        "examples/13-ai/llm_openai_response_format.lua",
+        "examples/13-ai/llm_openai_tool_subworkflow_dispatch.lua",
+        "examples/13-ai/llm_openai_tool_web_search.lua",
+        "examples/13-ai/oauth_chat_completion.lua",
+        "examples/13-ai/pdf_gemini_rag_schema.lua",
+        "examples/13-ai/pdf_gemini_reconstruct_schema.lua",
+        "examples/13-ai/pipeline_foreach_embed.lua",
+        "examples/13-ai/pptx_gemini_reconstruct.lua",
+        "examples/13-ai/pptx_gemini_reconstruct_schema.lua",
+        "examples/13-ai/semantic_chunks_embed.lua",
+        "examples/13-ai/vtt_sentiment_analysis.lua",
+        "examples/13-ai/vtt_sentiment_analysis_compare.lua",
+        "examples/14-notifications/send_email_resend.lua",
+        "examples/14-notifications/send_email_smtp.lua",
+        "examples/14-notifications/slack_notification.lua",
+        "examples/16-s3vector/s3vector_metadata_query.lua",
+        "examples/16-s3vector/s3vector_rag_ingest_query.lua",
+        "examples/16-s3vector/s3vector_rag_query_evaluator.lua",
+        "examples/16-s3vector/s3vector_rag_query_expansion.lua",
+        "examples/16-s3vector/s3vector_similarity_threshold.lua",
+        "examples/16-s3vector/s3vector_transcript_index.lua",
+        "examples/16-s3vector/s3vector_vector_workflow.lua"
+      ]
+    },
+    "local_state": {
+      "description": "Writes local output/cache/database state or owns a local process. Paths must be run-unique and retained effects must be documented.",
+      "flows": [
+        "examples/04-file-operations/binary_file_io.lua",
+        "examples/04-file-operations/copy_move_files.lua",
+        "examples/04-file-operations/read_write_files.lua",
+        "examples/04-file-operations/s3_put_get_list.lua",
+        "examples/04-file-operations/zip_workflow.lua",
+        "examples/05-http/s3_presigned_upload.lua",
+        "examples/06-shell/run_commands.lua",
+        "examples/08-extraction/extract_html.lua",
+        "examples/08-extraction/image_convert.lua",
+        "examples/08-extraction/image_crop.lua",
+        "examples/08-extraction/image_flip.lua",
+        "examples/08-extraction/image_grayscale.lua",
+        "examples/08-extraction/image_resize.lua",
+        "examples/08-extraction/image_rotate.lua",
+        "examples/08-extraction/image_to_pdf.lua",
+        "examples/08-extraction/image_watermark.lua",
+        "examples/08-extraction/pdf_merge.lua",
+        "examples/08-extraction/pdf_split.lua",
+        "examples/09-cache/cache_context_keys.lua",
+        "examples/09-cache/cache_file.lua",
+        "examples/10-database/sqlite_crud.lua",
+        "examples/13-ai/pdf_gemini_rag_schema.lua",
+        "examples/13-ai/pdf_gemini_reconstruct_schema.lua",
+        "examples/13-ai/pptx_gemini_reconstruct.lua",
+        "examples/13-ai/pptx_gemini_reconstruct_schema.lua",
+        "examples/17-mcp/mcp_stdio.lua"
+      ]
+    },
+    "platform_specific": {
+      "description": "Requires a native library, executable, operating system, or working-directory contract listed in capabilities.",
+      "flows": [
+        "examples/04-file-operations/zip_workflow.lua",
+        "examples/06-shell/run_commands.lua",
+        "examples/08-extraction/pdf_thumbnail.lua",
+        "examples/08-extraction/pdf_to_image.lua",
+        "examples/13-ai/pdf_gemini_rag_schema.lua",
+        "examples/13-ai/pdf_gemini_reconstruct_schema.lua",
+        "examples/13-ai/pptx_gemini_reconstruct.lua",
+        "examples/13-ai/pptx_gemini_reconstruct_schema.lua",
+        "examples/17-mcp/mcp_stdio.lua"
+      ]
+    }
+  },
+  "capabilities": {
+    "posix_commands": {
+      "description": "Requires POSIX shell utilities such as sh, mkdir, mktemp, whoami, or df.",
+      "flows": [
+        "examples/04-file-operations/zip_workflow.lua",
+        "examples/06-shell/run_commands.lua",
+        "examples/13-ai/pdf_gemini_rag_schema.lua",
+        "examples/13-ai/pdf_gemini_reconstruct_schema.lua",
+        "examples/13-ai/pptx_gemini_reconstruct.lua",
+        "examples/13-ai/pptx_gemini_reconstruct_schema.lua"
+      ]
+    },
+    "pdfium": {
+      "description": "Requires a loadable Pdfium native library, commonly configured through PDFIUM_LIB_PATH.",
+      "flows": [
+        "examples/08-extraction/pdf_thumbnail.lua",
+        "examples/08-extraction/pdf_to_image.lua"
+      ]
+    },
+    "poppler_pdftoppm": {
+      "description": "Requires Poppler's pdftoppm executable on PATH.",
+      "flows": [
+        "examples/13-ai/pdf_gemini_rag_schema.lua",
+        "examples/13-ai/pdf_gemini_reconstruct_schema.lua"
+      ]
+    },
+    "macos_qlmanage": {
+      "description": "Requires macOS Quick Look's qlmanage executable.",
+      "flows": [
+        "examples/13-ai/pptx_gemini_reconstruct.lua"
+      ]
+    },
+    "python3": {
+      "description": "Requires a Python 3 executable on PATH for the local MCP fixture.",
+      "flows": [
+        "examples/17-mcp/mcp_stdio.lua"
+      ]
+    },
+    "repository_root_cwd": {
+      "description": "Must be launched from the repository root because an external command receives a repository-relative fixture path.",
+      "flows": [
+        "examples/13-ai/pdf_gemini_rag_schema.lua",
+        "examples/13-ai/pdf_gemini_reconstruct_schema.lua",
+        "examples/13-ai/pptx_gemini_reconstruct.lua"
+      ]
+    }
+  },
+  "node_coverage": {
+    "exemptions": {}
+  },
+  "runtime_matrix": {
+    "fixture_backed_offline": [
+      "examples/08-extraction/extract_pdf.lua",
+      "examples/08-extraction/extract_pptx.lua",
+      "examples/08-extraction/extract_srt.lua",
+      "examples/08-extraction/extract_vtt.lua",
+      "examples/08-extraction/extract_word.lua",
+      "examples/08-extraction/image_metadata.lua",
+      "examples/08-extraction/pdf_metadata.lua",
+      "examples/13-ai/chunk_fixed.lua",
+      "examples/13-ai/chunk_merge.lua",
+      "examples/13-ai/chunk_split.lua"
+    ],
+    "isolated_local_process": [
+      "examples/17-mcp/mcp_stdio.lua"
+    ],
+    "expected_failure": [
+      "examples/01-basics/retries_and_timeout.lua"
+    ]
+  }
+}

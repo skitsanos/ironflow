@@ -9,12 +9,12 @@ flow:step("run_parallel", nodes.parallel_subworkflows({
     flows = {
         {
             flow = "greet.lua",
-            input = { user_name = "Alice" },
+            input = { name = "Alice" },
             output_key = "greeting_a"
         },
         {
             flow = "greet.lua",
-            input = { user_name = "Bob" },
+            input = { name = "Bob" },
             output_key = "greeting_b"
         }
     },

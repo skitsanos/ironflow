@@ -107,7 +107,7 @@ async fn arangodb_aql_node_returns_result_and_outputs_metadata() {
     let config = serde_json::json!({
         "url": url,
         "database": "testdb",
-        "query": "FOR d IN docs FILTER d.owner == \"${ctx.owner}\" RETURN d",
+        "query": "FOR d IN docs FILTER d.owner == @ctx_owner RETURN d",
         "bindVars": {"ctx_owner": "${ctx.owner}"},
         "batchSize": 2,
         "output_key": "docs",
@@ -138,7 +138,7 @@ async fn arangodb_aql_node_returns_result_and_outputs_metadata() {
     let body = capture.body.as_ref().unwrap();
     assert_eq!(
         body.get("query").unwrap(),
-        "FOR d IN docs FILTER d.owner == \"Alice\" RETURN d"
+        "FOR d IN docs FILTER d.owner == @ctx_owner RETURN d"
     );
     assert_eq!(
         body.get("bindVars").unwrap().get("ctx_owner").unwrap(),
@@ -157,7 +157,7 @@ async fn arangodb_aql_node_reports_http_error() {
         serde_json::json!({
             "error": true,
             "errorNum": 500,
-            "errorMessage": "simulated arango error"
+            "errorMessage": "password=arango-body-sentinel"
         }),
     )];
 
@@ -177,7 +177,8 @@ async fn arangodb_aql_node_reports_http_error() {
     assert!(result.is_err());
     let error = result.unwrap_err().to_string();
     assert!(error.contains("ArangoDB error 500"));
-    assert!(error.contains("simulated arango error"));
+    assert!(error.contains("password=[REDACTED]"));
+    assert!(!error.contains("arango-body-sentinel"));
 
     handle.abort();
 }
@@ -199,5 +200,28 @@ async fn arangodb_aql_node_requires_url_or_env() {
             .unwrap_err()
             .to_string()
             .contains("arangodb_aql requires 'url' or ARANGODB_URL env var")
+    );
+}
+
+// IF-039: the AQL body must not interpolate ${ctx...} values (injection).
+#[tokio::test]
+async fn arangodb_aql_rejects_ctx_interpolation_in_query_body() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("arangodb_aql").unwrap();
+
+    let config = serde_json::json!({
+        "url": "http://127.0.0.1:1",
+        "database": "_system",
+        "query": "FOR u IN users FILTER u.name == '${ctx.name}' RETURN u"
+    });
+
+    let err = node
+        .execute(&config, &Context::new())
+        .await
+        .expect_err("ctx interpolation in the AQL body must be rejected")
+        .to_string();
+    assert!(
+        err.contains("bindVars"),
+        "expected a bindVars-directed injection error, got: {err}"
     );
 }

@@ -54,11 +54,24 @@ For adding or maintaining node implementations, see [Node Contributor Manual](NO
 |------|-------------|
 | [`s3vector_create_bucket`](nodes/s3vector_create_bucket.md) | Create an Amazon S3 Vector bucket |
 | [`s3vector_create_index`](nodes/s3vector_create_index.md) | Create an index inside an S3 Vector bucket |
+| [`s3vector_delete_bucket`](nodes/s3vector_delete_bucket.md) | Delete an empty Amazon S3 Vector bucket |
+| [`s3vector_delete_index`](nodes/s3vector_delete_index.md) | Delete an Amazon S3 Vector index and its data |
 | [`s3vector_delete_vectors`](nodes/s3vector_delete_vectors.md) | Delete vectors from an S3 Vector index |
 | [`s3vector_get_bucket`](nodes/s3vector_get_bucket.md) | Get metadata for an S3 Vector bucket |
 | [`s3vector_get_index`](nodes/s3vector_get_index.md) | Get metadata for an S3 Vector index |
 | [`s3vector_put_vectors`](nodes/s3vector_put_vectors.md) | Upload vectors to an S3 Vector index |
 | [`s3vector_query_vectors`](nodes/s3vector_query_vectors.md) | Query nearest vectors in an S3 Vector index |
+
+S3 Vector resource targets are resolved as one unit after context
+interpolation. If any resource-target field is configured, the complete target
+must come from node configuration; resource identifier environment variables
+neither complete nor override it. Nodes that allow environment fallback consult
+those variables only when no target field is configured, and the resulting
+environment-only target must use one supported identifier shape. Conflicting,
+incomplete, non-string, or blank targets fail before the AWS client is built.
+`s3vector_delete_vectors`, `s3vector_delete_index`, and
+`s3vector_delete_bucket` always require an explicit configured target. Region,
+endpoint, and AWS credential configuration may still come from the environment.
 
 ## Notification Nodes
 
@@ -201,7 +214,7 @@ For adding or maintaining node implementations, see [Node Contributor Manual](NO
 
 | Node | Description |
 |------|-------------|
-| [`mcp_client`](nodes/mcp_client.md) | MCP client for stdio/SSE transports and tools (`initialize`, `list_tools`, `call_tool`) |
+| [`mcp_client`](nodes/mcp_client.md) | Stateful MCP 2025-11-25 client over stdio or Streamable HTTP (`initialize`, `list_tools`, `call_tool`, `close`) |
 
 ## Code Execution Nodes
 
@@ -274,7 +287,9 @@ end)
 
 ### `json_stringify(value)`
 
-Serialize a Lua value to a JSON string.
+Serialize a JSON-compatible Lua value to a JSON string. Tables must be either
+objects with string keys or dense arrays with consecutive indices starting at
+1; cyclic, sparse, mixed-key, and unsupported values are rejected.
 
 ```lua
 flow:step("render", function()
@@ -284,6 +299,23 @@ flow:step("render", function()
     }
     local json = json_stringify(doc)
     return { payload = json }
+end)
+```
+
+### `json_array(table)`, `json_object(table)`, and `json_null`
+
+Use these globals when Lua syntax alone would be ambiguous. `{}` is an empty
+object by default; `json_array({})` explicitly creates an empty JSON array,
+`json_object({})` explicitly preserves object shape, and `json_null` preserves a
+JSON null inside a table. `json_parse` applies the same markers automatically.
+
+```lua
+flow:step("shapes", function()
+    return {
+        items = json_array({}),
+        metadata = json_object({}),
+        missing = json_null,
+    }
 end)
 ```
 
@@ -333,7 +365,7 @@ end)
 
 ## Runtime Limits
 
-Lua flow parsing and `code` / `foreach` execution enforce process-wide budgets by default:
+Lua flow parsing and `code` / `foreach` execution enforce process-wide budgets by default. Node execution runs on Tokio's blocking pool; for flow steps, the same Lua hook also observes the total step deadline and dropped-future cancellation signal:
 
 | Variable | Default | Description |
 |----------|---------|-------------|

@@ -5,7 +5,7 @@ This example demonstrates the same chunk->foreach->embed pattern for Word files:
 3) normalize every chunk through `foreach`,
 4) send all cleaned chunks to OpenAI embeddings.
 
-The source document is hardcoded from `data/samples`.
+The source document is the versioned synthetic fixture in `examples/fixtures`.
 Use with `OPENAI_API_KEY`.
 ]]
 
@@ -13,7 +13,7 @@ local flow = Flow.new("chunk_embed_openai_word")
 
 --[[ Step 1: extract text from a Word document. ]]
 flow:step("load_document", nodes.extract_word({
-    path = "data/samples/Ballerina_vs_Java_Comparison_Matrix.docx",
+    path = "${ctx._flow_dir}/../fixtures/ironflow-sample.docx",
     format = "text",
     output_key = "document_text"
 }))

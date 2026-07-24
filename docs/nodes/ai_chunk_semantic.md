@@ -14,7 +14,7 @@ Split text into semantic chunks using embedding similarity to detect topic bound
 | `sim_window` | number | No | `3` | Cross-similarity window size (odd, >= 3) |
 | `sg_window` | number | No | `11` | Savitzky-Golay smoothing window (odd) |
 | `poly_order` | number | No | `3` | Savitzky-Golay polynomial order |
-| `threshold` | number | No | `0.5` | Percentile threshold for split filtering (0.0-1.0) |
+| `threshold` | number | No | `0.5` | Percentile of candidate boundary strengths kept as splits (0.0-1.0); higher admits more splits |
 | `min_distance` | number | No | `2` | Minimum block gap between split points |
 
 ### Provider auth parameters
@@ -41,8 +41,12 @@ Same as [`ai_embed`](ai_embed.md) — `api_key`, `base_url`, `ollama_host`, `tok
 
 ## Tuning
 
-- **Lower `threshold`** (e.g. 0.3) → more splits, smaller chunks
-- **Higher `threshold`** (e.g. 0.7) → fewer splits, larger chunks
+`threshold` is a **percentile of candidate boundary strengths**, not an absolute
+similarity cutoff. A split is kept when its value falls at or below the percentile, so a
+lower percentile admits fewer boundaries:
+
+- **Lower `threshold`** (e.g. 0.3) → fewer splits, larger chunks
+- **Higher `threshold`** (e.g. 0.7) → more splits, smaller chunks
 - **Larger `sg_window`** → smoother curve, fewer but more confident splits
 - **Smaller `min_distance`** → allow splits closer together
 

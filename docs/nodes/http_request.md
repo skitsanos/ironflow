@@ -21,6 +21,8 @@ Generic HTTP request with configurable method.
 | `status_retry_backoff` | number | no | `1` | Base retry delay in seconds. Delay uses exponential backoff by attempt. |
 | `respect_retry_after` | boolean | no | `true` | When `true`, a numeric `Retry-After` response header overrides the backoff delay. |
 | `max_retry_after` | number | no | `60` | Maximum status retry delay in seconds. |
+| `max_redirects` | integer | no | `10` | Maximum number of redirects to follow. Set to `0` to disable redirect following. |
+| `block_private_network` | boolean | no | `false` | When `true`, refuses the request (and any redirect hop) if the target host is `localhost` or a literal private/loopback/link-local IP, including the cloud-metadata address `169.254.169.254`. A hostname that resolves to an internal address via DNS is not detected. |
 
 For `body_type = "json"`, string values in `body` are recursively interpolated via `${ctx.key}`.
 

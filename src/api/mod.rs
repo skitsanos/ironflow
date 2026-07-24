@@ -1,8 +1,10 @@
 pub mod errors;
 pub mod handlers;
+mod webhook_config;
+
+pub use webhook_config::WebhookConfig;
 
 use std::collections::HashMap;
-use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -22,6 +24,7 @@ use tracing::{info, warn};
 use crate::nodes::NodeRegistry;
 use crate::storage::StateStore;
 use crate::storage::event_store::EventStore;
+use crate::util::listing::ListingPolicy;
 
 /// Shared application state accessible by all handlers.
 pub struct AppState {
@@ -30,8 +33,52 @@ pub struct AppState {
     pub event_store: Arc<dyn EventStore>,
     pub flows_dir: Option<PathBuf>,
     pub max_concurrent_tasks: Option<usize>,
-    /// Webhook name → flow file path mappings from config.
-    pub webhooks: HashMap<String, String>,
+    pub listing_policy: ListingPolicy,
+    /// Named webhook route definitions from config.
+    pub webhooks: HashMap<String, WebhookConfig>,
+}
+
+/// Optional process-wide cap on concurrently-executing API-triggered runs,
+/// configured via `IRONFLOW_MAX_CONCURRENT_RUNS` (unset or `0` = unlimited).
+/// `max_concurrent_tasks` only bounds tasks within a single run's coordinator,
+/// so without this a burst of requests could multiply total concurrency
+/// unboundedly (IF-042).
+fn run_admission() -> Option<&'static Arc<tokio::sync::Semaphore>> {
+    static SEM: std::sync::OnceLock<Option<Arc<tokio::sync::Semaphore>>> =
+        std::sync::OnceLock::new();
+    SEM.get_or_init(|| {
+        let max = std::env::var("IRONFLOW_MAX_CONCURRENT_RUNS")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(0);
+        (max > 0).then(|| Arc::new(tokio::sync::Semaphore::new(max)))
+    })
+    .as_ref()
+}
+
+/// Acquire a run-admission permit held for the duration of an API-triggered run,
+/// or return `503` when the process is at capacity. Returns `None` (no gating)
+/// when the cap is not configured.
+pub(crate) fn acquire_run_permit()
+-> Result<Option<tokio::sync::OwnedSemaphorePermit>, errors::AppError> {
+    acquire_run_permit_from(run_admission())
+}
+
+fn acquire_run_permit_from(
+    semaphore: Option<&Arc<tokio::sync::Semaphore>>,
+) -> Result<Option<tokio::sync::OwnedSemaphorePermit>, errors::AppError> {
+    match semaphore {
+        None => Ok(None),
+        Some(semaphore) => semaphore
+            .clone()
+            .try_acquire_owned()
+            .map(Some)
+            .map_err(|_| {
+                errors::AppError::ServiceUnavailable(
+                    "server is at maximum concurrent run capacity; retry later".to_string(),
+                )
+            }),
+    }
 }
 
 /// Configuration for the REST API server.
@@ -41,7 +88,8 @@ pub struct ServeOptions {
     pub flows_dir: Option<PathBuf>,
     pub max_body: usize,
     pub max_concurrent_tasks: Option<usize>,
-    pub webhooks: HashMap<String, String>,
+    pub listing_policy: ListingPolicy,
+    pub webhooks: HashMap<String, WebhookConfig>,
     pub cors_origins: Option<Vec<String>>,
     pub api_key: Option<String>,
     pub allow_unauthenticated_api: bool,
@@ -67,6 +115,8 @@ pub async fn serve(
     options: ServeOptions,
 ) -> Result<()> {
     let registry = Arc::new(NodeRegistry::with_builtins());
+    let listener = bind_listener(&options.host, options.port).await?;
+    let bound_addr = listener.local_addr()?;
 
     let state = Arc::new(AppState {
         registry,
@@ -74,12 +124,14 @@ pub async fn serve(
         event_store,
         flows_dir: options.flows_dir,
         max_concurrent_tasks: options.max_concurrent_tasks,
+        listing_policy: options.listing_policy,
         webhooks: options.webhooks,
     });
 
     let auth = build_api_auth(
         options.api_key,
         options.allow_unauthenticated_api,
+        bound_addr.ip().is_loopback(),
         &options.host,
     )?;
 
@@ -107,13 +159,16 @@ pub async fn serve(
         .layer(cors_layer(options.cors_origins)?)
         .with_state(state);
 
-    let addr: SocketAddr = format!("{}:{}", options.host, options.port).parse()?;
-    info!("IronFlow API server listening on {}", addr);
-
-    let listener = tokio::net::TcpListener::bind(addr).await?;
+    info!("IronFlow API server listening on {}", bound_addr);
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+async fn bind_listener(host: &str, port: u16) -> Result<tokio::net::TcpListener> {
+    tokio::net::TcpListener::bind((host, port))
+        .await
+        .map_err(|error| anyhow::anyhow!("failed to bind API server to {host}:{port}: {error}"))
 }
 
 /// Build the CORS policy for the API server.
@@ -160,6 +215,7 @@ pub fn cors_layer(origins: Option<Vec<String>>) -> Result<CorsLayer> {
 fn build_api_auth(
     api_key: Option<String>,
     allow_unauthenticated_api: bool,
+    is_loopback: bool,
     host: &str,
 ) -> Result<Option<ApiAuth>> {
     let api_key = api_key.map(|value| value.trim().to_string());
@@ -172,7 +228,7 @@ fn build_api_auth(
         return Ok(None);
     }
 
-    if is_loopback_host(host) {
+    if is_loopback {
         warn!("API authentication is not configured; allowing unauthenticated loopback server");
         return Ok(None);
     }
@@ -183,16 +239,18 @@ fn build_api_auth(
     );
 }
 
-fn is_loopback_host(host: &str) -> bool {
-    matches!(host, "127.0.0.1" | "localhost" | "::1")
-}
-
 pub async fn require_api_key(
     axum::extract::State(auth): axum::extract::State<ApiAuth>,
-    req: Request,
+    mut req: Request,
     next: Next,
 ) -> Response {
     if request_has_api_key(req.headers(), &auth.api_key) {
+        // Authentication credentials authorize access to IronFlow itself.
+        // Consume both supported forms before webhook workflow ingress so
+        // handlers cannot accidentally treat a platform secret as business
+        // input.
+        req.headers_mut().remove(axum::http::header::AUTHORIZATION);
+        req.headers_mut().remove("x-api-key");
         return next.run(req).await;
     }
 
@@ -208,12 +266,96 @@ fn request_has_api_key(headers: &HeaderMap, expected: &str) -> bool {
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "))
-        .is_some_and(|token| token == expected);
+        .is_some_and(|token| constant_time_eq(token.as_bytes(), expected.as_bytes()));
 
     let api_key = headers
         .get("x-api-key")
         .and_then(|value| value.to_str().ok())
-        .is_some_and(|token| token == expected);
+        .is_some_and(|token| constant_time_eq(token.as_bytes(), expected.as_bytes()));
 
     bearer || api_key
+}
+
+/// Compare two byte strings without short-circuiting on the first differing
+/// byte, so comparison time does not leak how much of a candidate API key
+/// matched. The length check leaks only the key length, not its contents.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    std::hint::black_box(diff) == 0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{bind_listener, constant_time_eq, request_has_api_key};
+    use axum::http::HeaderMap;
+
+    #[tokio::test]
+    async fn bind_listener_accepts_hostname_and_ipv4_loopback() {
+        for host in ["localhost", "127.0.0.1"] {
+            let listener = bind_listener(host, 0).await.unwrap();
+            assert!(listener.local_addr().unwrap().ip().is_loopback());
+        }
+    }
+
+    #[tokio::test]
+    async fn bind_listener_accepts_unbracketed_ipv6_loopback() {
+        let listener = bind_listener("::1", 0).await.unwrap();
+        assert!(listener.local_addr().unwrap().ip().is_loopback());
+    }
+
+    #[test]
+    fn constant_time_eq_matches_only_identical_bytes() {
+        assert!(constant_time_eq(b"secret-token", b"secret-token"));
+        assert!(!constant_time_eq(b"secret-token", b"secret-toke!"));
+        assert!(!constant_time_eq(b"secret-token", b"secret")); // different length
+        assert!(!constant_time_eq(b"", b"x"));
+        assert!(constant_time_eq(b"", b""));
+    }
+
+    #[test]
+    fn run_admission_permit_gating() {
+        // No configured cap: never gated.
+        assert!(super::acquire_run_permit_from(None).unwrap().is_none());
+
+        // Cap of 1: first acquire succeeds, the second is refused (503), and
+        // releasing the first restores capacity.
+        let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(1));
+        let first = super::acquire_run_permit_from(Some(&semaphore)).unwrap();
+        assert!(first.is_some());
+        assert!(super::acquire_run_permit_from(Some(&semaphore)).is_err());
+        drop(first);
+        assert!(
+            super::acquire_run_permit_from(Some(&semaphore))
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn request_has_api_key_accepts_valid_and_rejects_invalid() {
+        let expected = "s3cr3t-key";
+
+        let mut bearer = HeaderMap::new();
+        bearer.insert(
+            axum::http::header::AUTHORIZATION,
+            "Bearer s3cr3t-key".parse().unwrap(),
+        );
+        assert!(request_has_api_key(&bearer, expected));
+
+        let mut api_key = HeaderMap::new();
+        api_key.insert("x-api-key", "s3cr3t-key".parse().unwrap());
+        assert!(request_has_api_key(&api_key, expected));
+
+        let mut wrong = HeaderMap::new();
+        wrong.insert("x-api-key", "wrong-key!!".parse().unwrap());
+        assert!(!request_has_api_key(&wrong, expected));
+
+        assert!(!request_has_api_key(&HeaderMap::new(), expected));
+    }
 }

@@ -115,6 +115,15 @@ impl Node for S3GetObjectNode {
         let e_tag = response.e_tag().map(ToString::to_string);
         let last_modified = response.last_modified().map(ToString::to_string);
 
+        let max_bytes = crate::util::limits::max_file_bytes();
+        if let Some(length) = content_length
+            && length.max(0) as u64 > max_bytes
+        {
+            anyhow::bail!(
+                "s3_get_object: object is {length} bytes, exceeds the {max_bytes} byte limit (raise IRONFLOW_MAX_FILE_BYTES)"
+            );
+        }
+
         let bytes = response.body.collect().await?.into_bytes().to_vec();
 
         let mut output = NodeOutput::new();

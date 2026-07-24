@@ -6,10 +6,19 @@ Flow:
 2. Extract the PPTX as structured JSON.
 3. Keep the first 3 slides for a compact demo payload.
 4. Send the structured slide data plus preview image to Gemini.
-5. Write Gemini's text-only reconstruction to /tmp.
+5. Write Gemini's text-only reconstruction to a unique temporary directory.
 
 Environment variables:
 - GEMINI_API_KEY
+
+Platform requirements:
+- macOS with `qlmanage`, plus POSIX `sh` and `mktemp` on PATH.
+- Run from the repository root because `qlmanage` receives a
+  repository-relative fixture path.
+
+Effects:
+- Retains the unique preview directory printed by the final step, including
+  the Quick Look image, qlmanage log, and reconstruction.txt.
 
 Notes:
 - qlmanage produces a deck preview thumbnail, not individual slide images.
@@ -29,20 +38,20 @@ flow:step("render_preview", nodes.shell_command({
     cmd = "sh",
     args = {
         "-c",
-        "rm -rf /tmp/ironflow-pptx-gemini && mkdir -p /tmp/ironflow-pptx-gemini && qlmanage -t -s 1400 -o /tmp/ironflow-pptx-gemini data/samples/sample.pptx >/tmp/ironflow-pptx-gemini/qlmanage.log 2>&1"
+        "output_dir=$(mktemp -d \"${TMPDIR:-/tmp}/ironflow-pptx-gemini.XXXXXX\") || exit 1; qlmanage -t -s 1400 -o \"$output_dir\" examples/fixtures/ironflow-sample.pptx >\"$output_dir/qlmanage.log\" 2>&1 || exit 1; printf '%s' \"$output_dir\""
     },
     timeout = 30,
     output_key = "preview_render"
 })):depends_on("check_key")
 
 flow:step("read_preview", nodes.read_file({
-    path = "/tmp/ironflow-pptx-gemini/sample.pptx.png",
+    path = "${ctx.preview_render_stdout}/ironflow-sample.pptx.png",
     encoding = "base64",
     output_key = "slide_preview"
 })):depends_on("render_preview")
 
 flow:step("extract_deck", nodes.extract_pptx({
-    path = "data/samples/sample.pptx",
+    path = "${ctx._flow_dir}/../fixtures/ironflow-sample.pptx",
     format = "json",
     output_key = "deck",
     metadata_key = "deck_meta",
@@ -140,12 +149,12 @@ ${ctx.reconstruction_payload}
 })):depends_on("prepare_first_three", "read_preview")
 
 flow:step("write_reconstruction", nodes.write_file({
-    path = "/tmp/ironflow-pptx-gemini/reconstruction.txt",
+    path = "${ctx.preview_render_stdout}/reconstruction.txt",
     content = "${ctx.gemini_reconstruction_text}"
 })):depends_on("reconstruct")
 
 flow:step("log_result", nodes.log({
-    message = "Reconstructed ${ctx.selected_slide_count} slides with ${ctx.selected_image_count} image elements. Output: /tmp/ironflow-pptx-gemini/reconstruction.txt"
+    message = "Reconstructed ${ctx.selected_slide_count} slides with ${ctx.selected_image_count} image elements. Output: ${ctx.preview_render_stdout}/reconstruction.txt"
 })):depends_on("write_reconstruction")
 
 return flow

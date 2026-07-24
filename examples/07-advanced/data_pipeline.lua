@@ -3,8 +3,9 @@
 local flow = Flow.new("data_pipeline")
 
 flow:step("prepare_input", nodes.code({
-    source = function()
-        return {
+    source = function(ctx)
+        local orders = ctx.orders
+        if orders == nil then
             orders = {
                 { id = "A1", amount = 100, customer_name = "Alice", status = "completed" },
                 { id = "A2", amount = 50, customer_name = "Bob", status = "pending" },
@@ -12,7 +13,8 @@ flow:step("prepare_input", nodes.code({
                 { id = "A1", amount = 100, customer_name = "Alice", status = "completed" },
                 { id = "A4", amount = 75, customer_name = "Dave", status = "completed" }
             }
-        }
+        end
+        return { orders = orders }
     end,
 }))
 

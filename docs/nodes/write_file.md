@@ -6,8 +6,8 @@ Write content to a file, creating it if it does not exist. Supports both text an
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | yes | — | Destination file path. Supports `${ctx.*}` interpolation. |
-| `content` | string | no | `""` | The text to write. Supports `${ctx.*}` interpolation. Ignored when `source_key` is set. |
+| `path` | string | yes | — | Destination file path. Supports `${ctx.key}` interpolation. |
+| `content` | string | no | `""` | The text to write. Supports `${ctx.key}` interpolation. Ignored when `source_key` is set. |
 | `source_key` | string | no | — | Context key whose string value supplies the content. Use with `encoding = "base64"` to write binary data from context. |
 | `encoding` | string | no | `"text"` | `"text"` writes UTF-8 bytes. `"base64"` decodes the content from base64 before writing (produces binary output). |
 | `append` | bool | no | `false` | When `true`, content is appended to the file instead of overwriting it. The file is created if it does not exist. |

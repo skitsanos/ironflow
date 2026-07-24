@@ -1,23 +1,46 @@
 # IronFlow configuration file
 # Place this file in your project root as ironflow.yaml
-# All fields are optional — missing fields use CLI flags, env vars, or defaults.
+# All fields are optional. Matching values resolve as explicit CLI argument >
+# existing process environment > selected dotenv > this file > built-in default.
+# Config-only fields, such as webhooks, skip unsupported sources.
 
 # Server settings (used by `ironflow serve`)
-# host: "0.0.0.0"
-# port: 3000
-# flows_dir: "flows"
+# host: "0.0.0.0"        # --host / HOST
+# port: 3000              # --port / PORT
+# flows_dir: "flows"      # --flows-dir / FLOWS_DIR
 
 # Storage
-# store_dir: "data/runs"
+# store_dir: "data/runs"  # --store-dir / IRONFLOW_STORE_DIR
+store_backend: "json"     # IRONFLOW_STORE: json, sqlite, postgres, or redis
+# store_url: "sqlite://data/runs/ironflow.sqlite?mode=rwc" # IRONFLOW_STORE_URL
+# event_store: "memory"   # IRONFLOW_EVENT_STORE
+# event_store_url: "sqlite://data/runs/ironflow-events.sqlite?mode=rwc"
+# event_memory_capacity: 10000 # Positive count bound; memory also has a fixed 64 MiB retained-heap estimate
+# sql_table_prefix: "ironflow_" # IRONFLOW_SQL_TABLE_PREFIX
+
+# Redis settings used when either backend is redis
+# redis_url: "redis://127.0.0.1:6379" # REDIS_URL
+# redis_prefix: "ironflow:"            # REDIS_PREFIX
+# redis_ttl: 3600                       # REDIS_TTL; omit for no expiration
 
 # Request limits
-# max_body: 1048576  # 1 MB
+# max_body: 1048576  # --max-body / MAX_BODY; 1 MB
 
 # Engine
-# max_concurrent_tasks: 4
+# max_concurrent_tasks: 4 # IRONFLOW_MAX_CONCURRENT_TASKS
 
-# Webhooks — map names to flow files (relative to flows_dir)
-# Each entry creates a POST /webhooks/{name} endpoint.
+# API access. Prefer IRONFLOW_API_KEY or a secret manager over storing a key here.
+# api_key: "replace-me"
+# allow_unauthenticated_api: false # IRONFLOW_ALLOW_UNAUTHENTICATED_API
+# cors_origins:                    # IRONFLOW_CORS_ORIGINS (comma-separated)
+#   - "https://app.example.com"
+
+# Webhooks — scalar entries forward no request headers. Structured entries can
+# opt confidential business-signature headers into the execution-only
+# ctx._headers overlay. Platform auth/cookie/session headers remain reserved.
 # webhooks:
 #   hello: hello_world.lua
-#   process-order: orders/process.lua
+#   signed-action:
+#     flow: auth_check.lua
+#     forward_headers:
+#       - x-webhook-signature

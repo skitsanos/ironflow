@@ -5,6 +5,7 @@ use base64::Engine;
 use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
+use crate::util::node_config::config_bool;
 
 pub struct ReadFileNode;
 
@@ -47,12 +48,31 @@ impl Node for ReadFileNode {
             );
         }
 
+        // Bound the actual read as well: the metadata pre-flight trusts
+        // `len()`, which is 0 for special files such as `/dev/zero` or fifos,
+        // so a bounded read is needed to stop them streaming unbounded.
+        let path_ref = std::path::Path::new(&path);
         let content = match encoding {
             "base64" => {
-                let bytes = tokio::fs::read(&path).await?;
+                let bytes = crate::util::bounded_read::read_file_capped_async(
+                    path_ref,
+                    max_bytes,
+                    "read_file",
+                )
+                .await?;
                 base64::engine::general_purpose::STANDARD.encode(&bytes)
             }
-            "text" => tokio::fs::read_to_string(&path).await?,
+            "text" => {
+                let bytes = crate::util::bounded_read::read_file_capped_async(
+                    path_ref,
+                    max_bytes,
+                    "read_file",
+                )
+                .await?;
+                String::from_utf8(bytes).map_err(|e| {
+                    anyhow::anyhow!("read_file: '{}' is not valid UTF-8: {}", path, e)
+                })?
+            }
             other => anyhow::bail!(
                 "read_file: unsupported encoding '{}'. Must be 'text' or 'base64'.",
                 other
@@ -99,10 +119,7 @@ impl Node for WriteFileNode {
             .get("encoding")
             .and_then(|v| v.as_str())
             .unwrap_or("text");
-        let append = config
-            .get("append")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        let append = config_bool(config, "append", ctx).unwrap_or(false);
 
         // Resolve content bytes: from `content` string or `source_key` context value
         let bytes: Vec<u8> =

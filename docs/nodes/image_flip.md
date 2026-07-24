@@ -27,7 +27,7 @@ Flip a single image horizontally or vertically.
 local flow = Flow.new("image_flip_demo")
 
 flow:step("flip", nodes.image_flip({
-    path = "data/samples/sample_front.png",
+    path = "examples/fixtures/ironflow-sample.png",
     direction = "vertical",
     output_path = "output/sample_front_flip.png",
     output_key = "flipped"

@@ -2,6 +2,14 @@
 
 List buckets visible to the current credentials.
 
+This read-only node contacts an S3-compatible external service and uses the AWS
+SDK credential chain plus the configured region/endpoint. On AWS S3 it requires
+the account-level `s3:ListAllMyBuckets` permission. The runnable
+[`s3_put_get_list.lua`](../../examples/04-file-operations/s3_put_get_list.lua)
+workflow also creates and deletes a remote object. Its cleanup is a normal
+success-dependent flow step, so a failed or interrupted run can leave the
+object behind.
+
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
@@ -18,6 +26,8 @@ List buckets visible to the current credentials.
 - `{output_key}_success` — `true` on success.
 
 ## Example
+
+See the linked workflow for the executable, cataloged example. Minimal use:
 
 ```lua
 local flow = Flow.new("s3_buckets")

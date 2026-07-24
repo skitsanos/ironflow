@@ -22,7 +22,12 @@ If the context value is a raw JSON string, use [`json_validate`](json_validate.m
 - `validation_success` -- boolean indicating whether validation passed
 - `validation_errors` -- array of error description strings (empty on success)
 
-**Note:** When validation fails the node returns an error (`anyhow::bail!`), so downstream steps will not execute unless error handling is configured. The output keys are still populated before the error is raised.
+**Note:** When validation fails the node returns a structured error. Downstream
+steps execute only if a dedicated `on_error` handler successfully resolves that
+failure. After retries are exhausted, the final validation result is buffered
+for the source phase barrier and the handler receives its source-exact copy in
+`_error_output`. Normal shared keys still follow declaration-order collision
+precedence if a parallel step publishes the same names.
 
 ## Example
 

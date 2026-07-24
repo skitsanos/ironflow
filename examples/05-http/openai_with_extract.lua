@@ -1,4 +1,5 @@
 -- OpenAI Chat Completions with function handler to extract the reply
+-- Requirements: network access and OPENAI_API_KEY.
 local flow = Flow.new("openai_with_extract")
 
 -- Call the Chat Completions API

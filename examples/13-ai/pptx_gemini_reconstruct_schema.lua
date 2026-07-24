@@ -10,12 +10,15 @@ Flow:
 Environment variables:
 - GEMINI_API_KEY
 
+Dependencies:
+- POSIX-compatible `mkdir` command.
+
 Run:
   cargo run -- --dotenv .env run examples/13-ai/pptx_gemini_reconstruct_schema.lua
 
-Outputs:
-- /tmp/ironflow-pptx-gemini-schema/reconstruction.json
-- /tmp/ironflow-pptx-gemini-schema/reconstruction.txt
+Effects:
+- Retains a UUID-scoped output directory containing reconstruction.json and
+  reconstruction.txt; remove it when finished.
 
 Notes:
 - JSON schema keeps each response parseable, but it does not remove model output limits.
@@ -26,7 +29,11 @@ Notes:
 
 local flow = Flow.new("pptx_gemini_reconstruct_schema")
 
-local OUTPUT_DIR = "/tmp/ironflow-pptx-gemini-schema"
+local TEMP_ROOT = env("TMPDIR")
+if TEMP_ROOT == nil or TEMP_ROOT == "" then TEMP_ROOT = env("TMP") end
+if TEMP_ROOT == nil or TEMP_ROOT == "" then TEMP_ROOT = env("TEMP") end
+if TEMP_ROOT == nil or TEMP_ROOT == "" then TEMP_ROOT = "." end
+local OUTPUT_DIR = TEMP_ROOT .. "/ironflow-pptx-gemini-schema-" .. uuid4()
 
 local batches = {
     { name = "01_10", first = 1, last = 10 },
@@ -135,7 +142,7 @@ flow:step("prepare_output_dir", nodes.shell_command({
 })):depends_on("check_key")
 
 flow:step("extract_deck", nodes.extract_pptx({
-    path = "data/samples/sample.pptx",
+    path = "${ctx._flow_dir}/../fixtures/ironflow-sample.pptx",
     format = "json",
     output_key = "deck",
     metadata_key = "deck_meta",

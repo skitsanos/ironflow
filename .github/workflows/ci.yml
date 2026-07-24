@@ -9,6 +9,8 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "examples/**"
+      - "scripts/**"
+      - ".cargo/audit.toml"
       - ".github/workflows/ci.yml"
   pull_request:
     branches: [main, develop]
@@ -25,18 +27,45 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check source branch
+        env:
+          HEAD_REF: ${{ github.head_ref }}
         run: |
-          if [ "${{ github.head_ref }}" != "develop" ]; then
-            echo "::error::Only the 'develop' branch can be merged into 'main'. Got '${{ github.head_ref }}'."
+          if [ "$HEAD_REF" != "develop" ]; then
+            echo "::error::Only the 'develop' branch can be merged into 'main'. Got '$HEAD_REF'."
             exit 1
           fi
+
+  module-size:
+    name: Module size ratchet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Test module-size checker
+        run: python3 -B -m unittest discover -s scripts/tests -p 'test_*.py' -v
+      - name: Enforce production module-size policy
+        run: python3 -B scripts/check_module_size.py
+
+  audit:
+    name: Security audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.97.1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      # Fails on any advisory not in the reviewed ignore list at .cargo/audit.toml.
+      - name: Audit dependencies
+        run: cargo audit
 
   check:
     name: Check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.96.0
+      - uses: dtolnay/rust-toolchain@1.97.1
       - uses: Swatinem/rust-cache@v2
         with:
           cache-targets: false
@@ -47,7 +76,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.96.0
+      - uses: dtolnay/rust-toolchain@1.97.1
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
@@ -60,18 +89,42 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.96.0
+      - uses: dtolnay/rust-toolchain@1.97.1
       - uses: Swatinem/rust-cache@v2
         with:
           cache-targets: false
       - run: cargo check --all-targets --features postgres,redis
+
+  redis-tests:
+    name: Redis integration tests
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:latest
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      IRONFLOW_REDIS_TEST_URL: redis://127.0.0.1:6379
+      IRONFLOW_REDIS_TEST_REQUIRED: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.97.1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
+      - run: cargo test --features redis --test test_redis_atomicity -- --test-threads=1
 
   fmt:
     name: Format
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.96.0
+      - uses: dtolnay/rust-toolchain@1.97.1
         with:
           components: rustfmt
       - run: cargo fmt --all -- --check
@@ -84,7 +137,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.96.0
+      - uses: dtolnay/rust-toolchain@1.97.1
       - uses: Swatinem/rust-cache@v2
         with:
           cache-targets: false
@@ -98,7 +151,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.96.0
+      - uses: dtolnay/rust-toolchain@1.97.1
       - uses: Swatinem/rust-cache@v2
         with:
           cache-targets: false
@@ -110,7 +163,7 @@ jobs:
     needs: build
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.96.0
+      - uses: dtolnay/rust-toolchain@1.97.1
       - uses: Swatinem/rust-cache@v2
         with:
           cache-targets: false
@@ -118,11 +171,17 @@ jobs:
       - name: Validate all example flows
         run: |
           failed=0
-          for f in examples/**/*.lua; do
+          while IFS= read -r -d '' f; do
             echo "Validating $f..."
             if ! ./target/release/ironflow validate "$f"; then
               echo "FAIL: $f"
               failed=1
             fi
-          done
+          done < <(find examples -type f -name '*.lua' -print0)
           exit $failed
+      - name: Verify example contracts, catalog, fixtures, and offline matrix
+        run: >-
+          cargo test
+          --test test_example_catalog
+          --test test_example_contracts
+          --test test_example_fixtures

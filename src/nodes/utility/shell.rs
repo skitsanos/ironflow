@@ -3,7 +3,73 @@ use async_trait::async_trait;
 use tokio::io::AsyncReadExt;
 
 use crate::engine::types::{Context, NodeOutput};
-use crate::nodes::Node;
+use crate::lua::interpolate::interpolate_ctx;
+use crate::nodes::child_process::{ChildProcessGuard, configure_command};
+use crate::nodes::{Node, NodeFailure};
+use crate::util::duration::positive_duration;
+use crate::util::node_config::{config_bool_or, config_f64_or};
+
+fn resolve_command(config: &serde_json::Value, ctx: &Context) -> Result<String> {
+    config
+        .get("cmd")
+        .and_then(serde_json::Value::as_str)
+        .map(|value| interpolate_ctx(value, ctx))
+        .ok_or_else(|| anyhow::anyhow!("shell_command requires 'cmd' parameter"))
+}
+
+fn resolve_arguments(config: &serde_json::Value, ctx: &Context) -> Result<Vec<String>> {
+    let Some(value) = config.get("args") else {
+        return Ok(Vec::new());
+    };
+    let values = value
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("shell_command expects 'args' to be an array"))?;
+
+    values
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .map(|value| interpolate_ctx(value, ctx))
+                .ok_or_else(|| {
+                    anyhow::anyhow!("shell_command expects every 'args' entry to be a string")
+                })
+        })
+        .collect()
+}
+
+fn resolve_working_directory(config: &serde_json::Value, ctx: &Context) -> Result<Option<String>> {
+    config
+        .get("cwd")
+        .map(|value| {
+            value
+                .as_str()
+                .map(|value| interpolate_ctx(value, ctx))
+                .ok_or_else(|| anyhow::anyhow!("shell_command expects 'cwd' to be a string"))
+        })
+        .transpose()
+}
+
+fn resolve_environment(config: &serde_json::Value, ctx: &Context) -> Result<Vec<(String, String)>> {
+    let Some(value) = config.get("env") else {
+        return Ok(Vec::new());
+    };
+    let values = value
+        .as_object()
+        .ok_or_else(|| anyhow::anyhow!("shell_command expects 'env' to be an object"))?;
+
+    values
+        .iter()
+        .map(|(name, value)| {
+            value
+                .as_str()
+                .map(|value| (name.clone(), interpolate_ctx(value, ctx)))
+                .ok_or_else(|| {
+                    anyhow::anyhow!("shell_command expects every 'env' value to be a string")
+                })
+        })
+        .collect()
+}
 
 /// Read up to `limit + 1` bytes from a child pipe into `buf`. Returns whether
 /// the cap was exceeded. The extra byte is needed to distinguish "at limit"
@@ -43,70 +109,40 @@ impl Node for ShellCommandNode {
         "Execute a shell command and capture output"
     }
 
-    async fn execute(&self, config: &serde_json::Value, _ctx: &Context) -> Result<NodeOutput> {
-        let cmd = config
-            .get("cmd")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("shell_command requires 'cmd' parameter"))?;
+    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
+        let cmd = resolve_command(config, ctx)?;
+        let args = resolve_arguments(config, ctx)?;
+        let cwd = resolve_working_directory(config, ctx)?;
+        let environment = resolve_environment(config, ctx)?;
 
-        let args: Vec<&str> = config
-            .get("args")
-            .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
-            .unwrap_or_default();
-
-        let cwd = config.get("cwd").and_then(|v| v.as_str());
-
-        let timeout_s = config
-            .get("timeout")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(60.0);
+        let timeout_s = config_f64_or(config, "timeout", ctx, 60.0)?;
+        let duration = positive_duration(timeout_s, "shell_command timeout")?;
+        let fail_on_nonzero = config_bool_or(config, "fail_on_nonzero", ctx, true)?;
 
         let output_key = config
             .get("output_key")
             .and_then(|v| v.as_str())
             .unwrap_or("shell");
 
-        let mut command = tokio::process::Command::new(cmd);
+        let mut command = tokio::process::Command::new(&cmd);
         command.args(&args);
 
-        if let Some(dir) = cwd {
+        if let Some(dir) = &cwd {
             command.current_dir(dir);
         }
 
-        // Add environment variables from config
-        if let Some(env_map) = config.get("env").and_then(|v| v.as_object()) {
-            for (k, v) in env_map {
-                if let Some(val) = v.as_str() {
-                    command.env(k, val);
-                }
-            }
-        }
-
-        // Spawn in a new process group so we can kill the entire tree on timeout
-        #[cfg(unix)]
-        {
-            unsafe {
-                command.pre_exec(|| {
-                    // Create a new process group with this child as the leader
-                    libc::setpgid(0, 0);
-                    Ok(())
-                });
-            }
+        for (name, value) in environment {
+            command.env(name, value);
         }
 
         command
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
+        configure_command(&mut command);
 
         let mut child = command.spawn()?;
+        let process_guard = ChildProcessGuard::new(&child);
 
-        // Record the PID before consuming the child.
-        // On Unix this is the process group ID (since we called setpgid(0,0)).
-        #[cfg(unix)]
-        let child_pid = child.id();
-
-        let duration = std::time::Duration::from_secs_f64(timeout_s);
         let max_out = crate::util::limits::max_shell_output_bytes() as usize;
 
         // Stream stdout/stderr concurrently with bounded buffers so the
@@ -143,27 +179,15 @@ impl Node for ShellCommandNode {
                 Ok(Ok(x)) => x,
                 Ok(Err(e)) => bail!("Failed to execute command '{}': {:#}", cmd, e),
                 Err(_) => {
-                    #[cfg(unix)]
-                    if let Some(pid) = child_pid {
-                        unsafe {
-                            libc::kill(-(pid as i32), libc::SIGKILL);
-                        }
-                        loop {
-                            let ret = unsafe {
-                                libc::waitpid(-(pid as i32), std::ptr::null_mut(), libc::WNOHANG)
-                            };
-                            if ret <= 0 {
-                                break;
-                            }
-                        }
-                    }
+                    process_guard.terminate(&mut child).await;
                     bail!(
-                        "Command '{}' timed out after {}s (process group killed)",
+                        "Command '{}' timed out after {}s (process terminated)",
                         cmd,
                         timeout_s
                     );
                 }
             };
+        process_guard.disarm();
 
         let stdout = String::from_utf8_lossy(&stdout_bytes).into_owned();
         let stderr = String::from_utf8_lossy(&stderr_bytes).into_owned();
@@ -194,8 +218,12 @@ impl Node for ShellCommandNode {
             );
         }
 
-        if !success {
-            bail!("Command '{}' exited with code {}", cmd, code);
+        if fail_on_nonzero && !success {
+            return Err(NodeFailure::new(
+                format!("Command '{cmd}' exited with code {code}"),
+                result,
+            )
+            .into());
         }
 
         Ok(result)
