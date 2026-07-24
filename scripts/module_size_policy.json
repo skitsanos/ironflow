@@ -1,7 +1,12 @@
 {
   "version": 1,
-  "exception_budget": 13,
+  "exception_budget": 17,
   "exceptions": [
+    {
+      "path": "src/api/mod.rs",
+      "max_lines": 361,
+      "rationale": "IF-042/044 review: one REST surface covering router assembly, AppState, CORS, API-key auth (constant-time), and process-wide run admission; extract admission and auth into modules before adding another cross-cutting middleware concern."
+    },
     {
       "path": "src/cli/store_factory.rs",
       "max_lines": 330,
@@ -13,14 +18,24 @@
       "rationale": "IF-028 review: one task lifecycle spanning retries, deadlines, cancellation, and output publication; split before adding another lifecycle phase."
     },
     {
+      "path": "src/engine/recovery.rs",
+      "max_lines": 317,
+      "rationale": "IF-046/052 review: one execution-plan validator and recovery-DAG builder covering dependency, cycle, on_error, retry-count, timeout, and route validation; split validation from graph construction before adding another planning phase."
+    },
+    {
       "path": "src/lua/runtime/api.rs",
-      "max_lines": 305,
-      "rationale": "IF-028 review: one Lua flow-builder registration surface; nested closure complexity makes the next independent API group a mandatory extraction point."
+      "max_lines": 304,
+      "rationale": "IF-028/035 review: one Lua flow-builder registration surface (handler bytecode is now signed at dump time); nested closure complexity makes the next independent API group a mandatory extraction point."
     },
     {
       "path": "src/nodes/cloud/s3_objects.rs",
-      "max_lines": 312,
-      "rationale": "IF-028 review: four closely related S3 object operations share one client and payload contract; split when a fifth operation or new helper responsibility appears."
+      "max_lines": 321,
+      "rationale": "IF-028/036 review: four closely related S3 object operations share one client and payload contract, plus a content-length size pre-flight on get_object; split when a fifth operation or new helper responsibility appears."
+    },
+    {
+      "path": "src/nodes/file/io.rs",
+      "max_lines": 308,
+      "rationale": "IF-049 review: the read/write/copy/move/delete file node family sharing size-cap and bounded-read enforcement; split by operation before adding another filesystem node."
     },
     {
       "path": "src/nodes/mcp/stdio.rs",
@@ -56,6 +71,11 @@
       "path": "src/storage/redis_store/listing.rs",
       "max_lines": 319,
       "rationale": "IF-028 review: one ordered catalog paging and repair boundary with inline ordering tests; extract tests or repair logic before adding listing behavior."
+    },
+    {
+      "path": "src/storage/redis_store/mod.rs",
+      "max_lines": 307,
+      "rationale": "IF-051/052 review: the Redis StateStore trait surface delegating to CAS/catalog/listing/maintenance submodules, plus prune and first-terminal timestamp semantics; extract when another delegated concern appears."
     },
     {
       "path": "src/storage/redis_store/rebuild.rs",

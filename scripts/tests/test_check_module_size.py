@@ -231,12 +231,12 @@ class ModuleSizeCheckerTests(unittest.TestCase):
 
     def test_exception_budget_cannot_exceed_the_if034_baseline(self) -> None:
         exceptions = []
-        for index in range(14):
+        for index in range(18):
             path = f"src/module_{index:02}.rs"
             self.write_module(path, 301)
             exceptions.append(self.exception(path, 301))
 
-        with self.assertRaisesRegex(CHECKER.PolicyError, "fixed IF-034 baseline of 13"):
+        with self.assertRaisesRegex(CHECKER.PolicyError, "fixed IF-034 baseline of 17"):
             CHECKER.load_policy(self.write_policy(exceptions))
 
 
