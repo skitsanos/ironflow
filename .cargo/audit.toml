@@ -8,14 +8,6 @@
 
 [advisories]
 ignore = [
-    # quick-xml 0.39 — quadratic duplicate-attribute check (RUSTSEC-2026-0194)
-    # and unbounded namespace-declaration allocation (RUSTSEC-2026-0195), both
-    # DoS. Reaches us only via comrak -> syntect -> plist. IronFlow's own XML
-    # nodes depend on quick-xml 0.41, which is already patched. Remove once
-    # comrak/syntect/plist bump quick-xml to >= 0.41.
-    "RUSTSEC-2026-0194",
-    "RUSTSEC-2026-0195",
-
     # rustls-webpki 0.101 — reachable CRL-parsing panic (RUSTSEC-2026-0104) and
     # incorrect name-constraint acceptance (RUSTSEC-2026-0098/-0099). Pulled in
     # only by aws-smithy-http-client's rustls 0.21; IronFlow uses rustls-tls

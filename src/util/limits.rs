@@ -223,7 +223,14 @@ pub fn apply_lua_limits_with_control(
     execution: Option<ExecutionControl>,
 ) -> Result<()> {
     lua.gc_restart();
-    lua.gc_inc(200, 200, 13);
+    // mlua 0.12 replaced `gc_inc(pause, step_multiplier, step_size)` with an
+    // explicit incremental GC mode.
+    lua.gc_set_mode(LuaGcMode::Incremental(
+        LuaGcIncParams::default()
+            .pause(200)
+            .step_multiplier(200)
+            .step_size(13),
+    ));
 
     if let Some(max_memory_bytes) = limits.max_memory_bytes {
         lua.set_memory_limit(max_memory_bytes as usize)?;
