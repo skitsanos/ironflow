@@ -275,6 +275,34 @@ async fn step_timeout() {
     assert_eq!(info.tasks["slow"].status, TaskStatus::Failed);
 }
 
+#[tokio::test]
+async fn zero_concurrency_is_normalized_instead_of_deadlocking() {
+    let registry = Arc::new(NodeRegistry::with_builtins());
+    let store = Arc::new(NullStateStore::new());
+    let engine = WorkflowEngine::new(registry, store, Some(0));
+    let flow = FlowDefinition {
+        name: "zero_concurrency".to_string(),
+        steps: vec![StepDefinition {
+            name: "log".to_string(),
+            node_type: "log".to_string(),
+            config: serde_json::json!({ "message": "still runs" }),
+            dependencies: vec![],
+            retry: RetryConfig::default(),
+            timeout_s: None,
+            route: None,
+            on_error: None,
+        }],
+    };
+
+    tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        engine.execute(&flow, Context::new()),
+    )
+    .await
+    .expect("zero concurrency must not deadlock")
+    .unwrap();
+}
+
 // --- DAG cycle detection ---
 
 #[tokio::test]
@@ -389,6 +417,67 @@ async fn step_if_skips_when_false() {
     assert_eq!(info.status, RunStatus::Success);
     assert!(!info.ctx.contains_key("got_bonus"));
     assert_eq!(info.tasks["bonus"].status, TaskStatus::Skipped);
+}
+
+#[tokio::test]
+async fn step_if_waits_for_dependency_context_before_evaluating_guard() {
+    let (engine, store) = engine();
+    let flow = load_flow(
+        r#"
+        local flow = Flow.new("step_if_dependency_true")
+        flow:step("prepare", nodes.delay({ seconds = 0.02 }))
+        flow:step_if(
+            "ctx.delay_seconds exists",
+            "bonus",
+            nodes.code({ source = "return { got_bonus = true }" })
+        ):depends_on("prepare")
+        return flow
+    "#,
+    );
+
+    let run_id = engine.execute(&flow, HashMap::new()).await.unwrap();
+    let info = store.get_run_info(&run_id).await.unwrap();
+
+    assert_eq!(info.status, RunStatus::Success);
+    assert_eq!(info.ctx.get("got_bonus"), Some(&serde_json::json!(true)));
+    assert_eq!(info.tasks["_if_bonus"].status, TaskStatus::Success);
+    assert!(
+        info.tasks["_if_bonus"].started >= info.tasks["prepare"].finished,
+        "guard must not start until its declared dependency finishes"
+    );
+    assert!(
+        info.tasks["bonus"].started >= info.tasks["_if_bonus"].finished,
+        "visible step must remain dependent on the guard"
+    );
+}
+
+#[tokio::test]
+async fn step_if_waits_for_dependencies_before_skipping_false_branch() {
+    let (engine, store) = engine();
+    let flow = load_flow(
+        r#"
+        local flow = Flow.new("step_if_dependency_false")
+        flow:step("prepare", nodes.delay({ seconds = 0.02 }))
+        flow:step_if(
+            "ctx.delay_seconds > 1",
+            "bonus",
+            nodes.code({ source = "return { got_bonus = true }" })
+        ):depends_on("prepare")
+        return flow
+    "#,
+    );
+
+    let run_id = engine.execute(&flow, HashMap::new()).await.unwrap();
+    let info = store.get_run_info(&run_id).await.unwrap();
+
+    assert_eq!(info.status, RunStatus::Success);
+    assert!(!info.ctx.contains_key("got_bonus"));
+    assert_eq!(info.tasks["_if_bonus"].status, TaskStatus::Success);
+    assert_eq!(info.tasks["bonus"].status, TaskStatus::Skipped);
+    assert!(
+        info.tasks["_if_bonus"].started >= info.tasks["prepare"].finished,
+        "guard must wait for dependencies even when its branch is false"
+    );
 }
 
 #[tokio::test]

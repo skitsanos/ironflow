@@ -6,7 +6,7 @@ Sanitize HTML by removing dangerous tags, attributes, and scripts using the [amm
 
 | Parameter       | Type     | Required | Default              | Description                        |
 |-----------------|----------|----------|----------------------|------------------------------------|
-| `input`         | string   | *        |                      | HTML string (supports `${ctx.*}`)  |
+| `input`         | string   | *        |                      | HTML string (supports `${ctx.key}`)  |
 | `source_key`    | string   | *        |                      | Context key containing HTML string |
 | `output_key`    | string   | no       | `"sanitized_html"`   | Key to store sanitized output      |
 | `allowed_tags`  | string[] | no       | ammonia defaults      | Custom set of allowed HTML tags    |

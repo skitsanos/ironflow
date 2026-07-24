@@ -176,6 +176,27 @@ async fn cache_set_file_backend() {
     assert!(cache_file.exists(), "cache file should exist on disk");
 }
 
+#[tokio::test]
+async fn cache_set_rejects_ttl_overflow() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("cache_set").expect("cache_set node exists");
+    let tmp = tempfile::tempdir().expect("create tempdir");
+
+    let config = serde_json::json!({
+        "key": "overflow",
+        "value": "value",
+        "backend": "file",
+        "cache_dir": tmp.path(),
+        "ttl": "18446744073709551615"
+    });
+    let error = node
+        .execute(&config, &empty_ctx())
+        .await
+        .expect_err("overflowing expiry must fail");
+
+    assert!(error.to_string().contains("overflow"), "{error:#}");
+}
+
 // --- cache_get: file backend (set then get) ---
 
 #[tokio::test]

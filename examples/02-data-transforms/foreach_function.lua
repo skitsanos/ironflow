@@ -3,14 +3,16 @@ local flow = Flow.new("foreach_function_demo")
 
 -- Set up test data
 flow:step("setup", nodes.code({
-    source = function()
-        return {
+    source = function(ctx)
+        local products = ctx.products
+        if products == nil then
             products = {
                 { name = "Widget", price = 10.50, qty = 3 },
                 { name = "Gadget", price = 25.00, qty = 1 },
                 { name = "Doohickey", price = 5.75, qty = 10 }
             }
-        }
+        end
+        return { products = products }
     end
 }))
 

@@ -7,7 +7,7 @@ Flow:
 3) Generate embeddings and store vectors with metadata.
 4) Embed a query and set a minimum cosine similarity threshold.
 5) Filter query results by threshold and return matching chunks.
-6) Cleanup temporary vectors.
+6) Report matches, then delete vectors, index, and bucket in dependency order.
 
 This mirrors the Python research workflow pattern for `S3V_MIN_SIMILARITY`,
 implemented at the node level as `min_similarity`.
@@ -16,13 +16,19 @@ Requirements:
 - OPENAI_API_KEY
 - AWS credentials/endpoint for S3 Vectors
 - AWS_REGION (or equivalent)
+
+Effects:
+- Creates a UUID-scoped bucket and index. After reporting, successful teardown
+  deletes vectors, then the index, then the bucket.
+- Cleanup is not a finally block; failure or interruption can retain remote
+  resources that may incur provider cost.
 ]]
 
 local flow = Flow.new("s3vector_similarity_threshold")
 
 flow:step("naming", nodes.code({
     source = function()
-        local suffix = now_unix_ms()
+        local suffix = uuid4():gsub("-", "")
         return {
             bucket_name = "ironflow-sim-" .. suffix,
             index_name = "ironflow-sim-index-" .. suffix
@@ -45,7 +51,7 @@ flow:step("create_index", nodes.s3vector_create_index({
 })):depends_on("create_bucket")
 
 flow:step("extract_vtt", nodes.extract_vtt({
-    path = "data/samples/interview_long.vtt",
+    path = "${ctx._flow_dir}/../fixtures/ironflow-transcript.vtt",
     format = "text",
     output_key = "transcript"
 })):depends_on("create_index")
@@ -98,7 +104,7 @@ flow:step("build_vectors", nodes.code({
                     key = key,
                     data = embedding,
                     metadata = {
-                        source_file = "interview_long.vtt",
+                        source_file = "ironflow-transcript.vtt",
                         chunk_index = i
                     }
                 })
@@ -157,14 +163,26 @@ flow:step("query_vectors", nodes.s3vector_query_vectors({
 })):depends_on("query_vector")
 
 flow:step("log", nodes.log({
-    message = "Filtered results count=${ctx.similar_count}; min_similarity=${ctx.similar_min_similarity}; top=${ctx.similar_vectors[1].key}; distance=${ctx.similar_vectors[1].distance}"
+    message = "Filtered results count=${ctx.similar_count}; min_similarity=${ctx.similar_min_similarity}; top=${ctx.similar_vectors[0].key}; distance=${ctx.similar_vectors[0].distance}"
 })):depends_on("query_vectors")
 
-flow:step("cleanup", nodes.s3vector_delete_vectors({
+-- Teardown after reporting: vectors -> index -> bucket.
+flow:step("delete_vectors", nodes.s3vector_delete_vectors({
     vector_bucket_name = "${ctx.bucket_name}",
     index_name = "${ctx.index_name}",
     keys_source_key = "vector_keys",
-    output_key = "cleanup"
-})):depends_on("query_vectors")
+    output_key = "deleted_vectors"
+})):depends_on("log")
+
+flow:step("delete_index", nodes.s3vector_delete_index({
+    vector_bucket_name = "${ctx.bucket_name}",
+    index_name = "${ctx.index_name}",
+    output_key = "deleted_index"
+})):depends_on("delete_vectors")
+
+flow:step("delete_bucket", nodes.s3vector_delete_bucket({
+    vector_bucket_name = "${ctx.bucket_name}",
+    output_key = "deleted_bucket"
+})):depends_on("delete_index")
 
 return flow

@@ -5,6 +5,7 @@ use base64::Engine;
 
 use crate::engine::types::Context;
 use crate::lua::interpolate::interpolate_ctx;
+use crate::util::node_config::config_u64;
 
 pub(super) fn resolve_required(
     config: &serde_json::Value,
@@ -67,24 +68,19 @@ pub(super) fn resolve_region(config: &serde_json::Value, ctx: &Context) -> Optio
         .or_else(|| std::env::var("AWS_DEFAULT_REGION").ok())
 }
 
-pub(super) fn resolve_expires_in(config: &serde_json::Value) -> Result<u64> {
-    let expires_in = config.get("expires_in").and_then(|value| value.as_u64());
-    let expires_in = expires_in.unwrap_or(3600);
+pub(super) fn resolve_expires_in(config: &serde_json::Value, ctx: &Context) -> Result<u64> {
+    let expires_in = config_u64(config, "expires_in", ctx).unwrap_or(3600);
     if expires_in == 0 || expires_in > 604800 {
         anyhow::bail!("s3_presign_url requires 'expires_in' to be between 1 and 604800 seconds");
     }
     Ok(expires_in)
 }
 
-pub(super) fn resolve_content_length(config: &serde_json::Value) -> Option<i64> {
-    let value = config
-        .get("content_length")
-        .or_else(|| config.get("contentLength"))
-        .and_then(|value| value.as_i64())?;
-    if value <= 0 {
-        return None;
-    }
-    Some(value)
+pub(super) fn resolve_content_length(config: &serde_json::Value, ctx: &Context) -> Option<i64> {
+    config_u64(config, "content_length", ctx)
+        .or_else(|| config_u64(config, "contentLength", ctx))
+        .and_then(|value| i64::try_from(value).ok())
+        .filter(|value| *value > 0)
 }
 
 pub(super) async fn build_s3_client(config: &serde_json::Value, ctx: &Context) -> Result<Client> {

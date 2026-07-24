@@ -1,14 +1,17 @@
 mod csv;
-mod data;
+mod data_collection;
+mod data_fields;
+mod data_filter;
+mod data_mapping;
 mod json;
 mod xml;
 mod yaml;
 
 pub use csv::{CsvParseNode, CsvStringifyNode};
-pub use data::{
-    BatchNode, DataFilterNode, DataTransformNode, DeduplicateNode, RenameFieldsNode,
-    SelectFieldsNode,
-};
+pub use data_collection::{BatchNode, DeduplicateNode};
+pub use data_fields::{RenameFieldsNode, SelectFieldsNode};
+pub use data_filter::DataFilterNode;
+pub use data_mapping::DataTransformNode;
 pub use json::{JsonExtractPathNode, JsonParseNode, JsonStringifyNode};
 pub use xml::{XmlParseNode, XmlStringifyNode};
 pub use yaml::{YamlParseNode, YamlStringifyNode};

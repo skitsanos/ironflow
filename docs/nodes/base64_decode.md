@@ -6,7 +6,7 @@ Decode a base64 string to text or write decoded bytes to a file.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `input` | string | one of `input` or `source_key` | — | Base64 string to decode; supports `${ctx.*}` interpolation. |
+| `input` | string | one of `input` or `source_key` | — | Base64 string to decode; supports `${ctx.key}` interpolation. |
 | `source_key` | string | see above | — | Context key containing the base64 string to decode. |
 | `output_key` | string | no | `"base64_decoded"` | Context key for the decoded output. |
 | `output_file` | string | no | — | File path to write decoded bytes to. |

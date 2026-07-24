@@ -1,5 +1,6 @@
 mod conditional;
 mod foreach;
+mod parallel_runner;
 pub mod parallel_subworkflows;
 pub mod subworkflow;
 pub mod tool_dispatch;

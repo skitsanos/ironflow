@@ -1,18 +1,22 @@
 use std::sync::Arc;
 
 use axum::Json;
+use axum::extract::rejection::QueryRejection;
 use axum::extract::{Path, Query, State};
+
+use crate::storage::{RunCursor, RunListQuery, StorageError, validate_run_id};
 
 use super::super::AppState;
 use super::super::errors::AppError;
 use super::helpers::parse_status;
-use super::types::{DEFAULT_LIST_RUNS_LIMIT, ListRunsQuery, MAX_LIST_RUNS_LIMIT};
+use super::types::ListRunsQuery;
 
 /// GET /runs
 pub async fn list_runs(
     State(state): State<Arc<AppState>>,
-    Query(params): Query<ListRunsQuery>,
+    params: Result<Query<ListRunsQuery>, QueryRejection>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    let Query(params) = params.map_err(|error| AppError::BadRequest(error.to_string()))?;
     let status_filter = params
         .status
         .as_deref()
@@ -20,24 +24,25 @@ pub async fn list_runs(
         .transpose()
         .map_err(|e| AppError::BadRequest(e.to_string()))?;
 
-    let limit = params
-        .limit
-        .unwrap_or(DEFAULT_LIST_RUNS_LIMIT)
-        .clamp(1, MAX_LIST_RUNS_LIMIT);
-    let offset = params.offset.unwrap_or(0);
-
-    // Storage returns lightweight summaries — no ctx, no task payloads.
-    // Default impl still loads full runs under the hood; concrete stores
-    // (JSON, Redis) can override `list_run_summaries` for a real win.
-    let mut summaries_all = state.store.list_run_summaries(status_filter).await?;
-    summaries_all.sort_by_key(|summary| std::cmp::Reverse(summary.started));
-
-    let total_matching = summaries_all.len();
-    let page: Vec<&crate::engine::types::RunSummary> =
-        summaries_all.iter().skip(offset).take(limit).collect();
+    if params.offset.is_some() {
+        return Err(AppError::BadRequest(
+            "offset pagination is not supported; use the `after` cursor".to_string(),
+        ));
+    }
+    let limit = state
+        .listing_policy
+        .api_page_size(params.limit)
+        .map_err(|error| AppError::BadRequest(error.to_string()))?;
+    let after = params.after.as_deref().map(RunCursor::decode).transpose()?;
+    let query = RunListQuery::new(status_filter, after, limit)?;
+    let page = state.store.list_run_summaries_page(&query).await?;
+    let returned = page.items.len();
+    let has_more = page.has_more();
+    let next_cursor = page.next.map(|cursor| cursor.encode()).transpose()?;
 
     let summaries: Vec<serde_json::Value> = page
-        .iter()
+        .items
+        .into_iter()
         .map(|r| {
             serde_json::json!({
                 "id": r.id,
@@ -52,10 +57,10 @@ pub async fn list_runs(
 
     Ok(Json(serde_json::json!({
         "runs": summaries,
-        "total": total_matching,
-        "limit": limit,
-        "offset": offset,
-        "returned": summaries.len(),
+        "limit": limit.get(),
+        "returned": returned,
+        "has_more": has_more,
+        "next_cursor": next_cursor,
     })))
 }
 
@@ -64,13 +69,12 @@ pub async fn get_run(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let info = state
-        .store
-        .get_run_info(&id)
-        .await
-        .map_err(|_| AppError::NotFound(format!("Run '{}' not found", id)))?;
+    validate_run_id(&id).map_err(StorageError::invalid_input)?;
+    let info = state.store.get_run_info(&id).await?;
 
-    Ok(Json(serde_json::to_value(&info).unwrap()))
+    let mut value = serde_json::to_value(&info).map_err(anyhow::Error::from)?;
+    crate::util::redaction::redact_legacy_webhook_record(&mut value);
+    Ok(Json(value))
 }
 
 /// DELETE /runs/:id
@@ -78,14 +82,9 @@ pub async fn delete_run(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    // Check it exists first
-    state
-        .store
-        .get_run_info(&id)
-        .await
-        .map_err(|_| AppError::NotFound(format!("Run '{}' not found", id)))?;
-
-    state.store.delete_run(&id).await?;
+    validate_run_id(&id).map_err(StorageError::invalid_input)?;
+    crate::storage::lifecycle::delete_run(state.store.as_ref(), state.event_store.as_ref(), &id)
+        .await?;
 
     Ok(Json(serde_json::json!({
         "deleted": id,

@@ -2,7 +2,7 @@
 This example compares `gpt-5-mini` and `gpt-5` on the same VTT transcript.
 
 Flow:
-1. Extract transcript from `data/samples/interview.vtt`.
+1. Extract the versioned synthetic transcript from `examples/fixtures`.
 2. Exchange OAuth client credentials for an access token.
 3. Build `${OAUTH_BASE_URL}/chat/completions`.
 4. Call chat completions with `gpt-5-mini`.
@@ -25,7 +25,7 @@ local flow = Flow.new("vtt_sentiment_analysis_compare")
 
 --[[ Step 1: parse the VTT sample and keep transcript + cue metadata. ]]
 flow:step("extract_vtt", nodes.extract_vtt({
-    path = "data/samples/interview.vtt",
+    path = "${ctx._flow_dir}/../fixtures/ironflow-transcript.vtt",
     format = "text",
     output_key = "interview_transcript",
     metadata_key = "interview_meta"
@@ -334,6 +334,6 @@ flow:step("log_compare", nodes.log({
 
 flow:step("log_results", nodes.log({
     message = "mini=${ctx.mini_sentiment}\nfull=${ctx.full_sentiment}"
-})):depends_on("compare")
+})):depends_on("log_compare")
 
 return flow

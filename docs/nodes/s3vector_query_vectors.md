@@ -8,7 +8,6 @@ Run vector similarity search on an Amazon S3 Vector index.
 |-----------|------|----------|---------|-------------|
 | `vector_bucket_name` | string | yes* | `S3VECTOR_BUCKET_NAME` / `S3_BUCKET` env vars | Bucket that owns the index. |
 | `bucket` | string | no | no | Alias for `vector_bucket_name`. |
-| `vector_bucket_arn` | string | no | `S3VECTOR_BUCKET_ARN` env var | Alternative to `vector_bucket_name`. |
 | `index_name` | string | yes* | `S3VECTOR_INDEX_NAME` env var | Target index name. |
 | `index` | string | no | no | Alias for `index_name`. |
 | `index_arn` | string | no | `S3VECTOR_INDEX_ARN` env var | Alternative to `index_name`. |
@@ -21,10 +20,13 @@ Run vector similarity search on an Amazon S3 Vector index.
 | `return_distance` | bool | no | `false` | Include distance values in results. |
 | `min_similarity` | number | no | -- | Optional minimum cosine similarity threshold between query vector and results. Only supported for cosine-index metrics (`min_similarity = 1 - distance`). Fewer results may be returned than `top_k`. |
 | `strict` | bool | no | `false` | When `true`, require a cosine index for `min_similarity`; otherwise `min_similarity` is ignored for non-cosine indexes. |
+| `region` | string | no | AWS region chain | Override `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, or `AWS_DEFAULT_REGION`. |
+| `endpoint_url` | string | no | `AWS_ENDPOINT_URL` env var | Override the S3 Vectors service endpoint. |
 | `output_key` | string | no | `s3vector` | Prefix for context output keys. |
 
 At least one of `query_vector` or `query_vector_key` is required.
-`index_name`/`index` require a bucket reference unless `index_arn` is provided.
+`index_name`/`index` require a bucket name unless `index_arn` is provided. The
+S3 Vectors API does not accept a bucket ARN together with an index name.
 
 ## Context Output
 

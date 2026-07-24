@@ -4,6 +4,7 @@ use aws_sdk_s3vectors::types::{DistanceMetric, VectorData};
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
+use crate::util::node_config::config_bool;
 
 use super::client::build_s3vector_client;
 use super::config::{resolve_bucket_id, resolve_index_id, resolve_optional, resolve_output_key};
@@ -38,23 +39,18 @@ impl Node for S3VectorQueryVectorsNode {
             ));
         }
 
-        let top_k = resolve_u32(config, &["top_k"], "s3vector_query_vectors", "top_k")?;
+        let top_k = resolve_u32(config, &["top_k"], ctx, "s3vector_query_vectors", "top_k")?;
         if top_k == 0 {
             anyhow::bail!("s3vector_query_vectors requires 'top_k' to be greater than zero");
         }
 
         let query_vector = resolve_query_vector(config, ctx, "s3vector_query_vectors")?;
 
-        let return_metadata = config
-            .get("return_metadata")
-            .and_then(|value| value.as_bool())
-            .unwrap_or(false);
-        let return_distance = config
-            .get("return_distance")
-            .and_then(|value| value.as_bool())
-            .unwrap_or(false);
+        let return_metadata = config_bool(config, "return_metadata", ctx).unwrap_or(false);
+        let return_distance = config_bool(config, "return_distance", ctx).unwrap_or(false);
         let min_similarity = if config.get("min_similarity").is_some() {
-            let min_similarity = resolve_f64(config, "s3vector_query_vectors", "min_similarity")?;
+            let min_similarity =
+                resolve_f64(config, ctx, "s3vector_query_vectors", "min_similarity")?;
             if !(0.0..=1.0).contains(&min_similarity) {
                 anyhow::bail!(
                     "s3vector_query_vectors requires 'min_similarity' to be between 0 and 1"
@@ -64,10 +60,7 @@ impl Node for S3VectorQueryVectorsNode {
         } else {
             None
         };
-        let strict = config
-            .get("strict")
-            .and_then(|value| value.as_bool())
-            .unwrap_or(false);
+        let strict = config_bool(config, "strict", ctx).unwrap_or(false);
 
         let should_return_distance = return_distance || min_similarity.is_some();
 

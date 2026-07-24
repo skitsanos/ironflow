@@ -28,7 +28,7 @@ Rotate a single image by 90-degree increments.
 local flow = Flow.new("image_rotate_demo")
 
 flow:step("rotate", nodes.image_rotate({
-    path = "data/samples/sample_front.png",
+    path = "examples/fixtures/ironflow-sample.png",
     angle = 90,
     output_path = "output/sample_front_rotated.png",
     output_key = "rotated"

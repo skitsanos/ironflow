@@ -1,4 +1,6 @@
 -- Demonstrates shell command execution
+-- Platform: requires a POSIX-like environment with `whoami`, `df`, and `sh`
+-- available on PATH.
 local flow = Flow.new("shell_commands")
 
 -- Run a simple command
@@ -26,11 +28,20 @@ flow:step("echo_env", nodes.shell_command({
     output_key = "echo"
 }))
 
--- Log results (all three run in parallel, then this runs)
+-- Expected unsuccessful statuses can be inspected without turning the shell
+-- step into a workflow failure. Operational failures and timeouts still fail.
+flow:step("status_probe", nodes.shell_command({
+    cmd = "sh",
+    args = { "-c", "printf 'service not ready' >&2; exit 7" },
+    fail_on_nonzero = false,
+    output_key = "probe"
+}))
+
+-- Log results (all four run in parallel, then this runs)
 flow:step("summary", nodes.log({
-    message = "User: ${ctx.user_stdout}, Echo: ${ctx.echo_stdout}",
+    message = "User: ${ctx.user_stdout}, Echo: ${ctx.echo_stdout}, Probe exit: ${ctx.probe_code}, Probe success: ${ctx.probe_success}",
     level = "info"
-})):depends_on("whoami", "disk_usage", "echo_env")
+})):depends_on("whoami", "disk_usage", "echo_env", "status_probe")
 
 return flow
 

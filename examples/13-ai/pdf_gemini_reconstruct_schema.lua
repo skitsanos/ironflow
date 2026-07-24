@@ -6,26 +6,32 @@ Flow:
 2. Render the PDF page to PNG with Poppler (`pdftoppm`) through `shell_command`.
 3. Send both the extracted text and rendered page image to Gemini.
 4. Ask Gemini to return structured JSON matching a schema.
-5. Write JSON, text, and the rendered page PNG to /tmp.
+5. Write JSON, text, and the rendered page PNG to a unique output directory.
 
 Environment variables:
 - GEMINI_API_KEY
 
 Dependencies:
+- POSIX-compatible `mkdir` command.
 - `pdftoppm` from Poppler must be available on PATH.
+- Run from the repository root because `pdftoppm` receives a repository-relative
+  fixture path.
 
 Run:
   cargo run -- --dotenv .env run examples/13-ai/pdf_gemini_reconstruct_schema.lua
 
-Outputs:
-- /tmp/ironflow-pdf-gemini/reconstruction.json
-- /tmp/ironflow-pdf-gemini/reconstruction.txt
-- /tmp/ironflow-pdf-gemini/page-1.png
+Effects:
+- Retains a UUID-scoped output directory containing reconstruction.json,
+  reconstruction.txt, and page-1.png; remove it when finished.
 ]]
 
 local flow = Flow.new("pdf_gemini_reconstruct_schema")
 
-local OUTPUT_DIR = "/tmp/ironflow-pdf-gemini"
+local TEMP_ROOT = env("TMPDIR")
+if TEMP_ROOT == nil or TEMP_ROOT == "" then TEMP_ROOT = env("TMP") end
+if TEMP_ROOT == nil or TEMP_ROOT == "" then TEMP_ROOT = env("TEMP") end
+if TEMP_ROOT == nil or TEMP_ROOT == "" then TEMP_ROOT = "." end
+local OUTPUT_DIR = TEMP_ROOT .. "/ironflow-pdf-gemini-" .. uuid4()
 
 local function response_format_schema()
     return {
@@ -95,7 +101,7 @@ flow:step("prepare_output_dir", nodes.shell_command({
 })):depends_on("check_key")
 
 flow:step("extract_pdf", nodes.extract_pdf({
-    path = "data/samples/sample.pdf",
+    path = "${ctx._flow_dir}/../fixtures/ironflow-sample.pdf",
     format = "markdown",
     output_key = "pdf_markdown",
     metadata_key = "pdf_meta"
@@ -109,7 +115,7 @@ flow:step("render_page", nodes.shell_command({
         "-f", "1",
         "-l", "1",
         "-singlefile",
-        "data/samples/sample.pdf",
+        "examples/fixtures/ironflow-sample.pdf",
         OUTPUT_DIR .. "/page-1"
     },
     timeout = 30,

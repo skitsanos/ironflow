@@ -6,8 +6,8 @@ Merge multiple PDF files into a single PDF document.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `files` | array | yes | — | Array of file paths to merge; supports `${ctx.*}` interpolation on each entry. |
-| `output_path` | string | yes | — | File path for the merged output PDF; supports `${ctx.*}` interpolation. |
+| `files` | array | yes | — | Array of file paths to merge; supports `${ctx.key}` interpolation on each entry. |
+| `output_path` | string | yes | — | File path for the merged output PDF; supports `${ctx.key}` interpolation. |
 | `output_key` | string | no | `"pdf_merge"` | Context key prefix for output values. |
 
 ## Context Output

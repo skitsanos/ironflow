@@ -28,6 +28,21 @@ fn tool_dispatch_registered_with_correct_type() {
 }
 
 #[tokio::test]
+async fn tool_dispatch_rejects_zero_max_calls() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("tool_dispatch").unwrap();
+    let config = serde_json::json!({
+        "source_key": "calls",
+        "tools": {},
+        "max_calls": 0
+    });
+    let ctx = ctx_with(vec![("calls", serde_json::json!([]))]);
+
+    let error = node.execute(&config, &ctx).await.unwrap_err();
+    assert!(error.to_string().contains("greater than 0"));
+}
+
+#[tokio::test]
 async fn tool_dispatch_runs_mapped_subworkflow_for_normalized_call() {
     let reg = NodeRegistry::with_builtins();
     let node = reg.get("tool_dispatch").unwrap();

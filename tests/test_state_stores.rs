@@ -3,10 +3,10 @@
 use std::collections::HashMap;
 
 use ironflow::engine::types::*;
-use ironflow::storage::StateStore;
 use ironflow::storage::json_store::JsonStateStore;
 use ironflow::storage::null_store::NullStateStore;
 use ironflow::storage::sql_store::SqlStateStore;
+use ironflow::storage::{PageSize, RunListQuery, StateStore, StorageErrorKind};
 use sqlx::Row;
 
 fn test_ctx() -> Context {
@@ -97,8 +97,8 @@ async fn null_store_update_ctx() {
 #[tokio::test]
 async fn null_store_get_missing_run() {
     let store = NullStateStore::new();
-    let result = store.get_run_info("missing").await;
-    assert!(result.is_err());
+    let error = store.get_run_info("missing").await.unwrap_err();
+    assert_eq!(error.kind(), StorageErrorKind::NotFound);
 }
 
 #[tokio::test]
@@ -107,8 +107,41 @@ async fn null_store_delete_run() {
     store.init_run("r1", "flow", &HashMap::new()).await.unwrap();
     store.delete_run("r1").await.unwrap();
 
-    let result = store.get_run_info("r1").await;
-    assert!(result.is_err());
+    let error = store.get_run_info("r1").await.unwrap_err();
+    assert_eq!(error.kind(), StorageErrorKind::NotFound);
+    assert_eq!(
+        store.delete_run("r1").await.unwrap_err().kind(),
+        StorageErrorKind::NotFound
+    );
+}
+
+#[tokio::test]
+async fn null_store_classifies_duplicate_and_missing_mutations() {
+    let store = NullStateStore::new();
+    store.init_run("r1", "flow", &Context::new()).await.unwrap();
+    assert_eq!(
+        store
+            .init_run("r1", "flow", &Context::new())
+            .await
+            .unwrap_err()
+            .kind(),
+        StorageErrorKind::Conflict
+    );
+
+    let task = TaskState::new("step", "log");
+    for error in [
+        store
+            .set_run_status("missing", RunStatus::Running)
+            .await
+            .unwrap_err(),
+        store.upsert_task("missing", &task).await.unwrap_err(),
+        store
+            .update_ctx("missing", &Context::new())
+            .await
+            .unwrap_err(),
+    ] {
+        assert_eq!(error.kind(), StorageErrorKind::NotFound);
+    }
 }
 
 #[tokio::test]
@@ -293,6 +326,290 @@ async fn sql_store_init_update_and_get() {
 }
 
 #[tokio::test]
+async fn sql_store_classifies_missing_conflict_and_corruption() {
+    let dir = tempfile::tempdir().unwrap();
+    let url = sqlite_store_url(dir.path());
+    let store = SqlStateStore::new(&url).await.unwrap();
+
+    assert_eq!(
+        store.get_run_info("missing").await.unwrap_err().kind(),
+        StorageErrorKind::NotFound
+    );
+    store.init_run("r1", "flow", &Context::new()).await.unwrap();
+    assert_eq!(
+        store
+            .init_run("r1", "flow", &Context::new())
+            .await
+            .unwrap_err()
+            .kind(),
+        StorageErrorKind::Conflict
+    );
+    assert_eq!(
+        store
+            .upsert_task("missing", &TaskState::new("step", "log"))
+            .await
+            .unwrap_err()
+            .kind(),
+        StorageErrorKind::NotFound
+    );
+    assert_eq!(
+        store.delete_run("missing").await.unwrap_err().kind(),
+        StorageErrorKind::NotFound
+    );
+
+    let pool = sqlx::AnyPool::connect(&url).await.unwrap();
+    sqlx::query("UPDATE ironflow_runs SET ctx = '{broken' WHERE id = 'r1'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        store.get_ctx("r1").await.unwrap_err().kind(),
+        StorageErrorKind::Corruption
+    );
+}
+
+#[tokio::test]
+async fn sql_delete_and_prune_failures_roll_back_tasks_and_runs() {
+    let dir = tempfile::tempdir().unwrap();
+    let url = sqlite_store_url(dir.path());
+    let store = SqlStateStore::new(&url).await.unwrap();
+    let pool = sqlx::AnyPool::connect(&url).await.unwrap();
+
+    store
+        .init_run("delete-failure", "flow", &Context::new())
+        .await
+        .unwrap();
+    store
+        .upsert_task("delete-failure", &TaskState::new("step", "log"))
+        .await
+        .unwrap();
+    sqlx::query(
+        "CREATE TRIGGER reject_single_delete BEFORE DELETE ON ironflow_runs \
+         WHEN OLD.id = 'delete-failure' \
+         BEGIN SELECT RAISE(ABORT, 'injected delete failure'); END",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    assert_eq!(
+        store.delete_run("delete-failure").await.unwrap_err().kind(),
+        StorageErrorKind::Backend
+    );
+    let retained = store.get_run_info("delete-failure").await.unwrap();
+    assert!(retained.tasks.contains_key("step"));
+    sqlx::query("DROP TRIGGER reject_single_delete")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    store
+        .init_run("delete-tasks-ignored", "flow", &Context::new())
+        .await
+        .unwrap();
+    store
+        .upsert_task("delete-tasks-ignored", &TaskState::new("step", "log"))
+        .await
+        .unwrap();
+    sqlx::query(
+        "CREATE TRIGGER ignore_single_task_delete BEFORE DELETE ON ironflow_tasks \
+         WHEN OLD.run_id = 'delete-tasks-ignored' BEGIN SELECT RAISE(IGNORE); END",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        store
+            .delete_run("delete-tasks-ignored")
+            .await
+            .unwrap_err()
+            .kind(),
+        StorageErrorKind::Corruption
+    );
+    assert!(
+        store
+            .get_run_info("delete-tasks-ignored")
+            .await
+            .unwrap()
+            .tasks
+            .contains_key("step")
+    );
+    sqlx::query("DROP TRIGGER ignore_single_task_delete")
+        .execute(&pool)
+        .await
+        .unwrap();
+    store.delete_run("delete-tasks-ignored").await.unwrap();
+
+    store
+        .init_run("delete-recreated-task", "flow", &Context::new())
+        .await
+        .unwrap();
+    store
+        .upsert_task("delete-recreated-task", &TaskState::new("step", "log"))
+        .await
+        .unwrap();
+    sqlx::query(
+        "CREATE TRIGGER recreate_task_after_run_delete AFTER DELETE ON ironflow_runs \
+         WHEN OLD.id = 'delete-recreated-task' BEGIN \
+         INSERT INTO ironflow_tasks \
+         (run_id, name, node_type, status, attempt, input, output, error, started, finished) \
+         VALUES (OLD.id, 'ghost', 'log', 'pending', 0, NULL, NULL, NULL, NULL, NULL); END",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        store
+            .delete_run("delete-recreated-task")
+            .await
+            .unwrap_err()
+            .kind(),
+        StorageErrorKind::Corruption
+    );
+    let retained = store.get_run_info("delete-recreated-task").await.unwrap();
+    assert!(retained.tasks.contains_key("step"));
+    assert!(!retained.tasks.contains_key("ghost"));
+    sqlx::query("DROP TRIGGER recreate_task_after_run_delete")
+        .execute(&pool)
+        .await
+        .unwrap();
+    store.delete_run("delete-recreated-task").await.unwrap();
+
+    for id in ["prune-a", "prune-b"] {
+        store.init_run(id, "flow", &Context::new()).await.unwrap();
+        store
+            .upsert_task(id, &TaskState::new("step", "log"))
+            .await
+            .unwrap();
+        store.set_run_status(id, RunStatus::Success).await.unwrap();
+    }
+    sqlx::query("UPDATE ironflow_runs SET started_micros = 0 WHERE id IN ('prune-a', 'prune-b')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "CREATE TRIGGER reject_prune BEFORE DELETE ON ironflow_runs \
+         WHEN OLD.id = 'prune-b' \
+         BEGIN SELECT RAISE(ABORT, 'injected prune failure'); END",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    assert_eq!(
+        store
+            .prune_before(chrono::Utc::now())
+            .await
+            .unwrap_err()
+            .kind(),
+        StorageErrorKind::Backend
+    );
+    for id in ["prune-a", "prune-b"] {
+        let retained = store.get_run_info(id).await.unwrap();
+        assert!(retained.tasks.contains_key("step"));
+    }
+
+    sqlx::query("DROP TRIGGER reject_prune")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(store.prune_before(chrono::Utc::now()).await.unwrap(), 2);
+    for id in ["prune-a", "prune-b"] {
+        assert_eq!(
+            store.get_run_info(id).await.unwrap_err().kind(),
+            StorageErrorKind::NotFound
+        );
+    }
+
+    store
+        .init_run("prune-ignored", "flow", &Context::new())
+        .await
+        .unwrap();
+    store
+        .upsert_task("prune-ignored", &TaskState::new("step", "log"))
+        .await
+        .unwrap();
+    store
+        .set_run_status("prune-ignored", RunStatus::Success)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE ironflow_runs SET started_micros = 0 WHERE id = 'prune-ignored'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "CREATE TRIGGER ignore_prune BEFORE DELETE ON ironflow_runs \
+         WHEN OLD.id = 'prune-ignored' \
+         BEGIN SELECT RAISE(IGNORE); END",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    assert_eq!(
+        store
+            .prune_before(chrono::Utc::now())
+            .await
+            .unwrap_err()
+            .kind(),
+        StorageErrorKind::Corruption
+    );
+    let retained = store.get_run_info("prune-ignored").await.unwrap();
+    assert!(retained.tasks.contains_key("step"));
+    sqlx::query("DROP TRIGGER ignore_prune")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(store.prune_before(chrono::Utc::now()).await.unwrap(), 1);
+
+    store
+        .init_run("prune-tasks-ignored", "flow", &Context::new())
+        .await
+        .unwrap();
+    store
+        .upsert_task("prune-tasks-ignored", &TaskState::new("step", "log"))
+        .await
+        .unwrap();
+    store
+        .set_run_status("prune-tasks-ignored", RunStatus::Success)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE ironflow_runs SET started_micros = 0 WHERE id = 'prune-tasks-ignored'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "CREATE TRIGGER ignore_prune_task_delete BEFORE DELETE ON ironflow_tasks \
+         WHEN OLD.run_id = 'prune-tasks-ignored' BEGIN SELECT RAISE(IGNORE); END",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        store
+            .prune_before(chrono::Utc::now())
+            .await
+            .unwrap_err()
+            .kind(),
+        StorageErrorKind::Corruption
+    );
+    assert!(
+        store
+            .get_run_info("prune-tasks-ignored")
+            .await
+            .unwrap()
+            .tasks
+            .contains_key("step")
+    );
+    sqlx::query("DROP TRIGGER ignore_prune_task_delete")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(store.prune_before(chrono::Utc::now()).await.unwrap(), 1);
+    assert!(store.get_run_info("delete-failure").await.is_ok());
+}
+
+#[tokio::test]
 async fn sql_store_lists_summaries_without_full_context() {
     let dir = tempfile::tempdir().unwrap();
     let store = SqlStateStore::new(&sqlite_store_url(dir.path()))
@@ -356,31 +673,80 @@ async fn sql_store_uses_custom_table_prefix() {
 
 #[cfg(feature = "postgres")]
 #[tokio::test]
-async fn postgres_sql_store_works_with_custom_table_prefix() {
+async fn postgres_sql_store_reopens_uppercase_prefix_and_uses_listing_index() {
     let Some(url) = postgres_database_url() else {
         eprintln!("Skipping test: DATABASE_URL is not configured for Postgres");
         return;
     };
-    let prefix = unique_sql_prefix("pg_state");
-    let store = SqlStateStore::new_with_prefix(&url, Some(&prefix))
-        .await
-        .unwrap();
+    let prefix = unique_sql_prefix("PG_State");
+    let normalized_prefix = prefix.to_ascii_lowercase();
+    let result: anyhow::Result<(RunInfo, String)> = async {
+        let store = SqlStateStore::new_with_prefix(&url, Some(&prefix)).await?;
+        store.init_run("pg-r1", "pg_flow", &HashMap::new()).await?;
+        store.set_run_status("pg-r1", RunStatus::Success).await?;
+        drop(store);
 
-    store
-        .init_run("pg-r1", "pg_flow", &HashMap::new())
-        .await
-        .unwrap();
-    store
-        .set_run_status("pg-r1", RunStatus::Success)
-        .await
-        .unwrap();
+        // Reopening with the original mixed-case prefix must resolve the same
+        // unquoted PostgreSQL identifiers and must not attempt to add the
+        // derived timestamp column a second time.
+        let reopened = SqlStateStore::new_with_prefix(&url, Some(&prefix)).await?;
+        let info = reopened.get_run_info("pg-r1").await?;
 
-    let info = store.get_run_info("pg-r1").await.unwrap();
+        let pool = sqlx::AnyPool::connect(&url).await?;
+        let runs_table = format!("{normalized_prefix}runs");
+        let tasks_table = format!("{normalized_prefix}tasks");
+        let status_index = format!("{normalized_prefix}runs_status_started_id_idx");
+        let insert_sql = format!(
+            "INSERT INTO {runs_table} \
+             (id, flow_name, status, started, started_micros, finished, ctx) \
+             SELECT 'plan-' || value, 'plan-flow', \
+                    CASE WHEN value % 16 = 0 THEN 'success' ELSE 'failed' END, \
+                    CASE WHEN value = 1 THEN NULL ELSE '2026-01-01T00:00:00Z' END, \
+                    CASE WHEN value = 1 THEN NULL ELSE value::BIGINT END, NULL, '{{}}' \
+             FROM generate_series(1, 8192) AS value"
+        );
+        sqlx::query(sqlx::AssertSqlSafe(insert_sql.as_str()))
+            .execute(&pool)
+            .await?;
+        sqlx::query(sqlx::AssertSqlSafe(format!("ANALYZE {runs_table}")))
+            .execute(&pool)
+            .await?;
+
+        let mut connection = pool.acquire().await?;
+        sqlx::query("SET enable_seqscan = off")
+            .execute(&mut *connection)
+            .await?;
+        let explain_sql = format!(
+            "EXPLAIN (COSTS OFF) \
+             SELECT r.id, r.flow_name, r.status, r.started, r.finished, \
+                    (SELECT COUNT(*) FROM {tasks_table} t WHERE t.run_id = r.id) AS task_count \
+             FROM {runs_table} r WHERE r.status = $1 \
+             ORDER BY r.started_micros DESC NULLS LAST, r.id DESC LIMIT $2"
+        );
+        let plan = sqlx::query(sqlx::AssertSqlSafe(explain_sql.as_str()))
+            .bind("success")
+            .bind(51_i64)
+            .fetch_all(&mut *connection)
+            .await?
+            .iter()
+            .map(|row| row.try_get::<String, _>(0))
+            .collect::<Result<Vec<_>, _>>()?
+            .join("\n");
+        anyhow::ensure!(plan.contains(&status_index), "{plan}");
+        anyhow::ensure!(!plan.contains("Sort"), "{plan}");
+
+        drop(connection);
+        pool.close().await;
+        drop(reopened);
+        Ok((info, plan))
+    }
+    .await;
+    cleanup_postgres_state_tables(&url, &prefix).await;
+
+    let (info, plan) = result.unwrap();
     assert_eq!(info.flow_name, "pg_flow");
     assert_eq!(info.status, RunStatus::Success);
-
-    drop(store);
-    cleanup_postgres_state_tables(&url, &prefix).await;
+    assert!(plan.contains("Index Scan") || plan.contains("Index Only Scan"));
 }
 
 #[cfg(feature = "postgres")]
@@ -423,8 +789,40 @@ async fn json_store_delete_run() {
     store.init_run("r1", "flow", &HashMap::new()).await.unwrap();
     store.delete_run("r1").await.unwrap();
 
-    let result = store.get_run_info("r1").await;
-    assert!(result.is_err());
+    let error = store.get_run_info("r1").await.unwrap_err();
+    assert_eq!(error.kind(), StorageErrorKind::NotFound);
+    assert_eq!(
+        store.delete_run("r1").await.unwrap_err().kind(),
+        StorageErrorKind::NotFound
+    );
+}
+
+#[tokio::test]
+async fn json_store_classifies_conflicts_and_corrupt_records() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = JsonStateStore::new(dir.path());
+    store.init_run("r1", "flow", &Context::new()).await.unwrap();
+
+    assert_eq!(
+        store
+            .init_run("r1", "flow", &Context::new())
+            .await
+            .unwrap_err()
+            .kind(),
+        StorageErrorKind::Conflict
+    );
+
+    tokio::fs::write(dir.path().join("r1.json"), "{broken")
+        .await
+        .unwrap();
+    assert_eq!(
+        store.get_run_info("r1").await.unwrap_err().kind(),
+        StorageErrorKind::Corruption
+    );
+    assert_eq!(
+        store.list_runs(None).await.unwrap_err().kind(),
+        StorageErrorKind::Corruption
+    );
 }
 
 #[tokio::test]
@@ -458,10 +856,10 @@ async fn json_store_writes_sidecar_summary() {
 }
 
 #[tokio::test]
-async fn json_store_list_summaries_uses_sidecars_not_full_records() {
-    // Proof that `list_run_summaries` reads sidecars: write a run, then
-    // corrupt the main record. A full-record listing would fail; the
-    // sidecar-based listing must still succeed.
+async fn json_store_summary_listing_does_not_hide_a_corrupt_primary_header() {
+    // A summary is a revision-linked cache, not an independent source of
+    // truth. Destroying the primary's revision header must force a full decode
+    // and surface the primary corruption.
     let dir = tempfile::tempdir().unwrap();
     let store = JsonStateStore::new(dir.path());
     store.init_run("r1", "flow", &test_ctx()).await.unwrap();
@@ -470,12 +868,10 @@ async fn json_store_list_summaries_uses_sidecars_not_full_records() {
         .await
         .unwrap();
 
-    let summaries = store
-        .list_run_summaries(None)
-        .await
-        .expect("summary listing must not load the corrupt main record");
-    assert_eq!(summaries.len(), 1);
-    assert_eq!(summaries[0].id, "r1");
+    assert_eq!(
+        store.list_run_summaries(None).await.unwrap_err().kind(),
+        StorageErrorKind::Corruption
+    );
 }
 
 #[tokio::test]
@@ -520,4 +916,157 @@ async fn json_store_status_filter_in_summary_listing() {
         .unwrap();
     assert_eq!(pending.len(), 1);
     assert_eq!(pending[0].id, "r1");
+}
+
+#[tokio::test]
+async fn sql_summary_pages_filter_before_limit_and_keep_task_counts() {
+    let dir = tempfile::tempdir().unwrap();
+    let store_url = sqlite_store_url(dir.path());
+    let store = SqlStateStore::new(&store_url).await.unwrap();
+
+    for index in 0..7 {
+        let id = format!("page-{index}");
+        store.init_run(&id, "flow", &Context::new()).await.unwrap();
+        if index % 2 == 0 {
+            store.set_run_status(&id, RunStatus::Success).await.unwrap();
+            let mut task = TaskState::new("step", "log");
+            task.status = TaskStatus::Success;
+            store.upsert_task(&id, &task).await.unwrap();
+        }
+    }
+
+    // Force timestamp ties and a missing timestamp through a second connection
+    // so the backend contract, not insertion timing, determines page order.
+    let pool = sqlx::AnyPool::connect(&store_url).await.unwrap();
+    sqlx::query("UPDATE ironflow_runs SET started = ?, started_micros = ?")
+        .bind("2026-01-01T00:00:00.000000000Z")
+        .bind(1_767_225_600_000_000_i64)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE ironflow_runs SET started = NULL, started_micros = NULL WHERE id = ?")
+        .bind("page-0")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let plan = sqlx::query(
+        "EXPLAIN QUERY PLAN SELECT id FROM ironflow_runs WHERE status = ? \
+         ORDER BY started_micros DESC NULLS LAST, id DESC LIMIT ?",
+    )
+    .bind("success")
+    .bind(3_i64)
+    .fetch_all(&pool)
+    .await
+    .unwrap()
+    .into_iter()
+    .map(|row| row.try_get::<String, _>("detail").unwrap())
+    .collect::<Vec<_>>()
+    .join("\n");
+    assert!(
+        plan.contains("ironflow_runs_status_started_id_idx"),
+        "{plan}"
+    );
+    assert!(!plan.contains("USE TEMP B-TREE"), "{plan}");
+    pool.close().await;
+
+    let first_query =
+        RunListQuery::new(Some(RunStatus::Success), None, PageSize::new(2).unwrap()).unwrap();
+    let first = store.list_run_summaries_page(&first_query).await.unwrap();
+    assert_eq!(first.items.len(), 2);
+    assert_eq!(first.items[0].id, "page-6");
+    assert_eq!(first.items[1].id, "page-4");
+    assert!(
+        first
+            .items
+            .iter()
+            .all(|summary| { summary.status == RunStatus::Success && summary.task_count == 1 })
+    );
+
+    let second_query = RunListQuery::new(
+        Some(RunStatus::Success),
+        first.next,
+        PageSize::new(2).unwrap(),
+    )
+    .unwrap();
+    let second = store.list_run_summaries_page(&second_query).await.unwrap();
+    assert_eq!(second.items.len(), 2);
+    assert_eq!(second.items[0].id, "page-2");
+    assert_eq!(second.items[1].id, "page-0");
+    assert!(!second.has_more());
+
+    let mut ids = first
+        .items
+        .into_iter()
+        .chain(second.items)
+        .map(|summary| summary.id)
+        .collect::<Vec<_>>();
+    ids.sort();
+    assert_eq!(ids, ["page-0", "page-2", "page-4", "page-6"]);
+}
+
+#[tokio::test]
+async fn sql_store_backfills_legacy_listing_timestamps() {
+    sqlx::any::install_default_drivers();
+    let dir = tempfile::tempdir().unwrap();
+    let store_url = sqlite_store_url(dir.path());
+    let pool = sqlx::AnyPool::connect(&store_url).await.unwrap();
+    sqlx::query(
+        "CREATE TABLE ironflow_runs (\
+         id TEXT PRIMARY KEY, flow_name TEXT NOT NULL, status TEXT NOT NULL, \
+         started TEXT, finished TEXT, ctx TEXT NOT NULL)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO ironflow_runs (id, flow_name, status, started, finished, ctx) \
+         VALUES (?, ?, ?, ?, ?, ?)",
+    )
+    .bind("legacy-run")
+    .bind("legacy-flow")
+    .bind("success")
+    .bind("2026-01-01T00:00:00Z")
+    .bind(Option::<String>::None)
+    .bind("{}")
+    .execute(&pool)
+    .await
+    .unwrap();
+    pool.close().await;
+
+    let store = SqlStateStore::new(&store_url).await.unwrap();
+
+    // Simulate an older process writing after this process completed startup.
+    // Page reads must repair the missing derived key before applying order or
+    // a cursor, otherwise this newer run would incorrectly sit with NULLs.
+    let pool = sqlx::AnyPool::connect(&store_url).await.unwrap();
+    sqlx::query(
+        "INSERT INTO ironflow_runs \
+         (id, flow_name, status, started, finished, ctx) VALUES (?, ?, ?, ?, ?, ?)",
+    )
+    .bind("late-legacy-run")
+    .bind("legacy-flow")
+    .bind("success")
+    .bind("2030-01-01T00:00:00Z")
+    .bind(Option::<String>::None)
+    .bind("{}")
+    .execute(&pool)
+    .await
+    .unwrap();
+    pool.close().await;
+
+    let query = RunListQuery::new(None, None, PageSize::new(1).unwrap()).unwrap();
+    let page = store.list_run_summaries_page(&query).await.unwrap();
+    assert_eq!(page.items.len(), 1);
+    assert_eq!(page.items[0].id, "late-legacy-run");
+
+    let pool = sqlx::AnyPool::connect(&store_url).await.unwrap();
+    let row = sqlx::query("SELECT started_micros FROM ironflow_runs WHERE id = 'late-legacy-run'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(
+        row.try_get::<Option<i64>, _>("started_micros")
+            .unwrap()
+            .is_some()
+    );
 }

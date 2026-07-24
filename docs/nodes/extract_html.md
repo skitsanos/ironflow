@@ -6,7 +6,7 @@ Extract text and metadata from an HTML file.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | one of `path` or `source_key` | — | File path to the HTML file; supports `${ctx.*}` interpolation. |
+| `path` | string | one of `path` or `source_key` | — | File path to the HTML file; supports `${ctx.key}` interpolation. |
 | `source_key` | string | one of `path` or `source_key` | — | Context key whose value is the file path (must be a string). |
 | `format` | string | no | `"text"` | Output format: `"text"` for sanitized plain text, `"markdown"` for full HTML-to-Markdown conversion. |
 | `output_key` | string | no | `"content"` | Context key where the extracted content is stored. |

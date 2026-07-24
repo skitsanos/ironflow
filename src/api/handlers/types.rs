@@ -53,6 +53,8 @@ pub struct ValidateResponse {
 pub struct ListRunsQuery {
     pub status: Option<String>,
     pub limit: Option<usize>,
+    pub after: Option<String>,
+    /// Retained only to return an actionable migration error.
     pub offset: Option<usize>,
 }
 
@@ -60,11 +62,6 @@ pub struct ListRunsQuery {
 pub struct RunEventsQuery {
     pub after: Option<String>,
 }
-
-/// Default page size when `?limit` is not supplied.
-pub const DEFAULT_LIST_RUNS_LIMIT: usize = 50;
-/// Hard cap on `?limit` to prevent one request from loading the whole catalog.
-pub const MAX_LIST_RUNS_LIMIT: usize = 500;
 
 #[derive(Serialize)]
 pub struct NodeInfo {

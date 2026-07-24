@@ -6,7 +6,7 @@ List files and directories within a given path.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | yes | — | Directory to list. Supports `${ctx.*}` interpolation. |
+| `path` | string | yes | — | Directory to list. Supports `${ctx.key}` interpolation. |
 | `recursive` | bool | no | `false` | When `true`, descend into subdirectories and include their entries as well. |
 | `output_key` | string | no | `"files"` | Context key where the resulting array is stored. |
 | `max_entries` | number | no | `IRONFLOW_MAX_DIRECTORY_ENTRIES` / `10000` | Maximum entries returned before failing. |

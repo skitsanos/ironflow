@@ -1,7 +1,9 @@
 pub mod ai;
+mod child_process;
 pub mod cloud;
 pub mod composition;
 pub mod database;
+mod error;
 pub mod extract;
 pub mod file;
 pub mod http;
@@ -20,6 +22,8 @@ use async_trait::async_trait;
 
 use crate::engine::types::{Context, NodeOutput};
 
+pub use error::NodeFailure;
+
 /// Trait that all nodes must implement.
 #[async_trait]
 pub trait Node: Send + Sync {
@@ -29,13 +33,16 @@ pub trait Node: Send + Sync {
     /// Human-readable description.
     fn description(&self) -> &str;
 
-    /// Execute the node with the given configuration and current context.
+    /// Execute the node with the given configuration and phase-start context.
     ///
     /// Nodes receive `ctx` by shared reference and must not assume they can
-    /// mutate it — the engine merges the returned `NodeOutput` back into the
-    /// workflow context. Taking `&Context` lets the executor share a single
-    /// `Arc<Context>` across parallel attempts instead of deep-cloning the
-    /// whole map on every attempt.
+    /// mutate it. Independent phase members and all their retries receive the
+    /// same snapshot. The engine publishes successful `NodeOutput` values at
+    /// the phase barrier in flow declaration order. A [`NodeFailure`] may carry
+    /// output for terminal-only barrier publication after retries are
+    /// exhausted. Taking `&Context` lets the executor share one `Arc<Context>`
+    /// across parallel attempts instead of deep-cloning the whole map on every
+    /// attempt.
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput>;
 }
 

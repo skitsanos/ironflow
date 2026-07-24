@@ -6,8 +6,10 @@ Create a new Amazon S3 Vector bucket.
 
 | Parameter | Type   | Required | Default | Description |
 |-----------|--------|----------|---------|-------------|
-| `vector_bucket_name` | string | yes | `S3VECTOR_BUCKET_NAME` env var | Bucket name. |
+| `vector_bucket_name` | string | yes | `S3VECTOR_BUCKET_NAME` / `S3_BUCKET` env vars | Bucket name. |
 | `bucket` | string | no | no | Alias for `vector_bucket_name`. |
+| `region` | string | no | AWS region chain | Override `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, or `AWS_DEFAULT_REGION`. |
+| `endpoint_url` | string | no | `AWS_ENDPOINT_URL` env var | Override the S3 Vectors service endpoint. |
 | `output_key` | string | no | `s3vector` | Prefix for context output keys. |
 
 ## Context Output

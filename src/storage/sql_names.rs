@@ -31,6 +31,7 @@ impl SqlDialect {
 pub struct SqlStateTableNames {
     pub runs: String,
     pub tasks: String,
+    pub runs_started_idx: String,
     pub runs_status_started_idx: String,
     pub tasks_run_id_idx: String,
 }
@@ -38,7 +39,11 @@ pub struct SqlStateTableNames {
 #[derive(Debug, Clone)]
 pub struct SqlEventTableNames {
     pub events: String,
+    pub event_sequences: String,
+    pub event_deletions: String,
     pub events_run_time_idx: String,
+    pub events_run_sequence_idx: String,
+    pub events_null_sequence_idx: String,
 }
 
 impl SqlStateTableNames {
@@ -47,11 +52,13 @@ impl SqlStateTableNames {
         let names = Self {
             runs: format!("{prefix}runs"),
             tasks: format!("{prefix}tasks"),
-            runs_status_started_idx: format!("{prefix}runs_status_started_idx"),
+            runs_started_idx: format!("{prefix}runs_started_idx"),
+            runs_status_started_idx: format!("{prefix}runs_status_started_id_idx"),
             tasks_run_id_idx: format!("{prefix}tasks_run_id_idx"),
         };
         validate_identifier(&names.runs)?;
         validate_identifier(&names.tasks)?;
+        validate_identifier(&names.runs_started_idx)?;
         validate_identifier(&names.runs_status_started_idx)?;
         validate_identifier(&names.tasks_run_id_idx)?;
         Ok(names)
@@ -63,10 +70,18 @@ impl SqlEventTableNames {
         let prefix = normalized_prefix(prefix);
         let names = Self {
             events: format!("{prefix}events"),
+            event_sequences: format!("{prefix}event_sequences"),
+            event_deletions: format!("{prefix}event_deletions"),
             events_run_time_idx: format!("{prefix}events_run_time_idx"),
+            events_run_sequence_idx: format!("{prefix}events_run_seq_idx"),
+            events_null_sequence_idx: format!("{prefix}events_null_seq_idx"),
         };
         validate_identifier(&names.events)?;
+        validate_identifier(&names.event_sequences)?;
+        validate_identifier(&names.event_deletions)?;
         validate_identifier(&names.events_run_time_idx)?;
+        validate_identifier(&names.events_run_sequence_idx)?;
+        validate_identifier(&names.events_null_sequence_idx)?;
         Ok(names)
     }
 }
@@ -76,7 +91,7 @@ fn normalized_prefix(prefix: Option<&str>) -> String {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or(DEFAULT_SQL_TABLE_PREFIX)
-        .to_string()
+        .to_ascii_lowercase()
 }
 
 fn validate_identifier(identifier: &str) -> Result<()> {
@@ -111,13 +126,18 @@ fn validate_identifier(identifier: &str) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{SqlDialect, SqlStateTableNames, validate_identifier};
+    use super::{SqlDialect, SqlEventTableNames, SqlStateTableNames, validate_identifier};
 
     #[test]
     fn default_prefix_preserves_current_table_names() {
         let names = SqlStateTableNames::new(None).unwrap();
         assert_eq!(names.runs, "ironflow_runs");
         assert_eq!(names.tasks, "ironflow_tasks");
+
+        let events = SqlEventTableNames::new(None).unwrap();
+        assert_eq!(events.events, "ironflow_events");
+        assert_eq!(events.event_sequences, "ironflow_event_sequences");
+        assert_eq!(events.event_deletions, "ironflow_event_deletions");
     }
 
     #[test]
@@ -132,5 +152,12 @@ mod tests {
     fn dialect_placeholders_match_backend() {
         assert_eq!(SqlDialect::Sqlite.placeholder(1), "?");
         assert_eq!(SqlDialect::Postgres.placeholder(2), "$2");
+    }
+
+    #[test]
+    fn normalizes_identifiers_to_postgres_unquoted_case() {
+        let names = SqlStateTableNames::new(Some("Tenant_A_")).unwrap();
+        assert_eq!(names.runs, "tenant_a_runs");
+        assert_eq!(names.tasks, "tenant_a_tasks");
     }
 }

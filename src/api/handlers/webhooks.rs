@@ -19,40 +19,33 @@ pub async fn run_webhook(
     headers: axum::http::HeaderMap,
     body: Option<Json<Context>>,
 ) -> Result<Json<RunFlowResponse>, AppError> {
-    let flow_file = state
+    let webhook = state
         .webhooks
         .get(&name)
         .ok_or_else(|| AppError::NotFound(format!("Webhook '{}' not found", name)))?;
 
-    let path = resolve_flow_path(flow_file, &state)?;
+    let path = resolve_flow_path(webhook.flow(), &state)?;
     let flow = LuaRuntime::load_flow(&path, &state.registry)
         .map_err(|e| AppError::BadRequest(format!("Failed to load flow: {:#}", e)))?;
 
     let mut initial_ctx = body.map(|Json(ctx)| ctx).unwrap_or_default();
-
-    // Inject request headers as _headers (lowercase keys)
-    let headers_map: serde_json::Map<String, serde_json::Value> = headers
-        .iter()
-        .filter_map(|(k, v)| {
-            v.to_str().ok().map(|val| {
-                (
-                    k.as_str().to_string(),
-                    serde_json::Value::String(val.to_string()),
-                )
-            })
-        })
-        .collect();
-    initial_ctx.insert(
-        "_headers".to_string(),
-        serde_json::Value::Object(headers_map),
-    );
+    for reserved in ["_headers", "_webhook", "_flow_dir"] {
+        if initial_ctx.contains_key(reserved) {
+            return Err(AppError::BadRequest(format!(
+                "Webhook request context must not define reserved key '{reserved}'"
+            )));
+        }
+    }
+    let execution_overlay = webhook
+        .execution_overlay(&headers)
+        .map_err(AppError::BadRequest)?;
 
     // Inject webhook name
     initial_ctx.insert("_webhook".to_string(), serde_json::Value::String(name));
     let flow_name = flow.name.clone();
 
     // Inject _flow_dir for subworkflow path resolution
-    if let Ok(resolved) = resolve_flow_path(flow_file, &state)
+    if let Ok(resolved) = resolve_flow_path(webhook.flow(), &state)
         && let Some(dir) = std::path::Path::new(&resolved).parent()
     {
         initial_ctx.insert(
@@ -67,7 +60,9 @@ pub async fn run_webhook(
         state.event_store.clone(),
         state.max_concurrent_tasks,
     );
-    let run_id = engine.execute(&flow, initial_ctx).await?;
+    let run_id = engine
+        .execute_with_overlay(&flow, initial_ctx, execution_overlay)
+        .await?;
 
     let run_info = state.store.get_run_info(&run_id).await?;
 

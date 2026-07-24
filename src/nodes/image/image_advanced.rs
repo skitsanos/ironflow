@@ -9,7 +9,7 @@ use super::common::{
     image_format_name, load_image_bytes, resolve_image_output_format, save_dynamic_image,
 };
 use super::image_sources::resolve_single_image_source;
-use crate::util::node_config::{config_f64, config_u64};
+use crate::util::node_config::{config_f64, config_u64_strict};
 
 pub(crate) struct ImageGrayscaleNode;
 pub(crate) struct ImageConvertNode;
@@ -92,7 +92,11 @@ impl Node for ImageConvertNode {
             .get("output_key")
             .and_then(|v| v.as_str())
             .unwrap_or("image_convert");
-        let quality = config_u64(config, "quality", ctx).unwrap_or(85) as u8;
+        let quality = config_u64_strict(config, "quality", ctx)?.unwrap_or(85);
+        if !(1..=100).contains(&quality) {
+            anyhow::bail!("image_convert: 'quality' must be between 1 and 100");
+        }
+        let quality = u8::try_from(quality).expect("quality range was validated");
 
         let img = image::open(&path)
             .map_err(|e| anyhow::anyhow!("image_convert: failed to open '{}': {}", path, e))?;

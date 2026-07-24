@@ -15,8 +15,10 @@ local flow = Flow.new("tool_unknown_subworkflow")
 
 flow:step("fallback", nodes.code({
     source = function(ctx)
-        local tool_name = ctx.tool_name or "unknown"
-        local tool_args = ctx.tool_raw_arguments or "{}"
+        local tool_name = ctx.tool_name
+        if tool_name == nil then tool_name = "unknown" end
+        local tool_args = ctx.tool_raw_arguments
+        if tool_args == nil then tool_args = "{}" end
 
         return {
             tool_result_name = "fallback",
@@ -30,4 +32,3 @@ flow:step("fallback", nodes.code({
 } ))
 
 return flow
-

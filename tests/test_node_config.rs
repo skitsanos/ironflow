@@ -1,5 +1,5 @@
 //! Numeric node config values must accept the same forms string params already do:
-//! a native JSON number, a numeric string, or a `${ctx.*}` template that resolves to
+//! a native JSON number, a numeric string, or a `${ctx.key}` template that resolves to
 //! either. Before these helpers existed, `config.get(k).and_then(|v| v.as_f64())`
 //! returned `None` for every string form, so an interpolated parameter was silently
 //! replaced by the node's default.
@@ -7,7 +7,9 @@
 use std::collections::HashMap;
 
 use ironflow::engine::types::Context;
-use ironflow::util::node_config::{config_bool, config_f64, config_u64};
+use ironflow::util::node_config::{
+    config_bool, config_bool_or, config_f64, config_u64, config_usize_strict,
+};
 
 fn ctx_with(key: &str, value: serde_json::Value) -> Context {
     let mut ctx = HashMap::new();
@@ -86,6 +88,31 @@ fn u64_accepts_a_whole_number_written_as_a_float() {
 }
 
 #[test]
+fn u64_rejects_a_fractional_native_json_number() {
+    let config = serde_json::json!({ "sg_window": 15.5 });
+    assert_eq!(config_u64(&config, "sg_window", &HashMap::new()), None);
+}
+
+#[test]
+fn u64_rejects_a_fractional_numeric_string() {
+    let config = serde_json::json!({ "sg_window": "15.5" });
+    assert_eq!(config_u64(&config, "sg_window", &HashMap::new()), None);
+}
+
+#[test]
+fn u64_rejects_an_interpolated_fractional_number() {
+    let ctx = ctx_with("window", serde_json::json!(15.5));
+    let config = serde_json::json!({ "sg_window": "${ctx.window}" });
+    assert_eq!(config_u64(&config, "sg_window", &ctx), None);
+}
+
+#[test]
+fn u64_rejects_a_numeric_string_above_the_maximum() {
+    let config = serde_json::json!({ "ttl": "18446744073709551616" });
+    assert_eq!(config_u64(&config, "ttl", &HashMap::new()), None);
+}
+
+#[test]
 fn u64_is_none_for_a_negative_value() {
     let config = serde_json::json!({ "sg_window": -3 });
     assert_eq!(config_u64(&config, "sg_window", &HashMap::new()), None);
@@ -95,6 +122,20 @@ fn u64_is_none_for_a_negative_value() {
 fn u64_is_none_when_value_is_not_numeric() {
     let config = serde_json::json!({ "sg_window": "wide" });
     assert_eq!(config_u64(&config, "sg_window", &HashMap::new()), None);
+}
+
+#[test]
+fn usize_strict_distinguishes_absent_valid_and_invalid_values() {
+    let ctx = HashMap::new();
+    assert_eq!(
+        config_usize_strict(&serde_json::json!({}), "size", &ctx).unwrap(),
+        None
+    );
+    assert_eq!(
+        config_usize_strict(&serde_json::json!({ "size": "42" }), "size", &ctx).unwrap(),
+        Some(42)
+    );
+    assert!(config_usize_strict(&serde_json::json!({ "size": -1 }), "size", &ctx).is_err());
 }
 
 #[test]
@@ -148,4 +189,35 @@ fn bool_is_none_when_key_is_absent() {
 fn bool_is_none_when_value_is_not_boolean() {
     let config = serde_json::json!({ "pretty": "maybe" });
     assert_eq!(config_bool(&config, "pretty", &HashMap::new()), None);
+}
+
+#[test]
+fn bool_or_uses_default_only_when_key_is_absent() {
+    let ctx = HashMap::new();
+    assert!(config_bool_or(&serde_json::json!({}), "enabled", &ctx, true).unwrap());
+    assert!(
+        !config_bool_or(
+            &serde_json::json!({"enabled": false}),
+            "enabled",
+            &ctx,
+            true
+        )
+        .unwrap()
+    );
+    assert!(
+        config_bool_or(
+            &serde_json::json!({"enabled": "maybe"}),
+            "enabled",
+            &ctx,
+            true
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn bool_or_resolves_interpolated_values() {
+    let ctx = ctx_with("policy", serde_json::json!("off"));
+    let config = serde_json::json!({"enabled": "${ctx.policy}"});
+    assert!(!config_bool_or(&config, "enabled", &ctx, true).unwrap());
 }

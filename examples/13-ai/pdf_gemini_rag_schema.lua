@@ -1,6 +1,18 @@
-local flow = Flow.new("pdf_gemini_rag_schema")
+--[[
+PDF + Gemini RAG-schema demo.
 
-local OUTPUT_DIR = "/tmp/ironflow-pdf-gemini-book"
+Requirements:
+- GEMINI_API_KEY.
+- POSIX `sh` and `mktemp`, plus Poppler `pdftoppm`, available on PATH.
+- Run from the repository root because the shell command uses a
+  repository-relative fixture path.
+
+Effects:
+- Retains the unique directory printed by the final step, including rendered
+  pages, rag.json, and rag.txt; remove it when finished.
+]]
+
+local flow = Flow.new("pdf_gemini_rag_schema")
 
 local function response_format_schema()
     return {
@@ -130,42 +142,31 @@ flow:step("check_key", function()
     return { gemini_key_available = true }
 end)
 
-flow:step("prepare_output_dir", nodes.shell_command({
-    cmd = "sh",
-    args = { "-c", "rm -rf /tmp/ironflow-pdf-gemini-book && mkdir -p /tmp/ironflow-pdf-gemini-book" },
-    timeout = 10,
-    output_key = "prepare_output_dir"
-})):depends_on("check_key")
-
 flow:step("extract_pdf", nodes.extract_pdf({
-    path = "data/samples/generated_book.pdf",
+    path = "${ctx._flow_dir}/../fixtures/ironflow-sample.pdf",
     format = "markdown",
     output_key = "pdf_markdown",
     metadata_key = "pdf_meta"
-})):depends_on("prepare_output_dir")
+})):depends_on("check_key")
 
 flow:step("render_pages", nodes.shell_command({
-    cmd = "pdftoppm",
+    cmd = "sh",
     args = {
-        "-png",
-        "-r", "120",
-        "-f", "1",
-        "-l", "2",
-        "data/samples/generated_book.pdf",
-        OUTPUT_DIR .. "/page"
+        "-c",
+        "output_dir=$(mktemp -d \"${TMPDIR:-/tmp}/ironflow-pdf-gemini-book.XXXXXX\") || exit 1; pdftoppm -png -r 120 -f 1 -l 2 examples/fixtures/ironflow-sample.pdf \"$output_dir/page\" >&2 || exit 1; printf '%s' \"$output_dir\""
     },
     timeout = 30,
     output_key = "render_pages"
-})):depends_on("prepare_output_dir")
+})):depends_on("check_key")
 
 flow:step("read_page_1", nodes.read_file({
-    path = OUTPUT_DIR .. "/page-1.png",
+    path = "${ctx.render_pages_stdout}/page-1.png",
     encoding = "base64",
     output_key = "page_1"
 })):depends_on("render_pages")
 
 flow:step("read_page_2", nodes.read_file({
-    path = OUTPUT_DIR .. "/page-2.png",
+    path = "${ctx.render_pages_stdout}/page-2.png",
     encoding = "base64",
     output_key = "page_2"
 })):depends_on("render_pages")
@@ -276,17 +277,17 @@ flow:step("format_text", function(ctx)
 end):depends_on("analyze")
 
 flow:step("write_json", nodes.write_file({
-    path = OUTPUT_DIR .. "/rag.json",
+    path = "${ctx.render_pages_stdout}/rag.json",
     content = "${ctx.pdf_rag_json}"
 })):depends_on("format_text")
 
 flow:step("write_text", nodes.write_file({
-    path = OUTPUT_DIR .. "/rag.txt",
+    path = "${ctx.render_pages_stdout}/rag.txt",
     content = "${ctx.pdf_rag_text}"
 })):depends_on("write_json")
 
 flow:step("log_result", nodes.log({
-    message = "PDF RAG output: " .. OUTPUT_DIR .. "/rag.json and " .. OUTPUT_DIR .. "/rag.txt"
+    message = "PDF RAG output: ${ctx.render_pages_stdout}/rag.json and ${ctx.render_pages_stdout}/rag.txt"
 })):depends_on("write_text")
 
 return flow

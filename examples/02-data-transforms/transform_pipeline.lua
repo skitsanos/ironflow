@@ -2,24 +2,39 @@
 local flow = Flow.new("transform_test")
 
 flow:step("prepare_input", nodes.code({
-    source = function()
-        return {
+    source = function(ctx)
+        local users = ctx.users
+        if users == nil then
             users = {
                 { name = "Alice", age = 25, status = "active" },
                 { name = "Bob", age = 19, status = "inactive" },
                 { name = "Carol", age = 32, status = "active" },
                 { name = "Dave", age = 41, status = "pending" },
                 { name = "Eve", age = 28, status = "active" }
-            },
+            }
+        end
+
+        local tags = ctx.tags
+        if tags == nil then
             tags = {
                 { tag = "a" },
                 { tag = "a" },
                 { tag = "b" }
-            },
+            }
+        end
+
+        local config = ctx.config
+        if config == nil then
             config = {
                 host = "localhost",
                 port = 5432
             }
+        end
+
+        return {
+            users = users,
+            tags = tags,
+            config = config
         }
     end,
 }))

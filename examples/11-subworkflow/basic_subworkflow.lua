@@ -4,7 +4,11 @@ local flow = Flow.new("basic_subworkflow")
 
 flow:step("set_name", nodes.code({
     source = function(ctx)
-        return { name = "IronFlow" }
+        local name = ctx.name
+        if name == nil then
+            name = "IronFlow"
+        end
+        return { name = name }
     end
 }))
 

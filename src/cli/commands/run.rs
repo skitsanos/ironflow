@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, bail};
 
 use crate::engine::WorkflowEngine;
-use crate::engine::types::Context;
+use crate::engine::types::{Context, RunStatus};
 use crate::lua::LuaRuntime;
 use crate::nodes::NodeRegistry;
 use crate::storage::StateStore;
@@ -84,6 +84,7 @@ pub(crate) async fn cmd_run(
             crate::engine::types::TaskStatus::Skipped => "⊘",
             crate::engine::types::TaskStatus::Running => "⟳",
             crate::engine::types::TaskStatus::Pending => "○",
+            crate::engine::types::TaskStatus::Cancelled => "⊘",
         };
         println!(
             "  {} {} [{}] (attempt {})",
@@ -114,6 +115,14 @@ pub(crate) async fn cmd_run(
             println!("\nContext:");
             println!("{}", serde_json::to_string_pretty(&user_ctx)?);
         }
+    }
+
+    if run_info.status != RunStatus::Success {
+        bail!(
+            "Workflow run {} finished with status {}",
+            run_id,
+            run_info.status
+        );
     }
 
     Ok(())

@@ -210,7 +210,8 @@ async fn slack_notification_uses_message_alias() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn slack_notification_fails_on_server_error() {
-    let (url, _handle) = spawn_mock_server("invalid_token", 400);
+    let (base_url, _handle) = spawn_mock_server("password=slack-body-sentinel", 400);
+    let url = format!("{base_url}/services/slack-path-sentinel?token=slack-query-sentinel");
 
     let reg = NodeRegistry::with_builtins();
     let node = reg.get("slack_notification").unwrap();
@@ -229,6 +230,13 @@ async fn slack_notification_fails_on_server_error() {
         "Expected status 400 in error, got: {}",
         err
     );
+    for secret in [
+        "slack-path-sentinel",
+        "slack-query-sentinel",
+        "slack-body-sentinel",
+    ] {
+        assert!(!err.contains(secret), "error disclosed {secret}: {err}");
+    }
 }
 
 #[tokio::test(flavor = "current_thread")]

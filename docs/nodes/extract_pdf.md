@@ -6,7 +6,7 @@ Extract text and metadata from a PDF document.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | one of `path` or `source_key` | — | File path to the PDF; supports `${ctx.*}` interpolation. |
+| `path` | string | one of `path` or `source_key` | — | File path to the PDF; supports `${ctx.key}` interpolation. |
 | `source_key` | string | one of `path` or `source_key` | — | Context key whose value is the file path (must be a string). |
 | `format` | string | no | `"text"` | Output format: `"text"` for raw extracted text, `"markdown"` for best-effort paragraph-grouped Markdown. |
 | `output_key` | string | no | `"content"` | Context key where the extracted text is stored. |

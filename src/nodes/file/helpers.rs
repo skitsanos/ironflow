@@ -16,16 +16,18 @@ pub(super) struct ZipLimits {
     pub(super) max_total_uncompressed_bytes: u64,
 }
 
-pub(super) fn optional_usize(config: &serde_json::Value, key: &str) -> Option<usize> {
-    config
-        .get(key)
-        .and_then(|v| v.as_u64())
+pub(super) fn optional_usize(
+    config: &serde_json::Value,
+    key: &str,
+    ctx: &Context,
+) -> Option<usize> {
+    config_u64(config, key, ctx)
         .and_then(|v| usize::try_from(v).ok())
         .filter(|v| *v > 0)
 }
 
-pub(super) fn optional_u64(config: &serde_json::Value, key: &str) -> Option<u64> {
-    config.get(key).and_then(|v| v.as_u64()).filter(|v| *v > 0)
+pub(super) fn optional_u64(config: &serde_json::Value, key: &str, ctx: &Context) -> Option<u64> {
+    config_u64(config, key, ctx).filter(|v| *v > 0)
 }
 
 pub(super) fn directory_list_limits(
@@ -33,7 +35,7 @@ pub(super) fn directory_list_limits(
     ctx: &Context,
 ) -> DirectoryListLimits {
     DirectoryListLimits {
-        max_entries: optional_usize(config, "max_entries")
+        max_entries: optional_usize(config, "max_entries", ctx)
             .unwrap_or_else(|| crate::util::limits::max_directory_entries() as usize),
         max_depth: config_u64(config, "max_depth", ctx)
             .and_then(|v| usize::try_from(v).ok())
@@ -41,11 +43,11 @@ pub(super) fn directory_list_limits(
     }
 }
 
-pub(super) fn zip_limits(config: &serde_json::Value) -> ZipLimits {
+pub(super) fn zip_limits(config: &serde_json::Value, ctx: &Context) -> ZipLimits {
     ZipLimits {
-        max_entries: optional_usize(config, "max_entries")
+        max_entries: optional_usize(config, "max_entries", ctx)
             .unwrap_or_else(|| crate::util::limits::max_zip_entries() as usize),
-        max_total_uncompressed_bytes: optional_u64(config, "max_total_uncompressed_bytes")
+        max_total_uncompressed_bytes: optional_u64(config, "max_total_uncompressed_bytes", ctx)
             .unwrap_or_else(crate::util::limits::max_zip_uncompressed_bytes),
     }
 }

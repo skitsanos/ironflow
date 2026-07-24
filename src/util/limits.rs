@@ -11,6 +11,8 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use mlua::prelude::*;
 
+use super::execution::ExecutionControl;
+
 /// Default cap for HTTP response bodies (50 MB).
 const DEFAULT_HTTP_BODY_BYTES: u64 = 50 * 1024 * 1024;
 
@@ -211,6 +213,15 @@ impl LuaExecutionLimits {
 }
 
 pub fn apply_lua_limits(lua: &Lua, limits: LuaExecutionLimits) -> Result<()> {
+    apply_lua_limits_with_control(lua, limits, None)
+}
+
+/// Apply Lua resource limits plus a step deadline/cancellation hook.
+pub fn apply_lua_limits_with_control(
+    lua: &Lua,
+    limits: LuaExecutionLimits,
+    execution: Option<ExecutionControl>,
+) -> Result<()> {
     lua.gc_restart();
     lua.gc_inc(200, 200, 13);
 
@@ -219,7 +230,7 @@ pub fn apply_lua_limits(lua: &Lua, limits: LuaExecutionLimits) -> Result<()> {
     }
 
     let hook_interval = limits.hook_interval.max(1);
-    if limits.max_instructions.is_none() && limits.max_seconds.is_none() {
+    if limits.max_instructions.is_none() && limits.max_seconds.is_none() && execution.is_none() {
         return Ok(());
     }
 
@@ -232,6 +243,12 @@ pub fn apply_lua_limits(lua: &Lua, limits: LuaExecutionLimits) -> Result<()> {
     lua.set_hook(
         LuaHookTriggers::new().every_nth_instruction(hook_interval),
         move |_lua, _debug| {
+            if let Some(ref execution) = execution {
+                execution
+                    .checkpoint()
+                    .map_err(|error| LuaError::runtime(error.to_string()))?;
+            }
+
             if let Some(ref remaining) = remaining
                 && remaining.fetch_sub(hook_interval as i64, Ordering::Relaxed)
                     <= hook_interval as i64

@@ -1,30 +1,35 @@
-#[cfg(feature = "redis")]
-use anyhow::{Context as _, Result};
-#[cfg(feature = "redis")]
 use async_trait::async_trait;
-#[cfg(feature = "redis")]
-use redis::AsyncCommands;
+use uuid::Uuid;
 
-#[cfg(feature = "redis")]
 use crate::engine::events::RunEvent;
-#[cfg(feature = "redis")]
-use crate::storage::event_store::EventStore;
+use crate::storage::event_store::{EventStore, validate_event_run_id, validate_publish_event};
+use crate::storage::redis_config::{map_redis_error, validate_redis_ttl};
+use crate::storage::{StorageError, StorageResult};
 
-#[cfg(feature = "redis")]
+mod keys;
+mod legacy;
+mod protocol;
+mod scripts;
+
+use scripts::{DELETE, LIST, PUBLISH};
+
+const MAX_SAFE_LUA_INTEGER: u64 = 9_007_199_254_740_990;
+
 pub struct RedisEventStore {
     conn: redis::aio::ConnectionManager,
     prefix: String,
-    ttl: Option<u64>,
+    ttl: Option<i64>,
 }
 
-#[cfg(feature = "redis")]
 impl RedisEventStore {
-    pub async fn new(url: &str, prefix: Option<String>, ttl: Option<u64>) -> Result<Self> {
-        let client =
-            redis::Client::open(url).with_context(|| format!("Invalid Redis URL: {}", url))?;
+    pub async fn new(url: &str, prefix: Option<String>, ttl: Option<u64>) -> StorageResult<Self> {
+        let ttl = validate_redis_ttl(ttl)
+            .map_err(|error| StorageError::backend("Invalid Redis event store TTL", error))?;
+        let client = redis::Client::open(url)
+            .map_err(|error| StorageError::backend("Invalid Redis event store URL", error))?;
         let conn = redis::aio::ConnectionManager::new(client)
             .await
-            .with_context(|| format!("Failed to connect to Redis at {}", url))?;
+            .map_err(|error| StorageError::backend("Failed to connect Redis event store", error))?;
 
         Ok(Self {
             conn,
@@ -33,59 +38,96 @@ impl RedisEventStore {
         })
     }
 
-    fn list_key(&self, run_id: &str) -> String {
-        format!("{}events:{}", self.prefix, run_id)
-    }
-
-    fn index_key(&self, run_id: &str) -> String {
-        format!("{}events:{}:index", self.prefix, run_id)
-    }
-
-    fn seq_key(&self, run_id: &str) -> String {
-        format!("{}events:{}:seq", self.prefix, run_id)
+    fn decode_event(raw: &[u8], expected_run_id: &str) -> StorageResult<RunEvent> {
+        let event: RunEvent = serde_json::from_slice(raw).map_err(|error| {
+            StorageError::corruption(
+                format_args!("Invalid stored Redis event for run '{expected_run_id}'"),
+                error,
+            )
+        })?;
+        if event.id.is_empty() {
+            return Err(StorageError::corruption(
+                format_args!("Invalid stored Redis event for run '{expected_run_id}'"),
+                "event ID is empty",
+            ));
+        }
+        if event.run_id != expected_run_id {
+            return Err(StorageError::corruption(
+                format_args!("Invalid stored Redis event for run '{expected_run_id}'"),
+                "event belongs to another run",
+            ));
+        }
+        Ok(event)
     }
 }
 
-#[cfg(feature = "redis")]
 #[async_trait]
 impl EventStore for RedisEventStore {
-    async fn publish(&self, event: RunEvent) -> Result<()> {
+    async fn publish(&self, event: RunEvent) -> StorageResult<()> {
+        validate_publish_event(&event)?;
+        self.ensure_layout(&event.run_id).await?;
+        let keys = self.event_keys(&event.run_id);
         let mut conn = self.conn.clone();
-        let list_key = self.list_key(&event.run_id);
-        let index_key = self.index_key(&event.run_id);
-        let seq_key = self.seq_key(&event.run_id);
-        let json = serde_json::to_string(&event)?;
-
-        let seq: i64 = conn
-            .incr(&seq_key, 1)
+        let json = serde_json::to_string(&event).map_err(|error| {
+            StorageError::backend(
+                format_args!("Failed to serialize Redis event '{}'", event.id),
+                error,
+            )
+        })?;
+        let _: i64 = PUBLISH
+            .key(&keys.list)
+            .key(&keys.index)
+            .key(&keys.sequence)
+            .key(&keys.meta)
+            .key(self.deletion_fence_key(&event.run_id))
+            .arg(&json)
+            .arg(&event.id)
+            .arg(&event.run_id)
+            .arg(self.ttl.unwrap_or(-1))
+            .invoke_async(&mut conn)
             .await
-            .with_context(|| format!("Redis INCR failed for run {}", event.run_id))?;
-        let _: () = conn
-            .rpush(&list_key, json)
-            .await
-            .with_context(|| format!("Redis RPUSH failed for run {}", event.run_id))?;
-        let _: () = conn
-            .hset(&index_key, &event.id, seq)
-            .await
-            .with_context(|| format!("Redis HSET failed for run {}", event.run_id))?;
-
-        if let Some(ttl) = self.ttl {
-            let ttl = ttl as i64;
-            let _: () = conn
-                .expire(&list_key, ttl)
-                .await
-                .with_context(|| format!("Redis EXPIRE failed for {}", list_key))?;
-            let _: () = conn
-                .expire(&index_key, ttl)
-                .await
-                .with_context(|| format!("Redis EXPIRE failed for {}", index_key))?;
-            let _: () = conn
-                .expire(&seq_key, ttl)
-                .await
-                .with_context(|| format!("Redis EXPIRE failed for {}", seq_key))?;
-        }
-
+            .map_err(|error| {
+                map_redis_error(
+                    format_args!(
+                        "Failed to publish Redis event '{}' for run '{}'",
+                        event.id, event.run_id
+                    ),
+                    error,
+                )
+            })?;
         Ok(())
+    }
+
+    async fn delete_run(&self, run_id: &str) -> StorageResult<usize> {
+        validate_event_run_id(run_id)?;
+        // Legacy validation establishes an owner-bound layout before deletion;
+        // the delete script rechecks that owner atomically with removing the
+        // complete current key family.
+        self.ensure_layout(run_id).await?;
+        let keys = self.event_keys(run_id);
+        let mut conn = self.conn.clone();
+        let unlink_probe = format!(
+            "{}event_delete_probes:v1:{}",
+            self.prefix,
+            Uuid::new_v4().simple()
+        );
+        DELETE
+            .key(&keys.list)
+            .key(&keys.index)
+            .key(&keys.sequence)
+            .key(&keys.meta)
+            .key(self.deletion_fence_key(run_id))
+            .key(unlink_probe)
+            .arg(run_id)
+            .arg(self.ttl.unwrap_or(-1))
+            .invoke_async(&mut conn)
+            .await
+            .map_err(|error| {
+                map_redis_error(
+                    format_args!("Failed to delete Redis events for run '{run_id}'"),
+                    error,
+                )
+            })
     }
 
     async fn list_since(
@@ -93,31 +135,35 @@ impl EventStore for RedisEventStore {
         run_id: &str,
         after: Option<&str>,
         limit: usize,
-    ) -> Result<Vec<RunEvent>> {
+    ) -> StorageResult<Vec<RunEvent>> {
+        validate_event_run_id(run_id)?;
+        let after = after.filter(|cursor| !cursor.is_empty());
+        self.ensure_layout(run_id).await?;
+        let keys = self.event_keys(run_id);
         let mut conn = self.conn.clone();
-        let list_key = self.list_key(run_id);
-        let start = if let Some(after_id) = after {
-            let seq: Option<i64> = conn
-                .hget(self.index_key(run_id), after_id)
-                .await
-                .with_context(|| format!("Redis HGET failed for event cursor {}", after_id))?;
-            seq.unwrap_or(0)
-        } else {
-            0
-        };
-
-        let limit = limit.max(1) as i64;
-        let end = start + limit - 1;
-        let start = isize::try_from(start).unwrap_or(isize::MAX);
-        let end = isize::try_from(end).unwrap_or(isize::MAX);
-        let raw_events: Vec<String> = conn
-            .lrange(&list_key, start, end)
+        let limit = u64::try_from(limit)
+            .unwrap_or(MAX_SAFE_LUA_INTEGER)
+            .min(MAX_SAFE_LUA_INTEGER);
+        let raw_events: Vec<String> = LIST
+            .key(&keys.list)
+            .key(&keys.index)
+            .key(&keys.sequence)
+            .key(&keys.meta)
+            .arg(after.unwrap_or_default())
+            .arg(limit)
+            .arg(run_id)
+            .invoke_async(&mut conn)
             .await
-            .with_context(|| format!("Redis LRANGE failed for run {}", run_id))?;
+            .map_err(|error| {
+                map_redis_error(
+                    format_args!("Failed to read Redis events for run '{run_id}'"),
+                    error,
+                )
+            })?;
 
         raw_events
-            .into_iter()
-            .map(|raw| serde_json::from_str(&raw).map_err(Into::into))
+            .iter()
+            .map(|raw| Self::decode_event(raw.as_bytes(), run_id))
             .collect()
     }
 }

@@ -6,7 +6,7 @@ Extract text and metadata from a WebVTT subtitle file.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | one of `path` or `source_key` | — | File path to the `.vtt` file; supports `${ctx.*}` interpolation. |
+| `path` | string | one of `path` or `source_key` | — | File path to the `.vtt` file; supports `${ctx.key}` interpolation. |
 | `source_key` | string | one of `path` or `source_key` | — | Context key containing a `.vtt` file path (must be a string). |
 | `format` | string | no | `"text"` | Output format: `"text"` or `"markdown"`. |
 | `output_key` | string | no | `"transcript"` | Optional alias for the main transcript output key. |
@@ -39,7 +39,7 @@ Extract text and metadata from a WebVTT subtitle file.
 local flow = Flow.new("extract_vtt_demo")
 
 flow:step("extract", nodes.extract_vtt({
-    path = "data/samples/sample_subtitles.vtt",
+    path = "examples/fixtures/ironflow-transcript.vtt",
     format = "markdown",
     output_key = "subtitles_md",
     metadata_key = "subtitles_meta"

@@ -145,6 +145,26 @@ async fn image_convert_missing_file_error() {
 }
 
 #[tokio::test]
+async fn image_convert_rejects_quality_outside_documented_range() {
+    let dir = tempdir().unwrap();
+    let img_path = dir.path().join("input.png");
+    let out_path = dir.path().join("output.jpg");
+    create_test_image(&img_path, 10, 10);
+
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("image_convert").unwrap();
+    let config = serde_json::json!({
+        "path": img_path.to_string_lossy(),
+        "output_path": out_path.to_string_lossy(),
+        "quality": 356
+    });
+
+    let error = node.execute(&config, &empty_ctx()).await.unwrap_err();
+    assert!(error.to_string().contains("between 1 and 100"));
+    assert!(!out_path.exists());
+}
+
+#[tokio::test]
 async fn image_watermark_basic() {
     let dir = tempdir().unwrap();
     let img_path = dir.path().join("input.png");

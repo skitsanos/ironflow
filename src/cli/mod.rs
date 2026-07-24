@@ -1,5 +1,7 @@
+mod bootstrap;
 mod commands;
 mod config;
+mod resolution;
 mod store_factory;
 
 pub use config::IronFlowConfig;
@@ -8,8 +10,7 @@ pub use store_factory::{create_event_store, create_store};
 use std::path::PathBuf;
 
 use anyhow::Result;
-use clap::{Parser, Subcommand};
-use tracing::info;
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(name = "ironflow", version, about = "Lightweight workflow engine")]
@@ -42,7 +43,7 @@ pub enum Commands {
         verbose: bool,
 
         /// State store directory
-        #[arg(long, default_value = "data/runs")]
+        #[arg(long, default_value = "data/runs", env = "IRONFLOW_STORE_DIR")]
         store_dir: PathBuf,
     },
 
@@ -54,17 +55,25 @@ pub enum Commands {
 
     /// List past workflow runs
     List {
-        /// Filter by status (pending, running, success, failed, stalled)
+        /// Filter by status (pending, running, success, failed, stalled, cancelled)
         #[arg(short, long)]
         status: Option<String>,
 
         /// State store directory
-        #[arg(long, default_value = "data/runs")]
+        #[arg(long, default_value = "data/runs", env = "IRONFLOW_STORE_DIR")]
         store_dir: PathBuf,
 
         /// Output format (table, json)
         #[arg(long, default_value = "table")]
         format: String,
+
+        /// Maximum records to return (capped by IRONFLOW_MAX_LIST_RECORDS)
+        #[arg(long)]
+        limit: Option<usize>,
+
+        /// Opaque cursor returned by a previous list page
+        #[arg(long)]
+        after: Option<String>,
     },
 
     /// Inspect a specific run
@@ -73,7 +82,7 @@ pub enum Commands {
         run_id: String,
 
         /// State store directory
-        #[arg(long, default_value = "data/runs")]
+        #[arg(long, default_value = "data/runs", env = "IRONFLOW_STORE_DIR")]
         store_dir: PathBuf,
     },
 
@@ -104,11 +113,28 @@ pub enum Commands {
     },
 }
 
-pub async fn run_cli() -> Result<()> {
+/// Load the selected dotenv file before tracing or the async runtime starts.
+///
+/// Argument parsing is intentionally repeated by [`run_cli`]: this first pass
+/// discovers `--dotenv`, while the second pass lets Clap observe the newly
+/// loaded environment and retain each value's source.
+///
+/// # Safety
+///
+/// No other threads may be running or concurrently accessing the process
+/// environment. Call this once at the start of the process, before creating an
+/// async runtime or initializing libraries that may start worker threads.
+pub unsafe fn bootstrap_environment() -> Result<Option<PathBuf>> {
     let cli = Cli::parse();
+    // SAFETY: the caller upholds this function's process-wide environment
+    // exclusivity contract.
+    unsafe { bootstrap::load_dotenv(cli.dotenv.as_deref()) }
+}
 
-    // Load .env file
-    load_dotenv(cli.dotenv.as_deref());
+pub async fn run_cli() -> Result<()> {
+    let matches = Cli::command().get_matches();
+    let sources = resolution::CommandValueSources::from_matches(&matches);
+    let cli = Cli::from_arg_matches(&matches)?;
 
     // Load config file (ironflow.yaml)
     let cfg = IronFlowConfig::load(cli.config.as_deref())?;
@@ -120,25 +146,39 @@ pub async fn run_cli() -> Result<()> {
             verbose,
             store_dir,
         } => {
-            let store_dir =
-                commands::apply_config_path(store_dir, "data/runs", cfg.store_dir.as_deref());
+            let store_dir = resolution::with_config(
+                store_dir,
+                sources.store_dir,
+                cfg.store_dir.as_deref().map(PathBuf::from),
+            );
+            let max_concurrent_tasks = resolution::resolve_max_concurrent_tasks(&cfg)?;
             let store = create_store(&cfg, &store_dir).await?;
-            commands::cmd_run(flow, context, verbose, store, cfg.max_concurrent_tasks).await
+            commands::cmd_run(flow, context, verbose, store, max_concurrent_tasks).await
         }
         Commands::Validate { flow } => commands::cmd_validate(flow),
         Commands::List {
             status,
             store_dir,
             format,
+            limit,
+            after,
         } => {
-            let store_dir =
-                commands::apply_config_path(store_dir, "data/runs", cfg.store_dir.as_deref());
+            let listing_policy = crate::util::listing::ListingPolicy::from_env()?;
+            let prepared = commands::prepare_list(status, format, limit, after, listing_policy)?;
+            let store_dir = resolution::with_config(
+                store_dir,
+                sources.store_dir,
+                cfg.store_dir.as_deref().map(PathBuf::from),
+            );
             let store = create_store(&cfg, &store_dir).await?;
-            commands::cmd_list(status, store, format).await
+            commands::cmd_list(store, prepared).await
         }
         Commands::Inspect { run_id, store_dir } => {
-            let store_dir =
-                commands::apply_config_path(store_dir, "data/runs", cfg.store_dir.as_deref());
+            let store_dir = resolution::with_config(
+                store_dir,
+                sources.store_dir,
+                cfg.store_dir.as_deref().map(PathBuf::from),
+            );
             let store = create_store(&cfg, &store_dir).await?;
             commands::cmd_inspect(run_id, store).await
         }
@@ -150,41 +190,36 @@ pub async fn run_cli() -> Result<()> {
             flows_dir,
             max_body,
         } => {
-            let store_dir =
-                commands::apply_config_path(store_dir, "data/runs", cfg.store_dir.as_deref());
+            let listing_policy = crate::util::listing::ListingPolicy::from_env()?;
+            let server_config = resolution::ServerConfig::resolve(&cfg)?;
+            let host = resolution::with_config(host, sources.host, cfg.host.clone());
+            let port = resolution::with_config(port, sources.port, cfg.port);
+            let store_dir = resolution::with_config(
+                store_dir,
+                sources.store_dir,
+                cfg.store_dir.as_deref().map(PathBuf::from),
+            );
+            let flows_dir = resolution::optional_with_config(
+                flows_dir,
+                sources.flows_dir,
+                cfg.flows_dir.as_deref().map(PathBuf::from),
+            );
+            let max_body = resolution::with_config(max_body, sources.max_body, cfg.max_body);
+            let options = crate::api::ServeOptions {
+                host,
+                port,
+                flows_dir,
+                max_body,
+                max_concurrent_tasks: server_config.max_concurrent_tasks,
+                listing_policy,
+                webhooks: cfg.webhooks.clone().unwrap_or_default(),
+                cors_origins: server_config.cors_origins,
+                api_key: server_config.api_key,
+                allow_unauthenticated_api: server_config.allow_unauthenticated_api,
+            };
             let store = create_store(&cfg, &store_dir).await?;
             let event_store = create_event_store(&cfg, &store_dir).await?;
-            commands::cmd_serve(host, port, flows_dir, max_body, store, event_store, &cfg).await
-        }
-    }
-}
-
-/// Load environment variables from a .env file.
-/// If an explicit path is given, load from that path (error if missing).
-/// Otherwise, auto-detect .env in the current working directory (silently skip if absent).
-fn load_dotenv(explicit_path: Option<&std::path::Path>) {
-    match explicit_path {
-        Some(path) => match dotenvy::from_path(path) {
-            Ok(()) => info!("Loaded env from {}", path.display()),
-            Err(e) => {
-                eprintln!(
-                    "Warning: Failed to load dotenv file '{}': {}",
-                    path.display(),
-                    e
-                );
-            }
-        },
-        None => {
-            // Auto-detect .env in current directory
-            match dotenvy::dotenv() {
-                Ok(path) => info!("Loaded env from {}", path.display()),
-                Err(dotenvy::Error::Io(_)) => {
-                    // No .env file found — that's fine, silently skip
-                }
-                Err(e) => {
-                    eprintln!("Warning: Failed to parse .env file: {}", e);
-                }
-            }
+            commands::cmd_serve(store, event_store, options).await
         }
     }
 }

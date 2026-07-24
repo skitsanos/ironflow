@@ -2,11 +2,10 @@ use anyhow::Result;
 use mlua::prelude::*;
 
 use crate::engine::types::{FlowDefinition, RetryConfig, StepDefinition};
-
-use super::conversion::lua_table_to_json;
+use crate::lua::conversion::lua_table_to_json_at;
 
 /// Turn the Lua-built flow table into a `FlowDefinition`.
-pub(super) fn extract_flow(flow_table: &LuaTable) -> Result<FlowDefinition> {
+pub(super) fn extract_flow(lua: &Lua, flow_table: &LuaTable) -> Result<FlowDefinition> {
     let name: String = flow_table
         .get("_name")
         .map_err(|e| anyhow::anyhow!("Flow must have a name: {}", e))?;
@@ -14,12 +13,18 @@ pub(super) fn extract_flow(flow_table: &LuaTable) -> Result<FlowDefinition> {
     let steps_table: LuaTable = flow_table
         .get("_steps")
         .map_err(|e| anyhow::anyhow!("Flow must have steps: {}", e))?;
+    let step_count: usize = flow_table
+        .get("_step_count")
+        .map_err(|e| anyhow::anyhow!("Flow has an invalid step count: {}", e))?;
 
-    let mut steps = Vec::new();
+    let mut steps = Vec::with_capacity(step_count);
     let mut seen_names = std::collections::HashSet::new();
 
-    for pair in steps_table.pairs::<i32, LuaTable>() {
-        let (_, step_table) = pair?;
+    // `_steps` is an engine-owned numeric sequence. Read it by index instead
+    // of using `pairs()`: flow declaration order is part of the execution
+    // contract and determines deterministic same-phase output precedence.
+    for index in 1..=step_count {
+        let step_table: LuaTable = steps_table.get(index)?;
 
         let step_name: String = step_table.get("name")?;
 
@@ -39,15 +44,16 @@ pub(super) fn extract_flow(flow_table: &LuaTable) -> Result<FlowDefinition> {
 
         // Extract dependencies
         let deps_table: LuaTable = step_table.get("dependencies")?;
-        let mut dependencies = Vec::new();
-        for dep_pair in deps_table.pairs::<i32, String>() {
-            let (_, dep) = dep_pair?;
-            dependencies.push(dep);
+        let dependency_count = deps_table.len()? as usize;
+        let mut dependencies = Vec::with_capacity(dependency_count);
+        for index in 1..=dependency_count {
+            dependencies.push(deps_table.get(index)?);
         }
 
         // Extract config (the node config table minus internal keys)
         let config_table: LuaTable = step_table.get("config")?;
-        let config = lua_table_to_json(&config_table)?;
+        let config_path = format!("$.steps[{}].config", serde_json::to_string(&step_name)?);
+        let config = lua_table_to_json_at(lua, &config_table, &config_path)?;
 
         // Inject step name into config for conditional nodes
         let config = match config {

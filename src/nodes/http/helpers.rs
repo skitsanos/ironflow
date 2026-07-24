@@ -1,26 +1,13 @@
 use crate::engine::types::Context;
-use crate::lua::interpolate::interpolate_ctx;
+use crate::lua::interpolate::interpolate_value;
 use anyhow::Result;
 
-/// Recursively interpolate `${ctx.key}` in all string values within a JSON value.
+/// Recursively interpolate context templates in all JSON string values.
 pub(super) fn interpolate_json_value(
     value: &serde_json::Value,
     ctx: &Context,
 ) -> serde_json::Value {
-    match value {
-        serde_json::Value::String(s) => serde_json::Value::String(interpolate_ctx(s, ctx)),
-        serde_json::Value::Array(arr) => {
-            serde_json::Value::Array(arr.iter().map(|v| interpolate_json_value(v, ctx)).collect())
-        }
-        serde_json::Value::Object(map) => {
-            let new_map: serde_json::Map<String, serde_json::Value> = map
-                .iter()
-                .map(|(k, v)| (k.clone(), interpolate_json_value(v, ctx)))
-                .collect();
-            serde_json::Value::Object(new_map)
-        }
-        other => other.clone(),
-    }
+    interpolate_value(value, ctx)
 }
 
 /// Simple percent-encoding for form body values.

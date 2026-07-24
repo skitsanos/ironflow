@@ -3,7 +3,8 @@ use async_trait::async_trait;
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
-use crate::util::node_config::config_f64;
+use crate::util::duration::nonnegative_duration;
+use crate::util::node_config::config_f64_or;
 
 pub struct DelayNode;
 
@@ -18,9 +19,9 @@ impl Node for DelayNode {
     }
 
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
-        let seconds = config_f64(config, "seconds", ctx).unwrap_or(1.0);
+        let seconds = config_f64_or(config, "seconds", ctx, 1.0)?;
 
-        tokio::time::sleep(std::time::Duration::from_secs_f64(seconds)).await;
+        tokio::time::sleep(nonnegative_duration(seconds, "delay seconds")?).await;
 
         let mut output = NodeOutput::new();
         output.insert(

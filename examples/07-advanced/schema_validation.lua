@@ -2,8 +2,9 @@
 local flow = Flow.new("schema_validation")
 
 flow:step("prepare_input", nodes.code({
-    source = function()
-        return {
+    source = function(ctx)
+        local order = ctx.order
+        if order == nil then
             order = {
                 id = "ORD-001",
                 amount = 99.99,
@@ -12,7 +13,8 @@ flow:step("prepare_input", nodes.code({
                     email = "alice@example.com"
                 }
             }
-        }
+        end
+        return { order = order }
     end,
 }))
 

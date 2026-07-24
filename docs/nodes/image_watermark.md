@@ -6,10 +6,10 @@ Overlay a semi-transparent watermark band on an image at a specified position.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | one of `path` or `source_key` | — | Input image path (supports `${ctx.*}` interpolation) |
+| `path` | string | one of `path` or `source_key` | — | Input image path (supports `${ctx.key}` interpolation) |
 | `source_key` | string | one of `path` or `source_key` | — | Context key containing a source path/object |
 | `output_path` | string | yes | — | Output image path |
-| `text` | string | no | `"watermark"` | Watermark text (supports `${ctx.*}` interpolation) |
+| `text` | string | no | `"watermark"` | Watermark text (supports `${ctx.key}` interpolation) |
 | `position` | string | no | `"bottom-right"` | One of `bottom-right`, `bottom-left`, `top-right`, `top-left`, `center` |
 | `opacity` | number | no | `0.5` | Opacity of the watermark band (0.0 - 1.0) |
 | `format` | string | no | inferred / `png` | `png` or `jpeg`/`jpg` |
@@ -27,7 +27,7 @@ Overlay a semi-transparent watermark band on an image at a specified position.
 local flow = Flow.new("image_watermark_demo")
 
 flow:step("watermark", nodes.image_watermark({
-    path = "data/samples/photo.png",
+    path = "examples/fixtures/ironflow-sample.png",
     output_path = "output/photo_watermarked.png",
     text = "CONFIDENTIAL",
     position = "bottom-right",

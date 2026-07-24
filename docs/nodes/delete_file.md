@@ -6,7 +6,7 @@ Delete a file.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | yes | — | Path to the file to delete. Supports `${ctx.*}` interpolation. |
+| `path` | string | yes | — | Path to the file to delete. Supports `${ctx.key}` interpolation. |
 
 ## Context Output
 

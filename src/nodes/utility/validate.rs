@@ -2,7 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 
 use crate::engine::types::{Context, NodeOutput};
-use crate::nodes::Node;
+use crate::nodes::{Node, NodeFailure};
 
 fn validate_against_schema(
     data: &serde_json::Value,
@@ -30,6 +30,31 @@ fn build_validation_output(success: bool, errors: Vec<String>) -> NodeOutput {
         serde_json::Value::Array(errors.into_iter().map(serde_json::Value::String).collect()),
     );
     output
+}
+
+fn finish_validation(output: NodeOutput) -> Result<NodeOutput> {
+    if output
+        .get("validation_success")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
+        return Ok(output);
+    }
+
+    let details = output
+        .get("validation_errors")
+        .and_then(serde_json::Value::as_array)
+        .map(|errors| {
+            errors
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .collect::<Vec<_>>()
+                .join("; ")
+        })
+        .filter(|details| !details.is_empty())
+        .unwrap_or_else(|| "Schema validation failed".to_string());
+
+    Err(NodeFailure::new(format!("Schema validation failed: {details}"), output).into())
 }
 
 fn schema_from_config<'a>(
@@ -83,26 +108,7 @@ impl Node for ValidateSchemaNode {
             .ok_or_else(|| anyhow::anyhow!("Key '{}' not found in context", source_key))?;
 
         let (success, errors) = validate_against_schema(data, &schema)?;
-        let output = build_validation_output(success, errors);
-
-        if !success {
-            let details = output
-                .get("validation_errors")
-                .and_then(|v| v.as_array())
-                .map(|errors| {
-                    errors
-                        .iter()
-                        .filter_map(|e| e.as_str())
-                        .collect::<Vec<_>>()
-                        .join("; ")
-                })
-                .filter(|details| !details.is_empty())
-                .unwrap_or_else(|| "Schema validation failed".to_string());
-
-            anyhow::bail!("Schema validation failed: {}", details);
-        }
-
-        Ok(output)
+        finish_validation(build_validation_output(success, errors))
     }
 }
 
@@ -138,25 +144,6 @@ impl Node for JsonValidateNode {
         };
 
         let (success, errors) = validate_against_schema(&data, &schema)?;
-        let output = build_validation_output(success, errors);
-
-        if !success {
-            let details = output
-                .get("validation_errors")
-                .and_then(|v| v.as_array())
-                .map(|errors| {
-                    errors
-                        .iter()
-                        .filter_map(|e| e.as_str())
-                        .collect::<Vec<_>>()
-                        .join("; ")
-                })
-                .filter(|details| !details.is_empty())
-                .unwrap_or_else(|| "Schema validation failed".to_string());
-
-            anyhow::bail!("Schema validation failed: {}", details);
-        }
-
-        Ok(output)
+        finish_validation(build_validation_output(success, errors))
     }
 }

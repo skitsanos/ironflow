@@ -83,8 +83,9 @@ pub(super) fn parse_status(s: &str) -> Result<RunStatus, String> {
         "success" => Ok(RunStatus::Success),
         "failed" => Ok(RunStatus::Failed),
         "stalled" => Ok(RunStatus::Stalled),
+        "cancelled" => Ok(RunStatus::Cancelled),
         _ => Err(format!(
-            "Invalid status '{}'. Use: pending, running, success, failed, stalled",
+            "Invalid status '{}'. Use: pending, running, success, failed, stalled, cancelled",
             s
         )),
     }

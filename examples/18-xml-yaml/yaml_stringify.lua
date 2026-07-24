@@ -1,16 +1,18 @@
 local flow = Flow.new("yaml_stringify_demo")
 
 flow:step("prepare", nodes.code({
-    source = function()
-        return {
+    source = function(ctx)
+        local config = ctx.config
+        if config == nil then
             config = {
                 server = {
                     host = "localhost",
                     port = 8080,
                     features = { "auth", "logging" },
                 },
-            },
-        }
+            }
+        end
+        return { config = config }
     end,
 }))
 

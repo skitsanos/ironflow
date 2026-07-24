@@ -6,7 +6,7 @@ Parse and format dates/timestamps.
 
 | Parameter       | Type   | Required | Default                  | Description                                                                 |
 |-----------------|--------|----------|--------------------------|-----------------------------------------------------------------------------|
-| `input`         | string | No*      | --                       | Date string to parse; supports `${ctx.*}` interpolation. Use `"now"` for current time |
+| `input`         | string | No*      | --                       | Date string to parse; supports `${ctx.key}` interpolation. Use `"now"` for current time |
 | `source_key`    | string | No*      | --                       | Context key whose value will be used as the date string                     |
 | `input_format`  | string | No       | auto-detect              | strftime format of the input date string                                    |
 | `output_format` | string | No       | `"%Y-%m-%d %H:%M:%S"`   | strftime format for the output                                              |

@@ -12,11 +12,18 @@ pub type NodeOutput = HashMap<String, serde_json::Value>;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RunStatus {
+    /// Durable run record exists, but supervised execution has not started.
     Pending,
+    /// The coordinator is actively scheduling or executing tasks.
     Running,
+    /// Every required workflow task completed successfully.
     Success,
+    /// The workflow completed with one or more controlled node failures.
     Failed,
+    /// An executor, panic, or persistence failure prevented normal completion.
     Stalled,
+    /// An explicit [`crate::engine::RunHandle`] cancellation was processed.
+    Cancelled,
 }
 
 impl RunStatus {
@@ -25,7 +32,7 @@ impl RunStatus {
     pub fn is_terminal(&self) -> bool {
         matches!(
             self,
-            RunStatus::Success | RunStatus::Failed | RunStatus::Stalled
+            RunStatus::Success | RunStatus::Failed | RunStatus::Stalled | RunStatus::Cancelled
         )
     }
 }
@@ -38,6 +45,7 @@ impl std::fmt::Display for RunStatus {
             RunStatus::Success => write!(f, "success"),
             RunStatus::Failed => write!(f, "failed"),
             RunStatus::Stalled => write!(f, "stalled"),
+            RunStatus::Cancelled => write!(f, "cancelled"),
         }
     }
 }
@@ -51,6 +59,18 @@ pub enum TaskStatus {
     Success,
     Failed,
     Skipped,
+    /// The supervising run was explicitly cancelled before this task finished.
+    Cancelled,
+}
+
+impl TaskStatus {
+    /// Whether this task can no longer perform work for its run.
+    pub fn is_terminal(&self) -> bool {
+        matches!(
+            self,
+            TaskStatus::Success | TaskStatus::Failed | TaskStatus::Skipped | TaskStatus::Cancelled
+        )
+    }
 }
 
 impl std::fmt::Display for TaskStatus {
@@ -61,6 +81,7 @@ impl std::fmt::Display for TaskStatus {
             TaskStatus::Success => write!(f, "success"),
             TaskStatus::Failed => write!(f, "failed"),
             TaskStatus::Skipped => write!(f, "skipped"),
+            TaskStatus::Cancelled => write!(f, "cancelled"),
         }
     }
 }
@@ -176,74 +197,11 @@ pub struct FlowDefinition {
 }
 
 impl FlowDefinition {
-    /// Validate the DAG: check for missing dependencies and cycles.
+    /// Validate the execution graph, including failure-recovery edges.
     /// Returns a list of error strings (empty if valid).
     pub fn validate_dag(&self) -> Vec<String> {
-        use std::collections::{HashMap, HashSet};
-
-        let mut errors = Vec::new();
-        let step_names: HashSet<&str> = self.steps.iter().map(|s| s.name.as_str()).collect();
-
-        // Check dependencies reference existing steps
-        for step in &self.steps {
-            for dep in &step.dependencies {
-                if !step_names.contains(dep.as_str()) {
-                    errors.push(format!(
-                        "Step '{}' depends on '{}', which does not exist",
-                        step.name, dep
-                    ));
-                }
-            }
-        }
-
-        // Run cycle detection via Kahn's algorithm
-        if errors.is_empty() {
-            let mut in_degree: HashMap<&str, usize> = HashMap::new();
-            let mut dependents: HashMap<&str, Vec<&str>> = HashMap::new();
-
-            for step in &self.steps {
-                in_degree.entry(step.name.as_str()).or_insert(0);
-                for dep in &step.dependencies {
-                    dependents
-                        .entry(dep.as_str())
-                        .or_default()
-                        .push(step.name.as_str());
-                    *in_degree.entry(step.name.as_str()).or_insert(0) += 1;
-                }
-            }
-
-            let mut remaining: HashSet<&str> = step_names;
-            loop {
-                let ready: Vec<&str> = remaining
-                    .iter()
-                    .filter(|name| in_degree.get(**name).copied().unwrap_or(0) == 0)
-                    .cloned()
-                    .collect();
-
-                if ready.is_empty() {
-                    if !remaining.is_empty() {
-                        let cycle_steps: Vec<&str> = remaining.into_iter().collect();
-                        errors.push(format!(
-                            "Cycle detected in flow DAG involving steps: {}",
-                            cycle_steps.join(", ")
-                        ));
-                    }
-                    break;
-                }
-
-                for name in &ready {
-                    remaining.remove(name);
-                    if let Some(deps) = dependents.get(name) {
-                        for dep in deps {
-                            if let Some(deg) = in_degree.get_mut(dep) {
-                                *deg -= 1;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        errors
+        super::recovery::ExecutionPlan::build(self)
+            .err()
+            .unwrap_or_default()
     }
 }

@@ -1,27 +1,15 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use std::time::Duration;
 
 use crate::engine::types::{Context, NodeOutput};
-use crate::lua::interpolate::interpolate_ctx;
+use crate::lua::interpolate::{interpolate_ctx, interpolate_value};
 use crate::nodes::Node;
+use crate::util::duration::positive_duration;
+use crate::util::node_config::config_f64_or;
+use crate::util::sensitive_url::{SecretEndpoint, redact_sensitive_text};
 
 fn interpolate_json_value(value: &serde_json::Value, ctx: &Context) -> serde_json::Value {
-    match value {
-        serde_json::Value::String(s) => serde_json::Value::String(interpolate_ctx(s, ctx)),
-        serde_json::Value::Array(items) => serde_json::Value::Array(
-            items
-                .iter()
-                .map(|item| interpolate_json_value(item, ctx))
-                .collect(),
-        ),
-        serde_json::Value::Object(map) => serde_json::Value::Object(
-            map.iter()
-                .map(|(key, value)| (key.clone(), interpolate_json_value(value, ctx)))
-                .collect(),
-        ),
-        other => other.clone(),
-    }
+    interpolate_value(value, ctx)
 }
 
 fn resolve_output_key(config: &serde_json::Value) -> String {
@@ -58,11 +46,8 @@ impl Node for SlackNotificationNode {
         })?;
 
         let output_key = resolve_output_key(config);
-        let timeout_s = config
-            .get("timeout")
-            .and_then(|value| value.as_f64())
-            .unwrap_or(30.0);
-        let timeout = Duration::from_secs_f64(timeout_s);
+        let timeout_s = config_f64_or(config, "timeout", ctx, 30.0)?;
+        let timeout = positive_duration(timeout_s, "slack_notification timeout")?;
 
         let mut payload = config
             .get("payload")
@@ -88,12 +73,37 @@ impl Node for SlackNotificationNode {
             );
         }
 
-        let client = reqwest::Client::builder().timeout(timeout).build()?;
-        let response = client.post(&webhook_url).json(payload_obj).send().await?;
+        let client = reqwest::Client::builder()
+            .timeout(timeout)
+            .build()
+            .map_err(|error| {
+                anyhow::anyhow!(
+                    "Failed to build Slack client: {}",
+                    redact_sensitive_text(&error.to_string())
+                )
+            })?;
+        let response = client
+            .post(&webhook_url)
+            .json(payload_obj)
+            .send()
+            .await
+            .map_err(|error| {
+                anyhow::anyhow!(
+                    "Slack request to {} failed: {}",
+                    SecretEndpoint::new(&webhook_url),
+                    redact_sensitive_text(&error.to_string())
+                )
+            })?;
 
         let status = response.status().as_u16();
         let success = response.status().is_success();
-        let body = response.text().await?;
+        let body = response.text().await.map_err(|error| {
+            anyhow::anyhow!(
+                "Failed to read Slack response from {}: {}",
+                SecretEndpoint::new(&webhook_url),
+                redact_sensitive_text(&error.to_string())
+            )
+        })?;
         let data = serde_json::from_str(&body).unwrap_or(serde_json::Value::String(body.clone()));
 
         let mut output = NodeOutput::new();
@@ -111,8 +121,8 @@ impl Node for SlackNotificationNode {
             anyhow::bail!(
                 "Slack webhook returned status {} for '{}': {}",
                 status,
-                webhook_url,
-                body
+                SecretEndpoint::new(&webhook_url),
+                redact_sensitive_text(&body)
             );
         }
 

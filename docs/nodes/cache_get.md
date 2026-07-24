@@ -6,7 +6,7 @@ Retrieve a value from the cache (memory or file-based).
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `key` | string | yes | — | Cache key to look up. Supports `${ctx.*}` interpolation. |
+| `key` | string | yes | — | Cache key to look up. Supports `${ctx.key}` interpolation. |
 | `output_key` | string | no | `"cached_value"` | Context key where the retrieved value is stored. |
 | `backend` | string | no | `"memory"` | Storage backend: `"memory"` (process-global bounded cache) or `"file"` (JSON files on disk). |
 | `cache_dir` | string | no | `IRONFLOW_CACHE_DIR` / `".ironflow_cache"` | Directory for file-based cache entries. Only used when `backend` is `"file"`. Per-node value overrides the env var. |

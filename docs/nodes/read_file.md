@@ -6,7 +6,7 @@ Read the contents of a file into the workflow context. Supports both text and bi
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | yes | — | Path to the file to read. Supports `${ctx.*}` interpolation. |
+| `path` | string | yes | — | Path to the file to read. Supports `${ctx.key}` interpolation. |
 | `output_key` | string | no | `"file"` | Prefix used for the context keys written by this node. |
 | `encoding` | string | no | `"text"` | `"text"` reads the file as a UTF-8 string. `"base64"` reads raw bytes and encodes them as a base64 string. |
 

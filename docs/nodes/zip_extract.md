@@ -6,8 +6,8 @@ Extract a ZIP archive into a destination directory.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | yes | — | Path to a ZIP file. Supports `${ctx.*}` interpolation. |
-| `destination` | string | yes | — | Target directory for extracted files. Supports `${ctx.*}` interpolation. |
+| `path` | string | yes | — | Path to a ZIP file. Supports `${ctx.key}` interpolation. |
+| `destination` | string | yes | — | Target directory for extracted files. Supports `${ctx.key}` interpolation. |
 | `output_key` | string | no | `"extracted_files"` | Context key for extracted entry names. |
 | `overwrite` | bool | no | `true` | When `false`, fail if a target file already exists. |
 | `max_entries` | number | no | `IRONFLOW_MAX_ZIP_ENTRIES` / `10000` | Maximum archive entries extracted before failing. |

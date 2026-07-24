@@ -66,6 +66,30 @@ jobs:
           cache-targets: false
       - run: cargo check --all-targets --features postgres,redis
 
+  redis-tests:
+    name: Redis integration tests
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:latest
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      IRONFLOW_REDIS_TEST_URL: redis://127.0.0.1:6379
+      IRONFLOW_REDIS_TEST_REQUIRED: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.96.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
+      - run: cargo test --features redis --test test_redis_atomicity -- --test-threads=1
+
   fmt:
     name: Format
     runs-on: ubuntu-latest
@@ -118,11 +142,17 @@ jobs:
       - name: Validate all example flows
         run: |
           failed=0
-          for f in examples/**/*.lua; do
+          while IFS= read -r -d '' f; do
             echo "Validating $f..."
             if ! ./target/release/ironflow validate "$f"; then
               echo "FAIL: $f"
               failed=1
             fi
-          done
+          done < <(find examples -type f -name '*.lua' -print0)
           exit $failed
+      - name: Verify example contracts, catalog, fixtures, and offline matrix
+        run: >-
+          cargo test
+          --test test_example_catalog
+          --test test_example_contracts
+          --test test_example_fixtures

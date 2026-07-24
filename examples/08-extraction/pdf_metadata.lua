@@ -2,13 +2,19 @@ local flow = Flow.new("pdf_metadata_demo")
 
 -- Read PDF metadata into the flow context
 flow:step("meta", nodes.pdf_metadata({
-    path = "data/samples/Bill26022026_121916AM_8000951511_fc72420d-72e1-460b-b714-8a7388ea90d4_.pdf",
+    path = "${ctx._flow_dir}/../fixtures/ironflow-sample.pdf",
     output_key = "meta"
 }))
 
+-- Template interpolation is path lookup only. Compute fallbacks explicitly.
+flow:step("metadata_defaults", function(ctx)
+    return {
+        meta_author = ctx.meta.author or "unknown"
+    }
+end):depends_on("meta")
+
 flow:step("log", nodes.log({
-    message = "Pages=${ctx.meta.pages}, author=${ctx.meta.author or 'unknown'}"
-})):depends_on("meta")
+    message = "Pages=${ctx.meta.pages}, author=${ctx.meta_author}"
+})):depends_on("metadata_defaults")
 
 return flow
-

@@ -50,7 +50,13 @@ impl Node for S3VectorCreateIndexNode {
             })?,
             "s3vector_create_index",
         )?;
-        let dimension = resolve_u32(config, &["dimension"], "s3vector_create_index", "dimension")?;
+        let dimension = resolve_u32(
+            config,
+            &["dimension"],
+            ctx,
+            "s3vector_create_index",
+            "dimension",
+        )?;
         if dimension == 0 {
             anyhow::bail!("s3vector_create_index requires 'dimension' to be greater than zero");
         }

@@ -1,36 +1,47 @@
 -- Demonstrates file archival workflow: create -> list -> extract -> cleanup
+-- Platform: requires `mkdir` on PATH.
+-- Effects: retains UUID-scoped source and extracted directories under TMPDIR,
+-- TMP, TEMP, or `.` for inspection; removes the intermediate ZIP on success.
 local flow = Flow.new("zip_workflow")
+local temp_root = env("TMPDIR")
+if temp_root == nil or temp_root == "" then temp_root = env("TMP") end
+if temp_root == nil or temp_root == "" then temp_root = env("TEMP") end
+if temp_root == nil or temp_root == "" then temp_root = "." end
+local run_path = temp_root .. "/ironflow-zip-" .. uuid4()
+local source_dir = run_path .. "-source"
+local zip_path = run_path .. ".zip"
+local output_dir = run_path .. "-extracted"
 
 flow:step("prepare_dir", nodes.shell_command({
-    command = "mkdir",
-    args = {"-p", "/tmp/ironflow_zip_demo"}
+    cmd = "mkdir",
+    args = {"-p", source_dir}
 }))
 
 flow:step("prepare", nodes.write_file({
-    path = "/tmp/ironflow_zip_demo/alpha.txt",
+    path = source_dir .. "/alpha.txt",
     content = "alpha"
 })):depends_on("prepare_dir")
 
 flow:step("prepare_nested", nodes.write_file({
-    path = "/tmp/ironflow_zip_demo/beta.txt",
+    path = source_dir .. "/beta.txt",
     content = "beta"
 })):depends_on("prepare")
 
 flow:step("create_zip", nodes.zip_create({
-    source = "/tmp/ironflow_zip_demo",
-    zip_path = "/tmp/ironflow_zip_demo.zip",
+    source = source_dir,
+    zip_path = zip_path,
     include_root = false,
     compression = "deflated"
 })):depends_on("prepare_nested")
 
 flow:step("list_zip", nodes.zip_list({
-    path = "/tmp/ironflow_zip_demo.zip",
+    path = zip_path,
     output_key = "zip_members"
 })):depends_on("create_zip")
 
 flow:step("extract_zip", nodes.zip_extract({
-    path = "/tmp/ironflow_zip_demo.zip",
-    destination = "/tmp/ironflow_zip_demo_out",
+    path = zip_path,
+    destination = output_dir,
     output_key = "extracted_items",
     overwrite = true
 })):depends_on("list_zip")
@@ -41,7 +52,7 @@ flow:step("report", nodes.log({
 })):depends_on("extract_zip")
 
 flow:step("cleanup", nodes.delete_file({
-    path = "/tmp/ironflow_zip_demo.zip"
+    path = zip_path
 })):depends_on("report")
 
 return flow

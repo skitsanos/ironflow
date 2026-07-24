@@ -1,158 +1,185 @@
-use anyhow::{Context as _, Result};
-use async_trait::async_trait;
 use sqlx::any::AnyPoolOptions;
-use sqlx::{AnyPool, Row};
+use sqlx::{Any, AnyPool, Transaction};
 
-use crate::engine::events::RunEvent;
-use crate::storage::event_store::EventStore;
 use crate::storage::sql_names::{SqlDialect, SqlEventTableNames};
+use crate::storage::{StorageError, StorageResult};
+
+mod backfill;
+mod deletion;
+mod index;
+mod migration;
+mod schema;
+mod store;
 
 pub struct SqlEventStore {
-    pool: AnyPool,
-    tables: SqlEventTableNames,
-    dialect: SqlDialect,
+    pub(super) pool: AnyPool,
+    pub(super) tables: SqlEventTableNames,
+    pub(super) dialect: SqlDialect,
 }
 
 impl SqlEventStore {
-    pub async fn new(url: &str) -> Result<Self> {
+    pub async fn new(url: &str) -> StorageResult<Self> {
         Self::new_with_prefix(url, None).await
     }
 
-    pub async fn new_with_prefix(url: &str, table_prefix: Option<&str>) -> Result<Self> {
+    pub async fn new_with_prefix(url: &str, table_prefix: Option<&str>) -> StorageResult<Self> {
         sqlx::any::install_default_drivers();
-        let dialect = SqlDialect::from_url(url)?;
+        let dialect = SqlDialect::from_url(url)
+            .map_err(|error| StorageError::backend("Invalid SQL event store URL", error))?;
         let pool = AnyPoolOptions::new()
             .max_connections(5)
             .connect(url)
             .await
-            .with_context(|| format!("Failed to connect SQL event store at {}", url))?;
+            .map_err(|error| StorageError::backend("Failed to connect SQL event store", error))?;
 
         let store = Self {
             pool,
-            tables: SqlEventTableNames::new(table_prefix)?,
+            tables: SqlEventTableNames::new(table_prefix).map_err(|error| {
+                StorageError::backend("Invalid SQL event store table prefix", error)
+            })?,
             dialect,
         };
         store.ensure_schema().await?;
         Ok(store)
     }
 
-    async fn ensure_schema(&self) -> Result<()> {
-        sqlx::query(sqlx::AssertSqlSafe(format!(
-            r#"
-            CREATE TABLE IF NOT EXISTS {} (
-                id TEXT PRIMARY KEY,
-                run_id TEXT NOT NULL,
-                event_type TEXT NOT NULL,
-                event_json TEXT NOT NULL,
-                timestamp TEXT NOT NULL
-            )
-            "#,
-            self.tables.events
-        )))
-        .execute(&self.pool)
-        .await?;
-
-        sqlx::query(sqlx::AssertSqlSafe(format!(
-            "CREATE INDEX IF NOT EXISTS {} ON {}(run_id, timestamp, id)",
-            self.tables.events_run_time_idx, self.tables.events
-        )))
-        .execute(&self.pool)
-        .await?;
-
-        Ok(())
-    }
-
-    fn placeholder(&self, index: usize) -> String {
+    pub(super) fn placeholder(&self, index: usize) -> String {
         self.dialect.placeholder(index)
     }
-}
 
-#[async_trait]
-impl EventStore for SqlEventStore {
-    async fn publish(&self, event: RunEvent) -> Result<()> {
+    /// Reserve the next durable publication position for one run.
+    ///
+    /// The counter row is updated in the same transaction as the event insert.
+    /// PostgreSQL row locking and SQLite's single-writer transaction semantics
+    /// therefore serialize concurrent publishers without relying on clocks or
+    /// UUID ordering.
+    pub(super) async fn allocate_sequence(
+        &self,
+        transaction: &mut Transaction<'_, Any>,
+        run_id: &str,
+    ) -> StorageResult<i64> {
         let sql = format!(
-            "INSERT INTO {} (id, run_id, event_type, event_json, timestamp) VALUES ({}, {}, {}, {}, {})",
-            self.tables.events,
+            "INSERT INTO {} (run_id, last_sequence) VALUES ({}, 1) \
+             ON CONFLICT(run_id) DO UPDATE SET last_sequence = {}.last_sequence + 1 \
+             WHERE {}.last_sequence >= 0 AND {}.last_sequence < {} \
+             RETURNING last_sequence",
+            self.tables.event_sequences,
             self.placeholder(1),
-            self.placeholder(2),
-            self.placeholder(3),
-            self.placeholder(4),
-            self.placeholder(5),
+            self.tables.event_sequences,
+            self.tables.event_sequences,
+            self.tables.event_sequences,
+            i64::MAX,
         );
+        let allocated = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.as_str()))
+            .bind(run_id)
+            .fetch_optional(&mut **transaction)
+            .await
+            .map_err(|error| {
+                StorageError::backend(
+                    format_args!("Failed to allocate event sequence for run '{run_id}'"),
+                    error,
+                )
+            })?;
+        let stored = self
+            .stored_sequence_counter(transaction, run_id)
+            .await?
+            .ok_or_else(|| {
+                StorageError::corruption(
+                    format_args!("Invalid event sequence counter for run '{run_id}'"),
+                    "counter row disappeared during allocation",
+                )
+            })?;
+        match allocated {
+            Some(sequence) if sequence >= 1 && stored == sequence => Ok(sequence),
+            Some(sequence) => Err(StorageError::corruption(
+                format_args!("Invalid event sequence counter for run '{run_id}'"),
+                format!("allocated {sequence} but stored {stored}"),
+            )),
+            None if stored < 0 => Err(StorageError::corruption(
+                format_args!("Invalid event sequence counter for run '{run_id}'"),
+                stored,
+            )),
+            None if stored == i64::MAX => Err(StorageError::conflict(format_args!(
+                "Event sequence for run '{run_id}' is exhausted"
+            ))),
+            None => Err(StorageError::corruption(
+                format_args!("Invalid event sequence counter for run '{run_id}'"),
+                stored,
+            )),
+        }
+    }
 
-        sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
-            .bind(&event.id)
-            .bind(&event.run_id)
-            .bind(event.event_type.as_sse_name())
-            .bind(serde_json::to_string(&event)?)
-            .bind(event.timestamp.to_rfc3339())
-            .execute(&self.pool)
-            .await?;
+    async fn stored_sequence_counter(
+        &self,
+        transaction: &mut Transaction<'_, Any>,
+        run_id: &str,
+    ) -> StorageResult<Option<i64>> {
+        let sql = format!(
+            "SELECT last_sequence FROM {} WHERE run_id = {}",
+            self.tables.event_sequences,
+            self.placeholder(1),
+        );
+        sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.as_str()))
+            .bind(run_id)
+            .fetch_optional(&mut **transaction)
+            .await
+            .map_err(|error| {
+                StorageError::backend(
+                    format_args!("Failed to verify event sequence for run '{run_id}'"),
+                    error,
+                )
+            })
+    }
+
+    /// Acquire the same per-run row lock used by sequence allocation without
+    /// consuming a publication position. Creating a zero-valued row makes the
+    /// lock available even for a stream that has never published an event.
+    pub(super) async fn lock_stream(
+        &self,
+        transaction: &mut Transaction<'_, Any>,
+        run_id: &str,
+    ) -> StorageResult<()> {
+        let sql = format!(
+            "INSERT INTO {} (run_id, last_sequence) VALUES ({}, 0) \
+             ON CONFLICT(run_id) DO UPDATE SET last_sequence = {}.last_sequence \
+             RETURNING last_sequence",
+            self.tables.event_sequences,
+            self.placeholder(1),
+            self.tables.event_sequences,
+        );
+        sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.as_str()))
+            .bind(run_id)
+            .fetch_one(&mut **transaction)
+            .await
+            .map_err(|error| {
+                StorageError::backend(
+                    format_args!("Failed to lock event stream for run '{run_id}'"),
+                    error,
+                )
+            })?;
         Ok(())
     }
 
-    async fn list_since(
+    pub(super) async fn stream_is_deleted(
         &self,
+        transaction: &mut Transaction<'_, Any>,
         run_id: &str,
-        after: Option<&str>,
-        limit: usize,
-    ) -> Result<Vec<RunEvent>> {
-        let limit = limit.max(1) as i64;
-        let after_timestamp = if let Some(after_id) = after {
-            let sql = format!(
-                "SELECT timestamp FROM {} WHERE run_id = {} AND id = {}",
-                self.tables.events,
-                self.placeholder(1),
-                self.placeholder(2)
-            );
-            sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
-                .bind(run_id)
-                .bind(after_id)
-                .fetch_optional(&self.pool)
-                .await?
-                .map(|row| row.try_get::<String, _>("timestamp"))
-                .transpose()?
-        } else {
-            None
-        };
-
-        let rows = if let (Some(after_id), Some(timestamp)) = (after, after_timestamp) {
-            let sql = format!(
-                "SELECT event_json FROM {} WHERE run_id = {} AND (timestamp > {} OR (timestamp = {} AND id > {})) \
-                 ORDER BY timestamp, id LIMIT {}",
-                self.tables.events,
-                self.placeholder(1),
-                self.placeholder(2),
-                self.placeholder(3),
-                self.placeholder(4),
-                self.placeholder(5),
-            );
-            sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
-                .bind(run_id)
-                .bind(timestamp.clone())
-                .bind(timestamp)
-                .bind(after_id)
-                .bind(limit)
-                .fetch_all(&self.pool)
-                .await?
-        } else {
-            let sql = format!(
-                "SELECT event_json FROM {} WHERE run_id = {} ORDER BY timestamp, id LIMIT {}",
-                self.tables.events,
-                self.placeholder(1),
-                self.placeholder(2),
-            );
-            sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
-                .bind(run_id)
-                .bind(limit)
-                .fetch_all(&self.pool)
-                .await?
-        };
-        let mut events = Vec::with_capacity(rows.len());
-        for row in rows {
-            let raw: String = row.try_get("event_json")?;
-            events.push(serde_json::from_str(&raw)?);
-        }
-        Ok(events)
+    ) -> StorageResult<bool> {
+        let sql = format!(
+            "SELECT 1 FROM {} WHERE run_id = {}",
+            self.tables.event_deletions,
+            self.placeholder(1)
+        );
+        sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.as_str()))
+            .bind(run_id)
+            .fetch_optional(&mut **transaction)
+            .await
+            .map(|row| row.is_some())
+            .map_err(|error| {
+                StorageError::backend(
+                    format_args!("Failed to inspect event deletion for run '{run_id}'"),
+                    error,
+                )
+            })
     }
 }

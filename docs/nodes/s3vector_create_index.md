@@ -14,6 +14,8 @@ Create an Amazon S3 Vector index inside a bucket.
 | `data_type` | string | yes | -- | Vector type (for example: `float32`). |
 | `distance_metric` | string | yes | -- | Similarity metric (for example: `euclidean`, `cosine`). |
 | `dimension` | integer | yes | -- | Vector dimension (must be > 0). |
+| `region` | string | no | AWS region chain | Override `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, or `AWS_DEFAULT_REGION`. |
+| `endpoint_url` | string | no | `AWS_ENDPOINT_URL` env var | Override the S3 Vectors service endpoint. |
 | `output_key` | string | no | `s3vector` | Prefix for context output keys. |
 
 ## Context Output

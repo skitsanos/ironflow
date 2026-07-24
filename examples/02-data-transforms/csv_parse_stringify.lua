@@ -2,14 +2,16 @@
 local flow = Flow.new("csv_parse_stringify")
 
 flow:step("prepare_input", nodes.code({
-    source = function()
-        return {
+    source = function(ctx)
+        local raw_csv = ctx.raw_csv
+        if raw_csv == nil then
             raw_csv = "name,email,status\n" ..
                       "Alice,alice@example.com,active\n" ..
                       "Bob,bob@example.com,inactive\n" ..
                       "Carol,carol@example.com,active\n" ..
                       "Dave,dave@example.com,active"
-        }
+        end
+        return { raw_csv = raw_csv }
     end,
 }))
 

@@ -10,6 +10,32 @@ fn sqlite_url(path: &std::path::Path) -> String {
 }
 
 #[tokio::test]
+async fn db_connection_errors_do_not_disclose_url_credentials() {
+    let reg = NodeRegistry::with_builtins();
+    let db_query = reg.get("db_query").unwrap();
+    let config = serde_json::json!({
+        "connection": "postgres://db-user-sentinel:db-password-sentinel@127.0.0.1:1/app?sslmode=db-query-sentinel#db-fragment-sentinel",
+        "query": "SELECT 1"
+    });
+
+    let error = db_query
+        .execute(&config, &empty_ctx())
+        .await
+        .unwrap_err()
+        .to_string();
+
+    assert!(error.contains("Failed to connect to database at postgres://127.0.0.1:1/app"));
+    for secret in [
+        "db-user-sentinel",
+        "db-password-sentinel",
+        "db-query-sentinel",
+        "db-fragment-sentinel",
+    ] {
+        assert!(!error.contains(secret), "error disclosed {secret}: {error}");
+    }
+}
+
+#[tokio::test]
 async fn db_exec_and_query_round_trip_with_typed_params() {
     let reg = NodeRegistry::with_builtins();
     let db_query = reg.get("db_query").unwrap();

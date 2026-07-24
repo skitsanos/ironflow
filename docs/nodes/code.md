@@ -24,20 +24,30 @@ When `bytecode_b64` is provided, the base64-encoded Lua bytecode is decoded and 
 
 ## Sandboxing
 
-The Lua environment is sandboxed. The following modules and globals are removed before execution:
+The Lua VM starts from an allowlist containing computation-oriented table,
+string, UTF-8, and math functionality. In particular, the following capabilities
+are unavailable:
 
 - `os`
 - `io`
 - `debug`
+- `package`
+- `require`
+- `load`
 - `loadfile`
 - `dofile`
+- `collectgarbage`
+- `string.dump`
 
 ### Available globals
 
-- `ctx` -- read-only table containing the full workflow context (JSON values are converted to Lua types)
+- `ctx` -- isolated table snapshot of the workflow context (JSON values are converted to Lua types)
 - `env(key)` -- function to read environment variables; returns the value as a string or `nil` if not set
 - `json_parse(str)` -- parse JSON text into a Lua table
 - `json_stringify(value)` -- serialize a Lua value to JSON text
+- `json_array(table)` -- mark a dense Lua table, including `{}`, as a JSON array
+- `json_object(table)` -- mark a string-keyed Lua table, including `{}`, as a JSON object
+- `json_null` -- non-`nil` sentinel that preserves JSON null fields and array entries
 - `base64_encode(str)` -- encode bytes/text to base64
 - `base64_decode(str)` -- decode base64 to bytes/text
 - `log([level], message...)` -- write a Lua log line
@@ -47,7 +57,7 @@ The Lua environment is sandboxed. The following modules and globals are removed 
 
 ### Execution limits
 
-Lua execution uses process-wide budgets:
+Lua execution runs on Tokio's blocking pool and uses process-wide budgets:
 
 - `IRONFLOW_LUA_MAX_INSTRUCTIONS` — default `5000000`; `0` disables.
 - `IRONFLOW_LUA_MAX_SECONDS` — default `10`; `0` disables.
@@ -55,17 +65,31 @@ Lua execution uses process-wide budgets:
 - `IRONFLOW_LUA_HOOK_INTERVAL` — default `10000`.
 - `IRONFLOW_LUA_GC_AFTER_EXECUTION` — default `true`.
 
+When the flow step also uses `:timeout(seconds)`, the Lua instruction hook
+checks that total step deadline in addition to these limits. Dropping the node
+future (for example, explicit workflow cancellation) signals the same hook, so
+an infinite loop is interrupted without occupying a Tokio runtime worker. Hook
+checks occur every `IRONFLOW_LUA_HOOK_INTERVAL` instructions, so cancellation
+latency is cooperative rather than instruction-exact.
+
 ## Return Value Handling
 
 | Return type | Behavior                                                        |
 |-------------|-----------------------------------------------------------------|
-| Table       | Each key-value pair is merged into the context output           |
+| Object table | Each key-value pair is merged into the context output          |
+| Array table | The array is stored under `result`                              |
 | `nil`       | No output is produced                                           |
 | Other       | The value is stored under the key `result` in the context output |
 
+Tables must have one JSON-compatible shape: a dense 1-based array or an object
+with string keys. Cyclic, over-deep, sparse, mixed-key, non-finite, and
+unsupported values fail the node with a path-rich error instead of being
+silently discarded.
+
 ## Context Output
 
-- When returning a table: each key in the returned table becomes a context key
+- When returning an object table: each key becomes a context key
+- When returning an array table: `result` -- the returned array
 - When returning a scalar: `result` -- the returned value
 - When returning `nil`: no keys are added
 

@@ -34,11 +34,11 @@ impl Node for S3PresignUrlNode {
             .and_then(|value| value.as_str())
             .unwrap_or("GET")
             .to_ascii_uppercase();
-        let expires_in = resolve_expires_in(config)?;
+        let expires_in = resolve_expires_in(config, ctx)?;
         let output_key = resolve_output_key(config);
         let content_type = resolve_optional(config, "content_type", None, ctx)
             .unwrap_or_else(|| "application/octet-stream".to_string());
-        let content_length = resolve_content_length(config);
+        let content_length = resolve_content_length(config, ctx);
 
         let client = build_s3_client(config, ctx).await?;
         let presign_config =

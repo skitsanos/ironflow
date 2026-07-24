@@ -1,11 +1,10 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use anyhow::Result;
 use async_trait::async_trait;
 
 use crate::engine::types::*;
-use crate::storage::StateStore;
+use crate::storage::{RunListQuery, RunSummaryPage, StateStore, StorageError, StorageResult};
 
 /// In-memory state store for subworkflow execution.
 /// Holds run state only for the lifetime of the store instance.
@@ -20,6 +19,12 @@ impl NullStateStore {
             runs: Mutex::new(HashMap::new()),
         }
     }
+
+    fn lock_runs(&self) -> StorageResult<std::sync::MutexGuard<'_, HashMap<String, RunInfo>>> {
+        self.runs
+            .lock()
+            .map_err(|error| StorageError::backend("Failed to lock in-memory state store", error))
+    }
 }
 
 // Allow construction via Default trait pattern
@@ -31,7 +36,7 @@ impl Default for NullStateStore {
 
 #[async_trait]
 impl StateStore for NullStateStore {
-    async fn init_run(&self, run_id: &str, flow_name: &str, ctx: &Context) -> Result<()> {
+    async fn init_run(&self, run_id: &str, flow_name: &str, ctx: &Context) -> StorageResult<()> {
         let run_info = RunInfo {
             id: run_id.to_string(),
             flow_name: flow_name.to_string(),
@@ -41,60 +46,78 @@ impl StateStore for NullStateStore {
             ctx: ctx.clone(),
             tasks: HashMap::new(),
         };
-        self.runs
-            .lock()
-            .unwrap()
-            .insert(run_id.to_string(), run_info);
+        let mut runs = self.lock_runs()?;
+        if runs.contains_key(run_id) {
+            return Err(StorageError::conflict(format_args!(
+                "Run '{run_id}' already exists"
+            )));
+        }
+        runs.insert(run_id.to_string(), run_info);
         Ok(())
     }
 
-    async fn set_run_status(&self, run_id: &str, status: RunStatus) -> Result<()> {
-        if let Some(run) = self.runs.lock().unwrap().get_mut(run_id) {
-            let is_terminal = status.is_terminal();
-            run.status = status;
-            if is_terminal && run.finished.is_none() {
-                run.finished = Some(chrono::Utc::now());
-            }
+    async fn set_run_status(&self, run_id: &str, status: RunStatus) -> StorageResult<()> {
+        let mut runs = self.lock_runs()?;
+        let run = runs
+            .get_mut(run_id)
+            .ok_or_else(|| StorageError::not_found(format_args!("Run '{run_id}' not found")))?;
+        let is_terminal = status.is_terminal();
+        run.status = status;
+        if is_terminal && run.finished.is_none() {
+            run.finished = Some(chrono::Utc::now());
         }
         Ok(())
     }
 
-    async fn upsert_task(&self, run_id: &str, task: &TaskState) -> Result<()> {
-        if let Some(run) = self.runs.lock().unwrap().get_mut(run_id) {
-            run.tasks.insert(task.name.clone(), task.clone());
-        }
+    async fn upsert_task(&self, run_id: &str, task: &TaskState) -> StorageResult<()> {
+        let mut runs = self.lock_runs()?;
+        let run = runs
+            .get_mut(run_id)
+            .ok_or_else(|| StorageError::not_found(format_args!("Run '{run_id}' not found")))?;
+        run.tasks.insert(task.name.clone(), task.clone());
         Ok(())
     }
 
-    async fn get_ctx(&self, run_id: &str) -> Result<Context> {
-        let runs = self.runs.lock().unwrap();
+    async fn get_ctx(&self, run_id: &str) -> StorageResult<Context> {
+        let runs = self.lock_runs()?;
         runs.get(run_id)
             .map(|r| r.ctx.clone())
-            .ok_or_else(|| anyhow::anyhow!("Run not found: {}", run_id))
+            .ok_or_else(|| StorageError::not_found(format_args!("Run '{run_id}' not found")))
     }
 
-    async fn update_ctx(&self, run_id: &str, ctx: &Context) -> Result<()> {
-        if let Some(run) = self.runs.lock().unwrap().get_mut(run_id) {
-            for (k, v) in ctx {
-                run.ctx.insert(k.clone(), v.clone());
-            }
+    async fn update_ctx(&self, run_id: &str, ctx: &Context) -> StorageResult<()> {
+        let mut runs = self.lock_runs()?;
+        let run = runs
+            .get_mut(run_id)
+            .ok_or_else(|| StorageError::not_found(format_args!("Run '{run_id}' not found")))?;
+        for (k, v) in ctx {
+            run.ctx.insert(k.clone(), v.clone());
         }
         Ok(())
     }
 
-    async fn get_run_info(&self, run_id: &str) -> Result<RunInfo> {
-        let runs = self.runs.lock().unwrap();
+    async fn get_run_info(&self, run_id: &str) -> StorageResult<RunInfo> {
+        let runs = self.lock_runs()?;
         runs.get(run_id)
             .cloned()
-            .ok_or_else(|| anyhow::anyhow!("Run not found: {}", run_id))
+            .ok_or_else(|| StorageError::not_found(format_args!("Run '{run_id}' not found")))
     }
 
-    async fn list_runs(&self, _status: Option<RunStatus>) -> Result<Vec<RunInfo>> {
+    async fn list_runs(&self, _status: Option<RunStatus>) -> StorageResult<Vec<RunInfo>> {
         Ok(Vec::new())
     }
 
-    async fn delete_run(&self, run_id: &str) -> Result<()> {
-        self.runs.lock().unwrap().remove(run_id);
-        Ok(())
+    async fn list_run_summaries_page(
+        &self,
+        _query: &RunListQuery,
+    ) -> StorageResult<RunSummaryPage> {
+        Ok(RunSummaryPage::empty())
+    }
+
+    async fn delete_run(&self, run_id: &str) -> StorageResult<()> {
+        self.lock_runs()?
+            .remove(run_id)
+            .map(|_| ())
+            .ok_or_else(|| StorageError::not_found(format_args!("Run '{run_id}' not found")))
     }
 }

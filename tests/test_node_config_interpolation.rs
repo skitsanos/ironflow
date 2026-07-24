@@ -1,4 +1,4 @@
-//! Regression tests: numeric node parameters written as `${ctx.*}` must reach the node.
+//! Regression tests: numeric node parameters written as `${ctx.key}` must reach the node.
 //!
 //! Interpolation yields a string, so before the typed config readers landed these values
 //! were dropped on the floor and the node's default was used instead — with no error.

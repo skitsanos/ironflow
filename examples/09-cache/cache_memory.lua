@@ -35,11 +35,11 @@ flow:step("get_user", nodes.cache_get({
 flow:step("get_missing", nodes.cache_get({
     key = "nonexistent",
     output_key = "missing_value"
-})):depends_on("store_token")
+})):depends_on("get_token", "get_user")
 
 -- Log results
 flow:step("done", nodes.log({
-    message = "Token hit: ${ctx.cache_hit}"
+    message = "Token=${ctx.cached_token}, user=${ctx.cached_user}, missing=${ctx.missing_value}"
 })):depends_on("get_token", "get_user", "get_missing")
 
 return flow

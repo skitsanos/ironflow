@@ -15,11 +15,18 @@ Flow:
    - recall@K
    - average distance
    - overlap between two methods
+9) Report the comparison, then delete vectors, index, and bucket in dependency order.
 
 Requires:
 - OPENAI_API_KEY
-- S3_VECTOR credentials (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
-  `AWS_REGION`, `S3_BUCKET`)
+- S3 Vector credentials (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
+  `AWS_REGION`)
+
+Effects:
+- Creates a UUID-scoped bucket and index. After reporting, successful teardown
+  deletes vectors, then the index, then the bucket.
+- Cleanup is not a finally block; failure or interruption can retain remote
+  resources that may incur provider cost.
 ]]
 
 local flow = Flow.new("s3vector_rag_query_evaluator")
@@ -27,7 +34,7 @@ local flow = Flow.new("s3vector_rag_query_evaluator")
 -- Step 1: set stable names for this run.
 flow:step("naming", nodes.code({
     source = function()
-        local suffix = now_unix_ms()
+        local suffix = uuid4():gsub("-", "")
         return {
             bucket_name = "ironflow-rag-eval-" .. suffix,
             index_name = "ironflow-rag-eval-index-" .. suffix,
@@ -54,7 +61,7 @@ flow:step("create_index", nodes.s3vector_create_index({
 
 -- Step 4: extract transcript.
 flow:step("extract_vtt", nodes.extract_vtt({
-    path = "data/samples/interview_long.vtt",
+    path = "${ctx._flow_dir}/../fixtures/ironflow-transcript.vtt",
     format = "text",
     output_key = "transcript",
     metadata_key = "transcript_metadata"
@@ -111,7 +118,7 @@ flow:step("build_vectors", nodes.code({
                     key = key,
                     data = vec,
                     metadata = {
-                        source_file = "interview_long.vtt",
+                        source_file = "ironflow-transcript.vtt",
                         chunk_index = i,
                         source = "vtt",
                         char_count = #texts[i],
@@ -482,16 +489,27 @@ flow:step("report", nodes.log({
 
 -- Step 21: keep expected top-k keys visible in logs.
 flow:step("report_results", nodes.log({
-    message = "Base keys=${ctx.base_result_keys[1]}, ${ctx.base_result_keys[2]}, ${ctx.base_result_keys[3]}, ${ctx.base_result_keys[4]}; "
-        .. "Expanded keys=${ctx.expanded_result_keys[1]}, ${ctx.expanded_result_keys[2]}, ${ctx.expanded_result_keys[3]}, ${ctx.expanded_result_keys[4]}"
+    message = "Base keys=${ctx.base_result_keys[0]}, ${ctx.base_result_keys[1]}, ${ctx.base_result_keys[2]}, ${ctx.base_result_keys[3]}; "
+        .. "Expanded keys=${ctx.expanded_result_keys[0]}, ${ctx.expanded_result_keys[1]}, ${ctx.expanded_result_keys[2]}, ${ctx.expanded_result_keys[3]}"
 })):depends_on("report")
 
--- Step 22: cleanup vectors and index state.
-flow:step("cleanup", nodes.s3vector_delete_vectors({
+-- Step 22: teardown after reporting: vectors -> index -> bucket.
+flow:step("delete_vectors", nodes.s3vector_delete_vectors({
     vector_bucket_name = "${ctx.bucket_name}",
     index_name = "${ctx.index_name}",
     keys_source_key = "vector_keys",
-    output_key = "cleanup"
-})):depends_on("evaluate")
+    output_key = "deleted_vectors"
+})):depends_on("report_results")
+
+flow:step("delete_index", nodes.s3vector_delete_index({
+    vector_bucket_name = "${ctx.bucket_name}",
+    index_name = "${ctx.index_name}",
+    output_key = "deleted_index"
+})):depends_on("delete_vectors")
+
+flow:step("delete_bucket", nodes.s3vector_delete_bucket({
+    vector_bucket_name = "${ctx.bucket_name}",
+    output_key = "deleted_bucket"
+})):depends_on("delete_index")
 
 return flow

@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use ironflow::engine::types::Context;
-use ironflow::nodes::NodeRegistry;
+use ironflow::nodes::{NodeFailure, NodeRegistry};
 
 // --- Helper ---
 
@@ -483,6 +483,21 @@ async fn batch_node_zero_size_fails() {
     assert!(result.is_err());
 }
 
+#[tokio::test]
+async fn batch_node_rejects_invalid_present_size() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("batch").unwrap();
+    let config = serde_json::json!({
+        "source_key": "items",
+        "output_key": "batches",
+        "size": "not-a-number"
+    });
+    let ctx = ctx_with(vec![("items", serde_json::json!([1, 2]))]);
+
+    let error = node.execute(&config, &ctx).await.unwrap_err();
+    assert!(error.to_string().contains("non-negative whole number"));
+}
+
 // --- DeduplicateNode ---
 
 #[tokio::test]
@@ -947,6 +962,23 @@ async fn delay_node() {
     assert!(result.contains_key("delay_seconds"));
 }
 
+#[tokio::test]
+async fn delay_rejects_invalid_durations_without_panicking() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("delay").unwrap();
+
+    for seconds in [serde_json::json!(-1), serde_json::json!("NaN")] {
+        let error = node
+            .execute(&serde_json::json!({ "seconds": seconds }), &empty_ctx())
+            .await
+            .expect_err("invalid duration must fail");
+        assert!(
+            error.to_string().contains("seconds"),
+            "unexpected error: {error:#}"
+        );
+    }
+}
+
 // --- TemplateRenderNode ---
 
 #[tokio::test]
@@ -1010,20 +1042,10 @@ async fn validate_schema_invalid() {
     });
     let ctx = ctx_with(vec![("data", serde_json::json!({"age": 30}))]);
 
-    let result = node.execute(&config, &ctx).await;
-    // validate_schema should either return errors or fail
-    // Let's check what the node does
-    match result {
-        Ok(output) => {
-            // Some implementations return valid=false
-            if let Some(valid) = output.get("validation_valid") {
-                assert_eq!(valid, &serde_json::json!(false));
-            }
-        }
-        Err(_) => {
-            // Also acceptable — validation failure as error
-        }
-    }
+    let error = node.execute(&config, &ctx).await.unwrap_err();
+    let output = error.downcast_ref::<NodeFailure>().unwrap().output();
+    assert_eq!(output["validation_success"], false);
+    assert!(!output["validation_errors"].as_array().unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -1126,8 +1148,10 @@ async fn json_validate_node_invalid() {
     });
     let ctx = ctx_with(vec![("payload_raw", serde_json::json!(r#"{"age":30}"#))]);
 
-    let result = node.execute(&config, &ctx).await;
-    assert!(result.is_err());
+    let error = node.execute(&config, &ctx).await.unwrap_err();
+    let output = error.downcast_ref::<NodeFailure>().unwrap().output();
+    assert_eq!(output["validation_success"], false);
+    assert!(!output["validation_errors"].as_array().unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -1215,6 +1239,112 @@ async fn code_node_has_json_helpers() {
 
     let uuid = result.get("uuid").unwrap().as_str().unwrap();
     assert_eq!(uuid.len(), 36);
+}
+
+#[tokio::test]
+async fn code_node_preserves_explicit_json_shapes_nulls_and_shared_tables() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("code").unwrap();
+    let config = serde_json::json!({
+        "source": r#"
+            local shared = { value = 7 }
+            local parsed = json_parse('{"items":[],"missing":null}')
+            return {
+                empty_array = json_array({}),
+                empty_object = json_object({}),
+                explicit_null = json_null,
+                parsed_array = parsed.items,
+                parsed_null = parsed.missing,
+                shared_left = shared,
+                shared_right = shared
+            }
+        "#
+    });
+
+    let output = node.execute(&config, &empty_ctx()).await.unwrap();
+    assert_eq!(output.get("empty_array"), Some(&serde_json::json!([])));
+    assert_eq!(output.get("empty_object"), Some(&serde_json::json!({})));
+    assert_eq!(output.get("explicit_null"), Some(&serde_json::Value::Null));
+    assert_eq!(output.get("parsed_array"), Some(&serde_json::json!([])));
+    assert_eq!(output.get("parsed_null"), Some(&serde_json::Value::Null));
+    assert_eq!(
+        output.get("shared_left"),
+        Some(&serde_json::json!({"value": 7}))
+    );
+    assert_eq!(output.get("shared_right"), output.get("shared_left"));
+}
+
+#[tokio::test]
+async fn code_node_preserves_json_nulls_from_context() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("code").unwrap();
+    let config = serde_json::json!({ "source": "return { copy = ctx.payload }" });
+    let ctx = ctx_with(vec![(
+        "payload",
+        serde_json::json!({"items": [null, 1], "missing": null}),
+    )]);
+
+    let output = node.execute(&config, &ctx).await.unwrap();
+    assert_eq!(output.get("copy"), ctx.get("payload"));
+}
+
+#[tokio::test]
+async fn code_node_rejects_non_json_table_shapes_and_values_with_paths() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("code").unwrap();
+    let cases = [
+        (
+            "return { [1] = 'array', named = 'object' }",
+            "mixed Lua table at $",
+        ),
+        (
+            "return { [1] = 'first', [3] = 'third' }",
+            "sparse Lua array at $",
+        ),
+        (
+            "return { nested = function() return true end }",
+            "unsupported Lua function value at $.nested",
+        ),
+        (
+            "return { invalid = 0 / 0 }",
+            "non-finite Lua number at $.invalid",
+        ),
+    ];
+
+    for (source, expected) in cases {
+        let error = node
+            .execute(&serde_json::json!({ "source": source }), &empty_ctx())
+            .await
+            .unwrap_err();
+        let message = error.to_string();
+        assert!(
+            message.contains(expected),
+            "expected {expected:?}, got {message:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn code_node_rejects_values_beyond_the_conversion_depth_budget() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("code").unwrap();
+    let config = serde_json::json!({
+        "source": r#"
+            local root = {}
+            local cursor = root
+            for _ = 1, 70 do
+                local child = {}
+                cursor.child = child
+                cursor = child
+            end
+            return root
+        "#
+    });
+
+    let error = node.execute(&config, &empty_ctx()).await.unwrap_err();
+    let message = error.to_string();
+    assert!(message.contains("maximum depth 64"), "{message}");
+    assert!(message.contains("$.child.child"), "{message}");
 }
 
 #[tokio::test]

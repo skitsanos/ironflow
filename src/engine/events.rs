@@ -10,6 +10,10 @@ use crate::engine::types::{RunStatus, TaskStatus};
 /// inputs or outputs because those can be large and may contain secrets.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RunEvent {
+    /// Opaque, run-scoped replay cursor used as the SSE event ID.
+    ///
+    /// Consumers must compare it only for identity and pass it back unchanged;
+    /// ordering is defined by the selected `EventStore`, not by this value.
     pub id: String,
     pub run_id: String,
     #[serde(rename = "type")]
@@ -99,12 +103,15 @@ impl RunEvent {
 #[serde(rename_all = "snake_case")]
 pub enum RunEventType {
     RunStarted,
+    /// The terminal event for a run. The SSE adapter flushes this event and
+    /// then closes the stream.
     RunFinished,
     ContextUpdated,
     TaskStarted,
     TaskSucceeded,
     TaskFailed,
     TaskSkipped,
+    TaskCancelled,
     TaskRetrying,
 }
 
@@ -118,6 +125,7 @@ impl RunEventType {
             RunEventType::TaskSucceeded => "task_succeeded",
             RunEventType::TaskFailed => "task_failed",
             RunEventType::TaskSkipped => "task_skipped",
+            RunEventType::TaskCancelled => "task_cancelled",
             RunEventType::TaskRetrying => "task_retrying",
         }
     }

@@ -6,7 +6,7 @@ Extract text and metadata from an SRT subtitle file.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | one of `path` or `source_key` | — | File path to the `.srt` file; supports `${ctx.*}` interpolation. |
+| `path` | string | one of `path` or `source_key` | — | File path to the `.srt` file; supports `${ctx.key}` interpolation. |
 | `source_key` | string | one of `path` or `source_key` | — | Context key containing a `.srt` file path (must be a string). |
 | `format` | string | no | `"text"` | Output format: `"text"` or `"markdown"`. |
 | `output_key` | string | no | `"transcript"` | Optional alias for the main transcript output key. |
@@ -39,7 +39,7 @@ Extract text and metadata from an SRT subtitle file.
 local flow = Flow.new("extract_srt_demo")
 
 flow:step("extract", nodes.extract_srt({
-    path = "data/samples/sample_subtitles.srt",
+    path = "examples/fixtures/ironflow-transcript.srt",
     output_key = "subtitles_text",
     metadata_key = "subtitles_meta"
 }))

@@ -1,0 +1,37 @@
+WEBVTT
+
+00:00:00.000 --> 00:00:03.500
+Alex: The clean-checkout workflow starts with versioned inputs.
+
+00:00:03.500 --> 00:00:07.000
+Morgan: That makes the extraction example reliable on a new machine.
+
+00:00:07.000 --> 00:00:10.500
+Alex: The PDF, document, presentation, and image are all synthetic.
+
+00:00:10.500 --> 00:00:14.000
+Morgan: Good. We should never use an invoice or internal slide deck as a fixture.
+
+00:00:14.000 --> 00:00:17.500
+Alex: The checksum test will catch accidental binary changes.
+
+00:00:17.500 --> 00:00:21.000
+Morgan: The runtime matrix also proves that file paths are flow-relative.
+
+00:00:21.000 --> 00:00:24.500
+Alex: Offline examples run without network access or credentials.
+
+00:00:24.500 --> 00:00:28.000
+Morgan: Service-backed examples remain documented but are classified separately.
+
+00:00:28.000 --> 00:00:31.500
+Alex: Generated files belong in an isolated temporary directory.
+
+00:00:31.500 --> 00:00:35.000
+Morgan: That prevents examples from overwriting their own source fixtures.
+
+00:00:35.000 --> 00:00:38.500
+Alex: Small assets keep the repository fast to clone and easy to inspect.
+
+00:00:38.500 --> 00:00:42.000
+Morgan: Now every example can state its real prerequisites clearly.

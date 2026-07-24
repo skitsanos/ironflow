@@ -6,7 +6,7 @@ Convert HTML to Markdown (best-effort, inherently lossy on complex HTML).
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `input` | string | one of `input` or `source_key` | — | Literal HTML string; supports `${ctx.*}` interpolation. |
+| `input` | string | one of `input` or `source_key` | — | Literal HTML string; supports `${ctx.key}` interpolation. |
 | `source_key` | string | one of `input` or `source_key` | — | Context key whose value contains the HTML text. |
 | `output_key` | string | no | `"markdown"` | Context key where the resulting Markdown is stored. |
 

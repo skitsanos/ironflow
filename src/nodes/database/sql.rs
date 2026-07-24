@@ -8,6 +8,8 @@ use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
 use crate::util::limits;
+use crate::util::node_config::config_u64;
+use crate::util::sensitive_url::{Connection, redact_sensitive_text};
 
 /// Resolve query parameters from config with context interpolation,
 /// preserving JSON types (string, number, bool, null) for proper SQL binding.
@@ -29,12 +31,8 @@ fn resolve_params(config: &serde_json::Value, ctx: &Context) -> Vec<serde_json::
         .unwrap_or_default()
 }
 
-fn optional_u64_config(config: &serde_json::Value, key: &str) -> Option<u64> {
-    config.get(key).and_then(|value| match value {
-        serde_json::Value::Number(n) => n.as_u64(),
-        serde_json::Value::String(s) => s.parse::<u64>().ok(),
-        _ => None,
-    })
+fn optional_u64_config(config: &serde_json::Value, key: &str, ctx: &Context) -> Option<u64> {
+    config_u64(config, key, ctx)
 }
 
 /// Bind typed JSON parameters to an sqlx AnyArguments buffer.
@@ -135,9 +133,12 @@ pub(super) async fn connect(config: &serde_json::Value, ctx: &Context) -> Result
     // Install any drivers that are compiled in
     sqlx::any::install_default_drivers();
 
-    let pool = AnyPool::connect(&url)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to connect to database '{}': {}", url, e))?;
+    let pool = AnyPool::connect(&url).await.map_err(|_| {
+        // Drivers may detach credentials or query values from the URL and
+        // repeat them in diagnostics, so a generic text scrubber cannot make
+        // the cause safe to expose. Keep the redacted endpoint and fail closed.
+        anyhow::anyhow!("Failed to connect to database at {}", Connection::new(&url))
+    })?;
 
     Ok(pool)
 }
@@ -166,10 +167,10 @@ impl Node for DbQueryNode {
             .get("output_key")
             .and_then(|v| v.as_str())
             .unwrap_or("rows");
-        let max_rows = optional_u64_config(config, "max_rows")
+        let max_rows = optional_u64_config(config, "max_rows", ctx)
             .filter(|limit| *limit > 0)
             .or_else(limits::max_db_rows);
-        let max_result_bytes = optional_u64_config(config, "max_result_bytes")
+        let max_result_bytes = optional_u64_config(config, "max_result_bytes", ctx)
             .filter(|limit| *limit > 0)
             .or_else(limits::max_db_result_bytes);
 
@@ -180,11 +181,12 @@ impl Node for DbQueryNode {
         let mut json_rows = Vec::new();
         let mut serialized_bytes = 2u64; // '[' + ']'
 
-        while let Some(row) = stream
-            .try_next()
-            .await
-            .map_err(|e| anyhow::anyhow!("db_query failed: {}", e))?
-        {
+        while let Some(row) = stream.try_next().await.map_err(|error| {
+            anyhow::anyhow!(
+                "db_query failed: {}",
+                redact_sensitive_text(&error.to_string())
+            )
+        })? {
             if let Some(max_rows) = max_rows
                 && json_rows.len() as u64 >= max_rows
             {
@@ -251,7 +253,12 @@ impl Node for DbExecNode {
         let result = sqlx::query_with(sqlx::AssertSqlSafe(query.as_str()), args)
             .execute(&pool)
             .await
-            .map_err(|e| anyhow::anyhow!("db_exec failed: {}", e))?;
+            .map_err(|error| {
+                anyhow::anyhow!(
+                    "db_exec failed: {}",
+                    redact_sensitive_text(&error.to_string())
+                )
+            })?;
 
         let rows_affected = result.rows_affected();
 

@@ -2,12 +2,14 @@ use anyhow::Result;
 
 use crate::engine::types::Context;
 use crate::lua::interpolate::interpolate_ctx;
+use crate::util::node_config::config_f64;
 
 use super::config::{resolve_optional, resolve_required};
 
 pub(super) fn resolve_i64(
     config: &serde_json::Value,
     keys: &[&str],
+    ctx: &Context,
     node: &str,
     field: &str,
 ) -> Result<i64> {
@@ -21,54 +23,74 @@ pub(super) fn resolve_i64(
         }
     }
     if let Some(value) = value {
-        value
-            .as_i64()
-            .or_else(|| value.as_u64().and_then(|value| i64::try_from(value).ok()))
-            .or_else(|| {
-                value.as_f64().and_then(|value| {
-                    if (value.trunc() == value) && value.is_finite() {
-                        Some(value as i64)
-                    } else {
-                        None
-                    }
-                })
-            })
+        resolve_i64_value(value, ctx)
             .ok_or_else(|| anyhow::anyhow!("{} requires '{}' as an integer", node, field))
     } else {
         Err(anyhow::anyhow!("{} requires '{}' field", node, field))
     }
 }
 
+fn resolve_i64_value(value: &serde_json::Value, ctx: &Context) -> Option<i64> {
+    match value {
+        serde_json::Value::Number(number) => number
+            .as_i64()
+            .or_else(|| number.as_u64().and_then(|value| i64::try_from(value).ok()))
+            .or_else(|| number.as_f64().and_then(f64_to_i64)),
+        serde_json::Value::String(text) => {
+            let resolved = interpolate_ctx(text, ctx);
+            let resolved = resolved.trim();
+            resolved
+                .parse::<i64>()
+                .ok()
+                .or_else(|| {
+                    resolved
+                        .parse::<u64>()
+                        .ok()
+                        .and_then(|value| i64::try_from(value).ok())
+                })
+                .or_else(|| resolved.parse::<f64>().ok().and_then(f64_to_i64))
+        }
+        _ => None,
+    }
+}
+
+fn f64_to_i64(value: f64) -> Option<i64> {
+    if value.is_finite()
+        && value.trunc() == value
+        && value >= i64::MIN as f64
+        && value < i64::MAX as f64
+    {
+        Some(value as i64)
+    } else {
+        None
+    }
+}
+
 pub(super) fn resolve_u32(
     config: &serde_json::Value,
     keys: &[&str],
+    ctx: &Context,
     node: &str,
     field: &str,
 ) -> Result<u32> {
-    resolve_i64(config, keys, node, field).and_then(|value| {
+    resolve_i64(config, keys, ctx, node, field).and_then(|value| {
         u32::try_from(value)
             .map_err(|_| anyhow::anyhow!("{} requires '{}' as a non-negative integer", node, field))
     })
 }
 
-pub(super) fn resolve_f64(config: &serde_json::Value, node: &str, field: &str) -> Result<f64> {
-    let value = config
+pub(super) fn resolve_f64(
+    config: &serde_json::Value,
+    ctx: &Context,
+    node: &str,
+    field: &str,
+) -> Result<f64> {
+    config
         .get(field)
         .ok_or_else(|| anyhow::anyhow!("{} requires '{}' field", node, field))?;
 
-    let number = if let Some(value) = value.as_f64() {
-        value
-    } else if let Some(value) = value.as_i64() {
-        value as f64
-    } else if let Some(value) = value.as_u64() {
-        value as f64
-    } else {
-        return Err(anyhow::anyhow!(
-            "{} requires '{}' to be a number",
-            node,
-            field
-        ));
-    };
+    let number = config_f64(config, field, ctx)
+        .ok_or_else(|| anyhow::anyhow!("{} requires '{}' to be a number", node, field))?;
 
     if !number.is_finite() {
         anyhow::bail!("{} requires '{}' to be a finite number", node, field);
@@ -134,4 +156,47 @@ pub(super) fn resolve_string_array(
     }
 
     Ok(values)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn ctx_with(key: &str, value: serde_json::Value) -> Context {
+        let mut ctx = Context::new();
+        ctx.insert(key.to_string(), value);
+        ctx
+    }
+
+    #[test]
+    fn resolve_u32_accepts_interpolated_integer() {
+        let ctx = ctx_with("top_k", json!(3));
+        let config = json!({ "top_k": "${ctx.top_k}" });
+
+        assert_eq!(
+            resolve_u32(&config, &["top_k"], &ctx, "node", "top_k").unwrap(),
+            3
+        );
+    }
+
+    #[test]
+    fn resolve_u32_rejects_interpolated_fraction() {
+        let ctx = ctx_with("top_k", json!(3.5));
+        let config = json!({ "top_k": "${ctx.top_k}" });
+
+        let error = resolve_u32(&config, &["top_k"], &ctx, "node", "top_k").unwrap_err();
+        assert!(error.to_string().contains("requires 'top_k' as an integer"));
+    }
+
+    #[test]
+    fn resolve_f64_accepts_interpolated_number() {
+        let ctx = ctx_with("min_similarity", json!("0.7"));
+        let config = json!({ "min_similarity": "${ctx.min_similarity}" });
+
+        assert_eq!(
+            resolve_f64(&config, &ctx, "node", "min_similarity").unwrap(),
+            0.7
+        );
+    }
 }

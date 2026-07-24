@@ -45,6 +45,10 @@ flow:step("process", nodes.data_transform({
 })):depends_on("fetch_data")
 ```
 
+Independent steps receive the same phase-start context snapshot and cannot
+read one another's output. A dependency is therefore required for data flow,
+even when a concurrency limit would happen to run those steps one at a time.
+
 Multiple dependencies:
 
 ```lua
@@ -75,8 +79,102 @@ Set a per-step timeout:
 flow:step("slow_op", nodes.shell_command({
     cmd = "long-running-script.sh",
     timeout = 30
-})):timeout(30)  -- 30 second step-level timeout
+})):retries(3, 1.0):timeout(30)  -- one 30 second total budget
 ```
+
+`timeout()` is a **total step execution budget**, not a per-attempt timeout. It
+starts before the first attempt and is shared by every node attempt and each
+exponential retry backoff. A retry starts only if its backoff completes before
+that deadline; the timeout error is persisted when the budget expires.
+Node-local timeouts such as `shell_command.timeout` and HTTP `timeout` remain
+independent upper bounds, but the shorter enclosing step budget wins.
+
+Cancellation is cooperative and resource-specific:
+
+- async node work is cancelled by dropping its future;
+- `code`, `foreach`, and nested-flow parsing run away from Tokio worker threads
+  and check the step deadline/cancellation through the Lua instruction hook;
+- structured child workflows are cancelled with their parent step;
+- shell children and invalidated MCP stdio sessions terminate their direct
+  child on every platform, and kill the inherited process group on Unix;
+- fire-and-forget `subworkflow(wait = false)` work is intentionally detached;
+- an external request or other side effect that completed before cancellation
+  cannot be rolled back. Custom synchronous nodes must use cooperative
+  checkpoints; an uncooperative blocking call may finish after its waiter has
+  timed out.
+
+State/event persistence needed to record the terminal task outcome is not
+forcibly interrupted by the execution deadline, so backend latency can make
+the observed workflow completion later than the configured timeout.
+
+## Error Recovery
+
+Use `on_error()` to associate one failing step with one dedicated recovery
+step. Recovery is part of the execution plan: the handler runs after the source
+step fails and after all of the handler's declared dependencies complete.
+Retries and `timeout()` on the handler work exactly as they do for normal steps.
+
+```lua
+flow:step("prepare_recovery", nodes.code({
+    source = "return { recovery_channel = 'operations' }"
+}))
+
+flow:step("risky", nodes.read_file({
+    path = "/path/that/may-not-exist"
+})):on_error("recover")
+
+flow:step("recover", nodes.code({
+    source = [[
+        return {
+            recovered_step = ctx._error_step,
+            recovery_message = ctx._error_message,
+            recovery_channel = ctx.recovery_channel
+        }
+    ]]
+})):depends_on("prepare_recovery")
+
+-- This ordinary downstream step waits until recovery has resolved `risky`.
+flow:step("continue", nodes.log({
+    message = "Recovery result: ${ctx.recovered_step}"
+})):depends_on("risky")
+```
+
+The handler receives three invocation-local context values for every failure:
+
+- `_error_message` — the source step's final error after retries;
+- `_error_step` — the source step name;
+- `_error_node_type` — the source node type.
+
+When a node returns a structured failure, the handler also receives
+`_error_output`: an object containing the final attempt's exact, redacted
+output. Those fields are also published under their normal context keys after
+retries are exhausted and the source phase settles. `_error_output` remains
+useful when parallel tasks use the same output-key prefix because it preserves
+the source task's exact output even if another task wins the shared-context
+collision. Ordinary errors and execution timeouts do not have this object. For
+example, a failed `shell_command` can be inspected as
+`ctx._error_output.shell_stderr`; see
+[`shell_command`](nodes/shell_command.md) for its exit-policy contract.
+
+The `_error_*` keys do not enter shared workflow context automatically. A
+handler can persist selected information by returning it in its normal node
+output.
+Distinct handlers can therefore execute concurrently without overwriting one
+another's error metadata.
+
+A successful handler resolves the source failure for scheduling and final run
+status. The source task remains `Failed` in durable history for auditability,
+while the handler is `Success`. If the handler fails or cannot run because one
+of its own dependencies failed, the source failure remains unresolved and the
+run finishes `Failed`. When the source does not fail, its handler is `Skipped`;
+ordinary source dependents continue, while a recovery-only branch that
+explicitly depends on the handler is skipped.
+
+Recovery handlers are intentionally dedicated steps. Validation rejects a
+missing or self-referencing target, a handler shared by multiple sources, a
+handler with its own `on_error()` or `route()`, a handler that depends directly
+on its failed source, and cycles in the combined normal/recovery graph. A
+handler can otherwise use normal dependencies, retries, and a timeout.
 
 ## Context
 
@@ -92,32 +190,74 @@ flow:step("greet", nodes.template_render({
     output_key = "greeting"
 }))
 
--- Step outputs are merged back into context.
+-- Step outputs are committed back into context at the phase barrier.
 -- After "greet" runs, ctx.greeting = "Hello, Alice!"
 ```
 
+Each DAG phase reads one immutable phase-start context snapshot. Independent
+steps cannot observe peer outputs, regardless of completion timing, retries,
+or the task-concurrency limit. After the phase settles, successful outputs and
+terminal structured-failure outputs are committed in flow declaration order.
+If more than one step publishes the same key, the later-declared step wins. A
+later dependency phase likewise overwrites an existing key. Skipped steps and
+failures without structured output publish nothing.
+
+Per-task history remains task-local, so collision precedence never substitutes
+another task's value; it is still subject to `IRONFLOW_MAX_TASK_OUTPUT_BYTES`,
+which replaces an oversized record with a truncation marker. Lifecycle-event,
+log, and external-side-effect completion order remains timing-dependent and
+does not define context precedence. Add `depends_on()` when one step must read
+another; use distinct `output_key` prefixes or namespaced keys when parallel
+values must coexist. If a phase is cancelled or stalls before its barrier,
+none of that phase's buffered output enters final run context, although
+already-terminal bounded task history remains available.
+
 ### Context variable interpolation
 
-Strings containing `${ctx.key}` are resolved at runtime:
+Node parameter documentation identifies the string fields that resolve context
+placeholders at runtime. Interpolation is opt-in per field; IronFlow does not
+rewrite every string in a node config.
+
+Supported fields accept context paths:
 
 ```lua
 nodes.http_get({
     url = "https://api.example.com/users/${ctx.user_id}"
 })
-```
 
-Nested access with dots:
-
-```lua
 nodes.template_render({
-    template = "User email: ${ctx.user.email}",
+    template = 'Email: ${ctx.user.email}; first item: ${ctx.items[0].name}; label: ${ctx["key.with.dots"]}',
     output_key = "info"
 })
 ```
 
+The path grammar supports:
+
+- dot-separated object keys, as in `${ctx.user.email}`
+- zero-based array indexes, as in `${ctx.items[0].name}` (even though ordinary
+  Lua table indexes start at one)
+- JSON double-quoted bracket keys, as in `${ctx["key.with.dots"]}`
+
+These forms can be combined. Interpolation performs lookup only: arithmetic,
+boolean operators, function calls, and fallback expressions are invalid. Use
+an explicit function handler or `code` step to compute a default before a
+dependent node interpolates it.
+
+Missing paths, out-of-range indexes, and `null` values render as an empty
+string. Placeholders outside the reserved `ctx` namespace, such as `${HOME}`
+or `${TMPDIR:-/tmp}`, remain unchanged. To emit `${ctx.user}` literally, the
+runtime text must contain `\${ctx.user}`; write that as `"\\${ctx.user}"` in a
+Lua string. Resolution is one pass: a placeholder contained inside a resolved
+context string is not evaluated again. Numbers, booleans, arrays, and objects
+render as compact JSON.
+
 ## Environment Variables
 
-Use `env(key)` to read environment variables in Lua. Works with system env vars and values from `.env` files:
+Use `env(key)` to read the final merged process environment in Lua. Existing
+shell, container, or service variables take precedence over values in the
+selected dotenv file. Dotenv is loaded atomically before the flow is parsed;
+see the [CLI configuration contract](CLI_REFERENCE.md#configuration-resolution)
+for discovery, error, and precedence rules.
 
 ```lua
 local api_key = env("API_KEY")
@@ -132,23 +272,42 @@ flow:step("call_api", nodes.http_get({
 
 ## Webhook Context
 
-When a flow is triggered via `POST /webhooks/{name}`, the engine automatically injects:
+When a flow is triggered via `POST /webhooks/{name}`, the engine injects:
 
-- `ctx._headers` — a table of HTTP request headers (lowercase keys)
+- `ctx._headers` — a table containing only the lowercase header names listed
+  in that webhook's `forward_headers` configuration
 - `ctx._webhook` — the webhook name from the URL
+
+```yaml
+webhooks:
+  signed-action:
+    flow: signed_action.lua
+    forward_headers:
+      - x-webhook-signature
+```
 
 ```lua
 flow:step("check_auth", function(ctx)
-    local auth = ctx._headers and ctx._headers.authorization or ""
-    local token = auth:match("^Bearer%s+(.+)$")
-    if not token then
+    local signature = ctx._headers and ctx._headers["x-webhook-signature"] or ""
+    local expected = env("WEBHOOK_SHARED_SECRET")
+    if not expected or signature ~= expected then
         error("Unauthorized")
     end
-    return { token = token }
+    return { signature_valid = true }
 end)
 ```
 
-These keys are only present when the flow is invoked through a webhook endpoint. Flows run via CLI or `/flows/run` will not have them unless you pass them manually in the context.
+No request headers are forwarded by default. Platform authentication headers
+such as `Authorization` and `X-API-Key`, cookies, and proxy/session credentials
+are never workflow input. Configured header values are execution-only and are
+redacted from literal outputs, errors, child runs, stored context, events, and
+run-detail responses. Validate them in place; do not log, return, transform, or
+send their raw values elsewhere. The engine cannot recognize every derived or
+deliberately exfiltrated form of a secret.
+
+`ctx._webhook` is durable workflow metadata. `ctx._headers` exists only during
+webhook execution and is inherited by nested workflow execution without being
+persisted. Flows run via CLI or `/flows/run` do not receive it.
 
 ## Conditional Execution
 
@@ -234,7 +393,12 @@ flow:step("extract", nodes.code({
 })):depends_on("call_api")
 ```
 
-The code runs in a sandboxed Lua VM (no `os`, `io`, `debug` access). Return a table to merge key-value pairs into context, or a single value (stored under `result`).
+The code runs in a sandboxed Lua VM without OS, I/O, package-loading, or dynamic
+code-loading access. Return a string-keyed object table to publish its fields at
+the current phase barrier, or return a scalar/array (stored under `result`).
+Returned data must be JSON-compatible: cyclic, sparse, mixed-key, and
+unsupported values are rejected. Use `json_array({})`, `json_object({})`, and
+`json_null` when an empty table or null value would otherwise be ambiguous.
 
 ## Function Handlers
 
@@ -252,7 +416,10 @@ flow:step("process", function(ctx)
 end)
 ```
 
-The function receives `ctx` (the full workflow context) as its argument and returns a table of key-value pairs to merge into context. Under the hood, the function is compiled to bytecode at parse time and executed as a `code` node — so the same sandbox rules apply. `env()` works inside handlers.
+The function receives `ctx` (the phase-start workflow context) as its argument
+and returns a table of key-value pairs to publish at the phase barrier. Under
+the hood, the function is compiled to bytecode at parse time and executed as a
+`code` node — so the same sandbox rules apply. `env()` works inside handlers.
 
 **Important:** Function handlers must be self-contained. Do not capture local variables from the enclosing scope — they will be `nil` at runtime:
 

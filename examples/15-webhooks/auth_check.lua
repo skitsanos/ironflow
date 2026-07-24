@@ -1,49 +1,45 @@
--- Webhook that validates an Authorization header before processing.
+-- Webhook that validates an explicitly forwarded business signature.
 --
 -- Config (ironflow.yaml):
 --   flows_dir: "examples/15-webhooks"
 --   webhooks:
---     auth-check: auth_check.lua
+--     auth-check:
+--       flow: auth_check.lua
+--       forward_headers:
+--         - x-webhook-signature
 --
 -- Usage:
+--   export WEBHOOK_SHARED_SECRET="replace-with-a-long-secret"
 --   curl -X POST http://localhost:3000/webhooks/auth-check \
---     -H "Authorization: Bearer my-secret-token" \
+--     -H "X-API-Key: $IRONFLOW_API_KEY" \
+--     -H "X-Webhook-Signature: $WEBHOOK_SHARED_SECRET" \
 --     -H "Content-Type: application/json" \
 --     -d '{"action": "deploy"}'
 
 local flow = Flow.new("auth_check")
 
--- Step 1: Extract and validate the Authorization header
+-- Validate the execution-only signature in place. Never return or log it.
 flow:step("validate_auth", function(ctx)
-    local auth = ""
-    if ctx._headers then
-        auth = ctx._headers.authorization or ctx._headers.Authorization or ""
-    elseif ctx.headers then
-        auth = ctx.headers.authorization or ctx.headers.Authorization or ""
-    else
-        auth = ctx.authorization or ctx.Authorization or ""
+    local signature = ctx._headers and ctx._headers["x-webhook-signature"] or ""
+    local expected = env("WEBHOOK_SHARED_SECRET")
+    if not expected or expected == "" then
+        error("WEBHOOK_SHARED_SECRET is not configured")
     end
-
-    if auth == "" then
-        error("Missing Authorization header")
+    if signature ~= expected then
+        error("Invalid webhook signature")
     end
-
-    -- Extract the token (strip "Bearer " prefix)
-    local token = auth:match("^Bearer%s+(.+)$")
-    if not token then
-        error("Invalid Authorization format — expected 'Bearer <token>'")
-    end
-
-    -- In a real app you'd verify the token against a database or JWT library.
-    -- Return values get merged into context for downstream steps.
-    return { auth_token = token, auth_valid = true }
+    return { auth_valid = true }
 end)
 
 -- Step 2: Process the webhook payload (only runs if auth succeeded)
 flow:step("process", function(ctx)
+    local action = ctx.action
+    if action == nil then action = "unknown" end
+    local webhook = ctx._webhook
+    if webhook == nil then webhook = "?" end
     return {
-        result = "Processed action '" .. (ctx.action or "unknown") .. "'"
-            .. " via webhook '" .. (ctx._webhook or "?") .. "'"
+        result = "Processed action '" .. action .. "'"
+            .. " via webhook '" .. webhook .. "'"
             .. " (authenticated)"
     }
 end):depends_on("validate_auth")

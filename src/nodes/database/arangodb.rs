@@ -1,28 +1,16 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use std::time::Duration;
 
 use crate::engine::types::{Context, NodeOutput};
-use crate::lua::interpolate::interpolate_ctx;
+use crate::lua::interpolate::{interpolate_ctx, interpolate_value};
 use crate::nodes::Node;
-use crate::util::node_config::config_f64;
+use crate::util::duration::positive_duration;
+use crate::util::node_config::{config_f64_or, config_u64};
+use crate::util::sensitive_url::{SecretEndpoint, redact_sensitive_text};
 
-/// Recursively interpolate `${ctx.key}` in all string values within a JSON value.
+/// Recursively interpolate context templates in all JSON string values.
 fn interpolate_json_value(value: &serde_json::Value, ctx: &Context) -> serde_json::Value {
-    match value {
-        serde_json::Value::String(s) => serde_json::Value::String(interpolate_ctx(s, ctx)),
-        serde_json::Value::Array(arr) => {
-            serde_json::Value::Array(arr.iter().map(|v| interpolate_json_value(v, ctx)).collect())
-        }
-        serde_json::Value::Object(map) => {
-            let new_map: serde_json::Map<String, serde_json::Value> = map
-                .iter()
-                .map(|(k, v)| (k.clone(), interpolate_json_value(v, ctx)))
-                .collect();
-            serde_json::Value::Object(new_map)
-        }
-        other => other.clone(),
-    }
+    interpolate_value(value, ctx)
 }
 
 /// Resolve a config string parameter, falling back to an environment variable.
@@ -74,7 +62,7 @@ impl Node for ArangoDbAqlNode {
             .and_then(|v| v.as_str())
             .unwrap_or("aql");
 
-        let timeout_s = config_f64(config, "timeout", ctx).unwrap_or(30.0);
+        let timeout_s = config_f64_or(config, "timeout", ctx, 30.0)?;
 
         // Build the cursor API URL
         let base_url = url.trim_end_matches('/');
@@ -88,14 +76,20 @@ impl Node for ArangoDbAqlNode {
             body["bindVars"] = interpolated;
         }
 
-        if let Some(batch_size) = config.get("batchSize").and_then(|v| v.as_u64()) {
+        if let Some(batch_size) = config_u64(config, "batchSize", ctx) {
             body["batchSize"] = serde_json::json!(batch_size);
         }
 
         // Build HTTP client and request
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs_f64(timeout_s))
-            .build()?;
+            .timeout(positive_duration(timeout_s, "arangodb_aql timeout")?)
+            .build()
+            .map_err(|error| {
+                anyhow::anyhow!(
+                    "Failed to build ArangoDB client: {}",
+                    redact_sensitive_text(&error.to_string())
+                )
+            })?;
 
         let mut request = client.post(&cursor_url);
 
@@ -111,17 +105,22 @@ impl Node for ArangoDbAqlNode {
         }
 
         // Execute
-        let response = request
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| anyhow::anyhow!("ArangoDB request failed: {}", e))?;
+        let response = request.json(&body).send().await.map_err(|error| {
+            anyhow::anyhow!(
+                "ArangoDB request to {} failed: {}",
+                SecretEndpoint::new(&cursor_url),
+                redact_sensitive_text(&error.to_string())
+            )
+        })?;
 
         let status = response.status();
-        let response_body: serde_json::Value = response
-            .json()
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to parse ArangoDB response: {}", e))?;
+        let response_body: serde_json::Value = response.json().await.map_err(|error| {
+            anyhow::anyhow!(
+                "Failed to parse ArangoDB response from {}: {}",
+                SecretEndpoint::new(&cursor_url),
+                redact_sensitive_text(&error.to_string())
+            )
+        })?;
 
         if !status.is_success() {
             let error_msg = response_body
@@ -135,7 +134,7 @@ impl Node for ArangoDbAqlNode {
             anyhow::bail!(
                 "ArangoDB error {}: {} (HTTP {})",
                 error_num,
-                error_msg,
+                redact_sensitive_text(error_msg),
                 status
             );
         }

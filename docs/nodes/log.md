@@ -6,7 +6,7 @@ Write a message to the workflow log via the `tracing` framework.
 
 | Parameter | Type   | Required | Default  | Description                                                   |
 |-----------|--------|----------|----------|---------------------------------------------------------------|
-| `message` | string | No       | `""`     | Message template with `${ctx.*}` interpolation support        |
+| `message` | string | No       | `""`     | Message template with `${ctx.key}` interpolation support        |
 | `level`   | string | No       | `"info"` | Log level: `debug`, `info`, `warn`, or `error`                |
 
 The message string supports `${ctx.key}` placeholders which are replaced with values from the workflow context before logging. Any unrecognized `level` value falls back to `info`.

@@ -157,7 +157,7 @@ async fn arangodb_aql_node_reports_http_error() {
         serde_json::json!({
             "error": true,
             "errorNum": 500,
-            "errorMessage": "simulated arango error"
+            "errorMessage": "password=arango-body-sentinel"
         }),
     )];
 
@@ -177,7 +177,8 @@ async fn arangodb_aql_node_reports_http_error() {
     assert!(result.is_err());
     let error = result.unwrap_err().to_string();
     assert!(error.contains("ArangoDB error 500"));
-    assert!(error.contains("simulated arango error"));
+    assert!(error.contains("password=[REDACTED]"));
+    assert!(!error.contains("arango-body-sentinel"));
 
     handle.abort();
 }

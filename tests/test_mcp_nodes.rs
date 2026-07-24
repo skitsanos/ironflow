@@ -1,278 +1,358 @@
-use std::collections::{HashMap, VecDeque};
-use std::io::{Read, Write};
-use std::net::TcpListener;
-use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 use ironflow::engine::types::Context;
 use ironflow::nodes::NodeRegistry;
+use serde_json::{Value, json};
 
-fn empty_ctx() -> Context {
+fn empty_context() -> Context {
     HashMap::new()
 }
 
-fn stdio_config(action: &str, output_key: &str, response_json: &str) -> serde_json::Value {
-    let command = format!("printf '%s' '{}'", response_json);
-    serde_json::json!({
+fn mock_server() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/17-mcp/mcp_stdio_mock.py")
+}
+
+fn initialize_config(trace: &Path, mode: &str, output_key: &str) -> Value {
+    json!({
         "transport": "stdio",
-        "command": "sh",
-        "args": ["-lc", command],
-        "action": action,
-        "output_key": output_key
+        "command": "python3",
+        "args": [
+            mock_server().to_str().unwrap(),
+            "--trace", trace.to_str().unwrap(),
+            "--mode", mode,
+        ],
+        "action": "initialize",
+        "output_key": output_key,
+        "timeout": 3,
     })
 }
 
-fn spawn_sse_server(response_payload: &str) -> (String, std::thread::JoinHandle<()>) {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let addr = listener.local_addr().unwrap();
-    let url = format!("http://{}", addr);
-    let body = format!("data: {response_payload}\n\n");
-    let response = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\n\r\n{}",
-        body.len(),
-        body
-    );
-    let handle = std::thread::spawn(move || {
-        if let Some(mut stream) = listener.incoming().take(1).flatten().next() {
-            let mut request_buffer = [0u8; 4096];
-            let _ = stream.read(&mut request_buffer);
-            let _ = stream.write_all(response.as_bytes());
-            let _ = stream.flush();
-        }
-    });
-
-    (url, handle)
+fn session_from(output: &HashMap<String, Value>, key: &str) -> String {
+    output
+        .get(key)
+        .and_then(Value::as_str)
+        .expect("initialize should return a session")
+        .to_string()
 }
 
-fn spawn_sse_server_with_sequence(
-    responses: Vec<String>,
-) -> (String, Arc<Mutex<Vec<String>>>, std::thread::JoinHandle<()>) {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let addr = listener.local_addr().unwrap();
-    let url = format!("http://{}", addr);
-
-    let responses = Arc::new(Mutex::new(VecDeque::from(responses)));
-    let captured = Arc::new(Mutex::new(Vec::new()));
-    let captured_requests = Arc::clone(&captured);
-    let response_queue = Arc::clone(&responses);
-
-    let handle = std::thread::spawn(move || {
-        for mut stream in listener.incoming().flatten() {
-            let mut request_buffer = [0u8; 4096];
-            let read = stream.read(&mut request_buffer).unwrap_or(0);
-            let request_text = String::from_utf8_lossy(&request_buffer[..read]).to_string();
-
-            let body = request_text
-                .split_once("\r\n\r\n")
-                .map(|(_, body)| body)
-                .unwrap_or("")
-                .trim();
-
-            if let Ok(mut captured) = captured_requests.lock() {
-                captured.push(body.to_string());
-            }
-
-            let response_payload = {
-                let mut queue = response_queue
-                    .lock()
-                    .expect("MCP SSE test response queue lock poisoned");
-                queue.pop_front().unwrap_or_else(|| "{}".to_string())
-            };
-
-            let sse_body = format!("data: {response_payload}\n\n");
-            let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\n\r\n{}",
-                sse_body.len(),
-                sse_body
-            );
-
-            let _ = stream.write_all(response.as_bytes());
-            let _ = stream.flush();
-
-            if response_queue.lock().unwrap().is_empty() {
-                break;
-            }
-        }
-    });
-
-    (url, captured, handle)
-}
-
-fn parse_method(payload: &str) -> String {
-    serde_json::from_str::<serde_json::Value>(payload)
-        .ok()
-        .and_then(|request| {
-            request
-                .get("method")
-                .and_then(|value| value.as_str())
-                .map(str::to_string)
-        })
-        .unwrap_or_else(|| "invalid".to_string())
+fn read_trace(path: &Path) -> Vec<Value> {
+    std::fs::read_to_string(path)
+        .unwrap_or_default()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect()
 }
 
 #[tokio::test]
-async fn mcp_client_stdio_initialize() {
-    let reg = NodeRegistry::with_builtins();
-    let node = reg.get("mcp_client").unwrap();
+async fn stdio_session_reuses_one_process_and_closes_cleanly() {
+    let temp = tempfile::tempdir().unwrap();
+    let trace = temp.path().join("mcp.jsonl");
+    let node = NodeRegistry::with_builtins().get("mcp_client").unwrap();
 
-    let response = r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{"listChanged":false}},"serverInfo":{"name":"mock","version":"1.0.0"}}}"#;
-    let config = stdio_config("initialize", "mcp_init", response);
-
-    let output = node.execute(&config, &empty_ctx()).await.unwrap();
-    assert_eq!(
-        output.get("mcp_init_action"),
-        Some(&serde_json::Value::String("initialize".to_string()))
-    );
-    assert_eq!(
-        output.get("mcp_init_protocol_version"),
-        Some(&serde_json::Value::String("2024-11-05".to_string()))
-    );
-    assert_eq!(
-        output.get("mcp_init_success"),
-        Some(&serde_json::Value::Bool(true))
-    );
-}
-
-#[tokio::test]
-async fn mcp_client_stdio_list_tools() {
-    let reg = NodeRegistry::with_builtins();
-    let node = reg.get("mcp_client").unwrap();
-
-    let response =
-        r#"{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"search"},{"name":"echo"}]}}"#;
-    let config = stdio_config("list_tools", "mcp_tools", response);
-    let output = node.execute(&config, &empty_ctx()).await.unwrap();
-
-    let names = output
-        .get("mcp_tools_tool_names")
-        .unwrap()
-        .as_array()
+    let initialized = node
+        .execute(
+            &initialize_config(&trace, "normal", "mcp_init"),
+            &empty_context(),
+        )
+        .await
         .unwrap();
+    let session = session_from(&initialized, "mcp_init_session");
+    assert_eq!(initialized["mcp_init_protocol_version"], "2025-11-25");
+    assert!(!initialized.contains_key("mcp_init_session_id"));
+    assert!(!initialized.contains_key("mcp_init_request"));
+    assert!(!initialized.contains_key("mcp_init_response"));
+
+    let tools = node
+        .execute(
+            &json!({
+                "action": "list_tools",
+                "session": session,
+                "output_key": "mcp_tools",
+            }),
+            &empty_context(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(tools["mcp_tools_tool_count"], 2);
+    assert_eq!(tools["mcp_tools_tool_names"], json!(["search", "echo"]));
+
+    let called = node
+        .execute(
+            &json!({
+                "action": "call_tool",
+                "session": session,
+                "tool_name": "echo",
+                "arguments": {"query": "persistent"},
+                "output_key": "mcp_call",
+            }),
+            &empty_context(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(called["mcp_call_tool_text"], "Echo: persistent");
+
+    let closed = node
+        .execute(
+            &json!({
+                "action": "close",
+                "session": session,
+                "output_key": "mcp_close",
+            }),
+            &empty_context(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(closed["mcp_close_closed"], true);
+
+    let events = read_trace(&trace);
+    let methods = events
+        .iter()
+        .filter_map(|event| event.get("method").and_then(Value::as_str))
+        .collect::<Vec<_>>();
     assert_eq!(
-        names,
-        &vec![
-            serde_json::Value::String("search".to_string()),
-            serde_json::Value::String("echo".to_string())
+        methods,
+        [
+            "initialize",
+            "notifications/initialized",
+            "tools/list",
+            "tools/call"
         ]
     );
-    assert_eq!(
-        output.get("mcp_tools_tool_count"),
-        Some(&serde_json::Value::Number(serde_json::Number::from(2)))
+    assert!(
+        events
+            .iter()
+            .any(|event| event.get("event") == Some(&json!("eof")))
     );
+    let pids = events
+        .iter()
+        .filter_map(|event| event.get("pid").and_then(Value::as_u64))
+        .collect::<Vec<_>>();
+    assert!(pids.iter().all(|pid| *pid == pids[0]));
 }
 
 #[tokio::test]
-async fn mcp_client_stdio_call_tool() {
-    let reg = NodeRegistry::with_builtins();
-    let node = reg.get("mcp_client").unwrap();
+async fn stdio_sessions_with_identical_configs_are_isolated() {
+    let temp = tempfile::tempdir().unwrap();
+    let trace = temp.path().join("mcp.jsonl");
+    let node = NodeRegistry::with_builtins().get("mcp_client").unwrap();
 
-    let response =
-        r#"{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"ok from tool"}]}}"#;
-    let config = serde_json::json!({
-        "transport": "stdio",
-        "command": "sh",
-        "args": ["-lc", format!("printf '%s' '{}'", response)],
-        "action": "call_tool",
-        "tool_name": "echo_tool",
-        "arguments": { "query": "hello" },
-        "output_key": "mcp_tool_call"
-    });
-
-    let output = node.execute(&config, &empty_ctx()).await.unwrap();
-    assert_eq!(
-        output.get("mcp_tool_call_tool_name"),
-        Some(&serde_json::Value::String("echo_tool".to_string()))
-    );
-    assert_eq!(
-        output.get("mcp_tool_call_tool_text"),
-        Some(&serde_json::Value::String("ok from tool".to_string()))
-    );
-}
-
-#[tokio::test]
-async fn mcp_client_sse_list_tools() {
-    let reg = NodeRegistry::with_builtins();
-    let node = reg.get("mcp_client").unwrap();
-
-    let response = r#"{"jsonrpc":"2.0","id":42,"result":{"tools":[{"name":"remote_search"}]}}"#;
-    let (url, handle) = spawn_sse_server(response);
-
-    let config = serde_json::json!({
-        "transport": "sse",
-        "url": url,
-        "action": "list_tools",
-        "output_key": "mcp_sse_tools"
-    });
-    let output = node.execute(&config, &empty_ctx()).await.unwrap();
-
-    let names = output
-        .get("mcp_sse_tools_tool_names")
-        .unwrap()
-        .as_array()
+    let first = node
+        .execute(
+            &initialize_config(&trace, "normal", "first"),
+            &empty_context(),
+        )
+        .await
         .unwrap();
-    assert_eq!(
-        names,
-        &vec![serde_json::Value::String("remote_search".to_string())]
-    );
-    assert_eq!(
-        output.get("mcp_sse_tools_tool_count"),
-        Some(&serde_json::Value::Number(serde_json::Number::from(1)))
-    );
+    let second = node
+        .execute(
+            &initialize_config(&trace, "normal", "second"),
+            &empty_context(),
+        )
+        .await
+        .unwrap();
+    let first = session_from(&first, "first_session");
+    let second = session_from(&second, "second_session");
+    assert_ne!(first, second);
 
-    handle.join().unwrap();
+    for session in [&first, &second] {
+        node.execute(
+            &json!({"action": "close", "session": session}),
+            &empty_context(),
+        )
+        .await
+        .unwrap();
+    }
+
+    let pids = read_trace(&trace)
+        .iter()
+        .filter(|event| event.get("method") == Some(&json!("initialize")))
+        .filter_map(|event| event.get("pid").and_then(Value::as_u64))
+        .collect::<Vec<_>>();
+    assert_eq!(pids.len(), 2);
+    assert_ne!(pids[0], pids[1]);
 }
 
 #[tokio::test]
-async fn mcp_client_sse_auto_initialize_before_list_tools() {
-    let reg = NodeRegistry::with_builtins();
-    let node = reg.get("mcp_client").unwrap();
+async fn stdio_correlates_response_after_server_messages() {
+    let temp = tempfile::tempdir().unwrap();
+    let trace = temp.path().join("mcp.jsonl");
+    let node = NodeRegistry::with_builtins().get("mcp_client").unwrap();
+    let initialized = node
+        .execute(
+            &initialize_config(&trace, "interleaved", "init"),
+            &empty_context(),
+        )
+        .await
+        .unwrap();
+    let session = session_from(&initialized, "init_session");
 
-    let initialize_response =
-        r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"mock","version":"1.0.0"}}}"#.to_string();
-    let initialized_response = r#"{"jsonrpc":"2.0","id":2,"result":{}}"#.to_string();
-    let list_tools_response =
-        r#"{"jsonrpc":"2.0","id":3,"result":{"tools":[{"name":"remote_search"}]}}"#.to_string();
+    let tools = node
+        .execute(
+            &json!({"action": "list_tools", "session": session, "output_key": "tools"}),
+            &empty_context(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(tools["tools_tool_count"], 2);
+    node.execute(
+        &json!({"action": "close", "session": session}),
+        &empty_context(),
+    )
+    .await
+    .unwrap();
+}
 
-    let (url, requests, handle) = spawn_sse_server_with_sequence(vec![
-        initialize_response,
-        initialized_response,
-        list_tools_response,
-    ]);
-
-    let session_id = "session-autoinit-1";
-
-    let init_config = serde_json::json!({
-        "transport": "sse",
-        "url": url,
-        "action": "initialize",
-        "output_key": "mcp_sse_init",
-        "headers": { "Mcp-Session-Id": session_id }
-    });
-    node.execute(&init_config, &empty_ctx()).await.unwrap();
-
-    let config = serde_json::json!({
-        "transport": "sse",
-        "url": url,
-        "action": "list_tools",
-        "auto_initialize": true,
-        "output_key": "mcp_sse_tools",
-        "headers": { "Mcp-Session-Id": session_id }
-    });
-    let output = node.execute(&config, &empty_ctx()).await.unwrap();
-
-    let captured_requests = requests.lock().unwrap().to_owned();
-
-    assert_eq!(captured_requests.len(), 3);
-    assert_eq!(parse_method(&captured_requests[0]), "initialize");
-    assert_eq!(
-        parse_method(&captured_requests[1]),
-        "notifications/initialized"
+#[tokio::test]
+async fn stdio_rejects_mismatched_initialize_id() {
+    let temp = tempfile::tempdir().unwrap();
+    let trace = temp.path().join("mcp.jsonl");
+    let node = NodeRegistry::with_builtins().get("mcp_client").unwrap();
+    let error = node
+        .execute(
+            &initialize_config(&trace, "wrong-id", "init"),
+            &empty_context(),
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("conflict initialized response id"),
+        "{error}"
     );
-    assert_eq!(parse_method(&captured_requests[2]), "tools/list");
+}
 
-    assert_eq!(
-        output.get("mcp_sse_tools_tool_count"),
-        Some(&serde_json::Value::Number(serde_json::Number::from(1)))
+#[tokio::test]
+async fn stdio_does_not_accept_an_unrelated_operation_response() {
+    let temp = tempfile::tempdir().unwrap();
+    let trace = temp.path().join("mcp.jsonl");
+    let node = NodeRegistry::with_builtins().get("mcp_client").unwrap();
+    let initialized = node
+        .execute(
+            &initialize_config(&trace, "wrong-list-id", "init"),
+            &empty_context(),
+        )
+        .await
+        .unwrap();
+    let session = session_from(&initialized, "init_session");
+
+    let error = node
+        .execute(
+            &json!({
+                "action": "list_tools",
+                "session": session,
+                "timeout": 0.05,
+            }),
+            &empty_context(),
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("timeout") || error.contains("timed out"),
+        "{error}"
+    );
+}
+
+#[tokio::test]
+async fn stdio_rejects_invalid_json_rpc_version() {
+    let temp = tempfile::tempdir().unwrap();
+    let trace = temp.path().join("mcp.jsonl");
+    let node = NodeRegistry::with_builtins().get("mcp_client").unwrap();
+    let error = node
+        .execute(
+            &initialize_config(&trace, "wrong-jsonrpc", "init"),
+            &empty_context(),
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("initialization failed"), "{error}");
+}
+
+#[tokio::test]
+async fn stdio_rejects_response_with_result_and_error() {
+    let temp = tempfile::tempdir().unwrap();
+    let trace = temp.path().join("mcp.jsonl");
+    let node = NodeRegistry::with_builtins().get("mcp_client").unwrap();
+    let error = node
+        .execute(
+            &initialize_config(&trace, "result-and-error", "init"),
+            &empty_context(),
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("initialization failed"), "{error}");
+}
+
+#[tokio::test]
+async fn stdio_rejects_unsupported_negotiated_version() {
+    let temp = tempfile::tempdir().unwrap();
+    let trace = temp.path().join("mcp.jsonl");
+    let node = NodeRegistry::with_builtins().get("mcp_client").unwrap();
+    let error = node
+        .execute(
+            &initialize_config(&trace, "unsupported-version", "init"),
+            &empty_context(),
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("unsupported protocol version"), "{error}");
+}
+
+#[tokio::test]
+async fn failed_tool_request_invalidates_the_session() {
+    let temp = tempfile::tempdir().unwrap();
+    let trace = temp.path().join("mcp.jsonl");
+    let node = NodeRegistry::with_builtins().get("mcp_client").unwrap();
+    let initialized = node
+        .execute(
+            &initialize_config(&trace, "slow-call", "init"),
+            &empty_context(),
+        )
+        .await
+        .unwrap();
+    let session = session_from(&initialized, "init_session");
+
+    let error = node
+        .execute(
+            &json!({
+                "action": "call_tool",
+                "session": session,
+                "tool_name": "echo",
+                "arguments": {"query": "slow"},
+                "timeout": 0.05,
+            }),
+            &empty_context(),
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("timeout") || error.contains("timed out"),
+        "{error}"
     );
 
-    handle.join().unwrap();
+    let error = node
+        .execute(
+            &json!({"action": "list_tools", "session": session}),
+            &empty_context(),
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("unknown or expired session"), "{error}");
+}
+
+#[tokio::test]
+async fn session_actions_require_an_opaque_handle() {
+    let node = NodeRegistry::with_builtins().get("mcp_client").unwrap();
+    let error = node
+        .execute(&json!({"action": "list_tools"}), &empty_context())
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("requires the opaque 'session'"), "{error}");
 }

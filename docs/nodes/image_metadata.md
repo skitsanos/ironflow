@@ -6,7 +6,7 @@ Extract metadata from an image file (dimensions, format, color type).
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | one of `path` or `source_key` | — | Source image path (supports `${ctx.*}` interpolation) |
+| `path` | string | one of `path` or `source_key` | — | Source image path (supports `${ctx.key}` interpolation) |
 | `source_key` | string | one of `path` or `source_key` | — | Context key containing a source path |
 | `output_key` | string | no | `"image_metadata"` | Prefix for output values |
 
@@ -23,7 +23,7 @@ Extract metadata from an image file (dimensions, format, color type).
 local flow = Flow.new("image_metadata_demo")
 
 flow:step("meta", nodes.image_metadata({
-    path = "data/samples/photo.png",
+    path = "examples/fixtures/ironflow-sample.png",
     output_key = "img"
 }))
 

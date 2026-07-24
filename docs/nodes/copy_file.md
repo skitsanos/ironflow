@@ -6,8 +6,8 @@ Copy a file to a new location.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `source` | string | yes | — | Path to the source file. Supports `${ctx.*}` interpolation. |
-| `destination` | string | yes | — | Path for the copied file. Supports `${ctx.*}` interpolation. |
+| `source` | string | yes | — | Path to the source file. Supports `${ctx.key}` interpolation. |
+| `destination` | string | yes | — | Path for the copied file. Supports `${ctx.key}` interpolation. |
 
 ## Context Output
 

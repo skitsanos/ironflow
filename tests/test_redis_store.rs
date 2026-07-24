@@ -1,23 +1,21 @@
 #![cfg(feature = "redis")]
 
+#[path = "support/redis.rs"]
+mod redis_support;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use ironflow::engine::types::*;
-use ironflow::storage::StateStore;
 use ironflow::storage::redis_store::RedisStateStore;
+use ironflow::storage::{PageSize, RunListQuery, StateStore, StorageErrorKind};
+use redis_support::RedisTest;
 
 /// Helper: create a RedisStateStore with a unique test prefix.
 /// Returns None if Redis is not reachable (tests skip gracefully).
 async fn test_store(test_name: &str) -> Option<Arc<RedisStateStore>> {
-    let prefix = format!("ironflow_test:{}:", test_name);
-    match RedisStateStore::new("redis://127.0.0.1:6379", Some(prefix), None).await {
-        Ok(store) => Some(Arc::new(store)),
-        Err(_) => {
-            eprintln!("Skipping test: Redis not available at 127.0.0.1:6379");
-            None
-        }
-    }
+    let fixture = RedisTest::connect(test_name).await?;
+    Some(Arc::new(fixture.state_store(None).await))
 }
 
 /// Clean up test keys after a test.
@@ -182,7 +180,7 @@ async fn redis_list_runs() {
 
     // List all
     let all = store.list_runs(None).await.unwrap();
-    assert!(all.len() >= 2);
+    assert_eq!(all.len(), 2);
 
     // Filter by status
     let success = store.list_runs(Some(RunStatus::Success)).await.unwrap();
@@ -193,6 +191,295 @@ async fn redis_list_runs() {
     assert!(pending.iter().any(|r| r.id == "run-l2"));
 
     cleanup(&store, &["run-l1", "run-l2"]).await;
+}
+
+#[tokio::test]
+async fn redis_summary_listing_is_bounded_and_cursor_driven() {
+    let Some(store) = test_store("summary_page").await else {
+        return;
+    };
+    let ids = ["page-0", "page-1", "page-2", "page-3", "page-4"];
+    for id in ids {
+        store.init_run(id, "flow", &Context::new()).await.unwrap();
+    }
+
+    let first_query = RunListQuery::new(None, None, PageSize::new(2).unwrap()).unwrap();
+    let first = store.list_run_summaries_page(&first_query).await.unwrap();
+    assert_eq!(first.items.len(), 2);
+    assert!(first.has_more());
+
+    let second_query = RunListQuery::new(None, first.next, PageSize::new(2).unwrap()).unwrap();
+    let second = store.list_run_summaries_page(&second_query).await.unwrap();
+    assert_eq!(second.items.len(), 2);
+    assert!(second.has_more());
+
+    let third_query = RunListQuery::new(None, second.next, PageSize::new(2).unwrap()).unwrap();
+    let third = store.list_run_summaries_page(&third_query).await.unwrap();
+    assert_eq!(third.items.len(), 1);
+    assert!(!third.has_more());
+
+    cleanup(&store, &ids).await;
+}
+
+#[tokio::test]
+async fn redis_summary_page_reads_only_its_native_ordered_window() {
+    let Some(fixture) = RedisTest::connect("summary_native_window").await else {
+        return;
+    };
+    let store = fixture.state_store(None).await;
+    store
+        .init_run("000-old-corrupt", "flow", &Context::new())
+        .await
+        .unwrap();
+    for index in 0..120 {
+        store
+            .init_run(&format!("new-{index:03}"), "flow", &Context::new())
+            .await
+            .unwrap();
+    }
+
+    let mut conn = fixture.connection().await.unwrap();
+    let ready: String = redis::cmd("GET")
+        .arg(format!("{}run_catalog:v1:ready", fixture.prefix))
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    assert_eq!(ready, "1");
+    let _: usize = redis::cmd("HSET")
+        .arg(format!("{}runs:000-old-corrupt", fixture.prefix))
+        .arg("summary")
+        .arg("not-json")
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+
+    // A catalog scan would deserialize the corrupt oldest record. Native
+    // keyset pagination reads only the newest limit + 1 summaries instead.
+    let query = RunListQuery::new(None, None, PageSize::new(2).unwrap()).unwrap();
+    let page = store.list_run_summaries_page(&query).await.unwrap();
+    assert_eq!(page.items.len(), 2);
+    assert!(page.has_more());
+    assert!(page.items.iter().all(|item| item.id != "000-old-corrupt"));
+
+    fixture.cleanup().await;
+}
+
+#[tokio::test]
+async fn redis_summary_page_backfills_the_legacy_set_once() {
+    let Some(fixture) = RedisTest::connect("summary_legacy_backfill").await else {
+        return;
+    };
+    let mut conn = fixture.connection().await.unwrap();
+    for (run_id, started) in [
+        (
+            "legacy-old",
+            chrono::Utc::now() - chrono::Duration::seconds(1),
+        ),
+        ("legacy-new", chrono::Utc::now()),
+    ] {
+        let info = RunInfo {
+            id: run_id.to_string(),
+            flow_name: "legacy-flow".to_string(),
+            status: RunStatus::Running,
+            started: Some(started),
+            finished: None,
+            ctx: Context::new(),
+            tasks: HashMap::new(),
+        };
+        let _: () = redis::pipe()
+            .cmd("HSET")
+            .arg(format!("{}runs:{run_id}", fixture.prefix))
+            .arg("info")
+            .arg(serde_json::to_string(&info).unwrap())
+            .cmd("SADD")
+            .arg(format!("{}runs:index", fixture.prefix))
+            .arg(run_id)
+            .query_async(&mut conn)
+            .await
+            .unwrap();
+    }
+
+    let store = fixture.state_store(None).await;
+    let query =
+        RunListQuery::new(Some(RunStatus::Running), None, PageSize::new(5).unwrap()).unwrap();
+    let page = store.list_run_summaries_page(&query).await.unwrap();
+    assert_eq!(
+        page.items
+            .iter()
+            .map(|item| item.id.as_str())
+            .collect::<Vec<_>>(),
+        ["legacy-new", "legacy-old"]
+    );
+    let (ready, indexed): (String, usize) = redis::pipe()
+        .cmd("GET")
+        .arg(format!("{}run_catalog:v1:ready", fixture.prefix))
+        .cmd("ZCARD")
+        .arg(format!("{}run_catalog:v1:all", fixture.prefix))
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    assert_eq!(ready.len(), 32);
+    assert!(ready.bytes().all(|byte| byte.is_ascii_hexdigit()));
+    assert_eq!(indexed, 2);
+    fixture.cleanup().await;
+}
+
+#[tokio::test]
+async fn redis_summary_status_indexes_follow_mutations_and_deletes() {
+    let Some(fixture) = RedisTest::connect("summary_status_indexes").await else {
+        return;
+    };
+    let store = fixture.state_store(None).await;
+    store
+        .init_run("status-indexed", "flow", &Context::new())
+        .await
+        .unwrap();
+
+    let pending_query =
+        RunListQuery::new(Some(RunStatus::Pending), None, PageSize::new(5).unwrap()).unwrap();
+    assert_eq!(
+        store
+            .list_run_summaries_page(&pending_query)
+            .await
+            .unwrap()
+            .items[0]
+            .id,
+        "status-indexed"
+    );
+
+    store
+        .set_run_status("status-indexed", RunStatus::Success)
+        .await
+        .unwrap();
+    assert!(
+        store
+            .list_run_summaries_page(&pending_query)
+            .await
+            .unwrap()
+            .items
+            .is_empty()
+    );
+    let success_query =
+        RunListQuery::new(Some(RunStatus::Success), None, PageSize::new(5).unwrap()).unwrap();
+    assert_eq!(
+        store
+            .list_run_summaries_page(&success_query)
+            .await
+            .unwrap()
+            .items[0]
+            .id,
+        "status-indexed"
+    );
+
+    store.delete_run("status-indexed").await.unwrap();
+    assert!(
+        store
+            .list_run_summaries_page(&success_query)
+            .await
+            .unwrap()
+            .items
+            .is_empty()
+    );
+    fixture.cleanup().await;
+}
+
+#[tokio::test]
+async fn redis_summary_page_rebuilds_missing_ordered_indexes() {
+    let Some(fixture) = RedisTest::connect("summary_index_rebuild").await else {
+        return;
+    };
+    let store = fixture.state_store(None).await;
+    for run_id in ["rebuild-a", "rebuild-b"] {
+        store
+            .init_run(run_id, "flow", &Context::new())
+            .await
+            .unwrap();
+    }
+    let query = RunListQuery::new(None, None, PageSize::new(5).unwrap()).unwrap();
+    assert_eq!(
+        store
+            .list_run_summaries_page(&query)
+            .await
+            .unwrap()
+            .items
+            .len(),
+        2
+    );
+
+    let mut conn = fixture.connection().await.unwrap();
+    let _: usize = redis::cmd("DEL")
+        .arg(format!("{}run_catalog:v1:all", fixture.prefix))
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .list_run_summaries_page(&query)
+            .await
+            .unwrap()
+            .items
+            .len(),
+        2
+    );
+
+    let _: usize = redis::cmd("DEL")
+        .arg(format!("{}run_catalog:v1:status:pending", fixture.prefix))
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    let pending_query =
+        RunListQuery::new(Some(RunStatus::Pending), None, PageSize::new(5).unwrap()).unwrap();
+    assert_eq!(
+        store
+            .list_run_summaries_page(&pending_query)
+            .await
+            .unwrap()
+            .items
+            .len(),
+        2
+    );
+    fixture.cleanup().await;
+}
+
+#[tokio::test]
+async fn redis_summary_identity_mismatches_are_corruption() {
+    let Some(fixture) = RedisTest::connect("summary_identity").await else {
+        return;
+    };
+    let store = fixture.state_store(None).await;
+    store
+        .init_run("summary-owner", "flow", &Context::new())
+        .await
+        .unwrap();
+    let mut conn = fixture.connection().await.unwrap();
+    let mut summary: RunSummary = serde_json::from_str(
+        &redis::cmd("HGET")
+            .arg(format!("{}runs:summary-owner", fixture.prefix))
+            .arg("summary")
+            .query_async::<String>(&mut conn)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    summary.id = "different-owner".to_string();
+    let _: usize = redis::cmd("HSET")
+        .arg(format!("{}runs:summary-owner", fixture.prefix))
+        .arg("summary")
+        .arg(serde_json::to_string(&summary).unwrap())
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+
+    let query = RunListQuery::new(None, None, PageSize::new(1).unwrap()).unwrap();
+    assert_eq!(
+        store
+            .list_run_summaries_page(&query)
+            .await
+            .unwrap_err()
+            .kind(),
+        StorageErrorKind::Corruption
+    );
+    fixture.cleanup().await;
 }
 
 #[tokio::test]
@@ -213,7 +500,10 @@ async fn redis_delete_run() {
     store.delete_run("run-d1").await.unwrap();
 
     // Verify it's gone
-    assert!(store.get_run_info("run-d1").await.is_err());
+    assert_eq!(
+        store.get_run_info("run-d1").await.unwrap_err().kind(),
+        StorageErrorKind::NotFound
+    );
 
     // Verify it's not in the index
     let runs = store.list_runs(None).await.unwrap();
@@ -226,35 +516,75 @@ async fn redis_run_not_found() {
         return;
     };
 
-    let result = store.get_run_info("nonexistent-run").await;
-    assert!(result.is_err());
+    assert_eq!(
+        store
+            .get_run_info("nonexistent-run")
+            .await
+            .unwrap_err()
+            .kind(),
+        StorageErrorKind::NotFound
+    );
+    assert_eq!(
+        store
+            .delete_run("nonexistent-run")
+            .await
+            .unwrap_err()
+            .kind(),
+        StorageErrorKind::NotFound
+    );
+}
+
+#[tokio::test]
+async fn redis_conflicts_and_missing_mutations_are_typed() {
+    let Some(store) = test_store("typed_errors").await else {
+        return;
+    };
+    store
+        .init_run("typed-run", "flow", &Context::new())
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .init_run("typed-run", "flow", &Context::new())
+            .await
+            .unwrap_err()
+            .kind(),
+        StorageErrorKind::Conflict
+    );
+    assert_eq!(
+        store
+            .set_run_status("missing-run", RunStatus::Running)
+            .await
+            .unwrap_err()
+            .kind(),
+        StorageErrorKind::NotFound
+    );
+    cleanup(&store, &["typed-run"]).await;
 }
 
 #[tokio::test]
 async fn redis_ttl_applied() {
-    let prefix = "ironflow_test:ttl:".to_string();
-    let store = match RedisStateStore::new(
-        "redis://127.0.0.1:6379",
-        Some(prefix),
-        Some(3600), // 1 hour TTL
-    )
-    .await
-    {
-        Ok(s) => s,
-        Err(_) => {
-            eprintln!("Skipping test: Redis not available");
-            return;
-        }
+    let Some(fixture) = RedisTest::connect("ttl").await else {
+        return;
     };
+    let store = fixture.state_store(Some(3600)).await;
 
     store
         .init_run("run-ttl1", "flow", &Context::new())
         .await
         .unwrap();
 
-    // Verify the run exists (TTL just means it will eventually expire)
+    let mut conn = fixture.connection().await.unwrap();
+    let ttl: i64 = redis::cmd("TTL")
+        .arg(format!("{}runs:run-ttl1", fixture.prefix))
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    assert!((1..=3600).contains(&ttl));
+
     let info = store.get_run_info("run-ttl1").await.unwrap();
     assert_eq!(info.id, "run-ttl1");
 
     cleanup(&store, &["run-ttl1"]).await;
+    fixture.cleanup().await;
 }

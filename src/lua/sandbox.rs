@@ -6,11 +6,45 @@ use tracing::{debug, error, info, trace, warn};
 use uuid::Uuid;
 
 use crate::engine::types::Context;
-use crate::nodes::utility::code::{json_value_to_lua_table, lua_value_to_json};
+use crate::lua::conversion::{json_value_to_lua, lua_to_log_string, register_json_globals};
+
+/// Create a Lua VM with only computation-oriented standard libraries.
+///
+/// `Lua::new()` includes the package, OS, and I/O libraries in its "safe"
+/// standard-library set. Clearing their globals afterwards is not a sandbox:
+/// `require("os")` can recover the already-loaded OS table from
+/// `package.loaded`. Start from an allowlist instead so those libraries never
+/// enter the VM registry.
+pub(crate) fn new_sandboxed_lua() -> Result<Lua> {
+    let libraries = LuaStdLib::TABLE | LuaStdLib::STRING | LuaStdLib::UTF8 | LuaStdLib::MATH;
+
+    let lua = Lua::new_with(libraries, LuaOptions::default())?;
+    let globals = lua.globals();
+    for name in &[
+        "os",
+        "io",
+        "debug",
+        "package",
+        "require",
+        "load",
+        "loadfile",
+        "dofile",
+        "collectgarbage",
+    ] {
+        globals.set(*name, LuaValue::Nil)?;
+    }
+    if let Ok(string_library) = globals.get::<LuaTable>("string") {
+        string_library.set("dump", LuaValue::Nil)?;
+    }
+
+    Ok(lua)
+}
 
 /// Set up the sandboxed Lua environment with standard globals.
 ///
-/// - Removes `os`, `io`, `debug`, `loadfile`, `dofile`
+/// - Uses a VM created by [`new_sandboxed_lua`], without package, OS, or I/O
+///   libraries
+/// - Removes dynamic code/bytecode loading and caller-controlled GC controls
 /// - Exposes `env(key)` for reading environment variables
 /// - Exposes `base64_encode(str)` and `base64_decode(str)`
 /// - Exposes the workflow `ctx` table
@@ -18,11 +52,6 @@ use crate::nodes::utility::code::{json_value_to_lua_table, lua_value_to_json};
 /// Returns the `ctx` Lua value for callers that need it.
 pub(crate) fn setup_sandbox(lua: &Lua, ctx: &Context) -> Result<LuaValue> {
     let globals = lua.globals();
-
-    // Remove dangerous modules
-    for name in &["os", "io", "debug", "loadfile", "dofile"] {
-        globals.set(*name, LuaValue::Nil)?;
-    }
 
     // env(key) -> string | nil
     let env_fn = lua.create_function(|lua_ctx, key: String| match std::env::var(&key) {
@@ -47,25 +76,10 @@ pub(crate) fn setup_sandbox(lua: &Lua, ctx: &Context) -> Result<LuaValue> {
     })?;
     globals.set("base64_decode", decode_fn)?;
 
-    // json_parse(str) -> Lua table
-    let parse_fn = lua.create_function(|lua_ctx, data: String| {
-        let json: serde_json::Value = serde_json::from_str(&data)
-            .map_err(|e| LuaError::RuntimeError(format!("json_parse failed: {}", e)))?;
-        json_value_to_lua_table(lua_ctx, &json).map_err(LuaError::external)
-    })?;
-    globals.set("json_parse", parse_fn)?;
-
-    // json_stringify(value) -> string
-    let stringify_fn = lua.create_function(|_, value: LuaValue| {
-        let json_val = lua_value_to_json(&value).map_err(LuaError::external)?;
-        let serialized =
-            serde_json::to_string(&json_val).map_err(|e| LuaError::RuntimeError(e.to_string()))?;
-        Ok(serialized)
-    })?;
-    globals.set("json_stringify", stringify_fn)?;
+    register_json_globals(lua)?;
 
     // log([level], message...)
-    let log_fn = lua.create_function(|_lua_ctx, args: LuaMultiValue| {
+    let log_fn = lua.create_function(|lua_ctx, args: LuaMultiValue| {
         let values = args.into_iter().collect::<Vec<LuaValue>>();
         if values.is_empty() {
             return Err(LuaError::RuntimeError(
@@ -91,7 +105,7 @@ pub(crate) fn setup_sandbox(lua: &Lua, ctx: &Context) -> Result<LuaValue> {
         let parts = values
             .into_iter()
             .skip(start_idx)
-            .map(|value| stringify_lua_value(&value).map_err(LuaError::external))
+            .map(|value| lua_to_log_string(lua_ctx, &value).map_err(LuaError::external))
             .collect::<Result<Vec<_>, _>>()?;
         let message = parts.join(" ");
 
@@ -120,28 +134,11 @@ pub(crate) fn setup_sandbox(lua: &Lua, ctx: &Context) -> Result<LuaValue> {
     globals.set("now_unix_ms", now_unix_fn)?;
 
     // ctx table
-    let ctx_value = json_value_to_lua_table(
+    let ctx_value = json_value_to_lua(
         lua,
         &serde_json::Value::Object(ctx.iter().map(|(k, v)| (k.clone(), v.clone())).collect()),
     )?;
     globals.set("ctx", ctx_value.clone())?;
 
     Ok(ctx_value)
-}
-
-fn stringify_lua_value(value: &LuaValue) -> Result<String> {
-    match value {
-        LuaValue::String(s) => Ok(s.to_str()?.to_string()),
-        LuaValue::Boolean(b) => Ok(b.to_string()),
-        LuaValue::Integer(i) => Ok(i.to_string()),
-        LuaValue::Number(n) => Ok(n.to_string()),
-        LuaValue::Nil => Ok("nil".to_string()),
-        _ => {
-            let json = lua_value_to_json(value)?;
-            Ok(match serde_json::to_string(&json) {
-                Ok(serialized) => serialized,
-                Err(_) => format!("{:?}", value),
-            })
-        }
-    }
 }

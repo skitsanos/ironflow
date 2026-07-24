@@ -159,7 +159,7 @@ pub(super) fn register_flow_api(lua: &Lua, registry: &NodeRegistry) -> Result<()
                     guard_step.set("timeout_s", LuaValue::Nil)?;
                     guard_step.set("route", LuaValue::Nil)?;
 
-                    steps.set(count + 1, guard_step)?;
+                    steps.set(count + 1, guard_step.clone())?;
 
                     // 2. Create the actual step with depends_on + route("true")
                     let node_config: LuaTable = match node_arg {
@@ -198,6 +198,7 @@ pub(super) fn register_flow_api(lua: &Lua, registry: &NodeRegistry) -> Result<()
                     // Return a builder for the actual step (chainable)
                     let builder = lua.create_table()?;
                     builder.set("_step", step)?;
+                    builder.set("_guard_step", guard_step)?;
 
                     let depends_fn = lua.create_function(|_lua, args: LuaMultiValue| {
                         let mut iter = args.into_iter();
@@ -208,8 +209,11 @@ pub(super) fn register_flow_api(lua: &Lua, registry: &NodeRegistry) -> Result<()
                             .ok_or_else(|| LuaError::RuntimeError("expected table".into()))?
                             .clone();
 
-                        let step: LuaTable = builder.get("_step")?;
-                        let deps: LuaTable = step.get("dependencies")?;
+                        // User dependencies must gate condition evaluation. The visible
+                        // step already depends on this guard, so the resulting order is
+                        // dependency -> guard -> visible step.
+                        let guard_step: LuaTable = builder.get("_guard_step")?;
+                        let deps: LuaTable = guard_step.get("dependencies")?;
                         let mut idx = deps.len()? as i32;
 
                         for arg in iter {

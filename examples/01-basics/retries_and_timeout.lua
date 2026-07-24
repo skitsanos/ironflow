@@ -6,7 +6,7 @@ flow:step("slow_task", nodes.delay({
     seconds = 5
 })):timeout(2)
 
--- This step has retry logic (3 attempts, 0.5s initial backoff)
+-- This step allows 3 retries (up to 4 attempts, 0.5s initial backoff)
 -- It depends on slow_task, which will fail due to timeout,
 -- so this step will be skipped
 flow:step("after_slow", nodes.log({

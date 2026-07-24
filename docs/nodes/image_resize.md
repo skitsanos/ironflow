@@ -6,7 +6,7 @@ Resize a single image file.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | one of `path` or `source_key` | — | Source image path (supports `${ctx.*}` interpolation). |
+| `path` | string | one of `path` or `source_key` | — | Source image path (supports `${ctx.key}` interpolation). |
 | `source_key` | string | one of `path` or `source_key` | — | Context key containing either a path string, or an object entry `{ path = "..." }` / `{ base64 = "..." }`. |
 | `output_path` | string | yes | — | Destination file path for the resized image. |
 | `width` | number | no | — | Target width in px. Required if `height` is omitted. |
@@ -30,7 +30,7 @@ Resize a single image file.
 local flow = Flow.new("image_resize_demo")
 
 flow:step("resize", nodes.image_resize({
-    path = "data/samples/sample_front.png",
+    path = "examples/fixtures/ironflow-sample.png",
     output_path = "outputs/sample_front_small.png",
     width = 120
 }))

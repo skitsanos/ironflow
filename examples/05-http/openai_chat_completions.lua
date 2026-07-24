@@ -1,5 +1,6 @@
 -- OpenAI Chat Completions API
 -- Uses POST /v1/chat/completions with gpt-4o-mini
+-- Requirements: network access and OPENAI_API_KEY.
 local flow = Flow.new("openai_chat_completions")
 
 -- Call the Chat Completions API

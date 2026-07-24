@@ -6,7 +6,7 @@ Render a single PDF page to an image using the native `pdfium` library at runtim
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | one of `path` or `source_key` | — | File path to the PDF; supports `${ctx.*}` interpolation. |
+| `path` | string | one of `path` or `source_key` | — | File path to the PDF; supports `${ctx.key}` interpolation. |
 | `source_key` | string | one of `path` or `source_key` | — | Context key whose value is the file path (must be a string). |
 | `page` | number | no | `1` | 1-based page number to render. |
 | `format` | string | no | `png` | Image format: `png`, `jpeg`, or `jpg`. |
@@ -35,7 +35,7 @@ Render a single PDF page to an image using the native `pdfium` library at runtim
 local flow = Flow.new("pdf_thumbnail_demo")
 
 flow:step("thumb", nodes.pdf_thumbnail({
-    path = "data/samples/Bill26022026_121916AM_8000951511_fc72420d-72e1-460b-b714-8a7388ea90d4_.pdf",
+    path = "examples/fixtures/ironflow-sample.pdf",
     page = 1,
     format = "png",
     size = 320,

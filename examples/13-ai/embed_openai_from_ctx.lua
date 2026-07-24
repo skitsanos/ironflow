@@ -5,19 +5,22 @@ This example keeps the flow reusable by using runtime context values:
 3) chunk, clean, and normalize through `foreach`,
 4) embed all chunks with OpenAI.
 
+Requirements:
+- Network access and OPENAI_API_KEY.
+
 Run with:
   ironflow run examples/13-ai/embed_openai_from_ctx.lua \
-  --context '{"document_path":"data/samples/Bill26022026_121916AM_8000951511_fc72420d-72e1-460b-b714-8a7388ea90d4_.pdf"}'
+  --context '{"document_path":"examples/fixtures/ironflow-sample.pdf"}'
 ]]
 
 local flow = Flow.new("embed_openai_from_ctx")
 
---[[ Step 0: keep this reusable with a safe fallback path. ]]
+--[[ Step 0: default only an omitted path; invalid caller input remains visible. ]]
 flow:step("prepare_input", nodes.code({
     source = function(ctx)
         local path = ctx.document_path
-        if type(path) ~= "string" or path == "" then
-            path = "data/samples/Bill26022026_121916AM_8000951511_fc72420d-72e1-460b-b714-8a7388ea90d4_.pdf"
+        if path == nil then
+            path = ctx._flow_dir .. "/../fixtures/ironflow-sample.pdf"
         end
         return {
             document_path = path

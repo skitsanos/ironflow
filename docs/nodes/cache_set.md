@@ -6,7 +6,7 @@ Store a value in the cache (memory or file-based) with optional TTL.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `key` | string | yes | — | Cache key to store the value under. Supports `${ctx.*}` interpolation. |
+| `key` | string | yes | — | Cache key to store the value under. Supports `${ctx.key}` interpolation. |
 | `source_key` | string | one of `source_key` or `value` | — | Context key whose value will be cached. |
 | `value` | any | one of `source_key` or `value` | — | Literal JSON value to cache. |
 | `ttl` | integer | no | — | Time-to-live in seconds. When omitted the entry never expires. |

@@ -206,6 +206,38 @@ async fn http_get_fails_on_non_success_status_by_default() {
 }
 
 #[tokio::test]
+async fn http_status_errors_do_not_disclose_url_credentials() {
+    let (base_url, handle) =
+        spawn_status_mock_server(401, "Unauthorized", &[], r#"{"error":"denied"}"#);
+    let authority = base_url
+        .strip_prefix("http://")
+        .expect("mock server URL uses HTTP");
+    let url = format!(
+        "http://http-user-sentinel:http-password-sentinel@{authority}/http-path-sentinel?token=http-query-sentinel#http-fragment-sentinel"
+    );
+
+    let node = NodeRegistry::with_builtins().get("http_get").unwrap();
+    let error = node
+        .execute(&serde_json::json!({ "url": url }), &empty_ctx())
+        .await
+        .unwrap_err()
+        .to_string();
+
+    assert!(error.contains("returned status 401"));
+    for secret in [
+        "http-user-sentinel",
+        "http-password-sentinel",
+        "http-path-sentinel",
+        "http-query-sentinel",
+        "http-fragment-sentinel",
+    ] {
+        assert!(!error.contains(secret), "error disclosed {secret}: {error}");
+    }
+
+    handle.join().unwrap();
+}
+
+#[tokio::test]
 async fn http_get_can_return_non_success_status_output() {
     let body = r#"{"error":{"message":"rate limited"}}"#;
     let (url, handle) =

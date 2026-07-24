@@ -6,7 +6,7 @@ Convert Markdown text to HTML using CommonMark + GFM extensions (strikethrough, 
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `input` | string | one of `input` or `source_key` | — | Literal Markdown string; supports `${ctx.*}` interpolation. |
+| `input` | string | one of `input` or `source_key` | — | Literal Markdown string; supports `${ctx.key}` interpolation. |
 | `source_key` | string | one of `input` or `source_key` | — | Context key whose value contains the Markdown text. |
 | `output_key` | string | no | `"html"` | Context key where the resulting HTML is stored. |
 | `sanitize` | bool | no | `false` | When `true`, sanitize the HTML output with ammonia to remove unsafe tags/attributes. |

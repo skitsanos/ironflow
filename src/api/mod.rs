@@ -1,8 +1,10 @@
 pub mod errors;
 pub mod handlers;
+mod webhook_config;
+
+pub use webhook_config::WebhookConfig;
 
 use std::collections::HashMap;
-use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -22,6 +24,7 @@ use tracing::{info, warn};
 use crate::nodes::NodeRegistry;
 use crate::storage::StateStore;
 use crate::storage::event_store::EventStore;
+use crate::util::listing::ListingPolicy;
 
 /// Shared application state accessible by all handlers.
 pub struct AppState {
@@ -30,8 +33,9 @@ pub struct AppState {
     pub event_store: Arc<dyn EventStore>,
     pub flows_dir: Option<PathBuf>,
     pub max_concurrent_tasks: Option<usize>,
-    /// Webhook name → flow file path mappings from config.
-    pub webhooks: HashMap<String, String>,
+    pub listing_policy: ListingPolicy,
+    /// Named webhook route definitions from config.
+    pub webhooks: HashMap<String, WebhookConfig>,
 }
 
 /// Configuration for the REST API server.
@@ -41,7 +45,8 @@ pub struct ServeOptions {
     pub flows_dir: Option<PathBuf>,
     pub max_body: usize,
     pub max_concurrent_tasks: Option<usize>,
-    pub webhooks: HashMap<String, String>,
+    pub listing_policy: ListingPolicy,
+    pub webhooks: HashMap<String, WebhookConfig>,
     pub cors_origins: Option<Vec<String>>,
     pub api_key: Option<String>,
     pub allow_unauthenticated_api: bool,
@@ -67,6 +72,8 @@ pub async fn serve(
     options: ServeOptions,
 ) -> Result<()> {
     let registry = Arc::new(NodeRegistry::with_builtins());
+    let listener = bind_listener(&options.host, options.port).await?;
+    let bound_addr = listener.local_addr()?;
 
     let state = Arc::new(AppState {
         registry,
@@ -74,12 +81,14 @@ pub async fn serve(
         event_store,
         flows_dir: options.flows_dir,
         max_concurrent_tasks: options.max_concurrent_tasks,
+        listing_policy: options.listing_policy,
         webhooks: options.webhooks,
     });
 
     let auth = build_api_auth(
         options.api_key,
         options.allow_unauthenticated_api,
+        bound_addr.ip().is_loopback(),
         &options.host,
     )?;
 
@@ -107,13 +116,16 @@ pub async fn serve(
         .layer(cors_layer(options.cors_origins)?)
         .with_state(state);
 
-    let addr: SocketAddr = format!("{}:{}", options.host, options.port).parse()?;
-    info!("IronFlow API server listening on {}", addr);
-
-    let listener = tokio::net::TcpListener::bind(addr).await?;
+    info!("IronFlow API server listening on {}", bound_addr);
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+async fn bind_listener(host: &str, port: u16) -> Result<tokio::net::TcpListener> {
+    tokio::net::TcpListener::bind((host, port))
+        .await
+        .map_err(|error| anyhow::anyhow!("failed to bind API server to {host}:{port}: {error}"))
 }
 
 /// Build the CORS policy for the API server.
@@ -160,6 +172,7 @@ pub fn cors_layer(origins: Option<Vec<String>>) -> Result<CorsLayer> {
 fn build_api_auth(
     api_key: Option<String>,
     allow_unauthenticated_api: bool,
+    is_loopback: bool,
     host: &str,
 ) -> Result<Option<ApiAuth>> {
     let api_key = api_key.map(|value| value.trim().to_string());
@@ -172,7 +185,7 @@ fn build_api_auth(
         return Ok(None);
     }
 
-    if is_loopback_host(host) {
+    if is_loopback {
         warn!("API authentication is not configured; allowing unauthenticated loopback server");
         return Ok(None);
     }
@@ -183,16 +196,18 @@ fn build_api_auth(
     );
 }
 
-fn is_loopback_host(host: &str) -> bool {
-    matches!(host, "127.0.0.1" | "localhost" | "::1")
-}
-
 pub async fn require_api_key(
     axum::extract::State(auth): axum::extract::State<ApiAuth>,
-    req: Request,
+    mut req: Request,
     next: Next,
 ) -> Response {
     if request_has_api_key(req.headers(), &auth.api_key) {
+        // Authentication credentials authorize access to IronFlow itself.
+        // Consume both supported forms before webhook workflow ingress so
+        // handlers cannot accidentally treat a platform secret as business
+        // input.
+        req.headers_mut().remove(axum::http::header::AUTHORIZATION);
+        req.headers_mut().remove("x-api-key");
         return next.run(req).await;
     }
 
@@ -216,4 +231,23 @@ fn request_has_api_key(headers: &HeaderMap, expected: &str) -> bool {
         .is_some_and(|token| token == expected);
 
     bearer || api_key
+}
+
+#[cfg(test)]
+mod tests {
+    use super::bind_listener;
+
+    #[tokio::test]
+    async fn bind_listener_accepts_hostname_and_ipv4_loopback() {
+        for host in ["localhost", "127.0.0.1"] {
+            let listener = bind_listener(host, 0).await.unwrap();
+            assert!(listener.local_addr().unwrap().ip().is_loopback());
+        }
+    }
+
+    #[tokio::test]
+    async fn bind_listener_accepts_unbracketed_ipv6_loopback() {
+        let listener = bind_listener("::1", 0).await.unwrap();
+        assert!(listener.local_addr().unwrap().ip().is_loopback());
+    }
 }

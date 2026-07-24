@@ -11,6 +11,11 @@ Notes:
 - Token endpoint credentials are read from environment variables.
 - OAuth token endpoints commonly require `application/x-www-form-urlencoded`; this uses
   `http_post` with `body_type = "form"`.
+
+Requirements:
+- Network access.
+- OAUTH_TOKEN_URL, OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, OAUTH_SCOPE, and
+  PROTECTED_API_URL configured for your provider.
 ]]
 
 local flow = Flow.new("oauth_access_token")

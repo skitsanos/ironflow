@@ -24,14 +24,21 @@ Extract metadata from a PDF file (document info dictionary + page count).
 local flow = Flow.new("pdf_metadata_demo")
 
 flow:step("meta", nodes.pdf_metadata({
-    path = "data/samples/Bill26022026_121916AM_8000951511_fc72420d-72e1-460b-b714-8a7388ea90d4_.pdf",
+    path = "examples/fixtures/ironflow-sample.pdf",
     output_key = "pdf_meta"
 }))
 
+-- Interpolation does not evaluate fallback expressions, so normalize the
+-- optional field in an explicit workflow step.
+flow:step("metadata_defaults", function(ctx)
+    return {
+        pdf_creator = ctx.pdf_meta.creator or "unknown"
+    }
+end):depends_on("meta")
+
 flow:step("log", nodes.log({
-    message = "PDF has ${ctx.pdf_meta.pages} page(s), produced by ${ctx.pdf_meta.creator or 'unknown'}"
-})):depends_on("meta")
+    message = "PDF has ${ctx.pdf_meta.pages} page(s), produced by ${ctx.pdf_creator}"
+})):depends_on("metadata_defaults")
 
 return flow
 ```
-

@@ -4,16 +4,14 @@ use std::sync::Arc;
 use anyhow::{Context as AnyhowContext, Result};
 use async_trait::async_trait;
 use serde_json::{Map, Value};
-use tokio::sync::Semaphore;
 
-use crate::engine::executor::WorkflowEngine;
-use crate::engine::types::{Context, NodeOutput, RunStatus};
-use crate::lua::runtime::LuaRuntime;
+use crate::engine::executor::ExecutionOverlay;
+use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::{Node, NodeRegistry};
-use crate::storage::null_store::NullStateStore;
 
+use super::parallel_runner::{ChildRun, run_children};
 use super::subworkflow::SubworkflowNode;
-use crate::util::node_config::config_u64;
+use crate::util::node_config::config_usize_strict;
 
 /// Hard cap on `max_concurrent` to guard against pathological config values.
 const MAX_PARALLEL_SUBWORKFLOWS_CAP: usize = 1024;
@@ -161,14 +159,15 @@ impl Node for ParallelSubworkflowsNode {
         // Concurrency cap. Default: num_cpus. Users can raise or lower it per
         // node. Hard-capped at MAX_PARALLEL_SUBWORKFLOWS_CAP to block pathological
         // config values from saturating the runtime.
-        let max_concurrent = config_u64(config, "max_concurrent", ctx)
-            .map(|n| n as usize)
-            .filter(|n| *n > 0)
-            .unwrap_or_else(num_cpus::get)
-            .min(MAX_PARALLEL_SUBWORKFLOWS_CAP);
-        let semaphore = Arc::new(Semaphore::new(max_concurrent));
+        let max_concurrent =
+            config_usize_strict(config, "max_concurrent", ctx)?.unwrap_or_else(num_cpus::get);
+        if max_concurrent == 0 {
+            anyhow::bail!("parallel_subworkflows: 'max_concurrent' must be greater than 0");
+        }
+        let max_concurrent = max_concurrent.min(MAX_PARALLEL_SUBWORKFLOWS_CAP);
 
         let child_registry = self.child_registry();
+        let execution_overlay = ExecutionOverlay::current();
 
         // Resolve flow_dir from context
         let flow_dir = ctx
@@ -176,8 +175,7 @@ impl Node for ParallelSubworkflowsNode {
             .and_then(|v| v.as_str())
             .map(String::from);
 
-        // Spawn one tokio task per subworkflow
-        let mut handles = Vec::with_capacity(flows.len());
+        let mut children = Vec::with_capacity(flows.len());
 
         for (idx, flow_cfg) in flows.iter().enumerate() {
             let flow_file = flow_cfg
@@ -245,110 +243,19 @@ impl Node for ParallelSubworkflowsNode {
                     serde_json::Value::String(parent.to_string_lossy().to_string()),
                 );
             }
+            execution_overlay.strip_from_context(&mut sub_ctx);
 
-            let registry = child_registry.clone();
-            let sem = semaphore.clone();
-
-            let handle = tokio::spawn(async move {
-                // Bound concurrent subflow execution — without this, N flows
-                // all run at once no matter how large N is.
-                let _permit = sem.acquire_owned().await.expect("semaphore closed");
-                let flow = LuaRuntime::load_flow(&flow_path_str, &registry)?;
-                let flow_name = flow.name.clone();
-                let store: Arc<dyn crate::storage::StateStore> = Arc::new(NullStateStore::new());
-                let engine = WorkflowEngine::new(registry, store.clone(), None);
-                let run_id = engine.execute(&flow, sub_ctx).await?;
-                let run_info = store.get_run_info(&run_id).await?;
-                Ok::<_, anyhow::Error>((idx, flow_name, run_info))
+            children.push(ChildRun {
+                index: idx,
+                flow_path: flow_path_str,
+                context: sub_ctx,
+                execution_overlay: execution_overlay.clone(),
             });
-
-            handles.push(handle);
         }
 
-        // Collect results
-        let mut results: Vec<Option<serde_json::Value>> = vec![None; flows.len()];
-        let mut flow_names: Vec<String> = vec![String::new(); flows.len()];
-        let mut errors: Vec<String> = Vec::new();
-
-        // Handles are pushed in order, so enumerate gives us the matching flow index
-        for (i, handle) in handles.into_iter().enumerate() {
-            match handle.await {
-                Ok(Ok((idx, name, run_info))) => {
-                    flow_names[idx] = name;
-                    let succeeded = matches!(run_info.status, RunStatus::Success);
-
-                    let per_flow_key = flows[idx]
-                        .get("output_key")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
-
-                    let mut entry = serde_json::Map::new();
-                    entry.insert("success".to_string(), serde_json::Value::Bool(succeeded));
-                    entry.insert(
-                        "flow".to_string(),
-                        serde_json::Value::String(flow_names[idx].clone()),
-                    );
-
-                    if let Some(key) = per_flow_key {
-                        entry.insert(key, serde_json::to_value(&run_info.ctx)?);
-                    } else {
-                        for (k, v) in &run_info.ctx {
-                            if !k.starts_with('_') {
-                                entry.insert(k.clone(), v.clone());
-                            }
-                        }
-                    }
-
-                    if !succeeded {
-                        let msg = format!(
-                            "Subworkflow '{}' (index {}) finished with status: {}",
-                            flow_names[idx], idx, run_info.status
-                        );
-                        entry.insert("error".to_string(), serde_json::Value::String(msg.clone()));
-                        errors.push(msg);
-                    }
-
-                    results[idx] = Some(serde_json::Value::Object(entry));
-                }
-                Ok(Err(e)) => {
-                    let msg = format!("Subworkflow at index {} failed: {}", i, e);
-                    errors.push(msg.clone());
-
-                    let flow_name = flows[i]
-                        .get("flow")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("unknown");
-
-                    let mut entry = serde_json::Map::new();
-                    entry.insert("success".to_string(), serde_json::Value::Bool(false));
-                    entry.insert(
-                        "flow".to_string(),
-                        serde_json::Value::String(flow_name.to_string()),
-                    );
-                    entry.insert("error".to_string(), serde_json::Value::String(msg));
-                    results[i] = Some(serde_json::Value::Object(entry));
-                }
-                Err(e) => {
-                    let msg = format!("Subworkflow task at index {} panicked: {}", i, e);
-                    errors.push(msg.clone());
-
-                    let mut entry = serde_json::Map::new();
-                    entry.insert("success".to_string(), serde_json::Value::Bool(false));
-                    entry.insert(
-                        "flow".to_string(),
-                        serde_json::Value::String(
-                            flows[i]
-                                .get("flow")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("unknown")
-                                .to_string(),
-                        ),
-                    );
-                    entry.insert("error".to_string(), serde_json::Value::String(msg));
-                    results[i] = Some(serde_json::Value::Object(entry));
-                }
-            }
-        }
+        let completed = run_children(children, &flows, child_registry, max_concurrent).await?;
+        let results = completed.results;
+        let errors = completed.errors;
 
         // Handle error policy
         if !errors.is_empty() && fail_fast {
@@ -362,15 +269,7 @@ impl Node for ParallelSubworkflowsNode {
         // Build output
         let mut output = NodeOutput::new();
 
-        let results_array: Vec<serde_json::Value> = results
-            .into_iter()
-            .map(|r| r.unwrap_or(serde_json::Value::Null))
-            .collect();
-
-        output.insert(
-            output_key.to_string(),
-            serde_json::Value::Array(results_array),
-        );
+        output.insert(output_key.to_string(), serde_json::Value::Array(results));
         output.insert(
             format!("{}_count", output_key),
             serde_json::Value::Number(flows.len().into()),
