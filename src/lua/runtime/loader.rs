@@ -124,10 +124,13 @@ impl LuaRuntime {
     fn setup_sandbox(lua: &Lua) -> Result<()> {
         let globals = lua.globals();
 
-        // Expose a safe env(key) function to read environment variables
-        let env_fn = lua.create_function(|lua_ctx, key: String| match std::env::var(&key) {
-            Ok(val) => Ok(LuaValue::String(lua_ctx.create_string(&val)?)),
-            Err(_) => Ok(LuaValue::Nil),
+        // Expose a safe env(key) function to read environment variables,
+        // honoring the optional IRONFLOW_ENV_ALLOWLIST (IF-052b).
+        let env_fn = lua.create_function(|lua_ctx, key: String| {
+            match crate::lua::sandbox::env_lookup(&key) {
+                Some(val) => Ok(LuaValue::String(lua_ctx.create_string(&val)?)),
+                None => Ok(LuaValue::Nil),
+            }
         })?;
         globals.set("env", env_fn)?;
 

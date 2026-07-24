@@ -701,6 +701,7 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_LUA_MAX_INSTRUCTIONS` | `5000000` | Max Lua VM instructions per flow parse/code execution; `0` disables |
 | `IRONFLOW_LUA_MAX_SECONDS` | `10` | Max wall-clock seconds per Lua state; `0` disables |
 | `IRONFLOW_LUA_MAX_MEMORY_BYTES` | `134217728` | Max Lua VM memory per Lua state; `0` disables |
+| `IRONFLOW_ENV_ALLOWLIST` | unset (all) | Comma-separated variable names the Lua `env()` global may read. When set, `env()` returns `nil` for any other key; when unset, any process variable is readable (the default). |
 | `IRONFLOW_LUA_HOOK_INTERVAL` | `10000` | Instruction interval for budget checks |
 | `IRONFLOW_LUA_GC_AFTER_EXECUTION` | `true` | Run a Lua garbage-collection cycle after flow parsing/code execution |
 | `IRONFLOW_CACHE_MAX_ENTRIES` | `10000` | Max entries retained by the process-global `cache_set` / `cache_get` memory backend |

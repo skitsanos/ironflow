@@ -1835,9 +1835,12 @@ dependencies (previously silently always-skipped); (g) the JSON, Redis, and SQL
 stores now preserve the first terminal transition's `finished` timestamp
 (matching `NullStateStore`) rather than overwriting it on a repeated terminal
 write — JSON/Redis guard on `finished.is_none()`, SQL uses `COALESCE`; regression
-in `tests/test_state_stores.rs`. **Deferred / by-design:** (b) `env()` allowlist
-(a behavior change — current whole-environment exposure is documented and
-intentional; needs a product decision), (d) deadline completion race (the clean
+in `tests/test_state_stores.rs`; (b) the Lua `env()` global now honors an opt-in
+`IRONFLOW_ENV_ALLOWLIST` (comma-separated names) — when set, `env()` returns
+`nil` for any other key; unset preserves the documented read-any default, so no
+existing flow breaks (`env_lookup` in `src/lua/sandbox.rs`, regression in
+`tests/test_env_allowlist.rs`). **Deferred / by-design:** (d) deadline
+completion race (the clean
 fix is a grace-margin behavior change to the hardened timeout core; IF-006's
 cooperative cancellation already covers the main poll-monopolizing case), (f)
 orphaned temp-file startup sweep (cosmetic; no correctness impact), (h) `pcall`

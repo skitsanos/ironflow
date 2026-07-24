@@ -8,6 +8,26 @@ use uuid::Uuid;
 use crate::engine::types::Context;
 use crate::lua::conversion::{json_value_to_lua, lua_to_log_string, register_json_globals};
 
+/// Read an environment variable for the Lua `env()` global, honoring an
+/// optional allowlist (IF-052b).
+///
+/// When `IRONFLOW_ENV_ALLOWLIST` is set (a comma-separated list of variable
+/// names), `env()` only exposes those variables and returns `nil` for every
+/// other key. When it is unset, any process variable is readable, which is the
+/// documented default. An empty allowlist therefore denies every key.
+pub(crate) fn env_lookup(key: &str) -> Option<String> {
+    if let Ok(raw) = std::env::var("IRONFLOW_ENV_ALLOWLIST") {
+        let permitted = raw
+            .split(',')
+            .map(str::trim)
+            .any(|entry| !entry.is_empty() && entry == key);
+        if !permitted {
+            return None;
+        }
+    }
+    std::env::var(key).ok()
+}
+
 /// Create a Lua VM with only computation-oriented standard libraries.
 ///
 /// `Lua::new()` includes the package, OS, and I/O libraries in its "safe"
@@ -54,9 +74,9 @@ pub(crate) fn setup_sandbox(lua: &Lua, ctx: &Context) -> Result<LuaValue> {
     let globals = lua.globals();
 
     // env(key) -> string | nil
-    let env_fn = lua.create_function(|lua_ctx, key: String| match std::env::var(&key) {
-        Ok(val) => Ok(LuaValue::String(lua_ctx.create_string(&val)?)),
-        Err(_) => Ok(LuaValue::Nil),
+    let env_fn = lua.create_function(|lua_ctx, key: String| match env_lookup(&key) {
+        Some(val) => Ok(LuaValue::String(lua_ctx.create_string(&val)?)),
+        None => Ok(LuaValue::Nil),
     })?;
     globals.set("env", env_fn)?;
 

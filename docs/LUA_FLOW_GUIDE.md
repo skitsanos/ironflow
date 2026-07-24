@@ -259,6 +259,11 @@ selected dotenv file. Dotenv is loaded atomically before the flow is parsed;
 see the [CLI configuration contract](CLI_REFERENCE.md#configuration-resolution)
 for discovery, error, and precedence rules.
 
+By default `env()` can read any process variable. Set `IRONFLOW_ENV_ALLOWLIST`
+to a comma-separated list of variable names to restrict it: when set, `env()`
+returns `nil` for any name not on the list, so flows cannot read (or exfiltrate)
+credentials the deployment did not explicitly expose.
+
 ```lua
 local api_key = env("API_KEY")
 local db_url = env("DATABASE_URL") or "sqlite://default.db"
