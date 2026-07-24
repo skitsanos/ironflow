@@ -25,8 +25,10 @@ impl StateStore for SqlStateStore {
     async fn set_run_status(&self, run_id: &str, status: RunStatus) -> StorageResult<()> {
         let is_terminal = status.is_terminal();
         let affected = if is_terminal {
+            // COALESCE preserves the first terminal transition's timestamp; a
+            // repeated terminal write must not move `finished` (IF-052).
             let sql = format!(
-                "UPDATE {} SET status = {}, finished = {} WHERE id = {}",
+                "UPDATE {} SET status = {}, finished = COALESCE(finished, {}) WHERE id = {}",
                 self.tables.runs,
                 self.placeholder(1),
                 self.placeholder(2),

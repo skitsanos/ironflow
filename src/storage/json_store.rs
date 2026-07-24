@@ -110,7 +110,9 @@ impl StateStore for JsonStateStore {
         let mut info = self.read_run(run_id).await?;
         let is_terminal = status.is_terminal();
         info.status = status;
-        if is_terminal {
+        // Preserve the first terminal transition's timestamp; a repeated
+        // terminal write must not move `finished` (IF-052).
+        if is_terminal && info.finished.is_none() {
             info.finished = Some(Utc::now());
         }
         let record = self.write_existing_run(&mut catalog, run_id, &info).await?;

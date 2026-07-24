@@ -188,6 +188,31 @@ async fn json_store_set_status_sets_finished() {
     assert!(info.finished.is_some());
 }
 
+// IF-052: a repeated terminal transition must not move the `finished` timestamp.
+#[tokio::test]
+async fn json_store_preserves_first_terminal_finished_timestamp() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = JsonStateStore::new(dir.path());
+    store.init_run("r1", "flow", &HashMap::new()).await.unwrap();
+
+    store
+        .set_run_status("r1", RunStatus::Success)
+        .await
+        .unwrap();
+    let first = store.get_run_info("r1").await.unwrap().finished.unwrap();
+
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    store.set_run_status("r1", RunStatus::Failed).await.unwrap();
+
+    let after = store.get_run_info("r1").await.unwrap();
+    assert_eq!(after.status, RunStatus::Failed);
+    assert_eq!(
+        after.finished.unwrap(),
+        first,
+        "finished must be preserved from the first terminal transition"
+    );
+}
+
 // IF-051: the JSON store prunes via bounded summary pages and removes only
 // terminal runs older than the cutoff.
 #[tokio::test]

@@ -201,7 +201,11 @@ impl StateStore for RedisStateStore {
     async fn set_run_status(&self, run_id: &str, status: RunStatus) -> StorageResult<()> {
         self.mutate_run(run_id, |info| {
             info.status = status.clone();
-            info.finished = status.is_terminal().then(Utc::now);
+            // Preserve the first terminal transition's timestamp and never clear
+            // it on a later non-terminal write (IF-052).
+            if status.is_terminal() && info.finished.is_none() {
+                info.finished = Some(Utc::now());
+            }
             Ok(true)
         })
         .await

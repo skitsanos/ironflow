@@ -1831,12 +1831,19 @@ and keeps non-terminal and newer ones.
 `1.97.1` across all jobs to match `rust-toolchain.toml`; (c) the finalizer's
 `ContextUpdated` event is now stamped with the resolved terminal status instead
 of a misleading `Running`; (e) flow validation now rejects a routed step with no
-dependencies (previously silently always-skipped). **Still open:** (b) `env()`
-allowlist (a design decision — `env()` exposure is documented and intentional),
-(d) deadline completion race, (f) orphaned temp-file startup sweep, (g)
-cross-store `finished`-timestamp preservation, (h) `pcall` budget evasion (a
-documented cooperative-cancellation boundary), (i) stale `docs/superpowers/` node
-counts (historical point-in-time records, intentionally not rewritten).
+dependencies (previously silently always-skipped); (g) the JSON, Redis, and SQL
+stores now preserve the first terminal transition's `finished` timestamp
+(matching `NullStateStore`) rather than overwriting it on a repeated terminal
+write — JSON/Redis guard on `finished.is_none()`, SQL uses `COALESCE`; regression
+in `tests/test_state_stores.rs`. **Deferred / by-design:** (b) `env()` allowlist
+(a behavior change — current whole-environment exposure is documented and
+intentional; needs a product decision), (d) deadline completion race (the clean
+fix is a grace-margin behavior change to the hardened timeout core; IF-006's
+cooperative cancellation already covers the main poll-monopolizing case), (f)
+orphaned temp-file startup sweep (cosmetic; no correctness impact), (h) `pcall`
+budget evasion (a documented cooperative-cancellation boundary with no clean
+Lua 5.4 interrupt), (i) stale `docs/superpowers/` node counts (historical
+point-in-time records, intentionally not rewritten).
 
 Low-severity items to batch: (a) CI pins Rust `1.96.0`
 (`.github/workflows/ci.yml`) while `rust-toolchain.toml` pins `1.97.1`; (b)
