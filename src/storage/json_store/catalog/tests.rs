@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use crate::engine::types::{Context, RunStatus, TaskState};
 use crate::storage::{PageSize, RunCursor, RunListQuery, StateStore};
 
+use super::delta::DELTA_NAME;
 use super::state;
 use super::{CATALOG_NAME, STATE_NAME};
 use crate::storage::json_store::JsonStateStore;
@@ -124,7 +125,9 @@ async fn task_and_context_updates_do_not_replace_the_ordered_projection() {
         .await
         .unwrap();
     let catalog_path = directory.path().join(CATALOG_NAME);
+    let delta_path = directory.path().join(DELTA_NAME);
     let original = std::fs::read(&catalog_path).unwrap();
+    let original_delta = std::fs::read(&delta_path).unwrap();
     let original_modified = std::fs::metadata(&catalog_path)
         .unwrap()
         .modified()
@@ -135,6 +138,7 @@ async fn task_and_context_updates_do_not_replace_the_ordered_projection() {
         .await
         .unwrap();
     assert_eq!(std::fs::read(&catalog_path).unwrap(), original);
+    assert_eq!(std::fs::read(&delta_path).unwrap(), original_delta);
     let mut update = HashMap::new();
     update.insert("answer".to_string(), serde_json::json!(42));
     store
@@ -142,6 +146,7 @@ async fn task_and_context_updates_do_not_replace_the_ordered_projection() {
         .await
         .unwrap();
     assert_eq!(std::fs::read(&catalog_path).unwrap(), original);
+    assert_eq!(std::fs::read(&delta_path).unwrap(), original_delta);
     assert_eq!(
         std::fs::metadata(&catalog_path)
             .unwrap()
@@ -180,6 +185,26 @@ async fn missing_corrupt_and_dirty_catalogs_rebuild_from_primary_records() {
         2
     );
     std::fs::write(directory.path().join(CATALOG_NAME), b"broken catalog").unwrap();
+    assert_eq!(
+        store
+            .list_run_summaries_page(&query(None, None, 10))
+            .await
+            .unwrap()
+            .items
+            .len(),
+        2
+    );
+    std::fs::remove_file(directory.path().join(DELTA_NAME)).unwrap();
+    assert_eq!(
+        store
+            .list_run_summaries_page(&query(None, None, 10))
+            .await
+            .unwrap()
+            .items
+            .len(),
+        2
+    );
+    std::fs::write(directory.path().join(DELTA_NAME), b"broken delta").unwrap();
     assert_eq!(
         store
             .list_run_summaries_page(&query(None, None, 10))

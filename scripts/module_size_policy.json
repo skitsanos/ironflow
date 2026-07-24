@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "exception_budget": 13,
+  "exceptions": [
+    {
+      "path": "src/cli/store_factory.rs",
+      "max_lines": 330,
+      "rationale": "IF-028 review: one feature-gated store-construction boundary plus inline configuration tests; split when another backend concern is added."
+    },
+    {
+      "path": "src/engine/executor/task_runner.rs",
+      "max_lines": 331,
+      "rationale": "IF-028 review: one task lifecycle spanning retries, deadlines, cancellation, and output publication; split before adding another lifecycle phase."
+    },
+    {
+      "path": "src/lua/runtime/api.rs",
+      "max_lines": 305,
+      "rationale": "IF-028 review: one Lua flow-builder registration surface; nested closure complexity makes the next independent API group a mandatory extraction point."
+    },
+    {
+      "path": "src/nodes/cloud/s3_objects.rs",
+      "max_lines": 312,
+      "rationale": "IF-028 review: four closely related S3 object operations share one client and payload contract; split when a fifth operation or new helper responsibility appears."
+    },
+    {
+      "path": "src/nodes/mcp/stdio.rs",
+      "max_lines": 335,
+      "rationale": "IF-028 review: one framed JSON-RPC stdio transport, worker, and shutdown lifecycle; extract before adding another transport protocol concern."
+    },
+    {
+      "path": "src/storage/event_store/redis/legacy.rs",
+      "max_lines": 305,
+      "rationale": "IF-028 review: one bounded legacy-event migration state machine; splitting its ordered protocol would obscure progress and failure invariants."
+    },
+    {
+      "path": "src/storage/event_store/sql/store.rs",
+      "max_lines": 367,
+      "rationale": "IF-028 review: one EventStore implementation covering publish, list, decode, and delete transaction boundaries; split when another persistence responsibility appears."
+    },
+    {
+      "path": "src/storage/json_store/codec.rs",
+      "max_lines": 361,
+      "rationale": "IF-028 review: one primary/summary revision and digest codec with inline format tests; extract tests or a distinct format before adding codec behavior."
+    },
+    {
+      "path": "src/storage/json_store/fs.rs",
+      "max_lines": 345,
+      "rationale": "IF-028 review: one secure no-follow and durable-directory abstraction; split by responsibility before adding another filesystem operation family."
+    },
+    {
+      "path": "src/storage/redis_store/atomic.rs",
+      "max_lines": 358,
+      "rationale": "IF-028 review: one Redis CAS and snapshot mutation boundary sharing retry and script invariants; split before introducing another mutation protocol."
+    },
+    {
+      "path": "src/storage/redis_store/listing.rs",
+      "max_lines": 319,
+      "rationale": "IF-028 review: one ordered catalog paging and repair boundary with inline ordering tests; extract tests or repair logic before adding listing behavior."
+    },
+    {
+      "path": "src/storage/redis_store/rebuild.rs",
+      "max_lines": 307,
+      "rationale": "IF-028 review: one generation-and-lease catalog rebuild state machine with inline tests; split before adding another recovery phase."
+    },
+    {
+      "path": "src/util/redaction.rs",
+      "max_lines": 338,
+      "rationale": "IF-028 review: one fail-closed secret collection and redaction boundary with substantial inline security tests; extract tests before adding another redaction strategy."
+    }
+  ]
+}

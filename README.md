@@ -231,17 +231,25 @@ revision/digest-mismatched sidecars fall back to the full primary and are
 best-effort repaired; a sidecar with an explicit string run ID that disagrees
 with its filename is corruption and does not fall back. The bounded fast path
 intentionally does not decode the remainder of a primary whose committed header
-and sidecar agree;
-full reads and mutations still validate the complete primary record.
-Bounded pages use a checksummed fixed-record catalog with global and per-status
-sections. Clean cursor pages binary-search and range-read only the requested
-window (plus one lookahead), use O(page-size) memory, and do not enumerate the
-store directory. Participating local writers mark the catalog dirty before a
-primary change and coordinate through a file lock; task/context-only updates
-leave the ordered projection unchanged. Missing, dirty, stale, or malformed
-catalog metadata rebuilds automatically from authoritative primaries. For an
-explicit offline repair, stop writers and call
-`JsonStateStore::rebuild_run_summary_catalog()`.
+and sidecar agree; full reads and mutations still validate the complete primary
+record.
+Bounded pages use an immutable checksummed fixed-record base with global and
+per-status sections plus a checksummed, coalesced delta capped at 128 distinct
+run IDs. Clean cursor pages binary-search the base, range-read the requested
+window plus the bounded overlay, and merge both without enumerating the store
+directory: O(log N + page size + K) reads and O(page size + K) memory, where
+`K <= 128`. Participating local writers mark the projection dirty before a
+primary change and coordinate through one file lock. Initialization, status
+changes, and deletion normally replace only the O(K) delta; the 129th distinct
+overlay ID performs an O(N) compaction into a new base and resets the delta.
+Task/context-only updates leave both files unchanged. A version-2 clean token
+binds the base generation and delta revision, so missing, dirty, stale, or
+malformed metadata rebuilds automatically from authoritative primaries. Stop
+all writers when upgrading or downgrading across this state format. For an
+explicit offline repair and compaction, stop writers and call
+`JsonStateStore::rebuild_run_summary_catalog()`. The JSON backend remains a
+moderate-cardinality local store; prefer SQL or Redis for sustained high-write
+workloads.
 
 On Unix, its directory is mode `0700` and committed files are `0600`; other
 platforms require equivalent operator-managed ACLs. See the precise filesystem

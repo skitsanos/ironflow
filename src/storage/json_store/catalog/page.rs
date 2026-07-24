@@ -1,15 +1,20 @@
 use std::cmp::Ordering;
+#[cfg(test)]
+use std::sync::atomic::Ordering as AtomicOrdering;
 
 use crate::engine::types::RunSummary;
 use crate::storage::run_listing::normalized_started;
 use crate::storage::{RunListQuery, RunSummaryPage, StorageError, StorageResult};
 
 use super::CATALOG_NAME;
+use super::delta::{self, DELTA_NAME, DeltaOverlay};
 use super::format::{self, CatalogRecord, RECORD_BYTES};
 use super::header::{self, CatalogHeader, HEADER_BYTES};
 use super::state;
 use super::transaction;
 use crate::storage::json_store::JsonStateStore;
+
+mod merge;
 
 enum PageError {
     Rebuild,
@@ -34,7 +39,7 @@ pub(in crate::storage::json_store) async fn list_page(
         let Some(token) = state::current_token(&store.directory).await? else {
             continue;
         };
-        match page_once(store, query).await {
+        match page_once(store, query, &token).await {
             Ok(page) if state::token_unchanged(&store.directory, &token).await? => return Ok(page),
             Ok(_) => continue,
             Err(PageError::Rebuild) => {
@@ -59,24 +64,61 @@ pub(in crate::storage::json_store) async fn list_page(
 async fn page_once(
     store: &JsonStateStore,
     query: &RunListQuery,
+    token: &state::CatalogToken,
 ) -> Result<RunSummaryPage, PageError> {
     let header = read_header(store).await?;
+    if header.generation != token.base_generation() {
+        return Err(PageError::Rebuild);
+    }
+    let overlay = read_delta(store).await?;
+    if overlay.base_generation != header.generation || overlay.revision != token.delta_revision() {
+        return Err(PageError::Rebuild);
+    }
     let section = query.status().map_or(0, format::status_section);
     let (section_start, section_count) = header.section(section)?;
     let first = find_first(store, section_start, section_count, query).await?;
     let remaining = section_count.saturating_sub(first);
-    let wanted = query.limit().get().saturating_add(1) as u64;
-    let count = remaining.min(wanted) as usize;
-    if count == 0 {
+    let wanted = query.limit().get().saturating_add(1);
+    let scan_limit = wanted.saturating_add(overlay.entries().len());
+    let count = usize::try_from(remaining)
+        .unwrap_or(usize::MAX)
+        .min(scan_limit);
+    let mut base_records = if count == 0 {
+        Vec::new()
+    } else {
+        read_records(store, section_start + first, count).await?
+    };
+    validate_page_records(&base_records, query)?;
+    base_records = merge::page_records(base_records, overlay.entries(), query, wanted);
+    validate_page_records(&base_records, query)?;
+    if base_records.is_empty() {
         return Ok(RunSummaryPage::empty());
     }
-    let records = read_records(store, section_start + first, count).await?;
-    validate_page_records(&records, query)?;
-    let mut summaries = Vec::with_capacity(records.len());
-    for record in records {
+    let mut summaries = Vec::with_capacity(base_records.len());
+    for record in base_records {
         summaries.push(read_indexed_summary(store, &record).await?);
     }
     Ok(RunSummaryPage::from_ordered(summaries, query))
+}
+
+async fn read_delta(store: &JsonStateStore) -> Result<DeltaOverlay, PageError> {
+    let data = store
+        .directory
+        .read_regular_prefix(DELTA_NAME, delta::MAX_BYTES + 1)
+        .await?
+        .ok_or(PageError::Rebuild)?;
+    #[cfg(test)]
+    {
+        store
+            .catalog_io
+            .delta_reads
+            .fetch_add(1, AtomicOrdering::Relaxed);
+        store
+            .catalog_io
+            .delta_read_bytes
+            .fetch_add(data.len(), AtomicOrdering::Relaxed);
+    }
+    delta::decode(&data).map_err(|_| PageError::Rebuild)
 }
 
 async fn read_header(store: &JsonStateStore) -> Result<CatalogHeader, PageError> {
@@ -127,6 +169,11 @@ async fn read_record(
         .read_regular_range(CATALOG_NAME, offset, RECORD_BYTES)
         .await?
         .ok_or(PageError::Rebuild)?;
+    #[cfg(test)]
+    store
+        .catalog_io
+        .base_point_records
+        .fetch_add(1, AtomicOrdering::Relaxed);
     format::decode_record(&data).map_err(|_| PageError::Rebuild)
 }
 
@@ -142,6 +189,11 @@ async fn read_records(
         .read_regular_range(CATALOG_NAME, offset, length)
         .await?
         .ok_or(PageError::Rebuild)?;
+    #[cfg(test)]
+    store
+        .catalog_io
+        .base_range_records
+        .fetch_add(count, AtomicOrdering::Relaxed);
     data.chunks_exact(RECORD_BYTES)
         .map(|record| format::decode_record(record).map_err(|_| PageError::Rebuild))
         .collect()

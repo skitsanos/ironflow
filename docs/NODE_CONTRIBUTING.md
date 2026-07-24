@@ -185,7 +185,7 @@ nested object/array coverage when using the recursive helper.
 Nodes live in category folders under `src/nodes/<category>/`, one file per node (or a small group of closely related nodes), with shared helpers in their own files within the folder. Pick the category that fits — e.g.:
 - `src/nodes/http/`, `src/nodes/file/`, `src/nodes/transform/`, `src/nodes/database/`, `src/nodes/extract/`, `src/nodes/image/`, `src/nodes/ai/`, `src/nodes/cloud/`, `src/nodes/s3vector/`, `src/nodes/notify/`, `src/nodes/mcp/`, `src/nodes/composition/`, `src/nodes/utility/`.
 
-Add your node's struct to the appropriate file (e.g. `src/nodes/transform/json.rs`), or create a new file in the folder if it's a distinct responsibility. Keep files focused, target fewer than 300 LOC, and split responsibilities before they grow beyond roughly 400 LOC. Move large helpers/parsers into their own sibling file. If your node needs a brand-new category, create `src/nodes/<category>/mod.rs` with a `pub fn register_all(registry: &mut NodeRegistry)` and add `pub mod <category>;` to `src/nodes/mod.rs`.
+Add your node's struct to the appropriate file (e.g. `src/nodes/transform/json.rs`), or create a new file in the folder if it's a distinct responsibility. Keep files focused, target no more than 300 physical lines, and split responsibilities rather than let a file exceed 400 lines. Move large helpers/parsers into their own sibling file. If your node needs a brand-new category, create `src/nodes/<category>/mod.rs` with a `pub fn register_all(registry: &mut NodeRegistry)` and add `pub mod <category>;` to `src/nodes/mod.rs`.
 
 ## 8) Register the node
 
@@ -288,8 +288,21 @@ impl Node for MyNode {
 
 Before opening PR:
 - run targeted tests for the new behavior
+- run `python3 -B scripts/check_module_size.py`
 - run `cargo clippy --all-targets -- -D warnings`
 - ensure no broad warnings.
+
+The module-size check scans production `src/**/*.rs` files, including inline
+tests. Files through 300 lines need no exception; a cohesive 301–400-line file
+must have its exact physical-line ceiling and an architectural rationale in
+`scripts/module_size_policy.json`. If it shrinks, lower the ceiling immediately;
+remove the entry at 300 lines or fewer. New exceptions and exception-budget
+changes are architecture-policy decisions that require maintainer review. The
+IF-034 budget cannot exceed 13, so a new exception must replace an existing
+one; files above 400 lines are never exempt. Passing this check does not
+establish good modularity: reviewers must still examine responsibility
+boundaries, cognitive complexity, and whether moving tests or helpers improves
+cohesion.
 
 ## 14) Common mistakes to avoid
 

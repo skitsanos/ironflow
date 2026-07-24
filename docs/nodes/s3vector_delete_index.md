@@ -19,10 +19,15 @@ delete known vectors first when they need auditable per-vector cleanup output.
 | `endpoint_url` | string | no | `AWS_ENDPOINT_URL` env var | Override the S3 Vectors service endpoint. |
 | `output_key` | string | no | `s3vector` | Prefix for context output keys. |
 
-Provide either `index_name`/`index` together with a bucket name, or provide
-`index_arn` without an index name; bucket fields are not used for the ARN form.
-Do not configure both index forms. Resource identifiers are deliberately not
-read from environment variables for this destructive operation.
+## Target Resolution and Safety
+
+Use exactly one explicit configured shape after interpolation:
+`vector_bucket_name`/`bucket` plus `index_name`/`index`, or `index_arn` by
+itself. Do not configure bucket fields with the ARN form. Resource identifier
+environment variables are deliberately never consulted for index deletion;
+region, endpoint, and AWS credentials may still come from the environment.
+Conflicting forms and non-string, incomplete, or blank targets fail before the
+AWS client is built.
 
 ## Context Output
 

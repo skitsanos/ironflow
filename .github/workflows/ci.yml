@@ -9,6 +9,7 @@ on:
       - "Cargo.toml"
       - "Cargo.lock"
       - "examples/**"
+      - "scripts/**"
       - ".github/workflows/ci.yml"
   pull_request:
     branches: [main, develop]
@@ -25,11 +26,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check source branch
+        env:
+          HEAD_REF: ${{ github.head_ref }}
         run: |
-          if [ "${{ github.head_ref }}" != "develop" ]; then
-            echo "::error::Only the 'develop' branch can be merged into 'main'. Got '${{ github.head_ref }}'."
+          if [ "$HEAD_REF" != "develop" ]; then
+            echo "::error::Only the 'develop' branch can be merged into 'main'. Got '$HEAD_REF'."
             exit 1
           fi
+
+  module-size:
+    name: Module size ratchet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Test module-size checker
+        run: python3 -B -m unittest discover -s scripts/tests -p 'test_*.py' -v
+      - name: Enforce production module-size policy
+        run: python3 -B scripts/check_module_size.py
 
   check:
     name: Check

@@ -67,11 +67,14 @@ The core engine, minimal node set, and CLI. Goal: execute a simple multi-step fl
   Document that the bounded summary fast path validates the header/projection
   while full reads and mutations validate the complete primary.
 - [x] On Unix, enforce mode `0700` for the store directory and `0600` for main,
-  summary, and catalog metadata files; document the non-Unix ACL boundary
-- [x] Maintain a checksummed, fixed-record ordered summary catalog with global
-  and per-status sections, dirty/clean generation state, a local writer lock,
-  automatic recovery from authoritative primaries, and an explicit stopped-
-  writer rebuild API
+  summary, catalog base, delta, and other catalog metadata files; document the
+  non-Unix ACL boundary
+- [x] Maintain an immutable checksummed fixed-record summary-catalog base with
+  global/per-status sections and a checksummed, coalesced 128-ID mutation
+  delta. Version-2 dirty/clean state binds both revisions; one local writer
+  lock, automatic recovery from authoritative primaries, bounded ordinary
+  writes, periodic compaction, stopped-writer version transitions, and an
+  explicit offline rebuild API preserve the projection lifecycle
 - [x] Cover invalid/direct and percent-decoded API IDs, cross-instance
   no-clobber initialization, atomic replacement, filename/payload mismatch,
   non-regular entries, Unix symlinks, and new/legacy permissions
@@ -265,7 +268,9 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
 - [x] Examples organized by category with README
 
 ### 5.5 Infrastructure ✅
-- [x] GitHub Actions CI (check, clippy, fmt, test, build, validate examples) — path-filtered to skip docs-only changes
+- [x] GitHub Actions CI (module-size ratchet, check, clippy, fmt, test, build,
+  validate examples) — push-path-filtered to skip docs-only changes while
+  checker and policy changes remain in scope; pull requests run the full suite
 - [x] Schema-v2 example catalog classifies all 125 Lua flows, records composable service/credential/state/platform requirements, and evaluates every flow against the built-in registry so all 100 node types remain covered without exemptions
 - [x] GitHub Actions Release workflow — builds Linux (musl), macOS (x86_64 + aarch64), Windows on version tags
 - [x] Shared Lua sandbox module (`src/lua/sandbox.rs`) for consistent VM setup
@@ -325,11 +330,14 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
   `{prefix}runs_started_idx` / `{prefix}runs_status_started_id_idx` ordering,
   fetch only `limit + 1`, and boundedly backfill the numeric microsecond key
   for legacy and mixed-version rows before paging.
-- [x] JSON cursor pages binary-search a checksummed fixed-record catalog and
-  range-read only `limit + 1` entries from its global or status section. Clean
-  pages are O(log catalog + page size), use O(page-size) memory, and do not
-  enumerate the store directory. Dirty/missing/stale/malformed catalogs rebuild
-  from authoritative primary records under a local file lock (IF-029).
+- [x] JSON cursor pages binary-search an immutable checksummed fixed-record base,
+  range-read at most `limit + 1 + K` entries from its global/status section,
+  and merge a checksummed coalesced delta where `K <= 128`. Clean pages are
+  O(log N + page size + K), use O(page size + K) memory, and do not enumerate
+  the store directory. Ordinary projection writes are O(K); the 129th distinct
+  overlay ID compacts O(N) records and resets the delta. Version-2 dirty/clean
+  state, a local file lock, and authoritative-primary recovery cover malformed
+  base/delta metadata (IF-029, IF-033).
 - [x] Regression tests: HTTP oversized-Content-Length rejection, shell output
   truncation marker, revision/digest-linked sidecar repair and fault injection,
   bounded cursor traversal, status-bound cursors, SQL tie/null ordering,

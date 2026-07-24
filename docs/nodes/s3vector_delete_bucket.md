@@ -17,9 +17,14 @@ in progress, so delete every index first.
 | `endpoint_url` | string | no | `AWS_ENDPOINT_URL` env var | Override the S3 Vectors service endpoint. |
 | `output_key` | string | no | `s3vector` | Prefix for context output keys. |
 
-Provide either `vector_bucket_name`/`bucket` or `vector_bucket_arn`, but not
-both. Resource identifiers are deliberately not read from environment
-variables for this destructive operation.
+## Target Resolution and Safety
+
+Use exactly one explicit configured target after interpolation:
+`vector_bucket_name`/`bucket` or `vector_bucket_arn`. Resource identifier
+environment variables are deliberately never consulted for bucket deletion;
+region, endpoint, and AWS credentials may still come from the environment.
+Conflicting forms and non-string or blank targets fail before the AWS client is
+built.
 
 ## Context Output
 

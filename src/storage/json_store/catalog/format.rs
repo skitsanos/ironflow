@@ -123,7 +123,7 @@ pub(super) fn status_section(status: &RunStatus) -> usize {
     }
 }
 
-fn encode_record(record: &CatalogRecord) -> StorageResult<Vec<u8>> {
+pub(super) fn encode_record(record: &CatalogRecord) -> StorageResult<Vec<u8>> {
     let id = record.id.as_bytes();
     if id.is_empty() || id.len() > ID_BYTES {
         return Err(corrupt("catalog run ID exceeds the fixed record"));

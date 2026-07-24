@@ -1,10 +1,12 @@
 //! Crash-safe fixed-record index for JSON run-summary pages.
 //!
-//! Global and per-status sections make steady pages `O(log N + page size)`
-//! without directory enumeration. Inserts, status changes, and deletes rewrite
-//! the `O(N)` projection atomically; task/context-only updates keep the catalog
-//! generation and file unchanged and refresh only its small clean-state stamp.
+//! Global and per-status base sections plus a bounded mutation overlay make
+//! steady pages `O(log N + page size + K)` without directory enumeration,
+//! where `K <= 128`. Projection-changing writes atomically replace only the
+//! coalesced overlay until its next distinct ID triggers `O(N)` compaction;
+//! task/context-only updates leave both projection files unchanged.
 
+mod delta;
 mod format;
 mod header;
 mod page;
@@ -12,7 +14,13 @@ mod state;
 mod transaction;
 
 #[cfg(test)]
+mod benchmark_tests;
+#[cfg(test)]
+mod complexity_tests;
+#[cfg(test)]
 mod ordering_tests;
+#[cfg(test)]
+mod recovery_concurrency_tests;
 #[cfg(test)]
 mod resilience_tests;
 #[cfg(test)]

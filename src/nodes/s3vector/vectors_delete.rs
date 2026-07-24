@@ -1,12 +1,50 @@
 use anyhow::Result;
 use async_trait::async_trait;
+use aws_sdk_s3vectors::operation::delete_vectors::builders::DeleteVectorsInputBuilder;
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
 
 use super::client::build_s3vector_client;
-use super::config::{resolve_bucket_id, resolve_index_id, resolve_output_key};
+use super::config::resolve_output_key;
 use super::parameters::resolve_string_array;
+use super::target::{IndexTarget, TargetPolicy, resolve_index_target};
+
+struct PreparedDeleteVectors {
+    request: DeleteVectorsInputBuilder,
+    keys: Vec<String>,
+}
+
+fn prepare_delete_vectors_input(
+    config: &serde_json::Value,
+    ctx: &Context,
+) -> Result<PreparedDeleteVectors> {
+    let target = resolve_index_target(
+        config,
+        ctx,
+        "s3vector_delete_vectors",
+        TargetPolicy::ExplicitOnly,
+    )?;
+    let keys = resolve_string_array(
+        config,
+        "keys",
+        Some("keys_source_key"),
+        ctx,
+        "s3vector_delete_vectors",
+        "keys",
+    )?;
+    let request = DeleteVectorsInputBuilder::default().set_keys(Some(keys.clone()));
+    let request = match target {
+        IndexTarget::Names {
+            bucket_name,
+            index_name,
+        } => request
+            .vector_bucket_name(bucket_name)
+            .index_name(index_name),
+        IndexTarget::Arn(arn) => request.index_arn(arn),
+    };
+    Ok(PreparedDeleteVectors { request, keys })
+}
 
 pub struct S3VectorDeleteVectorsNode;
 
@@ -22,52 +60,24 @@ impl Node for S3VectorDeleteVectorsNode {
 
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let output_key = resolve_output_key(config);
-        let (bucket_name, _bucket_arn) = resolve_bucket_id(config, ctx, "s3vector_delete_vectors")?;
-        let (index_name, index_arn) = resolve_index_id(config, ctx, "s3vector_delete_vectors")?;
-        if index_name.is_none() && index_arn.is_none() {
-            return Err(anyhow::anyhow!(
-                "s3vector_delete_vectors requires 'index_name' or 'index_arn'"
-            ));
-        }
-        if index_name.is_some() && bucket_name.is_none() {
-            return Err(anyhow::anyhow!(
-                "s3vector_delete_vectors requires a vector bucket when using 'index_name'"
-            ));
-        }
-
-        let keys = resolve_string_array(
-            config,
-            "keys",
-            Some("keys_source_key"),
-            ctx,
-            "s3vector_delete_vectors",
-            "keys",
-        )?;
-
-        let mut request = build_s3vector_client(config, ctx)
-            .await?
-            .delete_vectors()
-            .set_keys(Some(keys.clone()));
-        if let Some(bucket_name) = bucket_name {
-            request = request.vector_bucket_name(bucket_name);
-        }
-        if let Some(index_name) = index_name {
-            request = request.index_name(index_name);
-        }
-        if let Some(index_arn) = index_arn {
-            request = request.index_arn(index_arn);
-        }
-
-        let _response = request.send().await?;
+        let prepared = prepare_delete_vectors_input(config, ctx)?;
+        let client = build_s3vector_client(config, ctx).await?;
+        let _response = prepared.request.send_with(&client).await?;
 
         let mut output = NodeOutput::new();
         output.insert(
             format!("{}_deleted_count", output_key),
-            serde_json::json!(keys.len()),
+            serde_json::json!(prepared.keys.len()),
         );
         output.insert(
             format!("{}_deleted_keys", output_key),
-            serde_json::Value::Array(keys.into_iter().map(serde_json::Value::String).collect()),
+            serde_json::Value::Array(
+                prepared
+                    .keys
+                    .into_iter()
+                    .map(serde_json::Value::String)
+                    .collect(),
+            ),
         );
         output.insert(
             format!("{}_success", output_key),
@@ -76,3 +86,6 @@ impl Node for S3VectorDeleteVectorsNode {
         Ok(output)
     }
 }
+
+#[cfg(test)]
+mod tests;

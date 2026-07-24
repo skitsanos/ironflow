@@ -248,6 +248,11 @@ later queries. Cleanup nodes are ordinary DAG steps reached only through their
 success dependencies, not finally handlers. A failed, timed-out, or interrupted
 run can therefore leave remote resources. Use a dedicated test account or
 endpoint, unique resource names, and inspect remote state after every run.
+All seven S3 Vector flows already pass complete bucket/index targets explicitly
+through node configuration; context interpolation counts as explicit
+configuration. Vector, index, and bucket deletion never derives its resource
+target from identifier environment variables. Region, endpoint, and AWS
+credentials may still come from the environment.
 
 ```bash
 # Basic

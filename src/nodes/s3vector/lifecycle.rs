@@ -1,125 +1,60 @@
 use anyhow::{Context as _, Result};
 use async_trait::async_trait;
+use aws_sdk_s3vectors::operation::delete_index::builders::DeleteIndexInputBuilder;
+use aws_sdk_s3vectors::operation::delete_vector_bucket::builders::DeleteVectorBucketInputBuilder;
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
 
 use super::client::build_s3vector_client;
-use super::config::{resolve_optional, resolve_output_key};
+use super::config::resolve_output_key;
+use super::target::{
+    BucketTarget, IndexTarget, TargetPolicy, resolve_bucket_target, resolve_index_target,
+};
 
-#[derive(Debug, PartialEq)]
-enum ResourceIdentifier {
-    Name(String),
-    Arn(String),
-}
-
-fn non_empty(value: Option<String>) -> Option<String> {
-    value.filter(|value| !value.is_empty())
-}
-
-fn resolve_identifier(
+fn prepare_delete_index_input(
     config: &serde_json::Value,
     ctx: &Context,
-    name_keys: &[&str],
-    arn_keys: &[&str],
-    node: &str,
-    name_field: &str,
-    arn_field: &str,
-) -> Result<Option<ResourceIdentifier>> {
-    let name = non_empty(resolve_optional(config, name_keys, &[], ctx));
-    let arn = non_empty(resolve_optional(config, arn_keys, &[], ctx));
-
-    match (name, arn) {
-        (Some(_), Some(_)) => anyhow::bail!(
-            "{} requires exactly one of '{}' or '{}'",
-            node,
-            name_field,
-            arn_field
-        ),
-        (Some(name), None) => Ok(Some(ResourceIdentifier::Name(name))),
-        (None, Some(arn)) => Ok(Some(ResourceIdentifier::Arn(arn))),
-        (None, None) => Ok(None),
-    }
-}
-
-fn resolve_bucket_identifier(
-    config: &serde_json::Value,
-    ctx: &Context,
-    node: &str,
-) -> Result<Option<ResourceIdentifier>> {
-    resolve_identifier(
+) -> Result<(DeleteIndexInputBuilder, IndexTarget)> {
+    let target = resolve_index_target(
         config,
         ctx,
-        &["vector_bucket_name", "bucket"],
-        &["vector_bucket_arn"],
-        node,
-        "vector_bucket_name",
-        "vector_bucket_arn",
-    )
-}
-
-fn resolve_index_identifier(
-    config: &serde_json::Value,
-    ctx: &Context,
-) -> Result<Option<ResourceIdentifier>> {
-    resolve_identifier(
-        config,
-        ctx,
-        &["index_name", "index"],
-        &["index_arn"],
         "s3vector_delete_index",
-        "index_name",
-        "index_arn",
-    )
-}
-
-#[derive(Debug, PartialEq)]
-enum BucketTarget {
-    Name(String),
-    Arn(String),
-}
-
-fn resolve_bucket_target(config: &serde_json::Value, ctx: &Context) -> Result<BucketTarget> {
-    match resolve_bucket_identifier(config, ctx, "s3vector_delete_bucket")? {
-        Some(ResourceIdentifier::Name(name)) => return Ok(BucketTarget::Name(name)),
-        Some(ResourceIdentifier::Arn(arn)) => return Ok(BucketTarget::Arn(arn)),
-        None => {}
-    }
-
-    anyhow::bail!("s3vector_delete_bucket requires 'vector_bucket_name' or 'vector_bucket_arn'")
-}
-
-#[derive(Debug, PartialEq)]
-enum IndexTarget {
-    Name {
-        bucket_name: String,
-        index_name: String,
-    },
-    Arn(String),
-}
-
-fn resolve_index_target(config: &serde_json::Value, ctx: &Context) -> Result<IndexTarget> {
-    match resolve_index_identifier(config, ctx)? {
-        Some(ResourceIdentifier::Name(index_name)) => {
-            let bucket_name = match resolve_bucket_identifier(config, ctx, "s3vector_delete_index")?
-            {
-                Some(ResourceIdentifier::Name(bucket_name)) => bucket_name,
-                Some(ResourceIdentifier::Arn(_)) | None => {
-                    return Err(anyhow::anyhow!(
-                        "s3vector_delete_index requires 'vector_bucket_name' when using 'index_name'"
-                    ));
-                }
-            };
-            Ok(IndexTarget::Name {
-                bucket_name,
-                index_name,
-            })
+        TargetPolicy::ExplicitOnly,
+    )?;
+    let request = match &target {
+        IndexTarget::Names {
+            bucket_name,
+            index_name,
+        } => DeleteIndexInputBuilder::default()
+            .vector_bucket_name(bucket_name.clone())
+            .index_name(index_name.clone()),
+        IndexTarget::Arn(index_arn) => {
+            DeleteIndexInputBuilder::default().index_arn(index_arn.clone())
         }
-        Some(ResourceIdentifier::Arn(index_arn)) => Ok(IndexTarget::Arn(index_arn)),
-        None => Err(anyhow::anyhow!(
-            "s3vector_delete_index requires 'index_name' or 'index_arn'"
-        )),
-    }
+    };
+    Ok((request, target))
+}
+
+fn prepare_delete_bucket_input(
+    config: &serde_json::Value,
+    ctx: &Context,
+) -> Result<(DeleteVectorBucketInputBuilder, BucketTarget)> {
+    let target = resolve_bucket_target(
+        config,
+        ctx,
+        "s3vector_delete_bucket",
+        TargetPolicy::ExplicitOnly,
+    )?;
+    let request = match &target {
+        BucketTarget::Name(bucket_name) => {
+            DeleteVectorBucketInputBuilder::default().vector_bucket_name(bucket_name.clone())
+        }
+        BucketTarget::Arn(bucket_arn) => {
+            DeleteVectorBucketInputBuilder::default().vector_bucket_arn(bucket_arn.clone())
+        }
+    };
+    Ok((request, target))
 }
 
 pub struct S3VectorDeleteIndexNode;
@@ -136,18 +71,15 @@ impl Node for S3VectorDeleteIndexNode {
 
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let output_key = resolve_output_key(config);
-        let target = resolve_index_target(config, ctx)?;
-        let mut request = build_s3vector_client(config, ctx).await?.delete_index();
+        let (request, target) = prepare_delete_index_input(config, ctx)?;
+        let client = build_s3vector_client(config, ctx).await?;
 
         let mut output = NodeOutput::new();
         match target {
-            IndexTarget::Name {
+            IndexTarget::Names {
                 bucket_name,
                 index_name,
             } => {
-                request = request
-                    .vector_bucket_name(bucket_name.clone())
-                    .index_name(index_name.clone());
                 output.insert(
                     format!("{}_bucket_name", output_key),
                     serde_json::Value::String(bucket_name),
@@ -158,7 +90,6 @@ impl Node for S3VectorDeleteIndexNode {
                 );
             }
             IndexTarget::Arn(index_arn) => {
-                request = request.index_arn(index_arn.clone());
                 output.insert(
                     format!("{}_index_arn", output_key),
                     serde_json::Value::String(index_arn),
@@ -167,7 +98,7 @@ impl Node for S3VectorDeleteIndexNode {
         }
 
         request
-            .send()
+            .send_with(&client)
             .await
             .context("s3vector_delete_index request failed")?;
         output.insert(
@@ -192,22 +123,18 @@ impl Node for S3VectorDeleteBucketNode {
 
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let output_key = resolve_output_key(config);
-        let target = resolve_bucket_target(config, ctx)?;
-        let mut request = build_s3vector_client(config, ctx)
-            .await?
-            .delete_vector_bucket();
+        let (request, target) = prepare_delete_bucket_input(config, ctx)?;
+        let client = build_s3vector_client(config, ctx).await?;
 
         let mut output = NodeOutput::new();
         match target {
             BucketTarget::Name(bucket_name) => {
-                request = request.vector_bucket_name(bucket_name.clone());
                 output.insert(
                     format!("{}_bucket_name", output_key),
                     serde_json::Value::String(bucket_name),
                 );
             }
             BucketTarget::Arn(bucket_arn) => {
-                request = request.vector_bucket_arn(bucket_arn.clone());
                 output.insert(
                     format!("{}_bucket_arn", output_key),
                     serde_json::Value::String(bucket_arn),
@@ -216,7 +143,7 @@ impl Node for S3VectorDeleteBucketNode {
         }
 
         request
-            .send()
+            .send_with(&client)
             .await
             .context("s3vector_delete_bucket request failed")?;
         output.insert(

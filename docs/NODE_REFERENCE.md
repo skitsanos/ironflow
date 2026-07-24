@@ -62,6 +62,17 @@ For adding or maintaining node implementations, see [Node Contributor Manual](NO
 | [`s3vector_put_vectors`](nodes/s3vector_put_vectors.md) | Upload vectors to an S3 Vector index |
 | [`s3vector_query_vectors`](nodes/s3vector_query_vectors.md) | Query nearest vectors in an S3 Vector index |
 
+S3 Vector resource targets are resolved as one unit after context
+interpolation. If any resource-target field is configured, the complete target
+must come from node configuration; resource identifier environment variables
+neither complete nor override it. Nodes that allow environment fallback consult
+those variables only when no target field is configured, and the resulting
+environment-only target must use one supported identifier shape. Conflicting,
+incomplete, non-string, or blank targets fail before the AWS client is built.
+`s3vector_delete_vectors`, `s3vector_delete_index`, and
+`s3vector_delete_bucket` always require an explicit configured target. Region,
+endpoint, and AWS credential configuration may still come from the environment.
+
 ## Notification Nodes
 
 | Node | Description |

@@ -13,17 +13,26 @@ can still skip that success-dependent cleanup.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `vector_bucket_name` | string | yes* | `S3VECTOR_BUCKET_NAME` / `S3_BUCKET` env vars | Bucket that owns the index. |
+| `vector_bucket_name` | string | yes* | environment-only fallback | Bucket that owns a named index. Uses `S3VECTOR_BUCKET_NAME`, then legacy `S3_BUCKET`, only when no target field is configured. |
 | `bucket` | string | no | no | Alias for `vector_bucket_name`. |
-| `index_name` | string | yes* | `S3VECTOR_INDEX_NAME` env var | Target index name. |
+| `index_name` | string | yes* | environment-only fallback | Target index name. Uses `S3VECTOR_INDEX_NAME` only when no target field is configured. |
 | `index` | string | no | no | Alias for `index_name`. |
-| `index_arn` | string | no | `S3VECTOR_INDEX_ARN` env var | Alternative to `index_name`. |
+| `index_arn` | string | yes* | environment-only fallback | Self-contained alternative target. Uses `S3VECTOR_INDEX_ARN` only when no target field is configured. |
 | `region` | string | no | AWS region chain | Override `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, or `AWS_DEFAULT_REGION`. |
 | `endpoint_url` | string | no | `AWS_ENDPOINT_URL` env var | Override the S3 Vectors service endpoint. |
 | `output_key` | string | no | `s3vector` | Prefix for context output keys. |
 
-`index_name`/`index` require a bucket name unless `index_arn` is provided. The
-S3 Vectors API does not accept a bucket ARN together with an index name.
+## Target Resolution
+
+Use exactly one supported shape: `vector_bucket_name`/`bucket` plus
+`index_name`/`index`, or `index_arn` by itself. Bucket ARN plus index name is not
+supported. If any target field is configured, the complete shape must come from
+node configuration after interpolation; identifier environment variables
+neither complete nor override it. With no configured target field, the node
+accepts the same coherent environment-only shapes from
+`S3VECTOR_BUCKET_NAME` (falling back to legacy `S3_BUCKET`) plus
+`S3VECTOR_INDEX_NAME`, or from `S3VECTOR_INDEX_ARN` alone. Conflicting forms and
+non-string, incomplete, or blank targets fail before the AWS client is built.
 
 ## Context Output
 

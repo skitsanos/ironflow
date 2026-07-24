@@ -83,9 +83,9 @@ Static validation must be supplemented with representative runtime probes.
 | IF-029 | P3 | Resolved | JSON storage | Run pages required full filesystem catalog scans |
 | IF-030 | P2 | Resolved | Redis events | Legacy event adoption/deletion is bounded and resumable |
 | IF-031 | P2 | Resolved | S3 Vectors | Examples cannot delete indexes or vector buckets |
-| IF-032 | P2 | Open | S3 Vectors | Resource targets can mix explicit and environment identifiers |
-| IF-033 | P3 | Open | JSON storage | Projection-changing writes replace the complete run catalog |
-| IF-034 | P3 | Open | Architecture | Module-size policy has no automated regression guard |
+| IF-032 | P2 | Resolved | S3 Vectors | Resource targets can mix explicit and environment identifiers |
+| IF-033 | P3 | Resolved | JSON storage | Projection-changing writes replace the complete run catalog |
+| IF-034 | P3 | Resolved | Architecture | Module-size policy has no automated regression guard |
 
 ## P0 — release-blocking safety and durability
 
@@ -1268,7 +1268,7 @@ pass. `cargo fmt --all -- --check` and `git diff --check` also pass.
 
 ### IF-032 — S3 Vector resource targets can mix identifier sources
 
-**Status:** Open.
+**Status:** Resolved on 2026-07-24.
 
 The older `s3vector_get_bucket`, `s3vector_create_index`,
 `s3vector_get_index`, `s3vector_put_vectors`, `s3vector_query_vectors`, and
@@ -1281,13 +1281,38 @@ provider-supported identifier form, ambiguous explicit targets fail before
 network access, and the destructive vector-deletion path receives an
 explicit-target safety decision.
 
+Resolution: S3 Vector identifiers now pass through one typed, source-aware
+target resolver after context interpolation. The presence of any relevant
+configured target field selects configuration for the whole target, so
+environment identifiers cannot complete or override a partial explicit form.
+Non-string, blank, conflicting-alias, incomplete, ambiguous, and
+provider-unsupported combinations fail before client construction. With no
+configured target, non-destructive nodes accept one coherent environment-only
+shape; `S3VECTOR_BUCKET_NAME` takes precedence over the legacy `S3_BUCKET`
+fallback. Vector, index, and bucket deletion all require explicit configured
+targets.
+
+Every S3 Vector operation now prepares a generated AWS SDK input before
+building the client and sends that exact input with `send_with`. Request-shape
+tests assert the supported name or ARN form and that every alternate identifier
+field is absent. The resolver uses injected environment readers in tests, so
+precedence and ambiguity coverage does not mutate process-global state. The new
+target modules remain below 300 LOC.
+
+Validation covers 48 focused S3 Vector unit tests, 11 node integration tests,
+all 125 Lua examples, and a live `.env`-backed 11-step AWS lifecycle that
+created, inspected, populated, queried, and then deleted its UUID-scoped
+vectors, index, and bucket. Default and `postgres,redis` all-target checks,
+complete test suites, and strict Clippy gates pass, together with doc tests,
+`cargo fmt --all -- --check`, and `git diff --check`.
+
 ## P3 — maintainability and modularity
 
 ### IF-028 — Large/duplicated modules need bounded extraction
 
 **Status:** Resolved on 2026-07-24.
 
-At audit time, 26 Rust source files exceeded 300 LOC and nine exceeded 400 LOC.
+At audit time, 26 Rust source files exceeded 300 LOC and ten exceeded 400 LOC.
 High-value candidates:
 
 - `src/nodes/ai/llm_providers.rs` — 569 LOC
@@ -1297,6 +1322,7 @@ High-value candidates:
 - `src/nodes/ai/embeddings.rs` — 431
 - `src/nodes/transform/data.rs` — 419
 - `src/storage/sql_store/mod.rs` — 417
+- `src/nodes/image/image_basic.rs` — 407
 - `src/nodes/notify/email.rs` — 406
 - `src/nodes/composition/conditional.rs` — 403
 
@@ -1310,9 +1336,10 @@ consolidated into `src/lua/conversion/` with separate public wiring,
 Lua-to-JSON traversal, JSON-to-Lua traversal, and path/index modules; every file
 is below 300 LOC. IF-004 also split the former 312-line executor into dedicated
 engine entry-point, coordinator, workflow, finalizer, scheduler, task-runner,
-and error-handler modules; every executor file is below 230 LOC.
+and error-handler modules; at that checkpoint every executor file was below 230
+LOC.
 
-Resolution: the nine named high-risk modules were converted into small facades
+Resolution: the ten named high-risk modules were converted into small facades
 and responsibility-specific submodules for provider configuration/adapters,
 OOXML theme/numbering/comments/notes/relationships/slides, archive operations,
 data transforms, SQL state-store concerns, email transports, and conditional
@@ -1348,64 +1375,120 @@ requesting or retaining the entire catalog in one response. IF-020's
 revision/digest-linked sidecar repair protected correctness but did not create
 this ordered index.
 
-Resolution: `JsonStateStore` now maintains a checksummed fixed-record binary
-catalog with one global and six status-specific ordered sections. Clean cursor
-pages use logarithmic fixed-record probes plus a `limit + 1` range read and
-retain O(page-size) memory without enumerating the store directory. Selected
-records are still verified against current authoritative primary/summary
-state before the page is returned.
+Resolution: IF-029 introduced a checksummed fixed-record binary base with one
+global and six status-specific ordered sections. IF-033 subsequently added the
+bounded mutation overlay described below. A current clean cursor page probes the
+base logarithmically, range-reads at most `limit + 1 + K` base records, and
+merges K delta entries, where `K <= 128`. It therefore uses
+O(log N + page size + K) reads and O(page size + K) memory without enumerating
+the store directory. Selected records are still verified against current
+authoritative primary/summary state before the page is returned.
 
-Catalog state uses a generation-bound dirty/clean token, directory/catalog
-fingerprints, and a local no-follow file lock. Participating store instances
-mark the projection dirty before primary mutations; initialization, status
-changes, and deletion publish a new compact snapshot, while task/context-only
-updates leave the catalog bytes unchanged. Missing, dirty, stale, truncated,
-or checksum-invalid metadata rebuilds from authoritative primary records.
-`JsonStateStore::rebuild_run_summary_catalog()` provides the documented
-stopped-writer recovery path.
+Catalog state now uses a version-2 dirty/clean token bound to the base generation
+and delta revision, directory/base/delta fingerprints, and one local no-follow
+file lock. Participating store instances mark the projection dirty before
+primary mutations. Ordinary initialization, status, and delete changes replace
+only the bounded delta; task/context-only updates leave both base and delta
+bytes unchanged. Missing, dirty, stale, truncated, or checksum-invalid metadata
+rebuilds from authoritative primary records. The stopped-writer
+`JsonStateStore::rebuild_run_summary_catalog()` path publishes a new base and an
+empty delta.
 
-Deterministic regressions cover deep clean pages without directory enumeration,
-all status sections, cursor timestamp ties and missing timestamps, task/context
-projection stability, status/delete changes, corrupt/missing/dirty rebuilds,
-cross-instance writers, concurrent delete and status/read races, interrupted
-deletion, and catalog/state/lock symlink rejection. Full snapshot replacement
-makes projection-changing JSON writes O(catalog); this is documented as a
-moderate-cardinality local-backend tradeoff, with SQL or Redis recommended for
-high-cardinality or high-write workloads.
+IF-029 regressions cover deep clean pages without directory enumeration, all
+status sections, cursor timestamp ties and missing timestamps, projection
+stability, corrupt/missing/dirty rebuilds, cross-instance races, interrupted
+deletion, and metadata symlink rejection. IF-033 adds deterministic bounded-I/O,
+base/delta merge, compaction, recovery, and concurrency coverage. JSON remains a
+moderate-cardinality local backend; SQL or Redis is recommended for sustained
+high-write or high-cardinality workloads.
 
 ### IF-033 — JSON projection changes replace the complete run catalog
 
-**Status:** Open.
+**Status:** Resolved on 2026-07-24.
 
-IF-029 makes clean reads O(log catalog + page size), but initialization, status
-changes, and deletion still load, encode, duplicate into global/status sections,
-and atomically replace the complete derived catalog. Those mutations therefore
-use O(catalog) memory and I/O (and currently include a full sort), even when one
-projection record changes. Task/context-only mutations already avoid this work.
+Before resolution, initialization, status changes, and deletion decoded,
+reconstructed, and atomically replaced the complete fixed-record catalog even
+when one projection record changed. The base duplicated every run in its global
+and status section, so ordinary writes consumed O(N) memory and I/O.
+Task/context-only mutations already avoided the projection rewrite.
 
-Benchmark projection-changing writes at representative 1,000- and 10,000-run
-catalog sizes, then choose a crash-safe incremental layout only if the measured
-cost justifies the added complexity. A solution may use copy-on-write fixed
-pages or a checksummed delta journal with bounded compaction, but must preserve
-the current O(log catalog + page size) clean read, cross-instance writer lock,
-dirty/clean recovery semantics, canonical-ID/no-follow boundary, and explicit
-offline rebuild. SQL and Redis remain the recommended high-write backends.
+Resolution: the IF-029 fixed-record snapshot is now an immutable base, paired
+with `.ironflow-run-catalog-v1.delta`. Its checksummed header and entries store
+the latest upsert or tombstone for at most 128 distinct canonical run IDs,
+coalesced and sorted by ID. An ordinary projection mutation reads and atomically
+replaces only this O(K) overlay; repeated changes to one ID still consume one
+entry. The 129th distinct ID deliberately performs one O(N) compaction, publishes
+a new base plus empty delta, and starts a new generation.
+
+Pages binary-search the selected base section, read at most
+`limit + 1 + K` base records, remove entries shadowed by the delta, and merge
+matching overlay upserts in cursor order. Clean reads are therefore
+O(log N + page size + K), with `K <= 128`, while final page retention remains
+bounded. Task/context mutations leave both projection files byte-identical.
+
+The existing cross-process writer lock remains the serialization boundary.
+Writers publish dirty state before changing the authoritative primary, durably
+replace the delta or compacted base/delta, and publish the clean token last. The
+version-2 state token binds independent base-generation and delta-revision IDs
+plus directory/base/delta fingerprints. Missing, dirty, stale, truncated,
+checksum-invalid, or generation-mismatched metadata rebuilds from authoritative
+primaries. Canonical-ID validation and no-follow/regular-file checks cover the
+new delta path. The explicit stopped-writer rebuild compacts into a fresh base
+and empty delta. Upgrades and downgrades across state version 2 require stopping
+old writers; mixed-version writers are unsupported.
+
+The ignored release benchmark
+`storage::json_store::catalog::benchmark_tests::projection_changing_write_benchmark`
+makes the write-amplification change deterministic. Before IF-033, ordinary
+writes replaced 344,128 bytes at 1,000 runs and 3,440,128 bytes at 10,000 runs
+(about 31.0 ms and 32.9 ms in that run). After IF-033, the mutation-persistence
+step in both cases decoded a 96-byte empty delta, replaced a 304-byte one-entry
+delta, and left the base byte-identical (about 15.9 ms and 15.4 ms). Token
+validation also performs bounded state/header/delta reads; those constant
+metadata reads are outside this counter. Timing is environment-specific; the
+cardinality-independent byte counts are the acceptance signal.
+
+Regressions prove equal bounded ordinary-write I/O at 1,000 and 10,000 base
+records, one-entry coalescing across 160 repeated updates, exactly one
+compaction on the 129th distinct overlay ID, task/context byte stability,
+global/status/cursor merge ordering, logarithmic deep-cursor lookup plus the
+`limit + 1 + K` tombstone-backfill bound at 10,000 records, delta damage and
+generation recovery, explicit rebuild reset, state-version rejection, symlink
+defense, and two-store writer correctness across compaction. SQL and Redis
+remain the recommended backends for sustained high-write workloads.
 
 ### IF-034 — Module-size policy has no automated regression guard
 
-**Status:** Open.
+**Status:** Resolved on 2026-07-24.
 
-IF-028 reduced the source inventory from nine files above 400 lines to zero and
-documented the target-below-300/split-before-400 convention, but enforcement is
+IF-028 reduced the source inventory from ten files above 400 lines to zero and
+documented the target-at-most-300/split-before-400 convention, but enforcement was
 still a manual audit. Thirteen cohesive or inline-test-heavy files currently
 remain between 301 and 400 lines, so a blunt universal 300-line failure would
 encourage mechanical splitting rather than better boundaries.
 
-Add a lightweight CI ratchet that reports the largest Rust modules, rejects
-new files above 300 lines unless they carry a reviewed rationale, prevents the
-current 301–400-line allowlist from growing, and rejects any file above 400.
-Keep test extraction and responsibility/cognitive-complexity review explicit so
-the check supports modular design instead of treating line count as the goal.
+Resolution: `scripts/check_module_size.py` scans regular, non-symlink production
+modules under `src/**/*.rs`, counting physical lines consistently even without
+a final newline. Every valid-policy evaluation prints the 20 largest modules in
+deterministic order, whether the source policy passes or fails.
+Files through 300 lines pass directly; files from 301 through 400 require an
+exact path/count ceiling and substantive rationale in
+`scripts/module_size_policy.json`; any file above 400 fails unconditionally.
+Missing, renamed, newly unlisted, grown, reduced, or now-small exceptions fail
+until the policy is ratcheted to the new state. The current exception budget and
+13 exact ceilings are review-visible, and the checker refuses a budget above
+the fixed IF-034 baseline. A new exception must therefore retire an existing
+one instead of expanding the set.
+
+The checker explicitly says that LOC is a review trigger rather than a design
+score and calls out responsibility boundaries, cognitive complexity, and useful
+test extraction. Its 16 standard-library-only tests cover deterministic reports,
+300/301/400/401 boundaries, reviewed ceilings, growth and reduction ratchets,
+stale entries, rationale and budget validation, `src/` scope, and portable line
+counting. GitHub Actions runs both those tests and the live-repository check;
+`scripts/**` is included in push path filtering. Automation verifies that a
+rationale is present and conspicuous, while human review remains responsible
+for deciding whether it is sound.
 
 ## Audit evidence snapshot
 
@@ -1459,3 +1542,14 @@ IF-028/IF-029 closure gate completed on 2026-07-24:
 - 125/125 Lua examples passed static validation
 - Rust source inventory: zero files above 400 lines; 13 cohesive or test-heavy
   files remain between 301 and 400 lines
+
+IF-034 closure gate completed on 2026-07-24:
+
+- Module-size checker regressions: 16/16 passed
+- Live source inventory: 312 production Rust modules, 13/13 exact reviewed
+  exceptions, and zero files above 400 lines
+- `actionlint .github/workflows/ci.yml`
+- `cargo fmt --all -- --check` and `git diff --check`
+- `cargo clippy --all-targets -- -D warnings` under default and
+  `postgres,redis` features
+- `cargo test --all-targets` and `cargo test --doc`

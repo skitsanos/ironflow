@@ -18,8 +18,11 @@ IronFlow ships as a single binary and does not require a Python, Node.js, or con
    cancellation.
 5. **Pluggable persistence** — State storage is trait-based. JSON file storage ships by default; Redis is optional.
 6. **Bounded responsibilities** — Keep modules cohesive and small enough to
-   review independently: target fewer than 300 lines and split distinct
-   responsibilities before a file grows to roughly 400 lines.
+   review independently: target at most 300 physical lines and split distinct
+   responsibilities rather than let a file exceed 400 lines. CI treats 301–400-line
+   production modules as reviewed, exact-count exceptions and rejects anything
+   larger. LOC is a review trigger; cohesion, cognitive complexity, and useful
+   test extraction remain the actual design criteria.
 
 ## System Layers
 
@@ -152,16 +155,18 @@ pub trait StateStore: Send + Sync {
 The two vector-returning methods remain compatibility/maintenance primitives;
 user-facing listing must use the required bounded page method. `RunListQuery`
 always contains a non-zero page size and an optional filter-bound keyset
-cursor. A page retains at most `limit + 1` candidates, using the extra record
-only to produce the next cursor; this retained bound does not imply that every
-backend examines only `limit + 1` records. Ordering normalizes `started` to UTC
+cursor. The final ordered set passed into `RunSummaryPage` retains at most
+`limit + 1` summaries, using the extra record only to produce the next cursor;
+this bound does not imply that every backend examines or temporarily merges
+only `limit + 1` records. Ordering normalizes `started` to UTC
 microseconds, sorts it descending with missing timestamps last, and then sorts
 run ID descending. Timestamps that differ only below microsecond precision are
 therefore tied and use the ID order. SQL applies filtering, cursor, ordering,
-task counts, and `LIMIT` in the query. JSON binary-searches a fixed-record
-ordered catalog and range-reads at most `limit + 1` entries from its global or
-status section. A clean page therefore uses O(log catalog + page size) catalog
-reads and O(page size) memory without enumerating the store directory.
+task counts, and `LIMIT` in the query. JSON binary-searches an immutable
+fixed-record base, reads at most `limit + 1 + K` base entries, and merges its
+checksummed delta, where `K <= 128` is the overlay entry count. A clean page
+therefore uses O(log N + page size + K) catalog reads and O(page size + K)
+memory without enumerating the store directory.
 
 Both `StateStore` and `EventStore` return `StorageResult`. `StorageError`
 preserves one of five boundary-safe categories: `InvalidInput`, `NotFound`,
@@ -183,11 +188,13 @@ Implementations:
   mismatched caches cause a full primary decode and best-effort repair; an
   explicit string sidecar ID that disagrees with its filename is corruption
   and does not fall back. Bounded pages use a checksummed, fixed-record catalog
-  with one global and six status-specific ordered sections. The page path
-  probes its cursor in logarithmic time, then range-reads at most `limit + 1`
-  catalog records and their current summaries. A dirty, missing, stale, or
-  malformed catalog is rebuilt from authoritative primary records under the
-  catalog file lock.
+  base with one global and six status-specific ordered sections plus a
+  checksummed, coalesced delta capped at 128 distinct run IDs. The page path
+  probes its cursor in logarithmic time, range-reads at most
+  `limit + 1 + K` base records, merges the K-entry overlay, and verifies the
+  selected current summaries. A dirty, missing, stale, or malformed base,
+  delta, or version-2 state token is rebuilt from authoritative primary records
+  under the shared catalog file lock.
 - **NullStateStore** — In-memory, transient (used by subworkflow nodes)
 - **SqlStateStore** — SQLite/Postgres-backed store with run rows containing
   context and separate task rows, avoiding full run-record rewrites on task
@@ -307,36 +314,47 @@ unversioned and revision-only records use the authoritative full-record path;
 revision-only records are not repeatedly "repaired" into an unusable sidecar,
 and their next mutation upgrades both files.
 
-Bounded pages are driven by `.ironflow-run-catalog-v1.bin`, a derived binary
+Bounded pages are driven by `.ironflow-run-catalog-v1.bin`, an immutable derived
 projection of canonical run ID, status, and microsecond-normalized start time.
-Its checksummed header identifies a generation and offsets one global plus six
-status-specific sections; each fixed-size record has its own checksum. The
-matching `.ironflow-run-catalog-v1.state` records whether that generation is
-clean and fingerprints the directory and catalog. Page reads verify the token
-before and after binary-search/range-read selection, retrying when a concurrent
-writer changes it. A clean page does not enumerate the store directory.
+Its checksummed header identifies a base generation and offsets one global plus
+six status-specific sections; each fixed-size record has its own checksum.
+`.ironflow-run-catalog-v1.delta` stores at most 128 coalesced upserts or
+tombstones, sorted by canonical run ID, with checksummed header/entries and a
+revision bound to the base generation. The matching version-2
+`.ironflow-run-catalog-v1.state` clean token binds both IDs and fingerprints the
+directory, base, and delta. Page reads verify the token before and after
+binary-search/range-read selection, retrying when a concurrent writer changes
+it. They read at most `limit + 1 + K` base entries and merge the K-entry delta,
+so a clean page is O(log N + page size + K), uses O(page size + K) memory, and
+does not enumerate the store directory (`K <= 128`).
 
 Participating `JsonStateStore` writers hold
 `.ironflow-run-catalog-v1.lock`, mark the projection dirty before changing an
-authoritative record, then publish the catalog or confirm that its indexed
-projection is unchanged. Initialization, status changes, and deletion replace
-the compact sorted snapshot; task/context-only changes leave the catalog bytes
-unchanged and refresh the clean fingerprint. This local file lock coordinates
-store instances on one filesystem, but it is not a distributed lock and does
-not protect against a hostile external process. The JSON backend is therefore
-best suited to local, moderate-cardinality workloads; use SQL or Redis when
-high-cardinality or high-frequency projection-changing writes matter.
+authoritative record, then publish the derived change or confirm that its
+projection is unchanged. Initialization, status changes, and deletion normally
+read and atomically replace only the O(K) delta. Repeated changes to one run ID
+coalesce into one entry; the 129th distinct overlay ID performs an O(N)
+compaction into a new immutable base and empty delta. Task/context-only changes
+leave both base and delta bytes unchanged and refresh the clean fingerprint.
+This local file lock coordinates store instances on one filesystem, but it is
+not a distributed lock and does not protect against a hostile external process.
+The JSON backend is therefore best suited to local, moderate-cardinality
+workloads; use SQL or Redis for sustained high-write or high-cardinality use.
 
-Missing, dirty, stale, or malformed catalog metadata is rebuilt lazily from
-authoritative primary records. For explicit repair, stop all writers, make a
-backup, and call `JsonStateStore::rebuild_run_summary_catalog()`. If a catalog,
-state, or lock path has been replaced by a symlink/non-regular entry, remove it
-while offline first: IronFlow rejects unsafe metadata instead of following it.
-Ultimate durability remains subject to the filesystem and storage hardware.
+Missing, dirty, stale, or malformed base/delta metadata is rebuilt lazily from
+authoritative primary records. The state-format transition is intentionally
+not a mixed-writer protocol: stop all writers before upgrading to or
+downgrading from version 2, then let the first current process rebuild. For
+explicit repair, stop all writers, make a backup, and call
+`JsonStateStore::rebuild_run_summary_catalog()`; the rebuild publishes a fresh
+base and empty delta. If a base, delta, state, or lock path has been replaced by
+a symlink/non-regular entry, remove it while offline first: IronFlow rejects
+unsafe metadata instead of following it. Ultimate durability remains subject
+to the filesystem and storage hardware.
 
 On Unix, the store directory is mode `0700`, and committed main, summary,
-catalog, state, and lock files are mode `0600`. These numeric ownership-mode
-guarantees are Unix-only.
+catalog base, delta, state, and lock files are mode `0600`. These numeric
+ownership-mode guarantees are Unix-only.
 On non-Unix platforms, operators must configure equivalent filesystem ACLs;
 all platforms remain subject to their filesystem's rename guarantees.
 

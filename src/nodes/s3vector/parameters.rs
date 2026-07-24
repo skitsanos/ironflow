@@ -4,7 +4,7 @@ use crate::engine::types::Context;
 use crate::lua::interpolate::interpolate_ctx;
 use crate::util::node_config::config_f64;
 
-use super::config::{resolve_optional, resolve_required};
+use super::config::resolve_optional;
 
 pub(super) fn resolve_i64(
     config: &serde_json::Value,
@@ -97,21 +97,6 @@ pub(super) fn resolve_f64(
     }
 
     Ok(number)
-}
-
-pub(super) fn resolve_non_empty_string(
-    config: &serde_json::Value,
-    keys: &[&str],
-    env_keys: &[&str],
-    ctx: &Context,
-    node: &str,
-    field: &str,
-) -> Result<String> {
-    let value = resolve_required(config, keys, env_keys, ctx, node, field)?;
-    if value.is_empty() {
-        anyhow::bail!("{} requires '{}' to be non-empty", node, field);
-    }
-    Ok(value)
 }
 
 pub(super) fn resolve_string_array(

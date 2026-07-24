@@ -223,27 +223,31 @@ identity or digest mismatch reached by a full decode fail explicitly. Legacy
 unversioned and revision-only primaries take the full-record path until a later
 mutation upgrades both files.
 
-Bounded pages use `.ironflow-run-catalog-v1.bin`, a checksummed fixed-record
-projection with one global and six status-specific ordered sections. The page
-path binary-searches the filter-bound cursor and range-reads at most
-`limit + 1` entries, so a clean page is O(log catalog + page size), retains
-O(page size), and does not enumerate `store_dir`. A checksummed
-`.ironflow-run-catalog-v1.state` clean token and
-`.ironflow-run-catalog-v1.lock` coordinate local participating writers and
-detect concurrent changes. Initialization, status changes, and deletion
-replace the compact sorted projection; task/context-only updates keep the
-catalog bytes unchanged. Missing, dirty, stale, or malformed metadata is
-rebuilt lazily from authoritative main records.
+Bounded pages use an immutable `.ironflow-run-catalog-v1.bin` fixed-record base
+with one global and six status-specific ordered sections, plus a checksummed
+`.ironflow-run-catalog-v1.delta` containing at most 128 coalesced run-ID
+upserts/tombstones. The page path binary-searches the filter-bound cursor,
+range-reads at most `limit + 1 + K` base entries, and merges the K-entry delta.
+A clean page is therefore O(log N + page size + K), retains O(page size + K),
+and does not enumerate `store_dir`, where `K <= 128`. A checksummed version-2
+`.ironflow-run-catalog-v1.state` token binds the base generation and delta
+revision; `.ironflow-run-catalog-v1.lock` coordinates local participating
+writers. Initialization, status changes, and deletion normally replace only
+the O(K) delta. The 129th distinct overlay ID compacts O(N) records into a new
+base and empty delta, while repeated changes to one ID remain one entry.
+Task/context-only updates keep both files unchanged. Missing, dirty, stale, or
+malformed base/delta metadata is rebuilt lazily from authoritative main
+records.
 
 On Unix, IronFlow sets the JSON store directory to mode `0700` and committed
-main, summary, catalog, state, and lock files to `0600`. Numeric Unix mode
-guarantees do not apply on non-Unix platforms; configure equivalent directory/
-file ACLs there. Atomic
+main, summary, catalog base, delta, state, and lock files to `0600`. Numeric
+Unix mode guarantees do not apply on non-Unix platforms; configure equivalent
+directory/file ACLs there. Atomic
 publication/replacement is also subject to the underlying filesystem's
 same-directory hard-link/rename semantics. The local catalog lock coordinates
 participating store instances on one filesystem, but is neither distributed
 coordination nor protection from a hostile external process. Prefer SQL or
-Redis for high-cardinality or high-frequency projection-changing writes.
+Redis for sustained high-write or high-cardinality workloads.
 
 Existing engine-created UUID filenames already satisfy the grammar. A
 historical JSON entry created through direct store use with a noncanonical ID
@@ -251,9 +255,11 @@ is reported as corruption during listing rather than silently ignored. Migrate
 such data offline: stop writers, make a backup, and either export/reimport it or
 rename both main/summary files while updating their matching embedded IDs.
 The same stopped-writer window can explicitly rebuild derived index metadata
-with `JsonStateStore::rebuild_run_summary_catalog()`. IronFlow refuses a
-symlink/non-regular catalog, state, or lock entry; remove such unsafe metadata
-offline before rebuilding it.
+with `JsonStateStore::rebuild_run_summary_catalog()`, which publishes a fresh
+base and empty delta. Stop all writers before upgrading to or downgrading from
+the version-2 catalog state format; mixed old/new writers are unsupported.
+IronFlow refuses a symlink/non-regular base, delta, state, or lock entry; remove
+such unsafe metadata offline before rebuilding it.
 
 Configure via `ironflow.yaml`:
 

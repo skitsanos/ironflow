@@ -1,6 +1,7 @@
 use crate::engine::types::Context;
 use crate::storage::{PageSize, RunListQuery, StateStore, StorageErrorKind};
 
+use super::delta::DELTA_NAME;
 use super::state;
 use super::{CATALOG_NAME, LOCK_NAME, STATE_NAME};
 use crate::storage::json_store::JsonStateStore;
@@ -216,21 +217,23 @@ async fn state_and_lock_symlinks_are_rejected_without_following_them() {
 
 #[cfg(unix)]
 #[tokio::test]
-async fn catalog_symlinks_are_rejected_without_following_them() {
+async fn catalog_and_delta_symlinks_are_rejected_without_following_them() {
     use std::os::unix::fs::symlink;
 
-    let directory = tempfile::tempdir().unwrap();
-    let outside = tempfile::NamedTempFile::new().unwrap();
-    std::fs::write(outside.path(), b"outside sentinel").unwrap();
-    let store = JsonStateStore::new(directory.path());
-    store
-        .init_run("symlink-catalog", "flow", &Context::new())
-        .await
-        .unwrap();
-    std::fs::remove_file(directory.path().join(CATALOG_NAME)).unwrap();
-    symlink(outside.path(), directory.path().join(CATALOG_NAME)).unwrap();
+    for metadata_name in [CATALOG_NAME, DELTA_NAME] {
+        let directory = tempfile::tempdir().unwrap();
+        let outside = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(outside.path(), b"outside sentinel").unwrap();
+        let store = JsonStateStore::new(directory.path());
+        store
+            .init_run("symlink-catalog", "flow", &Context::new())
+            .await
+            .unwrap();
+        std::fs::remove_file(directory.path().join(metadata_name)).unwrap();
+        symlink(outside.path(), directory.path().join(metadata_name)).unwrap();
 
-    let error = store.list_run_summaries_page(&query(10)).await.unwrap_err();
-    assert_eq!(error.kind(), StorageErrorKind::Corruption);
-    assert_eq!(std::fs::read(outside.path()).unwrap(), b"outside sentinel");
+        let error = store.list_run_summaries_page(&query(10)).await.unwrap_err();
+        assert_eq!(error.kind(), StorageErrorKind::Corruption);
+        assert_eq!(std::fs::read(outside.path()).unwrap(), b"outside sentinel");
+    }
 }

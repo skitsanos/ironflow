@@ -40,6 +40,8 @@ pub struct JsonStateStore {
     #[cfg(test)]
     current_summary_reads: AtomicUsize,
     #[cfg(test)]
+    catalog_io: test_support::CatalogIoCounters,
+    #[cfg(test)]
     catalog_read_hook: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
     #[cfg(test)]
     catalog_rebuild_hook: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
@@ -56,6 +58,8 @@ impl JsonStateStore {
             directory_entries_examined: AtomicUsize::new(0),
             #[cfg(test)]
             current_summary_reads: AtomicUsize::new(0),
+            #[cfg(test)]
+            catalog_io: test_support::CatalogIoCounters::default(),
             #[cfg(test)]
             catalog_read_hook: Mutex::new(None),
             #[cfg(test)]

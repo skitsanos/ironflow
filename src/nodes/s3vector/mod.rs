@@ -5,6 +5,7 @@ mod document;
 mod index;
 mod lifecycle;
 mod parameters;
+mod target;
 mod vectors;
 mod vectors_delete;
 mod vectors_put;
