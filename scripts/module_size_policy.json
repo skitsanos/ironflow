@@ -4,8 +4,8 @@
   "exceptions": [
     {
       "path": "src/api/mod.rs",
-      "max_lines": 361,
-      "rationale": "IF-042/044 review: one REST surface covering router assembly, AppState, CORS, API-key auth (constant-time), and process-wide run admission; extract admission and auth into modules before adding another cross-cutting middleware concern."
+      "max_lines": 368,
+      "rationale": "IF-042/044/054 review: one REST surface covering router assembly, AppState, CORS, API-key auth (constant-time), process-wide run admission, and the ad-hoc inline-flow policy; extract admission and auth into modules before adding another cross-cutting middleware concern."
     },
     {
       "path": "src/cli/store_factory.rs",

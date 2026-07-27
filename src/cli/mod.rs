@@ -213,14 +213,7 @@ pub async fn run_cli() -> Result<()> {
                 max_concurrent_tasks: server_config.max_concurrent_tasks,
                 listing_policy,
                 webhooks: cfg.webhooks.clone().unwrap_or_default(),
-                // Env wins over the config file, matching every other toggle.
-                allow_adhoc_flows: std::env::var("IRONFLOW_ALLOW_ADHOC_FLOWS")
-                    .ok()
-                    .map(|v| {
-                        !matches!(v.trim().to_ascii_lowercase().as_str(), "0" | "false" | "no")
-                    })
-                    .or(cfg.allow_adhoc_flows)
-                    .unwrap_or(true),
+                allow_adhoc_flows: server_config.allow_adhoc_flows,
                 cors_origins: server_config.cors_origins,
                 api_key: server_config.api_key,
                 allow_unauthenticated_api: server_config.allow_unauthenticated_api,

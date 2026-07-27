@@ -341,6 +341,38 @@ fn invalid_concurrency_environment_does_not_fall_back_to_yaml() {
     );
 }
 
+// IF-056: the ad-hoc flow toggle is a security control, so an unrecognized
+// value must fail loudly rather than silently resolving to the permissive
+// default (an operator writing `off` must not end up with inline flows enabled).
+#[test]
+fn invalid_adhoc_flows_boolean_does_not_silently_enable_inline_flows() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(
+        temp.path().join("ironflow.yaml"),
+        "allow_adhoc_flows: false\n",
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join(".env"),
+        "IRONFLOW_ALLOW_ADHOC_FLOWS=off\n\
+         IRONFLOW_STORE=unreachable-test-backend\n",
+    )
+    .unwrap();
+
+    let output = isolated_command(temp.path()).arg("serve").output().unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("IRONFLOW_ALLOW_ADHOC_FLOWS must be either 'true' or 'false'"),
+        "invalid higher-priority value was not rejected: {stderr}"
+    );
+    assert!(
+        !stderr.contains("Unknown state store backend"),
+        "store initialization ran before pure policy validation: {stderr}"
+    );
+}
+
 #[test]
 fn invalid_auth_boolean_does_not_fall_back_to_yaml() {
     let temp = tempfile::tempdir().unwrap();

@@ -102,6 +102,7 @@ pub(super) struct ServerConfig {
     pub max_concurrent_tasks: Option<usize>,
     pub api_key: Option<String>,
     pub allow_unauthenticated_api: bool,
+    pub allow_adhoc_flows: bool,
     pub cors_origins: Option<Vec<String>>,
 }
 
@@ -116,6 +117,17 @@ impl ServerConfig {
             )?
             .or(config.allow_unauthenticated_api)
             .unwrap_or(false),
+            // Strict parsing, like every other environment toggle (IF-018): an
+            // unrecognized value must fail loudly rather than silently resolve
+            // to the permissive default, which would leave an operator who
+            // wrote `off` or mistyped `flase` believing ad-hoc flows were
+            // disabled when they were not (IF-056).
+            allow_adhoc_flows: environment_value(
+                "IRONFLOW_ALLOW_ADHOC_FLOWS",
+                "either 'true' or 'false'",
+            )?
+            .or(config.allow_adhoc_flows)
+            .unwrap_or(true),
             cors_origins: environment_string("IRONFLOW_CORS_ORIGINS")?
                 .map(|value| {
                     value

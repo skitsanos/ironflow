@@ -107,7 +107,7 @@ Static validation must be supplemented with representative runtime probes.
 | IF-053 | P2 | Resolved | Nodes | `subworkflow` error propagation is implicitly coupled to `output_key` |
 | IF-054 | P2 | Resolved | API | `/flows/run` always accepts inline flow source, so an API key implies arbitrary execution |
 | IF-055 | P1 | Resolved | Storage | Concurrent SQL schema creation crash-loops a replica on first start |
-
+| IF-056 | P2 | Resolved | CLI config | `IRONFLOW_ALLOW_ADHOC_FLOWS` parses leniently and fails open on an unrecognized value |
 ## P0 — release-blocking safety and durability
 
 ### IF-001 — Lua package-loader sandbox escape
@@ -2071,4 +2071,34 @@ after a failure and were left as they are.
 Regression coverage in `tests/test_sql_schema_concurrency.rs`, gated on
 `DATABASE_URL` like the other Postgres suites. Verified against Postgres 16:
 0/8 failures after the change, and both tests fail when the tolerance is removed.
+### IF-056 — `IRONFLOW_ALLOW_ADHOC_FLOWS` fails open on an unrecognized value
 
+**Status:** Resolved on 2026-07-27.
+
+IF-054 added the toggle but parsed it inline in `src/cli/mod.rs`, outside the
+`resolution` module that owns the IF-018 precedence contract:
+
+```rust
+.map(|v| !matches!(v.trim().to_ascii_lowercase().as_str(), "0" | "false" | "no"))
+```
+
+Every value outside that set resolved to `true`. `IRONFLOW_ALLOW_ADHOC_FLOWS=off`,
+`=disabled`, or a typo such as `=flase` therefore left inline flow execution
+**enabled** while the operator believed it was disabled, and nothing was logged.
+`.ok()` also swallowed a non-UTF-8 value that `environment_string` would reject.
+This is the opposite of the sibling security toggle, which uses
+`environment_value("IRONFLOW_ALLOW_UNAUTHENTICATED_API", "either 'true' or 'false'")`
+and fails startup on anything else, per IF-018: "invalid higher-priority values
+fail instead of silently falling through".
+
+Resolution: `allow_adhoc_flows` moved into `ServerConfig::resolve` and now uses
+the same strict `environment_value` path, so only `true`/`false` are accepted and
+anything else aborts startup with `IRONFLOW_ALLOW_ADHOC_FLOWS must be either
+'true' or 'false'`. Config-file and default precedence are unchanged
+(env > `ironflow.yaml` > `true`). The documented value (`false`) is unaffected;
+the undocumented `0`/`no` spellings are no longer silently accepted, which is
+safe because IF-054 is unreleased.
+
+Regression in `tests/test_cli_precedence.rs`: a binary-level run with
+`IRONFLOW_ALLOW_ADHOC_FLOWS=off` over `allow_adhoc_flows: false` in YAML must
+exit nonzero with the strict message, and must fail before store initialization.
