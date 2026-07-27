@@ -12,6 +12,56 @@ The subworkflow node allows you to compose workflows by calling one flow from an
 | `wait` | bool | no | `true` | When `true`, the parent blocks until the subworkflow completes. When `false`, the subworkflow is launched in the background (fire-and-forget). |
 | `input` | object | no | `nil` | Key mapping from parent context to child context. Each entry maps `child_key = "parent_key"`. |
 | `output_key` | string | no | `nil` | If set, the child's output context is namespaced under this key instead of being merged directly into the parent context. Recommended for parallel subworkflows. |
+| `on_error` | string | no | see below | `"fail_fast"` fails the parent step when the child run fails; `"ignore"` continues with the child's partial context. |
+
+## Error Handling
+
+A failed child does **not** always fail the parent step. Set `on_error`
+explicitly to say which you want:
+
+| `on_error` | Behaviour when the child run fails |
+|---|---|
+| `"fail_fast"` | The parent step returns an error. |
+| `"ignore"` | The parent step succeeds; inspect `subworkflow_success` (and `{output_key}_error`) to detect it. |
+
+**When `on_error` is omitted, `output_key` decides it** — the historical
+behaviour, kept for compatibility:
+
+- no `output_key` → behaves as `fail_fast`
+- `output_key` set → behaves as `ignore`
+
+That coupling is easy to miss: adding `output_key` purely to namespace a
+child's output also silently turns off error propagation, and a downstream step
+then reads an empty value and continues. If a failed child should stop the
+flow, say so with `on_error = "fail_fast"` rather than relying on the absence
+of `output_key`.
+
+A tolerated failure is logged at `WARN` by the parent (the child's own run
+records the underlying error).
+
+```lua
+-- Namespace the output AND still fail the step if the child fails.
+flow:step("score", nodes.subworkflow({
+    flow = "score_one.lua",
+    input = { id = "record_id" },
+    output_key = "score",
+    on_error = "fail_fast"
+}))
+
+-- Tolerate a failure and branch on it yourself.
+flow:step("enrich", nodes.subworkflow({
+    flow = "optional_enrichment.lua",
+    output_key = "extra",
+    on_error = "ignore"
+}))
+
+flow:step("check", function(ctx)
+    if not ctx.extra_success then
+        log("enrichment unavailable: " .. tostring(ctx.extra_error))
+    end
+    return { enriched = ctx.extra_success == true }
+end):depends_on("enrich")
+```
 
 ## Context Injection
 
@@ -23,6 +73,9 @@ When `wait = true` (default):
 
 - All context keys produced by the child flow are merged into the parent context (or namespaced under `output_key` if specified).
 - `subworkflow_name` — the name of the executed subworkflow.
+- `subworkflow_success` — `true` when the child run succeeded. Always present, so the outcome is checkable even without `output_key`.
+- `{output_key}_success` — same flag, namespaced. Only when `output_key` is set.
+- `{output_key}_error` — the failure description. Only when `output_key` is set **and** the child failed.
 
 The subworkflow's returned map follows the normal phase collision contract: a
 later-declared parallel parent step wins duplicate keys. Without `output_key`,

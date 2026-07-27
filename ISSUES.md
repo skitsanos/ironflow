@@ -104,6 +104,7 @@ Static validation must be supplemented with representative runtime probes.
 | IF-050 | P2 | Resolved | Nodes | `base64_decode` performs unbounded arbitrary-path writes |
 | IF-051 | P2 | Resolved | Storage | `prune_before` default loads the full catalog into memory |
 | IF-052 | P3 | In progress | Maintainability | Assorted consistency/operability follow-ups |
+| IF-053 | P2 | Resolved | Nodes | `subworkflow` error propagation is implicitly coupled to `output_key` |
 
 ## P0 — release-blocking safety and durability
 
@@ -1928,3 +1929,57 @@ IF-034 closure gate completed on 2026-07-24:
 - `cargo clippy --all-targets -- -D warnings` under default and
   `postgres,redis` features
 - `cargo test --all-targets` and `cargo test --doc`
+### IF-053 — `subworkflow` error propagation is implicitly coupled to `output_key`
+
+**Status:** Resolved on 2026-07-27.
+
+`SubworkflowNode` only propagated a failed child run when `output_key` was
+unset:
+
+```rust
+if !child_succeeded && output_key.is_none() {
+    return Err(...);
+}
+```
+
+Namespacing a child's output and choosing an error policy are orthogonal
+concerns, so this coupled two unrelated decisions. Adding `output_key` purely to
+keep a child's keys out of the parent context also silently disabled error
+propagation: the failed child's partial context was merged, the parent step
+reported success, the run finished `Success`, and a downstream step read an
+empty value and carried on. The parent logged nothing — only the child's own run
+recorded the failure — so the resulting empty output was hard to trace. Unlike
+`parallel_subworkflows`, which has had `on_error: fail_fast|ignore` since it
+was introduced, `subworkflow` offered no way to namespace output *and* fail
+fast.
+
+Observed downstream: a flow whose LLM subworkflow failed wrote an output
+artifact containing zero parsed items and reported success, so the empty result
+was indistinguishable from a genuine empty input.
+
+**Resolution.** `subworkflow` accepts `on_error` with the same vocabulary and
+semantics as `parallel_subworkflows`:
+
+- `"fail_fast"` — the parent step errors when the child run fails;
+- `"ignore"` — the parent step succeeds and the caller inspects the outcome.
+
+When `on_error` is omitted the previous coupling is preserved exactly
+(`fail_fast` without `output_key`, `ignore` with it), so no existing flow
+changes behaviour. A tolerated failure is now logged at `WARN` by the parent,
+`subworkflow_success` is always reported (checkable without `output_key`), and
+`{output_key}_error` carries the failure description when namespaced.
+
+**Acceptance:**
+
+- `on_error = "fail_fast"` errors the parent step even when `output_key` is set;
+- `on_error = "ignore"` tolerates a failed child even when `output_key` is unset;
+- omitting `on_error` reproduces the historical behaviour in both directions;
+- an invalid `on_error` is rejected with an actionable message;
+- `subworkflow_success` is present on success and failure; `{output_key}_error`
+  only on failure;
+- `docs/nodes/subworkflow.md` documents the policy, the legacy default, and the
+  footgun.
+
+Regression coverage in `tests/test_subworkflow_node.rs` (10 tests, including the
+two pre-existing ones that pin the legacy defaults).
+

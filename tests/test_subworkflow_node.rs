@@ -144,3 +144,122 @@ async fn subworkflow_failure_without_output_key_propagates_error() {
     let err = node.execute(&config, &ctx).await.unwrap_err();
     assert!(err.to_string().contains("Subworkflow"));
 }
+
+// --- on_error -------------------------------------------------------------
+//
+// `on_error` decouples the error policy from `output_key`. When it is absent
+// the historical coupling still applies, which the two tests above pin.
+
+const FAILING_STEP: &str =
+    r#"flow:step("r", nodes.read_file({ path = "/__this_file_will_never_exist_123456789" }))"#;
+
+fn flow_dir_ctx(dir: &std::path::Path) -> Context {
+    ctx_with(vec![(
+        "_flow_dir",
+        serde_json::Value::String(dir.to_string_lossy().to_string()),
+    )])
+}
+
+#[tokio::test]
+async fn subworkflow_on_error_fail_fast_propagates_even_with_output_key() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("subworkflow").unwrap();
+
+    let dir = tempfile::tempdir().unwrap();
+    write_flow(&dir.path().join("fail.lua"), FAILING_STEP);
+
+    let config = serde_json::json!({
+        "flow": "fail.lua",
+        "output_key": "child_out",
+        "on_error": "fail_fast"
+    });
+
+    let err = node
+        .execute(&config, &flow_dir_ctx(dir.path()))
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("Subworkflow"));
+}
+
+#[tokio::test]
+async fn subworkflow_on_error_ignore_tolerates_failure_without_output_key() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("subworkflow").unwrap();
+
+    let dir = tempfile::tempdir().unwrap();
+    write_flow(&dir.path().join("fail.lua"), FAILING_STEP);
+
+    let config = serde_json::json!({
+        "flow": "fail.lua",
+        "on_error": "ignore"
+    });
+
+    let out = node
+        .execute(&config, &flow_dir_ctx(dir.path()))
+        .await
+        .unwrap();
+    assert_eq!(out.get("subworkflow_success").unwrap(), false);
+    assert_eq!(out.get("subworkflow_name").unwrap(), "child");
+}
+
+#[tokio::test]
+async fn subworkflow_failure_with_output_key_reports_error_text() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("subworkflow").unwrap();
+
+    let dir = tempfile::tempdir().unwrap();
+    write_flow(&dir.path().join("fail.lua"), FAILING_STEP);
+
+    let config = subworkflow_node_config("fail.lua", true);
+    let out = node
+        .execute(&config, &flow_dir_ctx(dir.path()))
+        .await
+        .unwrap();
+
+    assert_eq!(out.get("child_out_success").unwrap(), false);
+    let error = out.get("child_out_error").unwrap().as_str().unwrap();
+    assert!(error.contains("Subworkflow"), "got: {error}");
+    assert!(error.contains("failed"), "got: {error}");
+}
+
+#[tokio::test]
+async fn subworkflow_success_flag_is_reported_on_success() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("subworkflow").unwrap();
+
+    let dir = tempfile::tempdir().unwrap();
+    write_flow(
+        &dir.path().join("ok.lua"),
+        r#"flow:step("s", function(ctx) return { ok = true } end)"#,
+    );
+
+    let config = serde_json::json!({ "flow": "ok.lua" });
+    let out = node
+        .execute(&config, &flow_dir_ctx(dir.path()))
+        .await
+        .unwrap();
+
+    assert_eq!(out.get("subworkflow_success").unwrap(), true);
+    assert_eq!(out.get("ok").unwrap(), true);
+    // A successful child must not carry an error field.
+    assert!(!out.contains_key("child_out_error"));
+}
+
+#[tokio::test]
+async fn subworkflow_rejects_invalid_on_error() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("subworkflow").unwrap();
+
+    let dir = tempfile::tempdir().unwrap();
+    write_flow(
+        &dir.path().join("ok.lua"),
+        r#"flow:step("s", function(ctx) return { ok = true } end)"#,
+    );
+
+    let config = serde_json::json!({ "flow": "ok.lua", "on_error": "retry" });
+    let err = node
+        .execute(&config, &flow_dir_ctx(dir.path()))
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("invalid on_error"), "{err}");
+}
