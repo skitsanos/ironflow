@@ -39,6 +39,21 @@ pub async fn run_flow(
         ));
     }
 
+    // Inline source is arbitrary workflow execution: the caller chooses the
+    // nodes, so an API key that reaches this endpoint can read and write any
+    // path the process can and run shell commands. That is the intended
+    // contract for a general-purpose engine, but a deployment that exposes a
+    // fixed set of flows to consumer applications wants the key to grant only
+    // those flows. `file` stays available either way — it is already confined
+    // to `flows_dir` by resolve_flow_path (IF-054).
+    if !state.allow_adhoc_flows && (req.source.is_some() || req.source_base64.is_some()) {
+        return Err(AppError::Forbidden(
+            "Inline flow source is disabled on this server (allow_adhoc_flows: false). \
+             Use 'file' to run a flow already present in the configured flows directory."
+                .to_string(),
+        ));
+    }
+
     // Parse off the async runtime so a pathological flow cannot pin a worker
     // thread and stall the whole server (IF-038).
     let flow = if let Some(source) = &req.source {

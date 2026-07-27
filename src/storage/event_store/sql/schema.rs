@@ -4,8 +4,10 @@ use crate::storage::{StorageError, StorageResult};
 
 impl SqlEventStore {
     pub(super) async fn ensure_schema(&self) -> StorageResult<()> {
-        sqlx::query(sqlx::AssertSqlSafe(format!(
-            r#"
+        crate::storage::sql_ddl::create_if_absent(
+            &self.pool,
+            format!(
+                r#"
             CREATE TABLE IF NOT EXISTS {} (
                 id TEXT NOT NULL,
                 run_id TEXT NOT NULL,
@@ -16,52 +18,54 @@ impl SqlEventStore {
                 PRIMARY KEY (run_id, id)
             )
             "#,
-            self.tables.events
-        )))
-        .execute(&self.pool)
-        .await
-        .map_err(|error| StorageError::backend("Failed to create SQL events table", error))?;
+                self.tables.events
+            ),
+            "events table",
+        )
+        .await?;
 
         self.ensure_sequence_column().await?;
         self.ensure_run_scoped_event_identity().await?;
 
-        sqlx::query(sqlx::AssertSqlSafe(format!(
-            r#"
+        crate::storage::sql_ddl::create_if_absent(
+            &self.pool,
+            format!(
+                r#"
             CREATE TABLE IF NOT EXISTS {} (
                 run_id TEXT PRIMARY KEY,
                 last_sequence BIGINT NOT NULL
             )
             "#,
-            self.tables.event_sequences
-        )))
-        .execute(&self.pool)
-        .await
-        .map_err(|error| {
-            StorageError::backend("Failed to create SQL event sequence table", error)
-        })?;
+                self.tables.event_sequences
+            ),
+            "event sequence table",
+        )
+        .await?;
 
-        sqlx::query(sqlx::AssertSqlSafe(format!(
-            r#"
+        crate::storage::sql_ddl::create_if_absent(
+            &self.pool,
+            format!(
+                r#"
             CREATE TABLE IF NOT EXISTS {} (
                 run_id TEXT PRIMARY KEY
             )
             "#,
-            self.tables.event_deletions
-        )))
-        .execute(&self.pool)
-        .await
-        .map_err(|error| {
-            StorageError::backend("Failed to create SQL event deletion table", error)
-        })?;
+                self.tables.event_deletions
+            ),
+            "event deletion table",
+        )
+        .await?;
 
-        sqlx::query(sqlx::AssertSqlSafe(format!(
-            "CREATE INDEX IF NOT EXISTS {} ON {}(run_id, timestamp, id) \
+        crate::storage::sql_ddl::create_if_absent(
+            &self.pool,
+            format!(
+                "CREATE INDEX IF NOT EXISTS {} ON {}(run_id, timestamp, id) \
              WHERE sequence IS NULL",
-            self.tables.events_null_sequence_idx, self.tables.events
-        )))
-        .execute(&self.pool)
-        .await
-        .map_err(|error| StorageError::backend("Failed to create SQL legacy-event index", error))?;
+                self.tables.events_null_sequence_idx, self.tables.events
+            ),
+            "legacy-event index",
+        )
+        .await?;
 
         self.ensure_event_sequence_index().await?;
         self.repair_sequence_counters().await?;
@@ -71,13 +75,15 @@ impl SqlEventStore {
         // Retain the legacy ordering index for older read/query plans. This is
         // not downgrade support: the run-scoped primary key allows duplicate
         // IDs across runs, which pre-migration writers cannot handle.
-        sqlx::query(sqlx::AssertSqlSafe(format!(
-            "CREATE INDEX IF NOT EXISTS {} ON {}(run_id, timestamp, id)",
-            self.tables.events_run_time_idx, self.tables.events
-        )))
-        .execute(&self.pool)
-        .await
-        .map_err(|error| StorageError::backend("Failed to create SQL events index", error))?;
+        crate::storage::sql_ddl::create_if_absent(
+            &self.pool,
+            format!(
+                "CREATE INDEX IF NOT EXISTS {} ON {}(run_id, timestamp, id)",
+                self.tables.events_run_time_idx, self.tables.events
+            ),
+            "events index",
+        )
+        .await?;
 
         Ok(())
     }

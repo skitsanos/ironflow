@@ -6,16 +6,17 @@ use crate::storage::{StorageError, StorageResult};
 
 impl SqlEventStore {
     pub(super) async fn ensure_event_sequence_index(&self) -> StorageResult<()> {
-        let sql = format!(
-            "CREATE UNIQUE INDEX IF NOT EXISTS {} ON {}(run_id, sequence)",
-            self.tables.events_run_sequence_idx, self.tables.events
-        );
-        sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
-            .execute(&self.pool)
-            .await
-            .map_err(|error| {
-                StorageError::backend("Failed to create SQL event sequence index", error)
-            })?;
+        crate::storage::sql_ddl::create_if_absent(
+            &self.pool,
+            format!(
+                "CREATE UNIQUE INDEX IF NOT EXISTS {} ON {}(run_id, sequence)",
+                self.tables.events_run_sequence_idx, self.tables.events
+            ),
+            "event sequence index",
+        )
+        .await?;
+        // The verification below still runs, so a tolerated duplicate is only
+        // accepted once the existing index is confirmed to have the right shape.
 
         match self.dialect {
             SqlDialect::Sqlite => self.verify_sqlite_event_sequence_index().await,

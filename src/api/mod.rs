@@ -36,6 +36,9 @@ pub struct AppState {
     pub listing_policy: ListingPolicy,
     /// Named webhook route definitions from config.
     pub webhooks: HashMap<String, WebhookConfig>,
+    /// When false, `/flows/run` refuses inline flow source. See
+    /// `ServeOptions::allow_adhoc_flows`.
+    pub allow_adhoc_flows: bool,
 }
 
 /// Optional process-wide cap on concurrently-executing API-triggered runs,
@@ -90,6 +93,9 @@ pub struct ServeOptions {
     pub max_concurrent_tasks: Option<usize>,
     pub listing_policy: ListingPolicy,
     pub webhooks: HashMap<String, WebhookConfig>,
+    /// When false, `/flows/run` refuses inline `source` / `source_base64` and
+    /// will only execute flow files already present under `flows_dir`.
+    pub allow_adhoc_flows: bool,
     pub cors_origins: Option<Vec<String>>,
     pub api_key: Option<String>,
     pub allow_unauthenticated_api: bool,
@@ -126,6 +132,7 @@ pub async fn serve(
         max_concurrent_tasks: options.max_concurrent_tasks,
         listing_policy: options.listing_policy,
         webhooks: options.webhooks,
+        allow_adhoc_flows: options.allow_adhoc_flows,
     });
 
     let auth = build_api_auth(

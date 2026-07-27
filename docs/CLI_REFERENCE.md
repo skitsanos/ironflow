@@ -602,6 +602,35 @@ event: stream_error
 data: {"error":"Event stream unavailable","code":"event_stream_error","error_id":"550e8400-e29b-41d4-a716-446655440000","retryable":true}
 ```
 
+#### Ad-hoc Flow Execution
+
+`POST /flows/run` accepts a flow three ways: `file` (a path under `flows_dir`),
+`source` (Lua in the request body), and `source_base64`. `file` is confined to
+`flows_dir` after canonicalisation; the two inline forms are not confined at all,
+because the caller supplies the workflow itself.
+
+That is the intended contract for a general-purpose engine — but it means an API
+key that can reach `/flows/run` can run any node, so it can read or write any
+path the server process can and execute shell commands. If your deployment
+exposes a **fixed** set of flows to consumer applications, the key should grant
+those flows and nothing more:
+
+```yaml
+allow_adhoc_flows: false
+```
+
+or `IRONFLOW_ALLOW_ADHOC_FLOWS=false`, which takes precedence. With it disabled:
+
+- `source` and `source_base64` are rejected with `403 Forbidden`;
+- `file` still works, still confined to `flows_dir`;
+- webhooks are unaffected — they always name a flow from config.
+
+The default stays `true`, so existing deployments are unchanged.
+
+`POST /flows/validate` is not gated: it parses without executing any step, and
+flow-level Lua runs in the sandbox (no `io`, no `os`), bounded by the
+`IRONFLOW_LUA_MAX_*` limits.
+
 #### Webhook Routes
 
 Define webhook-to-flow mappings in `ironflow.yaml` to expose flows as named HTTP endpoints:
@@ -681,6 +710,7 @@ configuration-file fields. `IRONFLOW_STORE_DIR` applies to `run`, `list`,
 | `MAX_BODY` | `1048576` | Max request body size (bytes) |
 | `IRONFLOW_API_KEY` | — | API key required for non-loopback API servers |
 | `IRONFLOW_ALLOW_UNAUTHENTICATED_API` | `false` | Explicitly allow unauthenticated API access |
+| `IRONFLOW_ALLOW_ADHOC_FLOWS` | `true` | Allow `POST /flows/run` to execute flow source sent in the request body. Set `false` to restrict the endpoint to flow files already under `flows_dir`. Overrides `allow_adhoc_flows` in config. |
 | `IRONFLOW_CORS_ORIGINS` | — | Comma-separated allowed browser origins; use `*` to allow any origin |
 
 ### Run listing

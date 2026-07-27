@@ -213,6 +213,7 @@ pub async fn run_cli() -> Result<()> {
                 max_concurrent_tasks: server_config.max_concurrent_tasks,
                 listing_policy,
                 webhooks: cfg.webhooks.clone().unwrap_or_default(),
+                allow_adhoc_flows: server_config.allow_adhoc_flows,
                 cors_origins: server_config.cors_origins,
                 api_key: server_config.api_key,
                 allow_unauthenticated_api: server_config.allow_unauthenticated_api,

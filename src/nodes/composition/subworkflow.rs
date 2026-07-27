@@ -80,6 +80,23 @@ impl Node for SubworkflowNode {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
+        // Error policy, matching `parallel_subworkflows`. When unset we keep the
+        // historical behaviour, in which `output_key` implicitly decided it:
+        // namespaced output tolerated a failed child, un-namespaced output
+        // propagated the error. Those are orthogonal concerns and the coupling
+        // is easy to miss, so `on_error` lets a flow state the policy directly.
+        let fail_fast = match config.get("on_error").and_then(|v| v.as_str()) {
+            Some("fail_fast") => true,
+            Some("ignore") => false,
+            None => output_key.is_none(),
+            Some(other) => {
+                return Err(anyhow::anyhow!(
+                    "subworkflow: invalid on_error '{}'; expected 'fail_fast' or 'ignore'",
+                    other
+                ));
+            }
+        };
+
         // Resolve the flow path relative to _flow_dir
         let flow_path = if PathBuf::from(flow_file).is_absolute() {
             PathBuf::from(flow_file)
@@ -152,13 +169,24 @@ impl Node for SubworkflowNode {
 
             let child_succeeded = matches!(run_info.status, RunStatus::Success);
 
-            // If the child flow failed and no output_key is set, propagate as error
-            if !child_succeeded && output_key.is_none() {
+            if !child_succeeded && fail_fast {
                 return Err(anyhow::anyhow!(
                     "Subworkflow '{}' finished with status: {}",
                     flow.name,
                     run_info.status
                 ));
+            }
+
+            // A tolerated failure is otherwise invisible in the parent's log —
+            // only the child run records it — which makes a silently empty
+            // result hard to trace back. Say so, and expose it on the context.
+            if !child_succeeded {
+                tracing::warn!(
+                    flow = %flow.name,
+                    status = %run_info.status,
+                    output_key = output_key.as_deref().unwrap_or("<none>"),
+                    "Subworkflow failed but on_error=ignore; continuing with its partial context"
+                );
             }
 
             let mut output = NodeOutput::new();
@@ -169,6 +197,15 @@ impl Node for SubworkflowNode {
                     format!("{}_success", key),
                     serde_json::Value::Bool(child_succeeded),
                 );
+                if !child_succeeded {
+                    output.insert(
+                        format!("{}_error", key),
+                        serde_json::Value::String(format!(
+                            "Subworkflow '{}' finished with status: {}",
+                            flow.name, run_info.status
+                        )),
+                    );
+                }
             } else {
                 // Merge subworkflow output directly into parent context
                 for (k, v) in run_info.ctx.iter() {
@@ -181,6 +218,12 @@ impl Node for SubworkflowNode {
             output.insert(
                 "subworkflow_name".to_string(),
                 serde_json::Value::String(flow.name),
+            );
+            // Always reported, so a flow can check the outcome even when it did
+            // not namespace the child's output with `output_key`.
+            output.insert(
+                "subworkflow_success".to_string(),
+                serde_json::Value::Bool(child_succeeded),
             );
 
             Ok(output)

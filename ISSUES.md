@@ -104,7 +104,10 @@ Static validation must be supplemented with representative runtime probes.
 | IF-050 | P2 | Resolved | Nodes | `base64_decode` performs unbounded arbitrary-path writes |
 | IF-051 | P2 | Resolved | Storage | `prune_before` default loads the full catalog into memory |
 | IF-052 | P3 | In progress | Maintainability | Assorted consistency/operability follow-ups |
-
+| IF-053 | P2 | Resolved | Nodes | `subworkflow` error propagation is implicitly coupled to `output_key` |
+| IF-054 | P2 | Resolved | API | `/flows/run` always accepts inline flow source, so an API key implies arbitrary execution |
+| IF-055 | P1 | Resolved | Storage | Concurrent SQL schema creation crash-loops a replica on first start |
+| IF-056 | P2 | Resolved | CLI config | `IRONFLOW_ALLOW_ADHOC_FLOWS` parses leniently and fails open on an unrecognized value |
 ## P0 — release-blocking safety and durability
 
 ### IF-001 — Lua package-loader sandbox escape
@@ -1928,3 +1931,174 @@ IF-034 closure gate completed on 2026-07-24:
 - `cargo clippy --all-targets -- -D warnings` under default and
   `postgres,redis` features
 - `cargo test --all-targets` and `cargo test --doc`
+### IF-053 — `subworkflow` error propagation is implicitly coupled to `output_key`
+
+**Status:** Resolved on 2026-07-27.
+
+`SubworkflowNode` only propagated a failed child run when `output_key` was
+unset:
+
+```rust
+if !child_succeeded && output_key.is_none() {
+    return Err(...);
+}
+```
+
+Namespacing a child's output and choosing an error policy are orthogonal
+concerns, so this coupled two unrelated decisions. Adding `output_key` purely to
+keep a child's keys out of the parent context also silently disabled error
+propagation: the failed child's partial context was merged, the parent step
+reported success, the run finished `Success`, and a downstream step read an
+empty value and carried on. The parent logged nothing — only the child's own run
+recorded the failure — so the resulting empty output was hard to trace. Unlike
+`parallel_subworkflows`, which has had `on_error: fail_fast|ignore` since it
+was introduced, `subworkflow` offered no way to namespace output *and* fail
+fast.
+
+Observed downstream: a flow whose LLM subworkflow failed wrote an output
+artifact containing zero parsed items and reported success, so the empty result
+was indistinguishable from a genuine empty input.
+
+**Resolution.** `subworkflow` accepts `on_error` with the same vocabulary and
+semantics as `parallel_subworkflows`:
+
+- `"fail_fast"` — the parent step errors when the child run fails;
+- `"ignore"` — the parent step succeeds and the caller inspects the outcome.
+
+When `on_error` is omitted the previous coupling is preserved exactly
+(`fail_fast` without `output_key`, `ignore` with it), so no existing flow
+changes behaviour. A tolerated failure is now logged at `WARN` by the parent,
+`subworkflow_success` is always reported (checkable without `output_key`), and
+`{output_key}_error` carries the failure description when namespaced.
+
+**Acceptance:**
+
+- `on_error = "fail_fast"` errors the parent step even when `output_key` is set;
+- `on_error = "ignore"` tolerates a failed child even when `output_key` is unset;
+- omitting `on_error` reproduces the historical behaviour in both directions;
+- an invalid `on_error` is rejected with an actionable message;
+- `subworkflow_success` is present on success and failure; `{output_key}_error`
+  only on failure;
+- `docs/nodes/subworkflow.md` documents the policy, the legacy default, and the
+  footgun.
+
+Regression coverage in `tests/test_subworkflow_node.rs` (10 tests, including the
+two pre-existing ones that pin the legacy defaults).
+
+### IF-054 — `/flows/run` always accepts inline flow source
+
+**Status:** Resolved on 2026-07-27.
+
+`POST /flows/run` takes a flow as `file`, `source`, or `source_base64`. `file` is
+canonicalised and rejected unless it resolves under `flows_dir`. The two inline
+forms had no equivalent boundary — by design, since the caller supplies the
+workflow.
+
+The consequence is that possessing an API key is equivalent to arbitrary code
+execution on the server: the caller chooses the nodes, so `read_file` reaches any
+path the process can read (including `/proc/self/environ`, which exposes every
+credential in the environment), `write_file` reaches any path it can write
+(including `flows_dir` itself, making the next request a planted flow), and
+`shell_command` is simply available.
+
+For a general-purpose engine that is the contract. For a deployment that exposes
+a fixed set of flows to consumer applications — where the key is shared with
+those applications — it is a much larger grant than intended, and there was no
+way to reduce it.
+
+**Resolution.** `allow_adhoc_flows` (config) / `IRONFLOW_ALLOW_ADHOC_FLOWS`
+(env, takes precedence), default `true`. When false, `/flows/run` rejects
+`source` and `source_base64` with `403 Forbidden` and serves only `file`, which
+keeps its existing `flows_dir` confinement. Webhooks are unaffected — they name a
+flow from config. Defaulting to `true` leaves every existing deployment unchanged.
+
+`/flows/validate` is deliberately not gated: it parses without executing a step,
+and flow-level Lua runs in the sandbox (no `io`/`os`) under the
+`IRONFLOW_LUA_MAX_*` limits.
+
+**Acceptance:**
+
+- inline `source` and `source_base64` are refused with 403 when disabled;
+- `file` execution still succeeds when disabled;
+- the `flows_dir` boundary is still enforced for `file` when disabled;
+- inline source still works by default.
+
+Regression coverage in `tests/test_adhoc_flow_policy.rs` (5 tests).
+
+### IF-055 — Concurrent SQL schema creation crash-loops a replica on first start
+
+**Status:** Resolved on 2026-07-27.
+
+`SqlStateStore::new_with_prefix` and `SqlEventStore::new_with_prefix` call
+`ensure_schema`, which issues `CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT
+EXISTS`. On Postgres those are **not atomic**: the existence check and the create
+are separate steps, so two connections can both observe "absent" and one then
+fails against the catalog's own unique indexes —
+`duplicate key value violates unique constraint "pg_type_typname_nsp_index"` for
+tables, `"pg_class_relname_nsp_index"` for indexes.
+
+This is not a rare interleaving. Two server processes started simultaneously
+against an empty database failed **5 out of 5 times**, one process exiting with
+`Failed to create SQL runs table`. In Kubernetes that is a replica crash-looping
+on first deploy, and with an `--atomic` Helm release it can roll the whole
+release back. It only reproduces on a *fresh* schema, so it is invisible in any
+environment that has already been initialised — including single-replica ones
+that later scale up.
+
+**Resolution.** `storage::sql_ddl::create_if_absent` executes a
+`CREATE ... IF NOT EXISTS` statement and treats "another session created this
+first" as success: Postgres `42P07` (duplicate_table), `42710`
+(duplicate_object), `42P06` (duplicate_schema), and `23505` (the catalog
+collision surfaces as a unique violation), plus a message fallback for drivers
+that do not set a code. It is used only for CREATE, so swallowing `23505` cannot
+mask a data-path conflict. All ten `CREATE` statements in the state and event
+schemas now route through it, including `ensure_event_sequence_index`, which was
+the second failure once the tables were fixed — its post-create verification
+still runs, so a tolerated duplicate is accepted only after the existing index is
+confirmed to have the right shape.
+
+The `ALTER TABLE ADD COLUMN` migration paths already re-checked for the column
+after a failure and were left as they are.
+
+**Acceptance:**
+
+- eight concurrent `SqlStateStore` constructions against an empty schema all
+  succeed;
+- the same for `SqlEventStore`, which creates more objects including a unique
+  index;
+- a non-database error is never mistaken for a duplicate.
+
+Regression coverage in `tests/test_sql_schema_concurrency.rs`, gated on
+`DATABASE_URL` like the other Postgres suites. Verified against Postgres 16:
+0/8 failures after the change, and both tests fail when the tolerance is removed.
+### IF-056 — `IRONFLOW_ALLOW_ADHOC_FLOWS` fails open on an unrecognized value
+
+**Status:** Resolved on 2026-07-27.
+
+IF-054 added the toggle but parsed it inline in `src/cli/mod.rs`, outside the
+`resolution` module that owns the IF-018 precedence contract:
+
+```rust
+.map(|v| !matches!(v.trim().to_ascii_lowercase().as_str(), "0" | "false" | "no"))
+```
+
+Every value outside that set resolved to `true`. `IRONFLOW_ALLOW_ADHOC_FLOWS=off`,
+`=disabled`, or a typo such as `=flase` therefore left inline flow execution
+**enabled** while the operator believed it was disabled, and nothing was logged.
+`.ok()` also swallowed a non-UTF-8 value that `environment_string` would reject.
+This is the opposite of the sibling security toggle, which uses
+`environment_value("IRONFLOW_ALLOW_UNAUTHENTICATED_API", "either 'true' or 'false'")`
+and fails startup on anything else, per IF-018: "invalid higher-priority values
+fail instead of silently falling through".
+
+Resolution: `allow_adhoc_flows` moved into `ServerConfig::resolve` and now uses
+the same strict `environment_value` path, so only `true`/`false` are accepted and
+anything else aborts startup with `IRONFLOW_ALLOW_ADHOC_FLOWS must be either
+'true' or 'false'`. Config-file and default precedence are unchanged
+(env > `ironflow.yaml` > `true`). The documented value (`false`) is unaffected;
+the undocumented `0`/`no` spellings are no longer silently accepted, which is
+safe because IF-054 is unreleased.
+
+Regression in `tests/test_cli_precedence.rs`: a binary-level run with
+`IRONFLOW_ALLOW_ADHOC_FLOWS=off` over `allow_adhoc_flows: false` in YAML must
+exit nonzero with the strict message, and must fail before store initialization.

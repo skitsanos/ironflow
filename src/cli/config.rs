@@ -47,6 +47,11 @@ pub struct IronFlowConfig {
     /// Named webhook route definitions. String values retain the legacy
     /// flow-only form; object values may explicitly forward business headers.
     pub webhooks: Option<HashMap<String, WebhookConfig>>,
+    /// Allow `POST /flows/run` to execute flow source supplied in the request
+    /// body. Defaults to `true`. Set `false` on deployments that expose a fixed
+    /// set of flows, so an API key grants only those flows rather than
+    /// arbitrary workflow execution.
+    pub allow_adhoc_flows: Option<bool>,
 }
 
 impl IronFlowConfig {

@@ -28,6 +28,9 @@ credentialed, local-state, and platform-specific flow at the same time.
 | macOS Quick Look `qlmanage` | `13-ai/pptx_gemini_reconstruct.lua` |
 | Repository root as the working directory | `13-ai/pdf_gemini_rag_schema.lua`, `13-ai/pdf_gemini_reconstruct_schema.lua`, `13-ai/pptx_gemini_reconstruct.lua` |
 
+## 00-showcase
+- **nightly_report.lua** — Parallel fetches with per-step retries and total timeouts, an inline Lua reduction, and a Slack notification
+
 ## 01-basics
 - **hello_world.lua** — Minimal flow with logging and templates
 - **context_passing.lua** — How data flows between steps via context

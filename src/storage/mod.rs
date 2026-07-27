@@ -11,6 +11,7 @@ mod redis_keys;
 pub mod redis_store;
 pub mod run_id;
 mod run_listing;
+pub(crate) mod sql_ddl;
 pub mod sql_names;
 pub mod sql_store;
 
