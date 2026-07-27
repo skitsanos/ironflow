@@ -88,6 +88,7 @@ fn error_contract_app(store: Arc<dyn StateStore>) -> Router {
         max_concurrent_tasks: None,
         listing_policy: ironflow::util::listing::ListingPolicy::default(),
         webhooks: std::collections::HashMap::new(),
+        allow_adhoc_flows: true,
     });
 
     Router::new()

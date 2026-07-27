@@ -49,6 +49,7 @@ pub fn build_test_app(flows_dir: PathBuf, webhooks: HashMap<String, WebhookConfi
         max_concurrent_tasks: None,
         listing_policy: ironflow::util::listing::ListingPolicy::default(),
         webhooks,
+        allow_adhoc_flows: true,
     });
 
     let protected = Router::new()

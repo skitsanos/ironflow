@@ -64,6 +64,7 @@ async fn forwarded_signature_stays_execution_only_across_subworkflow_recovery() 
         max_concurrent_tasks: None,
         listing_policy: ironflow::util::listing::ListingPolicy::default(),
         webhooks: HashMap::from([("signed".to_string(), webhook)]),
+        allow_adhoc_flows: true,
     });
     let app = Router::new()
         .route(

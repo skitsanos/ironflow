@@ -105,6 +105,7 @@ Static validation must be supplemented with representative runtime probes.
 | IF-051 | P2 | Resolved | Storage | `prune_before` default loads the full catalog into memory |
 | IF-052 | P3 | In progress | Maintainability | Assorted consistency/operability follow-ups |
 | IF-053 | P2 | Resolved | Nodes | `subworkflow` error propagation is implicitly coupled to `output_key` |
+| IF-054 | P2 | Resolved | API | `/flows/run` always accepts inline flow source, so an API key implies arbitrary execution |
 
 ## P0 — release-blocking safety and durability
 
@@ -1982,4 +1983,44 @@ changes behaviour. A tolerated failure is now logged at `WARN` by the parent,
 
 Regression coverage in `tests/test_subworkflow_node.rs` (10 tests, including the
 two pre-existing ones that pin the legacy defaults).
+
+### IF-054 — `/flows/run` always accepts inline flow source
+
+**Status:** Resolved on 2026-07-27.
+
+`POST /flows/run` takes a flow as `file`, `source`, or `source_base64`. `file` is
+canonicalised and rejected unless it resolves under `flows_dir`. The two inline
+forms had no equivalent boundary — by design, since the caller supplies the
+workflow.
+
+The consequence is that possessing an API key is equivalent to arbitrary code
+execution on the server: the caller chooses the nodes, so `read_file` reaches any
+path the process can read (including `/proc/self/environ`, which exposes every
+credential in the environment), `write_file` reaches any path it can write
+(including `flows_dir` itself, making the next request a planted flow), and
+`shell_command` is simply available.
+
+For a general-purpose engine that is the contract. For a deployment that exposes
+a fixed set of flows to consumer applications — where the key is shared with
+those applications — it is a much larger grant than intended, and there was no
+way to reduce it.
+
+**Resolution.** `allow_adhoc_flows` (config) / `IRONFLOW_ALLOW_ADHOC_FLOWS`
+(env, takes precedence), default `true`. When false, `/flows/run` rejects
+`source` and `source_base64` with `403 Forbidden` and serves only `file`, which
+keeps its existing `flows_dir` confinement. Webhooks are unaffected — they name a
+flow from config. Defaulting to `true` leaves every existing deployment unchanged.
+
+`/flows/validate` is deliberately not gated: it parses without executing a step,
+and flow-level Lua runs in the sandbox (no `io`/`os`) under the
+`IRONFLOW_LUA_MAX_*` limits.
+
+**Acceptance:**
+
+- inline `source` and `source_base64` are refused with 403 when disabled;
+- `file` execution still succeeds when disabled;
+- the `flows_dir` boundary is still enforced for `file` when disabled;
+- inline source still works by default.
+
+Regression coverage in `tests/test_adhoc_flow_policy.rs` (5 tests).
 
