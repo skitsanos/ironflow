@@ -3,6 +3,8 @@ name = "ironflow"
 version = "1.14.0"
 edition = "2024"
 description = "Lightweight workflow engine — Rust core, Lua scripting, single binary"
+license = "MIT"
+repository = "https://github.com/skitsanos/ironflow"
 
 [dependencies]
 tokio = { version = "1.52.3", features = ["full"] }

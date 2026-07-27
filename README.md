@@ -500,4 +500,4 @@ directory in CI.
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).

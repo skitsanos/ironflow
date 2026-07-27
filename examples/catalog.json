@@ -90,6 +90,7 @@
     "credentialed_external": {
       "description": "Requires credentials and/or mutates an external service; never runs in the default example gate.",
       "flows": [
+        "examples/00-showcase/nightly_report.lua",
         "examples/04-file-operations/s3_copy.lua",
         "examples/04-file-operations/s3_presign_url.lua",
         "examples/04-file-operations/s3_put_get_list.lua",
@@ -161,6 +162,7 @@
     "external_service": {
       "description": "Contacts a public, local, or hosted service; execution is excluded from deterministic offline CI.",
       "flows": [
+        "examples/00-showcase/nightly_report.lua",
         "examples/02-data-transforms/json_extract_path.lua",
         "examples/04-file-operations/s3_copy.lua",
         "examples/04-file-operations/s3_presign_url.lua",
@@ -220,6 +222,7 @@
     "credentialed": {
       "description": "Requires provider credentials or a configured credential chain; secrets must come from environment/configuration, never source.",
       "flows": [
+        "examples/00-showcase/nightly_report.lua",
         "examples/04-file-operations/s3_copy.lua",
         "examples/04-file-operations/s3_presign_url.lua",
         "examples/04-file-operations/s3_put_get_list.lua",
