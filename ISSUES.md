@@ -106,6 +106,7 @@ Static validation must be supplemented with representative runtime probes.
 | IF-052 | P3 | In progress | Maintainability | Assorted consistency/operability follow-ups |
 | IF-053 | P2 | Resolved | Nodes | `subworkflow` error propagation is implicitly coupled to `output_key` |
 | IF-054 | P2 | Resolved | API | `/flows/run` always accepts inline flow source, so an API key implies arbitrary execution |
+| IF-055 | P1 | Resolved | Storage | Concurrent SQL schema creation crash-loops a replica on first start |
 
 ## P0 — release-blocking safety and durability
 
@@ -2023,4 +2024,51 @@ and flow-level Lua runs in the sandbox (no `io`/`os`) under the
 - inline source still works by default.
 
 Regression coverage in `tests/test_adhoc_flow_policy.rs` (5 tests).
+
+### IF-055 — Concurrent SQL schema creation crash-loops a replica on first start
+
+**Status:** Resolved on 2026-07-27.
+
+`SqlStateStore::new_with_prefix` and `SqlEventStore::new_with_prefix` call
+`ensure_schema`, which issues `CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT
+EXISTS`. On Postgres those are **not atomic**: the existence check and the create
+are separate steps, so two connections can both observe "absent" and one then
+fails against the catalog's own unique indexes —
+`duplicate key value violates unique constraint "pg_type_typname_nsp_index"` for
+tables, `"pg_class_relname_nsp_index"` for indexes.
+
+This is not a rare interleaving. Two server processes started simultaneously
+against an empty database failed **5 out of 5 times**, one process exiting with
+`Failed to create SQL runs table`. In Kubernetes that is a replica crash-looping
+on first deploy, and with an `--atomic` Helm release it can roll the whole
+release back. It only reproduces on a *fresh* schema, so it is invisible in any
+environment that has already been initialised — including single-replica ones
+that later scale up.
+
+**Resolution.** `storage::sql_ddl::create_if_absent` executes a
+`CREATE ... IF NOT EXISTS` statement and treats "another session created this
+first" as success: Postgres `42P07` (duplicate_table), `42710`
+(duplicate_object), `42P06` (duplicate_schema), and `23505` (the catalog
+collision surfaces as a unique violation), plus a message fallback for drivers
+that do not set a code. It is used only for CREATE, so swallowing `23505` cannot
+mask a data-path conflict. All ten `CREATE` statements in the state and event
+schemas now route through it, including `ensure_event_sequence_index`, which was
+the second failure once the tables were fixed — its post-create verification
+still runs, so a tolerated duplicate is accepted only after the existing index is
+confirmed to have the right shape.
+
+The `ALTER TABLE ADD COLUMN` migration paths already re-checked for the column
+after a failure and were left as they are.
+
+**Acceptance:**
+
+- eight concurrent `SqlStateStore` constructions against an empty schema all
+  succeed;
+- the same for `SqlEventStore`, which creates more objects including a unique
+  index;
+- a non-database error is never mistaken for a duplicate.
+
+Regression coverage in `tests/test_sql_schema_concurrency.rs`, gated on
+`DATABASE_URL` like the other Postgres suites. Verified against Postgres 16:
+0/8 failures after the change, and both tests fail when the tolerance is removed.
 

@@ -4,8 +4,10 @@ use crate::storage::{StorageError, StorageResult};
 
 impl SqlStateStore {
     pub(super) async fn ensure_schema(&self) -> StorageResult<()> {
-        sqlx::query(sqlx::AssertSqlSafe(format!(
-            r#"
+        crate::storage::sql_ddl::create_if_absent(
+            &self.pool,
+            format!(
+                r#"
             CREATE TABLE IF NOT EXISTS {} (
                 id TEXT PRIMARY KEY,
                 flow_name TEXT NOT NULL,
@@ -16,17 +18,19 @@ impl SqlStateStore {
                 ctx TEXT NOT NULL
             )
             "#,
-            self.tables.runs
-        )))
-        .execute(&self.pool)
-        .await
-        .map_err(|error| StorageError::backend("Failed to create SQL runs table", error))?;
+                self.tables.runs
+            ),
+            "runs table",
+        )
+        .await?;
 
         self.ensure_started_micros_column().await?;
         self.backfill_started_micros().await?;
 
-        sqlx::query(sqlx::AssertSqlSafe(format!(
-            r#"
+        crate::storage::sql_ddl::create_if_absent(
+            &self.pool,
+            format!(
+                r#"
             CREATE TABLE IF NOT EXISTS {} (
                 run_id TEXT NOT NULL,
                 name TEXT NOT NULL,
@@ -41,39 +45,45 @@ impl SqlStateStore {
                 PRIMARY KEY (run_id, name)
             )
             "#,
-            self.tables.tasks
-        )))
-        .execute(&self.pool)
-        .await
-        .map_err(|error| StorageError::backend("Failed to create SQL tasks table", error))?;
+                self.tables.tasks
+            ),
+            "tasks table",
+        )
+        .await?;
 
         let nulls_last = match self.dialect {
             SqlDialect::Sqlite => "",
             SqlDialect::Postgres => " NULLS LAST",
         };
-        sqlx::query(sqlx::AssertSqlSafe(format!(
-            "CREATE INDEX IF NOT EXISTS {} ON {}(started_micros DESC{}, id DESC)",
-            self.tables.runs_started_idx, self.tables.runs, nulls_last
-        )))
-        .execute(&self.pool)
-        .await
-        .map_err(|error| StorageError::backend("Failed to create SQL runs index", error))?;
+        crate::storage::sql_ddl::create_if_absent(
+            &self.pool,
+            format!(
+                "CREATE INDEX IF NOT EXISTS {} ON {}(started_micros DESC{}, id DESC)",
+                self.tables.runs_started_idx, self.tables.runs, nulls_last
+            ),
+            "runs index",
+        )
+        .await?;
 
-        sqlx::query(sqlx::AssertSqlSafe(format!(
-            "CREATE INDEX IF NOT EXISTS {} ON {}(status, started_micros DESC{}, id DESC)",
-            self.tables.runs_status_started_idx, self.tables.runs, nulls_last
-        )))
-        .execute(&self.pool)
-        .await
-        .map_err(|error| StorageError::backend("Failed to create SQL runs index", error))?;
+        crate::storage::sql_ddl::create_if_absent(
+            &self.pool,
+            format!(
+                "CREATE INDEX IF NOT EXISTS {} ON {}(status, started_micros DESC{}, id DESC)",
+                self.tables.runs_status_started_idx, self.tables.runs, nulls_last
+            ),
+            "runs index",
+        )
+        .await?;
 
-        sqlx::query(sqlx::AssertSqlSafe(format!(
-            "CREATE INDEX IF NOT EXISTS {} ON {}(run_id)",
-            self.tables.tasks_run_id_idx, self.tables.tasks
-        )))
-        .execute(&self.pool)
-        .await
-        .map_err(|error| StorageError::backend("Failed to create SQL tasks index", error))?;
+        crate::storage::sql_ddl::create_if_absent(
+            &self.pool,
+            format!(
+                "CREATE INDEX IF NOT EXISTS {} ON {}(run_id)",
+                self.tables.tasks_run_id_idx, self.tables.tasks
+            ),
+            "tasks index",
+        )
+        .await?;
 
         Ok(())
     }
