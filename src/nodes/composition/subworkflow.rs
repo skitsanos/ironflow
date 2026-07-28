@@ -192,7 +192,15 @@ impl Node for SubworkflowNode {
             let mut output = NodeOutput::new();
 
             if let Some(ref key) = output_key {
-                output.insert(key.clone(), serde_json::to_value(&run_info.ctx)?);
+                // `_`-prefixed keys stay private to the child here too, matching
+                // the un-namespaced branch below and parallel_runner.
+                let public: serde_json::Map<String, serde_json::Value> = run_info
+                    .ctx
+                    .iter()
+                    .filter(|(k, _)| !k.starts_with('_'))
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+                output.insert(key.clone(), serde_json::Value::Object(public));
                 output.insert(
                     format!("{}_success", key),
                     serde_json::Value::Bool(child_succeeded),
