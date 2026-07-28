@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::engine::types::Context;
 use crate::nodes::ai::embeddings::resolve_param;
-use crate::util::node_config::{config_f64_or, get_path};
+use crate::util::node_config::{config_f64, config_f64_or, get_path};
 
 /// Transcript output format requested from the provider.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -169,7 +169,7 @@ pub(super) fn resolve(config: &serde_json::Value, ctx: &Context) -> Result<Trans
         format,
         language: interpolated("language"),
         prompt: interpolated("prompt"),
-        temperature: config.get("temperature").and_then(|value| value.as_f64()),
+        temperature: config_f64(config, "temperature", ctx),
         output_key: config
             .get("output_key")
             .and_then(|value| value.as_str())
@@ -228,21 +228,30 @@ mod tests {
         assert!(error.contains("unsupported provider"), "{error}");
     }
 
+    // `missing_credential_names_the_parameter_and_the_environment_variable`
+    // used to live here, but it mutated the process-global `OPENAI_API_KEY`
+    // env var, which races with any other `cargo test --lib` module reading
+    // env vars concurrently. It now lives in
+    // `tests/test_transcribe_config_env.rs`, its own integration test binary,
+    // for the same reason `tests/test_limits_defaults.rs` does.
+
     #[test]
-    fn missing_credential_names_the_parameter_and_the_environment_variable() {
-        // Guard the env var so the assertion holds on a developer machine that
-        // exports a real key.
-        let saved = std::env::var("OPENAI_API_KEY").ok();
-        unsafe { std::env::remove_var("OPENAI_API_KEY") };
+    fn temperature_resolves_ctx_interpolation_instead_of_dropping_it() {
+        // Regression test for the numeric-param-ignores-interpolation bug
+        // class: a bare `.as_f64()` read silently discards a
+        // `"${ctx.key}"` string, treating it as absent rather than erroring
+        // or resolving it. `config_f64` must actually resolve the template.
+        let ctx: Context = [("temp".to_string(), serde_json::json!(0.25))]
+            .into_iter()
+            .collect();
 
-        let config = serde_json::json!({ "path": "/tmp/a.mp3" });
-        let error = resolve(&config, &Context::new()).unwrap_err().to_string();
+        let config = serde_json::json!({
+            "path": "/tmp/a.mp3",
+            "api_key": "test-key",
+            "temperature": "${ctx.temp}"
+        });
 
-        if let Some(value) = saved {
-            unsafe { std::env::set_var("OPENAI_API_KEY", value) };
-        }
-
-        assert!(error.contains("api_key"), "{error}");
-        assert!(error.contains("OPENAI_API_KEY"), "{error}");
+        let resolved = resolve(&config, &ctx).unwrap();
+        assert_eq!(resolved.temperature, Some(0.25));
     }
 }
