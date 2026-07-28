@@ -7,6 +7,7 @@ mod chunking_semantic_engine;
 mod llm;
 mod llm_providers;
 pub(crate) mod llm_response;
+mod transcribe;
 
 pub use chunking::AiChunkNode;
 pub use chunking_merge::AiChunkMergeNode;
