@@ -9,3 +9,4 @@ data/
 .ironflow_cache/
 Taskfile.yaml
 docs/superpowers/
+.superpowers/
