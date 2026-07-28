@@ -8,8 +8,6 @@ mod json_to_lua;
 mod lua_to_json;
 mod path;
 
-const MAX_CONVERSION_DEPTH: usize = 64;
-const MAX_CONVERSION_NODES: usize = 100_000;
 pub(super) const OBJECT_METATABLE_REGISTRY_KEY: &str = "__ironflow_json_object_metatable";
 
 #[derive(Clone, Copy)]
@@ -19,10 +17,14 @@ pub(super) struct ConversionLimits {
 }
 
 impl Default for ConversionLimits {
+    /// Read from the environment on every construction, like every other
+    /// `IRONFLOW_MAX_*` ceiling. These were previously hardcoded, which left a
+    /// flow that legitimately builds a large structure with no escape hatch
+    /// short of recompiling (IF-058).
     fn default() -> Self {
         Self {
-            max_depth: MAX_CONVERSION_DEPTH,
-            max_nodes: MAX_CONVERSION_NODES,
+            max_depth: crate::util::limits::max_conversion_depth() as usize,
+            max_nodes: crate::util::limits::max_conversion_nodes() as usize,
         }
     }
 }

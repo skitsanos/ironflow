@@ -135,7 +135,18 @@ fn success_entry(
     entry.insert("flow".to_string(), Value::String(name.clone()));
 
     if let Some(output_key) = flow_config.get("output_key").and_then(Value::as_str) {
-        entry.insert(output_key.to_string(), serde_json::to_value(&run_info.ctx)?);
+        // `_`-prefixed keys are private to the child on both branches. Without
+        // this filter there is no way to keep a working value out of the parent
+        // when the result is namespaced, so large intermediates (an extracted
+        // document IR, a full parsed transcript) cross the boundary for every
+        // item in the fan-out and can exhaust the JSON-to-Lua node budget.
+        let public: Map<String, Value> = run_info
+            .ctx
+            .iter()
+            .filter(|(key, _)| !key.starts_with('_'))
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
+        entry.insert(output_key.to_string(), Value::Object(public));
     } else {
         for (key, value) in &run_info.ctx {
             if !key.starts_with('_') {

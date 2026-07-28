@@ -3,5 +3,6 @@
   "extends": [
     "config:recommended"
   ],
-  "baseBranches": ["develop"]
+  "baseBranches": ["develop"],
+  "dependencyDashboard": false
 }

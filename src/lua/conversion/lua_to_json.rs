@@ -70,13 +70,13 @@ impl LuaToJsonConverter {
     fn visit(&mut self, path: &str, depth: usize) -> Result<()> {
         if depth > self.limits.max_depth {
             bail!(
-                "Lua-to-JSON maximum depth {} exceeded at {path}",
+                "Lua-to-JSON maximum depth {} exceeded at {path} (raise IRONFLOW_MAX_CONVERSION_DEPTH)",
                 self.limits.max_depth
             );
         }
         if self.nodes >= self.limits.max_nodes {
             bail!(
-                "Lua-to-JSON maximum node count {} exceeded at {path}",
+                "Lua-to-JSON maximum node count {} exceeded at {path} (raise IRONFLOW_MAX_CONVERSION_NODES)",
                 self.limits.max_nodes
             );
         }
@@ -206,7 +206,7 @@ impl LuaToJsonConverter {
         let remaining = self.limits.max_nodes.saturating_sub(self.nodes);
         if collected >= remaining {
             bail!(
-                "Lua-to-JSON maximum node count {} exceeded while reading table at {path}",
+                "Lua-to-JSON maximum node count {} exceeded while reading table at {path} (raise IRONFLOW_MAX_CONVERSION_NODES)",
                 self.limits.max_nodes
             );
         }

@@ -1,6 +1,6 @@
 # IronFlow — Node Reference
 
-Complete reference for all 100 built-in nodes. Click any node name for full documentation with parameters, context output, and Lua examples.
+Complete reference for all 101 built-in nodes. Click any node name for full documentation with parameters, context output, and Lua examples.
 
 For adding or maintaining node implementations, see [Node Contributor Manual](NODE_CONTRIBUTING.md).
 
@@ -201,6 +201,7 @@ endpoint, and AWS credential configuration may still come from the environment.
 | [`ai_chunk`](nodes/ai_chunk.md) | Split text into chunks (fixed/split), or group timestamped subtitle cues into time-anchored chunks (mode "cues") |
 | [`ai_chunk_merge`](nodes/ai_chunk_merge.md) | Merge small text chunks into token-budget groups |
 | [`ai_chunk_semantic`](nodes/ai_chunk_semantic.md) | Split text into semantic chunks using embedding similarity |
+| [`transcribe`](nodes/transcribe.md) | Transcribe an audio or video file to VTT, SRT, text, or JSON via OpenAI, an OpenAI-compatible endpoint, or Azure |
 
 ## Composition Nodes
 

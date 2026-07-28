@@ -117,3 +117,67 @@ fn f64_to_u64(value: f64) -> Option<u64> {
         None
     }
 }
+
+/// Resolve a node's file-path input: either `path` (literal, interpolated) or
+/// `source_key` (a context key holding the path). Shared by the extract nodes
+/// and `transcribe`.
+pub fn get_path(
+    config: &serde_json::Value,
+    ctx: &Context,
+    node_name: &str,
+) -> anyhow::Result<String> {
+    let has_path = config.get("path").and_then(|v| v.as_str()).is_some();
+    let has_source_key = config.get("source_key").and_then(|v| v.as_str()).is_some();
+
+    if has_path && has_source_key {
+        anyhow::bail!(
+            "{} accepts either 'path' or 'source_key', not both",
+            node_name
+        );
+    }
+
+    if let Some(path_str) = config.get("path").and_then(|v| v.as_str()) {
+        Ok(interpolate_ctx(path_str, ctx))
+    } else if let Some(source_key) = config.get("source_key").and_then(|v| v.as_str()) {
+        let val = ctx
+            .get(source_key)
+            .ok_or_else(|| anyhow::anyhow!("Key '{}' not found in context", source_key))?;
+        match val {
+            serde_json::Value::String(s) => Ok(s.clone()),
+            _ => anyhow::bail!("Context key '{}' must be a string (file path)", source_key),
+        }
+    } else {
+        anyhow::bail!("{} requires either 'path' or 'source_key'", node_name)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn get_path_reads_literal_path_and_context_key() {
+        let ctx: Context = [("stored".to_string(), serde_json::json!("/tmp/from-ctx.mp3"))]
+            .into_iter()
+            .collect();
+
+        let literal = serde_json::json!({ "path": "/tmp/direct.mp3" });
+        assert_eq!(get_path(&literal, &ctx, "t").unwrap(), "/tmp/direct.mp3");
+
+        let via_key = serde_json::json!({ "source_key": "stored" });
+        assert_eq!(get_path(&via_key, &ctx, "t").unwrap(), "/tmp/from-ctx.mp3");
+    }
+
+    #[test]
+    fn get_path_rejects_both_and_neither() {
+        let ctx: Context = Context::new();
+
+        let both = serde_json::json!({ "path": "/a", "source_key": "b" });
+        let error = get_path(&both, &ctx, "t").unwrap_err().to_string();
+        assert!(error.contains("not both"), "{error}");
+
+        let neither = serde_json::json!({});
+        let error = get_path(&neither, &ctx, "t").unwrap_err().to_string();
+        assert!(error.contains("requires either"), "{error}");
+    }
+}
