@@ -6,13 +6,14 @@ use async_trait::async_trait;
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
 
-use super::common::{get_path, validate_word_format};
+use super::common::validate_word_format;
 use super::pptx_format::{pptx_slides_to_json, pptx_slides_to_markdown, pptx_slides_to_text};
 use super::pptx_parser::{
     PptxElement, PptxSlide, extract_pptx_comments, normalize_pptx_path, parse_pptx_notes,
     parse_pptx_rels, parse_pptx_slide, read_pptx_media,
 };
 use crate::util::node_config::config_bool;
+use crate::util::node_config::get_path;
 
 pub struct ExtractPptxNode;
 

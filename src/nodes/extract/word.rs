@@ -8,7 +8,8 @@ use async_trait::async_trait;
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
 
-use super::common::{get_path, validate_word_format};
+use super::common::validate_word_format;
+use crate::util::node_config::get_path;
 use comments::extract_docx_comments;
 use content::extract_docx_content;
 use metadata::extract_docx_metadata;

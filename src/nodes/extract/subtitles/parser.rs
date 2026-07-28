@@ -4,7 +4,8 @@ use anyhow::Result;
 
 use crate::engine::types::{Context, NodeOutput};
 
-use super::super::common::{get_path, validate_format};
+use super::super::common::validate_format;
+use crate::util::node_config::get_path;
 
 pub(super) fn extract(
     config: &serde_json::Value,

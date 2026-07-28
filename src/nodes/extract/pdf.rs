@@ -6,7 +6,8 @@ use async_trait::async_trait;
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
 
-use super::common::{get_path, validate_format};
+use super::common::validate_format;
+use crate::util::node_config::get_path;
 
 pub struct ExtractPdfNode;
 
