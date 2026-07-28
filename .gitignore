@@ -8,3 +8,4 @@ __pycache__/
 data/
 .ironflow_cache/
 Taskfile.yaml
+docs/superpowers/
