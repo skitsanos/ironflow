@@ -1,7 +1,3 @@
-// Temporary: nothing outside this module consumes these items yet. The node
-// and its HTTP call land in later tasks of this plan; remove this once they do.
-#![allow(dead_code)]
-
 use anyhow::Result;
 
 use crate::engine::types::Context;

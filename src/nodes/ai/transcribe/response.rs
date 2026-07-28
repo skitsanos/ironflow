@@ -1,7 +1,3 @@
-// Temporary: nothing outside this module calls `interpret` yet. The node task
-// in this plan wires it up to the HTTP response; remove this once it does.
-#![allow(dead_code)]
-
 use anyhow::Result;
 
 use crate::util::sensitive_url::redact_sensitive_text;

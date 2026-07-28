@@ -1,7 +1,3 @@
-// Temporary: `send` has no caller yet. The node task in this plan wires it up
-// to the HTTP client; remove this once it does.
-#![allow(dead_code)]
-
 use anyhow::Result;
 use reqwest::multipart::{Form, Part};
 
