@@ -123,7 +123,8 @@ flow:step("transcribe", nodes.transcribe({
     path = "${ctx.audio_path}",
     format = "vtt",
     output_key = "transcript",
-    output_file = "${ctx.audio_path}.vtt"
+    output_file = "${ctx.audio_path}.vtt",
+    timeout = 300
 })):retries(2, 2):timeout(300)
 
 -- extract_vtt reads a file, which is why transcribe wrote one.
