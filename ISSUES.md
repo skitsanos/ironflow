@@ -2150,7 +2150,8 @@ work, and its regression coverage passes unchanged.
 
 ### IF-058 — Conversion ceilings have no environment override
 
-**Status:** Resolved on 2026-07-28.
+**Status:** Resolved on 2026-07-28. Reported as
+[#103](https://github.com/skitsanos/ironflow/issues/103).
 
 `MAX_CONVERSION_DEPTH` (64) and `MAX_CONVERSION_NODES` (100,000) in
 `src/lua/conversion/mod.rs` were the only ceilings in the engine with no
