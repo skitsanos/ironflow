@@ -161,6 +161,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **embed_openai_from_ctx.lua** — Context-driven document path for OpenAI embeddings
 - **chunk_semantic.lua** — Semantic chunking using embedding similarity
 - **semantic_chunks_embed.lua** — Semantic chunking then foreach + embeddings
+- **transcribe_index.lua** — Transcribe audio to VTT, extract cues, chunk with preserved timecodes, and embed the chunk text
 
 ## 14-notifications
 - **send_email_resend.lua** — Send an email via Resend API
