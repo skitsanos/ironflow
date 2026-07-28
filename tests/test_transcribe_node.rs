@@ -47,6 +47,40 @@ async fn error_handler(
     (status, body)
 }
 
+/// Build the error body using OpenAI's real error phrasing: the key follows
+/// the word "provided", which the shared pattern-based redactor's keyword
+/// list (`credential:`, `key=`, etc.) does not recognise. This is what
+/// proves the node defends positionally -- by removing the exact key it
+/// sent -- rather than only recognising specific wordings.
+async fn openai_style_error_handler(
+    headers: axum::http::HeaderMap,
+) -> (axum::http::StatusCode, String) {
+    let key = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .unwrap_or("");
+    let body = serde_json::json!({
+        "error": {
+            "message": format!(
+                "Incorrect API key provided: {key}. Find your key at https://example.com"
+            )
+        }
+    })
+    .to_string();
+    (axum::http::StatusCode::UNAUTHORIZED, body)
+}
+
+async fn start_openai_style_error_server() -> (String, tokio::task::JoinHandle<()>) {
+    let app = Router::new().route("/audio/transcriptions", post(openai_style_error_handler));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let handle = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    (url, handle)
+}
+
 async fn start_server(
     status: axum::http::StatusCode,
 ) -> (String, Arc<Mutex<Captured>>, tokio::task::JoinHandle<()>) {
@@ -169,6 +203,45 @@ async fn transcribe_surfaces_provider_errors_without_leaking_the_key() {
     assert!(
         !error.contains("Bearer sentinel-key-abc123"),
         "error disclosed the full authorization header: {error}"
+    );
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn transcribe_redacts_the_key_even_in_unrecognised_phrasings() {
+    // The pattern-based `redact_sensitive_text` only catches phrasings it
+    // recognises, such as "credential: <value>". OpenAI's real error text is
+    // "Incorrect API key provided: sk-...", where "provided" is not a
+    // recognised key -- so without a positional defence, the key would sail
+    // through unredacted into the run's error, its persisted state, and any
+    // log of it. This test's mock reproduces that exact wording with the
+    // sentinel key embedded, so it can only pass if the node strips its own
+    // key regardless of how the provider phrases the message.
+    let (url, handle) = start_openai_style_error_server().await;
+    let (_dir, path) = audio_fixture();
+
+    let node = NodeRegistry::with_builtins().get("transcribe").unwrap();
+    let config = serde_json::json!({
+        "path": path,
+        "provider": "openai_compatible",
+        "base_url": url,
+        "api_key": "sentinel-key-abc123"
+    });
+
+    let error = node
+        .execute(&config, &Context::new())
+        .await
+        .expect_err("401 must fail the node")
+        .to_string();
+
+    // Enough context survives to diagnose the failure...
+    assert!(error.contains("401"), "{error}");
+    assert!(error.contains("Incorrect API key provided"), "{error}");
+    // ...but not the key itself.
+    assert!(
+        !error.contains("sentinel-key-abc123"),
+        "error disclosed the API key in an unrecognised phrasing: {error}"
     );
 
     handle.abort();

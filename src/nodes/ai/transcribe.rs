@@ -13,6 +13,38 @@ use crate::util::limits::max_audio_bytes;
 
 pub struct TranscribeNode;
 
+/// Minimum key length eligible for positional redaction. Real provider API
+/// keys (OpenAI `sk-...`, Azure keys, etc.) run to dozens of characters; a
+/// value shorter than this is more likely a placeholder or test key, and
+/// blindly replacing every occurrence of a very short string risks mangling
+/// unrelated words in an otherwise-useful diagnostic message (a one- or
+/// two-character "key" could coincidentally match ordinary text). Below the
+/// threshold we skip redaction rather than risk corrupting the message; the
+/// threshold is well under the length of any real credential, so this never
+/// weakens protection for an actual secret.
+const MIN_REDACTABLE_KEY_LEN: usize = 8;
+
+/// Remove every occurrence of the caller's own API key from `text`,
+/// replacing it with `[REDACTED]`.
+///
+/// `redact_sensitive_text` (applied upstream in `provider::send` and
+/// `response::interpret`, and still called there) only recognises specific
+/// phrasings such as `credential: <value>` or `key=<value>`. A provider is
+/// free to word things differently: OpenAI's real error text is "Incorrect
+/// API key provided: sk-...", where "provided" is not a keyword any
+/// pattern-based redactor recognises, so the key would otherwise pass
+/// through untouched into the run's error, its persisted state, and any log
+/// of it. Since this node knows exactly which key it sent, it can strip
+/// that exact string regardless of how the provider phrases the message.
+/// This is defence in depth: it runs in addition to, not instead of, the
+/// pattern-based redaction.
+fn redact_own_key(text: &str, key: &str) -> String {
+    if key.len() < MIN_REDACTABLE_KEY_LEN {
+        return text.to_string();
+    }
+    text.replace(key, "[REDACTED]")
+}
+
 #[async_trait]
 impl Node for TranscribeNode {
     fn node_type(&self) -> &str {
@@ -42,8 +74,22 @@ impl Node for TranscribeNode {
                 anyhow::anyhow!("transcribe: failed to build HTTP client: {}", error)
             })?;
 
-        let (status, body) = provider::send(&client, &resolved, audio, &file_name).await?;
-        let transcript = response::interpret(status, &body, resolved.format)?;
+        // Every fallible call below this point runs after the provider has
+        // seen `resolved.api_key`, so its error text is exactly where a
+        // provider could echo the key back in a phrasing the shared
+        // pattern-based redactor doesn't recognise. Wrapping both call
+        // sites (the transport-error path inside `provider::send`, and the
+        // provider-error/parse path inside `response::interpret`) is what
+        // guarantees every error path out of this node gets the positional
+        // scrub, not just one branch of it.
+        let (status, body) = provider::send(&client, &resolved, audio, &file_name)
+            .await
+            .map_err(|error| {
+                anyhow::anyhow!("{}", redact_own_key(&error.to_string(), &resolved.api_key))
+            })?;
+        let transcript = response::interpret(status, &body, resolved.format).map_err(|error| {
+            anyhow::anyhow!("{}", redact_own_key(&error.to_string(), &resolved.api_key))
+        })?;
 
         let mut output = NodeOutput::new();
         let key = &resolved.output_key;
@@ -72,5 +118,51 @@ impl Node for TranscribeNode {
         output.insert(format!("{}_success", key), serde_json::Value::Bool(true));
 
         Ok(output)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strips_every_occurrence_of_a_real_length_key_regardless_of_phrasing() {
+        // This is OpenAI's actual error phrasing: the key follows "provided:",
+        // a word the shared pattern-based redactor does not recognise as a
+        // key/credential marker.
+        let text =
+            "Incorrect API key provided: sentinel-key-abc123. Find your key at https://example.com";
+        let redacted = redact_own_key(text, "sentinel-key-abc123");
+        assert!(!redacted.contains("sentinel-key-abc123"), "{redacted}");
+        assert!(redacted.contains("[REDACTED]"), "{redacted}");
+        assert!(
+            redacted.contains("Incorrect API key provided"),
+            "{redacted}"
+        );
+    }
+
+    #[test]
+    fn strips_repeated_occurrences_of_the_key() {
+        let text = "key sk-longenoughkey rejected; retry without sk-longenoughkey";
+        let redacted = redact_own_key(text, "sk-longenoughkey");
+        assert!(!redacted.contains("sk-longenoughkey"), "{redacted}");
+        assert_eq!(redacted.matches("[REDACTED]").count(), 2);
+    }
+
+    #[test]
+    fn leaves_text_alone_when_the_key_is_below_the_minimum_length() {
+        // Guards the degenerate case: a very short "key" (or an empty one)
+        // must not be scrubbed, since replacing it could corrupt unrelated
+        // text that merely happens to contain that short substring.
+        let text = "failed for user k in region k-west";
+        let redacted = redact_own_key(text, "k");
+        assert_eq!(redacted, text);
+    }
+
+    #[test]
+    fn leaves_text_alone_when_the_key_is_empty() {
+        let text = "some diagnostic text";
+        let redacted = redact_own_key(text, "");
+        assert_eq!(redacted, text);
     }
 }
