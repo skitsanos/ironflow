@@ -13,17 +13,6 @@ use crate::util::limits::max_audio_bytes;
 
 pub struct TranscribeNode;
 
-/// Minimum key length eligible for positional redaction. Real provider API
-/// keys (OpenAI `sk-...`, Azure keys, etc.) run to dozens of characters; a
-/// value shorter than this is more likely a placeholder or test key, and
-/// blindly replacing every occurrence of a very short string risks mangling
-/// unrelated words in an otherwise-useful diagnostic message (a one- or
-/// two-character "key" could coincidentally match ordinary text). Below the
-/// threshold we skip redaction rather than risk corrupting the message; the
-/// threshold is well under the length of any real credential, so this never
-/// weakens protection for an actual secret.
-const MIN_REDACTABLE_KEY_LEN: usize = 8;
-
 /// Remove every occurrence of the caller's own API key from `text`,
 /// replacing it with `[REDACTED]`.
 ///
@@ -38,8 +27,26 @@ const MIN_REDACTABLE_KEY_LEN: usize = 8;
 /// that exact string regardless of how the provider phrases the message.
 /// This is defence in depth: it runs in addition to, not instead of, the
 /// pattern-based redaction.
+///
+/// This function used to skip redaction for any key shorter than 8
+/// characters, on the theory that a short "key" was more likely a
+/// placeholder and that blindly replacing a short string risked mangling
+/// unrelated words. That guard failed open: this node accepts an arbitrary
+/// OpenAI-compatible `base_url`, so a short credential is entirely plausible
+/// against a custom or internal test server, and it would have sailed
+/// through unredacted into the run's error and persisted state -- exactly
+/// the leak this function exists to prevent. The only case where skipping
+/// redaction is actually correct is an empty key: there is no secret to
+/// remove, and `str::replace` treats an empty pattern as matching between
+/// *every* character, so without this guard `text.replace("", "[REDACTED]")`
+/// would shred the message into confetti (`"[REDACTED]s[REDACTED]o..."`)
+/// rather than leave it alone. For every non-empty key, however short, we
+/// redact. A noisier diagnostic message from a short key coincidentally
+/// matching unrelated text is a cosmetic cost; a leaked credential is a
+/// security incident. Do not reintroduce a minimum-length threshold here --
+/// that is the fail-open bug this comment is guarding against.
 fn redact_own_key(text: &str, key: &str) -> String {
-    if key.len() < MIN_REDACTABLE_KEY_LEN {
+    if key.is_empty() {
         return text.to_string();
     }
     text.replace(key, "[REDACTED]")
@@ -150,13 +157,19 @@ mod tests {
     }
 
     #[test]
-    fn leaves_text_alone_when_the_key_is_below_the_minimum_length() {
-        // Guards the degenerate case: a very short "key" (or an empty one)
-        // must not be scrubbed, since replacing it could corrupt unrelated
-        // text that merely happens to contain that short substring.
+    fn redacts_a_short_key_because_it_is_still_a_secret() {
+        // A short key is still a secret: this node accepts an arbitrary
+        // OpenAI-compatible `base_url`, so a short credential against a
+        // custom or internal test server is plausible. Redaction must fail
+        // closed here even though the replacement is noisier -- a noisy
+        // error is cosmetic, a leaked credential is not.
         let text = "failed for user k in region k-west";
         let redacted = redact_own_key(text, "k");
-        assert_eq!(redacted, text);
+        assert_eq!(
+            redacted,
+            "failed for user [REDACTED] in region [REDACTED]-west"
+        );
+        assert_eq!(redacted.matches("[REDACTED]").count(), 2);
     }
 
     #[test]
