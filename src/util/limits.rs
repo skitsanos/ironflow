@@ -46,6 +46,11 @@ const DEFAULT_MAX_ZIP_UNCOMPRESSED_BYTES: u64 = 512 * 1024 * 1024;
 /// Default cap for PDF files loaded for rendering (100 MB).
 const DEFAULT_MAX_PDF_BYTES: u64 = 100 * 1024 * 1024;
 
+/// Whisper-style transcription APIs reject uploads above 25 MB. This is decimal
+/// 25 MB, not 25 MiB: a larger default would pass our pre-flight only for the
+/// provider to reject the request.
+const DEFAULT_MAX_AUDIO_BYTES: u64 = 25_000_000;
+
 /// Default cap for PDF pages rendered into base64 in one node call.
 const DEFAULT_MAX_PDF_RENDER_PAGES: u64 = 25;
 
@@ -145,6 +150,10 @@ pub fn max_zip_uncompressed_bytes() -> u64 {
 
 pub fn max_pdf_bytes() -> u64 {
     env_u64("IRONFLOW_MAX_PDF_BYTES", DEFAULT_MAX_PDF_BYTES)
+}
+
+pub fn max_audio_bytes() -> u64 {
+    env_u64("IRONFLOW_MAX_AUDIO_BYTES", DEFAULT_MAX_AUDIO_BYTES)
 }
 
 pub fn max_pdf_render_pages() -> u64 {
@@ -296,4 +305,15 @@ const DEFAULT_TASK_OUTPUT_BYTES: u64 = 2 * 1024 * 1024;
 
 pub fn max_task_output_bytes() -> u64 {
     env_u64("IRONFLOW_MAX_TASK_OUTPUT_BYTES", DEFAULT_TASK_OUTPUT_BYTES)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::max_audio_bytes;
+
+    #[test]
+    fn max_audio_bytes_defaults_to_the_provider_limit() {
+        unsafe { std::env::remove_var("IRONFLOW_MAX_AUDIO_BYTES") };
+        assert_eq!(max_audio_bytes(), 25_000_000);
+    }
 }

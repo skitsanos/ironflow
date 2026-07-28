@@ -20,7 +20,7 @@ chrono = { version = "0.4.45", features = ["serde"] }
 async-trait = "0.1.89"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-reqwest = { version = "0.13.4", features = ["json", "stream"] }
+reqwest = { version = "0.13.4", features = ["json", "stream", "multipart"] }
 url = "2.5.8"
 http = "1"
 rmcp = { version = "2.2.0", default-features = false, features = ["client", "transport-streamable-http-client-reqwest"] }
