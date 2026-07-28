@@ -48,6 +48,14 @@ const DEFAULT_MAX_PDF_BYTES: u64 = 100 * 1024 * 1024;
 /// provider to reject the request.
 const DEFAULT_MAX_AUDIO_BYTES: u64 = 25_000_000;
 
+/// Default nesting depth accepted when converting between JSON and Lua.
+const DEFAULT_MAX_CONVERSION_DEPTH: u64 = 64;
+
+/// Default total value count accepted when converting between JSON and Lua.
+/// A flow that legitimately builds a large structure needs a way to raise this
+/// without recompiling (IF-058).
+const DEFAULT_MAX_CONVERSION_NODES: u64 = 100_000;
+
 /// Default cap for PDF pages rendered into base64 in one node call.
 const DEFAULT_MAX_PDF_RENDER_PAGES: u64 = 25;
 
@@ -151,6 +159,20 @@ pub fn max_pdf_bytes() -> u64 {
 
 pub fn max_audio_bytes() -> u64 {
     env_u64("IRONFLOW_MAX_AUDIO_BYTES", DEFAULT_MAX_AUDIO_BYTES)
+}
+
+pub fn max_conversion_depth() -> u64 {
+    env_u64(
+        "IRONFLOW_MAX_CONVERSION_DEPTH",
+        DEFAULT_MAX_CONVERSION_DEPTH,
+    )
+}
+
+pub fn max_conversion_nodes() -> u64 {
+    env_u64(
+        "IRONFLOW_MAX_CONVERSION_NODES",
+        DEFAULT_MAX_CONVERSION_NODES,
+    )
 }
 
 pub fn max_pdf_render_pages() -> u64 {

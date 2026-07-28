@@ -50,13 +50,13 @@ impl<'lua> JsonToLuaConverter<'lua> {
     fn visit(&mut self, path: &str, depth: usize) -> Result<()> {
         if depth > self.limits.max_depth {
             bail!(
-                "JSON-to-Lua maximum depth {} exceeded at {path}",
+                "JSON-to-Lua maximum depth {} exceeded at {path} (raise IRONFLOW_MAX_CONVERSION_DEPTH)",
                 self.limits.max_depth
             );
         }
         if self.nodes >= self.limits.max_nodes {
             bail!(
-                "JSON-to-Lua maximum node count {} exceeded at {path}",
+                "JSON-to-Lua maximum node count {} exceeded at {path}. This counts the whole value being converted, which for a step handler is the accumulated run context, not just the keys this step reads (raise IRONFLOW_MAX_CONVERSION_NODES)",
                 self.limits.max_nodes
             );
         }
