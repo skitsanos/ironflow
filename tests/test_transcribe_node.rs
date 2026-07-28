@@ -29,9 +29,26 @@ async fn handler(
     (axum::http::StatusCode::OK, VTT.to_string())
 }
 
+/// Build the error body a real provider might send: the offending credential
+/// echoed back in verbose error text. This is what makes the leak test able
+/// to fail if the node's error path ever forwards provider text unredacted.
+async fn error_handler(
+    status: axum::http::StatusCode,
+    headers: axum::http::HeaderMap,
+) -> (axum::http::StatusCode, String) {
+    let authorization = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    let body = serde_json::json!({
+        "error": { "message": format!("Invalid credential: {authorization}") }
+    })
+    .to_string();
+    (status, body)
+}
+
 async fn start_server(
     status: axum::http::StatusCode,
-    body: &'static str,
 ) -> (String, Arc<Mutex<Captured>>, tokio::task::JoinHandle<()>) {
     let state = Arc::new(Mutex::new(Captured::default()));
     let app = if status == axum::http::StatusCode::OK {
@@ -42,7 +59,7 @@ async fn start_server(
         Router::new()
             .route(
                 "/audio/transcriptions",
-                post(move || async move { (status, body.to_string()) }),
+                post(move |headers: axum::http::HeaderMap| error_handler(status, headers)),
             )
             .with_state(state.clone())
     };
@@ -64,7 +81,7 @@ fn audio_fixture() -> (tempfile::TempDir, String) {
 
 #[tokio::test]
 async fn transcribe_returns_vtt_and_reports_metadata() {
-    let (url, captured, handle) = start_server(axum::http::StatusCode::OK, "").await;
+    let (url, captured, handle) = start_server(axum::http::StatusCode::OK).await;
     let (_dir, path) = audio_fixture();
 
     let node = NodeRegistry::with_builtins().get("transcribe").unwrap();
@@ -96,7 +113,7 @@ async fn transcribe_returns_vtt_and_reports_metadata() {
 
 #[tokio::test]
 async fn transcribe_writes_output_file_when_requested() {
-    let (url, _captured, handle) = start_server(axum::http::StatusCode::OK, "").await;
+    let (url, _captured, handle) = start_server(axum::http::StatusCode::OK).await;
     let (dir, path) = audio_fixture();
     let out = dir.path().join("clip.vtt");
 
@@ -122,11 +139,11 @@ async fn transcribe_writes_output_file_when_requested() {
 
 #[tokio::test]
 async fn transcribe_surfaces_provider_errors_without_leaking_the_key() {
-    let (url, _captured, handle) = start_server(
-        axum::http::StatusCode::UNAUTHORIZED,
-        r#"{"error":{"message":"Invalid API key"}}"#,
-    )
-    .await;
+    // The mock echoes the exact `authorization` header it received into the
+    // JSON error body, the same way real providers sometimes include the
+    // offending credential in verbose error text. If the node's error path
+    // ever forwards provider text unredacted, this assertion will catch it.
+    let (url, _captured, handle) = start_server(axum::http::StatusCode::UNAUTHORIZED).await;
     let (_dir, path) = audio_fixture();
 
     let node = NodeRegistry::with_builtins().get("transcribe").unwrap();
@@ -144,10 +161,14 @@ async fn transcribe_surfaces_provider_errors_without_leaking_the_key() {
         .to_string();
 
     assert!(error.contains("401"), "{error}");
-    assert!(error.contains("Invalid API key"), "{error}");
+    assert!(error.contains("Invalid credential"), "{error}");
     assert!(
         !error.contains("sentinel-key-abc123"),
         "error disclosed the API key: {error}"
+    );
+    assert!(
+        !error.contains("Bearer sentinel-key-abc123"),
+        "error disclosed the full authorization header: {error}"
     );
 
     handle.abort();
