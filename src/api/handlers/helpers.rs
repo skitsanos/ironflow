@@ -35,18 +35,25 @@ pub(super) fn decode_base64_source(b64: &str) -> Result<String, AppError> {
         .map_err(|e| AppError::BadRequest(format!("Base64 payload is not valid UTF-8: {}", e)))
 }
 
-/// Resolve a client-supplied flow path.
+pub fn resolve_flow_path(file_path: &str, state: &AppState) -> Result<String, AppError> {
+    resolve_flow_path_in(file_path, state.flows_dir.as_deref())
+}
+
+/// Resolve a configured or client-supplied flow path against an optional
+/// sandbox root.
 ///
 /// When `flows_dir` is configured, every accepted path — including absolute
 /// paths — must canonicalize to a location inside that directory. The cwd
-/// fallback is disabled in that mode to prevent a caller from executing
-/// arbitrary `.lua` files just because they are reachable from the server
-/// process.
+/// fallback is disabled in that mode to prevent execution of arbitrary `.lua`
+/// files just because they are reachable from the server process.
 ///
 /// When `flows_dir` is not configured there is no sandbox to enforce, and the
-/// old permissive behaviour (absolute or cwd-relative) is preserved.
-pub fn resolve_flow_path(file_path: &str, state: &AppState) -> Result<String, AppError> {
-    if let Some(ref flows_dir) = state.flows_dir {
+/// permissive behaviour (absolute or cwd-relative) is preserved.
+pub fn resolve_flow_path_in(
+    file_path: &str,
+    flows_dir: Option<&std::path::Path>,
+) -> Result<String, AppError> {
+    if let Some(flows_dir) = flows_dir {
         let root = flows_dir.canonicalize().map_err(|e| {
             AppError::BadRequest(format!(
                 "Configured flows_dir '{}' is not accessible: {}",
