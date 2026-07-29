@@ -87,13 +87,17 @@ async fn an_instant_inside_the_window_fires() {
 #[tokio::test]
 async fn nothing_fires_between_instants() {
     let executor = Arc::new(StubExecutor::default());
+    // Constructed at 02:30, well clear of the 02:00 instant: the watermark
+    // seeds at 02:25, so catch-up cannot reach back to it. This isolates
+    // "nothing is due between instants" from the catch-up behaviour that
+    // `a_process_down_briefly_across_an_instant_fires_on_restart` covers.
     let mut scheduler = scheduler(
         Arc::new(NullStateStore::new()),
         executor.clone(),
-        utc(2026, 5, 1, 2, 0),
+        utc(2026, 5, 1, 2, 30),
     );
 
-    assert!(scheduler.evaluate(utc(2026, 5, 1, 2, 30)).await.is_empty());
+    assert!(scheduler.evaluate(utc(2026, 5, 1, 2, 35)).await.is_empty());
     assert!(scheduler.evaluate(utc(2026, 5, 1, 3, 0)).await.is_empty());
     assert_eq!(executor.runs.load(Ordering::SeqCst), 0);
 }

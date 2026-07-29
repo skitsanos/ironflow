@@ -70,11 +70,6 @@ pub struct Scheduler {
     executor: Arc<dyn ScheduleExecutor>,
     /// Local wall-clock time each schedule was last evaluated through.
     evaluated_through: HashMap<String, NaiveDateTime>,
-    /// Local wall-clock time the scheduler was constructed, per schedule's own
-    /// timezone. Tracking begins here; see the `retain` in `evaluate` for why
-    /// an instant landing exactly on this boundary is excluded rather than
-    /// treated as caught up.
-    started_local: HashMap<String, NaiveDateTime>,
 }
 
 impl Scheduler {
@@ -88,12 +83,10 @@ impl Scheduler {
         now: DateTime<Utc>,
     ) -> Self {
         let mut evaluated_through = HashMap::new();
-        let mut started_local = HashMap::new();
         for (name, schedule) in &schedules {
             let started = now.with_timezone(&schedule.timezone()).naive_local();
             let grace = chrono::Duration::seconds(schedule.grace_seconds() as i64);
             evaluated_through.insert(name.clone(), started - grace);
-            started_local.insert(name.clone(), started);
         }
 
         Self {
@@ -101,7 +94,6 @@ impl Scheduler {
             store,
             executor,
             evaluated_through,
-            started_local,
         }
     }
 
@@ -120,19 +112,8 @@ impl Scheduler {
             let schedule = &self.schedules[name];
             let through = now.with_timezone(&schedule.timezone()).naive_local();
             let after = self.evaluated_through[name];
-            let started = self.started_local[name];
 
-            let (mut due, truncated) = due_instants(schedule, after, through);
-            // The grace-widened `after` reaches back before `started` so a
-            // brief pre-restart outage is still caught up. But an instant
-            // that lands exactly on `started` was not missed — tracking
-            // begins there, and the half-open window would have excluded it
-            // had the watermark been seeded at `started` directly. Without
-            // this, a schedule whose construction instant coincides with a
-            // due occurrence would still find it hours later on the first
-            // delayed tick, misreporting it as newly late rather than simply
-            // not due.
-            due.retain(|instant| instant.local != started);
+            let (due, truncated) = due_instants(schedule, after, through);
             if truncated {
                 tracing::warn!(
                     schedule = %name,
