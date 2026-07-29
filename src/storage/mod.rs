@@ -90,6 +90,25 @@ pub trait StateStore: Send + Sync {
         }
         Ok(removed)
     }
+
+    /// Claim one scheduled instant, returning `true` for the single caller
+    /// across every process sharing this store that owns it.
+    ///
+    /// `name` is the schedule's configured name and `key` its local wall-clock
+    /// identity. `ttl_seconds` bounds how long the record is retained; it must
+    /// exceed the schedule's grace window, or a late replica could re-fire an
+    /// instant whose claim has already been reaped.
+    ///
+    /// The default refuses. A store that cannot coordinate claims must not
+    /// quietly let every replica fire — that is the duplicate this method
+    /// exists to prevent — so scheduling is unavailable rather than unsafe.
+    async fn claim_schedule(&self, name: &str, key: &str, ttl_seconds: u64) -> StorageResult<bool> {
+        let _ = (name, key, ttl_seconds);
+        Err(StorageError::backend(
+            "Claim scheduled instant",
+            "this state store does not support scheduling",
+        ))
+    }
 }
 
 /// Prune terminal runs older than `cutoff` by walking bounded newest-first
