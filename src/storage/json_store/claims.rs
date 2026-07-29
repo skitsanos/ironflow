@@ -18,11 +18,26 @@ const CLAIM_PREFIX: &str = ".ironflow-schedule-claim-v1.";
 impl JsonStateStore {
     /// File name for one claim.
     ///
-    /// Hex-encoding the `name`/`key` pair keeps the mapping injective and the
-    /// result filesystem-safe regardless of what an operator names a schedule.
+    /// `name` and `key` are hex-encoded into their own segments, joined by a
+    /// literal `.`. Hex output is `[0-9a-f]` only, so it can never itself
+    /// contain a `.`; that makes the segment boundary unambiguous and the
+    /// mapping injective regardless of what either input contains — no
+    /// dependency on `name` or `key` being NUL-free or otherwise restricted.
+    /// The scheme also lets `reap_expired_claims` match on the `name` segment
+    /// alone, so it can scope a reap to one schedule's own claims.
     fn claim_name(name: &str, key: &str) -> String {
-        let identity = format!("{name}\u{0}{key}");
-        format!("{CLAIM_PREFIX}{}", hex::encode(identity.as_bytes()))
+        format!(
+            "{}{}",
+            Self::claim_prefix_for(name),
+            hex::encode(key.as_bytes())
+        )
+    }
+
+    /// Prefix shared by every claim file belonging to `name`, hex segment
+    /// included. Used both to build a full claim file name and to scope
+    /// reaping to one schedule's own entries.
+    fn claim_prefix_for(name: &str) -> String {
+        format!("{CLAIM_PREFIX}{}.", hex::encode(name.as_bytes()))
     }
 
     pub(super) async fn claim_schedule_file(
@@ -33,7 +48,7 @@ impl JsonStateStore {
     ) -> StorageResult<bool> {
         let _lock = self.lock.write().await;
         self.directory.ensure_created().await?;
-        self.reap_expired_claims(ttl_seconds).await;
+        self.reap_expired_claims(name, ttl_seconds).await;
 
         let file = Self::claim_name(name, key);
         match self
@@ -48,16 +63,24 @@ impl JsonStateStore {
         }
     }
 
-    /// Drop claim files older than the TTL.
+    /// Drop `name`'s own claim files older than the TTL.
     ///
     /// Best-effort: a claim that outlives its window only wastes an inode, and
     /// failing a fire because cleanup failed would be worse than the leak.
     /// Runs on the claim path itself because nothing in `serve` drives run
     /// retention, so there is no periodic sweep to attach to.
-    async fn reap_expired_claims(&self, ttl_seconds: u64) {
+    ///
+    /// Scoped to `name`'s own prefix rather than every `CLAIM_PREFIX` entry:
+    /// `ttl_seconds` is this call's schedule's TTL, derived from that
+    /// schedule's own `grace_seconds`. Applying it to another schedule's
+    /// claims would reap a still-valid long-TTL claim on a short-TTL
+    /// schedule's routine call, letting a restarted process re-fire an
+    /// instant it had already claimed.
+    async fn reap_expired_claims(&self, name: &str, ttl_seconds: u64) {
         let Ok(entries) = self.directory.list_entries().await else {
             return;
         };
+        let prefix = Self::claim_prefix_for(name);
         let ttl = Duration::from_secs(ttl_seconds);
         let now = SystemTime::now();
 
@@ -65,7 +88,7 @@ impl JsonStateStore {
             let Some(entry_name) = entry.name.to_str() else {
                 continue;
             };
-            if !entry_name.starts_with(CLAIM_PREFIX) {
+            if !entry_name.starts_with(&prefix) {
                 continue;
             }
             let expired = tokio::fs::symlink_metadata(self.directory.path(entry_name))

@@ -238,3 +238,41 @@ async fn expired_json_claims_are_reaped_so_the_directory_cannot_grow_without_bou
         "the expired claim should have been reaped"
     );
 }
+
+#[tokio::test]
+async fn reaping_one_json_schedule_does_not_delete_another_schedules_claim() {
+    // Each schedule derives its own TTL from its own grace window. A
+    // short-TTL schedule must not reap a long-TTL schedule's still-valid
+    // claim, or the long one could re-fire an instant it already ran.
+    let dir = tempfile::tempdir().unwrap();
+    let store = JsonStateStore::new(dir.path());
+
+    assert!(
+        store
+            .claim_schedule("long_grace", "UTC@2026-05-01T02:00", TTL)
+            .await
+            .unwrap()
+    );
+    // A zero-TTL call from a different schedule: it must reap only its own.
+    assert!(
+        store
+            .claim_schedule("short_grace", "UTC@2026-05-01T02:00", 0)
+            .await
+            .unwrap()
+    );
+    assert!(
+        store
+            .claim_schedule("short_grace", "UTC@2026-05-02T02:00", 0)
+            .await
+            .unwrap()
+    );
+
+    // The long-grace schedule's claim survived, so its instant cannot re-fire.
+    assert!(
+        !store
+            .claim_schedule("long_grace", "UTC@2026-05-01T02:00", TTL)
+            .await
+            .unwrap(),
+        "another schedule's reap deleted this claim"
+    );
+}
