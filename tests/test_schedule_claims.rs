@@ -276,3 +276,149 @@ async fn reaping_one_json_schedule_does_not_delete_another_schedules_claim() {
         "another schedule's reap deleted this claim"
     );
 }
+
+use ironflow::storage::SqlStateStore;
+
+async fn sqlite_store(dir: &std::path::Path) -> SqlStateStore {
+    let url = format!("sqlite://{}/claims.sqlite?mode=rwc", dir.display());
+    SqlStateStore::new(&url).await.unwrap()
+}
+
+#[tokio::test]
+async fn sql_store_grants_a_claim_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = sqlite_store(dir.path()).await;
+
+    assert!(
+        store
+            .claim_schedule("nightly", "UTC@2026-05-01T02:00", TTL)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !store
+            .claim_schedule("nightly", "UTC@2026-05-01T02:00", TTL)
+            .await
+            .unwrap()
+    );
+    // A different instant of the same schedule is still available.
+    assert!(
+        store
+            .claim_schedule("nightly", "UTC@2026-05-02T02:00", TTL)
+            .await
+            .unwrap()
+    );
+}
+
+#[tokio::test]
+async fn two_sql_stores_sharing_a_database_race_and_exactly_one_wins() {
+    let dir = tempfile::tempdir().unwrap();
+    let first = std::sync::Arc::new(sqlite_store(dir.path()).await);
+    let second = std::sync::Arc::new(sqlite_store(dir.path()).await);
+
+    let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(2));
+    let mut handles = Vec::new();
+    for store in [first, second] {
+        let barrier = barrier.clone();
+        handles.push(tokio::spawn(async move {
+            barrier.wait().await;
+            store
+                .claim_schedule("nightly", "UTC@2026-05-01T02:00", TTL)
+                .await
+                .unwrap()
+        }));
+    }
+
+    let won = futures_util::future::join_all(handles)
+        .await
+        .into_iter()
+        .filter(|result| *result.as_ref().unwrap())
+        .count();
+    assert_eq!(won, 1, "exactly one process must own an instant");
+}
+
+#[tokio::test]
+async fn expired_sql_claims_are_reaped() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = sqlite_store(dir.path()).await;
+
+    assert!(
+        store
+            .claim_schedule("nightly", "UTC@2026-05-01T02:00", 0)
+            .await
+            .unwrap()
+    );
+    // A zero TTL expires the first claim, so the next call prunes it and the
+    // same key becomes grantable again.
+    assert!(
+        store
+            .claim_schedule("nightly", "UTC@2026-05-02T02:00", 0)
+            .await
+            .unwrap()
+    );
+    assert!(
+        store
+            .claim_schedule("nightly", "UTC@2026-05-01T02:00", 0)
+            .await
+            .unwrap()
+    );
+}
+
+#[tokio::test]
+async fn reaping_one_schedule_does_not_delete_another_schedules_claim() {
+    // Each schedule derives its own TTL from its own grace window. A
+    // short-TTL schedule must not reap a long-TTL schedule's still-valid
+    // claim, or the long one could re-fire an instant it already ran.
+    let dir = tempfile::tempdir().unwrap();
+    let store = sqlite_store(dir.path()).await;
+
+    assert!(
+        store
+            .claim_schedule("long_grace", "UTC@2026-05-01T02:00", TTL)
+            .await
+            .unwrap()
+    );
+    // A zero-TTL call from a different schedule: it reaps only its own rows.
+    assert!(
+        store
+            .claim_schedule("short_grace", "UTC@2026-05-01T02:00", 0)
+            .await
+            .unwrap()
+    );
+    assert!(
+        store
+            .claim_schedule("short_grace", "UTC@2026-05-02T02:00", 0)
+            .await
+            .unwrap()
+    );
+
+    // The long-grace schedule's claim survived, so its instant cannot re-fire.
+    assert!(
+        !store
+            .claim_schedule("long_grace", "UTC@2026-05-01T02:00", TTL)
+            .await
+            .unwrap(),
+        "another schedule's reap deleted this claim"
+    );
+}
+
+#[tokio::test]
+async fn sql_claims_respect_the_configured_table_prefix() {
+    let dir = tempfile::tempdir().unwrap();
+    let url = format!("sqlite://{}/prefixed.sqlite?mode=rwc", dir.path().display());
+    let store = SqlStateStore::new_with_prefix(&url, Some("tenant_a_"))
+        .await
+        .unwrap();
+    assert!(
+        store
+            .claim_schedule("nightly", "UTC@2026-05-01T02:00", TTL)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !store
+            .claim_schedule("nightly", "UTC@2026-05-01T02:00", TTL)
+            .await
+            .unwrap()
+    );
+}

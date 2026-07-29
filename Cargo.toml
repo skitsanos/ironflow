@@ -64,6 +64,7 @@ redis = ["dep:redis"]
 tempfile = "3"
 http-body-util = "0.1"
 tower = "0.5"
+futures-util = "0.3"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.186"

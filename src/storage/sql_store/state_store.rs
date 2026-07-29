@@ -289,4 +289,8 @@ impl StateStore for SqlStateStore {
     async fn prune_before(&self, cutoff: chrono::DateTime<Utc>) -> StorageResult<usize> {
         self.prune_before_transactional(cutoff).await
     }
+
+    async fn claim_schedule(&self, name: &str, key: &str, ttl_seconds: u64) -> StorageResult<bool> {
+        self.claim_schedule_row(name, key, ttl_seconds).await
+    }
 }
