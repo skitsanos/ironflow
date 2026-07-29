@@ -75,7 +75,10 @@ pub struct Scheduler {
 impl Scheduler {
     /// Seeds each schedule's watermark at `now - grace_seconds`, so a process
     /// that starts after an outage catches up only as far as an instant could
-    /// still legitimately fire, rather than replaying history.
+    /// still legitimately fire, rather than replaying history. The subtraction
+    /// happens in UTC, before converting to local time: grace measures real
+    /// elapsed time, not wall-clock, and the two only agree when the UTC
+    /// offset is constant across the grace window.
     pub fn new(
         schedules: HashMap<String, ScheduleConfig>,
         store: Arc<dyn StateStore>,
@@ -84,9 +87,11 @@ impl Scheduler {
     ) -> Self {
         let mut evaluated_through = HashMap::new();
         for (name, schedule) in &schedules {
-            let started = now.with_timezone(&schedule.timezone()).naive_local();
             let grace = chrono::Duration::seconds(schedule.grace_seconds() as i64);
-            evaluated_through.insert(name.clone(), started - grace);
+            let seeded = (now - grace)
+                .with_timezone(&schedule.timezone())
+                .naive_local();
+            evaluated_through.insert(name.clone(), seeded);
         }
 
         Self {

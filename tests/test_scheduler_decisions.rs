@@ -204,6 +204,24 @@ async fn an_instant_just_inside_the_grace_window_still_fires() {
 
     assert!(matches!(decisions[0].outcome, Outcome::Fired { .. }));
     assert_eq!(executor.runs.load(Ordering::SeqCst), 1);
+
+    // Exactly at the boundary: `>` means equal lateness is still inside the
+    // window, so this must fire too.
+    // (`scheduler` the local binding above now shadows the `scheduler` helper
+    // fn, so the helper is reached via its crate-root path here.)
+    let executor = Arc::new(StubExecutor::default());
+    let mut scheduler = crate::scheduler(
+        Arc::new(NullStateStore::new()),
+        executor.clone(),
+        utc(2026, 5, 1, 1, 59),
+    );
+    let decisions = scheduler.evaluate(utc(2026, 5, 1, 2, 5)).await;
+    assert!(
+        matches!(decisions[0].outcome, Outcome::Fired { .. }),
+        "lateness of exactly grace_seconds should fire, got {:?}",
+        decisions[0].outcome
+    );
+    assert_eq!(executor.runs.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]
@@ -261,7 +279,11 @@ async fn a_failing_flow_fails_that_run_and_not_the_scheduler() {
 }
 
 #[tokio::test]
-async fn one_broken_schedule_does_not_stop_the_others() {
+async fn every_configured_schedule_is_evaluated_in_one_tick() {
+    // Neither schedule is made to fail here; that guarantee is covered by
+    // `a_failing_flow_fails_that_run_and_not_the_scheduler`. This only checks
+    // that a single tick evaluates every configured schedule, not just the
+    // first.
     let mut schedules = daily_at_two();
     schedules.insert(
         "hourly".to_string(),
@@ -301,4 +323,46 @@ async fn startup_catch_up_is_bounded_by_the_grace_window() {
 
     assert!(decisions.is_empty(), "replayed history: {decisions:?}");
     assert_eq!(executor.runs.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn catch_up_seeding_measures_real_elapsed_time_across_a_dst_gap() {
+    // Berlin springs forward at 02:00 local (01:00 UTC) on 2026-03-29, so at
+    // 01:30 UTC the local clock already reads 03:30 CEST.
+    //
+    // Grace is a span of real elapsed time, so the watermark must be seeded by
+    // subtracting it from the UTC instant and only then converting to local.
+    // Subtracting an hour from the local wall clock instead yields 02:30 — a
+    // local time that does not exist that day — and silently drops this 01:45
+    // instant, which is only 45 minutes late against a 60-minute grace.
+    let executor = Arc::new(StubExecutor::default());
+    let schedule = ScheduleConfig::new(
+        "nightly.lua",
+        "45 1 * * *",
+        Some("Europe/Berlin"),
+        Some(3600),
+        Context::new(),
+    )
+    .unwrap();
+    let now = Utc.with_ymd_and_hms(2026, 3, 29, 1, 30, 0).unwrap();
+
+    let mut scheduler = Scheduler::new(
+        HashMap::from([("nightly".to_string(), schedule)]),
+        Arc::new(NullStateStore::new()),
+        executor.clone(),
+        now,
+    );
+
+    let decisions = scheduler.evaluate(now).await;
+
+    assert_eq!(
+        decisions.len(),
+        1,
+        "the 01:45 instant is within grace and should be caught up: {decisions:?}"
+    );
+    assert!(
+        matches!(decisions[0].outcome, Outcome::Fired { .. }),
+        "expected Fired, got {:?}",
+        decisions[0].outcome
+    );
 }
