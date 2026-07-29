@@ -245,6 +245,11 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
       environment > selected dotenv > config file > built-in default; an
       explicit value equal to a default still wins
 - [x] Webhook routes via config — scalar or structured `webhooks:` entries create `POST /webhooks/{name}` endpoints; request headers are default-denied and explicitly forwarded only through redacted execution overlays
+- [x] Scheduled triggers — `schedules:` block in `ironflow.yaml`, evaluated by a
+      30-second tick inside `ironflow serve`. Cross-replica safety via
+      `StateStore::claim_schedule` (SQL unique index, Redis `SET NX EX`, JSON
+      exclusive create, Null always-true). Claim keys are local wall-clock, so
+      a fall-back hour fires once; a spring-forward gap fires after the gap.
 - [x] Storage backend selection via config — `store_backend`, `store_url`,
   `event_store`, `event_store_url`, `event_memory_capacity`, and
   `sql_table_prefix`; env-var equivalents include `IRONFLOW_STORE`,

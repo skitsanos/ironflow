@@ -684,6 +684,62 @@ Public run output hides legacy `_headers` values when they are still present,
 but operators should purge old run/event data and rotate credentials that were
 previously sent to webhook endpoints.
 
+#### Schedules
+
+`schedules` declares cron triggers evaluated by `ironflow serve`. Like
+`webhooks`, it is configuration-file-only — there is no CLI flag and no
+environment variable, because timing is a deployment decision.
+
+```yaml
+schedules:
+  nightly_report:
+    flow: reports/nightly.lua      # resolved through flows_dir
+    cron: "0 2 * * *"              # standard five-field cron
+    timezone: "Europe/Berlin"      # IANA name; defaults to UTC
+    grace_seconds: 3600            # optional; default 300, minimum 60
+    context:                       # optional initial context
+      region: "eu"
+```
+
+| Field | Required | Default | Notes |
+|---|---|---|---|
+| `flow` | yes | — | Resolved against `flows_dir`, so a schedule cannot escape it |
+| `cron` | yes | — | Five fields: minute hour day month weekday. Seconds are fixed at zero; six- and seven-field expressions are rejected rather than reinterpreted |
+| `timezone` | no | `UTC` | IANA name. Unknown names fail at startup |
+| `grace_seconds` | no | `300` | Maximum lateness for which a missed instant still fires. Minimum 60, because the scheduler evaluates every 30 seconds |
+| `context` | no | `{}` | Merged into the run's initial context. Must not define `_schedule` or `_flow_dir` |
+
+Invalid configuration — an unparseable expression, an unknown zone, a flow
+outside `flows_dir`, a reserved context key — fails the process at startup. A
+schedule that only fails at 02:00 is a schedule nobody finds out about until
+02:00.
+
+**Scheduled runs are ordinary runs.** They appear in `ironflow list`,
+`ironflow inspect`, and the events stream, and carry the schedule's name in
+their context under `_schedule`, so a run can be traced back to its trigger.
+
+**Multiple replicas.** Each instant is claimed through the state store, so a
+deployment running several `serve` replicas against one store produces exactly
+one run per instant. The JSON store coordinates only among processes sharing a
+`store_dir`; use SQL or Redis across hosts.
+
+**Skips are logged, never silent.** A skip states which rule caused it — grace,
+overlap, or capacity — and the instant involved, at `WARN`. Losing a claim is
+logged at `debug`, because on N replicas it is the expected outcome N-1 times.
+
+**Daylight saving.** Schedules fire on local wall-clock time.
+
+- *Spring forward* — the configured time does not exist. A `0 2 * * *` schedule
+  in `Europe/Berlin` fires at 03:00 on the transition date rather than skipping
+  the day.
+- *Fall back* — the configured time occurs twice. The schedule fires once, on
+  the earlier instant.
+
+**Overlap.** If a previous run of the same schedule has not finished, the new
+instant is skipped rather than queued. At `IRONFLOW_MAX_CONCURRENT_RUNS`
+capacity the instant is likewise skipped, so a saturated server does not build
+a backlog.
+
 ---
 
 ## Environment Variables

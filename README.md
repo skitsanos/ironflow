@@ -196,6 +196,11 @@ complete contract and configuration variables.
 | `POST` | `/webhooks/{name}` | Execute a webhook-mapped flow |
 | `GET` | `/health` | Health check |
 
+Flows can also run on a schedule. A `schedules:` block in `ironflow.yaml`
+declares cron triggers that `ironflow serve` evaluates — in a named time zone,
+firing each instant exactly once even across multiple replicas. See
+[Schedules](docs/CLI_REFERENCE.md#schedules).
+
 Handler failures return JSON with `error` and a stable `code`. Internal failures
 return only a generic message plus an opaque `error_id`, also exposed as
 `X-Error-ID` for correlation with sanitized server logs. Full error chains and
