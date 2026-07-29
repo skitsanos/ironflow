@@ -231,3 +231,49 @@ impl Scheduler {
         }
     }
 }
+
+/// Spawn the background tick loop, or `None` when nothing is scheduled.
+///
+/// Evaluates once immediately so a process restarting inside an instant's grace
+/// window does not wait a full tick, then every `TICK_INTERVAL`.
+pub fn spawn(
+    schedules: HashMap<String, ScheduleConfig>,
+    store: Arc<dyn StateStore>,
+    event_store: Arc<dyn crate::storage::event_store::EventStore>,
+    flows_dir: Option<std::path::PathBuf>,
+    max_concurrent_tasks: Option<usize>,
+) -> Option<tokio::task::JoinHandle<()>> {
+    if schedules.is_empty() {
+        return None;
+    }
+
+    let names: Vec<&str> = {
+        let mut names: Vec<&str> = schedules.keys().map(String::as_str).collect();
+        names.sort_unstable();
+        names
+    };
+    tracing::info!(
+        count = schedules.len(),
+        schedules = %names.join(", "),
+        tick_seconds = TICK_INTERVAL.as_secs(),
+        "scheduler started"
+    );
+
+    let executor = Arc::new(execution::FlowExecutor::new(
+        Arc::new(crate::nodes::NodeRegistry::with_builtins()),
+        store.clone(),
+        event_store,
+        flows_dir,
+        max_concurrent_tasks,
+    ));
+    let mut scheduler = Scheduler::new(schedules, store, executor, Utc::now());
+
+    Some(tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(TICK_INTERVAL);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            ticker.tick().await;
+            scheduler.evaluate(Utc::now()).await;
+        }
+    }))
+}

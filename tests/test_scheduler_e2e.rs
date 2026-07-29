@@ -178,3 +178,67 @@ async fn two_schedulers_sharing_one_store_fire_an_instant_exactly_once() {
     let runs = store.list_runs(None).await.unwrap();
     assert_eq!(runs.len(), 1);
 }
+
+#[tokio::test]
+async fn the_spawned_tick_loop_fires_a_due_schedule() {
+    let flows = flows_with_logger();
+    let store_dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(ironflow::storage::json_store::JsonStateStore::new(
+        store_dir.path(),
+    ));
+    let events = Arc::new(ironflow::storage::event_store::MemoryEventStore::new());
+
+    // Every minute, so the first tick has something due within the grace
+    // window without waiting for a wall-clock hour.
+    let mut ctx = Context::new();
+    ctx.insert("region".to_string(), serde_json::json!("eu"));
+    let schedule = ScheduleConfig::new("nightly.lua", "* * * * *", Some("UTC"), None, ctx).unwrap();
+
+    let handle = ironflow::scheduler::spawn(
+        std::collections::HashMap::from([("frequent".to_string(), schedule)]),
+        store.clone() as Arc<dyn StateStore>,
+        events,
+        Some(flows.path().to_path_buf()),
+        None,
+    )
+    .expect("a non-empty schedule map must spawn a scheduler");
+
+    // The loop evaluates immediately on entry, then on each tick. Catch-up is
+    // seeded at now - grace, so the previous minute boundary is due.
+    let mut runs = Vec::new();
+    for _ in 0..40 {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        runs = store.list_runs(None).await.unwrap();
+        if !runs.is_empty() {
+            break;
+        }
+    }
+    handle.abort();
+
+    assert_eq!(runs.len(), 1, "the tick loop did not fire a due schedule");
+    assert_eq!(runs[0].flow_name, "nightly_report");
+    assert_eq!(
+        runs[0].ctx[SCHEDULE_CONTEXT_KEY],
+        serde_json::json!("frequent")
+    );
+}
+
+#[tokio::test]
+async fn no_schedules_means_no_scheduler_task() {
+    let store_dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(ironflow::storage::json_store::JsonStateStore::new(
+        store_dir.path(),
+    ));
+    let events = Arc::new(ironflow::storage::event_store::MemoryEventStore::new());
+
+    assert!(
+        ironflow::scheduler::spawn(
+            std::collections::HashMap::new(),
+            store as Arc<dyn StateStore>,
+            events,
+            None,
+            None,
+        )
+        .is_none()
+    );
+}
