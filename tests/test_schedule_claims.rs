@@ -3,6 +3,14 @@ use ironflow::storage::{StateStore, StorageErrorKind};
 
 const TTL: u64 = 7 * 24 * 3600;
 
+// Nested one level below the crate root (inside `mod redis_claims`) so it
+// must be declared here rather than there: a `#[path]` on a submodule of an
+// inline `mod` resolves relative to a directory named after that inline
+// module, not the file it lives in.
+#[cfg(feature = "redis")]
+#[path = "support/redis.rs"]
+mod redis_support;
+
 #[tokio::test]
 async fn the_null_store_always_grants_the_claim() {
     // It persists nothing and is single-process by definition, so there is no
@@ -421,4 +429,119 @@ async fn sql_claims_respect_the_configured_table_prefix() {
             .await
             .unwrap()
     );
+}
+
+#[cfg(feature = "redis")]
+mod redis_claims {
+    use std::sync::Arc;
+
+    use ironflow::storage::StateStore;
+
+    use super::TTL;
+    use super::redis_support::RedisTest;
+
+    #[tokio::test]
+    async fn redis_store_grants_a_claim_once() {
+        let Some(fixture) = RedisTest::connect("schedule_claims_once").await else {
+            return;
+        };
+        let store = fixture.state_store(None).await;
+
+        assert!(
+            store
+                .claim_schedule("nightly", "UTC@2026-05-01T02:00", TTL)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !store
+                .claim_schedule("nightly", "UTC@2026-05-01T02:00", TTL)
+                .await
+                .unwrap()
+        );
+        // A different instant of the same schedule is still available.
+        assert!(
+            store
+                .claim_schedule("nightly", "UTC@2026-05-02T02:00", TTL)
+                .await
+                .unwrap()
+        );
+        // As is the same instant of a different schedule.
+        assert!(
+            store
+                .claim_schedule("hourly", "UTC@2026-05-01T02:00", TTL)
+                .await
+                .unwrap()
+        );
+
+        fixture.cleanup().await;
+    }
+
+    #[tokio::test]
+    async fn two_redis_stores_race_and_exactly_one_wins() {
+        let Some(fixture) = RedisTest::connect("schedule_claims_race").await else {
+            return;
+        };
+        // Two stores on one prefix stand in for two replicas sharing a store.
+        let first = Arc::new(fixture.state_store(None).await);
+        let second = Arc::new(fixture.state_store(None).await);
+
+        let barrier = Arc::new(tokio::sync::Barrier::new(2));
+        let mut handles = Vec::new();
+        for store in [first, second] {
+            let barrier = barrier.clone();
+            handles.push(tokio::spawn(async move {
+                barrier.wait().await;
+                store
+                    .claim_schedule("nightly", "UTC@2026-05-01T02:00", TTL)
+                    .await
+                    .unwrap()
+            }));
+        }
+
+        let mut won = 0;
+        for handle in handles {
+            if handle.await.unwrap() {
+                won += 1;
+            }
+        }
+        assert_eq!(won, 1, "exactly one replica must own an instant");
+
+        fixture.cleanup().await;
+    }
+
+    #[tokio::test]
+    async fn redis_claims_expire_on_their_own_ttl() {
+        let Some(fixture) = RedisTest::connect("schedule_claims_ttl").await else {
+            return;
+        };
+        let store = fixture.state_store(None).await;
+
+        // Unlike the JSON and SQL backends, Redis retires a claim through the
+        // key's own expiry, so no sweep is needed and one schedule's TTL can
+        // never shorten another's.
+        assert!(
+            store
+                .claim_schedule("nightly", "UTC@2026-05-01T02:00", 1)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !store
+                .claim_schedule("nightly", "UTC@2026-05-01T02:00", 1)
+                .await
+                .unwrap()
+        );
+
+        tokio::time::sleep(std::time::Duration::from_millis(1_500)).await;
+        assert!(
+            store
+                .claim_schedule("nightly", "UTC@2026-05-01T02:00", 1)
+                .await
+                .unwrap(),
+            "the claim should have expired with its key"
+        );
+
+        fixture.cleanup().await;
+    }
 }
