@@ -180,8 +180,9 @@ impl ScheduleExecutor for FlowExecutor {
 
         let initial_ctx = self.initial_context(schedule_name, schedule, &path);
 
-        // Held until the run finishes, exactly as the API does (IF-042).
-        let _run_permit = crate::api::acquire_run_permit()
+        // Held for the run's real duration: moved into the spawned task below,
+        // not dropped when this function returns.
+        let run_permit = crate::api::acquire_run_permit()
             .map_err(|_| "server is at maximum concurrent run capacity".to_string())?;
 
         let engine = WorkflowEngine::new_with_events(
@@ -190,9 +191,41 @@ impl ScheduleExecutor for FlowExecutor {
             self.event_store.clone(),
             self.max_concurrent_tasks,
         );
-        engine
-            .execute(&flow, initial_ctx)
+
+        // Start and return once the run exists, without awaiting it to
+        // completion. The tick loop awaits `evaluate`, which awaits `decide`,
+        // which awaits this: if this awaited the whole run, one long-running
+        // flow would starve every other schedule's next tick, and a flow with
+        // no step deadline that never returns would silently end all
+        // scheduling for the process's lifetime. `RunHandle::wait` retains
+        // detach semantics, which is exactly what running it in a background
+        // task needs.
+        let handle = engine
+            .start(&flow, initial_ctx)
             .await
-            .map_err(|error| format!("{error:#}"))
+            .map_err(|error| format!("{error:#}"))?;
+        let run_id = handle.id().to_string();
+        let waited_run_id = run_id.clone();
+        let schedule_name = schedule_name.to_string();
+
+        tokio::spawn(async move {
+            // Held until the run finishes, exactly as the API does for a
+            // synchronous run (IF-042); the run outliving `run()` is the point
+            // of this change, so the permit must too.
+            let _run_permit = run_permit;
+            if let Err(error) = handle.wait().await {
+                // Nothing else observes this run again: `decide` already
+                // logged `Fired` with this run id, and no later tick will
+                // revisit it.
+                tracing::warn!(
+                    schedule = %schedule_name,
+                    run_id = %waited_run_id,
+                    %error,
+                    "scheduled run failed after starting"
+                );
+            }
+        });
+
+        Ok(run_id)
     }
 }

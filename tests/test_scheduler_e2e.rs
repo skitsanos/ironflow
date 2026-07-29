@@ -10,7 +10,7 @@ use ironflow::storage::StateStore;
 #[path = "support/scheduler.rs"]
 mod scheduler_support;
 
-use scheduler_support::{build_executor, flows_with_logger};
+use scheduler_support::{build_executor, flows_with_logger, wait_for_terminal};
 
 fn nightly(flow: &str) -> ScheduleConfig {
     let mut ctx = Context::new();
@@ -28,6 +28,11 @@ async fn a_scheduled_run_is_an_ordinary_persisted_run() {
         .run("nightly", &nightly("nightly.lua"))
         .await
         .unwrap();
+
+    // `run()` now returns once the run has started, not once it has finished
+    // (Finding 2): settle before asserting on terminal state.
+    let status = wait_for_terminal(&app.store, &run_id).await;
+    assert!(status.is_terminal());
 
     let info = app.store.get_run_info(&run_id).await.unwrap();
     assert_eq!(info.flow_name, "nightly_report");
@@ -102,11 +107,14 @@ async fn overlap_detection_finds_a_non_terminal_run_of_the_same_schedule() {
     // No run yet.
     assert!(app.executor.active_run("nightly").await.is_none());
 
-    // A completed run is not an overlap.
-    app.executor
+    // A completed run is not an overlap. `run()` only awaits the run's start
+    // (Finding 2), so settle to its terminal state before checking overlap.
+    let run_id = app
+        .executor
         .run("nightly", &nightly("nightly.lua"))
         .await
         .unwrap();
+    wait_for_terminal(&app.store, &run_id).await;
     assert!(app.executor.active_run("nightly").await.is_none());
 
     // A run left non-terminal is.
@@ -130,6 +138,43 @@ async fn overlap_detection_finds_a_non_terminal_run_of_the_same_schedule() {
 
     // Another schedule's non-terminal run is not this schedule's overlap.
     assert!(app.executor.active_run("other").await.is_none());
+}
+
+#[tokio::test]
+async fn a_long_running_schedule_does_not_block_the_next_evaluation() {
+    // The tick loop must not await a run to completion: one slow flow would
+    // otherwise starve every other schedule and, if it never returned, end all
+    // scheduling silently.
+    let flows = tempfile::tempdir().unwrap();
+    std::fs::write(
+        flows.path().join("slow.lua"),
+        r#"
+        local flow = Flow.new("slow_flow")
+        flow:step("wait", nodes.delay({ seconds = 3 }))
+        return flow
+        "#,
+    )
+    .unwrap();
+
+    let app = build_executor(flows.path());
+    let schedule =
+        ScheduleConfig::new("slow.lua", "0 2 * * *", Some("UTC"), None, Context::new()).unwrap();
+
+    let started = std::time::Instant::now();
+    let run_id = app.executor.run("slow", &schedule).await.unwrap();
+    let elapsed = started.elapsed();
+
+    assert!(
+        elapsed < std::time::Duration::from_millis(1500),
+        "run() blocked for {elapsed:?}; it must return once the run has started"
+    );
+    assert!(!run_id.is_empty());
+
+    // The run is genuinely in flight, not skipped.
+    assert_eq!(
+        app.executor.active_run("slow").await.as_deref(),
+        Some(run_id.as_str())
+    );
 }
 
 #[tokio::test]
