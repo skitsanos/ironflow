@@ -79,19 +79,46 @@ impl FlowExecutor {
 #[async_trait]
 impl ScheduleExecutor for FlowExecutor {
     async fn active_run(&self, schedule_name: &str) -> Option<String> {
-        let Ok(page_size) = PageSize::new(64) else {
-            return None;
+        let page_size = match PageSize::new(64) {
+            Ok(page_size) => page_size,
+            Err(error) => {
+                tracing::warn!(
+                    schedule = %schedule_name,
+                    %error,
+                    "overlap check could not build its page size; \
+                     a still-running previous run may have been missed"
+                );
+                return None;
+            }
         };
 
         let mut examined = 0;
         for status in [RunStatus::Pending, RunStatus::Running] {
             let mut after: Option<RunCursor> = None;
             loop {
-                let Ok(query) = RunListQuery::new(Some(status.clone()), after, page_size) else {
-                    return None;
+                let query = match RunListQuery::new(Some(status.clone()), after, page_size) {
+                    Ok(query) => query,
+                    Err(error) => {
+                        tracing::warn!(
+                            schedule = %schedule_name,
+                            %error,
+                            "overlap check could not build its list query; \
+                             a still-running previous run may have been missed"
+                        );
+                        return None;
+                    }
                 };
-                let Ok(page) = self.store.list_run_summaries_page(&query).await else {
-                    return None;
+                let page = match self.store.list_run_summaries_page(&query).await {
+                    Ok(page) => page,
+                    Err(error) => {
+                        tracing::warn!(
+                            schedule = %schedule_name,
+                            %error,
+                            "overlap check failed to list runs; \
+                             a still-running previous run may have been missed"
+                        );
+                        return None;
+                    }
                 };
 
                 for summary in &page.items {
@@ -108,8 +135,16 @@ impl ScheduleExecutor for FlowExecutor {
 
                     // The schedule name lives in the run's context, so the
                     // summary alone cannot answer this.
-                    let Ok(info) = self.store.get_run_info(&summary.id).await else {
-                        continue;
+                    let info = match self.store.get_run_info(&summary.id).await {
+                        Ok(info) => info,
+                        Err(error) => {
+                            tracing::debug!(
+                                run_id = %summary.id,
+                                %error,
+                                "overlap check could not read a run's info; skipping it"
+                            );
+                            continue;
+                        }
                     };
                     if info.ctx.get(SCHEDULE_CONTEXT_KEY).and_then(|v| v.as_str())
                         == Some(schedule_name)
