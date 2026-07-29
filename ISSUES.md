@@ -2186,3 +2186,85 @@ directions and that the error names its override.
 Not addressed: attributing the payload to the step that produced it, and a
 warning threshold before the cap is reached. Both need the converter to carry
 execution context it does not currently receive.
+
+### IF-059 — No way to run a flow on a schedule
+
+**Status:** Resolved on 2026-07-29.
+
+IronFlow could only be triggered two ways: `ironflow run` from a shell, and
+`POST /webhooks/{name}`. There was no way to say "run this flow every night at
+02:00". The repository's own flagship example, `examples/00-showcase/
+nightly_report.lua`, advertised a cadence the engine could not provide — it
+needed an external cron calling the CLI or the API.
+
+Resolution: a `schedules:` block in `ironflow.yaml`, evaluated by a background
+task inside `ironflow serve` that ticks every 30 seconds. Configuration-file
+only, exactly like `webhooks:` — timing is a deployment decision, so the same
+flow can run hourly in staging and nightly in production without editing flow
+source. Cron is the standard five-field form; the `cron` crate parses six
+fields and reads the first as seconds, so six- and seven-field expressions are
+rejected rather than silently reinterpreted as something their author did not
+write. Invalid configuration — bad expression, unknown zone, unresolvable flow
+path, reserved context key, `grace_seconds` below the 60-second floor — fails
+the process at startup, because a schedule that only fails at 02:00 is a
+schedule nobody finds out about until 02:00.
+
+Multi-replica safety rests on one new `StateStore` method, `claim_schedule`,
+which returns true exactly once per instant across every process sharing a
+store. Each backend uses a primitive it already had: a unique index on SQL,
+`SET NX EX` on Redis, exclusive file creation on JSON, always-true on Null. The
+default implementation **fails closed** — a store that cannot coordinate makes
+scheduling unavailable rather than letting every replica fire the same instant.
+Claims are keyed on **local wall-clock**, not the UTC instant: on a fall-back
+date the same local time maps to two distinct UTC instants, so a UTC key would
+treat them as different fires and run the schedule twice.
+
+Per due instant the order is claim → grace → overlap → admission → run.
+Claiming first is what makes replicas agree — one process owns the decision, so
+two cannot reach different conclusions and both act. The deliberate consequence
+is that a claimed instant skipped for grace, overlap or capacity is burned
+rather than retried elsewhere, so a saturated server does not build a backlog.
+A claim that fails with a *store error* is the exception: nobody owned that
+instant, so the watermark does not advance past it and it is retried while it
+remains inside its grace window.
+
+DST needed explicit handling in both directions, and neither is what the
+library does by default. Occurrences are enumerated in local wall-clock space
+and then resolved: a fall-back hour fires once, on the earlier instant; a
+spring-forward gap fires at the first valid instant after it rather than
+skipping the day, which is what iterating in the target zone does natively —
+for `0 2 * * *` in Europe/Berlin from 2026-03-28 the library yields 03-30,
+03-31, 04-01 and 03-29 never appears. Because every local time inside a gap
+resolves to the same real instant, the claim key is derived from the *resolved*
+time, so a `*/15 * * * *` schedule fires once across the gap instead of five
+times back to back.
+
+Runs are started and detached rather than awaited. Awaiting them made the tick
+loop serial, so one long flow starved every other schedule, and a flow that
+never returned — there is no default step deadline — silently ended all
+scheduling for the process lifetime while HTTP kept serving. The admission
+permit moves into the detached task, so `IRONFLOW_MAX_CONCURRENT_RUNS` still
+bounds concurrency for the run's real duration.
+
+Scheduled runs are ordinary runs: visible in `ironflow list`, `ironflow
+inspect` and the events stream, carrying the schedule's name under `_schedule`
+so a run traces back to its trigger. Every skip logs the rule that caused it at
+`WARN`; a lost claim logs at `debug`, because on N replicas it is the expected
+outcome N-1 times per tick and `WARN` would be pure noise.
+
+Two supporting changes, both behaviour-preserving: `resolve_flow_path` was
+split so the sandbox check can be reused without an `AppState`, and the Redis
+`StateStore` impl moved into its own `state_store.rs` mirroring `sql_store`,
+which dropped `redis_store/mod.rs` below the size target and returned an
+exception to the budget (17 → 16).
+
+Not addressed, and each its own future decision: sub-minute schedules,
+`@reboot`-style triggers, a REST API for managing schedules, backfilling
+arbitrary past instants, and running the scheduler outside `serve`. Nothing
+calls `prune_before`, so run retention remains manual — schedule claims prune
+themselves on the claim path because there is no retention sweep to attach to.
+`grace_seconds` has a 60-second floor but no ceiling, so an absurd value stops
+the SQL claim table being reaped. The overlap scan is bounded at 256 candidate
+runs and logs when it stops early or cannot complete; beyond that bound a
+second concurrent run of the same schedule can start. The tick loop is
+unsupervised — a panic inside evaluation would end scheduling silently.
