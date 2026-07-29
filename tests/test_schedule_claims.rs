@@ -95,3 +95,146 @@ async fn a_store_without_claim_support_refuses_rather_than_duplicating() {
     assert_eq!(error.kind(), StorageErrorKind::Backend);
     assert!(error.to_string().contains("scheduling"), "{error}");
 }
+
+use ironflow::storage::json_store::JsonStateStore;
+
+#[tokio::test]
+async fn json_store_grants_a_claim_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = JsonStateStore::new(dir.path());
+
+    assert!(
+        store
+            .claim_schedule("nightly", "UTC@2026-05-01T02:00", TTL)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !store
+            .claim_schedule("nightly", "UTC@2026-05-01T02:00", TTL)
+            .await
+            .unwrap()
+    );
+}
+
+#[tokio::test]
+async fn json_claims_are_scoped_by_name_and_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = JsonStateStore::new(dir.path());
+
+    assert!(
+        store
+            .claim_schedule("a", "UTC@2026-05-01T02:00", TTL)
+            .await
+            .unwrap()
+    );
+    assert!(
+        store
+            .claim_schedule("b", "UTC@2026-05-01T02:00", TTL)
+            .await
+            .unwrap()
+    );
+    assert!(
+        store
+            .claim_schedule("a", "UTC@2026-05-02T02:00", TTL)
+            .await
+            .unwrap()
+    );
+}
+
+#[tokio::test]
+async fn two_json_stores_sharing_a_directory_race_and_exactly_one_wins() {
+    let dir = tempfile::tempdir().unwrap();
+    let first = std::sync::Arc::new(JsonStateStore::new(dir.path()));
+    let second = std::sync::Arc::new(JsonStateStore::new(dir.path()));
+
+    let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(2));
+    let mut handles = Vec::new();
+    for store in [first, second] {
+        let barrier = barrier.clone();
+        handles.push(tokio::spawn(async move {
+            barrier.wait().await;
+            store
+                .claim_schedule("nightly", "UTC@2026-05-01T02:00", TTL)
+                .await
+                .unwrap()
+        }));
+    }
+
+    let mut won = 0;
+    for handle in handles {
+        if handle.await.unwrap() {
+            won += 1;
+        }
+    }
+    assert_eq!(won, 1, "exactly one process must own an instant");
+}
+
+#[tokio::test]
+async fn json_claim_files_do_not_appear_as_runs() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = JsonStateStore::new(dir.path());
+    store
+        .claim_schedule("nightly", "UTC@2026-05-01T02:00", TTL)
+        .await
+        .unwrap();
+
+    // The store scans its directory for `*.json` run records; a claim that
+    // matched would corrupt every listing.
+    assert!(store.list_runs(None).await.unwrap().is_empty());
+    assert!(
+        store
+            .list_run_summaries_page(
+                &ironflow::storage::RunListQuery::new(
+                    None,
+                    None,
+                    ironflow::storage::PageSize::new(16).unwrap()
+                )
+                .unwrap()
+            )
+            .await
+            .unwrap()
+            .items
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn expired_json_claims_are_reaped_so_the_directory_cannot_grow_without_bound() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = JsonStateStore::new(dir.path());
+
+    // A zero TTL makes every existing claim immediately expired.
+    assert!(
+        store
+            .claim_schedule("nightly", "UTC@2026-05-01T02:00", 0)
+            .await
+            .unwrap()
+    );
+    let claim_files = || {
+        std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".ironflow-schedule-claim")
+            })
+            .count()
+    };
+    assert_eq!(claim_files(), 1);
+
+    // The next claim prunes it, so the same key is grantable again.
+    assert!(
+        store
+            .claim_schedule("nightly", "UTC@2026-05-02T02:00", 0)
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        claim_files(),
+        1,
+        "the expired claim should have been reaped"
+    );
+}
