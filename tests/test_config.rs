@@ -250,3 +250,65 @@ another_random_key: "hello"
     let cfg = IronFlowConfig::load(Some(f.path())).unwrap();
     assert_eq!(cfg.port, Some(4000));
 }
+
+#[test]
+fn load_schedules_block() {
+    let yaml = r#"
+schedules:
+  nightly_report:
+    flow: reports/nightly.lua
+    cron: "0 2 * * *"
+    timezone: "Europe/Berlin"
+    grace_seconds: 3600
+    context:
+      region: "eu"
+  hourly:
+    flow: hourly.lua
+    cron: "0 * * * *"
+"#;
+
+    let mut f = NamedTempFile::new().unwrap();
+    f.write_all(yaml.as_bytes()).unwrap();
+
+    let cfg = IronFlowConfig::load(Some(f.path())).unwrap();
+    let schedules = cfg.schedules.unwrap();
+    assert_eq!(schedules.len(), 2);
+
+    let nightly = &schedules["nightly_report"];
+    assert_eq!(nightly.flow(), "reports/nightly.lua");
+    assert_eq!(nightly.timezone(), chrono_tz::Europe::Berlin);
+    assert_eq!(nightly.grace_seconds(), 3600);
+
+    let hourly = &schedules["hourly"];
+    assert_eq!(hourly.timezone(), chrono_tz::UTC);
+    assert_eq!(hourly.grace_seconds(), 300);
+}
+
+#[test]
+fn an_invalid_schedule_fails_the_whole_config_load() {
+    let yaml = r#"
+schedules:
+  broken:
+    flow: f.lua
+    cron: "0 2 * * * *"
+"#;
+    let mut f = NamedTempFile::new().unwrap();
+    f.write_all(yaml.as_bytes()).unwrap();
+
+    let error = IronFlowConfig::load(Some(f.path()))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("Failed to parse config file"), "{error}");
+}
+
+#[test]
+fn absent_schedules_block_is_none() {
+    let mut f = NamedTempFile::new().unwrap();
+    f.write_all(b"port: 3000\n").unwrap();
+    assert!(
+        IronFlowConfig::load(Some(f.path()))
+            .unwrap()
+            .schedules
+            .is_none()
+    );
+}
