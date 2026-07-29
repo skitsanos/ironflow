@@ -188,11 +188,18 @@ async fn the_spawned_tick_loop_fires_a_due_schedule() {
     ));
     let events = Arc::new(ironflow::storage::event_store::MemoryEventStore::new());
 
-    // Every minute, so the first tick has something due within the grace
-    // window without waiting for a wall-clock hour.
+    // Every minute, with the shortest legal grace window. `Scheduler::new`
+    // seeds catch-up at `now - grace_seconds`, so the first tick evaluates
+    // `(now - 60s, now]` — a half-open 60-second interval, which contains
+    // exactly one whole-minute boundary wherever `now` falls. Exactly one
+    // instant is therefore due, with no dependence on timing.
+    //
+    // The default 300-second grace would make five instants due here, which
+    // is correct catch-up behaviour but not what this test is measuring.
     let mut ctx = Context::new();
     ctx.insert("region".to_string(), serde_json::json!("eu"));
-    let schedule = ScheduleConfig::new("nightly.lua", "* * * * *", Some("UTC"), None, ctx).unwrap();
+    let schedule =
+        ScheduleConfig::new("nightly.lua", "* * * * *", Some("UTC"), Some(60), ctx).unwrap();
 
     let handle = ironflow::scheduler::spawn(
         std::collections::HashMap::from([("frequent".to_string(), schedule)]),
@@ -203,8 +210,8 @@ async fn the_spawned_tick_loop_fires_a_due_schedule() {
     )
     .expect("a non-empty schedule map must spawn a scheduler");
 
-    // The loop evaluates immediately on entry, then on each tick. Catch-up is
-    // seeded at now - grace, so the previous minute boundary is due.
+    // The loop evaluates immediately on entry, so the due instant runs without
+    // waiting out a full tick.
     let mut runs = Vec::new();
     for _ in 0..40 {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -213,9 +220,23 @@ async fn the_spawned_tick_loop_fires_a_due_schedule() {
             break;
         }
     }
+    assert!(
+        !runs.is_empty(),
+        "the tick loop did not fire a due schedule"
+    );
+
+    // Settle, then confirm the count is stable: one instant was due, so one
+    // run fired and nothing followed it. Snapshotting the moment the first run
+    // appears would pass even if more were still landing.
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    let runs = store.list_runs(None).await.unwrap();
     handle.abort();
 
-    assert_eq!(runs.len(), 1, "the tick loop did not fire a due schedule");
+    assert_eq!(
+        runs.len(),
+        1,
+        "expected exactly one due instant, got {runs:?}"
+    );
     assert_eq!(runs[0].flow_name, "nightly_report");
     assert_eq!(
         runs[0].ctx[SCHEDULE_CONTEXT_KEY],
