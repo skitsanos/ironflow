@@ -181,6 +181,13 @@ fn a_dst_gap_collapses_sub_hourly_occurrences_onto_one_claim() {
         1,
         "all occurrences resolving to one instant must share one claim key: {distinct:?}"
     );
+    // Sharing *a* key isn't enough — an implementation that keyed everything
+    // on a constant would also pass the assertion above. Pin the actual key.
+    assert_eq!(
+        distinct.into_iter().next(),
+        Some("Europe/Berlin@2026-03-29T03:00"),
+        "the shared key must be this instant's key, not just any shared value"
+    );
 }
 
 #[test]

@@ -70,6 +70,23 @@ pub fn claim_key(tz: Tz, local: NaiveDateTime) -> String {
     format!("{}@{}", tz.name(), local.format("%Y-%m-%dT%H:%M"))
 }
 
+/// The local instant before which a claim can no longer legitimately fire:
+/// `now - grace_seconds`, converted to the schedule's local time. Grace
+/// measures real elapsed time, not wall-clock, so the subtraction happens in
+/// UTC, before converting to local — the two only agree when the UTC offset
+/// is constant across the grace window.
+///
+/// Shared by `Scheduler::new`, which seeds a schedule's watermark here at
+/// startup, and `evaluate`'s claim-error floor below, which stops a
+/// permanently failing claim from pinning the watermark past this same
+/// horizon.
+pub(super) fn grace_floor(now: DateTime<Utc>, schedule: &ScheduleConfig) -> NaiveDateTime {
+    let grace = Duration::seconds(schedule.grace_seconds() as i64);
+    (now - grace)
+        .with_timezone(&schedule.timezone())
+        .naive_local()
+}
+
 /// The local time to advance a schedule's watermark to for one evaluated
 /// window, given the earliest claim error inside it.
 ///
@@ -80,12 +97,21 @@ pub fn claim_key(tz: Tz, local: NaiveDateTime) -> String {
 /// already claimed successfully, so they come back `NotClaimed` and are
 /// skipped harmlessly; the errored one gets one retry per tick until it
 /// succeeds or falls outside grace.
+///
+/// That cap is floored at `grace_floor`. Grace is only checked *after* a
+/// successful claim, so an instant whose claim keeps erroring never reaches
+/// that check and never ages out on its own — without the floor it would be
+/// retried every tick forever, pinning the watermark while the window in
+/// front of it grows without bound. Once the errored instant is older than
+/// `grace_floor` it can no longer legitimately fire anyway, so nothing is
+/// lost by letting the watermark pass it.
 pub(super) fn watermark_target(
     through: NaiveDateTime,
+    grace_floor: NaiveDateTime,
     earliest_claim_error: Option<NaiveDateTime>,
 ) -> NaiveDateTime {
     match earliest_claim_error {
-        Some(errored) => through.min(errored - Duration::seconds(1)),
+        Some(errored) => through.min((errored - Duration::seconds(1)).max(grace_floor)),
         None => through,
     }
 }

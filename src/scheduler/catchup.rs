@@ -1,11 +1,11 @@
-//! Startup log for occurrences a seeded watermark will never reach.
+//! Startup log naming the catch-up window's boundary.
 //!
 //! `Scheduler::new` seeds each schedule's watermark at `now - grace`, so any
 //! occurrence strictly before that point is never enumerated by `evaluate` —
-//! not claimed, not logged as `Late`, nothing. Left silent, a process
-//! restarting after a long outage skips those instants without a trace,
-//! which is exactly what the design's "a process down for a long outage
-//! skips and says so" acceptance criterion rules out.
+//! not claimed, not logged as `Late`, nothing. This logs that boundary once
+//! per schedule at startup so an operator can see where catch-up starts,
+//! without asserting that anything before it was actually missed: this
+//! process has no way to know whether an earlier one already ran it.
 
 use chrono::{Duration, NaiveDateTime, TimeZone, Utc};
 
@@ -13,7 +13,7 @@ use super::config::ScheduleConfig;
 
 /// How far back to search for an occurrence the seeded watermark will skip.
 /// Bounds cost, not correctness: a schedule whose last occurrence is older
-/// than this is treated as quiet rather than warned about.
+/// than this is treated as quiet rather than logged about.
 const LOOKBACK_WINDOW: Duration = Duration::days(35);
 
 /// Safety cap on how many occurrences one search considers, so a
@@ -49,19 +49,19 @@ fn last_occurrence_before(
     last_missed
 }
 
-/// Log, once, the most recent occurrence before `seeded` that this watermark
-/// will never reach — or nothing, if none falls inside the lookback window.
+/// Log, once, the catch-up window's start and the most recent occurrence
+/// before it — or nothing, if none falls inside the lookback window.
 pub(super) fn log_unreachable_catchup(
     name: &str,
     schedule: &ScheduleConfig,
     seeded: NaiveDateTime,
 ) {
-    if let Some(missed) = last_occurrence_before(schedule, seeded) {
-        tracing::warn!(
+    if let Some(previous) = last_occurrence_before(schedule, seeded) {
+        tracing::info!(
             schedule = %name,
-            seeded_from = %seeded.format("%Y-%m-%dT%H:%M"),
-            last_skipped = %missed.format("%Y-%m-%dT%H:%M"),
-            "instants before the catch-up window will not fire"
+            catch_up_from = %seeded.format("%Y-%m-%dT%H:%M"),
+            previous_occurrence = %previous.format("%Y-%m-%dT%H:%M"),
+            "catch-up window starts here; earlier occurrences are outside it"
         );
     }
 }

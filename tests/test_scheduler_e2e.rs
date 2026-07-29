@@ -206,6 +206,16 @@ async fn a_long_running_schedule_does_not_block_the_next_evaluation() {
         app.executor.active_run("slow").await.as_deref(),
         Some(run_id.as_str())
     );
+
+    // A non-terminal record alone doesn't prove the detached task is doing
+    // anything: `init_run` writes it synchronously inside `start()`, before
+    // the run task is even spawned, so the assertion above would pass
+    // identically if `tokio::spawn` were deleted or the task panicked on its
+    // first poll. Settling to a terminal status is the only thing that can't
+    // be faked that way — it proves the detached task actually carried the
+    // flow through.
+    let status = wait_for_terminal(&app.store, &run_id).await;
+    assert_eq!(status, ironflow::engine::types::RunStatus::Success);
 }
 
 #[tokio::test]

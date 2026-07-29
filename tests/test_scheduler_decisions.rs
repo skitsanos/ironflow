@@ -483,3 +483,153 @@ async fn a_claim_error_is_retried_on_the_next_evaluate_instead_of_burned() {
     );
     assert_eq!(executor.runs.load(Ordering::SeqCst), 1);
 }
+
+/// Wraps a real store and fails every `claim_schedule` call, forever — a
+/// store that never recovers, unlike `FlakyClaimStore`'s one-shot failure.
+struct AlwaysErroringClaimStore {
+    inner: Arc<ironflow::storage::json_store::JsonStateStore>,
+}
+
+#[async_trait::async_trait]
+impl StateStore for AlwaysErroringClaimStore {
+    async fn init_run(
+        &self,
+        run_id: &str,
+        flow_name: &str,
+        ctx: &Context,
+    ) -> ironflow::storage::StorageResult<()> {
+        self.inner.init_run(run_id, flow_name, ctx).await
+    }
+    async fn set_run_status(
+        &self,
+        run_id: &str,
+        status: ironflow::engine::types::RunStatus,
+    ) -> ironflow::storage::StorageResult<()> {
+        self.inner.set_run_status(run_id, status).await
+    }
+    async fn upsert_task(
+        &self,
+        run_id: &str,
+        task: &ironflow::engine::types::TaskState,
+    ) -> ironflow::storage::StorageResult<()> {
+        self.inner.upsert_task(run_id, task).await
+    }
+    async fn get_ctx(&self, run_id: &str) -> ironflow::storage::StorageResult<Context> {
+        self.inner.get_ctx(run_id).await
+    }
+    async fn update_ctx(
+        &self,
+        run_id: &str,
+        ctx: &Context,
+    ) -> ironflow::storage::StorageResult<()> {
+        self.inner.update_ctx(run_id, ctx).await
+    }
+    async fn get_run_info(
+        &self,
+        run_id: &str,
+    ) -> ironflow::storage::StorageResult<ironflow::engine::types::RunInfo> {
+        self.inner.get_run_info(run_id).await
+    }
+    async fn list_runs(
+        &self,
+        status: Option<ironflow::engine::types::RunStatus>,
+    ) -> ironflow::storage::StorageResult<Vec<ironflow::engine::types::RunInfo>> {
+        self.inner.list_runs(status).await
+    }
+    async fn list_run_summaries_page(
+        &self,
+        query: &ironflow::storage::RunListQuery,
+    ) -> ironflow::storage::StorageResult<ironflow::storage::RunSummaryPage> {
+        self.inner.list_run_summaries_page(query).await
+    }
+    async fn delete_run(&self, run_id: &str) -> ironflow::storage::StorageResult<()> {
+        self.inner.delete_run(run_id).await
+    }
+    async fn claim_schedule(
+        &self,
+        _name: &str,
+        _key: &str,
+        _ttl_seconds: u64,
+    ) -> ironflow::storage::StorageResult<bool> {
+        Err(ironflow::storage::StorageError::backend(
+            "Claim scheduled instant",
+            "simulated permanent store outage",
+        ))
+    }
+}
+
+#[tokio::test]
+async fn an_instant_aged_out_of_grace_stops_pinning_the_watermark() {
+    // A store that never recovers: every claim errors, forever. Grace is
+    // only checked *after* a successful claim (see `decide`), so nothing
+    // stops a permanently failing claim from being retried on every tick
+    // except the floor this test targets: `timing::watermark_target` capping
+    // the watermark no lower than `now - grace`, so an instant that can no
+    // longer legitimately fire eventually stops pinning it.
+    let dir = tempfile::tempdir().unwrap();
+    let store: Arc<dyn StateStore> = Arc::new(AlwaysErroringClaimStore {
+        inner: Arc::new(ironflow::storage::json_store::JsonStateStore::new(
+            dir.path(),
+        )),
+    });
+
+    let schedules = HashMap::from([(
+        "frequent".to_string(),
+        ScheduleConfig::new("f.lua", "* * * * *", Some("UTC"), None, Context::new()).unwrap(),
+    )]);
+
+    let executor = Arc::new(StubExecutor::default());
+    // Seeded so the watermark sits one second before the 02:00:00 instant —
+    // the state a prior tick would have left behind right after that
+    // instant's claim first errored (mirrors the pinned watermark in
+    // `a_claim_error_is_retried_on_the_next_evaluate_instead_of_burned`).
+    let mut scheduler = Scheduler::new(
+        schedules,
+        store,
+        executor.clone(),
+        utc(2026, 5, 1, 2, 4) + chrono::Duration::seconds(59),
+    );
+
+    let stale_key = "UTC@2026-05-01T02:00";
+
+    // Tick near the instant: it is the only thing due, and its claim fails.
+    let first = scheduler
+        .evaluate(utc(2026, 5, 1, 2, 0) + chrono::Duration::seconds(15))
+        .await;
+    assert_eq!(first.len(), 1);
+    assert_eq!(first[0].key, stale_key);
+    assert!(matches!(first[0].outcome, Outcome::ClaimFailed { .. }));
+
+    // Tick well past grace: the store is still down, so this necessarily
+    // re-processes the whole backlog accumulated since the pinned watermark,
+    // stale instant included — that growth is the bug this finding
+    // describes, and no single tick can avoid it once a backlog exists. What
+    // the fix changes is whether the *next* tick keeps doing this.
+    let second = scheduler
+        .evaluate(utc(2026, 5, 1, 2, 40) + chrono::Duration::seconds(15))
+        .await;
+    assert!(
+        second.iter().any(|d| d.key == stale_key),
+        "sanity check: the backlog tick must still see the stale instant"
+    );
+
+    // The next regular tick, 30 seconds later: on unfloored code the
+    // watermark is still pinned at 01:59:59 (nothing ever ages it out), so
+    // this re-enumerates the same ~41-instant backlog, stale key included,
+    // and the window only grows further from here on every subsequent tick.
+    // Floored, the watermark advanced past grace during the previous tick,
+    // so this tick's window is small and the stale instant is gone for good.
+    let third = scheduler
+        .evaluate(utc(2026, 5, 1, 2, 40) + chrono::Duration::seconds(45))
+        .await;
+    assert!(
+        !third.iter().any(|d| d.key == stale_key),
+        "the long-past instant was re-enumerated instead of aging out: {third:?}"
+    );
+    assert!(
+        third.len() < second.len(),
+        "the window kept growing instead of catching up: tick2 had {} decisions, tick3 had {}",
+        second.len(),
+        third.len()
+    );
+}

@@ -27,7 +27,7 @@ pub const TICK_INTERVAL: Duration = Duration::from_secs(30);
 /// What happened to one due instant.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Outcome {
-    /// The instant was owned and executed.
+    /// The instant was owned and the run was started.
     Fired { run_id: String },
     /// Another replica owns this instant.
     NotClaimed,
@@ -37,8 +37,8 @@ pub enum Outcome {
     Overlapped { active_run: String },
     /// The process is at `IRONFLOW_MAX_CONCURRENT_RUNS`.
     AtCapacity,
-    /// The flow failed to load or execute. This run failed; the scheduler did
-    /// not.
+    /// The flow could not be started (bad path, load failure, or engine
+    /// error). This run never started; the scheduler did not stop.
     Failed { error: String },
     /// The store errored while claiming the instant. Distinct from `Failed`:
     /// no run was ever owned, so `evaluate` must not treat the instant as
@@ -65,7 +65,8 @@ pub trait ScheduleExecutor: Send + Sync {
     /// Whether the process is below its concurrent-run cap.
     fn has_capacity(&self) -> bool;
 
-    /// Execute the schedule's flow, returning the new run id.
+    /// Start the schedule's flow and return its run id, without waiting for
+    /// the run to finish.
     async fn run(&self, schedule_name: &str, schedule: &ScheduleConfig) -> Result<String, String>;
 }
 
@@ -79,12 +80,10 @@ pub struct Scheduler {
 }
 
 impl Scheduler {
-    /// Seeds each schedule's watermark at `now - grace_seconds`, so a process
-    /// that starts after an outage catches up only as far as an instant could
-    /// still legitimately fire, rather than replaying history. The subtraction
-    /// happens in UTC, before converting to local time: grace measures real
-    /// elapsed time, not wall-clock, and the two only agree when the UTC
-    /// offset is constant across the grace window.
+    /// Seeds each schedule's watermark at `timing::grace_floor` (`now -
+    /// grace_seconds`), so a process that starts after an outage catches up
+    /// only as far as an instant could still legitimately fire, rather than
+    /// replaying history.
     pub fn new(
         schedules: HashMap<String, ScheduleConfig>,
         store: Arc<dyn StateStore>,
@@ -93,10 +92,7 @@ impl Scheduler {
     ) -> Self {
         let mut evaluated_through = HashMap::new();
         for (name, schedule) in &schedules {
-            let grace = chrono::Duration::seconds(schedule.grace_seconds() as i64);
-            let seeded = (now - grace)
-                .with_timezone(&schedule.timezone())
-                .naive_local();
+            let seeded = timing::grace_floor(now, schedule);
             catchup::log_unreachable_catchup(name, schedule, seeded);
             evaluated_through.insert(name.clone(), seeded);
         }
@@ -152,8 +148,13 @@ impl Scheduler {
             }
 
             // Advance even when nothing was due, so the watermark tracks the
-            // clock; capped below any claim error (`timing::watermark_target`).
-            let target = timing::watermark_target(through, earliest_claim_error);
+            // clock. On a fall-back date the local clock repeats and this
+            // stays ahead for an hour; instants in the repeated hour already
+            // fired, and their claims would refuse them anyway. Capped below
+            // any claim error, floored at grace so a claim that never
+            // succeeds cannot pin it forever (`timing::watermark_target`).
+            let grace_floor = timing::grace_floor(now, schedule);
+            let target = timing::watermark_target(through, grace_floor, earliest_claim_error);
             if target > after {
                 advanced.push((name.clone(), target));
             }

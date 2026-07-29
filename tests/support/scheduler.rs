@@ -42,7 +42,9 @@ pub fn build_executor(flows_dir: &Path) -> TestScheduler {
 /// must settle first rather than checking immediately after `run()` returns.
 #[allow(dead_code)]
 pub async fn wait_for_terminal(store: &JsonStateStore, run_id: &str) -> RunStatus {
-    for _ in 0..100 {
+    // 300 * 20ms = 6s: comfortably above the longest delay step any test
+    // flow in this suite uses (3s), with margin for scheduling overhead.
+    for _ in 0..300 {
         let info = store.get_run_info(run_id).await.unwrap();
         if info.status.is_terminal() {
             return info.status;
