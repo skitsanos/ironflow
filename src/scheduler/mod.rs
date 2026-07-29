@@ -1,7 +1,9 @@
 //! Cron-driven flow triggers for `ironflow serve`.
 
+mod catchup;
 pub mod config;
 pub mod execution;
+pub mod startup;
 pub mod timing;
 
 use std::collections::HashMap;
@@ -38,6 +40,10 @@ pub enum Outcome {
     /// The flow failed to load or execute. This run failed; the scheduler did
     /// not.
     Failed { error: String },
+    /// The store errored while claiming the instant. Distinct from `Failed`:
+    /// no run was ever owned, so `evaluate` must not treat the instant as
+    /// settled — it is retried, not burned.
+    ClaimFailed { error: String },
 }
 
 /// One evaluated instant.
@@ -91,6 +97,7 @@ impl Scheduler {
             let seeded = (now - grace)
                 .with_timezone(&schedule.timezone())
                 .naive_local();
+            catchup::log_unreachable_catchup(name, schedule, seeded);
             evaluated_through.insert(name.clone(), seeded);
         }
 
@@ -128,8 +135,15 @@ impl Scheduler {
                 );
             }
 
+            // Earliest local time whose claim errored: nobody owns that
+            // instant, unlike every other skip below, which was claimed and is
+            // deliberately burned.
+            let mut earliest_claim_error: Option<NaiveDateTime> = None;
             for instant in due {
                 let outcome = self.decide(name, schedule, &instant, now).await;
+                if matches!(outcome, Outcome::ClaimFailed { .. }) {
+                    earliest_claim_error.get_or_insert(instant.local);
+                }
                 decisions.push(Decision {
                     schedule: name.clone(),
                     key: instant.key,
@@ -138,11 +152,10 @@ impl Scheduler {
             }
 
             // Advance even when nothing was due, so the watermark tracks the
-            // clock. On a fall-back date the local clock repeats and this stays
-            // ahead for an hour; instants in the repeated hour already fired,
-            // and their claims would refuse them anyway.
-            if through > after {
-                advanced.push((name.clone(), through));
+            // clock; capped below any claim error (`timing::watermark_target`).
+            let target = timing::watermark_target(through, earliest_claim_error);
+            if target > after {
+                advanced.push((name.clone(), target));
             }
         }
 
@@ -180,8 +193,10 @@ impl Scheduler {
                 return Outcome::NotClaimed;
             }
             Err(error) => {
+                // Nobody owns this instant — unlike every other skip below, it
+                // was never claimed, so `evaluate` must not burn it.
                 tracing::warn!(schedule = %name, key = %instant.key, %error, "claim failed");
-                return Outcome::Failed {
+                return Outcome::ClaimFailed {
                     error: error.to_string(),
                 };
             }

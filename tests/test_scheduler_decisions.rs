@@ -366,3 +366,120 @@ async fn catch_up_seeding_measures_real_elapsed_time_across_a_dst_gap() {
         decisions[0].outcome
     );
 }
+
+/// Wraps a real store and fails the *first* `claim_schedule` call, then
+/// delegates every call after that — simulating a transient failure (a
+/// Postgres failover, a Redis reconnect) straddling one instant.
+struct FlakyClaimStore {
+    inner: Arc<ironflow::storage::json_store::JsonStateStore>,
+    claim_calls: AtomicUsize,
+}
+
+#[async_trait::async_trait]
+impl StateStore for FlakyClaimStore {
+    async fn init_run(
+        &self,
+        run_id: &str,
+        flow_name: &str,
+        ctx: &Context,
+    ) -> ironflow::storage::StorageResult<()> {
+        self.inner.init_run(run_id, flow_name, ctx).await
+    }
+    async fn set_run_status(
+        &self,
+        run_id: &str,
+        status: ironflow::engine::types::RunStatus,
+    ) -> ironflow::storage::StorageResult<()> {
+        self.inner.set_run_status(run_id, status).await
+    }
+    async fn upsert_task(
+        &self,
+        run_id: &str,
+        task: &ironflow::engine::types::TaskState,
+    ) -> ironflow::storage::StorageResult<()> {
+        self.inner.upsert_task(run_id, task).await
+    }
+    async fn get_ctx(&self, run_id: &str) -> ironflow::storage::StorageResult<Context> {
+        self.inner.get_ctx(run_id).await
+    }
+    async fn update_ctx(
+        &self,
+        run_id: &str,
+        ctx: &Context,
+    ) -> ironflow::storage::StorageResult<()> {
+        self.inner.update_ctx(run_id, ctx).await
+    }
+    async fn get_run_info(
+        &self,
+        run_id: &str,
+    ) -> ironflow::storage::StorageResult<ironflow::engine::types::RunInfo> {
+        self.inner.get_run_info(run_id).await
+    }
+    async fn list_runs(
+        &self,
+        status: Option<ironflow::engine::types::RunStatus>,
+    ) -> ironflow::storage::StorageResult<Vec<ironflow::engine::types::RunInfo>> {
+        self.inner.list_runs(status).await
+    }
+    async fn list_run_summaries_page(
+        &self,
+        query: &ironflow::storage::RunListQuery,
+    ) -> ironflow::storage::StorageResult<ironflow::storage::RunSummaryPage> {
+        self.inner.list_run_summaries_page(query).await
+    }
+    async fn delete_run(&self, run_id: &str) -> ironflow::storage::StorageResult<()> {
+        self.inner.delete_run(run_id).await
+    }
+    async fn claim_schedule(
+        &self,
+        name: &str,
+        key: &str,
+        ttl_seconds: u64,
+    ) -> ironflow::storage::StorageResult<bool> {
+        if self.claim_calls.fetch_add(1, Ordering::SeqCst) == 0 {
+            return Err(ironflow::storage::StorageError::backend(
+                "Claim scheduled instant",
+                "simulated transient store failure",
+            ));
+        }
+        self.inner.claim_schedule(name, key, ttl_seconds).await
+    }
+}
+
+#[tokio::test]
+async fn a_claim_error_is_retried_on_the_next_evaluate_instead_of_burned() {
+    let dir = tempfile::tempdir().unwrap();
+    let store: Arc<dyn StateStore> = Arc::new(FlakyClaimStore {
+        inner: Arc::new(ironflow::storage::json_store::JsonStateStore::new(
+            dir.path(),
+        )),
+        claim_calls: AtomicUsize::new(0),
+    });
+
+    let executor = Arc::new(StubExecutor::default());
+    let mut scheduler = scheduler(store, executor.clone(), utc(2026, 5, 1, 1, 59));
+
+    // First tick: the store errors while claiming, so nobody owns the
+    // instant. It must not be burned the way a claimed-then-skipped instant
+    // is.
+    let first = scheduler.evaluate(utc(2026, 5, 1, 2, 0)).await;
+    assert_eq!(first.len(), 1);
+    assert!(
+        matches!(&first[0].outcome, Outcome::ClaimFailed { .. }),
+        "expected ClaimFailed, got {:?}",
+        first[0].outcome
+    );
+    assert_eq!(executor.runs.load(Ordering::SeqCst), 0);
+
+    // Second tick, well inside grace: the watermark was capped below the
+    // errored instant, so it is re-enumerated — and this time the claim
+    // (now hitting the real store for the first time) succeeds and it fires.
+    let second = scheduler.evaluate(utc(2026, 5, 1, 2, 1)).await;
+    assert_eq!(second.len(), 1);
+    assert!(
+        matches!(&second[0].outcome, Outcome::Fired { .. }),
+        "expected Fired, got {:?}",
+        second[0].outcome
+    );
+    assert_eq!(executor.runs.load(Ordering::SeqCst), 1);
+}

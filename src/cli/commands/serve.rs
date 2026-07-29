@@ -26,6 +26,11 @@ pub(crate) async fn cmd_serve(
         Err(error) => tracing::warn!(%error, "startup run reconciliation failed; continuing"),
     }
 
+    // A schedule naming a flow outside `flows_dir` — a typo, a moved file —
+    // must fail the process now, not surface as a `WARN` at its first due
+    // instant.
+    crate::scheduler::startup::validate_schedule_flows(&schedules, options.flows_dir.as_deref())?;
+
     // Spawned here rather than inside `api::serve` so schedules stay off
     // `ServeOptions` and the REST surface keeps one responsibility.
     let _scheduler = crate::scheduler::spawn(

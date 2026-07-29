@@ -143,6 +143,47 @@ fn a_long_window_is_capped_and_reports_the_truncation() {
 }
 
 #[test]
+fn a_dst_gap_collapses_sub_hourly_occurrences_onto_one_claim() {
+    // Every local time inside the gap resolves to the first instant after it,
+    // so a quarter-hourly schedule matches 02:00/02:15/02:30/02:45 and 03:00 —
+    // five occurrences that are all the same real moment. Keying on the
+    // resolved local collapses them to one claim, so the schedule fires once
+    // instead of five times back to back.
+    let schedule = ScheduleConfig::new(
+        "f.lua",
+        "*/15 * * * *",
+        Some("Europe/Berlin"),
+        None,
+        Context::new(),
+    )
+    .unwrap();
+
+    let (due, _) = due_instants(
+        &schedule,
+        local("2026-03-29 01:50:00"),
+        local("2026-03-29 03:10:00"),
+    );
+
+    let gap_fires: Vec<_> = due
+        .iter()
+        .filter(|d| d.instant.to_rfc3339() == "2026-03-29T03:00:00+02:00")
+        .collect();
+    assert_eq!(
+        gap_fires.len(),
+        5,
+        "the gap should still produce five occurrences"
+    );
+
+    let distinct: std::collections::HashSet<&str> =
+        gap_fires.iter().map(|d| d.key.as_str()).collect();
+    assert_eq!(
+        distinct.len(),
+        1,
+        "all occurrences resolving to one instant must share one claim key: {distinct:?}"
+    );
+}
+
+#[test]
 fn an_empty_or_inverted_window_yields_nothing() {
     let schedule = daily_at_two("UTC");
     let (due, truncated) = due_instants(

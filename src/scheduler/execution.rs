@@ -12,6 +12,7 @@ use crate::lua::LuaRuntime;
 use crate::nodes::NodeRegistry;
 use crate::storage::event_store::EventStore;
 use crate::storage::{PageSize, RunCursor, RunListQuery, StateStore};
+use crate::util::sensitive_url::redact_sensitive_text;
 
 use super::ScheduleExecutor;
 use super::config::ScheduleConfig;
@@ -173,10 +174,18 @@ impl ScheduleExecutor for FlowExecutor {
             .map_err(|error| format!("{error:?}"))?;
 
         // Parse off the async runtime so a pathological flow cannot pin a
-        // worker thread and stall the server (IF-038).
+        // worker thread and stall the server (IF-038). The error can echo
+        // file-derived tokens (`near '<token>'`), so it is redacted exactly as
+        // the REST API redacts the same failure (see `helpers::flow_file_load_error`)
+        // before it becomes a string that gets logged.
         let flow = LuaRuntime::load_flow_async(&path, &self.registry)
             .await
-            .map_err(|error| format!("failed to load flow: {error:#}"))?;
+            .map_err(|error| {
+                format!(
+                    "failed to load flow: {}",
+                    redact_sensitive_text(&format!("{error:#}"))
+                )
+            })?;
 
         let initial_ctx = self.initial_context(schedule_name, schedule, &path);
 

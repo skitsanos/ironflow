@@ -70,6 +70,26 @@ pub fn claim_key(tz: Tz, local: NaiveDateTime) -> String {
     format!("{}@{}", tz.name(), local.format("%Y-%m-%dT%H:%M"))
 }
 
+/// The local time to advance a schedule's watermark to for one evaluated
+/// window, given the earliest claim error inside it.
+///
+/// A claim error means nobody owns that instant — unlike every other skip
+/// (grace, overlap, capacity), which was claimed and is deliberately burned —
+/// so the watermark must stop short of it rather than pass through it. The
+/// next tick then re-enumerates from there: instants after the errored one
+/// already claimed successfully, so they come back `NotClaimed` and are
+/// skipped harmlessly; the errored one gets one retry per tick until it
+/// succeeds or falls outside grace.
+pub(super) fn watermark_target(
+    through: NaiveDateTime,
+    earliest_claim_error: Option<NaiveDateTime>,
+) -> NaiveDateTime {
+    match earliest_claim_error {
+        Some(errored) => through.min(errored - Duration::seconds(1)),
+        None => through,
+    }
+}
+
 /// Occurrences due in the half-open local window `(after_local, through_local]`.
 ///
 /// The second return value is `true` when `MAX_INSTANTS_PER_TICK` truncated the
@@ -101,10 +121,17 @@ pub fn due_instants(
             break;
         }
         if let Some(instant) = resolve_local(tz, local) {
+            // Keyed on the *resolved* local time, not the matched one: inside a
+            // spring-forward gap every matched local (02:00, 02:15, ...) maps to
+            // the same real instant (03:00), and they must collapse onto one
+            // claim or the gap fires once per gap-interior occurrence instead of
+            // once. `DueInstant.local` stays the matched time — `evaluate`'s
+            // watermark comparisons need that — only the key changes.
+            let key = claim_key(tz, instant.naive_local());
             due.push(DueInstant {
                 local,
                 instant,
-                key: claim_key(tz, local),
+                key,
             });
         }
     }

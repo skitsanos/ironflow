@@ -100,6 +100,37 @@ async fn a_missing_flow_fails_the_run_not_the_scheduler() {
 }
 
 #[tokio::test]
+async fn a_flow_load_failure_redacts_credentials_before_they_reach_the_error() {
+    // A Lua syntax error echoes the offending token verbatim (`near '<token>'`).
+    // When that token is a credential-bearing URL, the same redaction the REST
+    // API applies to this exact failure (`helpers::flow_file_load_error`) must
+    // run here too, or the credential lands in the scheduler's WARN log.
+    let flows = tempfile::tempdir().unwrap();
+    std::fs::write(
+        flows.path().join("broken.lua"),
+        r#"
+        local flow = Flow.new("broken")
+        local "https://user:sekret-value-123@example.com/hook" = 5
+        return flow
+        "#,
+    )
+    .unwrap();
+    let app = build_executor(flows.path());
+
+    let error = app
+        .executor
+        .run("nightly", &nightly("broken.lua"))
+        .await
+        .unwrap_err();
+
+    assert!(
+        !error.contains("sekret-value-123"),
+        "flow-load error must be redacted before it becomes the scheduler's Outcome::Failed string: {error}"
+    );
+    assert!(error.contains("[REDACTED]"), "{error}");
+}
+
+#[tokio::test]
 async fn overlap_detection_finds_a_non_terminal_run_of_the_same_schedule() {
     let flows = flows_with_logger();
     let app = build_executor(flows.path());
@@ -306,5 +337,38 @@ async fn no_schedules_means_no_scheduler_task() {
             None,
         )
         .is_none()
+    );
+}
+
+#[test]
+fn a_schedule_naming_a_missing_flow_is_rejected_at_startup() {
+    // `flow: reports/nightl.lua` (a typo) must fail `serve` at startup rather
+    // than being first reported as a WARN at the schedule's next due instant.
+    // This calls the validation `serve.rs` runs directly, without booting a
+    // server.
+    let flows_dir = tempfile::tempdir().unwrap();
+    let schedules =
+        std::collections::HashMap::from([("nightly".to_string(), nightly("reports/nightl.lua"))]);
+
+    let error =
+        ironflow::scheduler::startup::validate_schedule_flows(&schedules, Some(flows_dir.path()))
+            .unwrap_err();
+
+    let message = error.to_string();
+    assert!(
+        message.contains("nightly") && message.contains("reports/nightl.lua"),
+        "error should name the schedule and the unresolved flow path: {message}"
+    );
+}
+
+#[test]
+fn a_schedule_naming_a_resolvable_flow_passes_startup_validation() {
+    let flows = flows_with_logger();
+    let schedules =
+        std::collections::HashMap::from([("nightly".to_string(), nightly("nightly.lua"))]);
+
+    assert!(
+        ironflow::scheduler::startup::validate_schedule_flows(&schedules, Some(flows.path()))
+            .is_ok()
     );
 }
