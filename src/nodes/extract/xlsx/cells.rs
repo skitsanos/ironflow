@@ -35,7 +35,10 @@ pub(super) fn cell_value(cell: &Data) -> Value {
 /// reaches every downstream comparison and interpolation.
 #[allow(dead_code)]
 fn number_value(value: f64) -> Value {
-    if value.fract() == 0.0 && value >= i64::MIN as f64 && value <= i64::MAX as f64 {
+    // i64::MAX as f64 rounds UP to 2^63, which is one past the real i64::MAX,
+    // so a <= bound would admit a value that doesn't round-trip. Use a strict
+    // bound with the literal 2^63 to exclude it.
+    if value.fract() == 0.0 && value >= i64::MIN as f64 && value < 9223372036854775808.0_f64 {
         let truncated = value as i64;
         if truncated as f64 == value {
             return Value::from(truncated);
@@ -123,5 +126,25 @@ mod tests {
             json!("2026-08-03T12:30:00")
         );
         assert_eq!(cell_value(&Data::DurationIso("PT1H".into())), json!("PT1H"));
+    }
+
+    #[test]
+    fn the_integer_boundary_rejects_two_to_the_sixty_three() {
+        // `i64::MAX as f64` rounds UP to 2^63, so a `<=` bound admits a value
+        // one larger than i64 can hold; the cast then saturates and the
+        // round-trip check is fooled because casting i64::MAX back to f64
+        // rounds up to 2^63 as well. Only a strict bound excludes it.
+        let two_63 = 9223372036854775808.0_f64;
+        assert!(
+            cell_value(&Data::Float(two_63)).is_f64(),
+            "2^63 does not fit i64 and must stay a float"
+        );
+
+        // The largest whole f64 that genuinely round-trips is 2^63 - 1024.
+        let largest_exact = 9223372036854774784.0_f64;
+        assert_eq!(
+            cell_value(&Data::Float(largest_exact)),
+            serde_json::json!(9223372036854774784_i64)
+        );
     }
 }
