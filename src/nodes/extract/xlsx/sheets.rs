@@ -31,9 +31,10 @@ impl CellBudget {
         }
     }
 
-    /// Only cells that become row *values* are charged here — a header row's
-    /// cells are converted into keys, not values, so they are not counted
-    /// against the budget.
+    /// Charges the budget for the sheet's full cell count: every cell in the
+    /// range, including the header row if present. This makes a workbook's
+    /// cost a property of the file alone, independent of configuration like
+    /// `has_header`, so budget accounting is predictable across calls.
     #[allow(dead_code)] // wired up in the node's `execute` (Task 7)
     pub(super) fn spend(&mut self, cells: u64, sheet: &str) -> Result<()> {
         match self.remaining.checked_sub(cells) {
@@ -78,15 +79,8 @@ pub(super) fn sheet_rows(
         );
     }
 
-    // The header row (if any) is consumed below and never becomes a row
-    // value, so it is excluded from the cell-budget charge.
     let width = range.width() as u64;
-    let data_rows = if has_header {
-        height.saturating_sub(1)
-    } else {
-        height
-    };
-    budget.spend(data_rows.saturating_mul(width), sheet)?;
+    budget.spend(height.saturating_mul(width), sheet)?;
 
     let mut source = range.rows();
     let keys = if has_header {
@@ -247,12 +241,13 @@ mod tests {
 
     #[test]
     fn the_cell_budget_spans_sheets_and_names_its_override() {
-        let mut budget = CellBudget::new(3);
+        let mut budget = CellBudget::new(4);
         let two_cells = range(vec![vec![text("a"), text("b")], vec![text("1"), text("2")]]);
-        // First sheet fits: one header row plus one data row of 2 cells
-        // spends 2 of the 3-cell budget.
+        // A 2×2 range (header row + 1 data row, 2 columns) costs 4 cells total.
+        // First sheet fits: spends exactly 4 of the 4-cell budget, leaving 0.
+        // This exercises the "exactly exhausts the budget is accepted" boundary.
         sheet_rows("One", &two_cells, true, MAX_ROWS, &mut budget).unwrap();
-        // Second exhausts the shared budget: 2 more cells against 1 remaining.
+        // Second sheet needs 4 cells against 0 remaining and fails.
         let error = sheet_rows("Two", &two_cells, true, MAX_ROWS, &mut budget)
             .unwrap_err()
             .to_string();
