@@ -8,9 +8,17 @@
 //! through `worksheet_cells_reader` instead visits only the cells actually
 //! present in the file, so memory stays bounded by what is really there
 //! rather than by how far apart two cells happen to be.
+//!
+//! A worksheet's declared `<dimension>` is deliberately *not* part of this
+//! trait: it can lie in either direction — understating real content (a
+//! stale cached bound) or overstating it (a whole-column format, or a
+//! generous initial guess Excel never shrank back down) — so it cannot
+//! safely gate anything, cheap early rejection included. `sheet_rows` in
+//! `sheets.rs` relies solely on the counters built from cells as they
+//! actually stream.
 
 use anyhow::Result;
-use calamine::{Data, Dimensions};
+use calamine::Data;
 
 /// A source of a worksheet's cells, visited in file order.
 ///
@@ -21,16 +29,26 @@ pub(super) trait CellSource {
     /// The next cell's zero-based `(row, col)` position and value, or `None`
     /// once the sheet is exhausted.
     fn next_cell(&mut self) -> Result<Option<((u32, u32), Data)>>;
+}
 
-    /// The worksheet's declared `<dimension>`, or `Dimensions::default()`
-    /// when the sheet has none.
-    ///
-    /// Never authoritative — a file may declare `A1:A1` while holding a cell
-    /// far outside it, and an absent `<dimension>` collapses to the same
-    /// `len() == 1` as a genuine one-cell sheet — so `sheet_rows` only ever
-    /// uses this for a cheap early rejection when it is *already* over a
-    /// ceiling, never as the bound itself.
-    fn declared_dimensions(&self) -> Dimensions;
+/// Skip past `Data::Empty` records the same way `worksheet_range_ref`
+/// (calamine-0.36.1/src/xlsx/mod.rs:2670-2718) drops `DataRef::Empty` before
+/// `Range::from_sparse` ever sees it. A formatting-only `<c r=".."
+/// s=".."/>` (or a merged span's non-anchor cells) must disappear here
+/// rather than widen a sheet's bounding box.
+///
+/// Shared between the real `CellSource` impl below and
+/// `test_support::FilteredCells`, so a unit test exercises this exact
+/// filter — not a reimplementation of it — against inputs built by hand.
+fn skip_empty(
+    mut next_raw: impl FnMut() -> Result<Option<((u32, u32), Data)>>,
+) -> Result<Option<((u32, u32), Data)>> {
+    loop {
+        match next_raw()? {
+            Some((_, Data::Empty)) => continue,
+            other => return Ok(other),
+        }
+    }
 }
 
 impl<'a, RS> CellSource for calamine::XlsxCellReader<'a, RS>
@@ -38,7 +56,7 @@ where
     RS: std::io::Read + std::io::Seek,
 {
     fn next_cell(&mut self) -> Result<Option<((u32, u32), Data)>> {
-        match calamine::XlsxCellReader::next_cell(self) {
+        skip_empty(|| match calamine::XlsxCellReader::next_cell(self) {
             Ok(Some(cell)) => {
                 let position = cell.get_position();
                 let value: Data = cell.get_value().clone().into();
@@ -46,11 +64,7 @@ where
             }
             Ok(None) => Ok(None),
             Err(error) => Err(anyhow::anyhow!("extract_xlsx: {error}")),
-        }
-    }
-
-    fn declared_dimensions(&self) -> Dimensions {
-        calamine::XlsxCellReader::dimensions(self)
+        })
     }
 }
 
@@ -58,18 +72,20 @@ where
 /// modules can use it without duplicating the plumbing.
 #[cfg(test)]
 pub(super) mod test_support {
-    use super::CellSource;
+    use super::{CellSource, skip_empty};
     use anyhow::Result;
-    use calamine::{Data, Dimensions};
+    use calamine::Data;
 
-    /// Built from a dense grid: `Data::Empty` entries are dropped, matching
-    /// how a real `.xlsx` never stores a `<c>` element for a truly blank
-    /// cell.
+    /// A fake worksheet: a queue of positioned cells, in file order.
     pub(in crate::nodes::extract::xlsx) struct FakeCells {
         cells: std::vec::IntoIter<((u32, u32), Data)>,
     }
 
     impl FakeCells {
+        /// Built from a dense grid: `Data::Empty` entries are dropped, matching
+        /// how a real `.xlsx` never stores a `<c>` element for a truly blank
+        /// cell that was never written at all (as opposed to one that was
+        /// written and later cleared, which is `positioned`'s job below).
         pub(in crate::nodes::extract::xlsx) fn new(rows: Vec<Vec<Data>>) -> Self {
             let mut cells = Vec::new();
             for (row, values) in rows.into_iter().enumerate() {
@@ -79,6 +95,15 @@ pub(super) mod test_support {
                     }
                 }
             }
+            Self::positioned(cells)
+        }
+
+        /// Built from explicit `(row, col)` positions, `Data::Empty` entries
+        /// included verbatim. This is the shape `next_cell` (see the real
+        /// `CellSource` impl above) must filter: a formatting-only cell that
+        /// calamine's cell reader still yields even though `worksheet_range`
+        /// never sees it.
+        pub(in crate::nodes::extract::xlsx) fn positioned(cells: Vec<((u32, u32), Data)>) -> Self {
             Self {
                 cells: cells.into_iter(),
             }
@@ -89,12 +114,21 @@ pub(super) mod test_support {
         fn next_cell(&mut self) -> Result<Option<((u32, u32), Data)>> {
             Ok(self.cells.next())
         }
+    }
 
-        fn declared_dimensions(&self) -> Dimensions {
-            // No fake test builds a `<dimension>` override; the two cases
-            // that need one (tests/test_extract_xlsx.rs) go through the real
-            // `calamine::XlsxCellReader` via a written-out `.xlsx` file.
-            Dimensions::default()
+    /// Wraps any `CellSource` and filters `Data::Empty` via the shared
+    /// `skip_empty` helper — the same function the real `XlsxCellReader`
+    /// impl runs. Wrapping a `FakeCells::positioned` queue that includes an
+    /// explicit `Data::Empty` (exactly what calamine's cell reader yields
+    /// for a formatting-only cell) then proves the production filter, not a
+    /// reimplementation of it, keeps that cell from reaching `sheet_rows`.
+    pub(in crate::nodes::extract::xlsx) struct FilteredCells<S>(
+        pub(in crate::nodes::extract::xlsx) S,
+    );
+
+    impl<S: CellSource> CellSource for FilteredCells<S> {
+        fn next_cell(&mut self) -> Result<Option<((u32, u32), Data)>> {
+            skip_empty(|| self.0.next_cell())
         }
     }
 }

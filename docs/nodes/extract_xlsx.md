@@ -68,7 +68,7 @@ Columns present in a data row but past the end of the header row keep the same `
 
 Two `extract_xlsx`-specific environment variables bound how much a single call can extract, in addition to the ZIP guards every OOXML node shares:
 
-- `IRONFLOW_MAX_XLSX_ROWS` (default `50000`) — maximum rows in one sheet, counting the header row when present. Checked per sheet; breaching it names the sheet, the row count, and the limit.
+- `IRONFLOW_MAX_XLSX_ROWS` (default `50000`) — maximum row *position* touched in one sheet (1-based; row 1 counts as 1), not a count of populated rows. A cell at row 50,000 trips the ceiling even if every row below it is empty, because the reader streams cells in file order and cannot know a sheet's lowest used row until it has already read every cell in it — unlike a count, a position can be checked the instant each cell arrives. Checked per sheet as cells stream; breaching it names the sheet, the row position, and the limit.
 - `IRONFLOW_MAX_XLSX_CELLS` (default `33000`) — maximum total cells (`height × width`) across every sheet a single call extracts, independent of `has_header`. The budget is shared across sheets, so narrowing with `sheet` lowers the cost, and a workbook too large to read whole can still be read one sheet at a time.
 
 `IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES` and `IRONFLOW_MAX_ZIP_ENTRIES` also apply: a pre-flight reads the archive's central directory and each entry's declared size before the workbook is opened, so an oversized or entry-flooded `.xlsx` is refused before any sheet is parsed.

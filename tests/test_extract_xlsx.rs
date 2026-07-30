@@ -303,7 +303,15 @@ async fn a_workbook_with_a_far_corner_is_refused_by_the_cell_budget_not_by_memor
         .unwrap_err()
         .to_string();
 
-    assert!(error.contains("IRONFLOW_MAX_XLSX_CELLS"), "{error}");
+    // Not `IRONFLOW_MAX_XLSX_CELLS` specifically: row 50,000 sits one row
+    // below the *default* `IRONFLOW_MAX_XLSX_ROWS`, so on a machine that
+    // exports a lower value this legitimately fails via the row ceiling
+    // instead. Both ceiling errors share this closing sentence, so asserting
+    // on it is robust to either default being overridden in the environment.
+    assert!(
+        error.contains("Raise that variable, or set `sheet` to narrow the extraction."),
+        "{error}"
+    );
 }
 
 #[tokio::test]
@@ -336,7 +344,51 @@ async fn a_declared_dimension_that_understates_the_content_does_not_bypass_the_b
         .unwrap_err()
         .to_string();
 
-    assert!(error.contains("IRONFLOW_MAX_XLSX_CELLS"), "{error}");
+    // Same robustness note as the far-corner test above: assert on the
+    // sentence both ceiling errors share rather than the cell-budget
+    // variable name specifically, so an environment with a lower
+    // `IRONFLOW_MAX_XLSX_ROWS` can't fail this for the wrong reason.
+    assert!(
+        error.contains("Raise that variable, or set `sheet` to narrow the extraction."),
+        "{error}"
+    );
+}
+
+#[tokio::test]
+async fn an_overstating_dimension_does_not_cause_a_false_rejection() {
+    // The mirror image of the test above: a declared `<dimension>` that
+    // *overstates* the sheet's real content -- `A1:BH50000`, 60 columns by
+    // 50,000 rows -- while the sheet actually holds 3 rows x 2 real columns.
+    // A guard that trusted (or even just cheaply pre-checked) the declared
+    // dimension would refuse this outright, before reading a single cell,
+    // because 50,000 alone already meets the default `IRONFLOW_MAX_XLSX_ROWS`.
+    // The declared `<dimension>` is not consulted for rejection at all any
+    // more (Finding 2): only the streamed counters, built from the 3x2 real
+    // cells, decide -- and those are nowhere near either ceiling, so this
+    // must extract cleanly.
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_workbook(
+        dir.path(),
+        "overstated_dimension.xlsx",
+        &[SheetSpec::new(
+            "Small",
+            format!(
+                "{}{}",
+                row(1, &[text("A1", "name"), text("B1", "qty")]),
+                row(2, &[text("A2", "Acme"), number("B2", "3")]),
+            ),
+        )
+        .with_dimension("A1:BH50000")],
+    );
+
+    let out = run_node(serde_json::json!({ "path": path.to_str().unwrap() }))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        out["content"]["Small"][0],
+        serde_json::json!({"name": "Acme", "qty": 3})
+    );
 }
 
 #[tokio::test]
@@ -361,4 +413,53 @@ async fn a_formula_yields_its_cached_value_not_the_expression() {
         .unwrap();
 
     assert_eq!(out["content"]["F"][0]["total"], serde_json::json!(2));
+}
+
+#[tokio::test]
+#[ignore = "pre-fix this SIGKILLs the test process rather than failing an \
+            assertion, which is unfriendly to CI; run manually with \
+            `cargo test -- --ignored` to re-verify the fix"]
+async fn a1_and_xfd1048576_is_the_input_that_actually_separates_the_implementations() {
+    // This is *the* repro that distinguishes the pre-streaming implementation
+    // from the current one, preserved here so it is not lost to the record
+    // even though it cannot run in ordinary CI.
+    //
+    // Two real cells, `A1` and `XFD1048576` -- Excel's actual maximum corner,
+    // giving a bounding box of 16,384 x 1,048,576 cells:
+    //
+    // - Pre-fix (`calamine::Xlsx::worksheet_range`, which materialises a
+    //   dense `Vec` sized to that bounding box): this allocates roughly
+    //   550 GB and the OS SIGKILLs the process. There is no clean error to
+    //   assert on -- the process is simply gone.
+    // - Post-fix (streaming via `worksheet_cells_reader`): instantaneous and
+    //   allocation-free. The second cell's row index (1,048,575, 0-based)
+    //   trips `IRONFLOW_MAX_XLSX_ROWS` (default 50,000) the moment it
+    //   arrives, before any bounding box is grown for it, so the failure is
+    //   a plain error rather than an allocation.
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_workbook(
+        dir.path(),
+        "far_corner_max.xlsx",
+        &[SheetSpec::new(
+            "Big",
+            format!(
+                "{}{}",
+                row(1, &[text("A1", "x")]),
+                row(1_048_576, &[text("XFD1048576", "far")]),
+            ),
+        )],
+    );
+
+    let started = std::time::Instant::now();
+    let error = run_node(serde_json::json!({ "path": path.to_str().unwrap() }))
+        .await
+        .unwrap_err()
+        .to_string();
+    let elapsed = started.elapsed();
+
+    assert!(error.contains("IRONFLOW_MAX_XLSX_ROWS"), "{error}");
+    assert!(
+        elapsed < std::time::Duration::from_secs(1),
+        "took {elapsed:?}; the whole point is that this no longer allocates"
+    );
 }

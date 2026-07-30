@@ -43,18 +43,6 @@ impl CellBudget {
         )
     }
 
-    /// Cheap early rejection using a total that is already known — e.g. a
-    /// declared `<dimension>` honest enough to already exceed the budget.
-    /// Does not mutate `remaining`: the real charge happens incrementally via
-    /// `charge` as cells actually stream, because a declared total can also
-    /// understate the truth and must never be trusted on its own.
-    pub(super) fn reject_if_over(&self, sheet: &str, needed_total: u64) -> Result<()> {
-        if needed_total > self.remaining {
-            return Err(self.over_budget_error(sheet, needed_total));
-        }
-        Ok(())
-    }
-
     /// Charge `delta` more cells — the growth in a sheet's running
     /// bounding-box area since the last call — against the shared budget,
     /// failing without mutating `remaining` if that would exceed it.
@@ -90,20 +78,5 @@ mod tests {
         assert!(error.contains("needs at least 5"), "{error}");
         // Failure must not have touched `remaining`.
         assert_eq!(budget.remaining(), 4);
-    }
-
-    #[test]
-    fn a_declared_total_already_over_budget_is_rejected_without_mutating_it() {
-        let budget = CellBudget::new(10);
-        let error = budget.reject_if_over("Sheet", 11).unwrap_err().to_string();
-
-        assert!(error.contains("IRONFLOW_MAX_XLSX_CELLS"), "{error}");
-        assert_eq!(budget.remaining(), 10);
-    }
-
-    #[test]
-    fn a_declared_total_within_budget_is_accepted() {
-        let budget = CellBudget::new(10);
-        budget.reject_if_over("Sheet", 10).unwrap();
     }
 }
