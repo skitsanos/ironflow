@@ -266,6 +266,68 @@ async fn a_merged_cell_reports_its_value_top_left_and_null_across_the_span() {
 }
 
 #[tokio::test]
+async fn a_workbook_with_a_far_corner_is_refused_by_the_cell_budget_not_by_memory() {
+    // `calamine`'s `worksheet_range` would materialise a dense array over the
+    // *bounding box* of these two cells -- 60 x 50,000 -- rather than the 2
+    // real values the file holds. The node must reject this via the cell
+    // budget and the process must stay alive; it must never attempt that
+    // allocation. Assert on the error, not on memory.
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_workbook(
+        dir.path(),
+        "far_corner.xlsx",
+        &[SheetSpec::new(
+            "Big",
+            format!(
+                "{}{}",
+                row(1, &[text("A1", "x")]),
+                row(50000, &[number("BH50000", "1")]),
+            ),
+        )],
+    );
+
+    let error = run_node(serde_json::json!({ "path": path.to_str().unwrap() }))
+        .await
+        .unwrap_err()
+        .to_string();
+
+    assert!(error.contains("IRONFLOW_MAX_XLSX_CELLS"), "{error}");
+}
+
+#[tokio::test]
+async fn a_declared_dimension_that_understates_the_content_does_not_bypass_the_budget() {
+    // The sheet declares `A1:A1` -- a single cell -- while actually holding
+    // one far away, at row 100 (well under IRONFLOW_MAX_XLSX_ROWS, so this
+    // exercises the cell budget specifically rather than the row ceiling)
+    // and column ZZ (the 702nd column). A guard that trusted the declared
+    // dimension alone would accept this file (bounding box 1x1); only the
+    // streaming counters, built from the cells' real positions -- 100 rows x
+    // 702 cols here -- catch it. This is exactly why streaming was chosen
+    // over a declared-dimension check.
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_workbook(
+        dir.path(),
+        "understated_dimension.xlsx",
+        &[SheetSpec::new(
+            "Big",
+            format!(
+                "{}{}",
+                row(1, &[text("A1", "x")]),
+                row(100, &[number("ZZ100", "1")]),
+            ),
+        )
+        .with_dimension("A1:A1")],
+    );
+
+    let error = run_node(serde_json::json!({ "path": path.to_str().unwrap() }))
+        .await
+        .unwrap_err()
+        .to_string();
+
+    assert!(error.contains("IRONFLOW_MAX_XLSX_CELLS"), "{error}");
+}
+
+#[tokio::test]
 async fn a_formula_yields_its_cached_value_not_the_expression() {
     // IronFlow does not evaluate formulas; it reports what Excel last stored.
     let dir = tempfile::tempdir().unwrap();

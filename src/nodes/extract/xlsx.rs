@@ -1,9 +1,11 @@
 //! Read `.xlsx` workbooks into typed rows.
 
+mod budget;
 mod cells;
 mod guard;
 mod headers;
 mod sheets;
+mod stream;
 
 use anyhow::{Result, bail};
 use async_trait::async_trait;
@@ -52,12 +54,12 @@ impl Node for ExtractXlsxNode {
         let mut budget = CellBudget::new(crate::util::limits::max_xlsx_cells());
         let mut sheets_out = serde_json::Map::new();
         for name in &selected {
-            let range = workbook.worksheet_range(name).map_err(|error| {
+            let mut cell_reader = workbook.worksheet_cells_reader(name).map_err(|error| {
                 anyhow::anyhow!("extract_xlsx: cannot read sheet '{name}': {error}")
             })?;
             let rows = sheet_rows(
                 name,
-                &range,
+                &mut cell_reader,
                 has_header,
                 crate::util::limits::max_xlsx_rows(),
                 &mut budget,

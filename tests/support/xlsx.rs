@@ -13,6 +13,7 @@ const DOC: &str = "application/vnd.openxmlformats-officedocument.spreadsheetml";
 pub struct SheetSpec {
     pub name: String,
     pub rows_xml: String,
+    pub dimension: Option<String>,
 }
 
 #[allow(dead_code)] // Each integration-test crate uses a different subset.
@@ -21,7 +22,18 @@ impl SheetSpec {
         Self {
             name: name.to_string(),
             rows_xml: rows_xml.into(),
+            dimension: None,
         }
+    }
+
+    /// Declare an explicit `<dimension>` ref for this sheet, independent of
+    /// where its cells actually are — lets a test simulate a workbook whose
+    /// declared dimension disagrees with (e.g. understates) its real content,
+    /// the "phantom last cell" shape a naive dimension-trusting guard would
+    /// miss.
+    pub fn with_dimension(mut self, reference: &str) -> Self {
+        self.dimension = Some(reference.to_string());
+        self
     }
 }
 
@@ -154,11 +166,16 @@ pub fn write_workbook(dir: &Path, name: &str, sheets: &[SheetSpec]) -> PathBuf {
     );
 
     for (i, sheet) in sheets.iter().enumerate() {
+        let dimension_xml = sheet
+            .dimension
+            .as_ref()
+            .map(|reference| format!(r#"<dimension ref="{reference}"/>"#))
+            .unwrap_or_default();
         add(
             &mut zip,
             &format!("xl/worksheets/sheet{}.xml", i + 1),
             format!(
-                r#"<worksheet xmlns="{NS}"><sheetData>{}</sheetData></worksheet>"#,
+                r#"<worksheet xmlns="{NS}">{dimension_xml}<sheetData>{}</sheetData></worksheet>"#,
                 sheet.rows_xml
             ),
         );
