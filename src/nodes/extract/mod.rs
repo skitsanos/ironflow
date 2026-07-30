@@ -8,6 +8,7 @@ mod pptx_parser;
 mod subtitles;
 mod word;
 mod word_format;
+mod xlsx;
 
 pub(crate) use html::ExtractHtmlNode;
 pub(crate) use pdf::ExtractPdfNode;
