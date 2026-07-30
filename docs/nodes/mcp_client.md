@@ -97,7 +97,9 @@ Action-specific output:
 - `initialize`
   - `{output_key}_protocol_version`
   - `{output_key}_capabilities`
-  - `{output_key}_server_info`
+  - `{output_key}_server_info` — the server's implementation identity, or `null`
+    when the server does not supply one (the MCP handshake treats it as
+    optional)
 - `list_tools`
   - `{output_key}_tools`
   - `{output_key}_tool_names`

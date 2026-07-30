@@ -1,4 +1,4 @@
-use rmcp::model::{CallToolResult, ListToolsResult, ServerInfo};
+use rmcp::model::{CallToolResult, ListToolsResult, ServerPeerInfo};
 use serde::Serialize;
 use serde_json::{Value, json};
 
@@ -39,7 +39,7 @@ pub(super) fn initialized(
     output_key: &str,
     transport: McpTransport,
     session: &str,
-    info: &ServerInfo,
+    info: &ServerPeerInfo,
 ) -> NodeOutput {
     let result = serialize(info);
     let mut output = base(
