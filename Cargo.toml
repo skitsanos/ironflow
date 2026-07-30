@@ -23,7 +23,7 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 reqwest = { version = "0.13.4", features = ["json", "stream", "multipart"] }
 url = "2.5.8"
 http = "1"
-rmcp = { version = "2.2.0", default-features = false, features = ["client", "transport-streamable-http-client-reqwest"] }
+rmcp = { version = "3.0.0", default-features = false, features = ["client", "transport-streamable-http-client-reqwest"] }
 aws-config = "1.8.18"
 aws-sdk-s3 = "1.135.0"
 aws-sdk-s3vectors = "1.27.0"
