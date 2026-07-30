@@ -5,7 +5,7 @@ runnable from a clean checkout. They contain original test content created for
 this repository and no copied documents, customer data, corporate slides, or
 third-party images.
 
-The six files are intentionally reused across examples:
+The seven files are intentionally reused across examples:
 
 - `ironflow-sample.pdf` — three text pages for extraction, metadata, merge,
   split, rendering, and chunking.
@@ -14,6 +14,9 @@ The six files are intentionally reused across examples:
 - `ironflow-sample.pptx` — two editable slides for structured extraction and
   presentation reconstruction examples.
 - `ironflow-sample.png` — a 640 x 480 RGB test pattern for image nodes.
+- `ironflow-sample.xlsx` — a two-sheet workbook (`Parts`, `Notes`) for
+  `extract_xlsx`. `Parts` carries a title row above its real header, the
+  common real-world layout where the header is not row one.
 - `ironflow-transcript.vtt` and `ironflow-transcript.srt` — equivalent subtitle
   transcripts for extraction, cue chunking, and service-backed examples.
 

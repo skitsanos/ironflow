@@ -1,0 +1,86 @@
+# `extract_xlsx`
+
+Extract typed rows from an Excel (`.xlsx`) workbook, one sheet or every sheet.
+
+## Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `path` | string | one of `path` or `source_key` | — | File path to the `.xlsx` file; supports `${ctx.key}` interpolation. |
+| `source_key` | string | one of `path` or `source_key` | — | Context key whose value is the file path (must be a string). |
+| `sheet` | string or number | no | all sheets | A string selects a sheet by name; a number selects a sheet by 0-based index. |
+| `has_header` | boolean | no | `true` | When `true`, the first row of each extracted sheet becomes object keys and rows are objects; when `false`, rows are plain arrays and no row is treated as a header. |
+| `output_key` | string | no | `"content"` | Context key where the extracted rows are stored. |
+
+> Providing both `path` and `source_key` is an error.
+> A workbook containing a sheet literally named `"0"` stays reachable by passing the string `"0"` for `sheet` rather than the number `0`.
+
+## Context Output
+
+- `<output_key>` (default `content`) — an object keyed by sheet name, where each value is that sheet's array of rows. This holds even when `sheet` narrows the extraction to one sheet: the output is still keyed by that sheet's name, so downstream code never has to branch on whether narrowing happened.
+- `<output_key>_sheet_names` — an array of the extracted sheet names, in workbook order. Object key order does not survive the round trip into Lua, so a `foreach` over the sheets needs this array rather than iterating `<output_key>`'s keys directly.
+
+## Cell types
+
+| Excel value | JSON value |
+|-------------|------------|
+| Whole number | Integer — only when it round-trips exactly through `i64`. Every `.xlsx` number is stored as a double, so without this rule a quantity column would reach Lua as `3.0` rather than `3`. |
+| Fractional number | Float |
+| Text | String |
+| Boolean | Boolean |
+| Date-formatted cell | ISO-8601 string (`YYYY-MM-DDTHH:MM:SS`) |
+| Blank cell | `null` |
+| Excel error (`#DIV/0!`, `#N/A`, ...) | `null` |
+| Formula | Its cached value, converted by the rules above — IronFlow does not evaluate formulas |
+
+Blanks and Excel errors both become `null`: a consumer treats "no usable value" uniformly rather than learning Excel's error taxonomy. The cost is that a flow auditing a workbook cannot tell a broken formula from an empty cell.
+
+Merged cells carry their value in the top-left cell of the span and `null` in every other cell it covers — that is the file's own on-disk representation; `extract_xlsx` does not attempt to fill it back in.
+
+## Headers
+
+When `has_header = true`, the first row of a sheet becomes its object keys, with two rules that differ from `csv_parse` because spreadsheets are not CSVs:
+
+- A blank header cell becomes `column_{n}` (1-based) rather than an empty-string key.
+- A duplicate header gains a `_2`, `_3`, ... suffix rather than overwriting the earlier column — repeated group headers (two columns both labeled `Q1`) are common, and last-wins would silently drop real data.
+
+Columns present in a data row but past the end of the header row keep the same `column_{n}` convention `csv_parse` uses.
+
+## Ceilings
+
+Two `extract_xlsx`-specific environment variables bound how much a single call can extract, in addition to the ZIP guards every OOXML node shares:
+
+- `IRONFLOW_MAX_XLSX_ROWS` (default `50000`) — maximum rows in one sheet, counting the header row when present. Checked per sheet; breaching it names the sheet, the row count, and the limit.
+- `IRONFLOW_MAX_XLSX_CELLS` (default `1000000`) — maximum total cells (`height × width`) across every sheet a single call extracts, independent of `has_header`. The budget is shared across sheets, so narrowing with `sheet` lowers the cost, and a workbook too large to read whole can still be read one sheet at a time.
+
+`IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES` and `IRONFLOW_MAX_ZIP_ENTRIES` also apply: a pre-flight reads the archive's central directory and each entry's declared size before the workbook is opened, so an oversized or entry-flooded `.xlsx` is refused before any sheet is parsed.
+
+Breaching any of these ceilings raises an error naming the offending sheet (where applicable), the observed count, the limit, and the environment variable to raise.
+
+## Examples
+
+### Read every sheet without a header
+
+```lua
+flow:step("extract", nodes.extract_xlsx({
+    path = "${ctx.workbook_path}",
+    has_header = false,
+    output_key = "rows"
+}))
+
+flow:step("show", nodes.log({
+    message = "Sheets: ${ctx.rows_sheet_names}"
+})):depends_on("extract")
+```
+
+### Read one sheet by name, with a header row
+
+```lua
+flow:step("extract_summary", nodes.extract_xlsx({
+    path = "${ctx.workbook_path}",
+    sheet = "Summary",
+    output_key = "summary"
+}))
+```
+
+`ctx.summary` is `{ Summary = [ {...}, {...} ] }` and `ctx.summary_sheet_names` is `["Summary"]`.
