@@ -17,7 +17,29 @@ fn max_audio_bytes_defaults_to_the_provider_limit() {
 }
 
 #[test]
-fn xlsx_ceilings_default_and_override() {
-    assert_eq!(ironflow::util::limits::max_xlsx_rows(), 50_000);
-    assert_eq!(ironflow::util::limits::max_xlsx_cells(), 50_000);
+fn xlsx_ceilings_default_when_unset() {
+    // Only defaults are asserted here (no override) -- clear both variables
+    // first, following the pattern above, so this doesn't fail on any
+    // machine that happens to export one of them.
+    let saved_rows = std::env::var("IRONFLOW_MAX_XLSX_ROWS").ok();
+    let saved_cells = std::env::var("IRONFLOW_MAX_XLSX_CELLS").ok();
+    unsafe {
+        std::env::remove_var("IRONFLOW_MAX_XLSX_ROWS");
+        std::env::remove_var("IRONFLOW_MAX_XLSX_CELLS");
+    }
+
+    let rows = ironflow::util::limits::max_xlsx_rows();
+    let cells = ironflow::util::limits::max_xlsx_cells();
+
+    unsafe {
+        if let Some(previous) = saved_rows {
+            std::env::set_var("IRONFLOW_MAX_XLSX_ROWS", previous);
+        }
+        if let Some(previous) = saved_cells {
+            std::env::set_var("IRONFLOW_MAX_XLSX_CELLS", previous);
+        }
+    }
+
+    assert_eq!(rows, 50_000);
+    assert_eq!(cells, 33_000);
 }

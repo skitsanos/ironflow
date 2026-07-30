@@ -1,7 +1,9 @@
 #[path = "support/xlsx.rs"]
 mod xlsx_support;
 
-use xlsx_support::{SheetSpec, boolean, date_custom, error, number, row, text, write_workbook};
+use xlsx_support::{
+    SheetSpec, boolean, date_builtin, date_custom, error, number, row, text, write_workbook,
+};
 
 use ironflow::engine::types::Context;
 use ironflow::nodes::NodeRegistry;
@@ -57,6 +59,7 @@ fn two_sheet_workbook(dir: &std::path::Path) -> std::path::PathBuf {
                             text("C1", "signed"),
                             text("D1", "active"),
                             text("E1", "broken"),
+                            text("F1", "signed_builtin"),
                         ]
                     ),
                     row(
@@ -67,6 +70,7 @@ fn two_sheet_workbook(dir: &std::path::Path) -> std::path::PathBuf {
                             date_custom("C2", "46237"),
                             boolean("D2", "1"),
                             error("E2", "#DIV/0!"),
+                            date_builtin("F2", "46237"),
                         ]
                     ),
                 ),
@@ -123,6 +127,14 @@ async fn cells_arrive_typed_with_dates_as_iso_strings() {
         row["broken"],
         serde_json::json!(null),
         "an Excel error is null, like a blank"
+    );
+    // Excel actually writes the built-in `numFmtId="14"` for a plain date
+    // cell, not a custom format code -- both must produce the same ISO-8601
+    // output.
+    assert_eq!(
+        row["signed_builtin"],
+        serde_json::json!("2026-08-03T00:00:00"),
+        "a built-in date format (numFmtId 14) must format identically to a custom one"
     );
 }
 
