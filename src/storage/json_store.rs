@@ -16,6 +16,7 @@ use crate::storage::{RunListQuery, RunSummaryPage, StateStore, StorageError, Sto
 #[cfg(test)]
 mod cancellation_tests;
 mod catalog;
+mod claims;
 mod codec;
 mod fs;
 mod listing;
@@ -233,5 +234,9 @@ impl StateStore for JsonStateStore {
     /// (IF-051).
     async fn prune_before(&self, cutoff: chrono::DateTime<chrono::Utc>) -> StorageResult<usize> {
         crate::storage::prune_before_via_summary_pages(self, cutoff).await
+    }
+
+    async fn claim_schedule(&self, name: &str, key: &str, ttl_seconds: u64) -> StorageResult<bool> {
+        self.claim_schedule_file(name, key, ttl_seconds).await
     }
 }

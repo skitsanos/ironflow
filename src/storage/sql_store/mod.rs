@@ -7,6 +7,7 @@ use crate::engine::types::{RunInfo, RunSummary, TaskState};
 use crate::storage::sql_names::{SqlDialect, SqlStateTableNames};
 use crate::storage::{StorageError, StorageResult};
 
+mod claims;
 mod codec;
 mod listing;
 mod retention;

@@ -17,6 +17,8 @@ anyhow = "1.0.102"
 thiserror = "2.0.18"
 uuid = { version = "1.23.3", features = ["v4"] }
 chrono = { version = "0.4.45", features = ["serde"] }
+chrono-tz = "0.10"
+cron = "0.17"
 async-trait = "0.1.89"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
@@ -62,6 +64,7 @@ redis = ["dep:redis"]
 tempfile = "3"
 http-body-util = "0.1"
 tower = "0.5"
+futures-util = "0.3"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.186"

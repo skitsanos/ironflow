@@ -5,6 +5,7 @@ use anyhow::{Context as _, Result};
 use serde::Deserialize;
 
 use crate::api::WebhookConfig;
+use crate::scheduler::config::ScheduleConfig;
 
 /// Configuration loaded from `ironflow.yaml`.
 /// All fields are optional — missing fields fall back to CLI/env/defaults.
@@ -47,6 +48,11 @@ pub struct IronFlowConfig {
     /// Named webhook route definitions. String values retain the legacy
     /// flow-only form; object values may explicitly forward business headers.
     pub webhooks: Option<HashMap<String, WebhookConfig>>,
+    /// Named cron schedules evaluated by `ironflow serve`. Timing is a
+    /// deployment decision, so schedules are configuration-file-only: the same
+    /// flow may run hourly in staging and nightly in production without
+    /// editing flow source.
+    pub schedules: Option<HashMap<String, ScheduleConfig>>,
     /// Allow `POST /flows/run` to execute flow source supplied in the request
     /// body. Defaults to `true`. Set `false` on deployments that expose a fixed
     /// set of flows, so an API key grants only those flows rather than

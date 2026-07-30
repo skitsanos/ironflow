@@ -85,6 +85,23 @@ impl SqlStateStore {
         )
         .await?;
 
+        crate::storage::sql_ddl::create_if_absent(
+            &self.pool,
+            format!(
+                r#"
+            CREATE TABLE IF NOT EXISTS {} (
+                name TEXT NOT NULL,
+                claim_key TEXT NOT NULL,
+                claimed_micros BIGINT NOT NULL,
+                PRIMARY KEY (name, claim_key)
+            )
+            "#,
+                self.tables.schedule_claims
+            ),
+            "schedule claims table",
+        )
+        .await?;
+
         Ok(())
     }
 
