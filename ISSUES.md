@@ -2268,3 +2268,103 @@ the SQL claim table being reaped. The overlap scan is bounded at 256 candidate
 runs and logs when it stops early or cannot complete; beyond that bound a
 second concurrent run of the same schedule can start. The tick loop is
 unsupervised — a panic inside evaluation would end scheduling silently.
+
+### IF-060 — No way to read a spreadsheet
+
+**Status:** Resolved on 2026-07-30.
+
+IronFlow could extract text and structure from Word, PowerPoint, PDF, HTML and
+subtitle files, and could parse CSV already held in context. It could not read
+`.xlsx` — the format business data actually arrives in. An author had to export
+each sheet to CSV by hand first, losing every sheet but one and every type but
+text.
+
+Resolution: `extract_xlsx`, built on `calamine` (node count 101 → 102). One call
+returns every sheet as an object keyed by sheet name, plus
+`<output_key>_sheet_names` in workbook order — object key order does not survive
+into Lua, so a `foreach` needs the array. An optional `sheet` narrows the
+extraction and the output stays keyed by sheet name even then, so downstream
+code never branches on whether narrowing happened. `sheet` is resolved by JSON
+type: a string is a name, a number a 0-based index, which keeps a sheet literally
+named `0` reachable via `"0"`.
+
+Cells are typed. Whole numbers become JSON integers, but only when they
+round-trip exactly through `i64` — `.xlsx` stores every number as a double, so
+without that a quantity column reaches Lua as `3.0`, and Lua 5.4 distinguishes
+that from `3`. The bound is deliberately strict rather than `<= i64::MAX as f64`,
+because that cast rounds up to 2⁶³ and admitted a value one larger than `i64`
+holds. Date-formatted cells become ISO-8601 strings: `.xlsx` has no date type, so
+a date is a float plus a number-format code, and emitting the serial would push
+the format lookup and the 1900-epoch quirk onto every flow. Blanks and Excel
+error cells both become `null`, so a consumer treats "no usable value" uniformly.
+
+Header rules differ from `csv_parse` in two places, because spreadsheets are not
+CSVs: a blank header cell becomes `column_{n}` rather than an empty-string key,
+and duplicates gain `_2`/`_3` suffixes rather than overwriting — repeated group
+headers are normal, and last-wins would drop real data silently.
+
+Three things were found by testing rather than by reasoning, and each changed the
+implementation.
+
+**A 1,403-byte file with two cells killed the process.** `calamine`'s
+`worksheet_range` materialises a dense array over the bounding box of the used
+cells, so a workbook holding only `A1` and `XFD1048576` requested about 550 GB
+and was SIGKILLed. No ceiling could catch it — every check ran after the
+allocation. Under `serve` that would take down the API and every concurrent run,
+from a file small enough to arrive in a webhook body, and Excel's "phantom last
+cell" makes the milder shape an ordinary real-world condition rather than an
+attack. The node now streams cells and never materialises the bounding box, so
+memory is bounded by cells actually read: the same file now returns a clean
+ceiling error at roughly baseline process memory.
+
+**The ceilings could never fire.** `IRONFLOW_MAX_XLSX_CELLS` began at 1,000,000,
+but the Lua conversion budget (`IRONFLOW_MAX_CONVERSION_NODES`, default 100,000)
+always bit first, producing the JSON-path error IF-058 was filed about instead of
+a message naming the sheet. Conversion cost is roughly `rows × (cols + 1)`, worst
+at one column, so the ceiling is now 33,000 — a third of the conversion budget,
+which holds at every width. Raising one variable without the other mostly just
+moves where an oversized workbook fails.
+
+**Streaming initially widened ordinary workbooks.** `worksheet_range` discarded
+formatting-only cells before computing the bounding box; the first streaming
+version did not. A sheet with two real columns and one leftover styled-blank cell
+gained 24 spurious null columns. The stream now filters those records, matching
+the original behaviour.
+
+Not addressed, and each its own future decision: `.xls`, `.xlsb` and `.ods` are
+readable by the underlying library but unsupported and untested; writing
+workbooks; formulas as expressions rather than cached values; cell formatting,
+colours and comments; charts, images, named ranges and pivot tables. A
+`skip_rows` parameter is the obvious next addition — real workbooks commonly
+carry a title row above the header, and with the default `has_header` that title
+becomes the keys.
+
+Known limitations, stated plainly rather than implied:
+
+- Excel error cells collapse to `null` alongside blanks, so a flow auditing a
+  workbook cannot distinguish `#DIV/0!` from an empty cell.
+- Formulas yield the cached value only. A workbook written by a tool that did not
+  populate cached values reads as blank.
+- Merged cells report their value in the top-left cell and `null` across the rest
+  of the span — the file's own representation.
+- Hidden and very-hidden sheets are extracted like any other.
+- The zip pre-flight, which enforces the uncompressed-bytes and entry-count
+  limits `calamine` would otherwise bypass, trusts the archive's declared sizes.
+  It restores parity with the other OOXML nodes; it is not a hard bound. The
+  memory bound is the streaming path, not this.
+- **No committed test reads a real Excel-authored workbook.** `data/samples/` is
+  gitignored by policy — it holds internal data — so such a test would fail in CI
+  and for every other developer. Real-file verification was done manually against
+  three workbooks and is recorded in the branch's development notes.
+- **Excel date serials have no real-file coverage.** None of those three
+  workbooks contained a single Excel-typed date cell; one has a column named
+  "FMV Approval Date" whose values are strings like `"8/30/2024, 9:01 PM"`,
+  because report exports commonly pre-format dates as text. Date-serial handling
+  is covered only by synthetic fixtures — one custom number-format code and one
+  built-in format id end to end through a file, plus 1900-epoch boundary tests
+  that construct the value directly and so bypass format detection.
+- **The committed tests do not guard the original out-of-memory bug.** At any
+  bounding box small enough to test automatically, the pre-fix and post-fix code
+  reach the same decision and differ only in memory; the defect appears only at a
+  scale that cannot be safely automated. The repro is preserved as an ignored
+  test with its history in the body.
