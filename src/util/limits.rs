@@ -224,6 +224,20 @@ pub fn lua_gc_after_execution() -> bool {
 /// hitting the storage layer. Default: 2 MB.
 const DEFAULT_TASK_OUTPUT_BYTES: u64 = 2 * 1024 * 1024;
 
+/// Maximum rows read from a single worksheet, counting the header row.
+const DEFAULT_MAX_XLSX_ROWS: u64 = 50_000;
+
+/// Maximum cells read across every sheet one extraction covers.
+const DEFAULT_MAX_XLSX_CELLS: u64 = 1_000_000;
+
 pub fn max_task_output_bytes() -> u64 {
     env_u64("IRONFLOW_MAX_TASK_OUTPUT_BYTES", DEFAULT_TASK_OUTPUT_BYTES)
+}
+
+pub fn max_xlsx_rows() -> u64 {
+    env_u64("IRONFLOW_MAX_XLSX_ROWS", DEFAULT_MAX_XLSX_ROWS)
+}
+
+pub fn max_xlsx_cells() -> u64 {
+    env_u64("IRONFLOW_MAX_XLSX_CELLS", DEFAULT_MAX_XLSX_CELLS)
 }

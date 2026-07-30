@@ -15,3 +15,9 @@ fn max_audio_bytes_defaults_to_the_provider_limit() {
 
     assert_eq!(value, 25_000_000);
 }
+
+#[test]
+fn xlsx_ceilings_default_and_override() {
+    assert_eq!(ironflow::util::limits::max_xlsx_rows(), 50_000);
+    assert_eq!(ironflow::util::limits::max_xlsx_cells(), 1_000_000);
+}
