@@ -811,13 +811,15 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_MAX_PDF_RENDER_PIXELS` | `25000000` | Maximum pixels in one rendered PDF page |
 | `IRONFLOW_MAX_PDF_DPI` | `300` | Maximum PDF rendering DPI |
 | `IRONFLOW_MAX_XLSX_ROWS` | `50000` | Maximum rows in one sheet extracted by `extract_xlsx`, counting the header row |
-| `IRONFLOW_MAX_XLSX_CELLS` | `1000000` | Maximum total cells across every sheet one `extract_xlsx` call extracts |
+| `IRONFLOW_MAX_XLSX_CELLS` | `50000` | Maximum total cells across every sheet one `extract_xlsx` call extracts |
 | `IRONFLOW_MAX_DETACHED_SUBWORKFLOWS` | `64` | Process-wide limit for detached `subworkflow` executions |
 | `IRONFLOW_MCP_SESSION_CACHE_SIZE` | `1024` | Maximum live MCP session handles; least-recently-used overflow sessions are closed |
 | `IRONFLOW_MCP_SESSION_TTL_SECS` | `3600` | Idle TTL for live MCP sessions; expired sessions are closed when another session is inserted or leased |
 | `IRONFLOW_OAUTH_CACHE_SIZE` | `128` | Maximum cached OAuth client token tuples |
 
 Lua limits apply to flow parsing, `code` nodes, and `foreach` transform functions. For trusted dedicated-server workloads that intentionally run long Lua computations, raise the budgets or set the relevant budget to `0`.
+
+`IRONFLOW_MAX_XLSX_CELLS` is deliberately kept below `IRONFLOW_MAX_CONVERSION_NODES`: converting an extracted sheet into Lua costs roughly `rows * (cols + 1)` conversion nodes, so a cell ceiling that never fires before the conversion budget does would let oversized workbooks fail deep inside the JSON-to-Lua converter (an error naming a JSON path) instead of at `extract_xlsx` parse time (an error naming the sheet). Raising one of these two limits without the other may simply move where an oversized workbook fails rather than allow it through.
 
 ### Diagnostics
 

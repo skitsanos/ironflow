@@ -51,11 +51,13 @@ Columns present in a data row but past the end of the header row keep the same `
 Two `extract_xlsx`-specific environment variables bound how much a single call can extract, in addition to the ZIP guards every OOXML node shares:
 
 - `IRONFLOW_MAX_XLSX_ROWS` (default `50000`) — maximum rows in one sheet, counting the header row when present. Checked per sheet; breaching it names the sheet, the row count, and the limit.
-- `IRONFLOW_MAX_XLSX_CELLS` (default `1000000`) — maximum total cells (`height × width`) across every sheet a single call extracts, independent of `has_header`. The budget is shared across sheets, so narrowing with `sheet` lowers the cost, and a workbook too large to read whole can still be read one sheet at a time.
+- `IRONFLOW_MAX_XLSX_CELLS` (default `50000`) — maximum total cells (`height × width`) across every sheet a single call extracts, independent of `has_header`. The budget is shared across sheets, so narrowing with `sheet` lowers the cost, and a workbook too large to read whole can still be read one sheet at a time.
 
 `IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES` and `IRONFLOW_MAX_ZIP_ENTRIES` also apply: a pre-flight reads the archive's central directory and each entry's declared size before the workbook is opened, so an oversized or entry-flooded `.xlsx` is refused before any sheet is parsed.
 
 Breaching any of these ceilings raises an error naming the offending sheet (where applicable), the observed count, the limit, and the environment variable to raise.
+
+`IRONFLOW_MAX_XLSX_CELLS`'s default is kept well below `IRONFLOW_MAX_CONVERSION_NODES` (default `100000`, see `docs/CLI_REFERENCE.md`) on purpose. Extracted rows are converted from JSON into Lua after parsing, at a cost of roughly `rows * (cols + 1)` conversion nodes per sheet, so a cell ceiling that sits above (or too close to) the conversion budget can be beaten by conversion cost first — and the resulting failure names a JSON path deep in the converter instead of the sheet this ceiling is meant to name. Raising `IRONFLOW_MAX_XLSX_CELLS` without also raising `IRONFLOW_MAX_CONVERSION_NODES` (or the reverse) mostly just relocates where an oversized workbook fails.
 
 ## Examples
 
