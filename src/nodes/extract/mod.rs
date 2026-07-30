@@ -15,6 +15,7 @@ pub(crate) use pdf::ExtractPdfNode;
 pub(crate) use pptx::ExtractPptxNode;
 pub(crate) use subtitles::{ExtractSrtNode, ExtractVttNode};
 pub(crate) use word::ExtractWordNode;
+pub(crate) use xlsx::ExtractXlsxNode;
 
 use crate::nodes::NodeRegistry;
 use std::sync::Arc;
@@ -26,4 +27,5 @@ pub fn register_all(registry: &mut NodeRegistry) {
     registry.register(Arc::new(ExtractHtmlNode));
     registry.register(Arc::new(ExtractVttNode));
     registry.register(Arc::new(ExtractSrtNode));
+    registry.register(Arc::new(ExtractXlsxNode));
 }

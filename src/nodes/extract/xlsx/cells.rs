@@ -9,7 +9,6 @@ use serde_json::Value;
 /// value" uniformly rather than learning Excel's error taxonomy. The cost is
 /// that a flow auditing a workbook cannot tell a broken formula from an empty
 /// cell.
-#[allow(dead_code)]
 pub(super) fn cell_value(cell: &Data) -> Value {
     match cell {
         Data::Int(value) => Value::from(*value),
@@ -33,7 +32,6 @@ pub(super) fn cell_value(cell: &Data) -> Value {
 /// Every `.xlsx` number is a double, so without this a quantity column reaches
 /// Lua as `3.0` rather than `3` — Lua 5.4 distinguishes the two, and the noise
 /// reaches every downstream comparison and interpolation.
-#[allow(dead_code)]
 fn number_value(value: f64) -> Value {
     // i64::MAX as f64 rounds UP to 2^63, which is one past the real i64::MAX,
     // so a <= bound would admit a value that doesn't round-trip. Use a strict

@@ -13,7 +13,6 @@ use super::cells::cell_value;
 /// duplicates gain `_2`, `_3` suffixes rather than overwriting. Repeated group
 /// headers — two columns both labelled `Q1` — are normal, and last-wins would
 /// drop real data without saying so.
-#[allow(dead_code)]
 pub(super) fn header_keys(header_row: &[Data]) -> Vec<String> {
     let mut taken: HashSet<String> = HashSet::new();
     let mut keys = Vec::with_capacity(header_row.len());

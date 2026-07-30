@@ -23,7 +23,6 @@ pub(super) struct CellBudget {
 }
 
 impl CellBudget {
-    #[allow(dead_code)] // wired up in the node's `execute` (Task 7)
     pub(super) fn new(max_cells: u64) -> Self {
         Self {
             remaining: max_cells,
@@ -35,7 +34,6 @@ impl CellBudget {
     /// range, including the header row if present. This makes a workbook's
     /// cost a property of the file alone, independent of configuration like
     /// `has_header`, so budget accounting is predictable across calls.
-    #[allow(dead_code)] // wired up in the node's `execute` (Task 7)
     pub(super) fn spend(&mut self, cells: u64, sheet: &str) -> Result<()> {
         match self.remaining.checked_sub(cells) {
             Some(left) => {
@@ -62,7 +60,6 @@ impl CellBudget {
 /// `max_rows` is likewise taken as an argument rather than read from
 /// `IRONFLOW_MAX_XLSX_ROWS` internally; the node's `execute` (Task 7) passes
 /// `crate::util::limits::max_xlsx_rows()`.
-#[allow(dead_code)] // wired up in the node's `execute` (Task 7)
 pub(super) fn sheet_rows(
     sheet: &str,
     range: &Range<Data>,

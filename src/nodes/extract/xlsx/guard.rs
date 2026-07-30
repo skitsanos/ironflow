@@ -24,7 +24,6 @@ use anyhow::{Result, bail};
 /// nothing. Declared sizes come from the archive, so a crafted file can
 /// understate them; this closes the ordinary case and restores parity with
 /// the siblings rather than providing a hard bound.
-#[allow(dead_code)] // wired up in the node's `execute` (Task 7)
 pub(super) fn check_archive_size(path: &Path, max_bytes: u64, max_entries: u64) -> Result<()> {
     let file = std::fs::File::open(path).map_err(|error| {
         anyhow::anyhow!("extract_xlsx: cannot open '{}': {error}", path.display())
