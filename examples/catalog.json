@@ -35,6 +35,7 @@
         "examples/08-extraction/pdf_metadata.lua",
         "examples/08-extraction/pdf_thumbnail.lua",
         "examples/08-extraction/pdf_to_image.lua",
+        "examples/08-extraction/xlsx_workbook.lua",
         "examples/09-cache/cache_memory.lua",
         "examples/11-subworkflow/on_error_example.lua",
         "examples/13-ai/chunk_fixed.lua",
@@ -378,6 +379,7 @@
       "examples/08-extraction/extract_word.lua",
       "examples/08-extraction/image_metadata.lua",
       "examples/08-extraction/pdf_metadata.lua",
+      "examples/08-extraction/xlsx_workbook.lua",
       "examples/13-ai/chunk_fixed.lua",
       "examples/13-ai/chunk_merge.lua",
       "examples/13-ai/chunk_split.lua"

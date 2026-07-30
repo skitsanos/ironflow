@@ -224,6 +224,36 @@ pub fn lua_gc_after_execution() -> bool {
 /// hitting the storage layer. Default: 2 MB.
 const DEFAULT_TASK_OUTPUT_BYTES: u64 = 2 * 1024 * 1024;
 
+/// Maximum rows read from a single worksheet, counting the header row.
+const DEFAULT_MAX_XLSX_ROWS: u64 = 50_000;
+
+/// Maximum cells read across every sheet one extraction covers.
+///
+/// This must fire before `IRONFLOW_MAX_CONVERSION_NODES` (default 100,000)
+/// does, or the xlsx ceiling never gets a chance to raise its own
+/// sheet-naming error — the parse would already have succeeded and the
+/// oversized result would blow up later inside the JSON-to-Lua converter
+/// with a message naming a JSON path instead of a sheet (IF-058). Conversion
+/// cost for the extracted table is roughly `rows * (cols + 1)` (one node per
+/// cell plus one per row for the row wrapper), which is worst at a single
+/// column: at `cols == 1` it collapses to `rows * 2`, i.e. twice the cell
+/// count, so a `cells`-cell single-column sheet costs `cells * 2` conversion
+/// nodes no matter how the cell ceiling is set. A ceiling set at half the
+/// conversion budget would therefore only just clear that worst case, with
+/// no margin at all; 33,000 — about a third of the 100,000-node conversion
+/// budget — is chosen to stay well clear of it. If
+/// `IRONFLOW_MAX_CONVERSION_NODES` is raised, this should be re-checked
+/// against it rather than assumed safe.
+const DEFAULT_MAX_XLSX_CELLS: u64 = 33_000;
+
 pub fn max_task_output_bytes() -> u64 {
     env_u64("IRONFLOW_MAX_TASK_OUTPUT_BYTES", DEFAULT_TASK_OUTPUT_BYTES)
+}
+
+pub fn max_xlsx_rows() -> u64 {
+    env_u64("IRONFLOW_MAX_XLSX_ROWS", DEFAULT_MAX_XLSX_ROWS)
+}
+
+pub fn max_xlsx_cells() -> u64 {
+    env_u64("IRONFLOW_MAX_XLSX_CELLS", DEFAULT_MAX_XLSX_CELLS)
 }

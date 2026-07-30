@@ -95,6 +95,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **extract_pptx.lua** — Extract slides, metadata, and comments from PowerPoint (.pptx) files
 - **extract_vtt.lua** — Extract text and metadata from WebVTT subtitle files
 - **extract_srt.lua** — Extract text and metadata from SRT subtitle files
+- **xlsx_workbook.lua** — Extract every sheet of an Excel (.xlsx) workbook and count rows per sheet via `foreach`
 - **pdf_to_image.lua** — Render PDF pages to images
 - **pdf_thumbnail.lua** — Render one PDF page as a thumbnail image
 - **pdf_metadata.lua** — Read PDF metadata and page count

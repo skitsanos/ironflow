@@ -113,7 +113,7 @@ pub trait Node: Send + Sync {
 }
 ```
 
-Nodes are registered in a `NodeRegistry` and exposed to Lua as callable factory functions. 101 built-in nodes are provided across HTTP, shell, file, S3, S3 vector, MCP, data transform, iteration, caching, conditional, timing, code execution, markdown, XML, YAML, HTML sanitization, date/time, encoding, document extraction, image processing, database, AI, subworkflow/tool dispatch, notification, and utility categories. The `pdf_to_image` and `pdf_thumbnail` nodes require the native Pdfium library at runtime.
+Nodes are registered in a `NodeRegistry` and exposed to Lua as callable factory functions. 102 built-in nodes are provided across HTTP, shell, file, S3, S3 vector, MCP, data transform, iteration, caching, conditional, timing, code execution, markdown, XML, YAML, HTML sanitization, date/time, encoding, document extraction, image processing, database, AI, subworkflow/tool dispatch, notification, and utility categories. The `pdf_to_image` and `pdf_thumbnail` nodes require the native Pdfium library at runtime.
 
 ### 3. Lua Runtime (`lua/`)
 

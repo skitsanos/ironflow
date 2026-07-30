@@ -1,6 +1,6 @@
 # IronFlow — Node Reference
 
-Complete reference for all 101 built-in nodes. Click any node name for full documentation with parameters, context output, and Lua examples.
+Complete reference for all 102 built-in nodes. Click any node name for full documentation with parameters, context output, and Lua examples.
 
 For adding or maintaining node implementations, see [Node Contributor Manual](NODE_CONTRIBUTING.md).
 
@@ -169,6 +169,7 @@ endpoint, and AWS credential configuration may still come from the environment.
 | [`extract_html`](nodes/extract_html.md) | Extract text and metadata from HTML |
 | [`extract_vtt`](nodes/extract_vtt.md) | Extract text and metadata from WebVTT subtitles |
 | [`extract_srt`](nodes/extract_srt.md) | Extract text and metadata from SRT subtitles |
+| [`extract_xlsx`](nodes/extract_xlsx.md) | Extract typed rows from an Excel (.xlsx) workbook |
 | [`pdf_metadata`](nodes/pdf_metadata.md) | Extract PDF metadata fields and page count |
 | [`pdf_to_image`](nodes/pdf_to_image.md) | Render PDF pages to images |
 | [`pdf_thumbnail`](nodes/pdf_thumbnail.md) | Render a single PDF page as a thumbnail image |
