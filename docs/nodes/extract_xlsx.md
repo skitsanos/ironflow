@@ -29,6 +29,8 @@ Extract typed rows from an Excel (`.xlsx`) workbook, one sheet or every sheet.
 | Text | String |
 | Boolean | Boolean |
 | Date-formatted cell | ISO-8601 string (`YYYY-MM-DDTHH:MM:SS`) |
+| ISO 8601 date string | String (unchanged) — cells tagged with `DateTimeIso` type in the workbook |
+| ISO 8601 duration string | String (unchanged) — cells tagged with `DurationIso` type in the workbook |
 | Blank cell | `null` |
 | Excel error (`#DIV/0!`, `#N/A`, ...) | `null` |
 | Formula | Its cached value, converted by the rules above — IronFlow does not evaluate formulas |
@@ -36,6 +38,22 @@ Extract typed rows from an Excel (`.xlsx`) workbook, one sheet or every sheet.
 Blanks and Excel errors both become `null`: a consumer treats "no usable value" uniformly rather than learning Excel's error taxonomy. The cost is that a flow auditing a workbook cannot tell a broken formula from an empty cell.
 
 Merged cells carry their value in the top-left cell of the span and `null` in every other cell it covers — that is the file's own on-disk representation; `extract_xlsx` does not attempt to fill it back in.
+
+## Text Dates vs. Excel Dates
+
+The rows above describe how `extract_xlsx` handles cells Excel explicitly typed as dates — those return ISO-8601 strings. However, many real workbooks, especially exports from reporting systems, store dates as plain text rather than as Excel date values. In those cases, the node returns the text unchanged.
+
+For example, a column labeled `"FMV Approval Date"` in an exported report might contain values like:
+
+```
+"8/30/2024, 9:01 PM"
+"4/20/2023, 11:10 AM"
+"4/11/2025, 9:05 PM"
+```
+
+These arrive as strings, not ISO-8601 formatted dates. To tell the difference: if a date column returns ISO-8601 strings like `"2024-08-30T21:01:00"`, Excel typed that cell as a date. If it returns text like `"8/30/2024, 9:01 PM"`, the cell was text in the source file.
+
+Text dates can be parsed downstream with the `date_format` node. That node can parse dates from custom `input_format` strings — for the example shape above, `input_format = "%m/%d/%Y, %I:%M %p"` would work, though the auto-detected formats do not include this pattern. See `docs/nodes/date_format.md` for the formats it recognizes and how to provide a custom strftime pattern.
 
 ## Headers
 
