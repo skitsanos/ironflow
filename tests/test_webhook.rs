@@ -10,12 +10,13 @@ use ironflow::storage::StateStore as _;
 mod webhook_support;
 
 use webhook_support::{
-    PLATFORM_API_KEY, authenticated_json_request, authenticated_request, build_test_app, send_json,
-    setup_flow_dir, webhook, write_flow,
+    PLATFORM_API_KEY, PROCESS_ADMISSION_LOCK, authenticated_json_request, authenticated_request,
+    build_test_app, send_json, setup_flow_dir, webhook, write_flow,
 };
 
 #[tokio::test]
 async fn webhook_executes_flow_and_returns_persisted_run() {
+    let _admission = PROCESS_ADMISSION_LOCK.lock().await;
     let flows = setup_flow_dir();
     let app = build_test_app(
         flows.path().to_path_buf(),
@@ -39,6 +40,7 @@ async fn webhook_executes_flow_and_returns_persisted_run() {
 
 #[tokio::test]
 async fn webhook_routes_are_protected_by_platform_authentication() {
+    let _admission = PROCESS_ADMISSION_LOCK.lock().await;
     let flows = setup_flow_dir();
     let app = build_test_app(
         flows.path().to_path_buf(),
@@ -68,6 +70,7 @@ async fn webhook_routes_are_protected_by_platform_authentication() {
 
 #[tokio::test]
 async fn webhook_unknown_name_returns_404() {
+    let _admission = PROCESS_ADMISSION_LOCK.lock().await;
     let flows = setup_flow_dir();
     let app = build_test_app(flows.path().to_path_buf(), HashMap::new());
 
@@ -82,6 +85,7 @@ async fn webhook_unknown_name_returns_404() {
 
 #[tokio::test]
 async fn webhook_passes_json_body_and_webhook_name_as_durable_context() {
+    let _admission = PROCESS_ADMISSION_LOCK.lock().await;
     let flows = tempfile::tempdir().unwrap();
     write_flow(
         flows.path(),
@@ -121,6 +125,7 @@ async fn webhook_passes_json_body_and_webhook_name_as_durable_context() {
 
 #[tokio::test]
 async fn webhook_works_with_no_body() {
+    let _admission = PROCESS_ADMISSION_LOCK.lock().await;
     let flows = setup_flow_dir();
     let app = build_test_app(
         flows.path().to_path_buf(),

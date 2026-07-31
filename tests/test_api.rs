@@ -19,7 +19,7 @@ use ironflow::lua::runtime::LuaRuntime;
 use ironflow::nodes::NodeRegistry;
 use ironflow::storage::event_store::{EventStore, MemoryEventStore};
 use ironflow::storage::json_store::JsonStateStore;
-use ironflow::storage::{PageSize, RunListQuery, StateStore};
+use ironflow::storage::{PageSize, RunLease, RunListQuery, StateStore};
 use tower::ServiceExt;
 
 #[tokio::test]
@@ -202,6 +202,70 @@ async fn delete_endpoint_cleans_events_and_recovers_an_orphaned_stream() {
         .route("/runs/{id}", delete(ironflow::api::handlers::delete_run))
         .with_state(state);
 
+    let lease = RunLease::renewed("api-live-owner".to_string());
+    store
+        .init_run_owned("live-delete", "flow", &Context::new(), &lease)
+        .await
+        .unwrap();
+    assert!(
+        store
+            .set_run_status_owned("live-delete", RunStatus::Running, lease.owner())
+            .await
+            .unwrap()
+    );
+    events
+        .publish(RunEvent::run(
+            "live-delete",
+            "flow",
+            RunEventType::RunStarted,
+            RunStatus::Running,
+        ))
+        .await
+        .unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/runs/live-delete")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    assert_eq!(
+        store.get_run_info("live-delete").await.unwrap().status,
+        RunStatus::Running
+    );
+    assert_eq!(
+        events
+            .list_since("live-delete", None, 10)
+            .await
+            .unwrap()
+            .len(),
+        1,
+        "a rejected state deletion must not remove the event stream"
+    );
+    assert!(
+        store
+            .set_run_status_owned("live-delete", RunStatus::Success, lease.owner())
+            .await
+            .unwrap()
+    );
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/runs/live-delete")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
     let response = app
         .clone()
         .oneshot(
@@ -307,6 +371,68 @@ fn resolve_flow_path_accepts_file_inside_flows_dir() {
 
     let resolved = resolve_flow_path("ok.lua", &state).expect("in-root file should resolve");
     assert!(resolved.ends_with("ok.lua"));
+
+    let absolute = tmp.path().join("ok.lua");
+    let resolved = resolve_flow_path(absolute.to_str().unwrap(), &state)
+        .expect("absolute in-root file should resolve");
+    assert_eq!(
+        std::path::Path::new(&resolved),
+        absolute.canonicalize().unwrap()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn resolve_flow_path_accepts_absolute_configured_symlink_spelling() {
+    use ironflow::api::handlers::resolve_flow_path;
+    use std::os::unix::fs::symlink;
+
+    let outer = tempfile::tempdir().unwrap();
+    let catalog = outer.path().join("catalog");
+    std::fs::create_dir(&catalog).unwrap();
+    let flow = catalog.join("ok.lua");
+    std::fs::write(&flow, "").unwrap();
+    let configured = outer.path().join("configured-flows");
+    symlink(&catalog, &configured).unwrap();
+    let state = build_state_with_flows_dir(configured.clone());
+
+    let requested = configured.join("ok.lua");
+    let resolved = resolve_flow_path(requested.to_str().unwrap(), &state)
+        .expect("the configured symlink spelling is still inside flows_dir");
+    assert_eq!(
+        std::path::Path::new(&resolved),
+        flow.canonicalize().unwrap()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn resolve_flow_path_rejects_existing_and_broken_symlink_escapes_identically() {
+    use ironflow::api::errors::AppError;
+    use ironflow::api::handlers::resolve_flow_path;
+    use std::os::unix::fs::symlink;
+
+    let outer = tempfile::tempdir().unwrap();
+    let flows = outer.path().join("flows");
+    std::fs::create_dir(&flows).unwrap();
+    let outside = outer.path().join("outside.lua");
+    std::fs::write(&outside, "").unwrap();
+    symlink(&outside, flows.join("existing.lua")).unwrap();
+    symlink(outer.path().join("missing.lua"), flows.join("missing.lua")).unwrap();
+    let state = build_state_with_flows_dir(flows);
+
+    let existing = resolve_flow_path("existing.lua", &state)
+        .expect_err("a symlink to an existing outside file must be rejected");
+    let missing = resolve_flow_path("missing.lua", &state)
+        .expect_err("a broken outside symlink must be rejected identically");
+    let AppError::NotFound(existing_message) = existing else {
+        panic!("expected NotFound for existing symlink escape");
+    };
+    let AppError::NotFound(missing_message) = missing else {
+        panic!("expected NotFound for broken symlink escape");
+    };
+    assert_eq!(existing_message, missing_message);
+    assert_eq!(existing_message, "Flow file not found");
 }
 
 #[test]
@@ -321,12 +447,19 @@ fn resolve_flow_path_rejects_traversal_escape() {
     std::fs::create_dir(&inner).unwrap();
     let state = build_state_with_flows_dir(inner);
 
-    let err = resolve_flow_path("../secret.lua", &state)
+    let existing = resolve_flow_path("../secret.lua", &state)
         .expect_err("path escaping flows_dir must be rejected");
-    assert!(
-        matches!(err, AppError::Forbidden(_)),
-        "expected Forbidden for traversal escape"
-    );
+    let missing = resolve_flow_path("../missing.lua", &state)
+        .expect_err("missing traversal path must be rejected identically");
+
+    let AppError::NotFound(existing_message) = existing else {
+        panic!("expected NotFound for traversal escape");
+    };
+    let AppError::NotFound(missing_message) = missing else {
+        panic!("expected NotFound for missing traversal escape");
+    };
+    assert_eq!(existing_message, missing_message);
+    assert_eq!(existing_message, "Flow file not found");
 }
 
 #[test]
@@ -342,12 +475,20 @@ fn resolve_flow_path_rejects_absolute_path_outside_flows_dir() {
     std::fs::create_dir(&inner).unwrap();
     let state = build_state_with_flows_dir(inner);
 
-    let err = resolve_flow_path(outside.to_str().unwrap(), &state)
+    let existing = resolve_flow_path(outside.to_str().unwrap(), &state)
         .expect_err("absolute path outside flows_dir must be rejected");
-    assert!(
-        matches!(err, AppError::Forbidden(_)),
-        "expected Forbidden for absolute escape"
-    );
+    let missing_path = outer.path().join("missing.lua");
+    let missing = resolve_flow_path(missing_path.to_str().unwrap(), &state)
+        .expect_err("missing absolute path outside flows_dir must be rejected identically");
+
+    let AppError::NotFound(existing_message) = existing else {
+        panic!("expected NotFound for absolute escape");
+    };
+    let AppError::NotFound(missing_message) = missing else {
+        panic!("expected NotFound for missing absolute escape");
+    };
+    assert_eq!(existing_message, missing_message);
+    assert_eq!(existing_message, "Flow file not found");
 }
 
 #[test]

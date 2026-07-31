@@ -39,6 +39,18 @@ pub fn config_f64_or(config: &Value, key: &str, ctx: &Context, default: f64) -> 
     config_f64(config, key, ctx).ok_or_else(|| anyhow::anyhow!("'{key}' must be a finite number"))
 }
 
+/// Read an optional finite floating-point parameter while distinguishing an
+/// absent key from a present-but-invalid value.
+pub fn config_f64_strict(config: &Value, key: &str, ctx: &Context) -> Result<Option<f64>> {
+    if config.get(key).is_none() {
+        return Ok(None);
+    }
+
+    config_f64(config, key, ctx)
+        .map(Some)
+        .ok_or_else(|| anyhow::anyhow!("'{key}' must be a finite number"))
+}
+
 /// Read an unsigned-integer node parameter, resolving `${ctx.key}` templates.
 ///
 /// Lua has a single number type, so integer parameters routinely arrive as floats

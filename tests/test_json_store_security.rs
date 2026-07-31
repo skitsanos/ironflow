@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use ironflow::engine::types::{Context, RunStatus, TaskState};
 use ironflow::storage::json_store::JsonStateStore;
-use ironflow::storage::{StateStore, StorageErrorKind};
+use ironflow::storage::{RunLease, StateStore, StorageErrorKind};
 
 fn assert_no_temporary_entries(directory: &Path) {
     let names = std::fs::read_dir(directory)
@@ -87,6 +87,48 @@ async fn invalid_ids_are_rejected_before_any_filesystem_access() {
     }
     assert!(!base.exists());
     assert!(!parent.path().join("outside.json").exists());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn control_directories_reject_symlinks_without_writing_outside_the_store() {
+    use std::os::unix::fs::symlink;
+
+    let parent = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+
+    let claims_root = parent.path().join("claims-store");
+    std::fs::create_dir(&claims_root).unwrap();
+    symlink(
+        outside.path(),
+        claims_root.join(".ironflow-schedule-claims-v1"),
+    )
+    .unwrap();
+    let claims = JsonStateStore::new(&claims_root);
+    assert_eq!(
+        claims
+            .claim_schedule("nightly", "instant", 3600)
+            .await
+            .unwrap_err()
+            .kind(),
+        StorageErrorKind::Corruption
+    );
+
+    let leases_root = parent.path().join("leases-store");
+    std::fs::create_dir(&leases_root).unwrap();
+    symlink(outside.path(), leases_root.join(".ironflow-run-leases-v1")).unwrap();
+    let leases = JsonStateStore::new(&leases_root);
+    let lease = RunLease::at("owner", chrono::Utc::now() + chrono::Duration::minutes(1));
+    assert_eq!(
+        leases
+            .init_run_owned("run", "flow", &Context::new(), &lease)
+            .await
+            .unwrap_err()
+            .kind(),
+        StorageErrorKind::Corruption
+    );
+
+    assert_eq!(std::fs::read_dir(outside.path()).unwrap().count(), 0);
 }
 
 #[tokio::test]

@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+develop_local=""
+develop_remote=""
+while read -r local_ref local_sha remote_ref remote_sha; do
+  if [[ "$remote_ref" == "refs/heads/develop" && ! "$local_sha" =~ ^0+$ ]]; then
+    develop_local=$local_sha
+    develop_remote=$remote_sha
+  fi
+done
+
+if [[ -z "$develop_local" ]]; then
+  exit 0
+fi
+
+echo "IronFlow develop pre-push: checking incoming pull requests"
+bun run scripts/check_incoming_prs.ts
+
+if [[ -n "$(git status --porcelain)" ]]; then
+  echo "Push blocked: the worktree must be clean so the integration gate tests exactly what will be pushed." >&2
+  exit 1
+fi
+
+if [[ ! "$develop_remote" =~ ^0+$ ]]; then
+  if ! git cat-file -e "$develop_remote^{commit}" 2>/dev/null; then
+    echo "Push blocked: the remote develop commit is not available locally; fetch and integrate it first." >&2
+    exit 1
+  fi
+  if ! git merge-base --is-ancestor "$develop_remote" "$develop_local"; then
+    echo "Push blocked: remote develop is not an ancestor of the commit being pushed; fetch and integrate it first." >&2
+    exit 1
+  fi
+fi
+
+echo "IronFlow develop pre-push: checking committed development version"
+bun run scripts/development_version.ts check "$develop_local" "$develop_remote"
+
+echo "IronFlow develop pre-push: running full integration gate"
+scripts/integration_gate.sh

@@ -191,14 +191,16 @@ complete contract and configuration variables.
 | `GET` | `/runs` | List run summaries with `status`, `limit`, and `after` cursor parameters |
 | `GET` | `/runs/{id}` | Get run details |
 | `GET` | `/runs/{id}/events` | Stream run/task lifecycle events over SSE |
-| `DELETE` | `/runs/{id}` | Delete run state and its retained event stream |
+| `DELETE` | `/runs/{id}` | Delete run state and retained events (`409` while a non-terminal owner lease is live) |
 | `GET` | `/nodes` | List available nodes |
 | `POST` | `/webhooks/{name}` | Execute a webhook-mapped flow |
 | `GET` | `/health` | Health check |
 
 Flows can also run on a schedule. A `schedules:` block in `ironflow.yaml`
 declares cron triggers that `ironflow serve` evaluates — in a named time zone,
-firing each instant exactly once even across multiple replicas. See
+with at most one replica claiming a given instant. A claimed instant may still
+be skipped for lateness, overlap, or capacity; overlap suppression is a bounded
+best-effort check rather than a distributed lock. See
 [Schedules](docs/CLI_REFERENCE.md#schedules).
 
 Handler failures return JSON with `error` and a stable `code`. Internal failures
@@ -283,7 +285,9 @@ bound; set `IRONFLOW_EVENT_MEMORY_CAPACITY` or `event_memory_capacity` to
 another positive entry limit. `DELETE /runs/{id}` removes state first, then
 idempotently removes retained events and fences late event publication.
 Repeating the request can finish event cleanup left by an interrupted first
-attempt.
+attempt. A non-terminal run with an unexpired execution-owner lease is left
+intact and returns `409 conflict`; terminal and expired-lease runs are
+deletable.
 
 Redis legacy event migration requires Redis 6.2 or newer. It atomically moves
 an eligible family into deterministic exact-run quarantine, then validates it
@@ -455,7 +459,7 @@ flow:step("standard_flow", nodes.log({
 | **ZIP** | `zip_create`, `zip_list`, `zip_extract` |
 | **MCP** | `mcp_client` |
 | **AI** | `ai_embed`, `ai_chunk`, `ai_chunk_merge`, `ai_chunk_semantic`, `llm`, `transcribe` |
-| **Extraction** | `extract_word`, `extract_pdf`, `extract_pptx`, `extract_html`, `extract_vtt`, `extract_srt`, `pdf_to_image`, `pdf_thumbnail`, `pdf_metadata`, `image_to_pdf`, `pdf_merge`, `pdf_split` |
+| **Extraction** | `extract_word`, `extract_pdf`, `extract_pptx`, `extract_html`, `extract_vtt`, `extract_srt`, `extract_xlsx`, `pdf_to_image`, `pdf_thumbnail`, `pdf_metadata`, `image_to_pdf`, `pdf_merge`, `pdf_split` |
 | **Image Processing** | `image_resize`, `image_crop`, `image_rotate`, `image_flip`, `image_grayscale`, `image_metadata`, `image_convert`, `image_watermark` |
 
 See [docs/NODE_REFERENCE.md](docs/NODE_REFERENCE.md) for the complete reference with parameters and examples.
@@ -473,7 +477,7 @@ Progressive examples from basic to advanced:
 | [05-http](examples/05-http/) | API calls, authentication, OpenAI integration |
 | [06-shell](examples/06-shell/) | Shell commands with args, env vars, timeouts, and explicit exit-status policy |
 | [07-advanced](examples/07-advanced/) | Hashing, schema validation, full data pipelines, function handlers, base64 encoding |
-| [08-extraction](examples/08-extraction/) | Word/PDF/PPTX/HTML text extraction, metadata, PDF-to-image rendering, image resize/crop, PDF merge/split, image metadata |
+| [08-extraction](examples/08-extraction/) | Word/PDF/PPTX/HTML/VTT/SRT/Excel extraction, metadata, PDF-to-image rendering, image resize/crop, PDF merge/split, image metadata |
 | [09-cache](examples/09-cache/) | In-memory and file-based key-value caching with TTL |
 | [10-database](examples/10-database/) | SQLite CRUD operations with db_query and db_exec |
 | [11-subworkflow](examples/11-subworkflow/) | Subworkflow composition, fire-and-forget, on_error handling |
@@ -498,9 +502,39 @@ IronFlow's run records; this does not redirect node output or undo remote
 mutations. The fixture-backed offline subset runs from an isolated working
 directory in CI.
 
+## Development validation and versioning
+
+Routine work uses focused tests for the behavior changed. Rust changes also
+require formatting, the module-size policy, and
+`cargo clippy --all-targets -- -D warnings`; the whole suite is intentionally
+not run on each save or ordinary commit.
+
+Enable the repository hooks once per checkout:
+
+```bash
+git config --local core.hooksPath .githooks
+```
+
+Before a `develop` push, the pre-push hook fails closed unless the worktree is
+clean, no open pull request targets `develop`, remote `develop` is integrated,
+and the committed version is a new `X.Y.Z-dev.N`. It then runs the full local
+integration gate, including disposable Redis and PostgreSQL tests. Start or
+advance a candidate with:
+
+```bash
+bun run scripts/development_version.ts bump minor  # 1.15.0 -> 1.16.0-dev.1
+bun run scripts/development_version.ts bump next   # 1.16.0-dev.1 -> dev.2
+```
+
+CI runs the full suite on pushes to `develop` and `main`, with optional manual
+dispatch. Release promotion creates `release/X.Y.Z` from verified `develop`,
+finalizes the candidate there with
+`bun run scripts/development_version.ts finalize`, and merges that exact
+candidate into `main` before the stable tag. Stable versions never land on
+`develop`.
+
 ## Roadmap
 
-- Cron scheduling
 - Web UI for flow visualization
 
 ## License

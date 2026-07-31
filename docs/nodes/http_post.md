@@ -15,14 +15,21 @@ HTTP POST request convenience wrapper.
 | `output_key` | string | no       | `"http"`  | Prefix for context output keys.                                                                      |
 | `fail_on_status` | boolean | no | `true` | When `true`, non-2xx responses return an error after any configured status retries. When `false`, non-2xx responses are returned as normal output. |
 | `retry_statuses` | array | no | `[]` | HTTP status codes to retry, as numbers or numeric strings. |
-| `status_retries` | integer | no | `0` | Number of retries for responses whose status appears in `retry_statuses`. |
-| `max_status_retries` | integer | no | `0` | Alias for `status_retries`. |
-| `status_retry_backoff` | number | no | `1` | Base retry delay in seconds. Delay uses exponential backoff by attempt. |
+| `status_retries` | integer | no | `0` | Number of retries for responses whose status appears in `retry_statuses`; maximum `100`. |
+| `max_status_retries` | integer | no | `0` | Alias for `status_retries`, with the same maximum `100`. |
+| `status_retry_backoff` | number | no | `1` | Base retry delay in seconds. Delay uses exponential backoff by attempt; minimum `0.01` when retries are enabled. |
 | `respect_retry_after` | boolean | no | `true` | When `true`, a numeric `Retry-After` response header overrides the backoff delay. |
-| `max_retry_after` | number | no | `60` | Maximum status retry delay in seconds. |
+| `max_retry_after` | number | no | `60` | Maximum status retry delay in seconds; minimum `0.01` when retries are enabled. |
+| `max_redirects` | integer | no | `10` | Maximum redirects to follow; `0` disables redirects and `100` is the hard ceiling. |
+| `allow_cross_origin_redirects` | boolean | no | `false` | Allow redirects that change scheme, host, or port. Even when enabled, cross-origin redirects are refused when `auth`, credentials embedded in URL userinfo, caller-configured `headers`, or a request `body` is present, because arbitrary credentials cannot be stripped safely. Generated `Referer` headers are disabled. |
+| `block_private_network` | boolean | no | `false` | Refuse initial and redirect targets that are literal private, loopback, link-local, metadata, or IPv4-mapped IPv6 private addresses. DNS-resolved private addresses are not detected. |
 
 For `body_type = "form"`, `body` must be an object and is sent as `application/x-www-form-urlencoded`.
 For `body_type = "text"`, `body` is sent as plain text.
+
+Retry counts, redirect counts, booleans, and delay values are parsed strictly:
+a present but invalid value is an error rather than being treated as an omitted
+default. A provider's `Retry-After: 0` is floored to 0.01 seconds.
 
 ### Auth
 

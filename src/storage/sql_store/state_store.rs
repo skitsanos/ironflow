@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use chrono::Utc;
 
-use super::{SqlStateStore, datetime_to_string, optional_json_to_string, row_value};
+use super::SqlStateStore;
 use crate::engine::types::{Context, RunInfo, RunStatus, RunSummary, TaskState};
 use crate::storage::{RunListQuery, RunSummaryPage, StateStore, StorageError, StorageResult};
 
@@ -22,195 +22,72 @@ impl StateStore for SqlStateStore {
         self.insert_run(&info).await
     }
 
-    async fn set_run_status(&self, run_id: &str, status: RunStatus) -> StorageResult<()> {
-        let is_terminal = status.is_terminal();
-        let affected = if is_terminal {
-            // COALESCE preserves the first terminal transition's timestamp; a
-            // repeated terminal write must not move `finished` (IF-052).
-            let sql = format!(
-                "UPDATE {} SET status = {}, finished = COALESCE(finished, {}) WHERE id = {}",
-                self.tables.runs,
-                self.placeholder(1),
-                self.placeholder(2),
-                self.placeholder(3)
-            );
-            sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
-                .bind(status.to_string())
-                .bind(datetime_to_string(Some(Utc::now())))
-                .bind(run_id)
-                .execute(&self.pool)
-                .await
-                .map_err(|error| {
-                    StorageError::backend(
-                        format_args!("Failed to update status for run '{run_id}'"),
-                        error,
-                    )
-                })?
-                .rows_affected()
-        } else {
-            let sql = format!(
-                "UPDATE {} SET status = {} WHERE id = {}",
-                self.tables.runs,
-                self.placeholder(1),
-                self.placeholder(2)
-            );
-            sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
-                .bind(status.to_string())
-                .bind(run_id)
-                .execute(&self.pool)
-                .await
-                .map_err(|error| {
-                    StorageError::backend(
-                        format_args!("Failed to update status for run '{run_id}'"),
-                        error,
-                    )
-                })?
-                .rows_affected()
-        };
+    async fn init_run_owned(
+        &self,
+        run_id: &str,
+        flow_name: &str,
+        ctx: &Context,
+        lease: &crate::storage::RunLease,
+    ) -> StorageResult<()> {
+        self.insert_owned_run(run_id, flow_name, ctx, lease).await
+    }
 
-        if affected == 0 {
-            return Err(StorageError::not_found(format_args!(
-                "Run '{run_id}' not found"
-            )));
-        }
-        Ok(())
+    async fn set_run_status(&self, run_id: &str, status: RunStatus) -> StorageResult<()> {
+        self.set_unowned_status(run_id, status).await
+    }
+
+    async fn set_run_status_owned(
+        &self,
+        run_id: &str,
+        status: RunStatus,
+        owner: &str,
+    ) -> StorageResult<bool> {
+        self.set_owned_status(run_id, status, owner).await
+    }
+
+    async fn renew_run_lease(
+        &self,
+        run_id: &str,
+        lease: &crate::storage::RunLease,
+    ) -> StorageResult<bool> {
+        self.renew_owned_run(run_id, lease).await
+    }
+
+    async fn reconcile_expired_run_leases(
+        &self,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> StorageResult<usize> {
+        self.reconcile_owned_runs(now).await
     }
 
     async fn upsert_task(&self, run_id: &str, task: &TaskState) -> StorageResult<()> {
-        let input = optional_json_to_string(&task.input, run_id, &task.name)?;
-        let output = optional_json_to_string(&task.output, run_id, &task.name)?;
-        let mut transaction = self.pool.begin().await.map_err(|error| {
-            StorageError::backend(
-                format_args!(
-                    "Failed to begin task upsert '{}' for run '{run_id}'",
-                    task.name
-                ),
-                error,
-            )
-        })?;
-        if !self.lock_run_for_mutation(&mut transaction, run_id).await? {
-            return Err(StorageError::not_found(format_args!(
-                "Run '{run_id}' not found"
-            )));
-        }
-        let sql = format!(
-            "INSERT INTO {} (run_id, name, node_type, status, attempt, input, output, error, started, finished) \
-             VALUES ({}, {}, {}, {}, {}, {}, {}, {}, {}, {}) \
-             ON CONFLICT(run_id, name) DO UPDATE SET node_type = excluded.node_type, status = excluded.status, \
-             attempt = excluded.attempt, input = excluded.input, output = excluded.output, error = excluded.error, \
-             started = excluded.started, finished = excluded.finished",
-            self.tables.tasks,
-            self.placeholder(1),
-            self.placeholder(2),
-            self.placeholder(3),
-            self.placeholder(4),
-            self.placeholder(5),
-            self.placeholder(6),
-            self.placeholder(7),
-            self.placeholder(8),
-            self.placeholder(9),
-            self.placeholder(10),
-        );
+        self.upsert_unowned_task(run_id, task).await
+    }
 
-        let affected = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
-            .bind(run_id)
-            .bind(&task.name)
-            .bind(&task.node_type)
-            .bind(task.status.to_string())
-            .bind(i64::from(task.attempt))
-            .bind(input)
-            .bind(output)
-            .bind(&task.error)
-            .bind(datetime_to_string(task.started))
-            .bind(datetime_to_string(task.finished))
-            .execute(&mut *transaction)
-            .await
-            .map_err(|error| {
-                StorageError::backend(
-                    format_args!("Failed to upsert task '{}' for run '{run_id}'", task.name),
-                    error,
-                )
-            })?
-            .rows_affected();
-        if affected != 1 {
-            return Err(StorageError::corruption(
-                format_args!("Invalid task upsert result for run '{run_id}'"),
-                affected,
-            ));
-        }
-        transaction.commit().await.map_err(|error| {
-            StorageError::backend(
-                format_args!(
-                    "Failed to commit task upsert '{}' for run '{run_id}'",
-                    task.name
-                ),
-                error,
-            )
-        })?;
-        Ok(())
+    async fn upsert_task_owned(
+        &self,
+        run_id: &str,
+        task: &TaskState,
+        owner: &str,
+    ) -> StorageResult<bool> {
+        self.upsert_owned_task(run_id, task, owner).await
     }
 
     async fn get_ctx(&self, run_id: &str) -> StorageResult<Context> {
-        let sql = format!(
-            "SELECT ctx FROM {} WHERE id = {}",
-            self.tables.runs,
-            self.placeholder(1)
-        );
-        let row = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
-            .bind(run_id)
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(|error| {
-                StorageError::backend(
-                    format_args!("Failed to read context for run '{run_id}'"),
-                    error,
-                )
-            })?
-            .ok_or_else(|| StorageError::not_found(format_args!("Run '{run_id}' not found")))?;
-        let raw: String = row_value(&row, "ctx", "run", run_id)?;
-        serde_json::from_str(&raw).map_err(|error| {
-            StorageError::corruption(
-                format_args!("Invalid context stored for run '{run_id}'"),
-                error,
-            )
-        })
+        self.read_context(run_id).await
     }
 
     async fn update_ctx(&self, run_id: &str, ctx: &Context) -> StorageResult<()> {
-        let mut current = self.get_ctx(run_id).await?;
-        for (key, value) in ctx {
-            current.insert(key.clone(), value.clone());
-        }
+        self.update_unowned_context(run_id, ctx).await
+    }
 
-        let sql = format!(
-            "UPDATE {} SET ctx = {} WHERE id = {}",
-            self.tables.runs,
-            self.placeholder(1),
-            self.placeholder(2)
-        );
-        let affected = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
-            .bind(serde_json::to_string(&current).map_err(|error| {
-                StorageError::backend(
-                    format_args!("Failed to serialize context for run '{run_id}'"),
-                    error,
-                )
-            })?)
-            .bind(run_id)
-            .execute(&self.pool)
-            .await
-            .map_err(|error| {
-                StorageError::backend(
-                    format_args!("Failed to update context for run '{run_id}'"),
-                    error,
-                )
-            })?
-            .rows_affected();
-        if affected == 0 {
-            return Err(StorageError::not_found(format_args!(
-                "Run '{run_id}' not found"
-            )));
-        }
-        Ok(())
+    async fn update_ctx_owned(
+        &self,
+        run_id: &str,
+        ctx: &Context,
+        owner: &str,
+    ) -> StorageResult<bool> {
+        self.update_owned_context(run_id, ctx, owner).await
     }
 
     async fn get_run_info(&self, run_id: &str) -> StorageResult<RunInfo> {

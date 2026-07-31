@@ -1,12 +1,7 @@
 {
   "version": 1,
-  "exception_budget": 16,
+  "exception_budget": 14,
   "exceptions": [
-    {
-      "path": "src/api/mod.rs",
-      "max_lines": 368,
-      "rationale": "IF-042/044/054 review: one REST surface covering router assembly, AppState, CORS, API-key auth (constant-time), process-wide run admission, and the ad-hoc inline-flow policy; extract admission and auth into modules before adding another cross-cutting middleware concern."
-    },
     {
       "path": "src/cli/store_factory.rs",
       "max_lines": 330,
@@ -14,8 +9,8 @@
     },
     {
       "path": "src/engine/executor/task_runner.rs",
-      "max_lines": 331,
-      "rationale": "IF-028 review: one task lifecycle spanning retries, deadlines, cancellation, and output publication; split before adding another lifecycle phase."
+      "max_lines": 329,
+      "rationale": "IF-028/062 review: one task lifecycle spanning retries, deadlines, cancellation, lease-fenced persistence, and output publication; split before adding another lifecycle phase."
     },
     {
       "path": "src/engine/recovery.rs",
@@ -61,11 +56,6 @@
       "path": "src/storage/json_store/fs.rs",
       "max_lines": 345,
       "rationale": "IF-028 review: one secure no-follow and durable-directory abstraction; split by responsibility before adding another filesystem operation family."
-    },
-    {
-      "path": "src/storage/redis_store/atomic.rs",
-      "max_lines": 358,
-      "rationale": "IF-028 review: one Redis CAS and snapshot mutation boundary sharing retry and script invariants; split before introducing another mutation protocol."
     },
     {
       "path": "src/storage/redis_store/listing.rs",

@@ -22,7 +22,26 @@ impl StateStore for RedisStateStore {
             tasks: HashMap::new(),
         };
 
-        self.initialize_run(&info).await
+        self.initialize_run(&info, None).await
+    }
+
+    async fn init_run_owned(
+        &self,
+        run_id: &str,
+        flow_name: &str,
+        ctx: &Context,
+        lease: &crate::storage::RunLease,
+    ) -> StorageResult<()> {
+        let info = RunInfo {
+            id: run_id.to_string(),
+            flow_name: flow_name.to_string(),
+            status: RunStatus::Pending,
+            started: Some(Utc::now()),
+            finished: None,
+            ctx: ctx.clone(),
+            tasks: HashMap::new(),
+        };
+        self.initialize_run(&info, Some(lease)).await
     }
 
     async fn set_run_status(&self, run_id: &str, status: RunStatus) -> StorageResult<()> {
@@ -38,12 +57,45 @@ impl StateStore for RedisStateStore {
         .await
     }
 
+    async fn set_run_status_owned(
+        &self,
+        run_id: &str,
+        status: RunStatus,
+        owner: &str,
+    ) -> StorageResult<bool> {
+        self.set_owned_status(run_id, status, owner).await
+    }
+
+    async fn renew_run_lease(
+        &self,
+        run_id: &str,
+        lease: &crate::storage::RunLease,
+    ) -> StorageResult<bool> {
+        self.renew_owned_run(run_id, lease).await
+    }
+
+    async fn reconcile_expired_run_leases(
+        &self,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> StorageResult<usize> {
+        self.reconcile_owned_runs(now).await
+    }
+
     async fn upsert_task(&self, run_id: &str, task: &TaskState) -> StorageResult<()> {
         self.mutate_run(run_id, |info| {
             info.tasks.insert(task.name.clone(), task.clone());
             Ok(true)
         })
         .await
+    }
+
+    async fn upsert_task_owned(
+        &self,
+        run_id: &str,
+        task: &TaskState,
+        owner: &str,
+    ) -> StorageResult<bool> {
+        self.upsert_owned_task(run_id, task, owner).await
     }
 
     async fn get_ctx(&self, run_id: &str) -> StorageResult<Context> {
@@ -61,6 +113,15 @@ impl StateStore for RedisStateStore {
             Ok(true)
         })
         .await
+    }
+
+    async fn update_ctx_owned(
+        &self,
+        run_id: &str,
+        ctx: &Context,
+        owner: &str,
+    ) -> StorageResult<bool> {
+        self.update_owned_context(run_id, ctx, owner).await
     }
 
     async fn get_run_info(&self, run_id: &str) -> StorageResult<RunInfo> {

@@ -103,13 +103,19 @@ Static validation must be supplemented with representative runtime probes.
 | IF-049 | P2 | Resolved | Nodes | `read_file` size guard bypassed for special files |
 | IF-050 | P2 | Resolved | Nodes | `base64_decode` performs unbounded arbitrary-path writes |
 | IF-051 | P2 | Resolved | Storage | `prune_before` default loads the full catalog into memory |
-| IF-052 | P3 | In progress | Maintainability | Assorted consistency/operability follow-ups |
+| IF-052 | P3 | Resolved | Maintainability | Assorted consistency/operability follow-ups |
 | IF-053 | P2 | Resolved | Nodes | `subworkflow` error propagation is implicitly coupled to `output_key` |
 | IF-054 | P2 | Resolved | API | `/flows/run` always accepts inline flow source, so an API key implies arbitrary execution |
 | IF-055 | P1 | Resolved | Storage | Concurrent SQL schema creation crash-loops a replica on first start |
 | IF-056 | P2 | Resolved | CLI config | `IRONFLOW_ALLOW_ADHOC_FLOWS` parses leniently and fails open on an unrecognized value |
 | IF-057 | P2 | Resolved | Nodes | `_`-prefixed context keys are not private when a child result is namespaced |
 | IF-058 | P2 | Resolved | Lua runtime | Conversion ceilings have no environment override and fail with an unactionable error |
+| IF-059 | P1 | Resolved | Scheduler | No way to run a flow on a schedule |
+| IF-060 | P1 | Resolved | Nodes | No way to read a spreadsheet |
+| IF-061 | P1 | Resolved | API security | Flow admission and HTTP redirect trust boundaries are incomplete |
+| IF-062 | P1 | Resolved | Engine/storage | Run ownership and crash recovery are not replica-safe |
+| IF-063 | P1 | Resolved | Resource safety | Transcription, S3, and XLSX work bypass end-to-end ceilings |
+| IF-064 | P1 | Open | ZIP/security | ZIP work outlives cancellation and extraction follows destination symlinks |
 ## P0 — release-blocking safety and durability
 
 ### IF-001 — Lua package-loader sandbox escape
@@ -1704,6 +1710,10 @@ Pending/Running runs become `Stalled`, terminal runs are untouched, and the swee
 is idempotent. Graceful shutdown (`with_graceful_shutdown`) remains a separate
 follow-up; this closes the operability gap of permanently-`Running` zombies.
 
+**Superseded by IF-062:** startup no longer treats every non-terminal record as
+abandoned. Runs carry renewable ownership leases; only expired leases may be
+reconciled, and reconciliation continues periodically while a server is alive.
+
 ### IF-044 — API key compared in non-constant time
 
 **Status:** Resolved on 2026-07-24.
@@ -1795,9 +1805,11 @@ ones preserved.
 The guard trusted `metadata().len()`, which is 0 for `/dev/zero`, fifos, and many
 `/proc` files, so the subsequent read streamed unbounded.
 
-Resolution: `read_file` keeps the fast metadata pre-flight but now performs the
-actual read through `bounded_read::read_file_capped_async`, which bounds bytes
-via `Read::take`. Regression `tests/test_read_file_special.rs` (Unix-only) reads
+Resolution: `read_file` keeps the fast metadata pre-flight and now performs the
+actual read through the shared regular-file, no-follow bounded reader. Special
+files are rejected before consumption, while actual bytes remain capped even
+if a regular file grows after its metadata check. Regression
+`tests/test_read_file_special.rs` (Unix-only) reads
 `/dev/zero` under a small cap and asserts a bounded error within a timeout
 instead of hanging.
 
@@ -1832,7 +1844,7 @@ and keeps non-terminal and newer ones.
 
 ### IF-052 — Assorted consistency/operability follow-ups
 
-**Status:** In progress (2026-07-24). **Done:** (a) CI toolchain bumped to
+**Status:** Resolved on 2026-07-31. **Done:** (a) CI toolchain bumped to
 `1.97.1` across all jobs to match `rust-toolchain.toml`; (c) the finalizer's
 `ContextUpdated` event is now stamped with the resolved terminal status instead
 of a misleading `Running`; (e) flow validation now rejects a routed step with no
@@ -1852,23 +1864,6 @@ orphaned temp-file startup sweep (cosmetic; no correctness impact), (h) `pcall`
 budget evasion (a documented cooperative-cancellation boundary with no clean
 Lua 5.4 interrupt), (i) stale `docs/superpowers/` node counts (historical
 point-in-time records, intentionally not rewritten).
-
-Low-severity items to batch: (a) CI pins Rust `1.96.0`
-(`.github/workflows/ci.yml`) while `rust-toolchain.toml` pins `1.97.1`; (b)
-`env(key)` exposes the entire process environment to any flow/code node — decide
-whether an allowlist is wanted; (c) the finalizer emits a `ContextUpdated` event
-stamped `RunStatus::Running` during terminalization
-(`src/engine/executor/finalizer.rs:33`); (d) the post-hoc deadline check can
-convert a completed success into a timeout failure in a race window
-(`src/engine/executor/deadline.rs:48`); (e) a route-gated step with no
-dependencies is silently always-skipped with no validation
-(`src/engine/executor/scheduler.rs:22`); (f) orphaned `.*.tmp` files leak on hard
-crash with no startup sweep (`src/storage/json_store/temp.rs:65`); (g) the
-`finished` timestamp is overwritten on repeated terminal transitions in
-JSON/Redis/SQL but preserved in `NullStateStore`; (h) the instruction/time budget
-is evadable via `pcall`; (i) `docs/superpowers/` planning files still say "99
-nodes" and reference the removed `nodes/builtin/` layout. Each is independently
-small; group or split as convenient.
 
 ## Audit evidence snapshot
 
@@ -2014,9 +2009,10 @@ way to reduce it.
 keeps its existing `flows_dir` confinement. Webhooks are unaffected — they name a
 flow from config. Defaulting to `true` leaves every existing deployment unchanged.
 
-`/flows/validate` is deliberately not gated: it parses without executing a step,
-and flow-level Lua runs in the sandbox (no `io`/`os`) under the
-`IRONFLOW_LUA_MAX_*` limits.
+The original resolution left `/flows/validate` ungated because it does not
+execute workflow steps. IF-061 supersedes that exception: validation evaluates
+top-level Lua (including `env()`), so both inline endpoints now share the same
+ad-hoc-flow policy and flow-loading admission limit.
 
 **Acceptance:**
 
@@ -2368,3 +2364,232 @@ Known limitations, stated plainly rather than implied:
   reach the same decision and differ only in memory; the defect appears only at a
   scale that cannot be safely automated. The repro is preserved as an ignored
   test with its history in the body.
+
+### IF-061 — API trust-boundary and admission gaps
+
+**Status:** Resolved on 2026-07-31.
+
+Six boundaries were independently weaker than their public contract:
+
+- disabling ad-hoc execution still allowed caller-supplied Lua through
+  `POST /flows/validate`; top-level flow Lua can read allowlisted environment
+  values even though validation does not execute workflow steps;
+- disabling ad-hoc flows without `flows_dir` left file mode able to resolve
+  arbitrary process-visible paths;
+- run admission was acquired after Lua parsing, so expensive parse work bypassed
+  the process run cap, and cancelling an HTTP waiter could release either a
+  parse or run permit while the underlying work continued;
+- file flow loading created its Lua VM before performing an unbounded
+  `read_to_string`; special files could block a worker indefinitely and regular
+  files had no independent source-size ceiling;
+- configured `flows_dir` failures distinguished existing outside paths from
+  missing ones, exposing a filesystem-existence oracle;
+- HTTP nodes followed cross-origin redirects by default. Reqwest can forward
+  caller-configured authentication, headers, or request bodies, and generated
+  `Referer` values can expose query-string credentials. IPv4-mapped IPv6 also
+  bypassed the literal private-address classifier.
+
+Implemented locally:
+
+- `/flows/run` and `/flows/validate` now enforce one ad-hoc policy before
+  decoding or evaluating inline source. `allow_adhoc_flows=false` requires a
+  configured `flows_dir`; startup and direct handler construction both fail
+  closed rather than reverting to arbitrary paths.
+- `IRONFLOW_MAX_CONCURRENT_FLOW_LOADS` is a strict, positive process-wide
+  semaphore with a default of two. API, webhook, and scheduler entry points
+  acquire it before blocking Lua flow loading, while the existing run semaphore
+  is acquired before parsing for every path that can create a run.
+- Detached supervisors retain parse and run permits until the blocking parse or
+  durable `RunHandle` actually settles. Aborting the request future therefore
+  cannot create hidden work above either advertised ceiling.
+- `IRONFLOW_MAX_FLOW_SOURCE_BYTES` (1 MiB default) bounds inline and file Lua
+  before VM creation. File reads use opened-handle metadata, accept only regular
+  files, read in capped chunks with cancellation checkpoints, and use
+  non-blocking open on Unix so FIFOs cannot strand a loader.
+- configured-root path escapes are rejected before probing caller-selected
+  outside paths; existing, missing, traversal, and symlink escapes share one
+  generic `404` response while detailed reasons remain server-side.
+- HTTP redirects are same-origin by default and capped at 100. A cross-origin
+  opt-in applies only to plain requests: configured auth, headers, or a body are
+  an unconditional cross-origin fence. Generated `Referer` headers are disabled,
+  retry/redirect numeric fields are strictly bounded, and private-address
+  classification normalizes IPv4-mapped IPv6.
+
+Focused regressions cover validation policy, the required `flows_dir` startup
+invariant, generic webhook file-load errors, bounded regular-file reads, prompt
+FIFO rejection, indistinguishable outside-path failures, aborted waiters
+retaining both permit types, redirect credentials/body/header cases, same-origin
+behavior, explicit safe opt-in, IPv4-mapped addresses, and strict runtime-limit
+parsing.
+
+Contract boundary: the flow-load limit bounds concurrent Lua parses, not queued
+requests; the run limit owns a run from before its parse until durable completion.
+These controls do not make an allowed workflow unprivileged—the node set still
+has the process permissions of the IronFlow deployment.
+
+Validation: default and combined-feature checks pass; both exact all-target
+Clippy commands pass with warnings denied; the full default all-target suite,
+doctests, and all 128 Lua example validations pass.
+
+### IF-062 — Replica-safe run ownership and reconciliation
+
+**Status:** Resolved on 2026-07-31.
+
+IF-043 marked every non-terminal run `Stalled` on startup. That was safe for a
+single stopped process but incorrect for rolling or multi-replica deployments:
+one replica could terminalize work actively owned by another. Conversely, a
+startup-only sweep never recovered a run abandoned after the server was already
+up. Even with ownership metadata, unfenced task/context writes could let a stale
+worker mutate a run after another replica reconciled it.
+
+Implemented locally:
+
+- each initialized run receives an opaque owner and renewable 90-second lease;
+  a 30-second heartbeat emits a typed infrastructure stop when renewal times
+  out, fails, or loses ownership. Infrastructure stops outrank simultaneous
+  explicit/deadline cancellation and converge to durable `Stalled` state;
+- owner-aware status, task, and context mutations fence stale workers. Built-in
+  JSON, SQLite/PostgreSQL, and Redis stores implement the contract; third-party
+  `StateStore` implementations retain compatible permissive defaults and opt out
+  of automatic lease reconciliation until they override the methods;
+- Redis uses atomic Lua fencing and Redis `TIME`; SQL uses transactional writes
+  and the database clock. Reconciliation is bounded in 256-record batches and
+  terminalizes abandoned pending/running tasks before marking the run `Stalled`;
+- JSON stores leases in a separate protected namespace and serializes each
+  lease read/modify/write transaction under an OS lock. Reconciliation streams
+  candidates rather than holding the complete catalog or one lock across the
+  backlog;
+- server startup performs fail-closed reconciliation after configuration and
+  binding succeed but before the scheduler starts. A supervised periodic reaper
+  retries bounded reconciliation calls, so leases expiring after startup also
+  converge;
+- run initialization, task/context/status persistence, event publication, and
+  finalization have explicit liveness budgets. Cancellation, the run deadline,
+  or lease loss can preempt the whole execution future—even if a node or custom
+  store future ignores cooperative cancellation—and release process admission.
+- Redis active-run expiration never shortens configured retention below the
+  lease safety window. With no configured retention, run state remains
+  persistent throughout init, renewal, and owned mutations.
+- JSON, SQL, and Redis deletion atomically refuses a live non-terminal owner
+  with typed `Conflict` (`409` at the API), without removing its lease or event
+  stream. Terminal and expired-lease runs remain deletable; SQL follows the
+  existing lease-before-run lock order and Redis performs the decision in Lua.
+
+Focused coverage exercises ownership loss with durable `Stalled` convergence,
+typed stop precedence, stale-writer fencing, live renewal, live/expired/terminal
+deletion across JSON, SQL, and Redis, API `409` event preservation, more than
+one SQL reconciliation batch, reaper timeout/retry, JSON cancellation during a
+commit, Redis lease TTL/persistence, API and CLI lifecycle startup, and hanging
+state/event futures under run deadlines.
+
+Contract boundary: reconciliation makes durable state converge; it cannot roll
+back an external side effect that completed before a worker crashed or lost its
+lease. A custom backend is replica-safe only after it implements the owned
+methods and reconciliation contract. JSON coordinates only processes sharing
+the same filesystem.
+
+Validation: the required combined-feature all-target suite passes serially
+against disposable `redis:latest` (Redis 8.10.0) and `postgres:latest`
+(PostgreSQL 18.4), with service-required flags preventing skips. This includes
+53 Redis atomicity tests, 18 Redis store tests, and live PostgreSQL event,
+schema, concurrency, schedule-claim, state, lease, and deletion coverage. The
+two explicitly named containers were removed after the run.
+
+### IF-063 — End-to-end resource ceilings for transcription, S3, and XLSX
+
+**Status:** Resolved on 2026-07-31.
+
+Several paths performed bounded input checks but still admitted unbounded work
+later in the operation. Transcription buffered arbitrary provider responses and
+allowed cross-origin redirects; S3 `get_object` collected a response before
+checking its final size; and `extract_xlsx` performed blocking decode on an
+async worker, trusted declared ZIP sizes, materialized shared strings before its
+cell ceiling, and did not bound cumulative output bytes. Its row ceiling also
+counted stored records rather than the highest spreadsheet row position, so a
+sparse sheet could evade the documented limit.
+
+Implemented locally:
+
+- transcription streams provider bodies under
+  `IRONFLOW_MAX_TRANSCRIBE_RESPONSE_BYTES` (25 MiB default), rejecting both an
+  oversized `Content-Length` and chunked overflow. Redirects are capped at ten
+  and must retain scheme, host, and effective port. `temperature` is parsed
+  strictly as a finite value in `0..=1`. Audio input uses the shared no-follow
+  regular-file reader, successful JSON is preflighted against conversion depth
+  and node ceilings before materialization, and provider error extraction is
+  bounded;
+- S3 downloads stream chunks under the shared `IRONFLOW_MAX_FILE_BYTES` ceiling
+  instead of collecting first;
+- XLSX work runs through the cancellation-aware blocking-step bridge, checks
+  cancellation throughout workbook/sheet decoding, preflights shared strings
+  with a streaming parser, and applies
+  `IRONFLOW_MAX_XLSX_OUTPUT_BYTES` (50 MiB default) to cumulative decoded/result
+  bytes. Repeated shared-string references are charged per use;
+- XLSX validates classic and ZIP64 end-of-central-directory metadata before
+  constructing `ZipArchive`, retains one no-follow regular-file handle across
+  every preflight and decode stage, and enforces declared and actual per-part
+  compressed/uncompressed plus cumulative archive ceilings;
+- XLSX headers use budget-aware construction and amortized collision handling,
+  selector conversions are checked, sparse positions enforce the documented
+  one-based row ceiling, and the implementation is split into focused modules
+  below the hard size limit.
+
+Focused XLSX unit/integration suites cover wide rows, sparse bounds, shared
+strings, output accounting, cancellation, and header collisions. Transcription
+tests cover streaming overflow, redirect origin changes, Azure's two-origin
+request shape, and strict temperature; S3 body tests cover declared and streamed
+overflow.
+
+Contract boundary: an archive's declared uncompressed sizes are a useful
+preflight but not a trusted memory bound. The streaming parser, cell/row limits,
+decoded-output budget, and cancellation checkpoints form the enforcement path.
+
+Validation: 47 focused XLSX unit tests and 17 integration tests pass (the
+documented pre-fix OOM reproducer remains intentionally ignored), followed by
+the full default and live combined-feature all-target suites. `cargo audit`
+passes with the four explicitly reviewed unmaintained transitive warnings, and
+the 371-module policy passes with no new production module above 300 LOC.
+
+Integration evidence for `1.16.0-dev.1` on 2026-07-31: the repository integration
+gate passed formatting, the 371-module size policy, repository skill and hook
+tests, `actionlint`, default and `postgres,redis` all-target checks, both exact
+Clippy gates with warnings denied, the default all-target suite, doctests,
+`cargo audit`, a release build, and static validation of all 128 Lua examples.
+The required combined-feature all-target suite then passed serially against
+freshly pulled `redis:latest` and `postgres:latest` containers with required-test
+flags enabled; this included the 53-test Redis atomicity suite, 18 Redis store
+tests, and live PostgreSQL event, schema, concurrency, claim, state, lease, and
+deletion coverage. The gate removed its two explicitly named containers.
+
+### IF-064 — ZIP filesystem lifecycle is neither root-confined nor cancellation-safe
+
+**Status:** Open (found 2026-07-31).
+
+`zip_create`, `zip_list`, and `zip_extract` launch raw `spawn_blocking` workers
+instead of the cancellation-aware blocking-step bridge. Traversal, compression,
+entry reads, and extraction copies have no execution-control checkpoints. A
+timed-out or cancelled run can therefore become durably terminal and release its
+run-admission permit while detached ZIP work keeps consuming a blocking worker
+and mutating files.
+
+There are two path-safety defects in the same loops:
+
+- extraction validates archive entry names lexically, then uses
+  `create_dir_all` and `File::create`; a pre-existing symlink in the destination
+  path—or at the leaf—can redirect/truncate a file outside the extraction root;
+- creation uses metadata helpers that follow directory symlinks recursively,
+  so it can archive data outside the requested source and a symlink cycle can
+  recurse until failure or resource exhaustion.
+
+Required outcome:
+
+- route all ZIP blocking work through the shared cancellation bridge and add
+  checkpoints during traversal and chunked copies, with an explicit partial
+  output/cleanup policy;
+- use race-safe no-follow traversal for extraction (directory-relative/openat
+  semantics on Unix), reject unsafe existing parent and leaf entries, and never
+  truncate an external symlink target;
+- define and document a no-follow policy plus depth/work ceiling for creation;
+- prove cancellation stops physical filesystem work before the relevant worker
+  capacity is reusable, and add Unix parent-symlink, leaf-symlink, external-tree,
+  and symlink-cycle regressions.

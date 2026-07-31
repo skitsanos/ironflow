@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use serde_json::Value;
 
 use crate::engine::types::Context;
@@ -37,6 +39,10 @@ pub(super) fn prepare_failure_output(
     error
         .downcast_ref::<NodeFailure>()
         .map(|failure| prepare_output(failure.output(), overlay))
+}
+
+pub(super) fn buffered_failure_output(output: Option<PreparedOutput>) -> Option<Arc<Context>> {
+    output.map(|output| Arc::new(output.into_context()))
 }
 
 /// Cap individual oversized values in the final persisted context so a run

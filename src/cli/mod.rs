@@ -146,6 +146,7 @@ pub async fn run_cli() -> Result<()> {
             verbose,
             store_dir,
         } => {
+            resolution::validate_run_deadline_environment()?;
             let store_dir = resolution::with_config(
                 store_dir,
                 sources.store_dir,

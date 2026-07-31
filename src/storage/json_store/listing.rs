@@ -42,12 +42,3 @@ pub(super) async fn stream_entries(root: &Path) -> StorageResult<EntryStream> {
         .map_err(|error| StorageError::backend("Failed to list JSON store", error))?;
     Ok(EntryStream { directory })
 }
-
-pub(super) async fn read_entries(root: &Path) -> StorageResult<Vec<ListedEntry>> {
-    let mut directory = stream_entries(root).await?;
-    let mut entries = Vec::new();
-    while let Some(entry) = directory.next().await? {
-        entries.push(entry);
-    }
-    Ok(entries)
-}

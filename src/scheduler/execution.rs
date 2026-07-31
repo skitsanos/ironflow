@@ -173,26 +173,34 @@ impl ScheduleExecutor for FlowExecutor {
         let path = resolve_flow_path_in(schedule.flow(), self.flows_dir.as_deref())
             .map_err(|error| format!("{error:?}"))?;
 
+        // Held for the run's real duration: moved into the spawned task below,
+        // not dropped when this function returns. Reserve it before the Lua VM
+        // is created so a run rejected for capacity cannot still consume parse
+        // CPU and memory.
+        let run_permit = crate::api::acquire_run_permit()
+            .map_err(|_| "server is at maximum concurrent run capacity".to_string())?;
+        let flow_load_permit = crate::api::acquire_flow_load_permit()
+            .map_err(|_| "server is at maximum concurrent flow-loading capacity".to_string())?;
+
         // Parse off the async runtime so a pathological flow cannot pin a
         // worker thread and stall the server (IF-038). The error can echo
         // file-derived tokens (`near '<token>'`), so it is redacted exactly as
         // the REST API redacts the same failure (see `helpers::flow_file_load_error`)
         // before it becomes a string that gets logged.
-        let flow = LuaRuntime::load_flow_async(&path, &self.registry)
-            .await
-            .map_err(|error| {
-                format!(
-                    "failed to load flow: {}",
-                    redact_sensitive_text(&format!("{error:#}"))
-                )
-            })?;
+        let registry = self.registry.clone();
+        let load_path = path.clone();
+        let flow = crate::api::supervise_flow_load(flow_load_permit, async move {
+            LuaRuntime::load_flow_async(&load_path, &registry).await
+        })
+        .await
+        .map_err(|error| {
+            format!(
+                "failed to load flow: {}",
+                redact_sensitive_text(&format!("{error:#}"))
+            )
+        })?;
 
         let initial_ctx = self.initial_context(schedule_name, schedule, &path);
-
-        // Held for the run's real duration: moved into the spawned task below,
-        // not dropped when this function returns.
-        let run_permit = crate::api::acquire_run_permit()
-            .map_err(|_| "server is at maximum concurrent run capacity".to_string())?;
 
         let engine = WorkflowEngine::new_with_events(
             self.registry.clone(),

@@ -5,8 +5,9 @@ use tracing::{info, warn};
 use crate::engine::events::{RunEvent, RunEventType};
 use crate::engine::types::{RunStatus, TaskState, TaskStatus};
 
-use super::coordinator::{ExecutionOutcome, RunCoordinator};
+use super::coordinator::RunCoordinator;
 use super::engine::WorkflowEngine;
+use super::signal::ExecutionOutcome;
 
 const TERMINAL_STATUS_ATTEMPTS: usize = 3;
 
@@ -25,10 +26,13 @@ impl RunCoordinator {
         let final_ctx = self.ctx.read().await.clone();
         let durable_final_ctx =
             super::output::bound_context(self.execution_overlay.redact_context(final_ctx.as_ref()));
-        match self
-            .store
-            .update_ctx(&self.run_id, &durable_final_ctx)
-            .await
+        match super::lease::persist_context(
+            self.store.as_ref(),
+            &self.run_id,
+            &durable_final_ctx,
+            &self.lease_owner,
+        )
+        .await
         {
             Ok(()) => {
                 // The final context is persisted during terminalization, so
@@ -140,7 +144,8 @@ impl RunCoordinator {
         }
         task.finished = Some(Utc::now());
 
-        self.store.upsert_task(&self.run_id, &task).await?;
+        super::lease::persist_task(self.store.as_ref(), &self.run_id, &task, &self.lease_owner)
+            .await?;
 
         if status_changed {
             let event_type = match task.status {
@@ -171,10 +176,24 @@ impl RunCoordinator {
         for attempt in 1..=TERMINAL_STATUS_ATTEMPTS {
             match self
                 .store
-                .set_run_status(&self.run_id, status.clone())
+                .set_run_status_owned(&self.run_id, status.clone(), &self.lease_owner)
                 .await
             {
-                Ok(()) => return Ok(()),
+                Ok(true) => return Ok(()),
+                Ok(false) => {
+                    if let Ok(info) = self.store.get_run_info(&self.run_id).await
+                        && info.status == status
+                        && info.finished.is_some()
+                    {
+                        // The owner-checked commit may have succeeded even if
+                        // its response was lost and a retry now sees no lease.
+                        return Ok(());
+                    }
+                    return Err(anyhow::anyhow!(
+                        "run '{}' lost its execution-owner lease",
+                        self.run_id
+                    ));
+                }
                 Err(error) => {
                     if let Ok(info) = self.store.get_run_info(&self.run_id).await
                         && info.status == status

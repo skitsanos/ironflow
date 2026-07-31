@@ -5,10 +5,12 @@
 //! allocating unbounded amounts of memory.
 
 mod lua;
+mod xlsx;
 
 pub use lua::{
     LuaExecutionLimits, apply_lua_limits, apply_lua_limits_with_control, collect_lua_garbage,
 };
+pub use xlsx::{max_xlsx_cells, max_xlsx_output_bytes, max_xlsx_rows};
 
 /// Default cap for HTTP response bodies (50 MB).
 const DEFAULT_HTTP_BODY_BYTES: u64 = 50 * 1024 * 1024;
@@ -48,6 +50,14 @@ const DEFAULT_MAX_PDF_BYTES: u64 = 100 * 1024 * 1024;
 /// provider to reject the request.
 const DEFAULT_MAX_AUDIO_BYTES: u64 = 25_000_000;
 
+/// Default cap for transcription provider response bodies (25 MiB).
+///
+/// Unlike the upload limit above, providers do not define one universal
+/// response ceiling. This process-side bound prevents an arbitrary
+/// OpenAI-compatible endpoint from making IronFlow buffer an unbounded error
+/// or transcript before parsing it or writing `output_file`.
+const DEFAULT_MAX_TRANSCRIBE_RESPONSE_BYTES: u64 = 25 * 1024 * 1024;
+
 /// Default nesting depth accepted when converting between JSON and Lua.
 const DEFAULT_MAX_CONVERSION_DEPTH: u64 = 64;
 
@@ -73,6 +83,9 @@ const DEFAULT_LUA_MAX_SECONDS: u64 = 10;
 
 /// Default Lua VM memory cap (128 MB).
 const DEFAULT_LUA_MAX_MEMORY_BYTES: u64 = 128 * 1024 * 1024;
+
+/// Default cap for Lua flow source files and inline source (1 MiB).
+const DEFAULT_MAX_FLOW_SOURCE_BYTES: u64 = 1024 * 1024;
 
 /// How often the Lua debug hook checks budgets.
 const DEFAULT_LUA_HOOK_INTERVAL: u64 = 10_000;
@@ -161,6 +174,17 @@ pub fn max_audio_bytes() -> u64 {
     env_u64("IRONFLOW_MAX_AUDIO_BYTES", DEFAULT_MAX_AUDIO_BYTES)
 }
 
+/// Maximum response bytes accepted from a transcription provider.
+///
+/// Invalid and zero values fall back to the safe default rather than disabling
+/// the ceiling.
+pub fn max_transcribe_response_bytes() -> u64 {
+    env_u64(
+        "IRONFLOW_MAX_TRANSCRIBE_RESPONSE_BYTES",
+        DEFAULT_MAX_TRANSCRIBE_RESPONSE_BYTES,
+    )
+}
+
 pub fn max_conversion_depth() -> u64 {
     env_u64(
         "IRONFLOW_MAX_CONVERSION_DEPTH",
@@ -211,6 +235,17 @@ pub fn max_lua_memory_bytes() -> Option<u64> {
     )
 }
 
+/// Maximum UTF-8 bytes accepted for one Lua flow source.
+///
+/// Invalid and zero values retain the safe default instead of disabling the
+/// ceiling.
+pub fn max_flow_source_bytes() -> u64 {
+    env_u64(
+        "IRONFLOW_MAX_FLOW_SOURCE_BYTES",
+        DEFAULT_MAX_FLOW_SOURCE_BYTES,
+    )
+}
+
 pub fn lua_hook_interval() -> u64 {
     env_u64("IRONFLOW_LUA_HOOK_INTERVAL", DEFAULT_LUA_HOOK_INTERVAL)
 }
@@ -224,36 +259,6 @@ pub fn lua_gc_after_execution() -> bool {
 /// hitting the storage layer. Default: 2 MB.
 const DEFAULT_TASK_OUTPUT_BYTES: u64 = 2 * 1024 * 1024;
 
-/// Maximum rows read from a single worksheet, counting the header row.
-const DEFAULT_MAX_XLSX_ROWS: u64 = 50_000;
-
-/// Maximum cells read across every sheet one extraction covers.
-///
-/// This must fire before `IRONFLOW_MAX_CONVERSION_NODES` (default 100,000)
-/// does, or the xlsx ceiling never gets a chance to raise its own
-/// sheet-naming error — the parse would already have succeeded and the
-/// oversized result would blow up later inside the JSON-to-Lua converter
-/// with a message naming a JSON path instead of a sheet (IF-058). Conversion
-/// cost for the extracted table is roughly `rows * (cols + 1)` (one node per
-/// cell plus one per row for the row wrapper), which is worst at a single
-/// column: at `cols == 1` it collapses to `rows * 2`, i.e. twice the cell
-/// count, so a `cells`-cell single-column sheet costs `cells * 2` conversion
-/// nodes no matter how the cell ceiling is set. A ceiling set at half the
-/// conversion budget would therefore only just clear that worst case, with
-/// no margin at all; 33,000 — about a third of the 100,000-node conversion
-/// budget — is chosen to stay well clear of it. If
-/// `IRONFLOW_MAX_CONVERSION_NODES` is raised, this should be re-checked
-/// against it rather than assumed safe.
-const DEFAULT_MAX_XLSX_CELLS: u64 = 33_000;
-
 pub fn max_task_output_bytes() -> u64 {
     env_u64("IRONFLOW_MAX_TASK_OUTPUT_BYTES", DEFAULT_TASK_OUTPUT_BYTES)
-}
-
-pub fn max_xlsx_rows() -> u64 {
-    env_u64("IRONFLOW_MAX_XLSX_ROWS", DEFAULT_MAX_XLSX_ROWS)
-}
-
-pub fn max_xlsx_cells() -> u64 {
-    env_u64("IRONFLOW_MAX_XLSX_CELLS", DEFAULT_MAX_XLSX_CELLS)
 }

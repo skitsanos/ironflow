@@ -6,7 +6,7 @@ Read the contents of a file into the workflow context. Supports both text and bi
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | yes | — | Path to the file to read. Supports `${ctx.key}` interpolation. |
+| `path` | string | yes | — | Path to a regular file. Supports `${ctx.key}` interpolation. |
 | `output_key` | string | no | `"file"` | Prefix used for the context keys written by this node. |
 | `encoding` | string | no | `"text"` | `"text"` reads the file as a UTF-8 string. `"base64"` reads raw bytes and encodes them as a base64 string. |
 
@@ -15,6 +15,14 @@ Read the contents of a file into the workflow context. Supports both text and bi
 - `{output_key}_content` — The file contents as a string (plain text or base64-encoded).
 - `{output_key}_path` — The resolved file path (after interpolation).
 - `{output_key}_success` — `true` when the file was read successfully.
+
+## Resource and file-type limits
+
+`read_file` accepts regular files only. FIFOs, devices, directories, and, on
+Unix, final-path symlinks are rejected before their contents are read. Actual
+bytes are additionally bounded by `IRONFLOW_MAX_FILE_BYTES` (50 MiB by
+default), so a file that grows after its metadata check still cannot exceed the
+configured in-memory ceiling.
 
 ## Examples
 

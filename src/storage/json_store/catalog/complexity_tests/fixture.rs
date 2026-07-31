@@ -28,6 +28,7 @@ impl SyntheticCatalog {
         let directory = tempfile::tempdir().unwrap();
         let store = JsonStateStore::new(directory.path());
         store.directory.ensure_created().await.unwrap();
+        store.ensure_control_directories().await.unwrap();
         for &index in primary_indices {
             let info = run_info(index, RunStatus::Pending);
             std::fs::write(

@@ -1,6 +1,7 @@
 // IF-049: read_file's size guard trusted metadata().len(), which is 0 for
-// special files like /dev/zero, so the read streamed unbounded. The read is now
-// bounded by IRONFLOW_MAX_FILE_BYTES. Unix-only (relies on /dev/zero).
+// special files like /dev/zero, so the read streamed unbounded. Shared bounded
+// file reads now reject non-regular files before consuming them. Unix-only
+// (relies on /dev/zero).
 //
 // Dedicated test binary: it mutates a process-global limit env var.
 #![cfg(unix)]
@@ -9,9 +10,10 @@ use ironflow::engine::types::Context;
 use ironflow::nodes::NodeRegistry;
 
 #[tokio::test]
-async fn read_file_bounds_unbounded_special_files() {
-    // A tiny cap so the bounded read fails almost immediately instead of
-    // streaming gigabytes from /dev/zero (which reports length 0).
+async fn read_file_rejects_unbounded_special_files() {
+    // A tiny cap preserves the original IF-049 setup. The current shared reader
+    // rejects the device even earlier, before its misleading zero-byte metadata
+    // could participate in the byte-limit check.
     unsafe {
         std::env::set_var("IRONFLOW_MAX_FILE_BYTES", "4096");
     }
@@ -27,13 +29,11 @@ async fn read_file_bounds_unbounded_special_files() {
     .await
     .expect("read_file must not hang on /dev/zero");
 
+    assert!(result.is_err(), "reading /dev/zero must be rejected");
+    let error = result.unwrap_err().to_string();
     assert!(
-        result.is_err(),
-        "reading /dev/zero must be bounded to an error"
-    );
-    assert!(
-        result.unwrap_err().to_string().contains("limit"),
-        "error should reference the byte limit"
+        error.contains("not a regular file"),
+        "error should identify the unsupported file type: {error}"
     );
 
     unsafe {

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Resolve IronFlow Issue"
+  short_description: "Implement and close one tracked IF issue"
+  default_prompt: "Use $resolve-ironflow-issue to implement the next tracked IF issue end to end."

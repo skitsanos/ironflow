@@ -12,6 +12,12 @@ mod scheduler_support;
 
 use scheduler_support::{build_executor, flows_with_logger, wait_for_terminal};
 
+// These cases construct independent in-process scheduler/server fixtures, but
+// production flow-load admission is intentionally process-wide. Serialize the
+// fixture lifetimes so parallel Rust test threads do not turn unrelated cases
+// into synthetic capacity competitors.
+static PROCESS_ADMISSION_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 fn nightly(flow: &str) -> ScheduleConfig {
     let mut ctx = Context::new();
     ctx.insert("region".to_string(), serde_json::json!("eu"));
@@ -20,6 +26,7 @@ fn nightly(flow: &str) -> ScheduleConfig {
 
 #[tokio::test]
 async fn a_scheduled_run_is_an_ordinary_persisted_run() {
+    let _admission = PROCESS_ADMISSION_LOCK.lock().await;
     let flows = flows_with_logger();
     let app = build_executor(flows.path());
 
@@ -41,6 +48,7 @@ async fn a_scheduled_run_is_an_ordinary_persisted_run() {
 
 #[tokio::test]
 async fn the_schedule_name_is_recorded_so_a_run_traces_to_its_trigger() {
+    let _admission = PROCESS_ADMISSION_LOCK.lock().await;
     let flows = flows_with_logger();
     let app = build_executor(flows.path());
 
@@ -65,6 +73,7 @@ async fn the_schedule_name_is_recorded_so_a_run_traces_to_its_trigger() {
 
 #[tokio::test]
 async fn a_flow_outside_flows_dir_is_refused() {
+    let _admission = PROCESS_ADMISSION_LOCK.lock().await;
     let flows = flows_with_logger();
     let app = build_executor(flows.path());
 
@@ -81,6 +90,7 @@ async fn a_flow_outside_flows_dir_is_refused() {
 
 #[tokio::test]
 async fn a_missing_flow_fails_the_run_not_the_scheduler() {
+    let _admission = PROCESS_ADMISSION_LOCK.lock().await;
     let flows = flows_with_logger();
     let app = build_executor(flows.path());
 
@@ -101,6 +111,7 @@ async fn a_missing_flow_fails_the_run_not_the_scheduler() {
 
 #[tokio::test]
 async fn a_flow_load_failure_redacts_credentials_before_they_reach_the_error() {
+    let _admission = PROCESS_ADMISSION_LOCK.lock().await;
     // A Lua syntax error echoes the offending token verbatim (`near '<token>'`).
     // When that token is a credential-bearing URL, the same redaction the REST
     // API applies to this exact failure (`helpers::flow_file_load_error`) must
@@ -132,6 +143,7 @@ async fn a_flow_load_failure_redacts_credentials_before_they_reach_the_error() {
 
 #[tokio::test]
 async fn overlap_detection_finds_a_non_terminal_run_of_the_same_schedule() {
+    let _admission = PROCESS_ADMISSION_LOCK.lock().await;
     let flows = flows_with_logger();
     let app = build_executor(flows.path());
 
@@ -173,6 +185,7 @@ async fn overlap_detection_finds_a_non_terminal_run_of_the_same_schedule() {
 
 #[tokio::test]
 async fn a_long_running_schedule_does_not_block_the_next_evaluation() {
+    let _admission = PROCESS_ADMISSION_LOCK.lock().await;
     // The tick loop must not await a run to completion: one slow flow would
     // otherwise starve every other schedule and, if it never returned, end all
     // scheduling silently.
@@ -220,6 +233,7 @@ async fn a_long_running_schedule_does_not_block_the_next_evaluation() {
 
 #[tokio::test]
 async fn two_schedulers_sharing_one_store_fire_an_instant_exactly_once() {
+    let _admission = PROCESS_ADMISSION_LOCK.lock().await;
     let flows = flows_with_logger();
     let store_dir = tempfile::tempdir().unwrap();
 
@@ -267,6 +281,7 @@ async fn two_schedulers_sharing_one_store_fire_an_instant_exactly_once() {
 
 #[tokio::test]
 async fn the_spawned_tick_loop_fires_a_due_schedule() {
+    let _admission = PROCESS_ADMISSION_LOCK.lock().await;
     let flows = flows_with_logger();
     let store_dir = tempfile::tempdir().unwrap();
     let store = Arc::new(ironflow::storage::json_store::JsonStateStore::new(
@@ -332,6 +347,7 @@ async fn the_spawned_tick_loop_fires_a_due_schedule() {
 
 #[tokio::test]
 async fn no_schedules_means_no_scheduler_task() {
+    let _admission = PROCESS_ADMISSION_LOCK.lock().await;
     let store_dir = tempfile::tempdir().unwrap();
     let store = Arc::new(ironflow::storage::json_store::JsonStateStore::new(
         store_dir.path(),

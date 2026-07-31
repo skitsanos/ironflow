@@ -12,12 +12,13 @@ use ironflow::storage::event_store::EventStore as _;
 mod webhook_support;
 
 use webhook_support::{
-    PLATFORM_API_KEY, authenticated_json_request, authenticated_request, build_test_app, send_json,
-    setup_flow_dir, webhook, write_flow,
+    PLATFORM_API_KEY, PROCESS_ADMISSION_LOCK, authenticated_json_request, authenticated_request,
+    build_test_app, send_json, setup_flow_dir, webhook, write_flow,
 };
 
 #[tokio::test]
 async fn webhook_denies_unconfigured_headers_by_default() {
+    let _admission = PROCESS_ADMISSION_LOCK.lock().await;
     const SIGNATURE: &str = "unconfigured-signature-secret";
 
     let flows = tempfile::tempdir().unwrap();
@@ -67,6 +68,7 @@ async fn webhook_denies_unconfigured_headers_by_default() {
 
 #[tokio::test]
 async fn forwarded_header_is_usable_but_redacted_from_store_get_and_events() {
+    let _admission = PROCESS_ADMISSION_LOCK.lock().await;
     const SIGNATURE: &str = "t=12345678,v1=business-signature-secret-12345";
 
     let flows = tempfile::tempdir().unwrap();
@@ -173,6 +175,7 @@ async fn forwarded_header_is_usable_but_redacted_from_store_get_and_events() {
 
 #[tokio::test]
 async fn webhook_rejects_ambiguous_or_invalid_forwarded_headers_before_starting_run() {
+    let _admission = PROCESS_ADMISSION_LOCK.lock().await;
     let flows = setup_flow_dir();
     let app = build_test_app(
         flows.path().to_path_buf(),
@@ -221,6 +224,7 @@ async fn webhook_rejects_ambiguous_or_invalid_forwarded_headers_before_starting_
 
 #[tokio::test]
 async fn webhook_rejects_reserved_body_context_keys() {
+    let _admission = PROCESS_ADMISSION_LOCK.lock().await;
     let flows = setup_flow_dir();
     let app = build_test_app(
         flows.path().to_path_buf(),
@@ -242,7 +246,34 @@ async fn webhook_rejects_reserved_body_context_keys() {
 }
 
 #[tokio::test]
+async fn webhook_flow_parse_error_does_not_leak_file_contents() {
+    let _admission = PROCESS_ADMISSION_LOCK.lock().await;
+    let flows = tempfile::tempdir().unwrap();
+    const FILE_TOKEN: &str = "1IF061_WEBHOOK_FILE_SECRET";
+    write_flow(flows.path(), "malformed.lua", FILE_TOKEN);
+    let app = build_test_app(
+        flows.path().to_path_buf(),
+        HashMap::from([("malformed".to_string(), webhook("malformed.lua", &[]))]),
+    );
+
+    let (status, body) = send_json(
+        &app.router,
+        authenticated_json_request("/webhooks/malformed", "{}"),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error"], "Failed to load flow file");
+    let serialized = body.to_string();
+    assert!(!serialized.contains(FILE_TOKEN));
+    assert!(!serialized.contains("malformed number"));
+    assert!(!serialized.contains("near '"));
+    assert!(app.store.list_runs(None).await.unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn get_run_redacts_legacy_webhook_headers_and_copied_credentials() {
+    let _admission = PROCESS_ADMISSION_LOCK.lock().await;
     const LEGACY_AUTH: &str = "Bearer old-platform-secret-token";
     const LEGACY_TOKEN: &str = "old-platform-secret-token";
 

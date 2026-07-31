@@ -1,6 +1,9 @@
 mod atomic;
 mod catalog;
 mod claims;
+mod initialization;
+mod lease_cas;
+mod leases;
 mod listing;
 mod maintenance;
 mod rebuild;
@@ -83,6 +86,10 @@ impl RedisStateStore {
 
     fn ordered_catalog_rebuild_lock_key(&self) -> String {
         format!("{}run_catalog:v1:rebuild_lock", self.prefix)
+    }
+
+    fn run_lease_expiry_key(&self) -> String {
+        format!("{}run_leases:v1:expiry", self.prefix)
     }
 
     fn ordered_status_keys(&self) -> [String; 6] {

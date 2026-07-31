@@ -1,0 +1,4 @@
+interface:
+  display_name: "Release IronFlow"
+  short_description: "Prepare and cut a gated IronFlow release"
+  default_prompt: "Use $release-ironflow to prepare and cut the next IronFlow release safely."

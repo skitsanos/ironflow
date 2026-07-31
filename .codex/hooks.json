@@ -1,0 +1,32 @@
+{
+  "description": "IronFlow repository context and protected-path safeguards.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/env python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/session_context.py\"",
+            "timeout": 5,
+            "statusMessage": "Loading IronFlow repository context",
+            "additionalContextLimit": 1000
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^(apply_patch|Edit|Write)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/env python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/protect_paths.py\"",
+            "timeout": 5,
+            "statusMessage": "Checking protected IronFlow paths"
+          }
+        ]
+      }
+    ]
+  }
+}

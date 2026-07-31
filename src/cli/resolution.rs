@@ -108,6 +108,18 @@ pub(super) struct ServerConfig {
 
 impl ServerConfig {
     pub fn resolve(config: &IronFlowConfig) -> Result<Self> {
+        validate_run_deadline_environment()?;
+        // Unlike ordinary byte ceilings, an invalid admission limit cannot
+        // safely fall back: doing so changes a bounded server into an
+        // unlimited one while appearing to honor the operator's setting.
+        let max_concurrent_runs =
+            environment_value::<usize>("IRONFLOW_MAX_CONCURRENT_RUNS", "a non-negative integer")?;
+        crate::util::runtime_config::validate_semaphore_limit(
+            "IRONFLOW_MAX_CONCURRENT_RUNS",
+            max_concurrent_runs,
+        )?;
+        let _ = crate::util::runtime_config::max_concurrent_flow_loads()?;
+
         Ok(Self {
             max_concurrent_tasks: resolve_max_concurrent_tasks(config)?,
             api_key: environment_string("IRONFLOW_API_KEY")?.or_else(|| config.api_key.clone()),
@@ -142,11 +154,19 @@ impl ServerConfig {
     }
 }
 
+/// Validate the process-wide deadline before any store is opened or run is
+/// started. The coordinator reads the value lazily, but CLI entry points must
+/// reject a typo instead of silently turning the deadline off.
+pub(super) fn validate_run_deadline_environment() -> Result<()> {
+    let _ = crate::util::runtime_config::run_deadline()?;
+    Ok(())
+}
+
 pub(super) fn resolve_max_concurrent_tasks(config: &IronFlowConfig) -> Result<Option<usize>> {
-    Ok(
-        environment_value("IRONFLOW_MAX_CONCURRENT_TASKS", "a non-negative integer")?
-            .or(config.max_concurrent_tasks),
-    )
+    let value = environment_value("IRONFLOW_MAX_CONCURRENT_TASKS", "a non-negative integer")?
+        .or(config.max_concurrent_tasks);
+    crate::util::runtime_config::validate_semaphore_limit("IRONFLOW_MAX_CONCURRENT_TASKS", value)?;
+    Ok(value)
 }
 
 #[cfg(test)]

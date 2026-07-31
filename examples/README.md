@@ -278,14 +278,14 @@ duplicated, unclassified, or inconsistent entries.
 
 | Category | Count | Default CI execution |
 | --- | ---: | --- |
-| Offline | 42 | Fixture-backed deterministic subset; Pdfium cases capability-gated |
+| Offline | 43 | Fixture-backed deterministic subset; Pdfium cases capability-gated |
 | Offline with outputs/processes | 20 | MCP stdio only; other cases require isolated outputs |
 | Public/local network | 9 | No |
-| Credentialed external service | 45 | No |
+| Credentialed external service | 47 | No |
 | Server/manual HTTP | 2 | No |
 | Composition parent/helper flow | 7 | Exercised as coordinated cases where applicable |
 
-All 125 flows are still parsed by `ironflow validate`. Ten fixture-backed
+All 128 flows are still parsed by `ironflow validate`. Eleven fixture-backed
 offline flows and the local MCP stdio example also run from a disposable
 working directory as part of:
 

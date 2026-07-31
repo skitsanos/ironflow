@@ -32,6 +32,33 @@ impl SqlStateStore {
             format!(
                 r#"
             CREATE TABLE IF NOT EXISTS {} (
+                run_id TEXT PRIMARY KEY,
+                owner TEXT NOT NULL,
+                expires_micros BIGINT NOT NULL,
+                FOREIGN KEY (run_id) REFERENCES {}(id) ON DELETE CASCADE
+            )
+            "#,
+                self.tables.run_leases, self.tables.runs
+            ),
+            "run leases table",
+        )
+        .await?;
+
+        crate::storage::sql_ddl::create_if_absent(
+            &self.pool,
+            format!(
+                "CREATE INDEX IF NOT EXISTS {} ON {}(expires_micros)",
+                self.tables.run_leases_expiry_idx, self.tables.run_leases
+            ),
+            "run leases index",
+        )
+        .await?;
+
+        crate::storage::sql_ddl::create_if_absent(
+            &self.pool,
+            format!(
+                r#"
+            CREATE TABLE IF NOT EXISTS {} (
                 run_id TEXT NOT NULL,
                 name TEXT NOT NULL,
                 node_type TEXT NOT NULL,

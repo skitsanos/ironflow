@@ -7,6 +7,7 @@ use xlsx_support::{
 
 use ironflow::engine::types::Context;
 use ironflow::nodes::NodeRegistry;
+use ironflow::util::execution::with_execution_deadline;
 
 #[test]
 fn the_fixture_builder_produces_a_workbook_calamine_can_open() {
@@ -229,6 +230,50 @@ async fn a_missing_file_errors() {
             .await
             .is_err()
     );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_fifo_without_a_writer_is_rejected_before_zip_parsing() {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("workbook.pipe");
+    let path_c = CString::new(path.as_os_str().as_bytes()).unwrap();
+    let created = unsafe { libc::mkfifo(path_c.as_ptr(), 0o600) };
+    assert_eq!(
+        created,
+        0,
+        "mkfifo failed: {}",
+        std::io::Error::last_os_error()
+    );
+
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        run_node(serde_json::json!({ "path": path.to_str().unwrap() })),
+    )
+    .await
+    .expect("extract_xlsx blocked while opening a FIFO");
+    let error = result.unwrap_err().to_string();
+    assert!(error.contains("not a regular file"), "{error}");
+}
+
+#[tokio::test]
+async fn a_scoped_deadline_stops_the_blocking_parser_before_work_begins() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = two_sheet_workbook(dir.path());
+    let expired = tokio::time::Instant::now() - std::time::Duration::from_millis(1);
+
+    let error = with_execution_deadline(
+        Some(expired),
+        run_node(serde_json::json!({ "path": path.to_str().unwrap() })),
+    )
+    .await
+    .unwrap_err()
+    .to_string();
+
+    assert!(error.contains("step deadline exceeded"), "{error}");
 }
 
 #[tokio::test]

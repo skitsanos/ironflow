@@ -15,7 +15,7 @@ use crate::util::execution::with_execution_deadline;
 use super::context::{task_duration_ms, task_input_context};
 use super::deadline::StepDeadline;
 use super::engine::WorkflowEngine;
-use super::output::{PreparedOutput, prepare_failure_output, prepare_output};
+use super::output::{buffered_failure_output, prepare_failure_output, prepare_output};
 use super::overlay::ExecutionOverlay;
 
 /// A task can fail because the workflow/node rejected its input, or because
@@ -37,6 +37,7 @@ pub(super) struct TaskRuntime<'a> {
     run_id: &'a str,
     phase_ctx: &'a Arc<Context>,
     execution_overlay: &'a ExecutionOverlay,
+    lease_owner: &'a str,
 }
 
 impl<'a> TaskRuntime<'a> {
@@ -47,6 +48,7 @@ impl<'a> TaskRuntime<'a> {
         run_id: &'a str,
         phase_ctx: &'a Arc<Context>,
         execution_overlay: &'a ExecutionOverlay,
+        lease_owner: &'a str,
     ) -> Self {
         Self {
             registry,
@@ -55,7 +57,12 @@ impl<'a> TaskRuntime<'a> {
             run_id,
             phase_ctx,
             execution_overlay,
+            lease_owner,
         }
+    }
+
+    async fn persist_task(&self, task: &TaskState) -> crate::storage::StorageResult<()> {
+        super::lease::persist_task(self.store.as_ref(), self.run_id, task, self.lease_owner).await
     }
 }
 
@@ -106,8 +113,7 @@ impl WorkflowEngine {
             task_state.attempt = attempt;
             task_state.started = Some(Utc::now());
             runtime
-                .store
-                .upsert_task(runtime.run_id, &task_state)
+                .persist_task(&task_state)
                 .await
                 .with_context(|| format!("Failed to persist task '{}' as running", step.name))
                 .map_err(TaskRunError::infrastructure)?;
@@ -165,8 +171,7 @@ impl WorkflowEngine {
                     task_state.finished = Some(Utc::now());
                     let duration_ms = task_duration_ms(task_state.started, task_state.finished);
                     runtime
-                        .store
-                        .upsert_task(runtime.run_id, &task_state)
+                        .persist_task(&task_state)
                         .await
                         .with_context(|| {
                             format!("Failed to persist task '{}' as successful", step.name)
@@ -210,8 +215,7 @@ impl WorkflowEngine {
                     task_state.finished = Some(Utc::now());
                     let duration_ms = task_duration_ms(task_state.started, task_state.finished);
                     runtime
-                        .store
-                        .upsert_task(runtime.run_id, &task_state)
+                        .persist_task(&task_state)
                         .await
                         .with_context(|| {
                             format!("Failed to persist task '{}' as failed", step.name)
@@ -253,8 +257,7 @@ impl WorkflowEngine {
                         task_state.status = TaskStatus::Running;
                         task_state.finished = None;
                         runtime
-                            .store
-                            .upsert_task(runtime.run_id, &task_state)
+                            .persist_task(&task_state)
                             .await
                             .with_context(|| {
                                 format!("Failed to persist task '{}' retry wait", step.name)
@@ -274,8 +277,7 @@ impl WorkflowEngine {
                             }
                             task_state.finished = Some(Utc::now());
                             runtime
-                                .store
-                                .upsert_task(runtime.run_id, &task_state)
+                                .persist_task(&task_state)
                                 .await
                                 .with_context(|| {
                                     format!("Failed to persist task '{}' timeout", step.name)
@@ -324,8 +326,4 @@ impl WorkflowEngine {
             last_error.unwrap_or_default()
         )))
     }
-}
-
-fn buffered_failure_output(output: Option<PreparedOutput>) -> Option<Arc<Context>> {
-    output.map(|output| Arc::new(output.into_context()))
 }

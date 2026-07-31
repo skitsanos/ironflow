@@ -27,6 +27,12 @@ Download object content from S3 (or S3-compatible storage).
 - `{output_key}_last_modified` — Optional last modified timestamp.
 - `{output_key}_success` — `true` on success.
 
+The object body is bounded by `IRONFLOW_MAX_FILE_BYTES` (default 52,428,800
+bytes). A declared `Content-Length` above the limit is rejected before reading,
+and every body chunk is counted while streaming, so missing or inaccurate
+metadata cannot bypass the ceiling. The complete bounded body is then decoded
+as text or base64.
+
 ## Example
 
 ```lua

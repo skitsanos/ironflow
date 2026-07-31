@@ -11,6 +11,10 @@ const TTL: u64 = 7 * 24 * 3600;
 #[path = "support/redis.rs"]
 mod redis_support;
 
+#[cfg(feature = "postgres")]
+#[path = "support/postgres.rs"]
+mod postgres_support;
+
 #[tokio::test]
 async fn the_null_store_always_grants_the_claim() {
     // It persists nothing and is single-process by definition, so there is no
@@ -220,7 +224,7 @@ async fn expired_json_claims_are_reaped_so_the_directory_cannot_grow_without_bou
             .unwrap()
     );
     let claim_files = || {
-        std::fs::read_dir(dir.path())
+        std::fs::read_dir(dir.path().join(".ironflow-schedule-claims-v1"))
             .unwrap()
             .filter_map(Result::ok)
             .filter(|entry| {
@@ -429,6 +433,115 @@ async fn sql_claims_respect_the_configured_table_prefix() {
             .await
             .unwrap()
     );
+}
+
+#[cfg(feature = "postgres")]
+mod postgres_claims {
+    use std::sync::Arc;
+
+    use ironflow::storage::StateStore;
+
+    use super::TTL;
+    use super::postgres_support::PostgresStateTest;
+
+    #[tokio::test]
+    async fn postgres_claims_are_unique_scoped_and_expire() {
+        let Some(fixture) = PostgresStateTest::from_env("pg_schedule_contract") else {
+            return;
+        };
+        let result: anyhow::Result<()> = async {
+            let store = fixture.state_store().await?;
+
+            anyhow::ensure!(
+                store
+                    .claim_schedule("nightly", "UTC@2026-05-01T02:00", TTL)
+                    .await?
+            );
+            anyhow::ensure!(
+                !store
+                    .claim_schedule("nightly", "UTC@2026-05-01T02:00", TTL)
+                    .await?
+            );
+            anyhow::ensure!(
+                store
+                    .claim_schedule("nightly", "UTC@2026-05-02T02:00", TTL)
+                    .await?
+            );
+            anyhow::ensure!(
+                store
+                    .claim_schedule("hourly", "UTC@2026-05-01T02:00", TTL)
+                    .await?
+            );
+
+            anyhow::ensure!(
+                store
+                    .claim_schedule("short_grace", "UTC@2026-05-01T02:00", 0)
+                    .await?
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+            anyhow::ensure!(
+                store
+                    .claim_schedule("short_grace", "UTC@2026-05-02T02:00", 0)
+                    .await?
+            );
+            anyhow::ensure!(
+                store
+                    .claim_schedule("short_grace", "UTC@2026-05-01T02:00", 0)
+                    .await?,
+                "expired PostgreSQL claim was not reaped"
+            );
+            anyhow::ensure!(
+                !store
+                    .claim_schedule("nightly", "UTC@2026-05-01T02:00", TTL)
+                    .await?,
+                "reaping one schedule deleted another schedule's live claim"
+            );
+            drop(store);
+            Ok(())
+        }
+        .await;
+
+        fixture.cleanup().await.unwrap();
+        result.unwrap();
+    }
+
+    #[tokio::test]
+    async fn two_postgres_stores_race_and_exactly_one_wins() {
+        let Some(fixture) = PostgresStateTest::from_env("pg_schedule_race") else {
+            return;
+        };
+        let result: anyhow::Result<()> = async {
+            let first = Arc::new(fixture.state_store().await?);
+            let second = Arc::new(fixture.state_store().await?);
+            let barrier = Arc::new(tokio::sync::Barrier::new(2));
+            let mut handles = Vec::new();
+            for store in [first, second] {
+                let barrier = Arc::clone(&barrier);
+                handles.push(tokio::spawn(async move {
+                    barrier.wait().await;
+                    store
+                        .claim_schedule("nightly", "UTC@2026-05-01T02:00", TTL)
+                        .await
+                }));
+            }
+
+            let mut won = 0;
+            for handle in handles {
+                if handle.await?? {
+                    won += 1;
+                }
+            }
+            anyhow::ensure!(
+                won == 1,
+                "exactly one PostgreSQL replica must win; got {won}"
+            );
+            Ok(())
+        }
+        .await;
+
+        fixture.cleanup().await.unwrap();
+        result.unwrap();
+    }
 }
 
 #[cfg(feature = "redis")]

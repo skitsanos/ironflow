@@ -86,6 +86,10 @@ compatibility wrapper that starts the run and waits for the handle.
   not abandon or cancel the workflow.
 - `RunHandle::cancel()` explicitly stops structured in-flight work and persists
   the run and unfinished tasks as `Cancelled`.
+- A run-level deadline uses the same cancellation outcome. Lease-renewal
+  timeout, backend error, or ownership loss is instead an infrastructure stop:
+  it cannot be downgraded by a simultaneous cancellation signal and converges
+  to durable `Stalled` state through owner finalization or lease reconciliation.
 - A configured step timeout creates one deadline shared by all of that step's
   attempts and retry backoffs. Structured child runs use cancel-on-drop waits,
   so a parent timeout does not silently detach them. Explicitly detached
@@ -95,10 +99,32 @@ compatibility wrapper that starts the run and waits for the handle.
 - One finalizer repairs every initialized non-terminal task, persists the final
   context, retries the terminal status write, and only then emits the
   best-effort `RunFinished` event. The state store is the source of truth.
+- Engine-owned initialization, task, context, and non-terminal status writes
+  each have a 10-second persistence budget. Cancellation, a run deadline, or
+  lease loss also preempts the complete execution future even when the awaited
+  node/store future does not cooperate. Finalization has one 15-second budget,
+  after which local ownership is released for durable reconciliation.
 
-This is an in-process guarantee. A permanently unavailable state backend or an
-ungraceful process/host termination cannot perform an asynchronous final write;
-deployments needing crash recovery require ownership leases and reconciliation.
+Every built-in durable store establishes a unique execution-owner lease before
+the coordinator starts. The lease lasts 90 seconds and the coordinator
+refreshes it every 30 seconds. Owner-checked status, task, and context mutations
+prevent a late coordinator from writing after its lease expires. `serve`
+allows up to 30 seconds for one reconciliation pass before accepting traffic,
+then repeats a 30-second-bounded pass every 30 seconds. An expired
+`Pending`/`Running` run becomes `Stalled`; unfinished running tasks become
+`Failed` and other unfinished tasks become `Skipped`.
+
+SQL uses the database clock and Redis uses `TIME` for lease creation, renewal,
+fencing, and reaping, so application-host clock skew cannot transfer ownership
+early. The JSON backend uses process UTC time and coordinates processes sharing
+one local store directory with an owner file plus a cross-process file lock; an
+external holder can delay that lock for at most five seconds. Use SQL or Redis,
+not a shared JSON directory, across hosts.
+
+Reconciliation makes state durable after an ungraceful process/host
+termination, but state and `EventStore` are intentionally separate systems. A
+reaper cannot atomically publish the corresponding terminal event, so run state
+remains authoritative when event publication is missing or times out.
 
 ### 2. Node System (`nodes/`)
 
@@ -136,10 +162,40 @@ Nodes are registered in a `NodeRegistry` and exposed to Lua as callable factory 
 #[async_trait]
 pub trait StateStore: Send + Sync {
     async fn init_run(&self, run_id: &str, flow_name: &str, ctx: &Context) -> StorageResult<()>;
+    async fn init_run_owned(
+        &self,
+        run_id: &str,
+        flow_name: &str,
+        ctx: &Context,
+        lease: &RunLease,
+    ) -> StorageResult<()>;
     async fn set_run_status(&self, run_id: &str, status: RunStatus) -> StorageResult<()>;
+    async fn set_run_status_owned(
+        &self,
+        run_id: &str,
+        status: RunStatus,
+        owner: &str,
+    ) -> StorageResult<bool>;
+    async fn renew_run_lease(&self, run_id: &str, lease: &RunLease) -> StorageResult<bool>;
+    async fn reconcile_expired_run_leases(
+        &self,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> StorageResult<usize>;
     async fn upsert_task(&self, run_id: &str, task: &TaskState) -> StorageResult<()>;
+    async fn upsert_task_owned(
+        &self,
+        run_id: &str,
+        task: &TaskState,
+        owner: &str,
+    ) -> StorageResult<bool>;
     async fn get_ctx(&self, run_id: &str) -> StorageResult<Context>;
     async fn update_ctx(&self, run_id: &str, updates: &Context) -> StorageResult<()>;
+    async fn update_ctx_owned(
+        &self,
+        run_id: &str,
+        updates: &Context,
+        owner: &str,
+    ) -> StorageResult<bool>;
     async fn get_run_info(&self, run_id: &str) -> StorageResult<RunInfo>;
     async fn list_runs(&self, filter: Option<RunStatus>) -> StorageResult<Vec<RunInfo>>;
     async fn list_run_summaries(&self, filter: Option<RunStatus>) -> StorageResult<Vec<RunSummary>>;
@@ -149,8 +205,23 @@ pub trait StateStore: Send + Sync {
     ) -> StorageResult<RunSummaryPage>;
     async fn delete_run(&self, run_id: &str) -> StorageResult<()>;
     async fn prune_before(&self, cutoff: chrono::DateTime<chrono::Utc>) -> StorageResult<usize>;
+    async fn claim_schedule(
+        &self,
+        name: &str,
+        key: &str,
+        ttl_seconds: u64,
+    ) -> StorageResult<bool>;
 }
 ```
+
+The owned methods are the execution path used by `WorkflowEngine`. Their
+boolean result is a fencing decision: `false` means the caller no longer owns
+the run and must stop. For source compatibility, the trait defaults delegate to
+the corresponding unowned mutation, treat renewal as successful, and reconcile
+nothing. A custom store using those defaults remains usable in one process but
+does **not** gain crash recovery or multi-replica fencing; it must override the
+owned methods atomically to claim those guarantees. The built-in JSON, SQL, and
+Redis stores do so.
 
 The two vector-returning methods remain compatibility/maintenance primitives;
 user-facing listing must use the required bounded page method. `RunListQuery`
@@ -234,7 +305,11 @@ Implementations:
   otherwise reads, initialization, and deletion fail before mutation.
   Accessing the historical owner first migrates it and frees the collision.
   Supports a configurable key prefix, bounded positive sliding TTL, and
-  auto-reconnecting connection pool. Production state deployments should use
+  auto-reconnecting connection pool. While a run is owned, its hash TTL is the
+  larger of configured retention and the remaining lease plus a 90-second
+  reaper safety margin; with no configured retention it stays persistent.
+  Terminalization releases the lease and restores ordinary retention.
+  Production state deployments should use
   Redis `maxmemory-policy noeviction`; independent eviction of primary catalog
   keys is outside the storage durability contract. Expired hash entries are
   removed from the persistent catalog when paging encounters them. In
@@ -498,6 +573,13 @@ record with no orphaned events remains `404 not_found`. A successful event
 delete fences a workflow event racing behind it, so a late publication cannot
 undo deletion while that backend retains the fence.
 
+JSON, SQL, and Redis inspect status and lease under the same backend-atomic
+deletion fence. A non-terminal run with an unexpired execution-owner lease is
+not removed and the API returns `409 conflict`; its state, lease, and events
+remain intact. Terminal runs and non-terminal runs whose lease has expired are
+deletable. This lets deletion safely race both heartbeat renewal and expired-
+lease reconciliation without stripping ownership from a live coordinator.
+
 Fence retention follows the selected event backend's durability boundary. SQL
 fences are durable rows retained until operator cleanup. Redis fences are
 persistent when `REDIS_TTL` is unset and otherwise expire with that TTL. Memory
@@ -551,7 +633,40 @@ in `docs/CLI_REFERENCE.md`.
 Redis atomicity is scoped to one state mutation or one event operation. Run-state persistence and event publication remain separate trait calls and are not one cross-backend transaction. Configured TTLs must be between 1 and 99,999,999,999 seconds so all Lua/Redis expiry conversions are preflighted and exact. The multi-key scripts target standalone Redis; Redis Cluster is not currently supported because the existing run/index and event keys are not guaranteed to share a hash slot. Host-crash durability remains determined by the Redis persistence configuration.
 Rolling deployments must not mix pre-CAS and CAS-capable Redis writers: an old binary does not advance revision tokens. Reads and a coordinated upgrade from legacy records are supported; mixed-version writes are not.
 
-### 5. CLI (`cli/`)
+### 5. Scheduler (`scheduler/`)
+
+`ironflow serve` evaluates configuration-only `schedules:` entries every 30
+seconds. Each scheduler keeps a local wall-clock watermark per schedule,
+enumerates only occurrences still reachable within that schedule's grace
+window, and caps one tick at 64 occurrences. Cron expressions have five fields;
+time zones use IANA names. A repeated fall-back wall-clock instant resolves to
+the earlier occurrence, while a spring-forward gap resolves to the first real
+instant after the gap.
+
+For every due instant, the scheduler first calls
+`StateStore::claim_schedule(name, key, ttl_seconds)`. The key contains the time
+zone and resolved local minute, so replicas sharing a store compete for the
+same identity. JSON uses exclusive file creation, SQL uses a unique row, and
+Redis uses `SET NX EX`; the transient null store always succeeds and is suitable
+only when no peer scheduler exists. Claim retention exceeds the grace window so
+a late replica cannot re-fire a recently reaped instant.
+
+This is an **at-most-one claim**, not an exactly-once run guarantee. After a
+claim succeeds, the owning replica checks lateness, overlap, and process run
+capacity before starting the flow. Any such skip, or a flow-load/start failure,
+consumes the claim instead of creating a backlog. The overlap check pages
+through at most 256 non-terminal runs and tolerates read failures, so it is a
+bounded best-effort guard rather than a distributed per-schedule lock. A claim
+backend error is different: the watermark stops before that instant and retries
+it on later ticks until it succeeds or falls outside grace.
+
+Scheduled flows use the ordinary registry, engine, state store, event store,
+run-admission semaphore, and flow-path confinement. Their initial context adds
+`_schedule` for provenance and `_flow_dir` for relative resources. A scheduled
+run is detached from the tick loop after it starts, so a long-running flow does
+not block later scheduler evaluations.
+
+### 6. CLI (`cli/`)
 
 Built with `clap`. Commands:
 - `ironflow run <flow.lua>` — Execute a flow with `--context`, `--verbose`, `--store-dir`
@@ -589,7 +704,7 @@ default. Config-only values, such as webhook definitions, skip the unsupported
 sources in that order. This bootstrap occurs before any command opens a state
 or event store.
 
-### 6. REST API (`api/`)
+### 7. REST API (`api/`)
 
 Built with `axum`. Endpoints:
 - `POST /flows/run` — Submit a flow for execution (via `source`, `source_base64`, or `file`)
@@ -599,8 +714,9 @@ Built with `axum`. Endpoints:
   `IRONFLOW_MAX_LIST_RECORDS` (default 100)
 - `GET /runs/:id` — Get full run details (context, tasks, timing)
 - `GET /runs/:id/events` — Stream compact run/task lifecycle events over SSE
-- `DELETE /runs/:id` — Delete run state and retained events, with retryable
-  orphan cleanup and a late-publication fence
+- `DELETE /runs/:id` — Delete run state and retained events, with `409` for a
+  live non-terminal owner, retryable orphan cleanup, and a late-publication
+  fence
 - `GET /nodes` — List available nodes with descriptions
 - `POST /webhooks/{name}` — Execute a webhook-mapped flow (configured in `ironflow.yaml`)
 - `GET /health` — Version and status check

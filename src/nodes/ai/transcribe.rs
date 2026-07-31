@@ -1,6 +1,7 @@
 mod config;
 mod provider;
 mod response;
+mod response_json;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -9,7 +10,7 @@ use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
 use crate::util::bounded_read::read_file_capped_async;
 use crate::util::duration::positive_duration;
-use crate::util::limits::max_audio_bytes;
+use crate::util::limits::{max_audio_bytes, max_transcribe_response_bytes};
 
 pub struct TranscribeNode;
 
@@ -76,6 +77,7 @@ impl Node for TranscribeNode {
 
         let client = reqwest::Client::builder()
             .timeout(timeout)
+            .redirect(provider::same_origin_redirect_policy())
             .build()
             .map_err(|error| {
                 anyhow::anyhow!("transcribe: failed to build HTTP client: {}", error)
@@ -89,11 +91,17 @@ impl Node for TranscribeNode {
         // provider-error/parse path inside `response::interpret`) is what
         // guarantees every error path out of this node gets the positional
         // scrub, not just one branch of it.
-        let (status, body) = provider::send(&client, &resolved, audio, &file_name)
-            .await
-            .map_err(|error| {
-                anyhow::anyhow!("{}", redact_own_key(&error.to_string(), &resolved.api_key))
-            })?;
+        let (status, body) = provider::send(
+            &client,
+            &resolved,
+            audio,
+            &file_name,
+            max_transcribe_response_bytes(),
+        )
+        .await
+        .map_err(|error| {
+            anyhow::anyhow!("{}", redact_own_key(&error.to_string(), &resolved.api_key))
+        })?;
         let transcript = response::interpret(status, &body, resolved.format).map_err(|error| {
             anyhow::anyhow!("{}", redact_own_key(&error.to_string(), &resolved.api_key))
         })?;

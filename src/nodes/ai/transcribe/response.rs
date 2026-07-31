@@ -3,6 +3,7 @@ use anyhow::Result;
 use crate::util::sensitive_url::redact_sensitive_text;
 
 use super::config::TranscriptFormat;
+use super::response_json::{preflight_success, provider_error_detail};
 
 /// Maximum number of **characters** (not bytes) of a provider's error body
 /// embedded in this node's error message.
@@ -44,16 +45,7 @@ pub(super) fn interpret(
     format: TranscriptFormat,
 ) -> Result<serde_json::Value> {
     if !status.is_success() {
-        let detail = serde_json::from_str::<serde_json::Value>(body)
-            .ok()
-            .and_then(|value| {
-                value
-                    .get("error")
-                    .and_then(|error| error.get("message"))
-                    .and_then(|message| message.as_str())
-                    .map(str::to_string)
-            })
-            .unwrap_or_else(|| body.trim().to_string());
+        let detail = provider_error_detail(body);
 
         // Redact first, while `detail` is still complete: pattern-based
         // redaction needs an intact credential/DSN shape to recognise, and
@@ -73,6 +65,7 @@ pub(super) fn interpret(
     }
 
     if format.is_json() {
+        preflight_success(body)?;
         let value: serde_json::Value = serde_json::from_str(body).map_err(|error| {
             anyhow::anyhow!(
                 "transcribe: provider response could not be parsed as JSON: {}",

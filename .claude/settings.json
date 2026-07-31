@@ -20,7 +20,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "printf '%s\n' 'Reminder: answer in English.' 'For Rust changes, finish by running cargo fmt --all --check, cargo clippy --all-targets -- -D warnings, and cargo test --all.' 'Do not edit protected files such as .env, .env.*, secrets/, or .git/ directly.'"
+            "command": "printf '%s\n' 'Reminder: answer in English.' 'Use focused tests for ordinary work; do not run tests on every save.' 'For Rust tasks, finish with formatting, module-size policy, exact all-target Clippy, and focused tests.' 'Run scripts/integration_gate.sh only at merge, develop pre-push, release, or explicit-request boundaries.' 'Do not edit protected files such as .env, .env.*, secrets/, or .git/ directly.'"
           }
         ]
       }

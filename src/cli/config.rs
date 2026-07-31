@@ -53,10 +53,10 @@ pub struct IronFlowConfig {
     /// flow may run hourly in staging and nightly in production without
     /// editing flow source.
     pub schedules: Option<HashMap<String, ScheduleConfig>>,
-    /// Allow `POST /flows/run` to execute flow source supplied in the request
-    /// body. Defaults to `true`. Set `false` on deployments that expose a fixed
-    /// set of flows, so an API key grants only those flows rather than
-    /// arbitrary workflow execution.
+    /// Allow `POST /flows/run` and `POST /flows/validate` to evaluate flow source
+    /// supplied in the request body. Defaults to `true`. Set `false` on
+    /// deployments that expose a fixed set of flows, so an API key grants only
+    /// those flows rather than arbitrary workflow evaluation or execution.
     pub allow_adhoc_flows: Option<bool>,
 }
 

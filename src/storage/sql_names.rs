@@ -34,6 +34,8 @@ pub struct SqlStateTableNames {
     pub runs_started_idx: String,
     pub runs_status_started_idx: String,
     pub tasks_run_id_idx: String,
+    pub run_leases: String,
+    pub run_leases_expiry_idx: String,
     pub schedule_claims: String,
 }
 
@@ -56,6 +58,8 @@ impl SqlStateTableNames {
             runs_started_idx: format!("{prefix}runs_started_idx"),
             runs_status_started_idx: format!("{prefix}runs_status_started_id_idx"),
             tasks_run_id_idx: format!("{prefix}tasks_run_id_idx"),
+            run_leases: format!("{prefix}run_leases"),
+            run_leases_expiry_idx: format!("{prefix}run_leases_expiry_idx"),
             schedule_claims: format!("{prefix}schedule_claims"),
         };
         validate_identifier(&names.runs)?;
@@ -63,6 +67,8 @@ impl SqlStateTableNames {
         validate_identifier(&names.runs_started_idx)?;
         validate_identifier(&names.runs_status_started_idx)?;
         validate_identifier(&names.tasks_run_id_idx)?;
+        validate_identifier(&names.run_leases)?;
+        validate_identifier(&names.run_leases_expiry_idx)?;
         validate_identifier(&names.schedule_claims)?;
         Ok(names)
     }
@@ -136,6 +142,7 @@ mod tests {
         let names = SqlStateTableNames::new(None).unwrap();
         assert_eq!(names.runs, "ironflow_runs");
         assert_eq!(names.tasks, "ironflow_tasks");
+        assert_eq!(names.run_leases, "ironflow_run_leases");
         assert_eq!(names.schedule_claims, "ironflow_schedule_claims");
 
         let events = SqlEventTableNames::new(None).unwrap();

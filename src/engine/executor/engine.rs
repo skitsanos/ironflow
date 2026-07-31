@@ -7,35 +7,20 @@ use uuid::Uuid;
 use crate::engine::events::RunEvent;
 use crate::engine::types::{Context, FlowDefinition};
 use crate::nodes::NodeRegistry;
-use crate::storage::StateStore;
 use crate::storage::event_store::EventStore;
+use crate::storage::{RunLease, StateStore};
 
 use super::coordinator::{RunCoordinator, RunHandle};
 use super::overlay::ExecutionOverlay;
+
+const EVENT_PUBLISH_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(500);
 
 /// The core workflow execution engine.
 pub struct WorkflowEngine {
     pub(super) registry: Arc<NodeRegistry>,
     pub(super) store: Arc<dyn StateStore>,
     pub(super) events: Option<Arc<dyn EventStore>>,
-    pub(super) max_concurrent_tasks: usize,
-}
-
-fn resolve_max_concurrent_tasks(configured: Option<usize>) -> usize {
-    let value = configured
-        .or_else(|| {
-            std::env::var("IRONFLOW_MAX_CONCURRENT_TASKS")
-                .ok()
-                .and_then(|value| value.parse().ok())
-        })
-        .unwrap_or_else(num_cpus::get);
-
-    if value == 0 {
-        warn!("max_concurrent_tasks=0 would deadlock execution; using 1");
-        1
-    } else {
-        value
-    }
+    pub(super) max_concurrent_tasks: Option<usize>,
 }
 
 impl WorkflowEngine {
@@ -48,7 +33,7 @@ impl WorkflowEngine {
             registry,
             store,
             events: None,
-            max_concurrent_tasks: resolve_max_concurrent_tasks(max_concurrent_tasks),
+            max_concurrent_tasks,
         }
     }
 
@@ -62,7 +47,7 @@ impl WorkflowEngine {
             registry,
             store,
             events: Some(events),
-            max_concurrent_tasks: resolve_max_concurrent_tasks(max_concurrent_tasks),
+            max_concurrent_tasks,
         }
     }
 
@@ -92,6 +77,11 @@ impl WorkflowEngine {
         initial_ctx: Context,
         execution_overlay: ExecutionOverlay,
     ) -> Result<RunHandle> {
+        // Resolve limits before validating the flow or creating durable state.
+        // Embedded callers receive the same fail-closed behavior as the CLI.
+        let max_concurrent_tasks =
+            crate::util::runtime_config::max_concurrent_tasks(self.max_concurrent_tasks)?;
+        let run_deadline = crate::util::runtime_config::run_deadline()?;
         let execution_plan = self.execution_plan(flow)?;
         let unknown_nodes: Vec<String> = flow
             .steps
@@ -107,22 +97,30 @@ impl WorkflowEngine {
         }
 
         let run_id = Uuid::new_v4().to_string();
+        let lease = RunLease::fresh();
         let durable_initial_ctx = execution_overlay.redact_context(&initial_ctx);
-        self.store
-            .init_run(&run_id, &flow.name, &durable_initial_ctx)
-            .await
-            .with_context(|| format!("Failed to initialize workflow run {run_id}"))?;
+        super::lease::initialize_run(
+            self.store.as_ref(),
+            &run_id,
+            &flow.name,
+            &durable_initial_ctx,
+            &lease,
+        )
+        .await
+        .with_context(|| format!("Failed to initialize workflow run {run_id}"))?;
 
         let coordinator = RunCoordinator::new(
             self.registry.clone(),
             self.store.clone(),
             self.events.clone(),
-            self.max_concurrent_tasks,
+            max_concurrent_tasks,
             run_id,
             flow.clone(),
             execution_plan,
             initial_ctx,
             execution_overlay,
+            lease.owner().to_string(),
+            run_deadline,
         );
 
         Ok(coordinator.spawn())
@@ -133,24 +131,26 @@ impl WorkflowEngine {
         self.start(flow, initial_ctx).await?.wait().await
     }
 
-    pub(crate) async fn execute_with_overlay(
-        &self,
-        flow: &FlowDefinition,
-        initial_ctx: Context,
-        overlay: Context,
-    ) -> Result<String> {
-        self.start_with_overlay(flow, initial_ctx, overlay)
-            .await?
-            .wait()
-            .await
-    }
-
     pub(super) async fn publish_event_ref(events: Option<&Arc<dyn EventStore>>, event: RunEvent) {
-        if let Some(events) = events
-            && let Err(error) = events.publish(event).await
-        {
-            let _span = warn_span!("workflow_event_publish").entered();
-            warn!(error = %error, "Failed to publish workflow event");
+        let Some(events) = events else {
+            return;
+        };
+        match tokio::time::timeout(EVENT_PUBLISH_TIMEOUT, events.publish(event)).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                let _span = warn_span!("workflow_event_publish").entered();
+                warn!(error = %error, "Failed to publish workflow event");
+            }
+            Err(_) => {
+                let _span = warn_span!("workflow_event_publish").entered();
+                warn!(
+                    timeout_ms = EVENT_PUBLISH_TIMEOUT.as_millis(),
+                    "Workflow event publication timed out"
+                );
+            }
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -5,7 +5,7 @@
 // `IRONFLOW_MAX_CONCURRENT_RUNS` would stop bounding anything and every
 // other test on this branch would still pass.
 //
-// `run_admission()` (src/api/mod.rs) caches the configured cap behind a
+// API admission control caches the configured cap behind a
 // process-wide `OnceLock`, so the env var must be set before anything in
 // this process calls it — own test binary, same pattern as
 // test_limits_defaults.rs and test_conversion_limits_env.rs.
@@ -22,7 +22,7 @@ use scheduler_support::{build_executor, wait_for_terminal};
 #[tokio::test]
 async fn the_admission_permit_is_held_for_the_runs_real_duration() {
     // Must be the first thing this process does: `has_capacity`/`run` reach
-    // `run_admission()` through `crate::api::acquire_run_permit`, and that
+    // admission control through `crate::api::acquire_run_permit`, and that
     // `OnceLock` only reads this variable on its first call.
     unsafe { std::env::set_var("IRONFLOW_MAX_CONCURRENT_RUNS", "1") };
 
@@ -68,8 +68,18 @@ async fn the_admission_permit_is_held_for_the_runs_real_duration() {
     let status = wait_for_terminal(&app.store, &run_id).await;
     assert_eq!(status, RunStatus::Success);
 
-    assert!(
-        app.executor.has_capacity(),
-        "capacity must be restored once the run reaches a terminal status"
-    );
+    // The terminal status write precedes the final event and heartbeat
+    // shutdown. Admission deliberately covers that complete supervised
+    // lifecycle, so wait for the detached waiter to settle instead of treating
+    // the first observable terminal read as the permit-release instant.
+    tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        loop {
+            if app.executor.has_capacity() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("capacity was not restored after supervised run completion");
 }

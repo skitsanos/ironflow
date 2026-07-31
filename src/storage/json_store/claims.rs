@@ -3,7 +3,8 @@
 //! Single-host by nature, but two processes sharing one `store_dir` still
 //! coordinate correctly: the claim commits through the same no-follow secure
 //! directory layer the run records use, and losing the create means another
-//! process already owns the instant.
+//! process already owns the instant. Claims live in a dedicated subdirectory, so
+//! each fire no longer changes the run-root mtime used by the catalog token.
 
 use std::time::{Duration, SystemTime};
 
@@ -46,13 +47,12 @@ impl JsonStateStore {
         key: &str,
         ttl_seconds: u64,
     ) -> StorageResult<bool> {
-        let _lock = self.lock.write().await;
-        self.directory.ensure_created().await?;
+        self.schedule_claims.ensure_created().await?;
         self.reap_expired_claims(name, ttl_seconds).await;
 
         let file = Self::claim_name(name, key);
         match self
-            .directory
+            .schedule_claims
             .write_new(&file, key.as_bytes(), "schedule claim")
             .await
         {
@@ -77,28 +77,28 @@ impl JsonStateStore {
     /// schedule's routine call, letting a restarted process re-fire an
     /// instant it had already claimed.
     async fn reap_expired_claims(&self, name: &str, ttl_seconds: u64) {
-        let Ok(entries) = self.directory.list_entries().await else {
+        let Ok(Some(mut entries)) = self.schedule_claims.stream_entries().await else {
             return;
         };
         let prefix = Self::claim_prefix_for(name);
         let ttl = Duration::from_secs(ttl_seconds);
         let now = SystemTime::now();
 
-        for entry in entries {
+        while let Ok(Some(entry)) = entries.next().await {
             let Some(entry_name) = entry.name.to_str() else {
                 continue;
             };
             if !entry_name.starts_with(&prefix) {
                 continue;
             }
-            let expired = tokio::fs::symlink_metadata(self.directory.path(entry_name))
+            let expired = tokio::fs::symlink_metadata(self.schedule_claims.path(entry_name))
                 .await
                 .ok()
                 .and_then(|metadata| metadata.modified().ok())
                 .and_then(|modified| now.duration_since(modified).ok())
                 .is_some_and(|age| age >= ttl);
             if expired {
-                let _ = self.directory.remove_regular(entry_name).await;
+                let _ = self.schedule_claims.remove_regular(entry_name).await;
             }
         }
     }

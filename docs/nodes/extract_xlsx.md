@@ -66,14 +66,30 @@ Columns present in a data row but past the end of the header row keep the same `
 
 ## Ceilings
 
-Two `extract_xlsx`-specific environment variables bound how much a single call can extract, in addition to the ZIP guards every OOXML node shares:
+Three `extract_xlsx`-specific environment variables bound how much a single call can extract, in addition to the ZIP guards every OOXML node shares:
 
-- `IRONFLOW_MAX_XLSX_ROWS` (default `50000`) — maximum row *position* touched in one sheet (1-based; row 1 counts as 1), not a count of populated rows. A cell at row 50,000 trips the ceiling even if every row below it is empty, because the reader streams cells in file order and cannot know a sheet's lowest used row until it has already read every cell in it — unlike a count, a position can be checked the instant each cell arrives. Checked per sheet as cells stream; breaching it names the sheet, the row position, and the limit.
+- `IRONFLOW_MAX_XLSX_ROWS` (default `50000`) — highest row *position* accepted in one sheet (1-based; row 1 counts as 1), not a count of populated rows. Row 50,000 is accepted at the default and row 50,001 is rejected even if every row below it is empty. The reader streams cells in file order, so a position can be checked as soon as each cell arrives. Breaching the ceiling names the sheet, row position, and limit.
 - `IRONFLOW_MAX_XLSX_CELLS` (default `33000`) — maximum total cells (`height × width`) across every sheet a single call extracts, independent of `has_header`. The budget is shared across sheets, so narrowing with `sheet` lowers the cost, and a workbook too large to read whole can still be read one sheet at a time.
+- `IRONFLOW_MAX_XLSX_OUTPUT_BYTES` (default `52428800`, 50 MiB) — maximum cumulative decoded and result bytes across the workbook. It is also a conservative compressed and uncompressed ceiling for every individual workbook part, enforced before `calamine` can decode one large inline string or XML part at the broader archive limit. A decoded cell is charged when retained and its result representation is charged again while rows are built. Shared-string references are charged for every cell that uses the string rather than once for the ZIP entry.
 
-`IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES` and `IRONFLOW_MAX_ZIP_ENTRIES` also apply: a pre-flight reads the archive's central directory and each entry's declared size before the workbook is opened, so an oversized or entry-flooded `.xlsx` is refused before any sheet is parsed.
+`IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES` and `IRONFLOW_MAX_ZIP_ENTRIES` also apply. A bounded EOCD/ZIP64 pre-flight validates the raw workbook size, central-directory bounds, and entry count before the ZIP library can allocate metadata from those fields. IronFlow then streams every part, checking its declared and actual uncompressed bytes. For XLSX, the uncompressed-byte setting also caps the raw archive itself; this prevents compressed input and central-directory work from escaping the process ceiling.
+
+`sharedStrings.xml` receives an additional streaming pre-flight before
+`calamine` opens the workbook. It checks declared and actual bytes, declared
+`uniqueCount`, actual string entries, and decoded text against the XLSX
+ceilings. This prevents a crafted count from making the parser reserve an
+attacker-sized string table before ordinary cell/output accounting begins.
 
 Breaching any of these ceilings raises an error naming the offending sheet (where applicable), the observed count, the limit, and the environment variable to raise.
+
+The input must resolve to a regular file; FIFOs and devices are rejected before
+ZIP parsing. ZIP/XML decoding and workbook parsing are synchronous library work,
+so the node runs that phase on Tokio's blocking pool. It checks cancellation and
+the step/run deadline between archive chunks, shared-string XML events,
+worksheet records (including filtered empty cells), and output rows. An
+individual synchronous library call cannot be interrupted midway; the raw,
+per-part, shared-string, row, cell, and output ceilings bound the work between
+checkpoints.
 
 `IRONFLOW_MAX_XLSX_CELLS`'s default is kept well below `IRONFLOW_MAX_CONVERSION_NODES` (default `100000`, see `docs/CLI_REFERENCE.md`) on purpose. Extracted rows are converted from JSON into Lua after parsing, at a cost of roughly `rows * (cols + 1)` conversion nodes per sheet — worst at a single column, where it collapses to `rows * 2`, i.e. twice the cell count — so a cell ceiling that sits above (or too close to) the conversion budget can be beaten by conversion cost first, at width 1 worst of all, and the resulting failure names a JSON path deep in the converter instead of the sheet this ceiling is meant to name. Raising `IRONFLOW_MAX_XLSX_CELLS` without also raising `IRONFLOW_MAX_CONVERSION_NODES` (or the reverse) mostly just relocates where an oversized workbook fails.
 
