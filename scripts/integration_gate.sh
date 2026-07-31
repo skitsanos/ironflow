@@ -52,6 +52,7 @@ echo "Validated $example_count Lua examples."
 container_suffix="$$"
 redis_container="ironflow-integration-redis-$container_suffix"
 postgres_container="ironflow-integration-postgres-$container_suffix"
+postgres_password=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')
 cleanup() {
   docker rm -f "$redis_container" "$postgres_container" >/dev/null 2>&1 || true
 }
@@ -64,7 +65,7 @@ docker run -d --name "$redis_container" -p 127.0.0.1::6379 redis:latest >/dev/nu
 docker run -d --name "$postgres_container" \
   -e POSTGRES_DB=ironflow_test \
   -e POSTGRES_USER=postgres \
-  -e POSTGRES_PASSWORD=postgres \
+  -e "POSTGRES_PASSWORD=$postgres_password" \
   -p 127.0.0.1::5432 postgres:latest >/dev/null
 
 for _ in {1..60}; do
@@ -95,7 +96,7 @@ fi
 IRONFLOW_REDIS_TEST_URL="redis://127.0.0.1:$redis_port" \
 IRONFLOW_REDIS_TEST_REQUIRED=1 \
 IRONFLOW_POSTGRES_TEST_REQUIRED=1 \
-DATABASE_URL="postgres://postgres:postgres@127.0.0.1:$postgres_port/ironflow_test" \
+DATABASE_URL="postgres://postgres:$postgres_password@127.0.0.1:$postgres_port/ironflow_test" \
   cargo test --all-targets --features postgres,redis -- --test-threads=1
 
 echo "IronFlow full integration gate passed."
