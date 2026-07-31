@@ -1,38 +1,20 @@
 use anyhow::Result;
 
 use crate::engine::types::Context;
-use crate::lua::interpolate::interpolate_ctx;
+
+mod capped_reader;
+mod load;
+mod pages;
+
+pub(crate) use load::{decode_image_bytes, inspect_image, load_image, load_image_for_pdf};
+pub(crate) use pages::parse_pages_spec;
 
 pub(crate) fn resolve_path(
     config: &serde_json::Value,
     ctx: &Context,
     node_name: &str,
 ) -> Result<String> {
-    let has_path = config.get("path").and_then(|v| v.as_str()).is_some();
-    let has_source_key = config.get("source_key").and_then(|v| v.as_str()).is_some();
-
-    if has_path && has_source_key {
-        anyhow::bail!(
-            "{} accepts either 'path' or 'source_key', not both",
-            node_name
-        );
-    }
-
-    if let Some(path_str) = config.get("path").and_then(|v| v.as_str()) {
-        Ok(interpolate_ctx(path_str, ctx))
-    } else if let Some(source_key) = config.get("source_key").and_then(|v| v.as_str()) {
-        let val = ctx
-            .get(source_key)
-            .ok_or_else(|| anyhow::anyhow!("Key '{}' not found in context", source_key))?;
-        match val {
-            serde_json::Value::String(s) => Ok(s.clone()),
-            _ => {
-                anyhow::bail!("Context key '{}' must be a string (file path)", source_key)
-            }
-        }
-    } else {
-        anyhow::bail!("{} requires either 'path' or 'source_key'", node_name)
-    }
+    crate::util::node_config::get_path(config, ctx, node_name)
 }
 
 pub(crate) fn resolve_image_format(
@@ -74,36 +56,6 @@ pub(crate) fn resolve_image_output_format(
         ),
         None => Ok(image::ImageFormat::Png),
     }
-}
-
-pub(crate) fn load_image_bytes(
-    input: super::image_sources::ImageInput,
-) -> Result<super::image_sources::LoadedImage> {
-    use base64::Engine;
-    let (label, bytes) = match input {
-        super::image_sources::ImageInput::Path(path) => {
-            let bytes = std::fs::read(&path).map_err(|e| {
-                anyhow::anyhow!("image_to_pdf: failed to read image '{}': {}", path, e)
-            })?;
-            (path, bytes)
-        }
-        super::image_sources::ImageInput::Base64(data) => {
-            let bytes = base64::engine::general_purpose::STANDARD
-                .decode(data)
-                .map_err(|e| {
-                    anyhow::anyhow!("image_to_pdf: failed to decode base64 image data: {}", e)
-                })?;
-            ("base64_image".to_string(), bytes)
-        }
-    };
-
-    let image = image::load_from_memory(&bytes)
-        .map_err(|e| anyhow::anyhow!("image_to_pdf: invalid image data for '{}': {}", label, e))?;
-    Ok(super::image_sources::LoadedImage {
-        label,
-        bytes,
-        image,
-    })
 }
 
 pub(crate) fn save_dynamic_image(
@@ -177,19 +129,6 @@ pub(crate) fn validate_pdf_dpi(dpi: f32, node_name: &str) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn validate_pdf_render_page_count(page_count: usize, node_name: &str) -> Result<()> {
-    let max_pages = crate::util::limits::max_pdf_render_pages() as usize;
-    if page_count > max_pages {
-        anyhow::bail!(
-            "{}: requested {} rendered pages, exceeds limit {} (set IRONFLOW_MAX_PDF_RENDER_PAGES to raise)",
-            node_name,
-            page_count,
-            max_pages
-        );
-    }
-    Ok(())
-}
-
 pub(crate) fn target_size(
     source_width: u32,
     source_height: u32,
@@ -212,63 +151,6 @@ pub(crate) fn target_size(
     Ok((target_w.max(1), target_h.max(1)))
 }
 
-/// Parse a page specification string into 0-based page indices.
-/// Supports: "all", "1", "1,3,5", "1-5", "1-3,7,9-11"
-pub(crate) fn parse_pages_spec(spec: &str, page_count: usize) -> Result<Vec<usize>> {
-    if spec == "all" {
-        return Ok((0..page_count).collect());
-    }
-
-    let mut indices = Vec::new();
-
-    for part in spec.split(',') {
-        let part = part.trim();
-        if let Some((start_s, end_s)) = part.split_once('-') {
-            let start: usize = start_s
-                .trim()
-                .parse()
-                .map_err(|_| anyhow::anyhow!("Invalid page number: '{}'", start_s.trim()))?;
-            let end: usize = end_s
-                .trim()
-                .parse()
-                .map_err(|_| anyhow::anyhow!("Invalid page number: '{}'", end_s.trim()))?;
-
-            if start == 0 || end == 0 {
-                anyhow::bail!("Page numbers are 1-based, got 0");
-            }
-            if start > end {
-                anyhow::bail!("Invalid page range: {}-{}", start, end);
-            }
-            if end > page_count {
-                anyhow::bail!("Page {} exceeds document page count ({})", end, page_count);
-            }
-
-            for i in start..=end {
-                indices.push(i - 1);
-            }
-        } else {
-            let page: usize = part
-                .parse()
-                .map_err(|_| anyhow::anyhow!("Invalid page number: '{}'", part))?;
-
-            if page == 0 {
-                anyhow::bail!("Page numbers are 1-based, got 0");
-            }
-            if page > page_count {
-                anyhow::bail!("Page {} exceeds document page count ({})", page, page_count);
-            }
-
-            indices.push(page - 1);
-        }
-    }
-
-    if indices.is_empty() {
-        anyhow::bail!("No pages specified");
-    }
-
-    Ok(indices)
-}
-
 pub(crate) fn image_format_name(format: image::ImageFormat) -> &'static str {
     if format == image::ImageFormat::Jpeg {
         "jpeg"
@@ -277,19 +159,17 @@ pub(crate) fn image_format_name(format: image::ImageFormat) -> &'static str {
     }
 }
 
-pub(crate) fn read_pdf_bytes_capped(path: &str, node_name: &str) -> Result<Vec<u8>> {
+pub(crate) fn open_pdf_file_capped(
+    path: &str,
+    node_name: &str,
+    execution: &crate::util::execution::ExecutionControl,
+) -> Result<capped_reader::CappedFile> {
     let max_bytes = crate::util::limits::max_pdf_bytes();
-    let meta = std::fs::metadata(path)
-        .map_err(|e| anyhow::anyhow!("{}: failed to stat '{}': {}", node_name, path, e))?;
-    if meta.len() > max_bytes {
-        anyhow::bail!(
-            "{}: PDF '{}' is {} bytes, exceeds limit {} (set IRONFLOW_MAX_PDF_BYTES to raise)",
-            node_name,
-            path,
-            meta.len(),
-            max_bytes
-        );
-    }
-
-    std::fs::read(path).map_err(|e| anyhow::anyhow!("Failed to read '{}': {}", path, e))
+    capped_reader::CappedFile::open(
+        std::path::Path::new(path),
+        max_bytes,
+        node_name,
+        "IRONFLOW_MAX_PDF_BYTES",
+        execution,
+    )
 }

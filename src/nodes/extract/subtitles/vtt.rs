@@ -17,6 +17,6 @@ impl Node for ExtractVttNode {
     }
 
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
-        super::parser::extract(config, ctx, "extract_vtt", "vtt", true)
+        super::parser::extract(config, ctx, "extract_vtt", "vtt", true).await
     }
 }

@@ -23,9 +23,15 @@ impl RunCoordinator {
             errors.push(format!("execution failed: {error:#}"));
         }
 
-        let final_ctx = self.ctx.read().await.clone();
+        // Execution and cooperative workers have settled before finalization;
+        // take the last snapshot so redaction and bounds can consume it.
+        let final_ctx = {
+            let mut shared = self.ctx.write().await;
+            std::mem::take(&mut *shared)
+        };
+        let final_ctx = super::output::into_owned_context(final_ctx);
         let durable_final_ctx =
-            super::output::bound_context(self.execution_overlay.redact_context(final_ctx.as_ref()));
+            super::output::bound_context(self.execution_overlay.redact_context_owned(final_ctx));
         match super::lease::persist_context(
             self.store.as_ref(),
             &self.run_id,

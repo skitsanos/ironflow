@@ -12,6 +12,7 @@ use crate::engine::types::{Context, FlowDefinition};
 use crate::nodes::NodeRegistry;
 use crate::storage::StateStore;
 use crate::storage::event_store::EventStore;
+use crate::util::execution::{CooperativeWorkerSet, with_run_worker_set};
 
 use super::overlay::ExecutionOverlay;
 use super::signal::{ExecutionOutcome, ExecutionSignal, request_cancellation, stop_requested};
@@ -215,8 +216,9 @@ impl RunCoordinator {
         // future is essential: a storage/node future that ignores cooperative
         // cancellation must not strand the durable handle or admission permit.
         let mut execution_cancel = cancel.clone();
-        let execution = AssertUnwindSafe(self.run(&mut execution_cancel)).catch_unwind();
-        tokio::pin!(execution);
+        let workers = CooperativeWorkerSet::new();
+        let execution = with_run_worker_set(workers.clone(), self.run(&mut execution_cancel));
+        let mut execution = Box::pin(AssertUnwindSafe(execution).catch_unwind());
         let outcome = tokio::select! {
             biased;
             outcome = stop_requested(&mut cancel) => outcome,
@@ -239,6 +241,12 @@ impl RunCoordinator {
                 cancel.borrow().outcome().unwrap_or(execution_outcome)
             },
         };
+        drop(execution);
+        // Cancellation drops the async execution future immediately, but a
+        // cooperative blocking worker may still be removing temporary output.
+        // Do not complete the RunHandle (and release API admission) before it
+        // has physically stopped.
+        workers.wait_until_idle().await;
 
         match tokio::time::timeout(self.finalization_timeout, self.finalize(outcome)).await {
             Ok(result) => result,

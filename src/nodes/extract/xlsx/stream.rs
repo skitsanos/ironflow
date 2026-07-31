@@ -18,9 +18,17 @@
 //! actually stream.
 
 use anyhow::Result;
-use calamine::Data;
+use calamine::{Cell, Data, DataRef};
 
+use super::cell_admission::CellAdmission;
 use crate::util::execution::ExecutionControl;
+
+#[derive(Debug)]
+pub(super) struct StreamedCell {
+    pub(super) position: (u32, u32),
+    pub(super) value: Data,
+    pub(super) admission_charged: bool,
+}
 
 /// A source of a worksheet's cells, visited in file order.
 ///
@@ -32,8 +40,9 @@ pub(super) trait CellSource {
     /// once the sheet is exhausted.
     fn next_cell(
         &mut self,
+        admission: &mut CellAdmission<'_>,
         execution: Option<&ExecutionControl>,
-    ) -> Result<Option<((u32, u32), Data)>>;
+    ) -> Result<Option<StreamedCell>>;
 }
 
 /// Skip past `Data::Empty` records the same way `worksheet_range_ref`
@@ -42,22 +51,42 @@ pub(super) trait CellSource {
 /// s=".."/>` (or a merged span's non-anchor cells) must disappear here
 /// rather than widen a sheet's bounding box.
 ///
-/// Shared between the real `CellSource` impl below and
-/// `test_support::FilteredCells`, so a unit test exercises this exact
-/// filter — not a reimplementation of it — against inputs built by hand.
+/// Used by `test_support::FilteredCells` to exercise the same empty-record
+/// behavior as the real reader against inputs built by hand. The real reader
+/// performs this check on borrowed `DataRef` before ownership conversion.
+#[cfg(test)]
 fn skip_empty(
     execution: Option<&ExecutionControl>,
-    mut next_raw: impl FnMut() -> Result<Option<((u32, u32), Data)>>,
-) -> Result<Option<((u32, u32), Data)>> {
+    mut next_raw: impl FnMut() -> Result<Option<StreamedCell>>,
+) -> Result<Option<StreamedCell>> {
     loop {
         checkpoint(execution)?;
         let next = next_raw()?;
         checkpoint(execution)?;
         match next {
-            Some((_, Data::Empty)) => continue,
+            Some(StreamedCell {
+                value: Data::Empty, ..
+            }) => continue,
             other => return Ok(other),
         }
     }
+}
+
+fn retain_calamine_cell(
+    cell: Cell<DataRef<'_>>,
+    admission: &mut CellAdmission<'_>,
+) -> Result<Option<StreamedCell>> {
+    if matches!(cell.get_value(), DataRef::Empty) {
+        return Ok(None);
+    }
+    admission.admit_data_ref(cell.get_position(), cell.get_value())?;
+    Ok(Some(StreamedCell {
+        position: cell.get_position(),
+        // `Cell` exposes no consuming value accessor. This clone is therefore
+        // a Calamine API boundary, but it now happens only after the budget.
+        value: cell.get_value().clone().into(),
+        admission_charged: true,
+    }))
 }
 
 impl<'a, RS> CellSource for calamine::XlsxCellReader<'a, RS>
@@ -66,19 +95,22 @@ where
 {
     fn next_cell(
         &mut self,
+        admission: &mut CellAdmission<'_>,
         execution: Option<&ExecutionControl>,
-    ) -> Result<Option<((u32, u32), Data)>> {
-        skip_empty(execution, || {
+    ) -> Result<Option<StreamedCell>> {
+        loop {
+            checkpoint(execution)?;
             match calamine::XlsxCellReader::next_cell(self) {
                 Ok(Some(cell)) => {
-                    let position = cell.get_position();
-                    let value: Data = cell.get_value().clone().into();
-                    Ok(Some((position, value)))
+                    if let Some(cell) = retain_calamine_cell(cell, admission)? {
+                        checkpoint(execution)?;
+                        return Ok(Some(cell));
+                    }
                 }
-                Ok(None) => Ok(None),
-                Err(error) => Err(anyhow::anyhow!("extract_xlsx: {error}")),
+                Ok(None) => return Ok(None),
+                Err(error) => return Err(anyhow::anyhow!("extract_xlsx: {error}")),
             }
-        })
+        }
     }
 }
 
@@ -86,7 +118,7 @@ where
 /// modules can use it without duplicating the plumbing.
 #[cfg(test)]
 pub(super) mod test_support {
-    use super::{CellSource, skip_empty};
+    use super::{CellAdmission, CellSource, StreamedCell, skip_empty};
     use anyhow::Result;
     use calamine::Data;
 
@@ -129,9 +161,14 @@ pub(super) mod test_support {
     impl CellSource for FakeCells {
         fn next_cell(
             &mut self,
+            _admission: &mut CellAdmission<'_>,
             _execution: Option<&ExecutionControl>,
-        ) -> Result<Option<((u32, u32), Data)>> {
-            Ok(self.cells.next())
+        ) -> Result<Option<StreamedCell>> {
+            Ok(self.cells.next().map(|(position, value)| StreamedCell {
+                position,
+                value,
+                admission_charged: false,
+            }))
         }
     }
 
@@ -148,9 +185,10 @@ pub(super) mod test_support {
     impl<S: CellSource> CellSource for FilteredCells<S> {
         fn next_cell(
             &mut self,
+            admission: &mut CellAdmission<'_>,
             execution: Option<&ExecutionControl>,
-        ) -> Result<Option<((u32, u32), Data)>> {
-            skip_empty(execution, || self.0.next_cell(execution))
+        ) -> Result<Option<StreamedCell>> {
+            skip_empty(execution, || self.0.next_cell(admission, execution))
         }
     }
 }
@@ -163,75 +201,5 @@ fn checkpoint(execution: Option<&ExecutionControl>) -> Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::{Arc, mpsc};
-
-    use super::test_support::FilteredCells;
-    use super::*;
-
-    struct SlowEmptyCells {
-        remaining: usize,
-        examined: Arc<AtomicUsize>,
-        started: Option<mpsc::Sender<()>>,
-    }
-
-    impl CellSource for SlowEmptyCells {
-        fn next_cell(
-            &mut self,
-            _execution: Option<&ExecutionControl>,
-        ) -> Result<Option<((u32, u32), Data)>> {
-            if self.remaining == 0 {
-                return Ok(None);
-            }
-            self.remaining -= 1;
-            let row = self.examined.fetch_add(1, Ordering::SeqCst) as u32;
-            if let Some(started) = self.started.take() {
-                let _ = started.send(());
-            }
-            std::thread::sleep(std::time::Duration::from_millis(1));
-            Ok(Some(((row, 0), Data::Empty)))
-        }
-    }
-
-    #[tokio::test]
-    async fn cancellation_is_checked_between_filtered_empty_records() {
-        const TOTAL: usize = 10_000;
-        let examined = Arc::new(AtomicUsize::new(0));
-        let (started_tx, started_rx) = mpsc::channel();
-        let (finished_tx, finished_rx) = mpsc::channel();
-        let worker_examined = examined.clone();
-        let waiter = tokio::spawn(crate::util::execution::run_blocking_step(
-            move |execution| {
-                let mut source = FilteredCells(SlowEmptyCells {
-                    remaining: TOTAL,
-                    examined: worker_examined,
-                    started: Some(started_tx),
-                });
-                let result = source.next_cell(Some(&execution));
-                let message = result.as_ref().err().map(ToString::to_string);
-                let _ = finished_tx.send(message);
-                result
-            },
-        ));
-
-        tokio::task::spawn_blocking(move || started_rx.recv())
-            .await
-            .unwrap()
-            .unwrap();
-        waiter.abort();
-        assert!(waiter.await.unwrap_err().is_cancelled());
-        let message = tokio::time::timeout(
-            std::time::Duration::from_secs(1),
-            tokio::task::spawn_blocking(move || finished_rx.recv()),
-        )
-        .await
-        .expect("filtered-cell worker ignored cancellation")
-        .unwrap()
-        .unwrap()
-        .expect("filtered-cell worker unexpectedly reached EOF");
-
-        assert!(message.contains("step execution cancelled"), "{message}");
-        assert!(examined.load(Ordering::SeqCst) < TOTAL);
-    }
-}
+#[path = "stream/tests.rs"]
+mod tests;

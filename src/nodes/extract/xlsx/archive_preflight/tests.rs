@@ -1,6 +1,6 @@
 use std::io::{Cursor, Write};
 
-use super::check;
+use super::{check, check_xlsx};
 
 fn standard_zip(entries: usize, comment: &[u8]) -> Vec<u8> {
     let mut cursor = Cursor::new(Vec::new());
@@ -27,10 +27,50 @@ fn check_bytes(bytes: Vec<u8>, max_entries: u64, max_bytes: u64) -> anyhow::Resu
     check(
         &mut Cursor::new(bytes),
         std::path::Path::new("fixture.xlsx"),
+        "extract_xlsx",
         max_entries,
         max_bytes,
+        "TEST_MAX_BYTES",
         None,
     )
+}
+
+pub(super) fn check_xlsx_bytes(
+    bytes: Vec<u8>,
+    max_entries: u64,
+    max_bytes: u64,
+    max_metadata_bytes: u64,
+) -> anyhow::Result<()> {
+    check_xlsx(
+        &mut Cursor::new(bytes),
+        std::path::Path::new("fixture.xlsx"),
+        max_entries,
+        max_bytes,
+        max_metadata_bytes,
+        None,
+    )
+}
+
+pub(super) fn eocd_offset(bytes: &[u8]) -> usize {
+    bytes
+        .windows(4)
+        .rposition(|window| window == b"PK\x05\x06")
+        .expect("fixture EOCD")
+}
+
+pub(super) fn central_offset(bytes: &[u8]) -> usize {
+    let eocd = eocd_offset(bytes);
+    u32::from_le_bytes(bytes[eocd + 16..eocd + 20].try_into().unwrap()) as usize
+}
+
+pub(super) fn header_len(bytes: &[u8], offset: usize) -> usize {
+    46 + usize::from(u16::from_le_bytes(
+        bytes[offset + 28..offset + 30].try_into().unwrap(),
+    )) + usize::from(u16::from_le_bytes(
+        bytes[offset + 30..offset + 32].try_into().unwrap(),
+    )) + usize::from(u16::from_le_bytes(
+        bytes[offset + 32..offset + 34].try_into().unwrap(),
+    ))
 }
 
 #[test]
@@ -65,7 +105,7 @@ fn raw_archive_and_directory_bounds_fail_closed() {
     let error = check_bytes(bytes.clone(), 1, bytes.len() as u64 - 1)
         .unwrap_err()
         .to_string();
-    assert!(error.contains("raw workbook bound"), "{error}");
+    assert!(error.contains("TEST_MAX_BYTES"), "{error}");
 
     let mut outside = bytes;
     let eocd = outside.len() - 22;
@@ -118,3 +158,6 @@ fn zip64_entry_count_is_authoritative_and_bounded() {
     let error = check_bytes(bytes, 1, 1024 * 1024).unwrap_err().to_string();
     assert!(error.contains("IRONFLOW_MAX_ZIP_ENTRIES (1)"), "{error}");
 }
+
+#[path = "tests/metadata.rs"]
+mod metadata;

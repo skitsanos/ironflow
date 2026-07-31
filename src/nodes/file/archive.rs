@@ -4,14 +4,19 @@ use async_trait::async_trait;
 use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
+use crate::util::execution::run_tracked_blocking_step;
 
 use self::create::{create_zip_archive, parse_zip_compression};
-use self::read::{extract_zip_archive, list_zip_entries};
+use self::extract::extract_zip_archive;
+use self::read::list_zip_entries;
 use super::helpers::zip_limits;
 use crate::util::node_config::config_bool;
 
+mod copy;
 mod create;
+mod extract;
 mod read;
+mod rooted;
 
 pub struct ZipCreateNode;
 
@@ -50,17 +55,17 @@ impl Node for ZipCreateNode {
         let zip_path_clone = zip_path.clone();
         let source_clone = source.clone();
         let limits = zip_limits(config, ctx);
-        let files_count = tokio::task::spawn_blocking(move || {
+        let files_count = run_tracked_blocking_step(move |execution| {
             create_zip_archive(
                 &source_clone,
                 &zip_path_clone,
                 include_root,
                 compression,
                 limits,
+                &execution,
             )
         })
-        .await
-        .map_err(|e| anyhow::anyhow!("zip_create: worker task failed: {}", e))??;
+        .await?;
 
         let mut output = NodeOutput::new();
         output.insert(
@@ -109,10 +114,10 @@ impl Node for ZipListNode {
 
         let zip_path_clone = zip_path.clone();
         let limits = zip_limits(config, ctx);
-        let entries =
-            tokio::task::spawn_blocking(move || list_zip_entries(&zip_path_clone, limits))
-                .await
-                .map_err(|e| anyhow::anyhow!("zip_list: worker task failed: {}", e))??;
+        let entries = run_tracked_blocking_step(move |execution| {
+            list_zip_entries(&zip_path_clone, limits, &execution)
+        })
+        .await?;
 
         let mut output = NodeOutput::new();
         let count = entries.len() as u64;
@@ -169,11 +174,16 @@ impl Node for ZipExtractNode {
         let zip_path_clone = zip_path.clone();
         let destination_clone = destination.clone();
         let limits = zip_limits(config, ctx);
-        let extracted = tokio::task::spawn_blocking(move || {
-            extract_zip_archive(&zip_path_clone, &destination_clone, overwrite, limits)
+        let extracted = run_tracked_blocking_step(move |execution| {
+            extract_zip_archive(
+                &zip_path_clone,
+                &destination_clone,
+                overwrite,
+                limits,
+                &execution,
+            )
         })
-        .await
-        .map_err(|e| anyhow::anyhow!("zip_extract: worker task failed: {}", e))??;
+        .await?;
 
         let count = extracted.len() as u64;
         let mut output = NodeOutput::new();

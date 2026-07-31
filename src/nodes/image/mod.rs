@@ -4,9 +4,11 @@ pub(crate) mod image_basic;
 pub(crate) mod image_conversion;
 pub(crate) mod image_metadata;
 pub(crate) mod image_sources;
+mod pdf_input;
 pub(crate) mod pdf_merge_split;
 pub(crate) mod pdf_metadata;
 pub(crate) mod pdf_render;
+pub(crate) mod resource;
 
 pub(crate) use image_advanced::{ImageConvertNode, ImageGrayscaleNode, ImageWatermarkNode};
 pub(crate) use image_basic::{ImageCropNode, ImageFlipNode, ImageResizeNode, ImageRotateNode};

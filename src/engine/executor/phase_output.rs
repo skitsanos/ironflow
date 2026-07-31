@@ -63,44 +63,58 @@ impl PhaseOutputAccumulator {
 
     /// Reduce one arbitrarily timed completion into declaration-order winners.
     pub(super) fn record(&mut self, completion: StepCompletion) -> Result<()> {
-        let Some(&rank) = self.ranks.get(&completion.step_name) else {
+        let StepCompletion { step_name, output } = completion;
+        let Some(&rank) = self.ranks.get(&step_name) else {
             bail!(
                 "Executor received output for step '{}' outside its planned phase",
-                completion.step_name
+                step_name
             );
         };
-        if !self.completed_steps.insert(completion.step_name.clone()) {
+        if !self.completed_steps.insert(step_name.clone()) {
             bail!(
                 "Executor received duplicate output for step '{}'",
-                completion.step_name
+                step_name
             );
         }
-        let Some(output) = completion.output else {
+        let Some(output) = output else {
             return Ok(());
         };
 
-        for (key, value) in output.iter() {
-            match self.values.get_mut(key) {
-                Some(buffered) => {
-                    buffered.writer_ranks.insert(rank);
-                    if rank > buffered.winning_rank {
-                        buffered.value = value.clone();
-                        buffered.winning_rank = rank;
-                    }
+        match Arc::try_unwrap(output) {
+            Ok(output) => {
+                for (key, value) in output {
+                    self.record_value(key, value, rank);
                 }
-                None => {
-                    self.values.insert(
-                        key.clone(),
-                        BufferedValue {
-                            value: value.clone(),
-                            winning_rank: rank,
-                            writer_ranks: BTreeSet::from([rank]),
-                        },
-                    );
+            }
+            Err(output) => {
+                for (key, value) in output.iter() {
+                    self.record_value(key.clone(), value.clone(), rank);
                 }
             }
         }
         Ok(())
+    }
+
+    fn record_value(&mut self, key: String, value: Value, rank: usize) {
+        match self.values.get_mut(&key) {
+            Some(buffered) => {
+                buffered.writer_ranks.insert(rank);
+                if rank > buffered.winning_rank {
+                    buffered.value = value;
+                    buffered.winning_rank = rank;
+                }
+            }
+            None => {
+                self.values.insert(
+                    key,
+                    BufferedValue {
+                        value,
+                        winning_rank: rank,
+                        writer_ranks: BTreeSet::from([rank]),
+                    },
+                );
+            }
+        }
     }
 
     /// Publish a settled phase without exposing a scheduler-dependent subset.
@@ -176,6 +190,27 @@ mod tests {
         assert_eq!(ctx["collision"], "second");
         assert_eq!(ctx["first_only"], true);
         assert_eq!(ctx["second_only"], true);
+    }
+
+    #[tokio::test]
+    async fn uniquely_owned_phase_output_moves_value_allocation() {
+        let text = "x".repeat(4096);
+        let pointer = text.as_ptr();
+        let ctx = Arc::new(RwLock::new(Arc::new(Context::new())));
+        let mut accumulator = PhaseOutputAccumulator::new(&["only".to_string()]);
+        accumulator
+            .record(StepCompletion::published(
+                "only".to_string(),
+                Arc::new(Context::from([("result".to_string(), Value::String(text))])),
+            ))
+            .unwrap();
+
+        accumulator.commit(&ctx).await;
+
+        assert_eq!(
+            ctx.read().await["result"].as_str().unwrap().as_ptr(),
+            pointer
+        );
     }
 
     #[test]

@@ -6,6 +6,31 @@ use std::io::Cursor;
 use std::path::Path;
 use tempfile::tempdir;
 
+static ARTIFACT_ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+struct ArtifactEnvironment(Option<std::ffi::OsString>);
+
+impl ArtifactEnvironment {
+    fn set(path: &Path) -> Self {
+        let original = std::env::var_os("IRONFLOW_ARTIFACT_DIR");
+        // SAFETY: mutation in this test binary is serialized by ARTIFACT_ENV_LOCK.
+        unsafe { std::env::set_var("IRONFLOW_ARTIFACT_DIR", path) };
+        Self(original)
+    }
+}
+
+impl Drop for ArtifactEnvironment {
+    fn drop(&mut self) {
+        // SAFETY: the caller keeps ARTIFACT_ENV_LOCK held until this guard drops.
+        unsafe {
+            match &self.0 {
+                Some(value) => std::env::set_var("IRONFLOW_ARTIFACT_DIR", value),
+                None => std::env::remove_var("IRONFLOW_ARTIFACT_DIR"),
+            }
+        }
+    }
+}
+
 fn empty_ctx() -> Context {
     HashMap::new()
 }
@@ -37,7 +62,11 @@ fn write_temp_png(path: &std::path::Path, color: [u8; 4], width: u32, height: u3
 }
 
 #[tokio::test]
-async fn pdf_to_image_generates_base64_pages() {
+async fn pdf_to_image_generates_artifact_pages() {
+    let _lock = ARTIFACT_ENV_LOCK.lock().await;
+    let directory = tempdir().unwrap();
+    let artifact_dir = directory.path().join("artifacts");
+    let _environment = ArtifactEnvironment::set(&artifact_dir);
     let sample_pdf = sample_root().join("ironflow-sample.pdf");
     let reg = NodeRegistry::with_builtins();
     let node = reg.get("pdf_to_image").unwrap();
@@ -60,7 +89,16 @@ async fn pdf_to_image_generates_base64_pages() {
 
     let images = result.get("images").unwrap().as_array().unwrap();
     assert_eq!(images.len(), 1);
-    assert!(images[0].get("image_base64").is_some());
+    let artifact: ironflow::artifacts::ArtifactRef =
+        serde_json::from_value(images[0]["artifact"].clone()).unwrap();
+    assert_eq!(artifact.mime_type.as_deref(), Some("image/png"));
+    assert!(images[0].get("image_base64").is_none());
+    let store = ironflow::artifacts::LocalArtifactStore::new(artifact_dir).unwrap();
+    let rendered = image::open(store.resolve(&artifact).unwrap()).unwrap();
+    assert_eq!(
+        rendered.width(),
+        images[0]["width"].as_u64().unwrap() as u32
+    );
     assert_eq!(result.get("page_count").unwrap().as_u64().unwrap(), 3);
 }
 
@@ -85,6 +123,10 @@ async fn pdf_to_image_rejects_excessive_dpi_before_loading() {
 
 #[tokio::test]
 async fn pdf_thumbnail_generates_one_thumbnail() {
+    let _lock = ARTIFACT_ENV_LOCK.lock().await;
+    let directory = tempdir().unwrap();
+    let artifact_dir = directory.path().join("artifacts");
+    let _environment = ArtifactEnvironment::set(&artifact_dir);
     let sample_pdf = sample_root().join("ironflow-sample.pdf");
     let reg = NodeRegistry::with_builtins();
     let node = reg.get("pdf_thumbnail").unwrap();
@@ -109,7 +151,11 @@ async fn pdf_thumbnail_generates_one_thumbnail() {
     let thumb = result.get("thumb").unwrap().as_object().unwrap();
     assert_eq!(result.get("thumb_count").unwrap().as_u64().unwrap(), 1);
     assert_eq!(thumb.get("page").unwrap(), 1);
-    assert!(thumb.get("image_base64").is_some());
+    let artifact: ironflow::artifacts::ArtifactRef =
+        serde_json::from_value(thumb["artifact"].clone()).unwrap();
+    assert!(thumb.get("image_base64").is_none());
+    let store = ironflow::artifacts::LocalArtifactStore::new(artifact_dir).unwrap();
+    assert!(store.resolve(&artifact).unwrap().is_file());
 }
 
 #[tokio::test]
@@ -289,6 +335,36 @@ async fn pdf_metadata_extracts_key_fields() {
     let meta = result.get("meta").unwrap().as_object().unwrap();
     assert!(meta.contains_key("pages"));
     assert_eq!(meta.get("pages").unwrap().as_u64().unwrap(), 3);
+}
+
+#[tokio::test]
+async fn pdf_split_runs_on_the_capped_worker_path() {
+    let sample_pdf = sample_root().join("ironflow-sample.pdf");
+    let directory = tempdir().unwrap();
+    let output_dir = directory.path().join("pages");
+    let registry = NodeRegistry::with_builtins();
+    let node = registry.get("pdf_split").unwrap();
+
+    let result = node
+        .execute(
+            &serde_json::json!({
+                "path": sample_pdf,
+                "output_dir": output_dir,
+                "pages": "1,3",
+                "output_key": "split"
+            }),
+            &empty_ctx(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(result["split_page_count"], 2);
+    let files = result["split_files"].as_array().unwrap();
+    assert_eq!(files.len(), 2);
+    for file in files {
+        let document = lopdf::Document::load(file.as_str().unwrap()).unwrap();
+        assert_eq!(document.get_pages().len(), 1);
+    }
 }
 
 #[tokio::test]

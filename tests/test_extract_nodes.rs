@@ -5,6 +5,31 @@ use std::path::{Path, PathBuf};
 use ironflow::engine::types::Context;
 use ironflow::nodes::NodeRegistry;
 
+static ARTIFACT_ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+struct ArtifactEnvironment(Option<std::ffi::OsString>);
+
+impl ArtifactEnvironment {
+    fn set(path: &Path) -> Self {
+        let original = std::env::var_os("IRONFLOW_ARTIFACT_DIR");
+        // SAFETY: this test binary serializes artifact-environment mutation.
+        unsafe { std::env::set_var("IRONFLOW_ARTIFACT_DIR", path) };
+        Self(original)
+    }
+}
+
+impl Drop for ArtifactEnvironment {
+    fn drop(&mut self) {
+        // SAFETY: the caller keeps ARTIFACT_ENV_LOCK held until this guard drops.
+        unsafe {
+            match &self.0 {
+                Some(value) => std::env::set_var("IRONFLOW_ARTIFACT_DIR", value),
+                None => std::env::remove_var("IRONFLOW_ARTIFACT_DIR"),
+            }
+        }
+    }
+}
+
 /// Wrap a `word/document.xml` body fragment in a minimal w:document envelope.
 fn doc_xml(body: &str) -> String {
     format!(
@@ -964,8 +989,11 @@ async fn extract_pptx_markdown_format() {
 }
 
 #[tokio::test]
-async fn extract_pptx_resolves_image_rels_and_bytes() {
+async fn extract_pptx_resolves_image_rels_and_artifact() {
+    let _lock = ARTIFACT_ENV_LOCK.lock().await;
     let dir = tempfile::tempdir().unwrap();
+    let artifact_dir = dir.path().join("artifacts");
+    let _environment = ArtifactEnvironment::set(&artifact_dir);
 
     // Minimal 1x1 transparent PNG.
     let png_bytes: &[u8] = &[
@@ -1012,7 +1040,7 @@ async fn extract_pptx_resolves_image_rels_and_bytes() {
                 "path": path.to_string_lossy(),
                 "format": "json",
                 "output_key": "deck",
-                "include_image_bytes": true
+                "media_mode": "artifact"
             }),
             &Context::new(),
         )
@@ -1037,16 +1065,15 @@ async fn extract_pptx_resolves_image_rels_and_bytes() {
     assert_eq!(image.get("embed_id").unwrap(), "rId3");
     // Path resolved through rels (../media/image1.png relative to ppt/slides/)
     assert_eq!(image.get("embedded_path").unwrap(), "ppt/media/image1.png");
-    // MIME type
-    assert_eq!(image.get("mime_type").unwrap(), "image/png");
-    // Bytes captured as base64
-    let b64 = image.get("media_b64").unwrap().as_str().unwrap();
-    assert!(!b64.is_empty(), "expected non-empty base64");
-    use base64::Engine;
-    let decoded = base64::engine::general_purpose::STANDARD
-        .decode(b64)
-        .unwrap();
-    assert_eq!(decoded, png_bytes);
+    let artifact: ironflow::artifacts::ArtifactRef =
+        serde_json::from_value(image.get("artifact").unwrap().clone()).unwrap();
+    assert_eq!(artifact.mime_type.as_deref(), Some("image/png"));
+    let store = ironflow::artifacts::LocalArtifactStore::new(artifact_dir).unwrap();
+    assert_eq!(
+        std::fs::read(store.resolve(&artifact).unwrap()).unwrap(),
+        png_bytes
+    );
+    assert!(image.get("media_b64").is_none());
 }
 
 #[tokio::test]
@@ -1066,7 +1093,7 @@ async fn extract_pptx_image_no_bytes_by_default() {
 </p:sld>"#;
     let rels = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="image" Target="../media/x.png"/>
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/x.png"/>
 </Relationships>"#;
     let path = make_pptx_with_image(dir.path(), slide, rels, "ppt/media/x.png", png_bytes);
 
@@ -1077,7 +1104,7 @@ async fn extract_pptx_image_no_bytes_by_default() {
                 "path": path.to_string_lossy(),
                 "format": "json",
                 "output_key": "deck"
-                // include_image_bytes omitted → default false
+                // media_mode omitted → default "none"
             }),
             &Context::new(),
         )
@@ -1100,6 +1127,6 @@ async fn extract_pptx_image_no_bytes_by_default() {
         .unwrap();
     assert_eq!(image.get("embed_id").unwrap(), "rId1");
     assert_eq!(image.get("embedded_path").unwrap(), "ppt/media/x.png");
-    assert!(image.get("media_b64").is_none(), "no bytes by default");
-    assert!(image.get("mime_type").is_none(), "no mime by default");
+    assert!(image.get("artifact").is_none(), "no artifact by default");
+    assert!(image.get("media_b64").is_none(), "no legacy inline bytes");
 }

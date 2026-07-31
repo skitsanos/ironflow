@@ -1,6 +1,6 @@
 # `zip_list`
 
-List all entries in a ZIP archive.
+List entries in a ZIP archive.
 
 ## Parameters
 
@@ -8,8 +8,8 @@ List all entries in a ZIP archive.
 |-----------|------|----------|---------|-------------|
 | `path` | string | yes | — | Path to a ZIP file. Supports `${ctx.key}` interpolation. |
 | `output_key` | string | no | `"zip_entries"` | Context key where the listing array is stored. |
-| `max_entries` | number | no | `IRONFLOW_MAX_ZIP_ENTRIES` / `10000` | Maximum archive entries listed before failing. |
-| `max_total_uncompressed_bytes` | number | no | `IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES` / `536870912` | Maximum total uncompressed entry size accepted while listing. |
+| `max_entries` | number | no | `IRONFLOW_MAX_ZIP_ENTRIES` / `10000` | Maximum archive entries listed before failing. Supports `${ctx.key}` interpolation. |
+| `max_total_uncompressed_bytes` | number | no | `IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES` / `536870912` | Maximum total declared uncompressed entry size accepted while listing. Supports `${ctx.key}` interpolation. |
 
 ## Context Output
 
@@ -42,6 +42,12 @@ flow:step("log", nodes.log({
 return flow
 ```
 
-## Limits
+## Filesystem, limits, and cancellation
 
-`zip_list` validates entry count and total uncompressed bytes while reading archive metadata. This protects workflow context from very large listings and catches likely zip-bomb inputs before extraction.
+The archive path must open as a regular file; on Unix, a final symlink is
+rejected without being followed. `zip_list` validates entry count and total
+declared uncompressed bytes while reading metadata.
+
+Listing runs on a tracked blocking worker and checks the enclosing step/run
+deadline and cancellation signal between entries. A failed or cancelled list
+does not publish a partial array to workflow context.

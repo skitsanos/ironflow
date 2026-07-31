@@ -7,94 +7,9 @@ use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
 use crate::util::node_config::config_bool;
 
-pub struct ReadFileNode;
+mod read;
 
-#[async_trait]
-impl Node for ReadFileNode {
-    fn node_type(&self) -> &str {
-        "read_file"
-    }
-
-    fn description(&self) -> &str {
-        "Read file contents (text or binary as base64)"
-    }
-
-    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
-        let path = config
-            .get("path")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("read_file requires 'path' parameter"))?;
-
-        let path = interpolate_ctx(path, ctx);
-        let output_key = config
-            .get("output_key")
-            .and_then(|v| v.as_str())
-            .unwrap_or("file");
-        let encoding = config
-            .get("encoding")
-            .and_then(|v| v.as_str())
-            .unwrap_or("text");
-
-        // Pre-flight size guard: fail before allocating a huge buffer.
-        let max_bytes = crate::util::limits::max_file_bytes();
-        if let Ok(meta) = tokio::fs::metadata(&path).await
-            && meta.len() > max_bytes
-        {
-            anyhow::bail!(
-                "read_file: '{}' is {} bytes, exceeds limit {} (set IRONFLOW_MAX_FILE_BYTES to raise)",
-                path,
-                meta.len(),
-                max_bytes
-            );
-        }
-
-        // Bound the actual read as well: the metadata pre-flight trusts
-        // `len()`, which is 0 for special files such as `/dev/zero` or fifos,
-        // so a bounded read is needed to stop them streaming unbounded.
-        let path_ref = std::path::Path::new(&path);
-        let content = match encoding {
-            "base64" => {
-                let bytes = crate::util::bounded_read::read_file_capped_async(
-                    path_ref,
-                    max_bytes,
-                    "read_file",
-                )
-                .await?;
-                base64::engine::general_purpose::STANDARD.encode(&bytes)
-            }
-            "text" => {
-                let bytes = crate::util::bounded_read::read_file_capped_async(
-                    path_ref,
-                    max_bytes,
-                    "read_file",
-                )
-                .await?;
-                String::from_utf8(bytes).map_err(|e| {
-                    anyhow::anyhow!("read_file: '{}' is not valid UTF-8: {}", path, e)
-                })?
-            }
-            other => anyhow::bail!(
-                "read_file: unsupported encoding '{}'. Must be 'text' or 'base64'.",
-                other
-            ),
-        };
-
-        let mut output = NodeOutput::new();
-        output.insert(
-            format!("{}_content", output_key),
-            serde_json::Value::String(content),
-        );
-        output.insert(
-            format!("{}_path", output_key),
-            serde_json::Value::String(path),
-        );
-        output.insert(
-            format!("{}_success", output_key),
-            serde_json::Value::Bool(true),
-        );
-        Ok(output)
-    }
-}
+pub use read::ReadFileNode;
 
 pub struct WriteFileNode;
 

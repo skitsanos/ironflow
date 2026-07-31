@@ -280,11 +280,18 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
   manual dispatch), with path filters that skip docs-only changes while
   checker and policy changes remain in scope. Routine work uses focused local
   checks; `.githooks/pre-push` runs the full integration gate before `develop`.
-- [x] Schema-v2 example catalog classifies all 128 Lua flows, records composable service/credential/state/platform requirements, and evaluates every flow against the built-in registry so all 102 node types remain covered without exemptions
+- [x] Schema-v2 example catalog classifies all 129 Lua flows, records composable service/credential/state/platform requirements, and evaluates every flow against the built-in registry so all 102 node types remain covered without exemptions
 - [x] GitHub Actions Release workflow — builds Linux (musl), macOS (x86_64 + aarch64), Windows on version tags
 - [x] Shared Lua sandbox module (`src/lua/sandbox.rs`) for consistent VM setup
 
 ### 5.6 Memory Hardening ✅
+- [x] Immutable local `ArtifactRef` store keeps large binary handoffs out of
+  workflow context; PPTX media, `read_file`, and PDF renderers publish
+  content-addressed files while extractors and image/PDF consumers resolve
+  descriptors without Base64
+- [x] DOCX and PPTX XML parts parse directly from bounded ZIP-entry readers
+  with cumulative decoded-byte accounting, incremental UTF-8 validation,
+  cancellation checkpoints, and end-of-entry CRC verification
 - [x] Bounded in-memory cache with LRU eviction + proactive TTL sweep (`src/util/bounded_cache.rs`)
 - [x] Bound the default in-memory run-event backend globally to 10,000 events
   and deletion fences plus a fixed 64 MiB retained-heap estimate, with

@@ -103,7 +103,7 @@ impl RunCoordinator {
                 let step = step_map[step_name].clone();
 
                 if let Some(source) = self.execution_plan.recovery_sources.get(step_name) {
-                    let source_failure = state.read().await.failure(source);
+                    let source_failure = state.write().await.take_for_recovery(source);
                     let Some(source_failure) = source_failure else {
                         if let Err(error) = self
                             .mark_unavailable(&step, &state, "error handler was not triggered")

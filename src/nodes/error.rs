@@ -27,6 +27,12 @@ impl NodeFailure {
         &self.output
     }
 
+    /// Move structured output into the executor while retaining the error
+    /// message for retry diagnostics.
+    pub(crate) fn take_output(&mut self) -> NodeOutput {
+        std::mem::take(&mut self.output)
+    }
+
     /// Consume the failure and return its structured output.
     pub fn into_output(self) -> NodeOutput {
         self.output

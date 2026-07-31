@@ -1,21 +1,41 @@
-use std::collections::BTreeMap;
+use std::collections::HashMap;
+use std::path::PathBuf;
 
 use anyhow::Result;
 use async_trait::async_trait;
 
+use crate::artifacts::LocalArtifactStore;
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
+use crate::util::execution::{ExecutionControl, run_tracked_blocking_step};
+use crate::util::node_config::{config_bool_or, get_path};
 
-use super::common::validate_word_format;
-use super::pptx_format::{pptx_slides_to_json, pptx_slides_to_markdown, pptx_slides_to_text};
-use super::pptx_parser::{
-    PptxElement, PptxSlide, extract_pptx_comments, normalize_pptx_path, parse_pptx_notes,
-    parse_pptx_rels, parse_pptx_slide, read_pptx_media,
+use super::common::{ensure_distinct_keys, optional_string, string_or, validate_word_format};
+use super::ooxml::Archive;
+use super::pptx_format::{
+    pptx_comments_to_json, pptx_slides_into_json, pptx_slides_to_markdown, pptx_slides_to_text,
 };
-use crate::util::node_config::config_bool;
-use crate::util::node_config::get_path;
+use super::pptx_parser::{
+    PptxComment, extract_pptx_comments, extract_pptx_metadata, extract_pptx_slides,
+};
+use super::resource::{Budget, Limits};
 
 pub struct ExtractPptxNode;
+
+struct Request {
+    path: PathBuf,
+    format: String,
+    output_key: String,
+    metadata_key: Option<String>,
+    comments_key: Option<String>,
+    media_mode: MediaMode,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum MediaMode {
+    None,
+    Artifact,
+}
 
 #[async_trait]
 impl Node for ExtractPptxNode {
@@ -28,223 +48,118 @@ impl Node for ExtractPptxNode {
     }
 
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
-        let path = get_path(config, ctx, "extract_pptx")?;
-        let format = validate_word_format(config, "extract_pptx")?;
-        let output_key = config
-            .get("output_key")
-            .and_then(|v| v.as_str())
-            .unwrap_or("content");
-        let metadata_key = config.get("metadata_key").and_then(|v| v.as_str());
-        let comments_key = config.get("comments_key").and_then(|v| v.as_str());
-        let include_image_bytes = config_bool(config, "include_image_bytes", ctx).unwrap_or(false);
-
-        let file = std::fs::File::open(&path)
-            .map_err(|e| anyhow::anyhow!("Failed to open '{}': {}", path, e))?;
-        let mut archive = zip::ZipArchive::new(file)
-            .map_err(|e| anyhow::anyhow!("Failed to read PPTX archive '{}': {}", path, e))?;
-
-        let slides = extract_pptx_slides(&mut archive, include_image_bytes);
-        let comments = extract_pptx_comments(&mut archive);
-
-        // Attach comments to their slide_index for the per-slide field, but also
-        // keep a flat top-level list if comments_key is set.
-        let mut slides_with_comments = slides.clone();
-        for c in &comments {
-            if c.slide_index >= 1 && (c.slide_index as usize) <= slides_with_comments.len() {
-                slides_with_comments[(c.slide_index as usize) - 1]
-                    .comments
-                    .push(c.clone());
-            }
+        let format = validate_word_format(config, "extract_pptx")?.to_string();
+        if config_bool_or(config, "include_image_bytes", ctx, false)? {
+            anyhow::bail!(
+                "extract_pptx: 'include_image_bytes = true' is no longer supported; use \
+                 'media_mode = \"artifact\"' with format = 'json'"
+            );
         }
-
-        let content = match format {
-            "text" => serde_json::Value::String(pptx_slides_to_text(&slides_with_comments)),
-            "markdown" => serde_json::Value::String(pptx_slides_to_markdown(&slides_with_comments)),
-            _ => pptx_slides_to_json(&slides_with_comments),
+        let media_mode = match string_or(config, "media_mode", "none", "extract_pptx")? {
+            "none" => MediaMode::None,
+            "artifact" => MediaMode::Artifact,
+            other => anyhow::bail!(
+                "extract_pptx: unsupported media_mode '{other}'. Must be 'none' or 'artifact'."
+            ),
         };
-
-        let mut output = NodeOutput::new();
-        output.insert(output_key.to_string(), content);
-
-        if let Some(meta_key) = metadata_key {
-            let metadata = extract_pptx_metadata(&mut archive, slides_with_comments.len());
-            output.insert(meta_key.to_string(), serde_json::to_value(metadata)?);
+        if media_mode == MediaMode::Artifact && format != "json" {
+            anyhow::bail!("extract_pptx: 'media_mode = \"artifact\"' requires format = 'json'");
         }
-        if let Some(c_key) = comments_key {
-            output.insert(c_key.to_string(), serde_json::to_value(&comments)?);
+
+        let output_key = string_or(config, "output_key", "content", "extract_pptx")?.to_string();
+        let metadata_key =
+            optional_string(config, "metadata_key", "extract_pptx")?.map(str::to_string);
+        let comments_key =
+            optional_string(config, "comments_key", "extract_pptx")?.map(str::to_string);
+        let mut output_keys = vec![("output_key", output_key.as_str())];
+        if let Some(key) = metadata_key.as_deref() {
+            output_keys.push(("metadata_key", key));
         }
-        Ok(output)
+        if let Some(key) = comments_key.as_deref() {
+            output_keys.push(("comments_key", key));
+        }
+        ensure_distinct_keys("extract_pptx", &output_keys)?;
+
+        let request = Request {
+            path: PathBuf::from(get_path(config, ctx, "extract_pptx")?),
+            format,
+            output_key,
+            metadata_key,
+            comments_key,
+            media_mode,
+        };
+        let limits = Limits::current();
+
+        run_tracked_blocking_step(move |execution| extract(request, limits, execution)).await
     }
 }
 
-fn extract_pptx_metadata(
-    archive: &mut zip::ZipArchive<std::fs::File>,
-    slide_count: usize,
-) -> BTreeMap<String, serde_json::Value> {
-    let mut meta = BTreeMap::new();
-    meta.insert("slide_count".to_string(), serde_json::json!(slide_count));
+fn extract(request: Request, limits: Limits, execution: ExecutionControl) -> Result<NodeOutput> {
+    let mut budget = Budget::new("extract_pptx", limits, &execution);
+    let mut archive = Archive::open(&request.path, "extract_pptx", limits, &execution)?;
+    let artifact_store = (request.media_mode == MediaMode::Artifact)
+        .then(LocalArtifactStore::from_env)
+        .transpose()?;
+    let mut slides = extract_pptx_slides(
+        &mut archive,
+        artifact_store.as_ref(),
+        &mut budget,
+        &execution,
+    )?;
+    let comments = extract_pptx_comments(&mut archive, &mut budget, &execution)?;
 
-    // Dublin Core metadata from docProps/core.xml (same as DOCX).
-    let xml = match archive.by_name("docProps/core.xml") {
-        Ok(entry) => crate::util::bounded_read::read_to_string_capped(
-            entry,
-            crate::util::limits::max_zip_uncompressed_bytes(),
-            "extract_pptx",
-        )
-        .unwrap_or_default(),
-        Err(_) => return meta,
+    // Preserve the flat comments contract without cloning the complete slide
+    // graph. Comments themselves move into their matching slide afterwards.
+    let flat_comments = request
+        .comments_key
+        .as_ref()
+        .map(|_| pptx_comments_to_json(&comments, &mut budget, true))
+        .transpose()?;
+    attach_comments(&mut slides, comments, &budget)?;
+
+    let metadata = request
+        .metadata_key
+        .as_ref()
+        .map(|_| extract_pptx_metadata(&mut archive, slides.len(), &mut budget, &execution))
+        .transpose()?;
+
+    let content = match request.format.as_str() {
+        "text" => serde_json::Value::String(pptx_slides_to_text(&slides, &mut budget)?),
+        "markdown" => serde_json::Value::String(pptx_slides_to_markdown(&slides, &mut budget)?),
+        "json" => pptx_slides_into_json(slides, &mut budget)?,
+        _ => unreachable!("format was validated before starting the worker"),
     };
-    if xml.is_empty() {
-        return meta;
+
+    let mut output = NodeOutput::new();
+    output.insert(request.output_key, content);
+    if let (Some(key), Some(metadata)) = (request.metadata_key, metadata) {
+        output.insert(key, serde_json::to_value(metadata)?);
     }
-    use quick_xml::events::Event;
-    let mut reader = quick_xml::Reader::from_str(&xml);
-    let mut buf = Vec::new();
-    let known = [
-        ("dc:title", "title"),
-        ("dc:creator", "author"),
-        ("dc:subject", "subject"),
-        ("dc:description", "description"),
-        ("cp:keywords", "keywords"),
-        ("cp:lastModifiedBy", "last_modified_by"),
-        ("dcterms:created", "created"),
-        ("dcterms:modified", "modified"),
-        ("cp:revision", "revision"),
-        ("cp:category", "category"),
-    ];
-    let mut current_tag = String::new();
-    let mut in_meta = false;
-    loop {
-        match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(ref e)) => {
-                let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
-                if known.iter().any(|(t, _)| *t == name) {
-                    current_tag = name;
-                    in_meta = true;
-                }
-            }
-            Ok(Event::Text(ref e)) if in_meta => {
-                let text = String::from_utf8_lossy(e.as_ref()).trim().to_string();
-                if !text.is_empty()
-                    && let Some((_, key)) = known.iter().find(|(t, _)| *t == current_tag)
-                {
-                    meta.insert(key.to_string(), serde_json::Value::String(text));
-                }
-            }
-            Ok(Event::End(_)) => in_meta = false,
-            Ok(Event::Eof) => break,
-            Err(_) => break,
-            _ => {}
-        }
-        buf.clear();
+    if let (Some(key), Some(comments)) = (request.comments_key, flat_comments) {
+        output.insert(key, comments);
     }
-    meta
+    budget.ensure_output(&output)?;
+    Ok(output)
 }
 
-fn extract_pptx_slides(
-    archive: &mut zip::ZipArchive<std::fs::File>,
-    include_image_bytes: bool,
-) -> Vec<PptxSlide> {
-    // Collect slide files by name, sorted by their numeric suffix.
-    let mut slide_names: Vec<String> = (0..archive.len())
-        .filter_map(|i| {
-            let entry = archive.by_index(i).ok()?;
-            let name = entry.name().to_string();
-            if name.starts_with("ppt/slides/slide") && name.ends_with(".xml") {
-                Some(name)
-            } else {
-                None
-            }
-        })
-        .collect();
-    slide_names.sort_by_key(|n| {
-        n.trim_start_matches("ppt/slides/slide")
-            .trim_end_matches(".xml")
-            .parse::<u32>()
-            .unwrap_or(0)
-    });
-
-    let mut slides = Vec::with_capacity(slide_names.len());
-    for (idx, name) in slide_names.iter().enumerate() {
-        let slide_index = (idx + 1) as u32;
-        let xml = match archive.by_name(name) {
-            Ok(entry) => crate::util::bounded_read::read_to_string_capped(
-                entry,
-                crate::util::limits::max_zip_uncompressed_bytes(),
-                "extract_pptx",
-            )
-            .unwrap_or_default(),
-            Err(_) => String::new(),
-        };
-
-        let (title, mut elements) = parse_pptx_slide(&xml);
-
-        // Resolve image embed_id → media path via the slide's rels file.
-        let rels_name = format!("ppt/slides/_rels/slide{}.xml.rels", slide_index);
-        let rels = match archive.by_name(&rels_name) {
-            Ok(entry) => {
-                let buf = crate::util::bounded_read::read_to_string_capped(
-                    entry,
-                    crate::util::limits::max_zip_uncompressed_bytes(),
-                    "extract_pptx",
-                )
-                .unwrap_or_default();
-                parse_pptx_rels(&buf)
-            }
-            Err(_) => std::collections::HashMap::new(),
-        };
-        for el in &mut elements {
-            if let PptxElement::Image {
-                embed_id,
-                embedded_path,
-                media_b64,
-                mime_type,
-                ..
-            } = el
-                && let Some(eid) = embed_id
-                && let Some(target) = rels.get(eid)
-            {
-                // Rels targets are relative to ppt/slides/, e.g. "../media/image3.png".
-                let resolved = normalize_pptx_path("ppt/slides/", target);
-                *embedded_path = Some(resolved.clone());
-
-                if include_image_bytes
-                    && let Some((bytes, mt)) = read_pptx_media(archive, &resolved)
-                {
-                    use base64::Engine;
-                    *media_b64 = Some(base64::engine::general_purpose::STANDARD.encode(&bytes));
-                    *mime_type = Some(mt);
-                }
-            }
-        }
-
-        // Try to load matching notes file.
-        let notes_name = format!("ppt/notesSlides/notesSlide{}.xml", slide_index);
-        let speaker_notes = match archive.by_name(&notes_name) {
-            Ok(entry) => {
-                let buf = crate::util::bounded_read::read_to_string_capped(
-                    entry,
-                    crate::util::limits::max_zip_uncompressed_bytes(),
-                    "extract_pptx",
-                )
-                .unwrap_or_default();
-                let notes = parse_pptx_notes(&buf);
-                if notes.trim().is_empty() {
-                    None
-                } else {
-                    Some(notes)
-                }
-            }
-            Err(_) => None,
-        };
-
-        slides.push(PptxSlide {
-            slide_index,
-            title,
-            elements,
-            speaker_notes,
-            comments: Vec::new(),
-        });
+fn attach_comments(
+    slides: &mut [super::pptx_parser::PptxSlide],
+    comments: Vec<PptxComment>,
+    budget: &Budget<'_>,
+) -> Result<()> {
+    let mut by_slide: HashMap<u32, Vec<PptxComment>> = HashMap::new();
+    for comment in comments {
+        budget.checkpoint()?;
+        by_slide
+            .entry(comment.slide_index)
+            .or_default()
+            .push(comment);
     }
-    slides
+    for slide in slides {
+        budget.checkpoint()?;
+        if let Some(comments) = by_slide.remove(&slide.slide_index) {
+            slide.comments = comments;
+        }
+    }
+    Ok(())
 }

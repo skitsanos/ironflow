@@ -7,13 +7,15 @@ Extract typed rows from an Excel (`.xlsx`) workbook, one sheet or every sheet.
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `path` | string | one of `path` or `source_key` | — | File path to the `.xlsx` file; supports `${ctx.key}` interpolation. |
-| `source_key` | string | one of `path` or `source_key` | — | Context key whose value is the file path (must be a string). |
+| `source_key` | string | one of `path` or `source_key` | — | Context key containing a file path, artifact URI, or artifact descriptor. |
 | `sheet` | string or number | no | all sheets | A string selects a sheet by name; a number selects a sheet by 0-based index. |
 | `has_header` | boolean | no | `true` | When `true`, the first row of each extracted sheet becomes object keys and rows are objects; when `false`, rows are plain arrays and no row is treated as a header. |
 | `output_key` | string | no | `"content"` | Context key where the extracted rows are stored. |
 
 > Providing both `path` and `source_key` is an error.
 > A workbook containing a sheet literally named `"0"` stays reachable by passing the string `"0"` for `sheet` rather than the number `0`.
+> `has_header` accepts a native boolean or an interpolated boolean spelling (`true`/`false`, `yes`/`no`, `on`/`off`, or `1`/`0`, case-insensitive). A present invalid value is rejected instead of silently selecting the default.
+> A present `output_key` must be a string; a value of another type is rejected instead of silently selecting `content`.
 
 ## Context Output
 
@@ -66,13 +68,25 @@ Columns present in a data row but past the end of the header row keep the same `
 
 ## Ceilings
 
-Three `extract_xlsx`-specific environment variables bound how much a single call can extract, in addition to the ZIP guards every OOXML node shares:
+Four `extract_xlsx`-specific environment variables bound how much a single call can extract, in addition to the ZIP guards every OOXML node shares:
 
+- `IRONFLOW_MAX_XLSX_ARCHIVE_METADATA_BYTES` (default `8388608`, 8 MiB) — maximum cumulative bytes occupied by every central-directory filename, extra field, and file comment. IronFlow traverses each central header without allocating those fields and requires the walk to end exactly at the declared directory boundary before constructing `ZipArchive` or Calamine metadata.
 - `IRONFLOW_MAX_XLSX_ROWS` (default `50000`) — highest row *position* accepted in one sheet (1-based; row 1 counts as 1), not a count of populated rows. Row 50,000 is accepted at the default and row 50,001 is rejected even if every row below it is empty. The reader streams cells in file order, so a position can be checked as soon as each cell arrives. Breaching the ceiling names the sheet, row position, and limit.
 - `IRONFLOW_MAX_XLSX_CELLS` (default `33000`) — maximum total cells (`height × width`) across every sheet a single call extracts, independent of `has_header`. The budget is shared across sheets, so narrowing with `sheet` lowers the cost, and a workbook too large to read whole can still be read one sheet at a time.
 - `IRONFLOW_MAX_XLSX_OUTPUT_BYTES` (default `52428800`, 50 MiB) — maximum cumulative decoded and result bytes across the workbook. It is also a conservative compressed and uncompressed ceiling for every individual workbook part, enforced before `calamine` can decode one large inline string or XML part at the broader archive limit. A decoded cell is charged when retained and its result representation is charged again while rows are built. Shared-string references are charged for every cell that uses the string rather than once for the ZIP entry.
 
+The general `IRONFLOW_MAX_EXTRACT_ITEMS` and
+`IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES` settings govern the non-XLSX extractors;
+`extract_xlsx` uses the dedicated row, cell, and output budgets above.
+
 `IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES` and `IRONFLOW_MAX_ZIP_ENTRIES` also apply. A bounded EOCD/ZIP64 pre-flight validates the raw workbook size, central-directory bounds, and entry count before the ZIP library can allocate metadata from those fields. IronFlow then streams every part, checking its declared and actual uncompressed bytes. For XLSX, the uncompressed-byte setting also caps the raw archive itself; this prevents compressed input and central-directory work from escaping the process ceiling.
+
+Sheet selection reads borrowed Calamine metadata and clones only the selected
+name (or all names only when all sheets are requested). Invalid selectors show
+at most four available name previews, each truncated to 160 UTF-8 bytes, so an
+error cannot recreate an unbounded metadata copy. Row position, bounding-area
+cell count, and decoded-value cost are admitted before IronFlow asks Calamine
+to clone a borrowed `DataRef` into the owned result value.
 
 `sharedStrings.xml` receives an additional streaming pre-flight before
 `calamine` opens the workbook. It checks declared and actual bytes, declared
@@ -83,13 +97,21 @@ attacker-sized string table before ordinary cell/output accounting begins.
 Breaching any of these ceilings raises an error naming the offending sheet (where applicable), the observed count, the limit, and the environment variable to raise.
 
 The input must resolve to a regular file; FIFOs and devices are rejected before
-ZIP parsing. ZIP/XML decoding and workbook parsing are synchronous library work,
-so the node runs that phase on Tokio's blocking pool. It checks cancellation and
-the step/run deadline between archive chunks, shared-string XML events,
-worksheet records (including filtered empty cells), and output rows. An
-individual synchronous library call cannot be interrupted midway; the raw,
-per-part, shared-string, row, cell, and output ceilings bound the work between
-checkpoints.
+ZIP parsing. On Unix, IronFlow also refuses to follow a final path-component
+symlink; other platforms enforce the opened-handle regular-file check. A
+malformed, oversized, or unreadable present part fails the call rather than
+producing partial rows.
+
+ZIP/XML decoding and workbook parsing are synchronous library work, so the node
+runs that phase on a tracked blocking worker. It checks cancellation and the
+step/run deadline between archive chunks, shared-string XML events, worksheet
+records (including filtered empty cells), and output rows. The third-party
+workbook-open and worksheet-reader calls cannot be interrupted midway. Calamine
+still eagerly builds its ZIP/path cache, shared strings, formats, and workbook
+metadata, and its public cell API requires an owned value after IronFlow's
+admission checks. IronFlow checks immediately before and after those calls, while the raw, per-part,
+shared-string, row, cell, and output ceilings bound work between checkpoints.
+Task and run admission remain occupied until the physical worker stops.
 
 `IRONFLOW_MAX_XLSX_CELLS`'s default is kept well below `IRONFLOW_MAX_CONVERSION_NODES` (default `100000`, see `docs/CLI_REFERENCE.md`) on purpose. Extracted rows are converted from JSON into Lua after parsing, at a cost of roughly `rows * (cols + 1)` conversion nodes per sheet — worst at a single column, where it collapses to `rows * 2`, i.e. twice the cell count — so a cell ceiling that sits above (or too close to) the conversion budget can be beaten by conversion cost first, at width 1 worst of all, and the resulting failure names a JSON path deep in the converter instead of the sheet this ceiling is meant to name. Raising `IRONFLOW_MAX_XLSX_CELLS` without also raising `IRONFLOW_MAX_CONVERSION_NODES` (or the reverse) mostly just relocates where an oversized workbook fails.
 

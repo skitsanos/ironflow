@@ -4,13 +4,15 @@ use async_trait::async_trait;
 use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
+use crate::util::execution::run_tracked_blocking_step;
 use crate::util::node_config::config_u64;
 
 use super::super::common::{
-    load_image_bytes, parse_non_negative_u32, parse_positive_u32, resolve_image_output_format,
+    load_image, parse_non_negative_u32, parse_positive_u32, resolve_image_output_format,
     save_dynamic_image,
 };
 use super::super::image_sources::resolve_single_image_source;
+use super::super::resource::{ImageDecodeLimits, validate_output_shape};
 
 pub(crate) struct ImageCropNode;
 
@@ -34,7 +36,8 @@ impl Node for ImageCropNode {
         let output_key = config
             .get("output_key")
             .and_then(|v| v.as_str())
-            .unwrap_or("cropped_image");
+            .unwrap_or("cropped_image")
+            .to_owned();
         let format = resolve_image_output_format(
             config.get("format").and_then(|v| v.as_str()),
             &output_path,
@@ -48,35 +51,39 @@ impl Node for ImageCropNode {
         let crop_w = parse_positive_u32(crop_w, crop_w_field)?;
         let crop_h = parse_positive_u32(crop_h, crop_h_field)?;
 
-        let source_loaded = load_image_bytes(source)?;
-        validate_crop_bounds(&source_loaded.image, x, y, crop_w, crop_h)?;
-        let cropped = source_loaded.image.crop_imm(x, y, crop_w, crop_h);
-        save_dynamic_image(cropped, &output_path, format)?;
+        let limits = ImageDecodeLimits::current();
+        run_tracked_blocking_step(move |execution| {
+            let source_loaded = load_image(source, limits, &execution)?;
+            let source_bytes =
+                u64::try_from(source_loaded.image.as_bytes().len()).unwrap_or(u64::MAX);
+            validate_crop_bounds(&source_loaded.image, x, y, crop_w, crop_h)?;
+            validate_output_shape(
+                "image_crop",
+                crop_w,
+                crop_h,
+                source_loaded.image.color(),
+                source_bytes,
+                limits,
+            )?;
+            execution.checkpoint()?;
+            let cropped = source_loaded.image.crop_imm(x, y, crop_w, crop_h);
+            execution.checkpoint()?;
+            save_dynamic_image(cropped, &output_path, format)?;
+            execution.checkpoint()?;
 
-        let mut output = NodeOutput::new();
-        output.insert(
-            output_key.to_string(),
-            serde_json::Value::String(output_path),
-        );
-        for (suffix, value) in [("width", crop_w), ("height", crop_h), ("x", x), ("y", y)] {
+            let mut output = NodeOutput::new();
+            output.insert(output_key.clone(), serde_json::json!(output_path));
+            for (suffix, value) in [("width", crop_w), ("height", crop_h), ("x", x), ("y", y)] {
+                output.insert(format!("{output_key}_{suffix}"), serde_json::json!(value));
+            }
             output.insert(
-                format!("{}_{}", output_key, suffix),
-                serde_json::Value::Number(serde_json::Number::from(u64::from(value))),
+                format!("{output_key}_format"),
+                serde_json::json!(super::super::common::image_format_name(format)),
             );
-        }
-        output.insert(
-            format!("{}_format", output_key),
-            serde_json::Value::String(if format == image::ImageFormat::Jpeg {
-                "jpeg".to_string()
-            } else {
-                "png".to_string()
-            }),
-        );
-        output.insert(
-            format!("{}_success", output_key),
-            serde_json::Value::Bool(true),
-        );
-        Ok(output)
+            output.insert(format!("{output_key}_success"), serde_json::json!(true));
+            Ok(output)
+        })
+        .await
     }
 }
 

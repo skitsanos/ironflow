@@ -103,7 +103,7 @@ impl WorkflowEngine {
             self.store.as_ref(),
             &run_id,
             &flow.name,
-            &durable_initial_ctx,
+            durable_initial_ctx.as_ref(),
             &lease,
         )
         .await

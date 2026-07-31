@@ -115,7 +115,13 @@ Static validation must be supplemented with representative runtime probes.
 | IF-061 | P1 | Resolved | API security | Flow admission and HTTP redirect trust boundaries are incomplete |
 | IF-062 | P1 | Resolved | Engine/storage | Run ownership and crash recovery are not replica-safe |
 | IF-063 | P1 | Resolved | Resource safety | Transcription, S3, and XLSX work bypass end-to-end ceilings |
-| IF-064 | P1 | Open | ZIP/security | ZIP work outlives cancellation and extraction follows destination symlinks |
+| IF-064 | P1 | Resolved | ZIP/security | ZIP work outlives cancellation and extraction follows destination symlinks |
+| IF-065 | P1 | Resolved | Extraction/runtime | Non-XLSX extractors block async workers and lack end-to-end limits |
+| IF-066 | P1 | Resolved | Engine/resource safety | Extraction output and ZIP metadata amplify before memory caps apply |
+| IF-067 | P2 | Open | Tooling/performance | Extraction resource behavior has no repeatable benchmark harness |
+| IF-068 | P1 | Open | Artifact security | Local artifact reads trust a mutable pathname and do not verify content identity |
+| IF-069 | P1 | Open | Binary/PDF safety | Legacy file materialization and PDF merge amplify before their limits apply |
+
 ## P0 — release-blocking safety and durability
 
 ### IF-001 — Lua package-loader sandbox escape
@@ -2563,7 +2569,7 @@ deletion coverage. The gate removed its two explicitly named containers.
 
 ### IF-064 — ZIP filesystem lifecycle is neither root-confined nor cancellation-safe
 
-**Status:** Open (found 2026-07-31).
+**Status:** Resolved on 2026-07-31.
 
 `zip_create`, `zip_list`, and `zip_extract` launch raw `spawn_blocking` workers
 instead of the cancellation-aware blocking-step bridge. Traversal, compression,
@@ -2593,3 +2599,394 @@ Required outcome:
 - prove cancellation stops physical filesystem work before the relevant worker
   capacity is reusable, and add Unix parent-symlink, leaf-symlink, external-tree,
   and symlink-cycle regressions.
+
+Implemented locally:
+
+- all three ZIP nodes now use the tracked cooperative blocking bridge. Step
+  deadlines retain task capacity until a worker physically exits, and the run
+  coordinator retains external run admission until tracked cleanup is idle;
+- traversal, metadata loops, compression, and extraction copies checkpoint at
+  bounded entry/chunk boundaries. A one-slot blocking-pool regression proves a
+  cancelled copy removes its temporary file and preserves the prior target
+  before that capacity can be reused;
+- ZIP creation uses iterative traversal, rejects source-root and descendant
+  symlinks plus special files, enforces the shared directory-depth limit, and
+  counts both files and directories against its traversal-work ceiling. Actual
+  copied bytes are rechecked instead of trusting metadata alone;
+- creation and extraction stage sibling temporary files. Creation publishes
+  only a finished archive; extraction publishes each complete file atomically.
+  Failure/cancellation removes the active temporary and preserves an existing
+  leaf, while earlier committed extraction entries and directories may remain;
+- extraction preflights every name, type, normalized collision, declared byte
+  total, entry count, and path depth before destination mutation. ZIP symlink
+  and special-file entries are rejected, and actual decoded bytes remain
+  bounded during copying;
+- Unix extraction pins the destination with directory descriptors, walks every
+  archive-controlled component with `openat`/`mkdirat` and `O_NOFOLLOW`, checks
+  leaves with `fstatat`, and commits with `renameat` or no-replace
+  `linkat`/`unlinkat`. The portable fallback rejects observed symlinks but
+  documents its weaker concurrent-race boundary;
+- archive inputs use the shared no-follow regular-file opener, output symlinks
+  are rejected, duplicate and non-portable archive destinations fail, and the
+  ZIP node docs plus bounded Lua workflow now match the implemented contract.
+
+Focused validation: 23 public ZIP tests pass across the existing file-node and
+new cancellation, traversal-limit, and Unix security suites. Four private
+tests cover chunk cancellation, physical worker lifetime, temporary cleanup,
+and descriptor anchoring; the 12 step-timeout/engine-terminalization tests also
+pass. The rebuilt binary validates all 128 Lua examples, the three example
+catalog tests pass, formatting and diff checks are clean, the 379-module size
+policy passes with every new production module below 300 lines, and
+`cargo clippy --all-targets -- -D warnings` passes. Per the ordinary-change
+policy, the unrelated full integration suite was not run.
+
+## Extraction resource baseline before IF-065 (2026-07-31)
+
+The release binary at `fac37b6` (`1.16.0-dev.2`) was profiled on macOS 26.5.2,
+an Apple M4 Pro with 12 logical CPUs and 24 GiB RAM. Each case ran in a fresh
+JSON state directory under `/usr/bin/time -lp`; the table reports the median of
+three runs. CPU is user plus system time. These short wall times are coarse and
+include a roughly 0.3-second CLI/startup/storage floor, so the useful signals
+are peak RSS, output amplification, limit behavior, and concurrency rather than
+small timing differences.
+
+`Output` is the compact serialized task output before the executor's 2 MiB
+history truncation. `data/samples/` is gitignored and machine-local, so these
+figures are calibration evidence, not a reproducible CI gate.
+
+| Case | Input / shape | Wall | CPU | Peak RSS | Output |
+|---|---:|---:|---:|---:|---:|
+| Empty workflow baseline | — | 0.32 s | 0.03 s | 17.1 MiB | 11 B |
+| XLSX small | 177,369 B / 432 cells | 0.26 s | 0.04 s | 18.5 MiB | 3,311 B |
+| XLSX near default ceiling | 354,086 B / 32,014 cells | 0.33 s | 0.10 s | 59.7 MiB | 694,273 B |
+| XLSX raised ceiling | 720,564 B / 85,908 cells | 0.41 s | 0.16 s | 98.3 MiB | 1,375,676 B |
+| Four concurrent XLSX steps | 4 x 32,014 cells | 0.72 s | 0.38 s | 181.1 MiB | about 2.65 MiB |
+| PDF text + metadata | 108,505 B / one page | 0.26 s | 0.03 s | 21.6 MiB | 3,277 B |
+| Word JSON + metadata/comments | 19,842 B | 0.26 s | 0.04 s | 23.9 MiB | 63,241 B |
+| VTT text + cues/metadata | 11,097 B / 80 cues | 0.25 s | 0.03 s | 18.6 MiB | 32,425 B |
+| PPTX text | 38,741,985 B / 86 slides | 0.29 s | 0.06 s | 21.0 MiB | 109,757 B |
+| PPTX JSON, no image bytes | same deck | 0.28 s | 0.05 s | 40.4 MiB | 193,002 B |
+| PPTX JSON with image bytes | same deck | 0.34 s | 0.10 s | 231.3 MiB | 36,404,071 B |
+| PPTX text with image bytes requested (pre-IF-065) | same deck | 0.32 s | 0.09 s | 98.2 MiB | 109,757 B |
+
+The 85,908-cell workbook is correctly rejected by the default 33,000-cell
+budget; its successful row above used `IRONFLOW_MAX_XLSX_CELLS=100000`. A Lua
+consumer would also need a coordinated conversion-node budget. The four-way
+case used distinct output keys and `IRONFLOW_MAX_CONCURRENT_TASKS=4`. The
+1.84 MiB `generated_book.pdf` sample is image-only for this extractor and
+returned no text, so it is not a useful PDF stress case.
+
+The PPTX contains 536 ZIP entries and 119 media files (about 26 MiB
+uncompressed). Its 102 resolved image occurrences refer to 85 unique paths; one
+image is read and encoded eleven times. When image bytes are enabled, the full
+36.4 MiB result is materialized and copied before durable output is replaced by
+the 2 MiB truncation marker. At the profiled pre-remediation commit, requesting
+image bytes with text output produced the same 109,757-byte result as ordinary
+text while raising median RSS from 21.0 to 98.2 MiB. The current contract
+rejects `include_image_bytes = true` for every format and directs JSON callers
+to `media_mode = "artifact"`.
+
+A post-remediation release build from the final IF-065 working tree was checked
+against the same 37 MiB deck with fresh state directories (median of three
+runs). This is a compatibility/resource spot check, not a benchmark gate:
+
+| Current IF-065 case | Wall | CPU | Peak RSS |
+|---|---:|---:|---:|
+| PPTX text | 0.27 s | 0.04 s | 20.4 MiB |
+| PPTX JSON, no image bytes | 0.29 s | 0.05 s | 38.7 MiB |
+| PPTX JSON with image bytes | 0.33 s | 0.10 s | 247.0 MiB |
+
+Text and metadata-only JSON remained near or below the baseline footprint.
+Embedded-image JSON remains the dominant allocation path and measured higher
+in this spot check despite similar CPU and wall time. IF-065 provides bounded
+work, explicit failure, and cancellation lifecycle guarantees; it does not
+claim an RSS reduction. Repeated-media and output-copy amplification therefore
+remain P1 work under IF-066, while IF-067 owns reproducible trend measurement.
+
+### IF-065 — Non-XLSX extraction blocks async workers and lacks end-to-end limits
+
+**Status:** Resolved on 2026-07-31.
+
+`extract_html`, `extract_pdf`, `extract_word`, `extract_pptx`, `extract_srt`,
+and `extract_vtt` perform synchronous file reads, ZIP work, parsing, and output
+construction directly inside `async fn execute`. None uses the shared
+`run_blocking_step`/`ExecutionControl` path that `extract_xlsx` already uses. A
+PPTX step with a 1 ms timeout still occupied its runtime worker for about 300 ms
+and reported the timeout only after parsing returned: the deadline bounded
+publication, not physical CPU or memory work.
+
+The format ceilings are also incomplete:
+
+- HTML and subtitles cap only the raw UTF-8 file at 50 MiB. HTML can parse and
+  copy it several times; subtitles always materialize cue-owned text, a plain
+  transcript, cue JSON, and possibly a second formatted transcript. There is no
+  output or structural-count budget.
+- PDF caps the raw file at 100 MiB but not pages, decoded streams, extracted
+  text, or output. Text mode clones the extracted text, and requesting metadata
+  parses the PDF a second time.
+- DOCX/PPTX construct `ZipArchive` from an ordinary followed path before a raw
+  file, entry-count, or central-directory guard. The shared ZIP byte limit is a
+  per-read ceiling, not a cumulative archive budget, and PPTX commonly converts
+  a limit/read failure into an empty part and silently returns partial output.
+- DOCX comment anchoring appends each text event to every open comment range,
+  allowing adversarial work proportional to open ranges times text events.
+
+This also contradicts the current documentation: `NODE_REFERENCE.md` broadly
+claims node execution runs on the blocking pool; `CLI_REFERENCE.md` omits HTML
+and subtitles from `IRONFLOW_MAX_FILE_BYTES`, describes the PDF limit as
+render-only, and implies the ZIP totals apply to every archive node. The
+individual non-XLSX node documents state no resource or cancellation contract.
+
+Required outcome:
+
+- move every synchronous extractor behind the cancellation-aware blocking
+  bridge, thread checkpoints through controllable loops, and retain physical
+  worker admission until work really stops;
+- generalize the no-follow regular-file and archive preflight used by XLSX for
+  DOCX/PPTX, enforcing raw size, central-directory/entry count, cumulative
+  declared and actual decoded bytes, and explicit failure instead of partial
+  success on a breached limit;
+- add format-appropriate structural and output budgets (pages/text, blocks and
+  comments, slides/elements/media, cues, and HTML result bytes), charging before
+  expensive allocation where possible;
+- reject present-but-invalid configuration types consistently, including
+  `extract_xlsx.has_header`, rather than silently selecting a default;
+- add focused FIFO/symlink, cumulative archive, timeout/cancellation, output,
+  and adversarial-count regressions, then align all affected node and CLI docs.
+
+Keep the implementation split by format and responsibility; the resource
+policy must not turn any extractor into a 300-400-line coordinator.
+
+Implemented locally:
+
+- `extract_html`, `extract_pdf`, `extract_word`, `extract_pptx`, `extract_srt`,
+  and `extract_vtt` now run synchronous filesystem, archive, parser, and output
+  work through the tracked cooperative blocking bridge. Controllable loops
+  checkpoint deadlines and cancellation, and task/run admission remains held
+  until physical worker cleanup completes;
+- raw inputs use the shared regular-file/no-follow boundary. DOCX and PPTX
+  preflight EOCD/ZIP64 metadata before constructing `ZipArchive`, reject
+  duplicate, symlink, and special-file parts, and enforce entry-count,
+  cumulative declared-byte, cumulative actual decoded-byte, and per-part
+  ceilings. Present malformed or unreadable parts fail explicitly instead of
+  producing partial output;
+- `IRONFLOW_MAX_EXTRACT_ITEMS` and
+  `IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES` provide cumulative structural/work and
+  complete serialized-result limits for all six non-XLSX extractors.
+  `IRONFLOW_MAX_PDF_EXTRACT_PAGES` bounds PDF page count before text extraction;
+- controllable subtitle, PDF Markdown, and DOCX formatting charges generated
+  output before allocation and checkpoints throughout its loops. DOCX comment
+  fan-out is charged before expansion. PPTX no longer clones the complete slide
+  graph to attach comments, reads image bytes only for explicitly requested
+  JSON output, and charges Base64 size before encoding;
+- present invalid configuration types and colliding output keys fail before
+  filesystem work, including `extract_xlsx.has_header`. Subtitle parsing keeps
+  the canonical plain `transcript` while requiring a distinct key for optional
+  formatted output;
+- the CLI and node references, all seven extractor documents, and the affected
+  Lua examples describe the implemented raw, decoded, structural, output,
+  persistence, malformed-input, and cancellation boundaries.
+
+Contract boundary: these are logical work/result ceilings rather than a
+process-RSS guarantee. Opaque third-party HTML and PDF calls can still allocate
+a result before IronFlow inspects it, although they are bracketed by
+checkpoints and worker admission remains held until they stop. Executor output
+copies, XLSX metadata/cell amplification, and repeated PPTX-media processing
+remain tracked by IF-066; repeatable CPU/RSS benchmarking remains IF-067.
+
+Focused validation: `cargo test --lib nodes::extract` passed 52 tests. The ten
+extractor integration targets passed 47 tests with only the documented pre-fix
+XLSX OOM reproducer intentionally ignored. This includes deterministic
+mid-flight cancellation that gates a real extractor worker and proves run
+admission remains held until physical drain, plus formatting-amplification,
+configuration, PDF, HTML/subtitle, DOCX, PPTX-limit, and PPTX-media regressions.
+Static validation passed for all 128 Lua examples, the six changed extraction
+examples executed successfully against isolated fixtures, and the three
+example-catalog tests pass. Formatting and diff checks are clean, the
+393-module size policy passes with every new production module below 300 lines,
+and `cargo clippy --all-targets -- -D warnings` passes. Per the ordinary-change
+policy, the unrelated full integration suite was not run.
+
+### IF-066 — Extraction amplification occurs before memory ceilings apply
+
+**Status:** Resolved on 2026-07-31.
+
+IronFlow now uses a content-addressed local artifact store for binary workflow
+handoff. `ArtifactRef` carries a canonical `artifact://sha256/<digest>` URI,
+digest, size, and an optional validated MIME type. Publication streams into a
+private staging file, enforces byte and cancellation limits, hashes before atomic
+publication, deduplicates verified content, and never places Base64 bytes in
+the workflow context for that artifact payload. `read_file` can publish an
+artifact directly; PPTX, `pdf_to_image`, and `pdf_thumbnail` return
+descriptors; image consumers and artifact-enabled PDF extraction, rendering,
+metadata, and split consumers accept those descriptors through bounded source
+triage. PPTX rejects
+the deprecated `include_image_bytes = true` contract in every format and uses
+`media_mode = "artifact"` for media extraction.
+
+The earlier amplification paths were also removed or admitted before ownership:
+
+- raw XLSX central-directory traversal validates the exact declared boundary,
+  caps cumulative names/extra fields/comments at 8 MiB by default, detects
+  duplicate part names using fixed-size digests plus exact collision checks,
+  and runs before `ZipArchive` or Calamine construction;
+- XLSX cell cost and retained output are charged before borrowed values become
+  owned, selectors and sheet diagnostics are bounded, and the archive/input
+  admission precedes `DataRef` ownership;
+- DOCX and PPTX XML parts are consumed through bounded streaming readers rather
+  than complete part `Vec`/`String` allocations; declared and actual ZIP bytes,
+  entry counts, duplicate names, CRC completion, UTF-8, and cancellation remain
+  enforced;
+- PPTX resolves only valid internal image relationships, validates package MIME
+  data before publication, caches media by normalized archive path, and streams
+  each unique media part once into the artifact store;
+- executor output preparation has an empty-redactor fast path, a bounded
+  counting serializer that stops beyond the persistence threshold, and moves
+  uniquely owned phase values instead of cloning them;
+- image inputs are admitted by encoded bytes, dimensions, working allocation,
+  source count, and cumulative `image_to_pdf` limits before Base64 ownership or
+  pixel decoding. Image work, PDF metadata/split, and Pdfium rendering execute
+  on tracked blocking workers with cancellation-aware, growth-aware capped
+  readers.
+
+A final release build was measured against the same ignored 38,741,985-byte
+`data/samples/sample.pptx` used for IF-065, with fresh state and artifact
+directories for each run. This is a local compatibility/resource spot check,
+not a portable benchmark gate:
+
+| Run | Wall | User + system CPU | Peak RSS | Unique artifacts | Artifact bytes on disk |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1.32 s | 0.28 s | 39.8 MiB | 85 | 24.4 MiB |
+| 2 | 1.18 s | 0.27 s | 35.5 MiB | 85 | 24.4 MiB |
+| 3 | 1.33 s | 0.34 s | 35.1 MiB | 85 | 24.4 MiB |
+
+Median peak RSS was 35.5 MiB, an 85.6% reduction from the 247.0 MiB IF-065
+inline-Base64 spot check. Every run published the same 85 unique artifacts and
+left no staging `.tmp` files. The additional wall time is the deliberate cost
+of streaming, hashing, syncing, and atomically publishing 85 files.
+
+Focused validation passed 67 extractor library tests; 55 extractor integration
+tests with the documented pre-fix XLSX reproducer still ignored; 50 artifact,
+image, executor, and redaction library tests; 48 artifact/image/PDF and
+executor/recovery/security integration tests; three catalog tests; and the
+isolated example runtime matrix. All 129 Lua examples validate, Rust doctests
+complete successfully, formatting and `git diff --check` are clean, the
+425-module size policy passes, and
+`cargo clippy --all-targets -- -D warnings` passes. Per the ordinary-change
+policy, the unrelated full integration suite was not run.
+
+Remaining boundaries are explicit rather than hidden by this closure. The
+local artifact directory is a trusted same-process-identity store and read-side
+path identity still requires IF-068. `write_file` Base64 and `pdf_merge`
+materialization remain IF-069. Repeatable cross-machine RSS/CPU trend tooling
+remains IF-067. Artifacts have no automatic garbage collection, transaction
+rollback, or multi-host replication; Calamine, codecs, `lopdf`, and `quick-xml`
+may retain bounded internal models or one token-sized allocation; logical byte
+limits are safety contracts, not exact process-RSS promises. The two
+Pdfium-dependent integration cases retain a capability-skip path when the
+native library is unavailable, so this focused gate does not claim live native
+Pdfium coverage.
+
+### IF-067 — Extraction resource behavior has no repeatable benchmark harness
+
+**Status:** Open (found 2026-07-31).
+
+The committed extraction fixtures remain intentionally small and functional;
+`data/samples/` is gitignored, and examples must not depend on it. IF-065 added
+deterministic regressions for cumulative declared and actual OOXML bytes,
+structural and serialized-output limits, malformed parts, overlapping DOCX
+comments, subtitle work, regular-file boundaries, and mid-flight physical
+cancellation/drain behavior. It also documented each extractor's current
+resource and persistence contract.
+
+Those regressions prove rejection and lifecycle semantics, not peak CPU/RSS,
+concurrent amplification, or post-cancellation drain time. The XLSX pre-fix OOM
+reproducer remains ignored and measures elapsed time rather than resources.
+There is still no repeatable release-mode subprocess benchmark for comparing
+machines or detecting broad memory-shape regressions.
+
+Required outcome:
+
+- add an opt-in release-mode subprocess benchmark that accepts an explicit
+  samples directory and emits JSON/JSONL containing input checksum and raw/
+  declared bytes, status/limit, wall and user/system CPU time, peak RSS,
+  serialized output and persisted bytes, plus post-cancellation drain time;
+- include an empty baseline, configurable repetitions, and concurrency 1/2/4;
+  keep machine metadata with each result and never include document content;
+- use local ignored samples for calibration while adding compact deterministic
+  fixtures for long ZIP metadata, repeated PPTX media, compressed PDF text,
+  pathological HTML, and concurrent extraction. Existing cumulative OOXML,
+  DOCX comment-fan-out, subtitle, cancellation, and logical output-limit
+  fixtures need not be duplicated;
+- document the benchmark command, result schema, machine metadata, and
+  interpretation rules. Keep trends opt-in and use only broad safety ceilings
+  in CI, never brittle wall-time assertions.
+
+### IF-068 — Local artifact reads flatten identity into a trusted mutable pathname
+
+**Status:** Open (found 2026-07-31).
+
+The local artifact store hashes every publication and verifies an existing
+content-addressed file before deduplicating into it. Read-side resolution,
+however, validates the canonical URI, regular-file type, and descriptor size
+without re-hashing the stored bytes. General file consumers then receive a
+pathname rather than the opened file handle that was inspected. A process with
+write access to `IRONFLOW_ARTIFACT_DIR` can therefore replace an artifact with
+same-sized content, or race a consumer between validation and open. Unix mode
+hardening reduces accidental writes but does not isolate another workflow or
+shell node running under the same OS identity; non-Unix permissions inherit the
+configured directory's ACL.
+
+IF-066 documents and preserves this trusted-local-store boundary rather than
+claiming that artifact descriptors provide hostile-storage integrity. It is not
+a blocker for a deployment that protects the directory from workflow writes,
+but it remains P1 for shared or multi-tenant execution.
+
+Required outcome:
+
+- introduce a file-source abstraction so handle-capable consumers never need a
+  resolved artifact pathname;
+- resolve and open artifacts inside the tracked blocking worker, refuse links
+  and non-regular files, hash the opened handle, compare it with the descriptor,
+  then rewind and pass that same handle to the parser or decoder;
+- provide a guarded verified-path lease only for third-party APIs that cannot
+  consume a file handle, and define its cleanup and race guarantees explicitly;
+- add same-size replacement, link-swap, cancellation, and cross-platform
+  permission regressions;
+- document the process-identity and shared-storage isolation requirements, and
+  evaluate a separately authenticated artifact service for hostile multi-tenant
+  deployments.
+
+### IF-069 — Legacy file materialization and PDF merge amplify before admission
+
+**Status:** Open (found 2026-07-31).
+
+IF-066 made artifact references the preferred binary handoff and bounded their
+extraction, image, PDF-render, metadata, and split consumers. Two older utility
+paths still retain the amplification pattern:
+
+- `write_file` decodes a complete Base64 context string into a `Vec<u8>` on the
+  async execution path and checks `IRONFLOW_MAX_FILE_BYTES` only afterward. It
+  cannot consume an artifact descriptor directly, and append mode limits only
+  the new payload rather than the resulting file.
+- `pdf_merge` synchronously loads every input into a `Vec<Document>` without a
+  file-count, per-file, cumulative-byte, or cumulative-page ceiling. It then
+  walks each page separately and can clone the same reachable font, image, or
+  resource objects once per page before saving the merged graph. Its `files`
+  input accepts paths only, so an artifact must be flattened back to a pathname
+  or Base64-adjacent workflow step.
+
+Required outcome:
+
+- preflight Base64 decoded length before allocation and stream decode into a
+  bounded destination on a tracked worker; support a mutually exclusive
+  artifact source that copies in bounded chunks from the store;
+- define overwrite/append final-size behavior, cancellation, partial-file
+  cleanup, regular-file, and symlink contracts for `write_file`;
+- add PDF merge file-count, per-file, cumulative-byte, page, and retained-object
+  ceilings; load inputs sequentially on a tracked worker and remap the union of
+  each source's reachable page graph so shared objects are copied once;
+- accept canonical artifact descriptors for merge inputs and document local
+  store/multi-host requirements;
+- add focused malformed/oversized Base64, append-growth, repeated-resource PDF,
+  cancellation, artifact-handoff, and partial-output regressions.

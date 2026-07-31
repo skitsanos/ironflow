@@ -1,10 +1,12 @@
 mod common;
 mod docx_parser;
 mod html;
+mod ooxml;
 mod pdf;
 mod pptx;
 mod pptx_format;
 mod pptx_parser;
+mod resource;
 mod subtitles;
 mod word;
 mod word_format;

@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::future::Future;
 use std::sync::Arc;
 
@@ -44,8 +45,16 @@ impl ExecutionOverlay {
         self.values.as_ref()
     }
 
-    pub(crate) fn redact_context(&self, context: &Context) -> Context {
-        self.redactor.redact_context(context)
+    pub(crate) fn redact_context<'a>(&self, context: &'a Context) -> Cow<'a, Context> {
+        if self.values.is_empty() {
+            Cow::Borrowed(context)
+        } else {
+            Cow::Owned(self.redactor.redact_context(context))
+        }
+    }
+
+    pub(crate) fn redact_context_owned(&self, context: Context) -> Context {
+        self.redactor.redact_context_owned(context)
     }
 
     pub(crate) fn redact_text(&self, text: &str) -> String {
@@ -63,5 +72,38 @@ impl ExecutionOverlay {
         F: Future,
     {
         CURRENT_EXECUTION_OVERLAY.scope(self.clone(), future).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_overlay_borrows_initial_context() {
+        let context = Context::from([("value".to_string(), serde_json::json!(true))]);
+
+        let redacted = ExecutionOverlay::default().redact_context(&context);
+
+        assert!(matches!(&redacted, Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn protected_overlay_owns_and_redacts_initial_context() {
+        let secret = "overlay-secret-value";
+        let overlay = ExecutionOverlay::new(Context::from([(
+            "_headers".to_string(),
+            serde_json::json!({"authorization": secret}),
+        )]));
+        let context = Context::from([
+            ("_headers".to_string(), serde_json::json!(secret)),
+            ("copy".to_string(), serde_json::json!(secret)),
+        ]);
+
+        let redacted = overlay.redact_context(&context);
+
+        assert!(matches!(&redacted, Cow::Owned(_)));
+        assert!(!redacted.contains_key("_headers"));
+        assert_eq!(redacted["copy"], "[REDACTED]");
     }
 }

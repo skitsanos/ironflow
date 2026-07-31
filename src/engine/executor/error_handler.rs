@@ -12,7 +12,7 @@ use super::phase_output::StepCompletion;
 use super::task_runner::{TaskRunError, TaskRuntime};
 
 /// A controlled node failure that may be resolved by one recovery step.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub(super) struct StepFailure {
     message: String,
     node_type: String,
@@ -28,11 +28,11 @@ impl StepFailure {
         }
     }
 
-    fn input_overlay(&self, source: &str) -> Context {
+    fn into_input_overlay(self, source: &str) -> Context {
         let mut overlay = Context::from([
             (
                 "_error_message".to_string(),
-                serde_json::Value::String(self.message.clone()),
+                serde_json::Value::String(self.message),
             ),
             (
                 "_error_step".to_string(),
@@ -40,18 +40,14 @@ impl StepFailure {
             ),
             (
                 "_error_node_type".to_string(),
-                serde_json::Value::String(self.node_type.clone()),
+                serde_json::Value::String(self.node_type),
             ),
         ]);
-        if let Some(output) = &self.output {
+        if let Some(output) = self.output {
+            let output = super::output::into_owned_context(output);
             overlay.insert(
                 "_error_output".to_string(),
-                serde_json::Value::Object(
-                    output
-                        .iter()
-                        .map(|(key, value)| (key.clone(), value.clone()))
-                        .collect(),
-                ),
+                serde_json::Value::Object(output.into_iter().collect()),
             );
         }
         overlay
@@ -85,8 +81,15 @@ impl ExecutionState {
         self.failures.remove(step_name);
     }
 
-    pub(super) fn failure(&self, step_name: &str) -> Option<StepFailure> {
-        self.failures.get(step_name).cloned()
+    pub(super) fn take_for_recovery(&mut self, step_name: &str) -> Option<StepFailure> {
+        let failure = self.failures.get_mut(step_name)?;
+        // The map retains the unresolved failure marker, while the one
+        // scheduled handler takes ownership of its potentially large output.
+        Some(StepFailure {
+            message: failure.message.clone(),
+            node_type: failure.node_type.clone(),
+            output: failure.output.take(),
+        })
     }
 
     pub(super) fn mark_unavailable(&mut self, step_name: &str) {
@@ -129,9 +132,14 @@ impl RunCoordinator {
             .acquire_owned()
             .await
             .map_err(|_| anyhow::anyhow!("Workflow task semaphore closed unexpectedly"))?;
-        let input_overlay = recovery
-            .as_ref()
-            .map(|invocation| invocation.failure.input_overlay(&invocation.source));
+        let (recovery_source, input_overlay) = match recovery {
+            Some(invocation) => {
+                let source = invocation.source;
+                let overlay = invocation.failure.into_input_overlay(&source);
+                (Some(source), Some(overlay))
+            }
+            None => (None, None),
+        };
 
         let runtime = TaskRuntime::new(
             &self.registry,
@@ -144,11 +152,11 @@ impl RunCoordinator {
         );
         match WorkflowEngine::run_task(&runtime, &step, input_overlay.as_ref()).await {
             Ok(output) => {
-                if let Some(recovery) = recovery {
-                    state.write().await.resolve_failure(&recovery.source);
+                if let Some(source) = recovery_source {
+                    state.write().await.resolve_failure(&source);
                     info!(
                         task = %step.name,
-                        recovered_task = %recovery.source,
+                        recovered_task = %source,
                         "Recovery handler completed"
                     );
                 }
@@ -164,7 +172,7 @@ impl RunCoordinator {
                         error = %workflow_error,
                         "Task failed; its recovery handler remains scheduled in the DAG"
                     );
-                } else if recovery.is_some() {
+                } else if recovery_source.is_some() {
                     error!(
                         task = %step.name,
                         error = %workflow_error,
@@ -173,11 +181,18 @@ impl RunCoordinator {
                 } else {
                     error!(task = %step.name, error = %workflow_error, "Task failed");
                 }
-                let completion = StepCompletion::new(step.name.clone(), output.clone());
+                // Only a scheduled recovery handler needs a second reference
+                // to structured failure output. Otherwise the phase consumes
+                // the uniquely owned value without a deep clone.
+                let recovery_output = step
+                    .on_error
+                    .as_ref()
+                    .and_then(|_| output.as_ref().map(Arc::clone));
+                let completion = StepCompletion::new(step.name.clone(), output);
                 state
                     .write()
                     .await
-                    .record_failure(&step, &workflow_error, output);
+                    .record_failure(&step, &workflow_error, recovery_output);
                 Ok(completion)
             }
             Err(TaskRunError::Infrastructure(infrastructure_error)) => Err(infrastructure_error),

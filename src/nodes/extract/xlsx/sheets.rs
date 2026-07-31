@@ -10,10 +10,11 @@
 
 use std::collections::BTreeMap;
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use calamine::Data;
 use serde_json::Value;
 
+use super::cell_admission::CellAdmission;
 use super::cells::cell_value;
 use super::headers::header_keys;
 use super::output_budget::OutputBudget;
@@ -21,36 +22,6 @@ use super::stream::CellSource;
 use crate::util::execution::ExecutionControl;
 
 pub(super) use super::budget::CellBudget;
-
-/// `row_position` is the 1-based position of the cell that tripped the
-/// ceiling (its 0-based row index + 1), not a count of populated rows — see
-/// the basis note on `sheet_rows` for why a streaming reader has to use the
-/// position rather than the span height.
-fn row_ceiling_error(sheet: &str, row_position: u64, max_rows: u64) -> anyhow::Error {
-    anyhow::anyhow!(
-        "extract_xlsx: sheet '{sheet}' has a cell at row {row_position}, exceeding \
-         IRONFLOW_MAX_XLSX_ROWS ({max_rows}) rows. The ceiling bounds the highest row \
-         position touched, not the count of populated rows. Raise that variable, or \
-         set `sheet` to narrow the extraction."
-    )
-}
-
-/// The bounding-box area of `rows × cols`, computed from inclusive
-/// `(start, end)` spans without risking overflow on the intermediate `u32`
-/// arithmetic.
-fn area(row_span: (u32, u32), col_span: (u32, u32)) -> u64 {
-    let height = (row_span.1 - row_span.0) as u64 + 1;
-    let width = (col_span.1 - col_span.0) as u64 + 1;
-    height.saturating_mul(width)
-}
-
-/// Grow an inclusive `(start, end)` span to also cover `index`.
-fn grow(span: Option<(u32, u32)>, index: u32) -> (u32, u32) {
-    match span {
-        Some((start, end)) => (start.min(index), end.max(index)),
-        None => (index, index),
-    }
-}
 
 /// Convert one worksheet's streamed cells into rows.
 ///
@@ -82,36 +53,29 @@ pub(super) fn sheet_rows<S: CellSource>(
     // an honestly oversized sheet as its real cells stream, so the declared
     // value buys nothing a dishonest or absent `<dimension>` couldn't defeat.
     let mut by_row: BTreeMap<u32, BTreeMap<u32, Data>> = BTreeMap::new();
-    let mut rows_span: Option<(u32, u32)> = None;
-    let mut cols_span: Option<(u32, u32)> = None;
-    let mut charged: u64 = 0;
+    let spans = {
+        let mut admission = CellAdmission::new(sheet, max_rows, budget, output_budget);
+        loop {
+            checkpoint(execution)?;
+            let Some(cell) = source.next_cell(&mut admission, execution)? else {
+                break;
+            };
+            let (row, col) = cell.position;
+            let value = cell.value;
+            checkpoint(execution)?;
 
-    loop {
-        checkpoint(execution)?;
-        let Some(((row, col), value)) = source.next_cell(execution)? else {
-            break;
-        };
-        checkpoint(execution)?;
-        if row as u64 >= max_rows {
-            bail!(row_ceiling_error(sheet, row as u64 + 1, max_rows));
+            // The real Calamine source admits its borrowed `DataRef` before
+            // the unavoidable ownership clone. Test/future sources are
+            // admitted here before map retention.
+            if !cell.admission_charged {
+                admission.admit_data((row, col), &value)?;
+            }
+            by_row.entry(row).or_default().insert(col, value);
         }
+        admission.spans()
+    };
 
-        rows_span = Some(grow(rows_span, row));
-        cols_span = Some(grow(cols_span, col));
-
-        let total = area(rows_span.unwrap(), cols_span.unwrap());
-        budget.charge(total.saturating_sub(charged), total, sheet)?;
-        charged = total;
-
-        // Charge before retaining the decoded value. Shared-string cells are
-        // cloned by calamine for every reference, so accounting only the ZIP
-        // entry's declared size would miss the amplification entirely.
-        output_budget.charge_cell(&value, sheet)?;
-
-        by_row.entry(row).or_default().insert(col, value);
-    }
-
-    let (Some(rows_span), Some(cols_span)) = (rows_span, cols_span) else {
+    let Some((rows_span, cols_span)) = spans else {
         return Ok(Vec::new());
     };
 

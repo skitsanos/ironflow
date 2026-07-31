@@ -1,4 +1,5 @@
 pub mod api;
+pub mod artifacts;
 pub mod cli;
 pub mod engine;
 pub mod lua;

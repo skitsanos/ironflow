@@ -15,7 +15,7 @@ use crate::util::execution::with_execution_deadline;
 use super::context::{task_duration_ms, task_input_context};
 use super::deadline::StepDeadline;
 use super::engine::WorkflowEngine;
-use super::output::{buffered_failure_output, prepare_failure_output, prepare_output};
+use super::output::{prepare_failure_output, prepare_output, split_failure_output};
 use super::overlay::ExecutionOverlay;
 
 /// A task can fail because the workflow/node rejected its input, or because
@@ -146,14 +146,13 @@ impl WorkflowEngine {
                 node.execute(&step.config, &current_ctx),
             ));
             let mut deadline_expired = false;
-            let result = match deadline.run(execution).await {
+            let result = match deadline.run_tracked(execution).await {
                 Ok(result) => result,
                 Err(()) => {
                     deadline_expired = true;
                     Err(anyhow::anyhow!(deadline.error_message(&step.name)))
                 }
             };
-
             match result {
                 Ok(output) => {
                     // Only explicit node output is published. An input
@@ -161,13 +160,14 @@ impl WorkflowEngine {
                     // one of its values. Overlay values and keys are redacted
                     // before publication so a later step cannot transform a
                     // copied credential past the persistence fence.
-                    let prepared_output = prepare_output(&output, runtime.execution_overlay);
+                    let prepared_output = prepare_output(output, runtime.execution_overlay);
+                    let (context, task_output) = prepared_output.into_parts();
 
                     // Update task state to success. `output` is a
                     // HashMap<String, Value> — convert it to a JSON object
                     // directly and apply the shared task-history size cap.
                     task_state.status = TaskStatus::Success;
-                    task_state.output = Some(prepared_output.task_value().clone());
+                    task_state.output = Some(task_output);
                     task_state.finished = Some(Utc::now());
                     let duration_ms = task_duration_ms(task_state.started, task_state.finished);
                     runtime
@@ -192,13 +192,13 @@ impl WorkflowEngine {
                     .await;
 
                     info!(task = %step.name, "Task completed successfully");
-                    return Ok(Arc::new(prepared_output.into_context()));
+                    return Ok(Arc::new(context));
                 }
-                Err(e) => {
+                Err(mut e) => {
                     let mut failure_output = if deadline_expired {
                         None
                     } else {
-                        prepare_failure_output(&e, runtime.execution_overlay)
+                        prepare_failure_output(&mut e, runtime.execution_overlay)
                     };
                     let diagnostic =
                         crate::util::sensitive_url::redact_sensitive_text(&format!("{:#}", e));
@@ -207,11 +207,12 @@ impl WorkflowEngine {
 
                     task_state.status = TaskStatus::Failed;
                     task_state.error = Some(err_msg.clone());
-                    if attempt == max_attempts
-                        && let Some(output) = failure_output.as_ref()
-                    {
-                        task_state.output = Some(output.task_value().clone());
-                    }
+                    let (buffered_output, task_output) = if attempt == max_attempts {
+                        split_failure_output(failure_output.take())
+                    } else {
+                        (None, None)
+                    };
+                    task_state.output = task_output;
                     task_state.finished = Some(Utc::now());
                     let duration_ms = task_duration_ms(task_state.started, task_state.finished);
                     runtime
@@ -272,9 +273,8 @@ impl WorkflowEngine {
                             // why no subsequent attempt was started.
                             task_state.status = TaskStatus::Failed;
                             task_state.error = Some(timeout_error.clone());
-                            if let Some(output) = failure_output.as_ref() {
-                                task_state.output = Some(output.task_value().clone());
-                            }
+                            let (output, task_output) = split_failure_output(failure_output.take());
+                            task_state.output = task_output;
                             task_state.finished = Some(Utc::now());
                             runtime
                                 .persist_task(&task_state)
@@ -283,7 +283,6 @@ impl WorkflowEngine {
                                     format!("Failed to persist task '{}' timeout", step.name)
                                 })
                                 .map_err(TaskRunError::infrastructure)?;
-                            let output = buffered_failure_output(failure_output);
                             return Err(TaskRunError::workflow_with_output(
                                 anyhow::anyhow!(timeout_error),
                                 output,
@@ -304,7 +303,6 @@ impl WorkflowEngine {
                     }
 
                     if attempt == max_attempts {
-                        let output = buffered_failure_output(failure_output.take());
                         return Err(TaskRunError::workflow_with_output(
                             anyhow::anyhow!(
                                 "Task '{}' failed after {} attempts: {}",
@@ -312,7 +310,7 @@ impl WorkflowEngine {
                                 max_attempts,
                                 err_msg
                             ),
-                            output,
+                            buffered_output,
                         ));
                     }
                 }

@@ -22,7 +22,7 @@ flow:step("prepare", nodes.write_file({
     content = "alpha"
 })):depends_on("prepare_dir")
 
-flow:step("prepare_nested", nodes.write_file({
+flow:step("prepare_second", nodes.write_file({
     path = source_dir .. "/beta.txt",
     content = "beta"
 })):depends_on("prepare")
@@ -31,19 +31,27 @@ flow:step("create_zip", nodes.zip_create({
     source = source_dir,
     zip_path = zip_path,
     include_root = false,
-    compression = "deflated"
-})):depends_on("prepare_nested")
+    compression = "deflated",
+    max_entries = 16,
+    max_depth = 4,
+    max_total_uncompressed_bytes = 1024
+})):depends_on("prepare_second")
 
 flow:step("list_zip", nodes.zip_list({
     path = zip_path,
-    output_key = "zip_members"
+    output_key = "zip_members",
+    max_entries = 16,
+    max_total_uncompressed_bytes = 1024
 })):depends_on("create_zip")
 
 flow:step("extract_zip", nodes.zip_extract({
     path = zip_path,
     destination = output_dir,
     output_key = "extracted_items",
-    overwrite = true
+    overwrite = false,
+    max_entries = 16,
+    max_depth = 4,
+    max_total_uncompressed_bytes = 1024
 })):depends_on("list_zip")
 
 flow:step("report", nodes.log({

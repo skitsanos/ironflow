@@ -7,7 +7,7 @@ Crop a single image file.
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `path` | string | one of `path` or `source_key` | — | Source image path (supports `${ctx.key}` interpolation). |
-| `source_key` | string | one of `path` or `source_key` | — | Context key containing either a path string, or an object entry `{ path = "..." }` / `{ base64 = "..." }`. |
+| `source_key` | string | one of `path` or `source_key` | — | Context key containing a path, artifact URI/descriptor, `{ artifact = ... }`, or an explicit `{ base64 = "..." }` object. |
 | `output_path` | string | yes | — | Destination file path for the cropped image. |
 | `x` | number | no | `0` | Left offset in pixels. |
 | `y` | number | no | `0` | Top offset in pixels. |
@@ -48,3 +48,13 @@ flow:step("log", nodes.log({
 
 return flow
 ```
+
+## Resource contract
+
+The encoded source, decoded pixels/allocation, crop bounds, and output buffer
+are checked against `IRONFLOW_MAX_IMAGE_ENCODED_BYTES` (50 MiB),
+`IRONFLOW_MAX_IMAGE_PIXELS` (25 million), and
+`IRONFLOW_MAX_IMAGE_DECODE_ALLOCATION_BYTES` (128 MiB). The working estimate
+includes the retained source plus crop output. Decode, crop, and encode
+run on a tracked blocking worker with cancellation checkpoints between opaque
+operations.

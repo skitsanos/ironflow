@@ -1,70 +1,124 @@
-use std::collections::BTreeMap;
-
 use anyhow::Result;
 
 use crate::engine::types::{Context, NodeOutput};
+use crate::util::execution::{ExecutionControl, run_tracked_blocking_step};
 
-use super::super::common::validate_format;
+use super::super::common::{ensure_distinct_keys, optional_string, string_or, validate_format};
+use super::super::resource::{Budget, Limits, read_string};
+use super::output::{collect_metadata, cues_as_json, format_output};
 use crate::util::node_config::get_path;
 
-pub(super) fn extract(
+pub(super) async fn extract(
     config: &serde_json::Value,
     ctx: &Context,
-    node_name: &str,
-    format_name: &str,
+    node_name: &'static str,
+    format_name: &'static str,
     is_vtt: bool,
 ) -> Result<NodeOutput> {
     let path = get_path(config, ctx, node_name)?;
-    let format = validate_format(config, node_name)?;
-    let output_key = config
-        .get("output_key")
-        .and_then(|v| v.as_str())
-        .unwrap_or("transcript");
-    let cues_key = config
-        .get("cues_key")
-        .and_then(|v| v.as_str())
-        .unwrap_or("cues");
-    let metadata_key = config.get("metadata_key").and_then(|v| v.as_str());
-    let input = crate::util::bounded_read::read_file_to_string_capped(
-        std::path::Path::new(&path),
+    let format = validate_format(config, node_name)?.to_string();
+    let output_key = string_or(config, "output_key", "transcript", node_name)?.to_string();
+    let cues_key = string_or(config, "cues_key", "cues", node_name)?.to_string();
+    let metadata_key = optional_string(config, "metadata_key", node_name)?.map(str::to_string);
+    if format == "markdown" && output_key == "transcript" {
+        anyhow::bail!(
+            "{node_name}: format 'markdown' requires an output_key distinct from 'transcript'"
+        );
+    }
+    let mut keys = vec![
+        ("transcript", "transcript"),
+        ("cues_key", cues_key.as_str()),
+    ];
+    if output_key != "transcript" {
+        keys.push(("output_key", output_key.as_str()));
+    }
+    if let Some(metadata_key) = metadata_key.as_deref() {
+        keys.push(("metadata_key", metadata_key));
+    }
+    ensure_distinct_keys(node_name, &keys)?;
+
+    run_tracked_blocking_step(move |execution| {
+        extract_subtitles(SubtitleRequest {
+            path,
+            format,
+            output_key,
+            cues_key,
+            metadata_key,
+            node_name,
+            format_name,
+            is_vtt,
+            execution: &execution,
+        })
+    })
+    .await
+}
+
+struct SubtitleRequest<'a> {
+    path: String,
+    format: String,
+    output_key: String,
+    cues_key: String,
+    metadata_key: Option<String>,
+    node_name: &'static str,
+    format_name: &'static str,
+    is_vtt: bool,
+    execution: &'a ExecutionControl,
+}
+
+fn extract_subtitles(request: SubtitleRequest<'_>) -> Result<NodeOutput> {
+    let limits = Limits::current();
+    let mut budget = Budget::new(request.node_name, limits, request.execution);
+    let input = read_string(
+        std::path::Path::new(&request.path),
         crate::util::limits::max_file_bytes(),
-        "extract_subtitles",
+        request.node_name,
+        request.execution,
     )?;
 
-    let cues = parse_subtitle_cues(&input, is_vtt);
+    let cues = parse_subtitle_cues(&input, request.is_vtt, request.node_name, &mut budget)?;
+    let transcript = format_output(&cues, "text", &mut budget)?;
+    let formatted = if request.output_key == "transcript" {
+        None
+    } else {
+        Some(format_output(&cues, &request.format, &mut budget)?)
+    };
+    let cue_values = cues_as_json(&cues, &mut budget)?;
+
     let mut output = NodeOutput::new();
     output.insert(
         "transcript".to_string(),
-        serde_json::Value::String(format_caption_output(&cues, "text")),
+        serde_json::Value::String(transcript),
     );
-    output.insert(
-        cues_key.to_string(),
-        serde_json::to_value(subtitle_cues_as_json(&cues))?,
-    );
-    output.insert(
-        output_key.to_string(),
-        serde_json::Value::String(format_caption_output(&cues, format)),
-    );
-    if let Some(metadata_key) = metadata_key {
+    output.insert(request.cues_key, serde_json::to_value(cue_values)?);
+    if let Some(formatted) = formatted {
+        output.insert(request.output_key, serde_json::Value::String(formatted));
+    }
+    if let Some(metadata_key) = request.metadata_key {
         output.insert(
-            metadata_key.to_string(),
-            serde_json::to_value(collect_subtitle_metadata(&cues, format_name))?,
+            metadata_key,
+            serde_json::to_value(collect_metadata(&cues, request.format_name))?,
         );
     }
+    budget.ensure_output(&output)?;
     Ok(output)
 }
 
-#[derive(Clone)]
-struct SubtitleCue {
-    start_ms: u64,
-    end_ms: u64,
-    text: String,
+pub(super) struct SubtitleCue {
+    pub(super) start_ms: u64,
+    pub(super) end_ms: u64,
+    pub(super) text: String,
 }
 
-fn parse_subtitle_cues(contents: &str, is_vtt: bool) -> Vec<SubtitleCue> {
+fn parse_subtitle_cues(
+    contents: &str,
+    is_vtt: bool,
+    node_name: &str,
+    budget: &mut Budget<'_>,
+) -> Result<Vec<SubtitleCue>> {
     let mut cues = Vec::new();
-    let mut lines = contents.lines().peekable();
-    while let Some(line) = lines.next() {
+    let mut lines = contents.lines().enumerate().peekable();
+    while let Some((line_index, line)) = lines.next() {
+        budget.charge_item("subtitle input lines")?;
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
@@ -73,8 +127,9 @@ fn parse_subtitle_cues(contents: &str, is_vtt: bool) -> Vec<SubtitleCue> {
             if trimmed == "WEBVTT" {
                 continue;
             }
-            if trimmed.starts_with("NOTE") {
-                for next in lines.by_ref() {
+            if trimmed == "NOTE" || trimmed.starts_with("NOTE ") || trimmed.starts_with("NOTE\t") {
+                for (_, next) in lines.by_ref() {
+                    budget.charge_item("subtitle input lines")?;
                     if next.trim().is_empty() {
                         break;
                     }
@@ -83,28 +138,30 @@ fn parse_subtitle_cues(contents: &str, is_vtt: bool) -> Vec<SubtitleCue> {
             }
         }
 
-        let Some((start_ms, end_ms)) = parse_caption_range(trimmed) else {
+        let Some((start_ms, end_ms)) = parse_caption_range(trimmed).map_err(|error| {
+            anyhow::anyhow!(
+                "{node_name}: invalid cue timing at line {}: {error}",
+                line_index + 1
+            )
+        })?
+        else {
             continue;
         };
-        let mut text_lines = Vec::new();
-        for candidate in lines.by_ref() {
+        let mut text = String::new();
+        for (_, candidate) in lines.by_ref() {
+            budget.charge_item("subtitle input lines")?;
             if candidate.trim().is_empty() {
                 break;
             }
-            text_lines.push(candidate.to_string());
+            let cleaned = remove_annotation_tags(candidate, budget)?;
+            if !text.is_empty() {
+                text.push(' ');
+            }
+            text.push_str(&cleaned);
         }
-        if text_lines.is_empty() {
-            continue;
-        }
-        let text = text_lines
-            .into_iter()
-            .map(|line| remove_annotation_tags(&line))
-            .collect::<Vec<_>>()
-            .join(" ")
-            .replace('\u{feff}', "")
-            .trim()
-            .to_string();
+        let text = text.replace('\u{feff}', "").trim().to_string();
         if !text.is_empty() {
+            budget.charge_item("subtitle cue count")?;
             cues.push(SubtitleCue {
                 start_ms,
                 end_ms,
@@ -112,22 +169,28 @@ fn parse_subtitle_cues(contents: &str, is_vtt: bool) -> Vec<SubtitleCue> {
             });
         }
     }
-    cues
+    Ok(cues)
 }
 
-fn parse_caption_range(line: &str) -> Option<(u64, u64)> {
+fn parse_caption_range(line: &str) -> Result<Option<(u64, u64)>> {
     if line.is_empty() || !line.contains("-->") {
-        return None;
+        return Ok(None);
     }
     let mut parts = line.splitn(2, "-->");
-    let start = parts.next()?.trim();
-    let rest = parts.next()?.trim();
+    let start = parts.next().unwrap_or_default().trim();
+    let rest = parts.next().unwrap_or_default().trim();
     if rest.is_empty() {
-        return None;
+        anyhow::bail!("missing cue end timestamp");
     }
-    let end = rest.split_whitespace().next()?;
-    let (start_ms, end_ms) = (parse_timestamp_ms(start)?, parse_timestamp_ms(end)?);
-    (end_ms >= start_ms).then_some((start_ms, end_ms))
+    let end = rest.split_whitespace().next().unwrap_or_default();
+    let start_ms = parse_timestamp_ms(start)
+        .ok_or_else(|| anyhow::anyhow!("invalid start timestamp '{start}'"))?;
+    let end_ms =
+        parse_timestamp_ms(end).ok_or_else(|| anyhow::anyhow!("invalid end timestamp '{end}'"))?;
+    if end_ms < start_ms {
+        anyhow::bail!("cue end precedes its start");
+    }
+    Ok(Some((start_ms, end_ms)))
 }
 
 fn parse_timestamp_ms(value: &str) -> Option<u64> {
@@ -155,88 +218,21 @@ fn parse_timestamp_ms(value: &str) -> Option<u64> {
         milliseconds.truncate(3);
     }
     let milliseconds = milliseconds.parse::<u64>().ok()?;
-    Some(((hours * 3600 + minutes * 60 + seconds) * 1000) + milliseconds)
+    hours
+        .checked_mul(3600)?
+        .checked_add(minutes.checked_mul(60)?)?
+        .checked_add(seconds)?
+        .checked_mul(1000)?
+        .checked_add(milliseconds)
 }
 
-fn format_timestamp(milliseconds: u64) -> String {
-    let total_seconds = milliseconds / 1000;
-    let milliseconds = milliseconds % 1000;
-    let hours = total_seconds / 3600;
-    let minutes = (total_seconds % 3600) / 60;
-    let seconds = total_seconds % 60;
-    format!("{hours:02}:{minutes:02}:{seconds:02}.{milliseconds:03}")
-}
-
-fn subtitle_cues_as_json(cues: &[SubtitleCue]) -> Vec<serde_json::Value> {
-    cues.iter()
-        .map(|cue| {
-            serde_json::json!({
-                "start_ms": cue.start_ms,
-                "end_ms": cue.end_ms,
-                "start": format_timestamp(cue.start_ms),
-                "end": format_timestamp(cue.end_ms),
-                "text": cue.text,
-            })
-        })
-        .collect()
-}
-
-fn format_caption_output(cues: &[SubtitleCue], format: &str) -> String {
-    if cues.is_empty() {
-        return String::new();
-    }
-    match format {
-        "markdown" => cues
-            .iter()
-            .map(|cue| {
-                format!(
-                    "- `{}` -> `{}`: {}",
-                    format_timestamp(cue.start_ms),
-                    format_timestamp(cue.end_ms),
-                    cue.text
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("\n"),
-        _ => cues
-            .iter()
-            .map(|cue| cue.text.clone())
-            .collect::<Vec<_>>()
-            .join("\n"),
-    }
-}
-
-fn collect_subtitle_metadata(
-    cues: &[SubtitleCue],
-    format_name: &str,
-) -> BTreeMap<String, serde_json::Value> {
-    let mut metadata = BTreeMap::new();
-    metadata.insert("type".to_string(), serde_json::json!(format_name));
-    metadata.insert(
-        "cue_count".to_string(),
-        serde_json::json!(u64::try_from(cues.len()).unwrap_or(u64::MAX)),
-    );
-    let first_start_ms = cues.first().map_or(0, |cue| cue.start_ms);
-    if first_start_ms > 0 {
-        metadata.insert(
-            "first_start_ms".to_string(),
-            serde_json::json!(first_start_ms),
-        );
-    }
-    if let Some(last) = cues.last() {
-        metadata.insert("last_end_ms".to_string(), serde_json::json!(last.end_ms));
-        metadata.insert(
-            "duration_ms".to_string(),
-            serde_json::json!(last.end_ms.saturating_sub(first_start_ms)),
-        );
-    }
-    metadata
-}
-
-fn remove_annotation_tags(value: &str) -> String {
+fn remove_annotation_tags(value: &str, budget: &Budget<'_>) -> Result<String> {
     let mut output = String::new();
     let mut in_tag = false;
-    for character in value.chars() {
+    for (index, character) in value.chars().enumerate() {
+        if index % 4096 == 0 {
+            budget.checkpoint()?;
+        }
         match character {
             '<' => in_tag = true,
             '>' => in_tag = false,
@@ -244,5 +240,5 @@ fn remove_annotation_tags(value: &str) -> String {
             _ => {}
         }
     }
-    output
+    Ok(output)
 }

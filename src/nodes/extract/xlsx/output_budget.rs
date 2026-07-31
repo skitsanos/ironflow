@@ -1,7 +1,7 @@
 //! Cumulative decoded/result byte accounting for workbook extraction.
 
 use anyhow::Result;
-use calamine::Data;
+use calamine::{Data, DataRef};
 
 /// Bytes still available while decoding and constructing a workbook result.
 ///
@@ -27,8 +27,20 @@ impl OutputBudget {
         self.charge(decoded_cell_bytes(cell), sheet)
     }
 
+    /// Charge a Calamine streaming value before it is cloned into owned
+    /// [`Data`]. Shared strings are borrowed from Calamine's eager table at
+    /// this point, so rejecting here avoids the per-reference allocation.
+    pub(super) fn charge_data_ref(&mut self, cell: &DataRef<'_>, sheet: &str) -> Result<()> {
+        self.charge(decoded_data_ref_bytes(cell), sheet)
+    }
+
     pub(super) fn charge_structure(&mut self, bytes: u64, sheet: &str) -> Result<()> {
         self.charge(bytes, sheet)
+    }
+
+    #[cfg(test)]
+    pub(super) fn remaining_for_test(&self) -> u64 {
+        self.remaining
     }
 
     fn charge(&mut self, bytes: u64, sheet: &str) -> Result<()> {
@@ -70,10 +82,24 @@ fn decoded_cell_bytes(cell: &Data) -> u64 {
     }
 }
 
+fn decoded_data_ref_bytes(cell: &DataRef<'_>) -> u64 {
+    match cell {
+        DataRef::String(value) | DataRef::DateTimeIso(value) | DataRef::DurationIso(value) => {
+            value.len() as u64
+        }
+        DataRef::SharedString(value) => value.len() as u64,
+        DataRef::Int(_) => 20,
+        DataRef::Float(_) => 24,
+        DataRef::DateTime(_) => 19,
+        DataRef::Bool(_) => 5,
+        DataRef::Error(_) | DataRef::Empty => 4,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::OutputBudget;
-    use calamine::Data;
+    use calamine::{Data, DataRef};
 
     #[test]
     fn repeated_string_values_are_charged_per_reference() {
@@ -89,5 +115,16 @@ mod tests {
 
         assert!(error.contains("IRONFLOW_MAX_XLSX_OUTPUT_BYTES"), "{error}");
         assert!(error.contains("3072"), "{error}");
+    }
+
+    #[test]
+    fn borrowed_shared_strings_are_charged_before_ownership_conversion() {
+        let mut budget = OutputBudget::new(3);
+        let error = budget
+            .charge_data_ref(&DataRef::SharedString("four"), "Sheet")
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("needs at least 4"), "{error}");
     }
 }

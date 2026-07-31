@@ -4,6 +4,7 @@ use std::time::Duration;
 use tokio::time::Instant;
 
 use crate::util::duration::positive_duration;
+use crate::util::execution::{CooperativeWorkerSet, with_attempt_worker_set};
 
 /// One deadline shared by every execution attempt and retry backoff for a step.
 #[derive(Debug, Clone, Copy)]
@@ -50,6 +51,20 @@ impl StepDeadline {
             },
             None => Ok(future.await),
         }
+    }
+
+    /// Apply the deadline and retain task capacity until any timed-out
+    /// cooperative blocking workers have physically stopped.
+    pub(super) async fn run_tracked<F>(self, future: F) -> Result<F::Output, ()>
+    where
+        F: Future,
+    {
+        let workers = CooperativeWorkerSet::new();
+        let result = self
+            .run(with_attempt_worker_set(workers.clone(), future))
+            .await;
+        workers.wait_until_idle().await;
+        result
     }
 
     pub(super) async fn sleep(self, duration: Duration) -> Result<(), ()> {

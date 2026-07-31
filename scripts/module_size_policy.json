@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exception_budget": 14,
+  "exception_budget": 12,
   "exceptions": [
     {
       "path": "src/cli/store_factory.rs",
@@ -9,7 +9,7 @@
     },
     {
       "path": "src/engine/executor/task_runner.rs",
-      "max_lines": 329,
+      "max_lines": 327,
       "rationale": "IF-028/062 review: one task lifecycle spanning retries, deadlines, cancellation, lease-fenced persistence, and output publication; split before adding another lifecycle phase."
     },
     {
@@ -26,11 +26,6 @@
       "path": "src/nodes/cloud/s3_objects.rs",
       "max_lines": 321,
       "rationale": "IF-028/036 review: four closely related S3 object operations share one client and payload contract, plus a content-length size pre-flight on get_object; split when a fifth operation or new helper responsibility appears."
-    },
-    {
-      "path": "src/nodes/file/io.rs",
-      "max_lines": 308,
-      "rationale": "IF-049 review: the read/write/copy/move/delete file node family sharing size-cap and bounded-read enforcement; split by operation before adding another filesystem node."
     },
     {
       "path": "src/nodes/mcp/stdio.rs",
@@ -66,11 +61,6 @@
       "path": "src/storage/redis_store/rebuild.rs",
       "max_lines": 307,
       "rationale": "IF-028 review: one generation-and-lease catalog rebuild state machine with inline tests; split before adding another recovery phase."
-    },
-    {
-      "path": "src/util/redaction.rs",
-      "max_lines": 338,
-      "rationale": "IF-028 review: one fail-closed secret collection and redaction boundary with substantial inline security tests; extract tests before adding another redaction strategy."
     }
   ]
 }

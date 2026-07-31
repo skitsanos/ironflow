@@ -1,5 +1,8 @@
 //! Bounded ZIP end-record validation before `zip` allocates entry metadata.
 
+mod central_directory;
+mod fields;
+
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
@@ -7,22 +10,22 @@ use anyhow::Result;
 
 use crate::util::execution::ExecutionControl;
 
+use fields::{le_u16, le_u32, le_u64};
+
 const EOCD_SIGNATURE: &[u8; 4] = b"PK\x05\x06";
 const ZIP64_EOCD_SIGNATURE: &[u8; 4] = b"PK\x06\x06";
 const ZIP64_LOCATOR_SIGNATURE: &[u8; 4] = b"PK\x06\x07";
-const CENTRAL_HEADER_SIGNATURE: &[u8; 4] = b"PK\x01\x02";
 const EOCD_BYTES: usize = 22;
 const MAX_COMMENT_BYTES: usize = u16::MAX as usize;
 const ZIP64_LOCATOR_BYTES: u64 = 20;
 const ZIP64_EOCD_MIN_BYTES: u64 = 56;
-const CENTRAL_HEADER_MIN_BYTES: u64 = 46;
 
 #[derive(Clone, Copy, Debug)]
-struct Directory {
-    entries: u64,
-    offset: u64,
-    size: u64,
-    end: u64,
+pub(super) struct Directory {
+    pub(super) entries: u64,
+    pub(super) offset: u64,
+    pub(super) size: u64,
+    pub(super) end: u64,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -37,25 +40,74 @@ struct ClassicDirectory {
 
 /// Validate raw archive metadata before `ZipArchive::new` can reserve one
 /// `ZipFileData` per caller-controlled EOCD entry count.
-pub(super) fn check<R: Read + Seek>(
+pub(in crate::nodes::extract) fn check<R: Read + Seek>(
+    reader: &mut R,
+    path: &Path,
+    operation: &str,
+    max_entries: u64,
+    max_raw_bytes: u64,
+    raw_limit_name: &str,
+    execution: Option<&ExecutionControl>,
+) -> Result<()> {
+    check_with_limits(
+        reader,
+        path,
+        operation,
+        central_directory::Limits {
+            max_entries,
+            max_raw_bytes,
+            raw_limit_name,
+            max_metadata_bytes: max_raw_bytes,
+            metadata_limit_name: raw_limit_name,
+        },
+        execution,
+    )
+}
+
+/// XLSX-specific raw preflight with an independent metadata ceiling.
+pub(super) fn check_xlsx<R: Read + Seek>(
     reader: &mut R,
     path: &Path,
     max_entries: u64,
-    max_archive_bytes: u64,
+    max_raw_bytes: u64,
+    max_metadata_bytes: u64,
+    execution: Option<&ExecutionControl>,
+) -> Result<()> {
+    check_with_limits(
+        reader,
+        path,
+        "extract_xlsx",
+        central_directory::Limits {
+            max_entries,
+            max_raw_bytes,
+            raw_limit_name: "IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES",
+            max_metadata_bytes,
+            metadata_limit_name: "IRONFLOW_MAX_XLSX_ARCHIVE_METADATA_BYTES",
+        },
+        execution,
+    )
+}
+
+fn check_with_limits<R: Read + Seek>(
+    reader: &mut R,
+    path: &Path,
+    operation: &str,
+    limits: central_directory::Limits<'_>,
     execution: Option<&ExecutionControl>,
 ) -> Result<()> {
     checkpoint(execution)?;
     let file_len = reader.seek(SeekFrom::End(0))?;
-    if file_len > max_archive_bytes {
+    if file_len > limits.max_raw_bytes {
         anyhow::bail!(
-            "extract_xlsx: '{}' is {file_len} bytes, exceeding the raw workbook bound from \
-             IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES ({max_archive_bytes})",
-            path.display()
+            "{operation}: '{}' is {file_len} bytes, exceeding {} ({})",
+            path.display(),
+            limits.raw_limit_name,
+            limits.max_raw_bytes
         );
     }
     if file_len < EOCD_BYTES as u64 {
         anyhow::bail!(
-            "extract_xlsx: '{}' is missing a ZIP end record",
+            "{operation}: '{}' is missing a ZIP end record",
             path.display()
         );
     }
@@ -78,16 +130,14 @@ pub(super) fn check<R: Read + Seek>(
         }
 
         let eocd_offset = tail_start + index as u64;
-        match parse_directory(reader, &tail[index..index + EOCD_BYTES], eocd_offset) {
+        match parse_directory(
+            reader,
+            &tail[index..index + EOCD_BYTES],
+            eocd_offset,
+            operation,
+        ) {
             Ok(directory) => {
-                validate_directory(
-                    reader,
-                    path,
-                    directory,
-                    file_len,
-                    max_entries,
-                    max_archive_bytes,
-                )?;
+                central_directory::validate(reader, path, operation, directory, limits, execution)?;
                 checkpoint(execution)?;
                 return Ok(());
             }
@@ -97,7 +147,7 @@ pub(super) fn check<R: Read + Seek>(
 
     Err(structural_error.unwrap_or_else(|| {
         anyhow::anyhow!(
-            "extract_xlsx: '{}' is missing a valid ZIP end record",
+            "{operation}: '{}' is missing a valid ZIP end record",
             path.display()
         )
     }))
@@ -107,6 +157,7 @@ fn parse_directory<R: Read + Seek>(
     reader: &mut R,
     eocd: &[u8],
     eocd_offset: u64,
+    operation: &str,
 ) -> Result<Directory> {
     let classic = ClassicDirectory {
         disk: le_u16(&eocd[4..6]),
@@ -128,7 +179,7 @@ fn parse_directory<R: Read + Seek>(
             || classic.directory_disk != 0
             || classic.entries_on_disk != classic.entries
         {
-            anyhow::bail!("extract_xlsx: multi-disk ZIP workbooks are not supported");
+            anyhow::bail!("{operation}: multi-disk ZIP archives are not supported");
         }
         return Ok(Directory {
             entries: u64::from(classic.entries),
@@ -138,36 +189,37 @@ fn parse_directory<R: Read + Seek>(
         });
     }
 
-    parse_zip64_directory(reader, eocd_offset, classic)
+    parse_zip64_directory(reader, eocd_offset, classic, operation)
 }
 
 fn parse_zip64_directory<R: Read + Seek>(
     reader: &mut R,
     eocd_offset: u64,
     classic: ClassicDirectory,
+    operation: &str,
 ) -> Result<Directory> {
     let locator_offset = eocd_offset
         .checked_sub(ZIP64_LOCATOR_BYTES)
-        .ok_or_else(|| anyhow::anyhow!("extract_xlsx: ZIP64 locator is missing"))?;
+        .ok_or_else(|| anyhow::anyhow!("{operation}: ZIP64 locator is missing"))?;
     let mut locator = [0_u8; ZIP64_LOCATOR_BYTES as usize];
     read_exact_at(reader, locator_offset, &mut locator)?;
     if &locator[..4] != ZIP64_LOCATOR_SIGNATURE {
-        anyhow::bail!("extract_xlsx: ZIP64 locator is missing or truncated");
+        anyhow::bail!("{operation}: ZIP64 locator is missing or truncated");
     }
     if le_u32(&locator[4..8]) != 0 || le_u32(&locator[16..20]) != 1 {
-        anyhow::bail!("extract_xlsx: multi-disk ZIP64 workbooks are not supported");
+        anyhow::bail!("{operation}: multi-disk ZIP64 archives are not supported");
     }
 
     let record_offset = le_u64(&locator[8..16]);
     if record_offset >= locator_offset
         || locator_offset.saturating_sub(record_offset) < ZIP64_EOCD_MIN_BYTES
     {
-        anyhow::bail!("extract_xlsx: ZIP64 end record has inconsistent bounds");
+        anyhow::bail!("{operation}: ZIP64 end record has inconsistent bounds");
     }
     let mut record = [0_u8; ZIP64_EOCD_MIN_BYTES as usize];
     read_exact_at(reader, record_offset, &mut record)?;
     if &record[..4] != ZIP64_EOCD_SIGNATURE {
-        anyhow::bail!("extract_xlsx: ZIP64 end record is missing or truncated");
+        anyhow::bail!("{operation}: ZIP64 end record is missing or truncated");
     }
     let record_size = le_u64(&record[4..12]);
     if record_size < 44
@@ -176,7 +228,7 @@ fn parse_zip64_directory<R: Read + Seek>(
             .and_then(|position| position.checked_add(record_size))
             != Some(locator_offset)
     {
-        anyhow::bail!("extract_xlsx: ZIP64 end record has inconsistent bounds");
+        anyhow::bail!("{operation}: ZIP64 end record has inconsistent bounds");
     }
 
     let disk = le_u32(&record[16..20]);
@@ -186,7 +238,7 @@ fn parse_zip64_directory<R: Read + Seek>(
     let size = le_u64(&record[40..48]);
     let offset = le_u64(&record[48..56]);
     if disk != 0 || directory_disk != 0 || entries_on_disk != entries {
-        anyhow::bail!("extract_xlsx: multi-disk ZIP64 workbooks are not supported");
+        anyhow::bail!("{operation}: multi-disk ZIP64 archives are not supported");
     }
     if (classic.disk != u16::MAX && u32::from(classic.disk) != disk)
         || (classic.directory_disk != u16::MAX
@@ -194,16 +246,16 @@ fn parse_zip64_directory<R: Read + Seek>(
         || (classic.entries_on_disk != u16::MAX
             && u64::from(classic.entries_on_disk) != entries_on_disk)
     {
-        anyhow::bail!("extract_xlsx: ZIP and ZIP64 disk metadata disagree");
+        anyhow::bail!("{operation}: ZIP and ZIP64 disk metadata disagree");
     }
     if classic.entries != u16::MAX && u64::from(classic.entries) != entries {
-        anyhow::bail!("extract_xlsx: ZIP and ZIP64 entry counts disagree");
+        anyhow::bail!("{operation}: ZIP and ZIP64 entry counts disagree");
     }
     if classic.size != u32::MAX && u64::from(classic.size) != size {
-        anyhow::bail!("extract_xlsx: ZIP and ZIP64 directory sizes disagree");
+        anyhow::bail!("{operation}: ZIP and ZIP64 directory sizes disagree");
     }
     if classic.offset != u32::MAX && u64::from(classic.offset) != offset {
-        anyhow::bail!("extract_xlsx: ZIP and ZIP64 directory offsets disagree");
+        anyhow::bail!("{operation}: ZIP and ZIP64 directory offsets disagree");
     }
 
     Ok(Directory {
@@ -214,69 +266,10 @@ fn parse_zip64_directory<R: Read + Seek>(
     })
 }
 
-fn validate_directory<R: Read + Seek>(
-    reader: &mut R,
-    path: &Path,
-    directory: Directory,
-    file_len: u64,
-    max_entries: u64,
-    max_archive_bytes: u64,
-) -> Result<()> {
-    if directory.entries > max_entries {
-        anyhow::bail!(
-            "extract_xlsx: '{}' declares {} zip entries, exceeding \
-             IRONFLOW_MAX_ZIP_ENTRIES ({max_entries})",
-            path.display(),
-            directory.entries
-        );
-    }
-    usize::try_from(directory.entries)
-        .map_err(|_| anyhow::anyhow!("extract_xlsx: ZIP entry count exceeds this platform"))?;
-    if directory.size > max_archive_bytes {
-        anyhow::bail!(
-            "extract_xlsx: '{}' central directory is {} bytes, exceeding \
-             IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES ({max_archive_bytes})",
-            path.display(),
-            directory.size
-        );
-    }
-    let minimum = directory.entries.saturating_mul(CENTRAL_HEADER_MIN_BYTES);
-    if directory.size < minimum {
-        anyhow::bail!("extract_xlsx: ZIP central directory is smaller than its entry count");
-    }
-    let directory_end = directory
-        .offset
-        .checked_add(directory.size)
-        .ok_or_else(|| anyhow::anyhow!("extract_xlsx: ZIP central-directory bounds overflow"))?;
-    if directory_end > directory.end || directory_end > file_len {
-        anyhow::bail!("extract_xlsx: ZIP central directory extends outside the workbook");
-    }
-    if directory.entries > 0 {
-        let mut signature = [0_u8; 4];
-        read_exact_at(reader, directory.offset, &mut signature)?;
-        if &signature != CENTRAL_HEADER_SIGNATURE {
-            anyhow::bail!("extract_xlsx: ZIP central directory has no entry header");
-        }
-    }
-    Ok(())
-}
-
 fn read_exact_at<R: Read + Seek>(reader: &mut R, offset: u64, buffer: &mut [u8]) -> Result<()> {
     reader.seek(SeekFrom::Start(offset))?;
     reader.read_exact(buffer)?;
     Ok(())
-}
-
-fn le_u16(bytes: &[u8]) -> u16 {
-    u16::from_le_bytes(bytes.try_into().expect("two-byte ZIP field"))
-}
-
-fn le_u32(bytes: &[u8]) -> u32 {
-    u32::from_le_bytes(bytes.try_into().expect("four-byte ZIP field"))
-}
-
-fn le_u64(bytes: &[u8]) -> u64 {
-    u64::from_le_bytes(bytes.try_into().expect("eight-byte ZIP field"))
 }
 
 fn checkpoint(execution: Option<&ExecutionControl>) -> Result<()> {

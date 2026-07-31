@@ -778,6 +778,9 @@ Context is a `HashMap<String, serde_json::Value>` that flows through the entire 
   infrastructure failure before a phase barrier discards that phase's buffered
   shared-context publication while retaining already-persisted bounded task
   history.
+- Output-size admission uses an aborting counting serializer. A truncation
+  marker reports `_minimum_bytes = limit + 1`, not an exact original size,
+  because counting stops as soon as the configured limit is crossed.
 - Recovery handlers receive an invocation-local `_error_output` copy for typed
   failures in addition to the normal final context keys.
 - Keys prefixed with `_` are reserved for engine internals (routes, conditions)
@@ -793,6 +796,49 @@ Context is a `HashMap<String, serde_json::Value>` that flows through the entire 
 - The grammar supports dotted keys, zero-based array indexes, and JSON
   double-quoted bracket keys; expressions and fallback operators are rejected
 
+### Binary artifacts
+
+Large binary payloads are represented in context by an `ArtifactRef` rather
+than an inline Base64 string:
+
+```json
+{
+  "artifact_uri": "artifact://sha256/<64 lowercase hex characters>",
+  "sha256": "<the same digest>",
+  "size_bytes": 12345,
+  "mime_type": "image/png"
+}
+```
+
+The local artifact store streams sources to private staging files (mode `0600`
+on Unix and the configured directory's inherited ACL elsewhere) while enforcing
+byte limits, hashing, and checking cancellation. It publishes them
+atomically as immutable `IRONFLOW_ARTIFACT_DIR/sha256/<digest>` files and
+deduplicates equal content. Extraction and image nodes resolve either the full
+descriptor or its canonical URI. The store intentionally has no automatic
+eviction because a completed task or recovered run can still reference an
+artifact; retention is an operator concern. Publication is per artifact rather
+than transactional across a node, so a later parser/page failure can leave an
+unreferenced immutable file for the same retention sweep.
+
+Only the descriptor crosses context, task-history, Redis, or PostgreSQL
+boundaries. The artifact bytes remain local filesystem state, so a multi-host
+deployment must provide a durable shared mount. A future remote backend can
+preserve the descriptor contract without reintroducing binary context values.
+Artifact references bound workflow-context and persistence amplification; they
+do not imply zero-copy processing. Consumers can still allocate decoded pixel
+buffers, parser state, or semantic output subject to their node-specific
+limits.
+
+The local backend treats its configured directory as a trusted storage
+boundary. Publication and deduplication hash content, while reads validate the
+canonical URI, regular-file type, and descriptor size; they do not re-hash the
+file on every path resolution. Operators must prevent workflows and unrelated
+same-identity processes from mutating that directory. A flow execution identity
+that can run arbitrary shell/file operations is not isolated from a store owned
+by the same OS identity; stronger multi-tenant integrity requires a separate
+identity, sandbox, or artifact service.
+
 ## Concurrency Model
 
 - Per-workflow task semaphore limits concurrent task executions
@@ -805,7 +851,10 @@ Context is a `HashMap<String, serde_json::Value>` that flows through the entire 
 - Configurable via environment variable:
   - `IRONFLOW_MAX_CONCURRENT_TASKS` (default: num_cpus)
 - Async cancellation drops the active node future. CPU-bound Lua work receives
-  a cooperative cancellation flag while running on the blocking pool.
+  a cooperative cancellation flag while running on the blocking pool. ZIP
+  traversal, parsing, compression, and copying use tracked blocking workers;
+  they checkpoint between filesystem/archive entries and copied chunks so run
+  and task admission remains held until physical work stops.
 - Shell commands and persistent MCP stdio servers enable direct-child
   `kill_on_drop` on every platform. On Unix they also lead a process group.
   Closing an MCP session first closes stdin and gives the server time to exit;

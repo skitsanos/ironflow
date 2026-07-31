@@ -18,11 +18,13 @@ flow:step("create_html", nodes.write_file({
 -- Extract text from the HTML
 flow:step("extract", nodes.extract_html({
     path = html_path,
-    output_key = "html"
+    format = "text",
+    output_key = "html_text",
+    metadata_key = "html_meta"
 })):depends_on("create_html")
 
 flow:step("log_result", nodes.log({
-    message = "Extracted text: ${ctx.html_text}"
+    message = "Extracted '${ctx.html_meta.title}': ${ctx.html_text}"
 })):depends_on("extract")
 
 -- Clean up

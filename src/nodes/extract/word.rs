@@ -1,6 +1,7 @@
 mod comments;
 mod content;
 mod metadata;
+mod worker;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -8,11 +9,8 @@ use async_trait::async_trait;
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
 
-use super::common::validate_word_format;
+use super::common::{ensure_distinct_keys, optional_string, string_or, validate_word_format};
 use crate::util::node_config::get_path;
-use comments::extract_docx_comments;
-use content::extract_docx_content;
-use metadata::extract_docx_metadata;
 
 pub struct ExtractWordNode;
 
@@ -28,35 +26,29 @@ impl Node for ExtractWordNode {
 
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let path = get_path(config, ctx, "extract_word")?;
-        let format = validate_word_format(config, "extract_word")?;
-        let output_key = config
-            .get("output_key")
-            .and_then(|value| value.as_str())
-            .unwrap_or("content");
-        let metadata_key = config.get("metadata_key").and_then(|value| value.as_str());
-        let comments_key = config.get("comments_key").and_then(|value| value.as_str());
-
-        let file = std::fs::File::open(&path)
-            .map_err(|error| anyhow::anyhow!("Failed to open '{}': {}", path, error))?;
-        let mut archive = zip::ZipArchive::new(file).map_err(|error| {
-            anyhow::anyhow!("Failed to read DOCX archive '{}': {}", path, error)
-        })?;
-        let content = extract_docx_content(&mut archive, format)?;
-
-        let mut output = NodeOutput::new();
-        output.insert(output_key.to_string(), content);
+        let format = validate_word_format(config, "extract_word")?.to_string();
+        let output_key = string_or(config, "output_key", "content", "extract_word")?;
+        let metadata_key = optional_string(config, "metadata_key", "extract_word")?;
+        let comments_key = optional_string(config, "comments_key", "extract_word")?;
+        let mut keys = vec![("output_key", output_key)];
         if let Some(key) = metadata_key {
-            output.insert(
-                key.to_string(),
-                serde_json::to_value(extract_docx_metadata(&mut archive))?,
-            );
+            keys.push(("metadata_key", key));
         }
         if let Some(key) = comments_key {
-            output.insert(
-                key.to_string(),
-                serde_json::to_value(extract_docx_comments(&mut archive))?,
-            );
+            keys.push(("comments_key", key));
         }
-        Ok(output)
+        ensure_distinct_keys("extract_word", &keys)?;
+        let request = worker::Request {
+            path: path.into(),
+            format,
+            output_key: output_key.to_string(),
+            metadata_key: metadata_key.map(str::to_string),
+            comments_key: comments_key.map(str::to_string),
+        };
+
+        crate::util::execution::run_tracked_blocking_step(move |execution| {
+            worker::extract(request, execution)
+        })
+        .await
     }
 }

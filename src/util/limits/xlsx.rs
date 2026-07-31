@@ -20,6 +20,14 @@ const DEFAULT_MAX_XLSX_CELLS: u64 = 33_000;
 /// references: one string stored once may be copied into thousands of cells.
 const DEFAULT_MAX_XLSX_OUTPUT_BYTES: u64 = 50 * 1024 * 1024;
 
+/// Default cumulative ZIP file-name, extra-field, and file-comment budget.
+///
+/// Calamine and `zip` retain multiple decoded/path-normalized copies of this
+/// metadata. Keep its independent ceiling materially below the 512 MiB
+/// uncompressed archive default so metadata cannot dominate process memory
+/// before workbook-part and cell limits run.
+const DEFAULT_MAX_XLSX_ARCHIVE_METADATA_BYTES: u64 = 8 * 1024 * 1024;
+
 pub fn max_xlsx_rows() -> u64 {
     env_u64("IRONFLOW_MAX_XLSX_ROWS", DEFAULT_MAX_XLSX_ROWS)
 }
@@ -32,5 +40,12 @@ pub fn max_xlsx_output_bytes() -> u64 {
     env_u64(
         "IRONFLOW_MAX_XLSX_OUTPUT_BYTES",
         DEFAULT_MAX_XLSX_OUTPUT_BYTES,
+    )
+}
+
+pub fn max_xlsx_archive_metadata_bytes() -> u64 {
+    env_u64(
+        "IRONFLOW_MAX_XLSX_ARCHIVE_METADATA_BYTES",
+        DEFAULT_MAX_XLSX_ARCHIVE_METADATA_BYTES,
     )
 }
