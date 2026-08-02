@@ -130,6 +130,8 @@ Static validation must be supplemented with representative runtime probes.
 | IF-076 | P1 | Resolved | Replica availability | Replica survival has no real-process Docker acceptance gate |
 | IF-077 | P1 | Resolved | Deployment lifecycle | Serve lacks draining, readiness, and restricted-container support |
 | IF-078 | P1 | Resolved | Durable admission | Retried submissions and schedule claim-to-run gaps can duplicate or lose work |
+| IF-079 | P1 | Resolved | Railway deployment | Replica lifecycle has no Railway canary evidence |
+| IF-080 | P1 | Resolved | OpenShift deployment | Restricted-SCC and Route behavior lack live platform evidence |
 
 ## P0 — release-blocking safety and durability
 
@@ -3468,3 +3470,136 @@ and the live two-process PostgreSQL acceptance. All 132 Lua examples validate;
 Rustdoc, formatting, `git diff --check`, the 446-module policy, and exact
 all-target Clippy with warnings denied pass. This is focused local and Docker
 evidence, not the full integration suite or a Railway/OpenShift deployment.
+
+### IF-079 — Replica lifecycle has no Railway canary evidence
+
+**Status:** Resolved 2026-08-02 (found 2026-08-02).
+
+The Docker acceptance environment proves process and storage behavior under a
+local container runtime, but it does not prove Railway's injected port,
+deployment healthcheck, private PostgreSQL networking, public routing, or
+SIGTERM-to-SIGKILL drain window. A temporary Railway project is available for
+an isolated platform canary.
+
+Required outcome:
+
+- deploy two independently addressable IronFlow services sharing one managed
+  PostgreSQL backend, with replica mode and readiness healthchecks enabled;
+- prove both public endpoints are ready, a run submitted through one is visible
+  through the other, and same-key retries converge across services;
+- exercise a Railway restart or redeploy while a bounded run is active and
+  verify the surviving service remains ready and observes terminal durable
+  state within the documented lifecycle boundary;
+- record service topology and non-secret operational evidence without treating
+  a temporary canary as permanent production monitoring.
+
+Resolution: temporary Railway project
+`7d2bad5b-664e-4172-aa7e-898d7e3b0cbe` hosted managed PostgreSQL 18 and two
+independently addressable IronFlow services, `ironflow-a` and `ironflow-b`.
+Both services ran version `1.16.1-dev.1` with replica mode, PostgreSQL state and
+events, generated API authentication, no application volume, and private
+Railway reference variables for the database URL. The repository now owns
+`railway.json`: Dockerfile build, `/health/ready`, 300-second startup timeout,
+always-restart policy, five-second deployment overlap, and 60-second
+SIGTERM-to-SIGKILL draining. Railway's live schema requires numeric overlap and
+draining values even though its documentation example used strings; the first
+config-only failures were superseded by successful deployments
+`4ff50f59-1560-4a2d-9978-9d3b84c2f591` and
+`ab78c123-7ca1-4794-a591-3e0940539b4f`.
+
+Both public readiness endpoints returned HTTP 200. A run created through A was
+read through B as `success`; its same-key retry through B returned the same run
+and a different request with that key returned HTTP 409. Railway-native scaling
+temporarily ran A with two EU instances: HTTP telemetry attributed 40/40
+liveness responses to two distinct deployment-instance IDs. Twenty concurrent
+same-key submissions through A's load-balanced domain were distributed across
+both instances, all returned HTTP 200, converged on one run ID, and were visible
+through B as `success`.
+
+A 300-second delay admitted through A was visible through B as `running` before
+a Railway restart. Railway logs recorded readiness drain with one active run,
+the configured five-second application grace, cooperative cancellation, and a
+new listener on injected port 8080. B observed the durable terminal status as
+`cancelled` and remained ready. A was scaled back to one instance after the
+native-routing check to limit temporary testbed cost. After the Railway and
+OpenShift acceptance work completed, temporary project
+`7d2bad5b-664e-4172-aa7e-898d7e3b0cbe` was deleted through the Railway CLI,
+stopping `ironflow-a`, `ironflow-b`, and their dedicated PostgreSQL instance and
+volume. Railway direct status reports the project as deleted and the project
+list retains a deletion timestamp. No secret values were printed or written to
+the repository.
+
+This canary proves the tested Railway environment and current deployment
+configuration. Railway readiness checks deployment startup rather than
+continuous service health, and one temporary project is not evidence for a
+different region, plan, storage incident, or long-duration production load.
+
+### IF-080 — Restricted-SCC and Route behavior lack live platform evidence
+
+**Status:** Resolved 2026-08-02 (found 2026-08-02).
+
+Docker exercises an arbitrary UID and restricted container flags, but it does
+not run OpenShift admission, assign the namespace UID range, select an SCC,
+create a Route, or execute Kubernetes probe and termination behavior. The Red
+Hat Developer Sandbox project `gedankrayze-dev` is available for a namespace-
+scoped canary without local cluster storage.
+
+Required outcome:
+
+- deploy PostgreSQL and two IronFlow replicas through namespace-owned
+  manifests with requests, limits, probes, and a Route;
+- run IronFlow under the default restricted SCC without a fixed UID and prove
+  the admitted SCC, effective namespace UID, read-only root filesystem, dropped
+  capabilities, and non-root execution;
+- prove Route readiness, cross-pod durable state and idempotency, graceful pod
+  termination, forced owner death, and surviving-replica availability;
+- keep secrets out of manifests and output, clean up only named canary
+  resources, and document the limits of a shared single-cluster sandbox.
+
+Resolution: `deploy/openshift/canary.yaml` now provides a namespace-scoped
+ImageStream and binary BuildConfig, disposable PostgreSQL PVC, two-replica
+IronFlow Deployment, Services, edge-TLS Route, probes, resource bounds,
+preferred cross-node anti-affinity, and a `minAvailable: 1` disruption budget.
+During acceptance, credentials existed only in the generated
+`ironflow-canary-secrets` Secret and were neither committed nor printed. An
+ImageStream trigger was added after the first deployment showed that pods
+created before the binary build could remain in image-pull backoff; the live
+trigger resolved the tag to the published digest and completed a
+zero-unavailable rollout without a manual restart.
+
+The live acceptance ran in project `gedankrayze-dev` on OpenShift 4.21.21
+(Kubernetes 1.34.8). A 3.2 MiB source directory containing only `Cargo.toml`,
+`Cargo.lock`, `Dockerfile`, and `src/` avoided uploading the local 58 GiB
+`target/`. Build `ironflow-canary-5` compiled IronFlow `1.16.1-dev.1` with the
+PostgreSQL feature and published the internal image; the cold build ran from
+15:02:56Z to 15:18:30Z, with Cargo's optimized build taking 12m19s. Server-side
+dry-run accepted all nine manifest resources before the live application.
+
+Both IronFlow pods were admitted by `restricted-v2` with namespace UID
+`1004800000`, `runAsNonRoot`, `RuntimeDefault` seccomp, read-only root mounts,
+`allowPrivilegeEscalation: false`, all capabilities dropped, and effective
+capability mask zero. The size-limited memory-backed `/tmp` remained writable.
+Both replicas became ready on distinct nodes, the edge Route returned the
+expected live and ready payloads, and PostgreSQL's PVC was bound through the
+project's default storage class.
+
+A flow created directly through one pod completed as `success`, was read from
+the other pod, and a same-key retry through that peer returned the same durable
+run ID. During a 300-second delay, a normal pod deletion left the peer ready,
+cooperatively changed the run from `running` to `cancelled`, and restored two
+ready replicas. A second delay was then subjected to forced zero-grace pod
+deletion. The peer remained ready, a replacement became ready immediately, and
+the abandoned run changed from `running` to `stalled` after about 110 seconds,
+inside the documented 90–120 second lease/reaper window. The Route still
+returned ready afterward, and the PDB reported two healthy replicas with one
+allowed voluntary disruption.
+
+`docs/REPLICA_DEPLOYMENT.md` records the observed contract and limitations;
+`deploy/openshift/README.md` documents secret-safe setup, minimal-source build,
+admitted-policy inspection, lifecycle checks, and exact cleanup. After the
+acceptance, only the named manifest resources, generated Secret, and canary
+Build objects were deleted. Exact-name checks found no canary resources; the
+project itself and unrelated workloads were not deleted. This is live evidence
+for one shared Developer Sandbox cluster, SCC, ingress path, and storage class,
+not proof for other operators, quotas, network policies, node failure modes, or
+long-duration production availability.

@@ -82,7 +82,13 @@ platform-specific rollout timing. Validate those with a canary deployment.
 
 ## Railway
 
+- The repository `railway.json` selects the Dockerfile, checks
+  `/health/ready`, overlaps deployments for five seconds, and gives SIGTERM 60
+  seconds before Railway sends SIGKILL.
 - Run at least two replicas with PostgreSQL or Redis state and durable events.
+- Point both `IRONFLOW_STORE_URL` and `IRONFLOW_EVENT_STORE_URL` at a private
+  reference variable such as `${{Postgres.DATABASE_URL}}`; do not copy the
+  rendered credential into source or a local deployment file.
 - Set `IRONFLOW_REPLICA_MODE=true` and do not attach a Railway volume to the
   IronFlow service.
 - Use `/health/ready` as the deployment healthcheck.
@@ -91,14 +97,36 @@ platform-specific rollout timing. Validate those with a canary deployment.
 - Use continuous external monitoring in addition to Railway's deployment-time
   healthcheck.
 
+For a canary, first deploy the same revision as two independently addressable
+services sharing the database. That makes cross-process create/read and
+idempotency assertions deterministic. Then temporarily scale one service to two
+Railway replicas and use Railway HTTP telemetry's deployment-instance IDs to
+confirm that requests reached both instances. Restore the intended scale after
+the test. Never print `railway variable list --json` or `--kv` output in logs;
+both forms contain rendered secret values.
+
 ## OpenShift
 
-The image's writable paths are root-group writable and it can run with an
-arbitrary namespace UID. A representative pod policy is:
+The image's writable paths are root-group writable and it can run with the
+arbitrary UID assigned by OpenShift's restricted SCC. Do not set a fixed
+`runAsUser` solely for IronFlow and do not grant `anyuid`.
+
+[`deploy/openshift/canary.yaml`](../deploy/openshift/canary.yaml) is a
+namespace-scoped acceptance deployment: an internal binary build, disposable
+PostgreSQL PVC, two IronFlow replicas, health probes, edge-TLS Route, and a
+PodDisruptionBudget. It intentionally omits credentials. Create the referenced
+`ironflow-canary-secrets` Secret through the platform secret boundary before
+applying it. See
+[`deploy/openshift/README.md`](../deploy/openshift/README.md) for the build,
+inspection, failure, and exact cleanup procedure.
+
+The production pod policy is equivalent to:
 
 ```yaml
 spec:
-  terminationGracePeriodSeconds: 60
+  terminationGracePeriodSeconds: 40
+  securityContext:
+    seccompProfile: { type: RuntimeDefault }
   containers:
     - name: ironflow
       securityContext:
@@ -113,10 +141,29 @@ spec:
         httpGet: { path: /health/live, port: 3000 }
       startupProbe:
         httpGet: { path: /health/ready, port: 3000 }
-        failureThreshold: 30
+        failureThreshold: 60
         periodSeconds: 2
 ```
 
-Do not set a fixed `runAsUser` solely for IronFlow and do not grant `anyuid`.
-Mount writable data only when a node explicitly needs it; shared run/event
-state still belongs in PostgreSQL or Redis.
+The canary uses a 5-second application shutdown grace, so the 40-second pod
+window covers cancellation finalization and bounded connection shutdown. Keep
+the platform window at least `IRONFLOW_SHUTDOWN_GRACE_SECONDS + 25` seconds when
+using another value. `/tmp` is a size-limited memory-backed volume; the root
+filesystem remains read-only. Mount other writable data only when a node
+explicitly needs it. Shared run/event state still belongs in PostgreSQL or
+Redis.
+
+On 2026-08-02, the manifest was exercised in a shared Red Hat Developer Sandbox
+running OpenShift 4.21. The admitted pods used `restricted-v2`, namespace UID
+`1004800000`, `RuntimeDefault` seccomp, an effective capability mask of zero,
+and a read-only root mount. The edge Route stayed ready across graceful and
+forced pod replacement. PostgreSQL-backed create/read and idempotent retry
+worked across two pods; graceful deletion cancelled the owned run, while a
+forced deletion left it for peer reconciliation and it became `stalled` after
+about 110 seconds.
+
+That canary proves the tested namespace, SCC, Route, and process lifecycle. It
+does not prove another cluster's operators, quotas, network policies, storage
+class, ingress configuration, or long-duration availability. A PDB protects
+against supported voluntary disruptions; it does not prevent direct or forced
+pod deletion, node loss, or simultaneous infrastructure failure.
