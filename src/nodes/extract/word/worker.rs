@@ -1,10 +1,9 @@
-use std::path::PathBuf;
-
 use anyhow::Result;
 
 use super::comments::{attach_comment_anchors, parse_docx_comments, validated_comment_ids};
 use super::content::format_docx_content;
 use super::metadata::extract_docx_metadata;
+use crate::artifacts::FileSource;
 use crate::engine::types::NodeOutput;
 use crate::nodes::extract::docx_parser::{
     parse_docx_blocks, parse_numbering_defs, parse_theme_colors,
@@ -14,7 +13,7 @@ use crate::nodes::extract::resource::{Budget, Limits};
 use crate::util::execution::ExecutionControl;
 
 pub(super) struct Request {
-    pub(super) path: PathBuf,
+    pub(super) source: FileSource,
     pub(super) format: String,
     pub(super) output_key: String,
     pub(super) metadata_key: Option<String>,
@@ -24,7 +23,7 @@ pub(super) struct Request {
 pub(super) fn extract(request: Request, execution: ExecutionControl) -> Result<NodeOutput> {
     let limits = Limits::current();
     let mut budget = Budget::new("extract_word", limits, &execution);
-    let mut archive = Archive::open(&request.path, "extract_word", limits, &execution)?;
+    let mut archive = Archive::open(&request.source, "extract_word", limits, &execution)?;
 
     let numbering = archive
         .with_optional_xml("word/numbering.xml", &execution, |reader| {

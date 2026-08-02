@@ -13,6 +13,7 @@ Extract text and metadata from an HTML file.
 | `metadata_key` | string | no | — | If set, HTML metadata is stored under this context key. |
 
 > Providing both `path` and `source_key` is an error.
+> Artifact inputs are opened and SHA-256 verified inside the tracked blocking worker; extraction reads that same handle rather than a resolved store pathname.
 > The `format` parameter only accepts `"text"` or `"markdown"`; any other value is rejected.
 > Present `format`, `output_key`, and `metadata_key` values must be strings; a value of the wrong type is rejected instead of being treated as absent.
 > When `metadata_key` is set, it must differ from `output_key`; key collisions are rejected before extraction begins.
@@ -26,8 +27,8 @@ Extract text and metadata from an HTML file.
 
 - The input must be a regular file and valid UTF-8. `IRONFLOW_MAX_FILE_BYTES`
   (default `52428800`, 50 MiB) bounds both its declared size and actual bytes
-  read. On Unix, IronFlow also refuses to follow a final path-component
-  symlink; other platforms enforce the opened-handle regular-file check.
+  read. On Unix and Windows, IronFlow also refuses to follow a final
+  path-component symlink/reparse point; other platforms enforce the opened-handle regular-file check.
 - `IRONFLOW_MAX_EXTRACT_ITEMS` (default `250000`) is a cumulative structural
   budget for the call. For HTML it counts markup items, detected as `<`
   markers while scanning the input.

@@ -11,7 +11,7 @@ use crate::util::execution::ExecutionControl;
 use super::ArtifactRef;
 use super::bounded_writer::BoundedArtifactWriter;
 use super::filesystem::{self, TempArtifact};
-use super::integrity::{hash_reader, inspect_regular, verify_existing};
+use super::integrity::{hash_reader, verify_existing};
 use super::reference::digest_from_uri;
 
 pub const DEFAULT_ARTIFACT_DIR: &str = "data/artifacts";
@@ -169,15 +169,22 @@ impl LocalArtifactStore {
         ArtifactRef::from_digest(digest, size, mime_type)
     }
 
-    /// Resolve a canonical artifact URI to an existing regular file.
+    /// Resolve a canonical artifact URI for administrative inspection.
+    ///
+    /// Consumers must use [`Self::open_uri`] so the verified handle, rather
+    /// than this mutable pathname, is passed to the parser.
     pub fn resolve_uri(&self, uri: &str) -> Result<PathBuf> {
         let digest = digest_from_uri(uri)?;
         let path = self.digest_directory.join(digest);
-        inspect_regular(&path)?;
+        let file = crate::util::bounded_read::open_regular_file(&path, "artifact")?;
+        drop(file);
         Ok(path)
     }
 
-    /// Resolve and validate a serialized artifact descriptor.
+    /// Resolve and size-check a descriptor for administrative inspection.
+    ///
+    /// This does not authenticate bytes at the returned mutable pathname.
+    /// Consumers must use [`Self::open`] or [`Self::verified_path_lease`].
     pub fn resolve(&self, artifact: &ArtifactRef) -> Result<PathBuf> {
         artifact.validate()?;
         let path = self.resolve_uri(&artifact.artifact_uri)?;
@@ -191,22 +198,46 @@ impl LocalArtifactStore {
         Ok(path)
     }
 
-    /// Open a descriptor after validating its URI, type, and size.
-    pub fn open(&self, artifact: &ArtifactRef) -> Result<File> {
+    /// Open and cryptographically verify a descriptor, returning the same
+    /// rewound handle that was hashed.
+    pub fn open(&self, artifact: &ArtifactRef, execution: &ExecutionControl) -> Result<File> {
         artifact.validate()?;
-        let path = self.resolve_uri(&artifact.artifact_uri)?;
-        let file = crate::util::bounded_read::open_regular_file(&path, "artifact")?;
+        self.open_digest(&artifact.sha256, Some(artifact.size_bytes), execution)
+    }
+
+    /// Open and verify a canonical artifact URI, returning the same rewound
+    /// handle that was hashed.
+    pub fn open_uri(&self, uri: &str, execution: &ExecutionControl) -> Result<File> {
+        let digest = digest_from_uri(uri)?;
+        self.open_digest(digest, None, execution)
+    }
+
+    fn open_digest(
+        &self,
+        digest: &str,
+        expected_size: Option<u64>,
+        execution: &ExecutionControl,
+    ) -> Result<File> {
+        execution.checkpoint()?;
+        let path = self.digest_directory.join(digest);
+        let mut file = crate::util::bounded_read::open_regular_file(&path, "artifact")?;
         let actual = file.metadata()?.len();
-        if actual != artifact.size_bytes {
+        if expected_size.is_some_and(|expected| expected != actual) {
             bail!(
                 "artifact size mismatch: descriptor says {}, stored file is {actual}",
-                artifact.size_bytes
+                expected_size.expect("checked as present")
             );
         }
+        let computed = hash_reader(&mut file, actual, execution)?;
+        if computed != digest {
+            bail!("stored artifact failed digest verification");
+        }
+        file.rewind()?;
+        execution.checkpoint()?;
         Ok(file)
     }
 
-    fn create_temporary(&self) -> Result<TempArtifact> {
+    pub(super) fn create_temporary(&self) -> Result<TempArtifact> {
         for _ in 0..8 {
             let path = self
                 .digest_directory

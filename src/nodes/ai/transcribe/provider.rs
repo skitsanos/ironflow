@@ -171,7 +171,7 @@ mod tests {
 
     fn config_for(provider: Provider, base_url: &str) -> TranscribeConfig {
         TranscribeConfig {
-            path: "/tmp/a.mp3".to_string(),
+            source: crate::artifacts::FileSource::path("/tmp/a.mp3"),
             provider,
             model: "whisper-1".to_string(),
             api_key: "test-key".to_string(),

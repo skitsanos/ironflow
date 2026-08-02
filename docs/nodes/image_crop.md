@@ -17,6 +17,7 @@ Crop a single image file.
 | `output_key` | string | no | `"cropped_image"` | Prefix for the generated context output keys. |
 
 > If both `path` and `source_key` are provided, execution fails.
+> Artifact inputs are opened and SHA-256 verified inside the tracked blocking worker; decoding consumes that same rewound handle rather than a resolved store pathname.
 
 ## Context Output
 

@@ -13,6 +13,7 @@ Extract typed rows from an Excel (`.xlsx`) workbook, one sheet or every sheet.
 | `output_key` | string | no | `"content"` | Context key where the extracted rows are stored. |
 
 > Providing both `path` and `source_key` is an error.
+> Artifact inputs are opened and SHA-256 verified inside the tracked blocking worker; the same rewound file handle is passed through XLSX preflight and Calamine, never a resolved store pathname.
 > A workbook containing a sheet literally named `"0"` stays reachable by passing the string `"0"` for `sheet` rather than the number `0`.
 > `has_header` accepts a native boolean or an interpolated boolean spelling (`true`/`false`, `yes`/`no`, `on`/`off`, or `1`/`0`, case-insensitive). A present invalid value is rejected instead of silently selecting the default.
 > A present `output_key` must be a string; a value of another type is rejected instead of silently selecting `content`.
@@ -97,8 +98,8 @@ attacker-sized string table before ordinary cell/output accounting begins.
 Breaching any of these ceilings raises an error naming the offending sheet (where applicable), the observed count, the limit, and the environment variable to raise.
 
 The input must resolve to a regular file; FIFOs and devices are rejected before
-ZIP parsing. On Unix, IronFlow also refuses to follow a final path-component
-symlink; other platforms enforce the opened-handle regular-file check. A
+ZIP parsing. On Unix and Windows, IronFlow also refuses to follow a final
+path-component symlink/reparse point; other platforms enforce the opened-handle regular-file check. A
 malformed, oversized, or unreadable present part fails the call rather than
 producing partial rows.
 

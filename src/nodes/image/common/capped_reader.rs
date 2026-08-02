@@ -1,6 +1,5 @@
 use std::fs::File;
 use std::io::{Error, ErrorKind, Read, Result as IoResult, Seek, SeekFrom};
-use std::path::Path;
 
 use anyhow::Result;
 
@@ -15,19 +14,18 @@ pub(crate) struct CappedFile {
 }
 
 impl CappedFile {
-    pub(crate) fn open(
-        path: &Path,
+    pub(crate) fn from_file(
+        file: File,
+        label: String,
         limit: u64,
-        label: &str,
         limit_name: &'static str,
         execution: &ExecutionControl,
     ) -> Result<Self> {
         execution.checkpoint()?;
-        let file = crate::util::bounded_read::open_regular_file(path, label)?;
         let reader = Self {
             file,
             limit,
-            label: path.display().to_string(),
+            label,
             limit_name,
             execution: execution.clone(),
         };
@@ -126,10 +124,11 @@ mod tests {
         let path = directory.path().join("image.bin");
         std::fs::write(&path, b"1234").unwrap();
         crate::util::execution::run_tracked_blocking_step(move |execution| {
-            let mut reader = CappedFile::open(
-                &path,
+            let file = crate::util::bounded_read::open_regular_file(&path, "test")?;
+            let mut reader = CappedFile::from_file(
+                file,
+                path.display().to_string(),
                 4,
-                "test",
                 "IRONFLOW_MAX_IMAGE_ENCODED_BYTES",
                 &execution,
             )?;

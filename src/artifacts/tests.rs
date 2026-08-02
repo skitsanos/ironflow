@@ -6,6 +6,8 @@ use std::time::Duration;
 use super::{ArtifactRef, LocalArtifactStore};
 use crate::util::execution::run_blocking_step;
 
+mod read_security;
+
 async fn store_bytes(
     store: LocalArtifactStore,
     bytes: Vec<u8>,
@@ -45,7 +47,12 @@ async fn streams_round_trip_from_reader_and_path() {
             .permissions()
             .readonly()
     );
-    let mut opened = store.open(&artifact).unwrap();
+    let open_store = store.clone();
+    let open_artifact = artifact.clone();
+    let mut opened =
+        run_blocking_step(move |execution| open_store.open(&open_artifact, &execution))
+            .await
+            .unwrap();
     let mut opened_bytes = Vec::new();
     opened.read_to_end(&mut opened_bytes).unwrap();
     assert_eq!(opened_bytes, expected);
@@ -238,25 +245,6 @@ fn rejects_malformed_and_traversing_uris() {
         mime_type: Some(" image/png".to_owned()),
     };
     assert!(invalid_mime.validate().is_err());
-}
-
-#[cfg(unix)]
-#[test]
-fn resolver_rejects_a_symlink_at_a_valid_digest_path() {
-    use std::os::unix::fs::symlink;
-
-    let directory = tempfile::tempdir().unwrap();
-    let store = LocalArtifactStore::new(directory.path().join("artifacts")).unwrap();
-    let outside = directory.path().join("outside");
-    std::fs::write(&outside, b"outside").unwrap();
-    let digest = "a".repeat(64);
-    symlink(&outside, store.root().join("sha256").join(&digest)).unwrap();
-
-    let error = store
-        .resolve_uri(&format!("artifact://sha256/{digest}"))
-        .unwrap_err()
-        .to_string();
-    assert!(error.contains("not a regular file"), "{error}");
 }
 
 fn assert_digest_directory_empty(root: &std::path::Path) {

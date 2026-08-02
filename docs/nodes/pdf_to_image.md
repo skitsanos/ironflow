@@ -14,6 +14,7 @@ Render PDF pages to images using the native `pdfium` library at runtime.
 | `output_key` | string | no | `"images"` | Context key where the array of rendered image objects is stored. |
 
 > Providing both `path` and `source_key` is an error.
+> Artifact inputs are opened and SHA-256 verified inside the tracked blocking worker; PDFium reads that same rewound handle rather than a resolved store pathname.
 > Requires the `pdfium` native library. Set `PDFIUM_LIB_PATH` env var, place `libpdfium` in the working directory, or install it system-wide.
 
 ## Context Output

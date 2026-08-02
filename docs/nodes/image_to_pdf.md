@@ -43,6 +43,10 @@ Output wrappers from `pdf_to_image` are also accepted directly: set
 array is resolved without Base64. For one `pdf_thumbnail` result, place the
 thumbnail object in a context array before passing its key.
 
+Artifact inputs are opened and SHA-256 verified inside the tracked blocking
+worker; encoding reads that same rewound handle rather than a resolved store
+pathname.
+
 ## Context Output
 
 - `<output_key>` (default `pdf_path`) — output PDF path.

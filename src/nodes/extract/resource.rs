@@ -1,8 +1,8 @@
 use std::io::{self, Read, Write};
-use std::path::Path;
 
 use anyhow::{Context, Result};
 
+use crate::artifacts::FileSource;
 use crate::engine::types::NodeOutput;
 use crate::util::execution::ExecutionControl;
 
@@ -28,18 +28,18 @@ impl Limits {
 }
 
 pub(super) fn read_file(
-    path: &Path,
+    source: &FileSource,
     max_bytes: u64,
     operation: &str,
     execution: &ExecutionControl,
 ) -> Result<Vec<u8>> {
     execution.checkpoint()?;
-    let mut file = crate::util::bounded_read::open_regular_file(path, operation)?;
+    let (mut file, label) = source.open(operation, execution)?.into_parts();
     let declared = file.metadata()?.len();
     if declared > max_bytes {
         anyhow::bail!(
             "{operation}: '{}' is {declared} bytes, exceeds the {max_bytes} byte limit",
-            path.display()
+            label
         );
     }
 
@@ -53,7 +53,7 @@ pub(super) fn read_file(
         let request = chunk.len().min(remaining.try_into().unwrap_or(usize::MAX));
         let read = file
             .read(&mut chunk[..request])
-            .with_context(|| format!("{operation}: failed to read '{}'", path.display()))?;
+            .with_context(|| format!("{operation}: failed to read '{label}'"))?;
         if read == 0 {
             break;
         }
@@ -65,18 +65,15 @@ pub(super) fn read_file(
             );
             announced_read = true;
         }
-        bytes.try_reserve_exact(read).with_context(|| {
-            format!(
-                "{operation}: cannot reserve memory for '{}'",
-                path.display()
-            )
-        })?;
+        bytes
+            .try_reserve_exact(read)
+            .with_context(|| format!("{operation}: cannot reserve memory for '{}'", label))?;
         bytes.extend_from_slice(&chunk[..read]);
     }
     if bytes.len() as u64 > max_bytes {
         anyhow::bail!(
             "{operation}: '{}' exceeds the {max_bytes} byte limit",
-            path.display()
+            label
         );
     }
     execution.checkpoint()?;
@@ -84,13 +81,13 @@ pub(super) fn read_file(
 }
 
 pub(super) fn read_string(
-    path: &Path,
+    source: &FileSource,
     max_bytes: u64,
     operation: &str,
     execution: &ExecutionControl,
 ) -> Result<String> {
-    String::from_utf8(read_file(path, max_bytes, operation, execution)?)
-        .with_context(|| format!("{operation}: '{}' is not valid UTF-8", path.display()))
+    String::from_utf8(read_file(source, max_bytes, operation, execution)?)
+        .with_context(|| format!("{operation}: input is not valid UTF-8"))
 }
 
 pub(super) struct Budget<'a> {

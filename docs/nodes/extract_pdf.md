@@ -13,6 +13,7 @@ Extract text and metadata from a PDF document.
 | `metadata_key` | string | no | — | If set, PDF metadata is stored under this context key. |
 
 > Providing both `path` and `source_key` is an error.
+> Artifact inputs are opened and SHA-256 verified inside the tracked blocking worker; PDF parsing consumes that same rewound handle rather than a resolved store pathname.
 > The `format` parameter only accepts `"text"` or `"markdown"`; any other value is rejected.
 > Present `format`, `output_key`, and `metadata_key` values must be strings; a value of the wrong type is rejected instead of being treated as absent.
 > When `metadata_key` is set, it must differ from `output_key`; key collisions are rejected before extraction begins.

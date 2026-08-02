@@ -814,8 +814,12 @@ The local artifact store streams sources to private staging files (mode `0600`
 on Unix and the configured directory's inherited ACL elsewhere) while enforcing
 byte limits, hashing, and checking cancellation. It publishes them
 atomically as immutable `IRONFLOW_ARTIFACT_DIR/sha256/<digest>` files and
-deduplicates equal content. Extraction and image nodes resolve either the full
-descriptor or its canonical URI. The store intentionally has no automatic
+deduplicates equal content. Extraction, image/PDF, and transcription nodes
+preserve either the full descriptor or its canonical URI until their tracked
+blocking worker opens the artifact. The worker refuses links and non-regular
+files, hashes the opened handle, compares that digest (and descriptor size when
+present), rewinds it, and passes that same handle to the parser or decoder. The
+store intentionally has no automatic
 eviction because a completed task or recovered run can still reference an
 artifact; retention is an operator concern. Publication is per artifact rather
 than transactional across a node, so a later parser/page failure can leave an
@@ -830,14 +834,29 @@ do not imply zero-copy processing. Consumers can still allocate decoded pixel
 buffers, parser state, or semantic output subject to their node-specific
 limits.
 
-The local backend treats its configured directory as a trusted storage
-boundary. Publication and deduplication hash content, while reads validate the
-canonical URI, regular-file type, and descriptor size; they do not re-hash the
-file on every path resolution. Operators must prevent workflows and unrelated
+The local backend still treats its configured directory as a trusted process
+boundary. Verified reads prevent same-size path replacement and pathname
+time-of-check/time-of-use substitution from silently changing the input, but a
+hostile process with the same OS identity can mutate an already-open inode
+during or after verification. Operators must prevent workflows and unrelated
 same-identity processes from mutating that directory. A flow execution identity
 that can run arbitrary shell/file operations is not isolated from a store owned
-by the same OS identity; stronger multi-tenant integrity requires a separate
-identity, sandbox, or artifact service.
+by the same OS identity. Hostile multi-tenant deployments should use separate
+execution identities and storage ACLs, or a separately authenticated artifact
+service that returns authenticated content streams rather than shared paths.
+IronFlow does not currently ship that remote backend. Such a backend must
+authenticate the caller and descriptor, stream with an explicit byte ceiling,
+verify SHA-256 before releasing the handle to a consumer, and define retention
+independently of workflow run state; merely putting the same mutable directory
+behind a network filesystem would retain the same process-trust problem.
+
+Handle-capable built-in consumers never receive the artifact store pathname.
+For a third-party library that accepts only a path, the store can create a
+private, random, read-only verified-path lease: it copies from the verified
+handle with a byte limit and cancellation checkpoints, keeps the leased handle
+open, and removes the pathname when the lease drops. The lease prevents store
+path replacement from redirecting the library, but does not isolate a process
+running under the same OS identity from mutating the leased inode.
 
 ## Concurrency Model
 

@@ -16,7 +16,7 @@ mod copy;
 mod create;
 mod extract;
 mod read;
-mod rooted;
+pub(crate) mod rooted;
 
 pub struct ZipCreateNode;
 

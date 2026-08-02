@@ -15,6 +15,10 @@ Overlay a semi-transparent watermark band on an image at a specified position.
 | `format` | string | no | inferred / `png` | `png` or `jpeg`/`jpg` |
 | `output_key` | string | no | `"image_watermark"` | Prefix for output values |
 
+Artifact inputs are opened and SHA-256 verified inside the tracked blocking
+worker; decoding consumes that same rewound handle rather than a resolved store
+pathname.
+
 ## Context Output
 
 - `<output_key>_path` — output file path

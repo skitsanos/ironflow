@@ -2,7 +2,6 @@
 
 use std::fs::File;
 use std::io::{Error, ErrorKind, Read, Result as IoResult};
-use std::path::Path;
 
 use anyhow::Result;
 use lopdf::Document;
@@ -10,24 +9,46 @@ use lopdf::Document;
 use crate::util::execution::ExecutionControl;
 
 pub(super) fn load_document(
-    path: &str,
+    source: &crate::artifacts::FileSource,
     operation: &str,
     execution: &ExecutionControl,
 ) -> Result<Document> {
+    load_document_bounded(
+        source,
+        operation,
+        crate::util::limits::max_pdf_bytes(),
+        execution,
+    )
+    .map(|loaded| loaded.document)
+}
+
+pub(super) struct LoadedPdf {
+    pub(super) document: Document,
+    pub(super) input_bytes: u64,
+}
+
+pub(super) fn load_document_bounded(
+    source: &crate::artifacts::FileSource,
+    operation: &str,
+    maximum: u64,
+    execution: &ExecutionControl,
+) -> Result<LoadedPdf> {
     execution.checkpoint()?;
-    let maximum = crate::util::limits::max_pdf_bytes();
-    let file = crate::util::bounded_read::open_regular_file(Path::new(path), operation)?;
+    let (file, label) = source.open(operation, execution)?.into_parts();
     let declared = file.metadata()?.len();
     if declared > maximum {
         anyhow::bail!(
-            "{operation}: PDF '{path}' is {declared} bytes, exceeds IRONFLOW_MAX_PDF_BYTES ({maximum})"
+            "{operation}: PDF '{label}' is {declared} bytes, exceeds IRONFLOW_MAX_PDF_BYTES ({maximum})"
         );
     }
     let reader = CappedReader::new(file, maximum, operation, execution);
     let document = Document::load_from(reader)
-        .map_err(|error| anyhow::anyhow!("{operation}: failed to load '{path}': {error:?}"))?;
+        .map_err(|error| anyhow::anyhow!("{operation}: failed to load '{label}': {error:?}"))?;
     execution.checkpoint()?;
-    Ok(document)
+    Ok(LoadedPdf {
+        document,
+        input_bytes: declared,
+    })
 }
 
 struct CappedReader<'a> {

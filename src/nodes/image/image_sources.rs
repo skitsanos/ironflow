@@ -11,7 +11,7 @@ pub(crate) use base64_admission::preflight_base64_bytes;
 
 #[derive(Debug)]
 pub(crate) enum ImageInput {
-    Path(String),
+    File(crate::artifacts::FileSource),
     Base64(String),
 }
 
@@ -121,8 +121,8 @@ fn parse_image_input(
     base64_admission: &mut Base64Admission,
 ) -> Result<ImageInput> {
     if value.is_string() {
-        return Ok(ImageInput::Path(
-            crate::util::node_config::resolve_path_value(value, ctx, node_name)?,
+        return Ok(ImageInput::File(
+            crate::util::file_source::parse_file_source(value, ctx, node_name)?,
         ));
     }
 
@@ -147,8 +147,8 @@ fn parse_image_input(
         let path = path
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("{node_name}: source 'path' must be a string"))?;
-        return Ok(ImageInput::Path(
-            crate::util::node_config::resolve_path_value(
+        return Ok(ImageInput::File(
+            crate::util::file_source::parse_file_source(
                 &serde_json::Value::String(path.to_owned()),
                 ctx,
                 node_name,
@@ -163,8 +163,8 @@ fn parse_image_input(
         return Ok(ImageInput::Base64(data.to_owned()));
     }
 
-    Ok(ImageInput::Path(
-        crate::util::node_config::resolve_path_value(value, ctx, node_name)?,
+    Ok(ImageInput::File(
+        crate::util::file_source::parse_file_source(value, ctx, node_name)?,
     ))
 }
 

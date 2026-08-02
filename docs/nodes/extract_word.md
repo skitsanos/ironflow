@@ -14,6 +14,7 @@ Extract text, metadata, or a structured representation from a Word (.docx) docum
 | `comments_key` | string | no | — | If set, document comments (from `word/comments.xml`) are stored under this context key as an array. See [Comments](#comments). |
 
 > Providing both `path` and `source_key` is an error.
+> Artifact inputs are opened and SHA-256 verified inside the tracked blocking worker; OOXML parsing consumes that same rewound handle rather than a resolved store pathname.
 > The `format` parameter accepts `"text"`, `"markdown"`, or `"json"`; any other value is rejected.
 > Present `format`, `output_key`, `metadata_key`, and `comments_key` values must be strings; a value of the wrong type is rejected instead of being treated as absent.
 > `output_key`, `metadata_key`, and `comments_key` must be pairwise distinct when the optional keys are set; collisions are rejected before extraction begins.
@@ -108,8 +109,8 @@ Run color is captured from `w:color`:
 
 - The input must be a regular file. Its raw size and central directory are
   bounded by `IRONFLOW_MAX_FILE_BYTES` (default `52428800`, 50 MiB) before the
-  ZIP library allocates archive metadata. On Unix, IronFlow also refuses to
-  follow a final path-component symlink; other platforms enforce the
+  ZIP library allocates archive metadata. On Unix and Windows, IronFlow also
+  refuses to follow a final path-component symlink/reparse point; other platforms enforce the
   opened-handle regular-file check.
 - The EOCD/ZIP64 preflight validates central-directory bounds and
   `IRONFLOW_MAX_ZIP_ENTRIES` (default `10000`). IronFlow then rejects duplicate

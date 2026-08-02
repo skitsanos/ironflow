@@ -18,6 +18,10 @@ pub struct ArtifactRef {
 }
 
 impl ArtifactRef {
+    pub(crate) fn validate_uri(uri: &str) -> Result<()> {
+        digest_from_uri(uri).map(|_| ())
+    }
+
     pub(crate) fn from_digest(
         sha256: String,
         size_bytes: u64,

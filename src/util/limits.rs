@@ -4,12 +4,14 @@
 //! Read paths should consult them before allocating unbounded amounts of memory.
 mod image;
 mod lua;
+mod pdf;
 mod xlsx;
 
 pub use image::*;
 pub use lua::{
     LuaExecutionLimits, apply_lua_limits, apply_lua_limits_with_control, collect_lua_garbage,
 };
+pub use pdf::*;
 pub use xlsx::{
     max_xlsx_archive_metadata_bytes, max_xlsx_cells, max_xlsx_output_bytes, max_xlsx_rows,
 };
@@ -44,17 +46,11 @@ const DEFAULT_MAX_ZIP_ENTRIES: u64 = 10_000;
 /// Default cap for total ZIP uncompressed bytes (512 MB).
 const DEFAULT_MAX_ZIP_UNCOMPRESSED_BYTES: u64 = 512 * 1024 * 1024;
 
-/// Default cap for PDF files loaded for rendering (100 MB).
-const DEFAULT_MAX_PDF_BYTES: u64 = 100 * 1024 * 1024;
-
 /// Default cumulative serialized output cap for document extraction (50 MiB).
 const DEFAULT_MAX_EXTRACT_OUTPUT_BYTES: u64 = 50 * 1024 * 1024;
 
 /// Default structural/work-item cap for one document extraction.
 const DEFAULT_MAX_EXTRACT_ITEMS: u64 = 250_000;
-
-/// Default page cap for text extraction from one PDF.
-const DEFAULT_MAX_PDF_EXTRACT_PAGES: u64 = 1_000;
 
 /// Whisper-style transcription APIs reject uploads above 25 MB. This is decimal
 /// 25 MB, not 25 MiB: a larger default would pass our pre-flight only for the
@@ -77,18 +73,6 @@ const DEFAULT_MAX_CONVERSION_DEPTH: u64 = 64;
 /// without recompiling (IF-058).
 const DEFAULT_MAX_CONVERSION_NODES: u64 = 100_000;
 
-/// Default cap for PDF pages rendered into artifacts in one node call.
-const DEFAULT_MAX_PDF_RENDER_PAGES: u64 = 25;
-
-/// Default cap for PDF pages split into separate output documents.
-const DEFAULT_MAX_PDF_SPLIT_PAGES: u64 = 1_000;
-
-/// Default cap for a rendered PDF page's pixels (25 megapixels).
-const DEFAULT_MAX_PDF_RENDER_PIXELS: u64 = 25_000_000;
-
-/// Default cap for PDF render DPI.
-const DEFAULT_MAX_PDF_DPI: u64 = 300;
-
 /// Default Lua instruction budget per Lua state.
 const DEFAULT_LUA_MAX_INSTRUCTIONS: u64 = 5_000_000;
 
@@ -104,7 +88,7 @@ const DEFAULT_MAX_FLOW_SOURCE_BYTES: u64 = 1024 * 1024;
 /// How often the Lua debug hook checks budgets.
 const DEFAULT_LUA_HOOK_INTERVAL: u64 = 10_000;
 
-fn env_u64(var: &str, default: u64) -> u64 {
+pub(super) fn env_u64(var: &str, default: u64) -> u64 {
     std::env::var(var)
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
@@ -180,10 +164,6 @@ pub fn max_zip_uncompressed_bytes() -> u64 {
     )
 }
 
-pub fn max_pdf_bytes() -> u64 {
-    env_u64("IRONFLOW_MAX_PDF_BYTES", DEFAULT_MAX_PDF_BYTES)
-}
-
 pub fn max_extract_output_bytes() -> u64 {
     env_u64(
         "IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES",
@@ -193,13 +173,6 @@ pub fn max_extract_output_bytes() -> u64 {
 
 pub fn max_extract_items() -> u64 {
     env_u64("IRONFLOW_MAX_EXTRACT_ITEMS", DEFAULT_MAX_EXTRACT_ITEMS)
-}
-
-pub fn max_pdf_extract_pages() -> u64 {
-    env_u64(
-        "IRONFLOW_MAX_PDF_EXTRACT_PAGES",
-        DEFAULT_MAX_PDF_EXTRACT_PAGES,
-    )
 }
 
 pub fn max_audio_bytes() -> u64 {
@@ -229,28 +202,6 @@ pub fn max_conversion_nodes() -> u64 {
         "IRONFLOW_MAX_CONVERSION_NODES",
         DEFAULT_MAX_CONVERSION_NODES,
     )
-}
-
-pub fn max_pdf_render_pages() -> u64 {
-    env_u64(
-        "IRONFLOW_MAX_PDF_RENDER_PAGES",
-        DEFAULT_MAX_PDF_RENDER_PAGES,
-    )
-}
-
-pub fn max_pdf_split_pages() -> u64 {
-    env_u64("IRONFLOW_MAX_PDF_SPLIT_PAGES", DEFAULT_MAX_PDF_SPLIT_PAGES)
-}
-
-pub fn max_pdf_render_pixels() -> u64 {
-    env_u64(
-        "IRONFLOW_MAX_PDF_RENDER_PIXELS",
-        DEFAULT_MAX_PDF_RENDER_PIXELS,
-    )
-}
-
-pub fn max_pdf_dpi() -> u64 {
-    env_u64("IRONFLOW_MAX_PDF_DPI", DEFAULT_MAX_PDF_DPI)
 }
 
 pub fn max_lua_instructions() -> Option<u64> {

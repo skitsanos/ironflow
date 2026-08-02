@@ -4,6 +4,6 @@ mod portable;
 mod unix;
 
 #[cfg(not(unix))]
-pub(super) use portable::RootedDir;
+pub(crate) use portable::RootedDir;
 #[cfg(unix)]
-pub(super) use unix::RootedDir;
+pub(crate) use unix::RootedDir;

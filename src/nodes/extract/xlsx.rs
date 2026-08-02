@@ -20,7 +20,8 @@ use serde_json::Value;
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
 use crate::util::execution::run_tracked_blocking_step;
-use crate::util::node_config::{config_bool_or, get_path};
+use crate::util::file_source::get_file_source;
+use crate::util::node_config::config_bool_or;
 
 use super::common::string_or;
 
@@ -37,12 +38,11 @@ impl Node for ExtractXlsxNode {
     }
 
     async fn execute(&self, config: &Value, ctx: &Context) -> Result<NodeOutput> {
-        let path = get_path(config, ctx, "extract_xlsx")?;
+        let source = get_file_source(config, ctx, "extract_xlsx")?;
         let has_header = config_bool_or(config, "has_header", ctx, true)?;
         let output_key = string_or(config, "output_key", "content", "extract_xlsx")?.to_string();
         let selector = config.get("sheet").cloned();
 
-        let file = std::path::PathBuf::from(&path);
         let limits = workbook::Limits {
             max_zip_bytes: crate::util::limits::max_zip_uncompressed_bytes(),
             max_zip_entries: crate::util::limits::max_zip_entries(),
@@ -52,7 +52,7 @@ impl Node for ExtractXlsxNode {
             max_output_bytes: crate::util::limits::max_xlsx_output_bytes(),
         };
         let extracted = run_tracked_blocking_step(move |execution| {
-            workbook::extract(&file, selector.as_ref(), has_header, limits, execution)
+            workbook::extract(&source, selector.as_ref(), has_header, limits, execution)
         })
         .await?;
 

@@ -148,7 +148,7 @@ async fn pdf_merge_missing_file_error() {
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(
-        err.contains("pdf_merge") && err.contains("failed to load"),
+        err.contains("pdf_merge") && err.contains("file.pdf"),
         "Error: {err}"
     );
 }

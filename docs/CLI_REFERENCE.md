@@ -809,7 +809,7 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_LLM_MAX_RESPONSE_BYTES` | `26214400` | Max LLM provider response body size; `0` disables |
 | `IRONFLOW_MAX_TRANSCRIBE_RESPONSE_BYTES` | `26214400` | Maximum transcription-provider response body. Checked while streaming even when `Content-Length` is absent or wrong; zero/invalid values retain the safe default. |
 | `IRONFLOW_MAX_HTTP_BODY_BYTES` | `52428800` | Maximum HTTP node response-body size |
-| `IRONFLOW_MAX_FILE_BYTES` | `52428800` | Maximum `read_file` / `write_file` payload size, streamed `s3_get_object` response body, HTML/SRT/VTT extraction input, and raw DOCX/PPTX archive size |
+| `IRONFLOW_MAX_FILE_BYTES` | `52428800` | Maximum `read_file` payload and final `write_file` size (including an existing file in append mode), streamed `s3_get_object` response body, HTML/SRT/VTT extraction input, and raw DOCX/PPTX archive size |
 | `IRONFLOW_MAX_IMAGE_ENCODED_BYTES` | `52428800` | Maximum encoded bytes for one image path, artifact, or decoded Base64 source, checked before image pixel allocation |
 | `IRONFLOW_MAX_IMAGE_PIXELS` | `25000000` | Maximum decoded pixels in one source image or generated image transform |
 | `IRONFLOW_MAX_IMAGE_DECODE_ALLOCATION_BYTES` | `134217728` | Maximum decoder-managed allocation and admitted image working-buffer estimate; transforms check retained source plus known output buffers, while `image_to_pdf` also includes encoded, conversion, and compression buffers for non-JPEG sources |
@@ -826,7 +826,11 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_MAX_DIRECTORY_DEPTH` | `32` | Maximum recursive depth for directory listings, ZIP source traversal, and ZIP extraction paths |
 | `IRONFLOW_MAX_ZIP_ENTRIES` | `10000` | Maximum entries processed by archive nodes and OOXML extractors (`extract_word`, `extract_pptx`, `extract_xlsx`); `zip_create` counts every visited child file and directory |
 | `IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES` | `536870912` | Maximum total uncompressed bytes processed by archive nodes. For DOCX/PPTX it caps cumulative declared package bytes and cumulative actual bytes of parts read; for `extract_xlsx` it also caps the raw workbook before ZIP metadata allocation |
-| `IRONFLOW_MAX_PDF_BYTES` | `104857600` | Maximum PDF file size accepted by rendering, metadata, splitting, and `extract_pdf` nodes; capped readers reject post-open growth where the parser API permits |
+| `IRONFLOW_MAX_PDF_BYTES` | `104857600` | Maximum size of each PDF accepted by rendering, metadata, splitting, merging, and `extract_pdf`; capped readers reject post-open growth where the parser API permits |
+| `IRONFLOW_MAX_PDF_MERGE_FILES` | `100` | Maximum number of sources admitted by one `pdf_merge` call before source descriptors are collected |
+| `IRONFLOW_MAX_PDF_MERGE_BYTES` | `536870912` | Maximum cumulative PDF input bytes and maximum staged merged output bytes for one `pdf_merge` call |
+| `IRONFLOW_MAX_PDF_MERGE_PAGES` | `2000` | Maximum cumulative pages admitted by one `pdf_merge` call |
+| `IRONFLOW_MAX_PDF_MERGE_OBJECTS` | `250000` | Maximum retained merged PDF graph objects, including the merged page tree and catalog; shared objects within one source are counted once |
 | `IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES` | `52428800` | Maximum complete serialized `NodeOutput` for one `extract_html`, `extract_pdf`, `extract_word`, `extract_pptx`, `extract_srt`, or `extract_vtt` call; includes configured content/alias, metadata, comments, cues, and artifact descriptors as applicable, but not the artifact files themselves |
 | `IRONFLOW_MAX_EXTRACT_ITEMS` | `250000` | Maximum cumulative structural/work items for one non-XLSX extraction call; units are format-specific and documented on each extract node |
 | `IRONFLOW_MAX_PDF_EXTRACT_PAGES` | `1000` | Maximum pages accepted by one `extract_pdf` call before text extraction begins |
@@ -862,9 +866,15 @@ state stores only the descriptor, not its file. Multi-host deployments and
 recovered runs therefore require `IRONFLOW_ARTIFACT_DIR` to point at durable
 storage mounted at the same path on every worker. Inline Base64 remains an
 explicit compatibility/provider-boundary mode where a node documents it.
-The directory is a trusted local-storage boundary: protect it from mutation by
-workflow and unrelated same-identity processes. Descriptor resolution validates
-URI syntax, regular-file type, and size but does not re-hash every read.
+The directory is a trusted process boundary: protect it from mutation by
+workflow and unrelated same-identity processes. Artifact-aware consumers open
+inside their tracked blocking worker, refuse links and non-regular files, hash
+the opened handle, compare it with the URI/descriptor, rewind it, and pass that
+same handle to the parser. This detects same-size path replacement and avoids a
+path-resolution/open race, but it cannot isolate an already-open inode from a
+hostile process with the same OS identity. Hostile multi-tenant deployments
+need separate execution identities and storage ACLs, or a separately
+authenticated artifact service.
 
 `IRONFLOW_MAX_XLSX_CELLS` is deliberately kept below `IRONFLOW_MAX_CONVERSION_NODES`: converting an extracted sheet into Lua costs roughly `rows * (cols + 1)` conversion nodes, so a cell ceiling that never fires before the conversion budget does would let oversized workbooks fail deep inside the JSON-to-Lua converter (an error naming a JSON path) instead of at `extract_xlsx` parse time (an error naming the sheet). Raising one of these two limits without the other may simply move where an oversized workbook fails rather than allow it through.
 

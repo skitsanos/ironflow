@@ -7,7 +7,7 @@ Transcribe an audio or video file to VTT, SRT, plain text, or verbose JSON via O
 | Parameter      | Type   | Required    | Default            | Description                                                                                                                                                                          |
 |----------------|--------|-------------|---------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `path`         | string | conditional | --                  | Path to the audio/video file to transcribe. Supports `${ctx.key}` interpolation. Mutually exclusive with `source_key`; exactly one of the two is required.                          |
-| `source_key`   | string | conditional | --                  | Context key holding the file path as a string. Mutually exclusive with `path`.                                                                                                       |
+| `source_key`   | string | conditional | --                  | Context key holding a file path, artifact URI, or artifact descriptor. Mutually exclusive with `path`.                                                                              |
 | `provider`     | string | no          | `"openai"`          | Transcription backend: `"openai"`, `"openai_compatible"`, or `"azure"`.                                                                                                              |
 | `format`       | string | no          | `"vtt"`             | Transcript format: `"vtt"`, `"srt"`, `"text"`, or `"json"`. See [Formats](#formats) below.                                                                                            |
 | `model`        | string | no          | `"whisper-1"`       | Model name. Supports `${ctx.key}` interpolation; has no environment-variable fallback. For `provider = "azure"` this is the **deployment name**, not a model ID — see [Azure](#azure). |
@@ -24,14 +24,20 @@ Transcribe an audio or video file to VTT, SRT, plain text, or verbose JSON via O
 The audio file is read from disk before it is uploaded, capped at
 `IRONFLOW_MAX_AUDIO_BYTES` (default 25,000,000 bytes / 25 MB). A file over the
 cap fails the step before any network request is made. The opened handle must
-be a regular file. On Unix, non-blocking/no-follow open rejects a FIFO, device,
-directory, or final symlink without reading it. The provider response is
+be a regular file. Unix non-blocking/no-follow open rejects a FIFO, device,
+directory, or final symlink without reading it; Windows refuses final reparse
+points. The provider response is
 independently capped at `IRONFLOW_MAX_TRANSCRIBE_RESPONSE_BYTES` (default
 26,214,400 bytes / 25 MiB). IronFlow checks `Content-Length` when present and
 also enforces the cap chunk by chunk, so a chunked or misreported response
 cannot be buffered without bound. Oversized success and error bodies fail
 before parsing or `output_file` handling. See
 [CLI_REFERENCE.md](../CLI_REFERENCE.md) for both variables.
+
+Artifact inputs retain their identity until the tracked blocking reader opens
+them. IronFlow hashes the opened handle, compares it with the URI/descriptor,
+rewinds it, and reads the upload bytes from that same handle; it never flattens
+an artifact into a trusted store pathname.
 
 Provider redirects are followed only when the target keeps the original
 scheme, host, and effective port. A cross-origin redirect fails the step before

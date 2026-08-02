@@ -13,6 +13,10 @@ Rotate a single image by 90-degree increments.
 | `format` | string | no | inferred / `png` | `png` or `jpeg`/`jpg` |
 | `output_key` | string | no | `"rotated_image"` | Prefix for output values |
 
+Artifact inputs are opened and SHA-256 verified inside the tracked blocking
+worker; decoding consumes that same rewound handle rather than a resolved store
+pathname.
+
 ## Context Output
 
 - `<output_key>` — output file path

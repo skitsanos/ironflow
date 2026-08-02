@@ -1,101 +1,15 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use base64::Engine;
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
-use crate::util::node_config::config_bool;
 
 mod read;
+mod write;
 
 pub use read::ReadFileNode;
-
-pub struct WriteFileNode;
-
-#[async_trait]
-impl Node for WriteFileNode {
-    fn node_type(&self) -> &str {
-        "write_file"
-    }
-
-    fn description(&self) -> &str {
-        "Write content to a file (text or binary from base64)"
-    }
-
-    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
-        let path = config
-            .get("path")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("write_file requires 'path' parameter"))?;
-
-        let path = interpolate_ctx(path, ctx);
-        let encoding = config
-            .get("encoding")
-            .and_then(|v| v.as_str())
-            .unwrap_or("text");
-        let append = config_bool(config, "append", ctx).unwrap_or(false);
-
-        // Resolve content bytes: from `content` string or `source_key` context value
-        let bytes: Vec<u8> =
-            if let Some(source_key) = config.get("source_key").and_then(|v| v.as_str()) {
-                let val = ctx
-                    .get(source_key)
-                    .ok_or_else(|| anyhow::anyhow!("Key '{}' not found in context", source_key))?;
-                let s = val
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Value at '{}' must be a string", source_key))?;
-                match encoding {
-                    "base64" => base64::engine::general_purpose::STANDARD
-                        .decode(s)
-                        .map_err(|e| {
-                            anyhow::anyhow!("Failed to decode base64 from '{}': {}", source_key, e)
-                        })?,
-                    "text" => s.as_bytes().to_vec(),
-                    other => anyhow::bail!(
-                        "write_file: unsupported encoding '{}'. Must be 'text' or 'base64'.",
-                        other
-                    ),
-                }
-            } else {
-                let content = config.get("content").and_then(|v| v.as_str()).unwrap_or("");
-                let content = interpolate_ctx(content, ctx);
-                content.into_bytes()
-            };
-
-        let max_bytes = crate::util::limits::max_file_bytes();
-        if bytes.len() as u64 > max_bytes {
-            anyhow::bail!(
-                "write_file: payload {} bytes exceeds limit {} (set IRONFLOW_MAX_FILE_BYTES to raise)",
-                bytes.len(),
-                max_bytes
-            );
-        }
-
-        if append {
-            use tokio::io::AsyncWriteExt;
-            let mut file = tokio::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&path)
-                .await?;
-            file.write_all(&bytes).await?;
-        } else {
-            tokio::fs::write(&path, &bytes).await?;
-        }
-
-        let mut output = NodeOutput::new();
-        output.insert(
-            "write_file_path".to_string(),
-            serde_json::Value::String(path),
-        );
-        output.insert(
-            "write_file_success".to_string(),
-            serde_json::Value::Bool(true),
-        );
-        Ok(output)
-    }
-}
+pub use write::WriteFileNode;
 
 pub struct CopyFileNode;
 

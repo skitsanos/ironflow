@@ -16,6 +16,7 @@ Extract slides, speaker notes, and comments from a PowerPoint (`.pptx`) deck.
 | `include_image_bytes` | boolean | no | `false` | Deprecated compatibility input. `false` is accepted; `true` is rejected with a migration error because extraction no longer materializes inline Base64 media. |
 
 > Providing both `path` and `source_key` is an error. `format` accepts `"text"`, `"markdown"`, or `"json"`.
+> Artifact inputs are opened and SHA-256 verified inside the tracked blocking worker; OOXML parsing consumes that same rewound handle rather than a resolved store pathname.
 > Present `format`, `media_mode`, `output_key`, `metadata_key`, and `comments_key` values must be strings. The deprecated `include_image_bytes` input accepts a native boolean or an interpolated boolean spelling (`true`/`false`, `yes`/`no`, `on`/`off`, or `1`/`0`, case-insensitive). Present values of the wrong type are rejected instead of being treated as absent.
 > `output_key`, `metadata_key`, and `comments_key` must be pairwise distinct when the optional keys are set. `media_mode = "artifact"` is rejected unless `format = "json"`.
 
@@ -96,8 +97,8 @@ The node currently parses **legacy** comments (`ppt/comments/comment*.xml`, inde
 
 - The input must be a regular file. Its raw size and central directory are
   bounded by `IRONFLOW_MAX_FILE_BYTES` (default `52428800`, 50 MiB) before the
-  ZIP library allocates archive metadata. On Unix, IronFlow also refuses to
-  follow a final path-component symlink; other platforms enforce the
+  ZIP library allocates archive metadata. On Unix and Windows, IronFlow also
+  refuses to follow a final path-component symlink/reparse point; other platforms enforce the
   opened-handle regular-file check.
 - The EOCD/ZIP64 preflight validates central-directory bounds and
   `IRONFLOW_MAX_ZIP_ENTRIES` (default `10000`). IronFlow then rejects duplicate

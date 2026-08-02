@@ -10,6 +10,10 @@ Extract metadata from an image file (dimensions, format, color type).
 | `source_key` | string | one of `path` or `source_key` | — | Context key containing a source path, artifact URI/descriptor, `{ artifact = ... }`, or explicit Base64 object |
 | `output_key` | string | no | `"image_metadata"` | Prefix for output values |
 
+Artifact inputs are opened and SHA-256 verified inside the tracked blocking
+worker; header inspection consumes that same rewound handle rather than a
+resolved store pathname.
+
 ## Context Output
 
 - `<output_key>_width` — image width in pixels

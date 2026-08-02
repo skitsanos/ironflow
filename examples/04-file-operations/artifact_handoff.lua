@@ -1,6 +1,8 @@
 -- Stream a binary document into the artifact store, then hand only its small
 -- descriptor to an extractor. IRONFLOW_ARTIFACT_DIR defaults to data/artifacts.
 -- Effects: publishes one immutable artifact; the local store does not auto-prune.
+-- The extractor opens and verifies it inside the blocking worker, then parses
+-- that same rewound handle; the store pathname never enters workflow context.
 local flow = Flow.new("artifact_handoff")
 
 flow:step("store_document", nodes.read_file({

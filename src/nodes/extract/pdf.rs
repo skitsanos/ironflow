@@ -1,16 +1,16 @@
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result};
 use async_trait::async_trait;
 
+use crate::artifacts::FileSource;
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
 use crate::util::execution::run_tracked_blocking_step;
 
 use super::common::{ensure_distinct_keys, optional_string, string_or, validate_format};
 use super::resource::{Budget, Limits, read_file};
-use crate::util::node_config::get_path;
+use crate::util::file_source::get_file_source;
 
 pub struct ExtractPdfNode;
 
@@ -25,7 +25,7 @@ impl Node for ExtractPdfNode {
     }
 
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
-        let path = PathBuf::from(get_path(config, ctx, "extract_pdf")?);
+        let source = get_file_source(config, ctx, "extract_pdf")?;
         let markdown = validate_format(config, "extract_pdf")? == "markdown";
         let output_key = string_or(config, "output_key", "content", "extract_pdf")?.to_string();
         let metadata_key =
@@ -39,14 +39,21 @@ impl Node for ExtractPdfNode {
         let limits = Limits::current();
 
         run_tracked_blocking_step(move |execution| {
-            extract(&path, markdown, output_key, metadata_key, limits, execution)
+            extract(
+                &source,
+                markdown,
+                output_key,
+                metadata_key,
+                limits,
+                execution,
+            )
         })
         .await
     }
 }
 
 fn extract(
-    path: &Path,
+    source: &FileSource,
     markdown: bool,
     output_key: String,
     metadata_key: Option<String>,
@@ -56,7 +63,7 @@ fn extract(
     let mut budget = Budget::new("extract_pdf", limits, &execution);
     budget.checkpoint()?;
     let bytes = read_file(
-        path,
+        source,
         crate::util::limits::max_pdf_bytes(),
         "extract_pdf",
         &execution,
@@ -69,7 +76,7 @@ fn extract(
     let document = lopdf::Document::load_mem(&bytes).with_context(|| {
         format!(
             "extract_pdf: failed to parse PDF '{}' for page limits",
-            path.display()
+            "verified input"
         )
     })?;
     budget.checkpoint()?;
@@ -96,7 +103,7 @@ fn extract(
     let text = pdf_extract::extract_text_from_mem(&bytes).with_context(|| {
         format!(
             "extract_pdf: failed to extract text from '{}'",
-            path.display()
+            "verified input"
         )
     })?;
     budget.checkpoint()?;

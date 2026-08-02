@@ -14,6 +14,7 @@ Extract text and metadata from a WebVTT subtitle file.
 | `metadata_key` | string | no | — | If set, metadata is stored under this key. |
 
 > Providing both `path` and `source_key` is an error.
+> Artifact inputs are opened and SHA-256 verified inside the tracked blocking worker; extraction reads that same handle rather than a resolved store pathname.
 > The `format` parameter only accepts `"text"` or `"markdown"`.
 > Present `format`, `output_key`, `cues_key`, and `metadata_key` values must be strings; a value of the wrong type is rejected instead of being treated as absent.
 > `format = "markdown"` requires an `output_key` other than `transcript`. The canonical `transcript`, `cues_key`, distinct `output_key`, and `metadata_key` names must all differ; collisions are rejected before extraction begins.

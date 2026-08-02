@@ -1,7 +1,6 @@
 //! Synchronous workbook parsing, isolated for `spawn_blocking` execution.
 
 use std::io::BufReader;
-use std::path::Path;
 
 use anyhow::{Result, bail};
 use calamine::{Reader, Xlsx, open_workbook_from_rs};
@@ -13,6 +12,7 @@ use super::guard::check_archive_size;
 use super::output_budget::OutputBudget;
 use super::shared_strings;
 use super::sheets::{CellBudget, sheet_rows};
+use crate::artifacts::FileSource;
 use crate::util::execution::ExecutionControl;
 
 pub(super) struct Limits {
@@ -32,17 +32,18 @@ pub(super) struct ExtractedWorkbook {
 /// Parse an XLSX on a blocking worker. Callers must not invoke this directly
 /// from a Tokio worker because ZIP/XML decoding and calamine are synchronous.
 pub(super) fn extract(
-    path: &Path,
+    source: &FileSource,
     selector: Option<&Value>,
     has_header: bool,
     limits: Limits,
     execution: ExecutionControl,
 ) -> Result<ExtractedWorkbook> {
     execution.checkpoint()?;
-    let mut file = crate::util::bounded_read::open_regular_file(path, "extract_xlsx")?;
+    let (mut file, label) = source.open("extract_xlsx", &execution)?.into_parts();
+    let diagnostic_path = std::path::Path::new(&label);
     archive_preflight::check_xlsx(
         &mut file,
-        path,
+        diagnostic_path,
         limits.max_zip_entries,
         limits.max_zip_bytes,
         limits.max_archive_metadata_bytes,
@@ -50,7 +51,7 @@ pub(super) fn extract(
     )?;
     check_archive_size(
         &mut file,
-        path,
+        diagnostic_path,
         limits.max_zip_bytes,
         limits.max_zip_entries,
         limits.max_output_bytes,
@@ -58,7 +59,7 @@ pub(super) fn extract(
     )?;
     shared_strings::check(
         &mut file,
-        path,
+        diagnostic_path,
         limits.max_cells,
         limits.max_output_bytes,
         Some(&execution),
@@ -68,9 +69,8 @@ pub(super) fn extract(
     // `open_workbook` itself is a calamine call and cannot be interrupted.
     // The shared-string preflight above bounds its eager table allocation;
     // resume cooperative checkpoints immediately after it returns.
-    let mut workbook: Xlsx<_> = open_workbook_from_rs(BufReader::new(file)).map_err(|error| {
-        anyhow::anyhow!("extract_xlsx: cannot read '{}': {error}", path.display())
-    })?;
+    let mut workbook: Xlsx<_> = open_workbook_from_rs(BufReader::new(file))
+        .map_err(|error| anyhow::anyhow!("extract_xlsx: cannot read '{label}': {error}"))?;
     execution.checkpoint()?;
     // Select from Calamine's borrowed metadata so extracting one sheet clones
     // only that name. Extracting every sheet necessarily retains every name

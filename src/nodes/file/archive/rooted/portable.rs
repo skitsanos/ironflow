@@ -89,7 +89,7 @@ impl StagedFile {
         drop(self.file.take());
         validate_leaf(&self.destination, self.overwrite, self.operation)?;
         if self.overwrite {
-            fs::rename(&self.temporary, &self.destination)?;
+            replace_file(&self.temporary, &self.destination)?;
         } else {
             fs::hard_link(&self.temporary, &self.destination)?;
             fs::remove_file(&self.temporary)?;
@@ -97,6 +97,44 @@ impl StagedFile {
         self.armed = false;
         Ok(())
     }
+}
+
+#[cfg(windows)]
+fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+
+    const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
+    const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
+    #[link(name = "Kernel32")]
+    unsafe extern "system" {
+        fn MoveFileExW(existing: *const u16, replacement: *const u16, flags: u32) -> i32;
+    }
+
+    let source: Vec<u16> = source.as_os_str().encode_wide().chain(Some(0)).collect();
+    let destination: Vec<u16> = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    // SAFETY: both pointers reference NUL-terminated UTF-16 buffers for the
+    // duration of the call; flags request same-volume replacement semantics.
+    let result = unsafe {
+        MoveFileExW(
+            source.as_ptr(),
+            destination.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if result == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(windows))]
+fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
+    fs::rename(source, destination)
 }
 
 impl Drop for StagedFile {

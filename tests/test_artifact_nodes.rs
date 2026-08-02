@@ -84,6 +84,45 @@ async fn read_file_artifact_can_feed_an_extractor_without_base64() {
 }
 
 #[tokio::test]
+async fn extractor_rejects_same_size_artifact_replacement() {
+    let _lock = ENV_LOCK.lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let artifact_dir = directory.path().join("artifacts");
+    let _environment = ArtifactEnvironment::set(&artifact_dir);
+    let source = directory.path().join("source.html");
+    std::fs::write(&source, b"<p>trusted</p>").unwrap();
+    let registry = NodeRegistry::with_builtins();
+    let read = registry
+        .get("read_file")
+        .unwrap()
+        .execute(
+            &serde_json::json!({"path": source, "encoding": "artifact"}),
+            &Context::new(),
+        )
+        .await
+        .unwrap();
+    let descriptor = read["file_artifact"].clone();
+    let artifact: ironflow::artifacts::ArtifactRef =
+        serde_json::from_value(descriptor.clone()).unwrap();
+    let stored = ironflow::artifacts::LocalArtifactStore::new(&artifact_dir)
+        .unwrap()
+        .resolve(&artifact)
+        .unwrap();
+    make_writable(&stored);
+    std::fs::write(&stored, b"<p>hostile</p>").unwrap();
+
+    let context = Context::from([("source".to_owned(), descriptor)]);
+    let error = registry
+        .get("extract_html")
+        .unwrap()
+        .execute(&serde_json::json!({"source_key": "source"}), &context)
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("digest verification"), "{error}");
+}
+
+#[tokio::test]
 async fn image_to_pdf_accepts_an_artifact_descriptor() {
     let _lock = ENV_LOCK.lock().await;
     let directory = tempfile::tempdir().unwrap();
@@ -175,4 +214,18 @@ async fn image_metadata_sniffs_an_extensionless_artifact() {
     assert_eq!(metadata["meta_width"], 2);
     assert_eq!(metadata["meta_height"], 3);
     assert_eq!(metadata["meta_format"], "png");
+}
+
+#[cfg(unix)]
+fn make_writable(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).unwrap();
+}
+
+#[cfg(not(unix))]
+fn make_writable(path: &Path) {
+    let mut permissions = std::fs::metadata(path).unwrap().permissions();
+    permissions.set_readonly(false);
+    std::fs::set_permissions(path, permissions).unwrap();
 }

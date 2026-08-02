@@ -1,12 +1,13 @@
 use anyhow::Result;
 
+use crate::artifacts::FileSource;
 use crate::engine::types::{Context, NodeOutput};
 use crate::util::execution::{ExecutionControl, run_tracked_blocking_step};
 
 use super::super::common::{ensure_distinct_keys, optional_string, string_or, validate_format};
 use super::super::resource::{Budget, Limits, read_string};
 use super::output::{collect_metadata, cues_as_json, format_output};
-use crate::util::node_config::get_path;
+use crate::util::file_source::get_file_source;
 
 pub(super) async fn extract(
     config: &serde_json::Value,
@@ -15,7 +16,7 @@ pub(super) async fn extract(
     format_name: &'static str,
     is_vtt: bool,
 ) -> Result<NodeOutput> {
-    let path = get_path(config, ctx, node_name)?;
+    let source = get_file_source(config, ctx, node_name)?;
     let format = validate_format(config, node_name)?.to_string();
     let output_key = string_or(config, "output_key", "transcript", node_name)?.to_string();
     let cues_key = string_or(config, "cues_key", "cues", node_name)?.to_string();
@@ -39,7 +40,7 @@ pub(super) async fn extract(
 
     run_tracked_blocking_step(move |execution| {
         extract_subtitles(SubtitleRequest {
-            path,
+            source,
             format,
             output_key,
             cues_key,
@@ -54,7 +55,7 @@ pub(super) async fn extract(
 }
 
 struct SubtitleRequest<'a> {
-    path: String,
+    source: FileSource,
     format: String,
     output_key: String,
     cues_key: String,
@@ -69,7 +70,7 @@ fn extract_subtitles(request: SubtitleRequest<'_>) -> Result<NodeOutput> {
     let limits = Limits::current();
     let mut budget = Budget::new(request.node_name, limits, request.execution);
     let input = read_string(
-        std::path::Path::new(&request.path),
+        &request.source,
         crate::util::limits::max_file_bytes(),
         request.node_name,
         request.execution,

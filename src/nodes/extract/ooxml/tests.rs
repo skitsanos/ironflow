@@ -278,3 +278,4 @@ async fn duplicate_part_names_are_rejected_without_copying_all_names() {
 
     assert!(error.contains("duplicate archive part"), "{error}");
 }
+use std::path::Path;

@@ -13,6 +13,7 @@ Split a PDF into individual pages or page ranges, saving each as a separate PDF 
 | `output_key` | string | no | `"pdf_split"` | Context key prefix for output values. |
 
 > Providing both `path` and `source_key` is an error.
+> Artifact inputs are opened and SHA-256 verified inside the tracked blocking worker; PDF parsing consumes that same rewound handle rather than a resolved store pathname.
 
 Page selection is bounded by `IRONFLOW_MAX_PDF_SPLIT_PAGES` (default `1000`).
 `"all"` and explicit or repeated ranges are rejected before the selector

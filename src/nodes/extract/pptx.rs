@@ -1,14 +1,15 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 use anyhow::Result;
 use async_trait::async_trait;
 
+use crate::artifacts::FileSource;
 use crate::artifacts::LocalArtifactStore;
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
 use crate::util::execution::{ExecutionControl, run_tracked_blocking_step};
-use crate::util::node_config::{config_bool_or, get_path};
+use crate::util::file_source::get_file_source;
+use crate::util::node_config::config_bool_or;
 
 use super::common::{ensure_distinct_keys, optional_string, string_or, validate_word_format};
 use super::ooxml::Archive;
@@ -23,7 +24,7 @@ use super::resource::{Budget, Limits};
 pub struct ExtractPptxNode;
 
 struct Request {
-    path: PathBuf,
+    source: FileSource,
     format: String,
     output_key: String,
     metadata_key: Option<String>,
@@ -81,7 +82,7 @@ impl Node for ExtractPptxNode {
         ensure_distinct_keys("extract_pptx", &output_keys)?;
 
         let request = Request {
-            path: PathBuf::from(get_path(config, ctx, "extract_pptx")?),
+            source: get_file_source(config, ctx, "extract_pptx")?,
             format,
             output_key,
             metadata_key,
@@ -96,7 +97,7 @@ impl Node for ExtractPptxNode {
 
 fn extract(request: Request, limits: Limits, execution: ExecutionControl) -> Result<NodeOutput> {
     let mut budget = Budget::new("extract_pptx", limits, &execution);
-    let mut archive = Archive::open(&request.path, "extract_pptx", limits, &execution)?;
+    let mut archive = Archive::open(&request.source, "extract_pptx", limits, &execution)?;
     let artifact_store = (request.media_mode == MediaMode::Artifact)
         .then(LocalArtifactStore::from_env)
         .transpose()?;

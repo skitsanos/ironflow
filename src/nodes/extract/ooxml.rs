@@ -2,12 +2,12 @@
 
 use std::fs::File;
 use std::io::BufRead;
-use std::path::Path;
 
 use anyhow::{Context, Result};
 use zip::result::ZipError;
 
 use super::resource::Limits;
+use crate::artifacts::FileSource;
 use crate::artifacts::{ArtifactRef, LocalArtifactStore};
 use crate::util::execution::ExecutionControl;
 
@@ -23,16 +23,17 @@ pub(super) struct Archive {
 
 impl Archive {
     pub(super) fn open(
-        path: &Path,
+        source: impl Into<FileSource>,
         operation: &'static str,
         limits: Limits,
         execution: &ExecutionControl,
     ) -> Result<Self> {
         execution.checkpoint()?;
-        let mut file = crate::util::bounded_read::open_regular_file(path, operation)?;
+        let source = source.into();
+        let (mut file, label) = source.open(operation, execution)?.into_parts();
         super::xlsx::archive_preflight::check(
             &mut file,
-            path,
+            std::path::Path::new(&label),
             operation,
             limits.max_zip_entries,
             crate::util::limits::max_file_bytes(),
@@ -43,7 +44,7 @@ impl Archive {
         let mut inner = zip::ZipArchive::new(file).map_err(|error| {
             anyhow::anyhow!(
                 "{operation}: '{}' is not a valid OOXML archive: {error}",
-                path.display()
+                label
             )
         })?;
         execution.checkpoint()?;

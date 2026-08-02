@@ -14,7 +14,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 
 /// Open `path` and require the opened handle to refer to a regular file. Unix
-/// additionally refuses to follow a final symlink.
+/// and Windows additionally refuse to follow a final symlink/reparse point.
 ///
 /// The check deliberately uses the opened handle's metadata rather than a
 /// path-level preflight, which would leave a time-of-check/time-of-use race.
@@ -47,7 +47,18 @@ fn open_file_no_follow(path: &Path) -> std::io::Result<File> {
         .open(path)
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn open_file_no_follow(path: &Path) -> std::io::Result<File> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)
+}
+
+#[cfg(not(any(unix, windows)))]
 fn open_file_no_follow(path: &Path) -> std::io::Result<File> {
     // There is no portable std API equivalent to O_NOFOLLOW. The authoritative
     // opened-handle regular-file check still prevents reading directories and
@@ -64,10 +75,29 @@ fn reserve_for_chunk(buf: &mut Vec<u8>, additional: usize, what: &str) -> Result
 /// Read a reader into memory, erroring if it yields more than `max_bytes`.
 /// Never buffers more than `max_bytes + 1` bytes.
 pub fn read_capped<R: Read>(mut reader: R, max_bytes: u64, what: &str) -> Result<Vec<u8>> {
+    read_capped_inner(&mut reader, max_bytes, what, || Ok(()))
+}
+
+pub(crate) fn read_capped_controlled<R: Read>(
+    mut reader: R,
+    max_bytes: u64,
+    what: &str,
+    execution: &crate::util::execution::ExecutionControl,
+) -> Result<Vec<u8>> {
+    read_capped_inner(&mut reader, max_bytes, what, || execution.checkpoint())
+}
+
+fn read_capped_inner(
+    reader: &mut impl Read,
+    max_bytes: u64,
+    what: &str,
+    mut checkpoint: impl FnMut() -> Result<()>,
+) -> Result<Vec<u8>> {
     let mut buf = Vec::new();
     let read_limit = max_bytes.saturating_add(1);
     let mut chunk = [0_u8; 8 * 1024];
     while (buf.len() as u64) < read_limit {
+        checkpoint()?;
         let remaining = read_limit.saturating_sub(buf.len() as u64);
         let request = chunk.len().min(remaining.try_into().unwrap_or(usize::MAX));
         let read = reader.read(&mut chunk[..request])?;
@@ -82,6 +112,7 @@ pub fn read_capped<R: Read>(mut reader: R, max_bytes: u64, what: &str) -> Result
             "{what}: input exceeds the {max_bytes}-byte limit (raise the relevant IRONFLOW_MAX_* setting)"
         );
     }
+    checkpoint()?;
     Ok(buf)
 }
 

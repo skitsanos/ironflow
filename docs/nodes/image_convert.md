@@ -12,6 +12,10 @@ Convert between image formats (e.g. PNG to JPEG). Output format is inferred from
 | `quality` | number | no | `85` | JPEG quality (1-100), only used for JPEG output |
 | `output_key` | string | no | `"image_convert"` | Prefix for output values |
 
+Artifact inputs are opened and SHA-256 verified inside the tracked blocking
+worker; decoding consumes that same rewound handle rather than a resolved store
+pathname.
+
 ## Context Output
 
 - `<output_key>_path` — output file path

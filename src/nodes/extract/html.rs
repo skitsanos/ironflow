@@ -9,7 +9,8 @@ use crate::util::execution::{ExecutionControl, run_tracked_blocking_step};
 
 use super::common::{ensure_distinct_keys, optional_string, string_or, validate_format};
 use super::resource::{Budget, Limits, read_string};
-use crate::util::node_config::get_path;
+use crate::artifacts::FileSource;
+use crate::util::file_source::get_file_source;
 
 pub struct ExtractHtmlNode;
 
@@ -24,7 +25,7 @@ impl Node for ExtractHtmlNode {
     }
 
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
-        let path = get_path(config, ctx, "extract_html")?;
+        let source = get_file_source(config, ctx, "extract_html")?;
         let format = validate_format(config, "extract_html")?.to_string();
         let output_key = string_or(config, "output_key", "content", "extract_html")?.to_string();
         let metadata_key =
@@ -37,14 +38,14 @@ impl Node for ExtractHtmlNode {
         }
 
         run_tracked_blocking_step(move |execution| {
-            extract_html(&path, &format, output_key, metadata_key, &execution)
+            extract_html(&source, &format, output_key, metadata_key, &execution)
         })
         .await
     }
 }
 
 fn extract_html(
-    path: &str,
+    source: &FileSource,
     format: &str,
     output_key: String,
     metadata_key: Option<String>,
@@ -53,7 +54,7 @@ fn extract_html(
     let limits = Limits::current();
     let mut budget = Budget::new("extract_html", limits, execution);
     let html = read_string(
-        std::path::Path::new(path),
+        source,
         crate::util::limits::max_file_bytes(),
         "extract_html",
         execution,

@@ -2,7 +2,8 @@ use anyhow::Result;
 
 use crate::engine::types::Context;
 use crate::nodes::ai::embeddings::resolve_param;
-use crate::util::node_config::{config_f64_or, config_f64_strict, get_path};
+use crate::util::file_source::get_file_source;
+use crate::util::node_config::{config_f64_or, config_f64_strict};
 
 /// Transcript output format requested from the provider.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -76,7 +77,7 @@ impl Provider {
 
 #[derive(Debug)]
 pub(super) struct TranscribeConfig {
-    pub(super) path: String,
+    pub(super) source: crate::artifacts::FileSource,
     pub(super) provider: Provider,
     pub(super) model: String,
     pub(super) api_key: String,
@@ -92,7 +93,7 @@ pub(super) struct TranscribeConfig {
 }
 
 pub(super) fn resolve(config: &serde_json::Value, ctx: &Context) -> Result<TranscribeConfig> {
-    let path = get_path(config, ctx, "transcribe")?;
+    let source = get_file_source(config, ctx, "transcribe")?;
 
     let provider = Provider::parse(
         config
@@ -164,7 +165,7 @@ pub(super) fn resolve(config: &serde_json::Value, ctx: &Context) -> Result<Trans
     }
 
     Ok(TranscribeConfig {
-        path,
+        source,
         provider,
         model: interpolated("model").unwrap_or_else(|| "whisper-1".to_string()),
         api_key,

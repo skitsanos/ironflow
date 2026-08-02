@@ -1,38 +1,63 @@
 # `pdf_merge`
 
-Merge multiple PDF files into a single PDF document.
+Merge bounded PDF path or artifact sources sequentially into one atomically
+published PDF.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `files` | array | yes | — | Array of file paths to merge; supports `${ctx.key}` interpolation on each entry. |
-| `output_path` | string | yes | — | File path for the merged output PDF; supports `${ctx.key}` interpolation. |
-| `output_key` | string | no | `"pdf_merge"` | Context key prefix for output values. |
+| `files` | array | one of `files` / `source_key` | — | Non-empty array of paths, artifact descriptors, or canonical artifact URIs. Path strings support `${ctx.key}` interpolation. |
+| `source_key` | string | one of `files` / `source_key` | — | Context key containing the non-empty source array. Useful when prior nodes produced artifact descriptors. |
+| `output_path` | string | yes | — | Merged output path with `${ctx.key}` interpolation. |
+| `output_key` | string | no | `"pdf_merge"` | Prefix for output values. |
 
-## Context Output
+`files` and `source_key` are mutually exclusive.
 
-- `<output_key>_path` (default `pdf_merge_path`) — path to the merged PDF file.
-- `<output_key>_page_count` (default `pdf_merge_page_count`) — total number of pages in the merged document.
-- `<output_key>_success` (default `pdf_merge_success`) — `true` on success.
+## Resource and durability contract
+
+| Environment variable | Default | Boundary |
+|----------------------|---------|----------|
+| `IRONFLOW_MAX_PDF_MERGE_FILES` | `100` | Source entries admitted before collection |
+| `IRONFLOW_MAX_PDF_BYTES` | `104857600` | Bytes in each source PDF |
+| `IRONFLOW_MAX_PDF_MERGE_BYTES` | `536870912` | Cumulative input bytes and staged output bytes |
+| `IRONFLOW_MAX_PDF_MERGE_PAGES` | `2000` | Cumulative pages |
+| `IRONFLOW_MAX_PDF_MERGE_OBJECTS` | `250000` | Retained output graph objects |
+
+Inputs are opened and parsed one at a time on a tracked blocking worker. For
+each source, the union of objects reachable from all selected pages is remapped
+once, so pages sharing fonts, images, or resources do not clone those objects
+per page. Artifact inputs use the same verified file handle used for identity
+checking.
+
+The result is written to a sibling staged file, flushed and synchronized, then
+atomically committed. Parse, limit, save, and cancellation failures remove the
+partial staging file and preserve an existing destination. The output refuses
+a final link or non-regular destination.
+
+Artifact inputs require a protected artifact directory visible at the same path
+on every eligible worker. A shared mount is not an authentication boundary
+against a process running under the same OS identity.
+
+## Context output
+
+- `<output_key>_path` — merged PDF path.
+- `<output_key>_page_count` — total page count.
+- `<output_key>_success` — `true` after commit.
 
 ## Example
 
 ```lua
-local flow = Flow.new("merge_pdfs")
+local flow = Flow.new("merge_artifacts")
+
+flow:step("sources", function(ctx)
+    return { merge_sources = { ctx.first_artifact, ctx.second_artifact } }
+end)
 
 flow:step("merge", nodes.pdf_merge({
-    files = {
-        "/data/report_part1.pdf",
-        "/data/report_part2.pdf",
-        "/data/report_part3.pdf"
-    },
-    output_path = "/data/full_report.pdf"
-}))
-
-flow:step("done", nodes.log({
-    message = "Merged ${ctx.pdf_merge_page_count} pages into ${ctx.pdf_merge_path}"
-})):depends_on("merge")
+    source_key = "merge_sources",
+    output_path = "/tmp/full-report.pdf"
+})):depends_on("sources")
 
 return flow
 ```

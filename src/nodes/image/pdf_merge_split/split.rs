@@ -9,13 +9,14 @@ use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
 use crate::util::execution::{ExecutionControl, run_tracked_blocking_step};
 
-use super::super::common::{parse_pages_spec, resolve_path};
+use super::super::common::{parse_pages_spec, resolve_source};
 use super::{collect_objects_recursive, remap_references};
 
 pub(crate) struct PdfSplitNode;
 
 struct Request {
-    path: String,
+    source: crate::artifacts::FileSource,
+    stem: String,
     output_dir: String,
     output_key: String,
     pages: String,
@@ -32,7 +33,8 @@ impl Node for PdfSplitNode {
     }
 
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
-        let path = resolve_path(config, ctx, "pdf_split")?;
+        let source = resolve_source(config, ctx, "pdf_split")?;
+        let stem = source.file_stem("page");
         let output_dir = config
             .get("output_dir")
             .and_then(|v| v.as_str())
@@ -51,7 +53,8 @@ impl Node for PdfSplitNode {
         run_tracked_blocking_step(move |execution| {
             split(
                 Request {
-                    path,
+                    source,
+                    stem,
                     output_dir,
                     output_key,
                     pages,
@@ -65,12 +68,13 @@ impl Node for PdfSplitNode {
 
 fn split(request: Request, execution: &ExecutionControl) -> Result<NodeOutput> {
     let Request {
-        path,
+        source,
+        stem,
         output_dir,
         output_key,
         pages,
     } = request;
-    let source = super::super::pdf_input::load_document(&path, "pdf_split", execution)?;
+    let source = super::super::pdf_input::load_document(&source, "pdf_split", execution)?;
     execution.checkpoint()?;
     let source_pages = source.get_pages();
     let page_indices = parse_pages_spec(
@@ -83,10 +87,6 @@ fn split(request: Request, execution: &ExecutionControl) -> Result<NodeOutput> {
 
     std::fs::create_dir_all(&output_dir)
         .map_err(|error| anyhow::anyhow!("pdf_split: failed to create output dir: {error}"))?;
-    let stem = std::path::Path::new(&path)
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .unwrap_or("page");
     let mut page_numbers: Vec<_> = source_pages.keys().copied().collect();
     page_numbers.sort();
 

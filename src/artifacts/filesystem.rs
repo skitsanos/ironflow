@@ -183,6 +183,7 @@ impl Drop for TempArtifact {
     fn drop(&mut self) {
         drop(self.file.take());
         if self.armed {
+            make_removable_platform(&self.path);
             let _ = std::fs::remove_file(&self.path);
         }
     }

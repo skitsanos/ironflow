@@ -10,15 +10,6 @@ use super::filesystem;
 
 const HASH_CHUNK_BYTES: usize = 16 * 1024;
 
-pub(super) fn inspect_regular(path: &Path) -> Result<()> {
-    let metadata = std::fs::symlink_metadata(path)
-        .with_context(|| format!("artifact '{}' does not exist", path.display()))?;
-    if metadata.file_type().is_symlink() || !metadata.is_file() {
-        bail!("artifact '{}' is not a regular file", path.display());
-    }
-    Ok(())
-}
-
 pub(super) fn verify_existing(
     path: &Path,
     expected_digest: &str,

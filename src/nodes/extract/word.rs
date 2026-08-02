@@ -10,7 +10,7 @@ use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
 
 use super::common::{ensure_distinct_keys, optional_string, string_or, validate_word_format};
-use crate::util::node_config::get_path;
+use crate::util::file_source::get_file_source;
 
 pub struct ExtractWordNode;
 
@@ -25,7 +25,7 @@ impl Node for ExtractWordNode {
     }
 
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
-        let path = get_path(config, ctx, "extract_word")?;
+        let source = get_file_source(config, ctx, "extract_word")?;
         let format = validate_word_format(config, "extract_word")?.to_string();
         let output_key = string_or(config, "output_key", "content", "extract_word")?;
         let metadata_key = optional_string(config, "metadata_key", "extract_word")?;
@@ -39,7 +39,7 @@ impl Node for ExtractWordNode {
         }
         ensure_distinct_keys("extract_word", &keys)?;
         let request = worker::Request {
-            path: path.into(),
+            source,
             format,
             output_key: output_key.to_string(),
             metadata_key: metadata_key.map(str::to_string),

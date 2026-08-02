@@ -119,8 +119,8 @@ Static validation must be supplemented with representative runtime probes.
 | IF-065 | P1 | Resolved | Extraction/runtime | Non-XLSX extractors block async workers and lack end-to-end limits |
 | IF-066 | P1 | Resolved | Engine/resource safety | Extraction output and ZIP metadata amplify before memory caps apply |
 | IF-067 | P2 | Open | Tooling/performance | Extraction resource behavior has no repeatable benchmark harness |
-| IF-068 | P1 | Open | Artifact security | Local artifact reads trust a mutable pathname and do not verify content identity |
-| IF-069 | P1 | Open | Binary/PDF safety | Legacy file materialization and PDF merge amplify before their limits apply |
+| IF-068 | P1 | Resolved | Artifact security | Local artifact reads trust a mutable pathname and do not verify content identity |
+| IF-069 | P1 | Resolved | Binary/PDF safety | Legacy file materialization and PDF merge amplify before their limits apply |
 
 ## P0 — release-blocking safety and durability
 
@@ -2924,7 +2924,7 @@ Required outcome:
 
 ### IF-068 — Local artifact reads flatten identity into a trusted mutable pathname
 
-**Status:** Open (found 2026-07-31).
+**Status:** Resolved on 2026-08-02.
 
 The local artifact store hashes every publication and verifies an existing
 content-addressed file before deduplicating into it. Read-side resolution,
@@ -2957,9 +2957,43 @@ Required outcome:
   evaluate a separately authenticated artifact service for hostile multi-tenant
   deployments.
 
+Resolution: file inputs now retain a typed raw-path, artifact-descriptor, or
+canonical-artifact-URI identity until a tracked blocking worker consumes them.
+Artifact reads refuse final links/reparse points on Unix and Windows, require an
+opened regular file, hash that opened handle with cancellation checkpoints,
+compare the digest and descriptor size, rewind it, and pass that same handle to
+the extractor, image/PDF decoder, or transcription reader. HTML, PDF, OOXML,
+XLSX, subtitle, image, PDF metadata/render/split, and transcription consumers no
+longer flatten artifact identity into the store pathname. Administrative
+`resolve` remains explicitly documented as an unauthenticated pathname view,
+not a consumer API.
+
+`LocalArtifactStore::verified_path_lease` covers a future third-party path-only
+API by copying the verified handle into a private random, size-bounded,
+cancellation-aware, read-only temporary file. The lease keeps its handle open
+and removes the path on drop, including the Windows read-only cleanup case. No
+current built-in consumer needs this weaker path bridge. Documentation now
+states that verified handles close the same-size replacement and pathname
+TOCTOU gaps but cannot stop a hostile same-OS-identity process from mutating an
+already-open inode. Hostile multi-tenant deployments therefore require
+separate identities/ACLs or a separately authenticated streaming artifact
+service; a shared network filesystem alone does not change the trust boundary.
+
+Regression coverage includes same-size replacement at the store and real
+extractor boundary, final-link refusal, pathname replacement after verified
+open, cooperative read-verification cancellation, and portable read-only lease
+permissions/drop cleanup. Focused validation passed 12 artifact unit tests, two
+file-source parser tests, four artifact-handoff integration tests, 21 extractor
+integration tests, 17 XLSX integration tests (one existing destructive
+reproducer remains ignored), 11 image/PDF integration tests, 28 transcription
+tests, and three example-catalog tests. The updated artifact-handoff Lua flow
+validates. Formatting, `git diff --check`, the 429-module size policy, and
+`cargo clippy --all-targets -- -D warnings` pass. The whole integration gate was
+not run under the ordinary-change policy.
+
 ### IF-069 — Legacy file materialization and PDF merge amplify before admission
 
-**Status:** Open (found 2026-07-31).
+**Status:** Resolved 2026-08-02 (found 2026-07-31).
 
 IF-066 made artifact references the preferred binary handoff and bounded their
 extraction, image, PDF-render, metadata, and split consumers. Two older utility
@@ -2990,3 +3024,45 @@ Required outcome:
   store/multi-host requirements;
 - add focused malformed/oversized Base64, append-growth, repeated-resource PDF,
   cancellation, artifact-handoff, and partial-output regressions.
+
+Resolution: `write_file` now admits the decoded Base64 length before starting a
+tracked blocking worker, streams decoding directly into a staged file, and can
+copy a canonical artifact URI or descriptor from the same verified handle used
+for its digest and size check. `content`, `source_key`, and `artifact` are
+mutually exclusive. Both overwrite and append publish through the shared
+rooted staged-file abstraction; append charges the existing bytes plus the new
+input against `IRONFLOW_MAX_FILE_BYTES`. Existing append targets must be
+regular non-link files. Decode, limit, cancellation, flush/sync, and commit
+failures remove staging and preserve an existing destination.
+
+`pdf_merge` now accepts either a static `files` array or a context `source_key`
+array containing paths, canonical artifact URIs, or artifact descriptors. It
+admits source count before collection, opens and parses sources sequentially on
+a tracked blocking worker, and enforces per-file bytes, cumulative input/output
+bytes, cumulative pages, and retained graph objects through
+`IRONFLOW_MAX_PDF_BYTES`, `IRONFLOW_MAX_PDF_MERGE_FILES`,
+`IRONFLOW_MAX_PDF_MERGE_BYTES`, `IRONFLOW_MAX_PDF_MERGE_PAGES`, and
+`IRONFLOW_MAX_PDF_MERGE_OBJECTS`. Each source's complete reachable page-object
+union is remapped once, so shared fonts, images, and resources are retained once
+per source rather than cloned per page. The merged output is staged, bounded
+while serializing, synchronized, and atomically committed.
+
+The atomic replacement boundary is handle-relative on Unix. Portable platforms
+revalidate the destination immediately before OS-level atomic replacement but
+cannot close a hostile parent-directory swap race, so destination trees must be
+protected from same-identity mutation. Verified artifact handles remove
+pathname re-resolution from these consumers but do not authenticate a hostile
+process running under the same OS identity; multi-host execution still requires
+the same protected artifact store path or a separately authenticated artifact
+service. Artifact retention remains operator-owned.
+
+Focused validation passed two `write_file` unit tests, four file-safety
+integration tests, six PDF merge unit tests, one artifact-source PDF merge
+integration test, five legacy merge/split integration tests, and three example
+catalog tests. All 129 Lua examples validated against the debug binary.
+The updated binary round-trip and PDF merge examples also executed successfully
+against a disposable local artifact store; the artifact restore matched its
+Base64 source and the repeated sample PDF produced a six-page merged output.
+Formatting, the 436-module size policy, and
+`cargo clippy --all-targets -- -D warnings` pass. The whole integration gate was
+not run under the ordinary issue-completion policy.

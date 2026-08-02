@@ -29,12 +29,12 @@ pub(super) fn render_pages(
     execution: &ExecutionControl,
 ) -> Result<NodeOutput> {
     execution.checkpoint()?;
-    let file = open_pdf_file_capped(&request.path, "pdf_to_image", execution)?;
+    let file = open_pdf_file_capped(&request.source, "pdf_to_image", execution)?;
     let bindings = load_pdfium()?;
     let pdfium = pdfium_render::prelude::Pdfium::new(bindings);
     let document = pdfium
         .load_pdf_from_reader(file, None)
-        .map_err(|error| anyhow::anyhow!("Failed to open PDF '{}': {error:?}", request.path))?;
+        .map_err(|error| anyhow::anyhow!("Failed to open verified PDF input: {error:?}"))?;
     let page_count = document.pages().len() as usize;
     let page_indices = parse_pages_spec(
         &request.pages,
@@ -75,12 +75,12 @@ pub(super) fn render_thumbnail(
     execution: &ExecutionControl,
 ) -> Result<NodeOutput> {
     execution.checkpoint()?;
-    let file = open_pdf_file_capped(&request.path, "pdf_thumbnail", execution)?;
+    let file = open_pdf_file_capped(&request.source, "pdf_thumbnail", execution)?;
     let bindings = load_pdfium()?;
     let pdfium = pdfium_render::prelude::Pdfium::new(bindings);
     let document = pdfium
         .load_pdf_from_reader(file, None)
-        .map_err(|error| anyhow::anyhow!("Failed to open PDF '{}': {error:?}", request.path))?;
+        .map_err(|error| anyhow::anyhow!("Failed to open verified PDF input: {error:?}"))?;
     let page_count = document.pages().len() as usize;
     let store = LocalArtifactStore::from_env()?;
     let rendered = render_pdf_page(

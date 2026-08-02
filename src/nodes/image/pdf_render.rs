@@ -14,7 +14,7 @@ pub(crate) struct PdfToImageNode;
 pub(crate) struct PdfThumbnailNode;
 
 pub(super) struct PagesRequest {
-    path: String,
+    source: crate::artifacts::FileSource,
     pages: String,
     output_key: String,
     format: image::ImageFormat,
@@ -22,7 +22,7 @@ pub(super) struct PagesRequest {
 }
 
 pub(super) struct ThumbnailRequest {
-    path: String,
+    source: crate::artifacts::FileSource,
     page: usize,
     output_key: String,
     format: image::ImageFormat,
@@ -43,7 +43,7 @@ impl Node for PdfToImageNode {
     }
 
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
-        let path = super::common::resolve_path(config, ctx, "pdf_to_image")?;
+        let source = super::common::resolve_source(config, ctx, "pdf_to_image")?;
         let format = resolve_image_format(optional_string(config, "format")?, "pdf_to_image")?;
         let pages = optional_string(config, "pages")?
             .unwrap_or("all")
@@ -54,7 +54,7 @@ impl Node for PdfToImageNode {
         let dpi = config_f64_or(config, "dpi", ctx, 150.0)? as f32;
         validate_pdf_dpi(dpi, "pdf_to_image")?;
         let request = PagesRequest {
-            path,
+            source,
             pages,
             output_key,
             format,
@@ -75,7 +75,7 @@ impl Node for PdfThumbnailNode {
     }
 
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
-        let path = super::common::resolve_path(config, ctx, "pdf_thumbnail")?;
+        let source = super::common::resolve_source(config, ctx, "pdf_thumbnail")?;
         let page = config_usize_strict(config, "page", ctx)?.unwrap_or(1);
         if page == 0 {
             anyhow::bail!("pdf_thumbnail: 'page' must be 1-based and >= 1");
@@ -91,7 +91,7 @@ impl Node for PdfThumbnailNode {
         let max_side = config_u64_strict(config, "size", ctx)?.unwrap_or(256);
         let max_side = parse_positive_u32(max_side, "size")?;
         let request = ThumbnailRequest {
-            path,
+            source,
             page,
             output_key,
             format,

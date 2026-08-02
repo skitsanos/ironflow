@@ -56,7 +56,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 ## 04-file-operations
 - **read_write_files.lua** — Write, read, list, and delete files
 - **artifact_handoff.lua** — Stream a DOCX to the artifact store and pass its descriptor directly to `extract_word`
-- **binary_file_io.lua** — Contrast an explicit Base64 round-trip with a disk-backed artifact handoff
+- **binary_file_io.lua** — Contrast explicit Base64 with a disk-backed artifact restore through `write_file`
 - **copy_move_files.lua** — Copy and move files between locations
 - **[s3_put_get_list.lua](04-file-operations/s3_put_get_list.lua)** — List visible buckets, then upload, download, list, and delete one UUID-scoped object
 - **s3_copy.lua** — Copy objects inside S3 and verify object list
@@ -109,7 +109,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **image_convert.lua** — Convert an image between supported formats
 - **image_watermark.lua** — Apply a text watermark to an image
 - **extract_html.lua** — Extract text and metadata from HTML
-- **pdf_merge.lua** — Merge multiple PDF files into one
+- **pdf_merge.lua** — Merge verified PDF artifact descriptors sequentially into one bounded output
 - **pdf_split.lua** — Split a PDF into individual pages
 - **image_metadata.lua** — Extract image dimensions, format, and color info
 

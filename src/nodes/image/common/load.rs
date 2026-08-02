@@ -1,5 +1,4 @@
 use std::io::{BufRead, Seek};
-use std::path::Path;
 
 use anyhow::Result;
 use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader};
@@ -29,9 +28,9 @@ pub(crate) fn load_image(
 ) -> Result<LoadedImage> {
     execution.checkpoint()?;
     let image = match input {
-        ImageInput::Path(path) => {
-            let reader = open_image_reader(&path, limits, execution)?;
-            decode_reader(reader, &path, limits, execution)?
+        ImageInput::File(source) => {
+            let (reader, label) = open_image_reader(&source, limits, execution)?;
+            decode_reader(reader, &label, limits, execution)?
         }
         ImageInput::Base64(data) => {
             let bytes = decode_image_base64(data, limits.max_encoded_bytes)?;
@@ -51,16 +50,18 @@ pub(crate) fn load_image_for_pdf(
     execution.checkpoint()?;
     let limit = limits.max_encoded_bytes.min(max_encoded_bytes);
     let (label, bytes) = match input {
-        ImageInput::Path(path) => {
-            let reader = CappedFile::open(
-                Path::new(&path),
+        ImageInput::File(source) => {
+            let opened = source.open("image_to_pdf", execution)?;
+            let (file, label) = opened.into_parts();
+            let reader = CappedFile::from_file(
+                file,
+                label.clone(),
                 limit,
-                "image_to_pdf",
                 "IRONFLOW_MAX_IMAGE_ENCODED_BYTES",
                 execution,
             )?;
             let bytes = crate::util::bounded_read::read_capped(reader, limit, "image_to_pdf")?;
-            (path, bytes)
+            (label, bytes)
         }
         ImageInput::Base64(data) => ("base64 image".to_owned(), decode_image_base64(data, limit)?),
     };
@@ -90,8 +91,9 @@ pub(crate) fn inspect_image(
 ) -> Result<ImageInfo> {
     execution.checkpoint()?;
     let info = match input {
-        ImageInput::Path(path) => {
-            inspect_reader(open_image_reader(&path, limits, execution)?, &path, limits)?
+        ImageInput::File(source) => {
+            let (reader, label) = open_image_reader(&source, limits, execution)?;
+            inspect_reader(reader, &label, limits)?
         }
         ImageInput::Base64(data) => {
             let bytes = decode_image_base64(data, limits.max_encoded_bytes)?;
@@ -184,18 +186,20 @@ fn inspect_decoder(
 }
 
 fn open_image_reader(
-    path: &str,
+    source: &crate::artifacts::FileSource,
     limits: ImageDecodeLimits,
     execution: &ExecutionControl,
-) -> Result<ImageReader<std::io::BufReader<CappedFile>>> {
-    let file = CappedFile::open(
-        Path::new(path),
+) -> Result<(ImageReader<std::io::BufReader<CappedFile>>, String)> {
+    let opened = source.open("image input", execution)?;
+    let (file, label) = opened.into_parts();
+    let file = CappedFile::from_file(
+        file,
+        label.clone(),
         limits.max_encoded_bytes,
-        "image input",
         "IRONFLOW_MAX_IMAGE_ENCODED_BYTES",
         execution,
     )?;
-    Ok(ImageReader::new(std::io::BufReader::new(file)))
+    Ok((ImageReader::new(std::io::BufReader::new(file)), label))
 }
 
 fn decode_image_base64(data: String, limit: u64) -> Result<Vec<u8>> {

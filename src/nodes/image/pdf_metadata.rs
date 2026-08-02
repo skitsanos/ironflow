@@ -56,7 +56,7 @@ impl Node for PdfMetadataNode {
     }
 
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
-        let path = super::common::resolve_path(config, ctx, "pdf_metadata")?;
+        let source = super::common::resolve_source(config, ctx, "pdf_metadata")?;
         let output_key = config
             .get("output_key")
             .and_then(|v| v.as_str())
@@ -64,7 +64,7 @@ impl Node for PdfMetadataNode {
             .to_owned();
 
         run_tracked_blocking_step(move |execution| {
-            let document = super::pdf_input::load_document(&path, "pdf_metadata", &execution)?;
+            let document = super::pdf_input::load_document(&source, "pdf_metadata", &execution)?;
             let metadata = extract_pdf_metadata_for_node(&document);
             execution.checkpoint()?;
             let mut output = NodeOutput::new();

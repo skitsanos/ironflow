@@ -9,12 +9,12 @@ mod pages;
 pub(crate) use load::{decode_image_bytes, inspect_image, load_image, load_image_for_pdf};
 pub(crate) use pages::parse_pages_spec;
 
-pub(crate) fn resolve_path(
+pub(crate) fn resolve_source(
     config: &serde_json::Value,
     ctx: &Context,
     node_name: &str,
-) -> Result<String> {
-    crate::util::node_config::get_path(config, ctx, node_name)
+) -> Result<crate::artifacts::FileSource> {
+    crate::util::file_source::get_file_source(config, ctx, node_name)
 }
 
 pub(crate) fn resolve_image_format(
@@ -160,15 +160,16 @@ pub(crate) fn image_format_name(format: image::ImageFormat) -> &'static str {
 }
 
 pub(crate) fn open_pdf_file_capped(
-    path: &str,
+    source: &crate::artifacts::FileSource,
     node_name: &str,
     execution: &crate::util::execution::ExecutionControl,
 ) -> Result<capped_reader::CappedFile> {
     let max_bytes = crate::util::limits::max_pdf_bytes();
-    capped_reader::CappedFile::open(
-        std::path::Path::new(path),
+    let (file, label) = source.open(node_name, execution)?.into_parts();
+    capped_reader::CappedFile::from_file(
+        file,
+        label,
         max_bytes,
-        node_name,
         "IRONFLOW_MAX_PDF_BYTES",
         execution,
     )
