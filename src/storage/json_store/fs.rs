@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::storage::{StorageError, StorageResult};
 
-use super::listing::{self, ListedEntry};
+use super::listing::{self, EntryStream};
 use super::platform;
 use super::temp::TempFile;
 
@@ -16,7 +16,7 @@ pub(super) enum FileState {
     Missing,
     Regular,
 }
-
+#[derive(Clone)]
 pub(super) struct SecureStoreDir {
     root: PathBuf,
 }
@@ -72,11 +72,11 @@ impl SecureStoreDir {
         }
     }
 
-    pub async fn list_entries(&self) -> StorageResult<Vec<ListedEntry>> {
-        if !self.exists().await? {
-            return Ok(Vec::new());
+    pub async fn stream_entries(&self) -> StorageResult<Option<EntryStream>> {
+        if self.exists().await? {
+            return listing::stream_entries(&self.root).await.map(Some);
         }
-        listing::read_entries(&self.root).await
+        Ok(None)
     }
 
     pub async fn inspect_regular(&self, name: &str) -> StorageResult<FileState> {

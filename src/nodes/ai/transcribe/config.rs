@@ -2,7 +2,8 @@ use anyhow::Result;
 
 use crate::engine::types::Context;
 use crate::nodes::ai::embeddings::resolve_param;
-use crate::util::node_config::{config_f64, config_f64_or, get_path};
+use crate::util::file_source::get_file_source;
+use crate::util::node_config::{config_f64_or, config_f64_strict};
 
 /// Transcript output format requested from the provider.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -76,7 +77,7 @@ impl Provider {
 
 #[derive(Debug)]
 pub(super) struct TranscribeConfig {
-    pub(super) path: String,
+    pub(super) source: crate::artifacts::FileSource,
     pub(super) provider: Provider,
     pub(super) model: String,
     pub(super) api_key: String,
@@ -92,7 +93,7 @@ pub(super) struct TranscribeConfig {
 }
 
 pub(super) fn resolve(config: &serde_json::Value, ctx: &Context) -> Result<TranscribeConfig> {
-    let path = get_path(config, ctx, "transcribe")?;
+    let source = get_file_source(config, ctx, "transcribe")?;
 
     let provider = Provider::parse(
         config
@@ -158,9 +159,13 @@ pub(super) fn resolve(config: &serde_json::Value, ctx: &Context) -> Result<Trans
             .and_then(|value| value.as_str())
             .map(|value| crate::lua::interpolate::interpolate_ctx(value, ctx))
     };
+    let temperature = config_f64_strict(config, "temperature", ctx)?;
+    if temperature.is_some_and(|value| !(0.0..=1.0).contains(&value)) {
+        anyhow::bail!("transcribe: 'temperature' must be between 0 and 1 inclusive");
+    }
 
     Ok(TranscribeConfig {
-        path,
+        source,
         provider,
         model: interpolated("model").unwrap_or_else(|| "whisper-1".to_string()),
         api_key,
@@ -169,7 +174,7 @@ pub(super) fn resolve(config: &serde_json::Value, ctx: &Context) -> Result<Trans
         format,
         language: interpolated("language"),
         prompt: interpolated("prompt"),
-        temperature: config_f64(config, "temperature", ctx),
+        temperature,
         output_key: config
             .get("output_key")
             .and_then(|value| value.as_str())
@@ -181,77 +186,5 @@ pub(super) fn resolve(config: &serde_json::Value, ctx: &Context) -> Result<Trans
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn format_parses_supported_values_and_rejects_others() {
-        assert_eq!(
-            TranscriptFormat::parse("vtt").unwrap(),
-            TranscriptFormat::Vtt
-        );
-        assert_eq!(
-            TranscriptFormat::parse("srt").unwrap(),
-            TranscriptFormat::Srt
-        );
-        assert_eq!(
-            TranscriptFormat::parse("text").unwrap(),
-            TranscriptFormat::Text
-        );
-        assert_eq!(
-            TranscriptFormat::parse("json").unwrap(),
-            TranscriptFormat::Json
-        );
-
-        let error = TranscriptFormat::parse("mp3").unwrap_err().to_string();
-        assert!(error.contains("unsupported format"), "{error}");
-    }
-
-    #[test]
-    fn json_format_requests_verbose_payload() {
-        assert_eq!(TranscriptFormat::Json.as_api_value(), "verbose_json");
-        assert_eq!(TranscriptFormat::Vtt.as_api_value(), "vtt");
-        assert!(TranscriptFormat::Json.is_json());
-        assert!(!TranscriptFormat::Vtt.is_json());
-    }
-
-    #[test]
-    fn provider_defaults_to_openai_and_rejects_unknown() {
-        assert_eq!(Provider::parse("openai").unwrap(), Provider::OpenAi);
-        assert_eq!(
-            Provider::parse("openai_compatible").unwrap(),
-            Provider::OpenAiCompatible
-        );
-        assert_eq!(Provider::parse("azure").unwrap(), Provider::Azure);
-
-        let error = Provider::parse("deepgram").unwrap_err().to_string();
-        assert!(error.contains("unsupported provider"), "{error}");
-    }
-
-    // `missing_credential_names_the_parameter_and_the_environment_variable`
-    // used to live here, but it mutated the process-global `OPENAI_API_KEY`
-    // env var, which races with any other `cargo test --lib` module reading
-    // env vars concurrently. It now lives in
-    // `tests/test_transcribe_config_env.rs`, its own integration test binary,
-    // for the same reason `tests/test_limits_defaults.rs` does.
-
-    #[test]
-    fn temperature_resolves_ctx_interpolation_instead_of_dropping_it() {
-        // Regression test for the numeric-param-ignores-interpolation bug
-        // class: a bare `.as_f64()` read silently discards a
-        // `"${ctx.key}"` string, treating it as absent rather than erroring
-        // or resolving it. `config_f64` must actually resolve the template.
-        let ctx: Context = [("temp".to_string(), serde_json::json!(0.25))]
-            .into_iter()
-            .collect();
-
-        let config = serde_json::json!({
-            "path": "/tmp/a.mp3",
-            "api_key": "test-key",
-            "temperature": "${ctx.temp}"
-        });
-
-        let resolved = resolve(&config, &ctx).unwrap();
-        assert_eq!(resolved.temperature, Some(0.25));
-    }
-}
+#[path = "config/tests.rs"]
+mod tests;

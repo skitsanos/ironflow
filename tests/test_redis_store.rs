@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use ironflow::engine::types::*;
 use ironflow::storage::redis_store::RedisStateStore;
-use ironflow::storage::{PageSize, RunListQuery, StateStore, StorageErrorKind};
+use ironflow::storage::{PageSize, RunLease, RunListQuery, StateStore, StorageErrorKind};
 use redis_support::RedisTest;
 
 /// Helper: create a RedisStateStore with a unique test prefix.
@@ -80,6 +80,258 @@ async fn redis_set_run_status() {
     assert!(info.finished.is_some());
 
     cleanup(&store, &["run-s1"]).await;
+}
+
+#[tokio::test]
+async fn redis_run_leases_protect_live_peers_and_reconcile_expired_owners() {
+    let Some(fixture) = RedisTest::connect("run_leases").await else {
+        return;
+    };
+    let store = Arc::new(fixture.state_store(None).await);
+    let expired = RunLease::at(
+        "original-owner",
+        chrono::Utc::now() + chrono::Duration::minutes(5),
+    );
+    store
+        .init_run_owned("lease-expired", "flow", &Context::new(), &expired)
+        .await
+        .unwrap();
+    let mut task = TaskState::new("active-task", "log");
+    task.status = TaskStatus::Running;
+    store.upsert_task("lease-expired", &task).await.unwrap();
+    let mut conn = fixture.connection().await.unwrap();
+    let _: i64 = redis::cmd("HSET")
+        .arg(format!("{}runs:lease-expired", fixture.prefix))
+        .arg("lease_expires_micros")
+        .arg(0_i64)
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    let _: i64 = redis::cmd("ZADD")
+        .arg(format!("{}run_leases:v1:expiry", fixture.prefix))
+        .arg(0_i64)
+        .arg("lease-expired")
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    store
+        .set_run_status("lease-expired", RunStatus::Running)
+        .await
+        .unwrap();
+    let attempted = RunLease::at(
+        "original-owner",
+        chrono::Utc::now() + chrono::Duration::minutes(5),
+    );
+    assert!(
+        !store
+            .renew_run_lease("lease-expired", &attempted)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !store
+            .set_run_status_owned("lease-expired", RunStatus::Success, "original-owner")
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        store
+            .reconcile_expired_run_leases(chrono::Utc::now())
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        store.get_run_info("lease-expired").await.unwrap().status,
+        RunStatus::Stalled
+    );
+    let reconciled = store.get_run_info("lease-expired").await.unwrap();
+    assert_eq!(reconciled.tasks["active-task"].status, TaskStatus::Failed);
+    let mut late_task = task;
+    late_task.status = TaskStatus::Success;
+    assert!(
+        !store
+            .upsert_task_owned("lease-expired", &late_task, "original-owner")
+            .await
+            .unwrap()
+    );
+    let late_ctx = Context::from([("late".to_string(), serde_json::json!(true))]);
+    assert!(
+        !store
+            .update_ctx_owned("lease-expired", &late_ctx, "original-owner")
+            .await
+            .unwrap()
+    );
+
+    store
+        .init_run_owned("lease-abandoned", "flow", &Context::new(), &expired)
+        .await
+        .unwrap();
+    store
+        .set_run_status("lease-abandoned", RunStatus::Running)
+        .await
+        .unwrap();
+    let _: i64 = redis::cmd("HSET")
+        .arg(format!("{}runs:lease-abandoned", fixture.prefix))
+        .arg("lease_expires_micros")
+        .arg(0_i64)
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    let _: i64 = redis::cmd("ZADD")
+        .arg(format!("{}run_leases:v1:expiry", fixture.prefix))
+        .arg(0_i64)
+        .arg("lease-abandoned")
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    store.delete_run("lease-abandoned").await.unwrap();
+    assert_eq!(
+        store
+            .get_run_info("lease-abandoned")
+            .await
+            .unwrap_err()
+            .kind(),
+        StorageErrorKind::NotFound,
+    );
+
+    let live = RunLease::at(
+        "live-owner",
+        chrono::Utc::now() + chrono::Duration::minutes(5),
+    );
+    store
+        .init_run_owned("lease-live", "flow", &Context::new(), &live)
+        .await
+        .unwrap();
+    assert!(
+        store
+            .set_run_status_owned("lease-live", RunStatus::Running, "live-owner")
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        store
+            .reconcile_expired_run_leases(chrono::Utc::now())
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        store.get_run_info("lease-live").await.unwrap().status,
+        RunStatus::Running
+    );
+    assert_eq!(
+        store.delete_run("lease-live").await.unwrap_err().kind(),
+        StorageErrorKind::Conflict,
+    );
+    assert!(
+        store
+            .renew_run_lease("lease-live", &RunLease::renewed("live-owner".to_string()))
+            .await
+            .unwrap(),
+        "a rejected Redis deletion must preserve the live lease"
+    );
+    assert!(
+        store
+            .set_run_status_owned("lease-live", RunStatus::Success, "live-owner")
+            .await
+            .unwrap()
+    );
+    store.delete_run("lease-live").await.unwrap();
+    assert_eq!(
+        store.get_run_info("lease-live").await.unwrap_err().kind(),
+        StorageErrorKind::NotFound,
+    );
+    cleanup(&store, &["lease-expired", "lease-abandoned", "lease-live"]).await;
+    fixture.cleanup().await;
+}
+
+#[tokio::test]
+async fn redis_owned_runs_stay_persistent_without_configured_retention() {
+    let Some(fixture) = RedisTest::connect("persistent_run_lease").await else {
+        return;
+    };
+    let store = fixture.state_store(None).await;
+    let run_id = "persistent-owned";
+    let run_key = format!("{}runs:{run_id}", fixture.prefix);
+    store
+        .init_run_owned(
+            run_id,
+            "flow",
+            &Context::new(),
+            &RunLease::renewed("owner".to_string()),
+        )
+        .await
+        .unwrap();
+    let mut conn = fixture.connection().await.unwrap();
+    assert_eq!(redis_ttl(&mut conn, &run_key).await, -1);
+
+    assert!(
+        store
+            .set_run_status_owned(run_id, RunStatus::Running, "owner")
+            .await
+            .unwrap()
+    );
+    assert_eq!(redis_ttl(&mut conn, &run_key).await, -1);
+    assert!(
+        store
+            .upsert_task_owned(run_id, &TaskState::new("task", "log"), "owner")
+            .await
+            .unwrap()
+    );
+    assert_eq!(redis_ttl(&mut conn, &run_key).await, -1);
+    assert!(
+        store
+            .update_ctx_owned(
+                run_id,
+                &Context::from([("value".to_string(), serde_json::json!(1))]),
+                "owner",
+            )
+            .await
+            .unwrap()
+    );
+    assert_eq!(redis_ttl(&mut conn, &run_key).await, -1);
+    assert!(
+        store
+            .renew_run_lease(run_id, &RunLease::renewed("owner".to_string()))
+            .await
+            .unwrap()
+    );
+    assert_eq!(redis_ttl(&mut conn, &run_key).await, -1);
+
+    let _: i64 = redis::cmd("HSET")
+        .arg(&run_key)
+        .arg("lease_expires_micros")
+        .arg(0_i64)
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    let _: i64 = redis::cmd("ZADD")
+        .arg(format!("{}run_leases:v1:expiry", fixture.prefix))
+        .arg(0_i64)
+        .arg(run_id)
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .reconcile_expired_run_leases(chrono::Utc::now())
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        store.get_run_info(run_id).await.unwrap().status,
+        RunStatus::Stalled
+    );
+    assert_eq!(redis_ttl(&mut conn, &run_key).await, -1);
+
+    cleanup(&store, &[run_id]).await;
+    fixture.cleanup().await;
+}
+
+async fn redis_ttl(conn: &mut redis::aio::ConnectionManager, key: &str) -> i64 {
+    redis::cmd("TTL").arg(key).query_async(conn).await.unwrap()
 }
 
 #[tokio::test]
@@ -586,5 +838,69 @@ async fn redis_ttl_applied() {
     assert_eq!(info.id, "run-ttl1");
 
     cleanup(&store, &["run-ttl1"]).await;
+    fixture.cleanup().await;
+}
+
+#[tokio::test]
+async fn redis_short_retention_does_not_expire_an_owned_run() {
+    let Some(fixture) = RedisTest::connect("owned_ttl").await else {
+        return;
+    };
+    let store = fixture.state_store(Some(1)).await;
+    let run_id = "run-owned-ttl";
+    let lease = RunLease::renewed("ttl-owner".to_string());
+
+    store
+        .init_run_owned(run_id, "flow", &Context::new(), &lease)
+        .await
+        .unwrap();
+    let mut conn = fixture.connection().await.unwrap();
+    let active_ttl: i64 = redis::cmd("TTL")
+        .arg(format!("{}runs:{run_id}", fixture.prefix))
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    let minimum_active_ttl = (ironflow::storage::RUN_LEASE_TTL
+        + ironflow::storage::RUN_LEASE_REFRESH * 3)
+        .as_secs() as i64
+        - 2;
+    assert!(
+        active_ttl >= minimum_active_ttl,
+        "active run TTL {active_ttl}s is below the lease/reaper safety bound {minimum_active_ttl}s"
+    );
+    tokio::time::sleep(std::time::Duration::from_millis(1_200)).await;
+    assert_eq!(store.get_run_info(run_id).await.unwrap().id, run_id);
+
+    assert!(
+        store
+            .renew_run_lease(run_id, &RunLease::renewed("ttl-owner".to_string()))
+            .await
+            .unwrap()
+    );
+    let renewed_ttl: i64 = redis::cmd("TTL")
+        .arg(format!("{}runs:{run_id}", fixture.prefix))
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    assert!(renewed_ttl >= minimum_active_ttl);
+    tokio::time::sleep(std::time::Duration::from_millis(1_200)).await;
+    assert_eq!(store.get_run_info(run_id).await.unwrap().id, run_id);
+
+    assert!(
+        store
+            .set_run_status_owned(run_id, RunStatus::Success, "ttl-owner")
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        store.get_run_info(run_id).await.unwrap().status,
+        RunStatus::Success
+    );
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    assert_eq!(
+        store.get_run_info(run_id).await.unwrap_err().kind(),
+        StorageErrorKind::NotFound
+    );
+
     fixture.cleanup().await;
 }

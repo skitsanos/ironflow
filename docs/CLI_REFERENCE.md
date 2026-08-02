@@ -497,7 +497,10 @@ all retained events for that run and installs a fence against late event
 publication. If event cleanup fails after state deletion, retry the same
 request: IronFlow still attempts event cleanup for the now-missing state and
 returns success when it removes an orphaned stream. A missing state record with
-no orphaned events returns `404 not_found`.
+no orphaned events returns `404 not_found`. JSON, SQL, and Redis atomically
+return `409 conflict` without removing state, lease, or events when the run is
+non-terminal and its execution-owner lease is still live. Terminal runs and
+abandoned non-terminal runs with an expired lease remain deletable.
 
 SQL deletion fences are durable. A Redis fence is persistent without
 `REDIS_TTL` and expires with that configured TTL. The memory backend keeps
@@ -604,10 +607,12 @@ data: {"error":"Event stream unavailable","code":"event_stream_error","error_id"
 
 #### Ad-hoc Flow Execution
 
-`POST /flows/run` accepts a flow three ways: `file` (a path under `flows_dir`),
-`source` (Lua in the request body), and `source_base64`. `file` is confined to
-`flows_dir` after canonicalisation; the two inline forms are not confined at all,
-because the caller supplies the workflow itself.
+`POST /flows/run` and `POST /flows/validate` accept a flow three ways: `file`
+(a path under `flows_dir`), `source` (Lua in the request body), and
+`source_base64`. `file` is confined to `flows_dir` after canonicalisation; the
+two inline forms are not confined at all, because the caller supplies the
+workflow itself. Validation evaluates the top-level Lua chunk, including
+`env()`, even though it does not execute workflow steps.
 
 That is the intended contract for a general-purpose engine — but it means an API
 key that can reach `/flows/run` can run any node, so it can read or write any
@@ -621,15 +626,15 @@ allow_adhoc_flows: false
 
 or `IRONFLOW_ALLOW_ADHOC_FLOWS=false`, which takes precedence. With it disabled:
 
-- `source` and `source_base64` are rejected with `403 Forbidden`;
+- `source` and `source_base64` are rejected with `403 Forbidden` by both API
+  endpoints;
 - `file` still works, still confined to `flows_dir`;
 - webhooks are unaffected — they always name a flow from config.
 
-The default stays `true`, so existing deployments are unchanged.
-
-`POST /flows/validate` is not gated: it parses without executing any step, and
-flow-level Lua runs in the sandbox (no `io`, no `os`), bounded by the
-`IRONFLOW_LUA_MAX_*` limits.
+Disabling ad-hoc flows requires `flows_dir`; the server rejects the
+configuration at startup rather than falling back to arbitrary absolute or
+current-directory file paths. The default stays `true`, so existing deployments
+are unchanged.
 
 #### Webhook Routes
 
@@ -684,6 +689,67 @@ Public run output hides legacy `_headers` values when they are still present,
 but operators should purge old run/event data and rotate credentials that were
 previously sent to webhook endpoints.
 
+#### Schedules
+
+`schedules` declares cron triggers evaluated by `ironflow serve`. Like
+`webhooks`, it is configuration-file-only — there is no CLI flag and no
+environment variable, because timing is a deployment decision.
+
+```yaml
+schedules:
+  nightly_report:
+    flow: reports/nightly.lua      # resolved through flows_dir
+    cron: "0 2 * * *"              # standard five-field cron
+    timezone: "Europe/Berlin"      # IANA name; defaults to UTC
+    grace_seconds: 3600            # optional; default 300, minimum 60
+    context:                       # optional initial context
+      region: "eu"
+```
+
+| Field | Required | Default | Notes |
+|---|---|---|---|
+| `flow` | yes | — | Resolved against `flows_dir`, so a schedule cannot escape it |
+| `cron` | yes | — | Five fields: minute hour day month weekday. Seconds are fixed at zero; six- and seven-field expressions are rejected rather than reinterpreted |
+| `timezone` | no | `UTC` | IANA name. Unknown names fail at startup |
+| `grace_seconds` | no | `300` | Maximum lateness for which a missed instant still fires. Minimum 60, because the scheduler evaluates every 30 seconds |
+| `context` | no | `{}` | Merged into the run's initial context. Must not define `_schedule` or `_flow_dir` |
+
+Invalid configuration — an unparseable expression, an unknown zone, a flow
+outside `flows_dir`, a reserved context key — fails the process at startup. A
+schedule that only fails at 02:00 is a schedule nobody finds out about until
+02:00.
+
+**Scheduled runs are ordinary runs.** They appear in `ironflow list`,
+`ironflow inspect`, and the events stream, and carry the schedule's name in
+their context under `_schedule`, so a run can be traced back to its trigger.
+
+**Multiple replicas.** Each instant is claimed through the state store, so at
+most one `serve` replica sharing that store evaluates it beyond the claim. This
+is not an exactly-once run guarantee: the owner can deliberately consume the
+claim without starting a run when the instant is late, an earlier run appears
+active, process capacity is exhausted, or flow loading/startup fails. The JSON
+store coordinates only among processes sharing a `store_dir`; use SQL or Redis
+across hosts.
+
+**Skips are logged, never silent.** A skip states which rule caused it — grace,
+overlap, or capacity — and the instant involved, at `WARN`. Losing a claim is
+logged at `debug`, because on N replicas it is the expected outcome N-1 times.
+
+**Daylight saving.** Schedules fire on local wall-clock time.
+
+- *Spring forward* — the configured time does not exist. A `0 2 * * *` schedule
+  in `Europe/Berlin` fires at 03:00 on the transition date rather than skipping
+  the day.
+- *Fall back* — the configured time occurs twice. The schedule fires once, on
+  the earlier instant.
+
+**Overlap.** If a previous run of the same schedule has not finished, the new
+instant is skipped rather than queued. At `IRONFLOW_MAX_CONCURRENT_RUNS`
+capacity the instant is likewise skipped, so a saturated server does not build
+a backlog. Overlap suppression scans at most 256 non-terminal run summaries
+and tolerates state-read failures; it is therefore a bounded best-effort check,
+not a distributed per-schedule lock.
+
 ---
 
 ## Environment Variables
@@ -710,7 +776,7 @@ configuration-file fields. `IRONFLOW_STORE_DIR` applies to `run`, `list`,
 | `MAX_BODY` | `1048576` | Max request body size (bytes) |
 | `IRONFLOW_API_KEY` | — | API key required for non-loopback API servers |
 | `IRONFLOW_ALLOW_UNAUTHENTICATED_API` | `false` | Explicitly allow unauthenticated API access |
-| `IRONFLOW_ALLOW_ADHOC_FLOWS` | `true` | Allow `POST /flows/run` to execute flow source sent in the request body. Set `false` to restrict the endpoint to flow files already under `flows_dir`. Overrides `allow_adhoc_flows` in config. |
+| `IRONFLOW_ALLOW_ADHOC_FLOWS` | `true` | Allow `POST /flows/run` and `POST /flows/validate` to evaluate flow source sent in the request body. `false` requires `flows_dir` and restricts both endpoints to files under it. Overrides `allow_adhoc_flows` in config. |
 | `IRONFLOW_CORS_ORIGINS` | — | Comma-separated allowed browser origins; use `*` to allow any origin |
 
 ### Run listing
@@ -725,9 +791,11 @@ This is resolved after dotenv loading by both `serve` and `list`.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `IRONFLOW_MAX_CONCURRENT_TASKS` | number of CPUs | Maximum tasks running in parallel per workflow execution |
-| `IRONFLOW_MAX_CONCURRENT_RUNS` | unlimited | Process-wide cap on concurrently-executing API/webhook-triggered runs. When at capacity, new run requests receive `503 Service Unavailable`. `0` or unset means unlimited. |
-| `IRONFLOW_MAX_RUN_SECONDS` | unlimited | Run-level wall-clock deadline. A run exceeding it is cancelled (terminal status `cancelled`), reclaiming a step that hangs without its own `timeout()`. `0` or unset means no deadline. |
+| `IRONFLOW_MAX_CONCURRENT_TASKS` | number of CPUs | Maximum tasks running in parallel per workflow execution. `0` is retained as a compatibility spelling for `1`; invalid values and values above Tokio's supported semaphore ceiling fail before execution. |
+| `IRONFLOW_MAX_CONCURRENT_RUNS` | unlimited | Process-wide cap on concurrently executing API-, webhook-, and scheduler-triggered runs. The permit follows a detached run until its coordinator settles. At capacity, API/webhook requests receive `503 Service Unavailable` and a scheduled instant is skipped. `0` or unset means unlimited; invalid or unsupported values fail server startup. |
+| `IRONFLOW_MAX_CONCURRENT_FLOW_LOADS` | `2` | Process-wide positive ceiling for concurrent Lua flow-definition loads by API validation/execution, webhooks, and schedules. Admission is held until detached blocking parsing actually stops. At capacity, API/webhook requests receive `503 Service Unavailable` and a scheduled instant is skipped; zero, invalid, or unsupported values fail server startup. |
+| `IRONFLOW_MAX_FLOW_SOURCE_BYTES` | `1048576` | Positive maximum UTF-8 bytes accepted for a file or inline Lua flow source, enforced before Lua VM creation. Zero or invalid values retain the safe default. |
+| `IRONFLOW_MAX_RUN_SECONDS` | unlimited | Run-level wall-clock deadline. A run exceeding it is cancelled (terminal status `cancelled`), reclaiming a step that hangs without its own `timeout()`. `0` or unset means no deadline; invalid values fail before execution/server startup. |
 | `IRONFLOW_LUA_MAX_INSTRUCTIONS` | `5000000` | Max Lua VM instructions per flow parse/code execution; `0` disables |
 | `IRONFLOW_LUA_MAX_SECONDS` | `10` | Max wall-clock seconds per Lua state; `0` disables |
 | `IRONFLOW_LUA_MAX_MEMORY_BYTES` | `134217728` | Max Lua VM memory per Lua state; `0` disables |
@@ -739,27 +807,76 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_DB_MAX_ROWS` | `1000` | Max rows returned by `db_query`; `0` disables |
 | `IRONFLOW_DB_MAX_RESULT_BYTES` | `10485760` | Max serialized JSON result size for `db_query`; `0` disables |
 | `IRONFLOW_LLM_MAX_RESPONSE_BYTES` | `26214400` | Max LLM provider response body size; `0` disables |
+| `IRONFLOW_MAX_TRANSCRIBE_RESPONSE_BYTES` | `26214400` | Maximum transcription-provider response body. Checked while streaming even when `Content-Length` is absent or wrong; zero/invalid values retain the safe default. |
 | `IRONFLOW_MAX_HTTP_BODY_BYTES` | `52428800` | Maximum HTTP node response-body size |
-| `IRONFLOW_MAX_FILE_BYTES` | `52428800` | Maximum `read_file` / `write_file` payload size |
+| `IRONFLOW_MAX_FILE_BYTES` | `52428800` | Maximum `read_file` payload and final `write_file` size (including an existing file in append mode), streamed `s3_get_object` response body, HTML/SRT/VTT extraction input, and raw DOCX/PPTX archive size |
+| `IRONFLOW_MAX_IMAGE_ENCODED_BYTES` | `52428800` | Maximum encoded bytes for one image path, artifact, or decoded Base64 source, checked before image pixel allocation |
+| `IRONFLOW_MAX_IMAGE_PIXELS` | `25000000` | Maximum decoded pixels in one source image or generated image transform |
+| `IRONFLOW_MAX_IMAGE_DECODE_ALLOCATION_BYTES` | `134217728` | Maximum decoder-managed allocation and admitted image working-buffer estimate; transforms check retained source plus known output buffers, while `image_to_pdf` also includes encoded, conversion, and compression buffers for non-JPEG sources |
+| `IRONFLOW_MAX_IMAGE_TO_PDF_SOURCES` | `100` | Maximum source entries admitted by one `image_to_pdf` call, checked before parsing entries |
+| `IRONFLOW_MAX_IMAGE_TO_PDF_ENCODED_BYTES` | `104857600` | Maximum cumulative encoded source bytes processed by one `image_to_pdf` call |
+| `IRONFLOW_MAX_IMAGE_TO_PDF_PIXELS` | `50000000` | Maximum cumulative decoded source pixels processed by one `image_to_pdf` call |
+| `IRONFLOW_ARTIFACT_DIR` | `data/artifacts` | Local root for immutable content-addressed workflow artifacts. Files are stored as `sha256/<digest>` and are not automatically expired; use a shared mount when runs can move between hosts. |
 | `IRONFLOW_MAX_AUDIO_BYTES` | `25000000` | Maximum size of the audio/video file `transcribe` reads from disk before uploading it to the provider |
-| `IRONFLOW_MAX_CONVERSION_DEPTH` | `64` | Maximum nesting depth when converting values between JSON and Lua |
-| `IRONFLOW_MAX_CONVERSION_NODES` | `100000` | Maximum total values converted between JSON and Lua in one conversion. A step handler converts the whole accumulated run context, not only the keys it reads, so a large fan-out can reach this in a step that never touched the data |
+| `IRONFLOW_MAX_CONVERSION_DEPTH` | `64` | Maximum nesting depth when converting values between JSON and Lua, and when admitting a verbose-JSON `transcribe` response before materialization |
+| `IRONFLOW_MAX_CONVERSION_NODES` | `100000` | Maximum total values converted between JSON and Lua in one conversion, also applied before a verbose-JSON `transcribe` response is materialized. A step handler converts the whole accumulated run context, not only the keys it reads, so a large fan-out can reach this in a step that never touched the data |
 | `IRONFLOW_MAX_SHELL_OUTPUT_BYTES` | `10485760` | Maximum captured bytes for each shell output stream and each MCP stdio JSON-RPC frame |
-| `IRONFLOW_MAX_TASK_OUTPUT_BYTES` | `2097152` | Maximum serialized task output persisted in run state before replacement with a truncation marker |
+| `IRONFLOW_MAX_TASK_OUTPUT_BYTES` | `2097152` | Maximum serialized task output persisted in run state before replacement with a truncation marker; the aborting counter reports `_minimum_bytes = limit + 1` rather than scanning for an exact rejected size |
 | `IRONFLOW_MAX_DIRECTORY_ENTRIES` | `10000` | Maximum entries returned by a directory listing |
-| `IRONFLOW_MAX_DIRECTORY_DEPTH` | `32` | Maximum recursive directory traversal depth |
-| `IRONFLOW_MAX_ZIP_ENTRIES` | `10000` | Maximum ZIP entries processed by archive nodes |
-| `IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES` | `536870912` | Maximum total uncompressed bytes processed by archive nodes |
-| `IRONFLOW_MAX_PDF_BYTES` | `104857600` | Maximum PDF file size accepted by rendering nodes |
+| `IRONFLOW_MAX_DIRECTORY_DEPTH` | `32` | Maximum recursive depth for directory listings, ZIP source traversal, and ZIP extraction paths |
+| `IRONFLOW_MAX_ZIP_ENTRIES` | `10000` | Maximum entries processed by archive nodes and OOXML extractors (`extract_word`, `extract_pptx`, `extract_xlsx`); `zip_create` counts every visited child file and directory |
+| `IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES` | `536870912` | Maximum total uncompressed bytes processed by archive nodes. For DOCX/PPTX it caps cumulative declared package bytes and cumulative actual bytes of parts read; for `extract_xlsx` it also caps the raw workbook before ZIP metadata allocation |
+| `IRONFLOW_MAX_PDF_BYTES` | `104857600` | Maximum size of each PDF accepted by rendering, metadata, splitting, merging, and `extract_pdf`; capped readers reject post-open growth where the parser API permits |
+| `IRONFLOW_MAX_PDF_MERGE_FILES` | `100` | Maximum number of sources admitted by one `pdf_merge` call before source descriptors are collected |
+| `IRONFLOW_MAX_PDF_MERGE_BYTES` | `536870912` | Maximum cumulative PDF input bytes and maximum staged merged output bytes for one `pdf_merge` call |
+| `IRONFLOW_MAX_PDF_MERGE_PAGES` | `2000` | Maximum cumulative pages admitted by one `pdf_merge` call |
+| `IRONFLOW_MAX_PDF_MERGE_OBJECTS` | `250000` | Maximum retained merged PDF graph objects, including the merged page tree and catalog; shared objects within one source are counted once |
+| `IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES` | `52428800` | Maximum complete serialized `NodeOutput` for one `extract_html`, `extract_pdf`, `extract_word`, `extract_pptx`, `extract_srt`, or `extract_vtt` call; includes configured content/alias, metadata, comments, cues, and artifact descriptors as applicable, but not the artifact files themselves |
+| `IRONFLOW_MAX_EXTRACT_ITEMS` | `250000` | Maximum cumulative structural/work items for one non-XLSX extraction call; units are format-specific and documented on each extract node |
+| `IRONFLOW_MAX_PDF_EXTRACT_PAGES` | `1000` | Maximum pages accepted by one `extract_pdf` call before text extraction begins |
 | `IRONFLOW_MAX_PDF_RENDER_PAGES` | `25` | Maximum pages rendered by one PDF node call |
+| `IRONFLOW_MAX_PDF_SPLIT_PAGES` | `1000` | Maximum selected pages materialized by one `pdf_split` call; page specifications are rejected before collecting more indices |
 | `IRONFLOW_MAX_PDF_RENDER_PIXELS` | `25000000` | Maximum pixels in one rendered PDF page |
 | `IRONFLOW_MAX_PDF_DPI` | `300` | Maximum PDF rendering DPI |
+| `IRONFLOW_MAX_XLSX_ARCHIVE_METADATA_BYTES` | `8388608` | Maximum cumulative XLSX central-directory filename, extra-field, and file-comment bytes, checked allocation-free before ZIP/Calamine construction |
+| `IRONFLOW_MAX_XLSX_ROWS` | `50000` | Highest one-based row position accepted in one sheet by `extract_xlsx`; sparse rows do not bypass it |
+| `IRONFLOW_MAX_XLSX_CELLS` | `33000` | Maximum total cells across every sheet one `extract_xlsx` call extracts |
+| `IRONFLOW_MAX_XLSX_OUTPUT_BYTES` | `52428800` | Maximum cumulative decoded/result bytes for one `extract_xlsx` call and maximum compressed/uncompressed size of one workbook part; repeated shared-string references are charged per use |
 | `IRONFLOW_MAX_DETACHED_SUBWORKFLOWS` | `64` | Process-wide limit for detached `subworkflow` executions |
 | `IRONFLOW_MCP_SESSION_CACHE_SIZE` | `1024` | Maximum live MCP session handles; least-recently-used overflow sessions are closed |
 | `IRONFLOW_MCP_SESSION_TTL_SECS` | `3600` | Idle TTL for live MCP sessions; expired sessions are closed when another session is inserted or leased |
 | `IRONFLOW_OAUTH_CACHE_SIZE` | `128` | Maximum cached OAuth client token tuples |
 
 Lua limits apply to flow parsing, `code` nodes, and `foreach` transform functions. For trusted dedicated-server workloads that intentionally run long Lua computations, raise the budgets or set the relevant budget to `0`.
+
+The extraction-output setting is a logical full-result limit checked with a
+bounded serializer; it does not promise a process-RSS ceiling and is separate
+from `IRONFLOW_MAX_TASK_OUTPUT_BYTES`, which controls later persistence of an
+already-produced task result. The structural setting is one cumulative counter
+per call: HTML counts markup items; PDF counts pages, supported metadata fields,
+and text lines; DOCX/PPTX count their parser events and retained structures; and
+SRT/VTT count input lines and parsed cues. The node pages document the exact
+units and additional raw or archive limits.
+
+Binary-producing nodes use `artifact://sha256/<digest>` descriptors to keep
+large byte payloads out of workflow context. The first backend is deliberately
+local and content-addressed: publication is atomic, duplicate content is
+reused, and files persist until an operator removes them. Redis/PostgreSQL run
+state stores only the descriptor, not its file. Multi-host deployments and
+recovered runs therefore require `IRONFLOW_ARTIFACT_DIR` to point at durable
+storage mounted at the same path on every worker. Inline Base64 remains an
+explicit compatibility/provider-boundary mode where a node documents it.
+The directory is a trusted process boundary: protect it from mutation by
+workflow and unrelated same-identity processes. Artifact-aware consumers open
+inside their tracked blocking worker, refuse links and non-regular files, hash
+the opened handle, compare it with the URI/descriptor, rewind it, and pass that
+same handle to the parser. This detects same-size path replacement and avoids a
+path-resolution/open race, but it cannot isolate an already-open inode from a
+hostile process with the same OS identity. Hostile multi-tenant deployments
+need separate execution identities and storage ACLs, or a separately
+authenticated artifact service.
+
+`IRONFLOW_MAX_XLSX_CELLS` is deliberately kept below `IRONFLOW_MAX_CONVERSION_NODES`: converting an extracted sheet into Lua costs roughly `rows * (cols + 1)` conversion nodes, so a cell ceiling that never fires before the conversion budget does would let oversized workbooks fail deep inside the JSON-to-Lua converter (an error naming a JSON path) instead of at `extract_xlsx` parse time (an error naming the sheet). Raising one of these two limits without the other may simply move where an oversized workbook fails rather than allow it through.
 
 ### Diagnostics
 

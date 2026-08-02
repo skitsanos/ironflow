@@ -1,190 +1,181 @@
-use super::pptx_parser::{PptxElement, PptxSlide};
+mod text;
 
-pub(super) fn pptx_slides_to_text(slides: &[PptxSlide]) -> String {
-    let mut parts: Vec<String> = Vec::new();
-    for s in slides {
-        parts.push(format!("===== SLIDE {} =====", s.slide_index));
-        if let Some(ref t) = s.title {
-            parts.push(t.clone());
+use anyhow::Result;
+
+use super::pptx_parser::{PptxComment, PptxElement, PptxSlide};
+use super::resource::Budget;
+
+pub(super) use text::{pptx_slides_to_markdown, pptx_slides_to_text};
+
+pub(super) fn pptx_slides_into_json(
+    slides: Vec<PptxSlide>,
+    budget: &mut Budget<'_>,
+) -> Result<serde_json::Value> {
+    let mut serialized_slides = Vec::new();
+    serialized_slides.try_reserve_exact(slides.len())?;
+    for slide in slides {
+        let PptxSlide {
+            slide_index,
+            title,
+            elements: slide_elements,
+            speaker_notes,
+            comments,
+        } = slide;
+        budget.checkpoint()?;
+        budget.charge_output(48, "PPTX JSON structure")?;
+        let mut elements = Vec::new();
+        elements.try_reserve_exact(slide_elements.len())?;
+        for element in slide_elements {
+            budget.checkpoint()?;
+            elements.push(element_into_json(element, budget)?);
         }
-        for el in &s.elements {
-            match el {
-                PptxElement::TextBlock { paragraphs, .. } => {
-                    for p in paragraphs {
-                        parts.push(p.text.clone());
-                    }
-                }
-                PptxElement::Table { rows } => {
-                    for row in rows {
-                        parts.push(row.join(" | "));
-                    }
-                }
-                PptxElement::Image { .. } => {}
-            }
+        let mut object = serde_json::Map::new();
+        object.insert("slide_index".into(), serde_json::json!(slide_index));
+        if let Some(title) = title {
+            object.insert("title".into(), serde_json::Value::String(title));
         }
-        if let Some(ref n) = s.speaker_notes {
-            parts.push("--- NOTES ---".to_string());
-            parts.push(n.clone());
+        object.insert("elements".into(), serde_json::Value::Array(elements));
+        if let Some(notes) = speaker_notes {
+            object.insert("speaker_notes".into(), serde_json::Value::String(notes));
         }
-        for c in &s.comments {
-            parts.push(format!(
-                "[COMMENT by {}{}]: {}",
-                c.author.clone().unwrap_or_else(|| "?".into()),
-                c.date
-                    .clone()
-                    .map(|d| format!(" @ {}", d))
-                    .unwrap_or_default(),
-                c.text
-            ));
+        if !comments.is_empty() {
+            object.insert(
+                "comments".into(),
+                pptx_comments_into_json(comments, budget)?,
+            );
         }
+        serialized_slides.push(serde_json::Value::Object(object));
     }
-    parts.join("\n")
+    Ok(serde_json::json!({ "slides": serialized_slides }))
 }
 
-pub(super) fn pptx_slides_to_markdown(slides: &[PptxSlide]) -> String {
-    let mut out: Vec<String> = Vec::new();
-    for s in slides {
-        out.push(format!("## Slide {}", s.slide_index));
-        out.push(String::new());
-        if let Some(ref t) = s.title {
-            out.push(format!("### {}", t));
-            out.push(String::new());
-        }
-        for el in &s.elements {
-            match el {
-                PptxElement::TextBlock { paragraphs, .. } => {
-                    for p in paragraphs {
-                        if let Some(lvl) = p.list_level {
-                            let indent = "  ".repeat(lvl as usize);
-                            out.push(format!("{}- {}", indent, p.text));
-                        } else {
-                            out.push(p.text.clone());
-                        }
-                    }
-                    out.push(String::new());
+fn element_into_json(element: PptxElement, budget: &mut Budget<'_>) -> Result<serde_json::Value> {
+    budget.charge_output(48, "PPTX JSON element structure")?;
+    Ok(match element {
+        PptxElement::TextBlock {
+            placeholder,
+            paragraphs,
+        } => {
+            let mut values = Vec::new();
+            values.try_reserve_exact(paragraphs.len())?;
+            for paragraph in paragraphs {
+                budget.checkpoint()?;
+                budget.charge_output(32, "PPTX JSON paragraph structure")?;
+                let mut value = serde_json::Map::new();
+                value.insert("text".into(), serde_json::Value::String(paragraph.text));
+                if let Some(level) = paragraph.list_level {
+                    value.insert("list_level".into(), serde_json::json!(level));
                 }
-                PptxElement::Table { rows } => {
-                    if !rows.is_empty() {
-                        out.push(format!("| {} |", rows[0].join(" | ")));
-                        out.push(format!("|{}|", vec![" --- "; rows[0].len()].join("|")));
-                        for row in &rows[1..] {
-                            out.push(format!("| {} |", row.join(" | ")));
-                        }
-                        out.push(String::new());
-                    }
-                }
-                PptxElement::Image { .. } => {
-                    out.push("*(image)*".to_string());
-                }
+                values.push(serde_json::Value::Object(value));
             }
+            let mut value = serde_json::Map::new();
+            value.insert(
+                "type".into(),
+                serde_json::Value::String("text_block".into()),
+            );
+            if let Some(placeholder) = placeholder {
+                value.insert("placeholder".into(), serde_json::Value::String(placeholder));
+            }
+            value.insert("paragraphs".into(), serde_json::Value::Array(values));
+            serde_json::Value::Object(value)
         }
-        if let Some(ref n) = s.speaker_notes {
-            out.push("**Speaker notes:**".to_string());
-            out.push(n.clone());
-            out.push(String::new());
-        }
-        for c in &s.comments {
-            out.push(format!(
-                "> 💬 **{}**{}: {}",
-                c.author.clone().unwrap_or_else(|| "?".into()),
-                c.date
-                    .clone()
-                    .map(|d| format!(" ({})", d))
-                    .unwrap_or_default(),
-                c.text
-            ));
-        }
-    }
-    out.join("\n").trim().to_string()
+        PptxElement::Table { rows } => table_into_json(rows, budget)?,
+        PptxElement::Image {
+            alt_text,
+            embed_id,
+            embedded_path,
+            artifact,
+        } => image_into_json(alt_text, embed_id, embedded_path, artifact)?,
+    })
 }
 
-pub(super) fn pptx_slides_to_json(slides: &[PptxSlide]) -> serde_json::Value {
-    let arr: Vec<serde_json::Value> = slides
-        .iter()
-        .map(|s| {
-            let elements: Vec<serde_json::Value> = s
-                .elements
-                .iter()
-                .map(|el| match el {
-                    PptxElement::TextBlock {
-                        placeholder,
-                        paragraphs,
-                    } => {
-                        let paras: Vec<serde_json::Value> = paragraphs
-                            .iter()
-                            .map(|p| {
-                                let mut o = serde_json::Map::new();
-                                o.insert("text".into(), serde_json::Value::String(p.text.clone()));
-                                if let Some(lvl) = p.list_level {
-                                    o.insert("list_level".into(), serde_json::json!(lvl));
-                                }
-                                serde_json::Value::Object(o)
-                            })
-                            .collect();
-                        let mut o = serde_json::Map::new();
-                        o.insert(
-                            "type".into(),
-                            serde_json::Value::String("text_block".into()),
-                        );
-                        if let Some(p) = placeholder {
-                            o.insert("placeholder".into(), serde_json::Value::String(p.clone()));
-                        }
-                        o.insert("paragraphs".into(), serde_json::Value::Array(paras));
-                        serde_json::Value::Object(o)
-                    }
-                    PptxElement::Table { rows } => {
-                        serde_json::json!({
-                            "type": "table",
-                            "rows": rows
-                        })
-                    }
-                    PptxElement::Image {
-                        alt_text,
-                        embed_id,
-                        embedded_path,
-                        media_b64,
-                        mime_type,
-                    } => {
-                        let mut o = serde_json::Map::new();
-                        o.insert("type".into(), serde_json::Value::String("image".into()));
-                        if let Some(a) = alt_text {
-                            o.insert("alt_text".into(), serde_json::Value::String(a.clone()));
-                        }
-                        if let Some(e) = embed_id {
-                            o.insert("embed_id".into(), serde_json::Value::String(e.clone()));
-                        }
-                        if let Some(p) = embedded_path {
-                            o.insert("embedded_path".into(), serde_json::Value::String(p.clone()));
-                        }
-                        if let Some(m) = media_b64 {
-                            o.insert("media_b64".into(), serde_json::Value::String(m.clone()));
-                        }
-                        if let Some(mt) = mime_type {
-                            o.insert("mime_type".into(), serde_json::Value::String(mt.clone()));
-                        }
-                        serde_json::Value::Object(o)
-                    }
-                })
-                .collect();
-            let comments: Vec<serde_json::Value> = s
-                .comments
-                .iter()
-                .map(|c| serde_json::to_value(c).unwrap_or(serde_json::Value::Null))
-                .collect();
-            let mut obj = serde_json::Map::new();
-            obj.insert("slide_index".into(), serde_json::json!(s.slide_index));
-            if let Some(ref t) = s.title {
-                obj.insert("title".into(), serde_json::Value::String(t.clone()));
-            }
-            obj.insert("elements".into(), serde_json::Value::Array(elements));
-            if let Some(ref n) = s.speaker_notes {
-                obj.insert("speaker_notes".into(), serde_json::Value::String(n.clone()));
-            }
-            if !comments.is_empty() {
-                obj.insert("comments".into(), serde_json::Value::Array(comments));
-            }
-            serde_json::Value::Object(obj)
-        })
-        .collect();
-    serde_json::json!({ "slides": arr })
+fn table_into_json(rows: Vec<Vec<String>>, budget: &mut Budget<'_>) -> Result<serde_json::Value> {
+    let mut serialized_rows = Vec::new();
+    serialized_rows.try_reserve_exact(rows.len())?;
+    for row in rows {
+        budget.checkpoint()?;
+        budget.charge_output(2, "PPTX JSON table structure")?;
+        let mut serialized_cells = Vec::new();
+        serialized_cells.try_reserve_exact(row.len())?;
+        for cell in row {
+            budget.checkpoint()?;
+            budget.charge_output(3, "PPTX JSON table structure")?;
+            serialized_cells.push(serde_json::Value::String(cell));
+        }
+        serialized_rows.push(serde_json::Value::Array(serialized_cells));
+    }
+    Ok(serde_json::json!({ "type": "table", "rows": serialized_rows }))
+}
+
+fn pptx_comments_into_json(
+    comments: Vec<PptxComment>,
+    budget: &mut Budget<'_>,
+) -> Result<serde_json::Value> {
+    let mut values = Vec::new();
+    values.try_reserve_exact(comments.len())?;
+    for comment in comments {
+        budget.checkpoint()?;
+        budget.charge_output(64, "PPTX JSON comment structure")?;
+        values.push(serde_json::to_value(comment)?);
+    }
+    Ok(serde_json::Value::Array(values))
+}
+
+pub(super) fn pptx_comments_to_json(
+    comments: &[PptxComment],
+    budget: &mut Budget<'_>,
+    duplicate_retained_fields: bool,
+) -> Result<serde_json::Value> {
+    let mut values = Vec::new();
+    values.try_reserve_exact(comments.len())?;
+    for comment in comments {
+        budget.checkpoint()?;
+        budget.charge_output(64, "PPTX JSON comment structure")?;
+        if duplicate_retained_fields {
+            budget.charge_output(
+                comment_retained_bytes(comment),
+                "PPTX duplicated flat comments",
+            )?;
+        }
+        values.push(serde_json::to_value(comment)?);
+    }
+    Ok(serde_json::Value::Array(values))
+}
+
+fn comment_retained_bytes(comment: &PptxComment) -> u64 {
+    [
+        comment.idx.as_deref(),
+        comment.author_id.as_deref(),
+        comment.author.as_deref(),
+        comment.initials.as_deref(),
+        comment.date.as_deref(),
+        Some(comment.text.as_str()),
+    ]
+    .into_iter()
+    .flatten()
+    .map(|value| value.len() as u64)
+    .fold(0, u64::saturating_add)
+}
+
+fn image_into_json(
+    alt_text: Option<String>,
+    embed_id: Option<String>,
+    embedded_path: Option<String>,
+    artifact: Option<crate::artifacts::ArtifactRef>,
+) -> Result<serde_json::Value> {
+    let mut value = serde_json::Map::new();
+    value.insert("type".into(), serde_json::Value::String("image".into()));
+    for (key, content) in [
+        ("alt_text", alt_text),
+        ("embed_id", embed_id),
+        ("embedded_path", embedded_path),
+    ] {
+        if let Some(content) = content {
+            value.insert(key.into(), serde_json::Value::String(content));
+        }
+    }
+    if let Some(artifact) = artifact {
+        value.insert("artifact".into(), serde_json::to_value(artifact)?);
+    }
+    Ok(serde_json::Value::Object(value))
 }

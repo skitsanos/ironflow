@@ -120,4 +120,10 @@ impl StateStore for NullStateStore {
             .map(|_| ())
             .ok_or_else(|| StorageError::not_found(format_args!("Run '{run_id}' not found")))
     }
+
+    /// Nothing is persisted and nothing is shared, so there is no peer to lose
+    /// a race to.
+    async fn claim_schedule(&self, _name: &str, _key: &str, _ttl: u64) -> StorageResult<bool> {
+        Ok(true)
+    }
 }

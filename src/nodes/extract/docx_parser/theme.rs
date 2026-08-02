@@ -1,31 +1,33 @@
 use std::collections::HashMap;
+use std::io::BufRead;
+
+use anyhow::Result;
+
+use super::super::resource::Budget;
+use super::xml::{XmlDocument, visit_attributes};
 
 /// Parse `word/theme/theme1.xml` into OOXML theme-name to hex-color mappings.
-pub(in crate::nodes::extract) fn parse_theme_colors(
-    archive: &mut zip::ZipArchive<std::fs::File>,
-) -> HashMap<String, String> {
+pub(in crate::nodes::extract) fn parse_theme_colors<R: BufRead>(
+    xml: R,
+    budget: &mut Budget<'_>,
+) -> Result<HashMap<String, String>> {
     let mut colors = HashMap::new();
-    let xml = match archive.by_name("word/theme/theme1.xml") {
-        Ok(entry) => match crate::util::bounded_read::read_to_string_capped(
-            entry,
-            crate::util::limits::max_zip_uncompressed_bytes(),
-            "extract_word",
-        ) {
-            Ok(xml) => xml,
-            Err(_) => return colors,
-        },
-        Err(_) => return colors,
-    };
-
     use quick_xml::events::Event;
-    let mut reader = quick_xml::Reader::from_str(&xml);
+    let mut reader = quick_xml::Reader::from_reader(xml);
+    reader.config_mut().check_comments = true;
     let mut buf = Vec::new();
     let mut in_scheme = false;
     let mut current_role = None;
+    let mut document = XmlDocument::new("word/theme/theme1.xml");
 
     loop {
-        match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(ref event) | Event::Empty(ref event)) => {
+        budget.charge_item("DOCX theme XML events")?;
+        let event = reader.read_event_into(&mut buf).map_err(|error| {
+            anyhow::anyhow!("extract_word: invalid word/theme/theme1.xml: {error}")
+        })?;
+        document.observe(&event, budget)?;
+        match event {
+            Event::Start(ref event) | Event::Empty(ref event) => {
                 let raw = String::from_utf8_lossy(event.name().as_ref()).to_string();
                 let local = raw.rsplit(':').next().unwrap_or(&raw);
                 if local == "clrScheme" {
@@ -41,18 +43,23 @@ pub(in crate::nodes::extract) fn parse_theme_colors(
                         } else {
                             b"lastClr"
                         };
-                        for attr in event.attributes().flatten() {
-                            if attr.key.as_ref() == attr_name {
-                                colors.insert(
-                                    role.to_string(),
-                                    String::from_utf8_lossy(&attr.value).to_uppercase(),
-                                );
-                            }
-                        }
+                        visit_attributes(
+                            event,
+                            "word/theme/theme1.xml",
+                            budget,
+                            |key, value, _| {
+                                if key != attr_name {
+                                    return Ok(());
+                                }
+                                let value = String::from_utf8_lossy(value).to_uppercase();
+                                colors.insert(role.to_string(), value);
+                                Ok(())
+                            },
+                        )?;
                     }
                 }
             }
-            Ok(Event::End(ref event)) => {
+            Event::End(ref event) => {
                 let raw = String::from_utf8_lossy(event.name().as_ref()).to_string();
                 let local = raw.rsplit(':').next().unwrap_or(&raw);
                 if local == "clrScheme" {
@@ -62,13 +69,12 @@ pub(in crate::nodes::extract) fn parse_theme_colors(
                     current_role = None;
                 }
             }
-            Ok(Event::Eof) => break,
-            Err(_) => break,
+            Event::Eof => break,
             _ => {}
         }
         buf.clear();
     }
-    colors
+    Ok(colors)
 }
 
 fn canonical_role(local: &str) -> Option<&'static str> {

@@ -4,10 +4,12 @@ mod deadline;
 mod engine;
 mod error_handler;
 mod finalizer;
+mod lease;
 mod output;
 mod overlay;
 mod phase_output;
 mod scheduler;
+mod signal;
 mod task_runner;
 mod workflow;
 

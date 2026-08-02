@@ -6,7 +6,9 @@ if temp_root == nil or temp_root == "" then temp_root = env("TEMP") end
 if temp_root == nil or temp_root == "" then temp_root = "." end
 local output_path = temp_root .. "/ironflow-image-to-pdf-" .. uuid4() .. ".pdf"
 
--- Convert existing images into a single PDF.
+-- Prefer paths or artifact descriptors for media: inline Base64 temporarily
+-- retains both the context string and decoded bytes. Source count, encoded
+-- bytes, and decoded pixels are bounded before the PDF document is built.
 flow:step("convert", nodes.image_to_pdf({
     sources = {
         { path = "${ctx._flow_dir}/../fixtures/ironflow-sample.png" },

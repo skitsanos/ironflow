@@ -500,7 +500,7 @@ async fn zip_create_respects_max_entries() {
         .await;
 
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("file count"));
+    assert!(result.unwrap_err().to_string().contains("entry count"));
 }
 
 #[tokio::test]
@@ -703,6 +703,8 @@ async fn zip_extract_prevents_traversal() {
         .await;
 
     assert!(result.is_err());
+    assert!(!dir.path().join("evil.txt").exists());
+    assert!(!destination.exists());
 }
 
 #[tokio::test]
@@ -739,5 +741,9 @@ async fn zip_extract_respects_total_uncompressed_bytes() {
             .unwrap_err()
             .to_string()
             .contains("uncompressed bytes")
+    );
+    assert!(
+        !destination.exists(),
+        "declared-size preflight must run before destination mutation"
     );
 }

@@ -17,6 +17,6 @@ impl Node for ExtractSrtNode {
     }
 
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
-        super::parser::extract(config, ctx, "extract_srt", "srt", false)
+        super::parser::extract(config, ctx, "extract_srt", "srt", false).await
     }
 }

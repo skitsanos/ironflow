@@ -1,5 +1,7 @@
+mod admission;
 pub mod errors;
 pub mod handlers;
+mod server;
 mod webhook_config;
 
 pub use webhook_config::WebhookConfig;
@@ -9,17 +11,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
-use axum::Router;
-use axum::extract::DefaultBodyLimit;
 use axum::extract::Request;
 use axum::http::StatusCode;
 use axum::http::{HeaderMap, HeaderValue};
-use axum::middleware::{self, Next};
+use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use axum::routing::{delete, get, post};
 use tower_http::cors::{AllowOrigin, Any, CorsLayer};
-use tower_http::trace::TraceLayer;
-use tracing::{info, warn};
+use tracing::warn;
 
 use crate::nodes::NodeRegistry;
 use crate::storage::StateStore;
@@ -36,53 +34,14 @@ pub struct AppState {
     pub listing_policy: ListingPolicy,
     /// Named webhook route definitions from config.
     pub webhooks: HashMap<String, WebhookConfig>,
-    /// When false, `/flows/run` refuses inline flow source. See
-    /// `ServeOptions::allow_adhoc_flows`.
+    /// When false, `/flows/run` and `/flows/validate` refuse inline flow
+    /// source. See `ServeOptions::allow_adhoc_flows`.
     pub allow_adhoc_flows: bool,
 }
 
-/// Optional process-wide cap on concurrently-executing API-triggered runs,
-/// configured via `IRONFLOW_MAX_CONCURRENT_RUNS` (unset or `0` = unlimited).
-/// `max_concurrent_tasks` only bounds tasks within a single run's coordinator,
-/// so without this a burst of requests could multiply total concurrency
-/// unboundedly (IF-042).
-fn run_admission() -> Option<&'static Arc<tokio::sync::Semaphore>> {
-    static SEM: std::sync::OnceLock<Option<Arc<tokio::sync::Semaphore>>> =
-        std::sync::OnceLock::new();
-    SEM.get_or_init(|| {
-        let max = std::env::var("IRONFLOW_MAX_CONCURRENT_RUNS")
-            .ok()
-            .and_then(|value| value.parse::<usize>().ok())
-            .unwrap_or(0);
-        (max > 0).then(|| Arc::new(tokio::sync::Semaphore::new(max)))
-    })
-    .as_ref()
-}
-
-/// Acquire a run-admission permit held for the duration of an API-triggered run,
-/// or return `503` when the process is at capacity. Returns `None` (no gating)
-/// when the cap is not configured.
-pub(crate) fn acquire_run_permit()
--> Result<Option<tokio::sync::OwnedSemaphorePermit>, errors::AppError> {
-    acquire_run_permit_from(run_admission())
-}
-
-fn acquire_run_permit_from(
-    semaphore: Option<&Arc<tokio::sync::Semaphore>>,
-) -> Result<Option<tokio::sync::OwnedSemaphorePermit>, errors::AppError> {
-    match semaphore {
-        None => Ok(None),
-        Some(semaphore) => semaphore
-            .clone()
-            .try_acquire_owned()
-            .map(Some)
-            .map_err(|_| {
-                errors::AppError::ServiceUnavailable(
-                    "server is at maximum concurrent run capacity; retry later".to_string(),
-                )
-            }),
-    }
-}
+pub(crate) use admission::{
+    acquire_flow_load_permit, acquire_run_permit, supervise_flow_load, wait_for_admitted_run,
+};
 
 /// Configuration for the REST API server.
 pub struct ServeOptions {
@@ -93,8 +52,9 @@ pub struct ServeOptions {
     pub max_concurrent_tasks: Option<usize>,
     pub listing_policy: ListingPolicy,
     pub webhooks: HashMap<String, WebhookConfig>,
-    /// When false, `/flows/run` refuses inline `source` / `source_base64` and
-    /// will only execute flow files already present under `flows_dir`.
+    /// When false, `/flows/run` and `/flows/validate` refuse inline `source` /
+    /// `source_base64` and only accept flow files already present under
+    /// `flows_dir`.
     pub allow_adhoc_flows: bool,
     pub cors_origins: Option<Vec<String>>,
     pub api_key: Option<String>,
@@ -114,68 +74,20 @@ impl ApiAuth {
     }
 }
 
+pub(crate) use server::prepare;
+
 /// Start the REST API server.
 pub async fn serve(
     store: Arc<dyn StateStore>,
     event_store: Arc<dyn EventStore>,
     options: ServeOptions,
 ) -> Result<()> {
-    let registry = Arc::new(NodeRegistry::with_builtins());
-    let listener = bind_listener(&options.host, options.port).await?;
-    let bound_addr = listener.local_addr()?;
-
-    let state = Arc::new(AppState {
-        registry,
-        store,
-        event_store,
-        flows_dir: options.flows_dir,
-        max_concurrent_tasks: options.max_concurrent_tasks,
-        listing_policy: options.listing_policy,
-        webhooks: options.webhooks,
-        allow_adhoc_flows: options.allow_adhoc_flows,
-    });
-
-    let auth = build_api_auth(
-        options.api_key,
-        options.allow_unauthenticated_api,
-        bound_addr.ip().is_loopback(),
-        &options.host,
-    )?;
-
-    let protected_routes = Router::new()
-        .route("/flows/run", post(handlers::run_flow))
-        .route("/flows/validate", post(handlers::validate_flow))
-        .route("/runs", get(handlers::list_runs))
-        .route("/runs/{id}", get(handlers::get_run))
-        .route("/runs/{id}/events", get(handlers::run_events))
-        .route("/runs/{id}", delete(handlers::delete_run))
-        .route("/nodes", get(handlers::list_nodes))
-        .route("/webhooks/{name}", post(handlers::run_webhook));
-
-    let protected_routes = if let Some(auth) = auth {
-        protected_routes.layer(middleware::from_fn_with_state(auth, require_api_key))
-    } else {
-        protected_routes
-    };
-
-    let app = Router::new()
-        .route("/health", get(handlers::health))
-        .merge(protected_routes)
-        .layer(DefaultBodyLimit::max(options.max_body))
-        .layer(TraceLayer::new_for_http())
-        .layer(cors_layer(options.cors_origins)?)
-        .with_state(state);
-
-    info!("IronFlow API server listening on {}", bound_addr);
-    axum::serve(listener, app).await?;
-
-    Ok(())
-}
-
-async fn bind_listener(host: &str, port: u16) -> Result<tokio::net::TcpListener> {
-    tokio::net::TcpListener::bind((host, port))
+    prepare(store.clone(), event_store, options)
+        .await?
+        .start_run_lifecycle(store)
+        .await?
+        .serve()
         .await
-        .map_err(|error| anyhow::anyhow!("failed to bind API server to {host}:{port}: {error}"))
 }
 
 /// Build the CORS policy for the API server.
@@ -299,20 +211,20 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{bind_listener, constant_time_eq, request_has_api_key};
+    use super::{constant_time_eq, request_has_api_key};
     use axum::http::HeaderMap;
 
     #[tokio::test]
     async fn bind_listener_accepts_hostname_and_ipv4_loopback() {
         for host in ["localhost", "127.0.0.1"] {
-            let listener = bind_listener(host, 0).await.unwrap();
+            let listener = super::server::bind_listener(host, 0).await.unwrap();
             assert!(listener.local_addr().unwrap().ip().is_loopback());
         }
     }
 
     #[tokio::test]
     async fn bind_listener_accepts_unbracketed_ipv6_loopback() {
-        let listener = bind_listener("::1", 0).await.unwrap();
+        let listener = super::server::bind_listener("::1", 0).await.unwrap();
         assert!(listener.local_addr().unwrap().ip().is_loopback());
     }
 
@@ -323,25 +235,6 @@ mod tests {
         assert!(!constant_time_eq(b"secret-token", b"secret")); // different length
         assert!(!constant_time_eq(b"", b"x"));
         assert!(constant_time_eq(b"", b""));
-    }
-
-    #[test]
-    fn run_admission_permit_gating() {
-        // No configured cap: never gated.
-        assert!(super::acquire_run_permit_from(None).unwrap().is_none());
-
-        // Cap of 1: first acquire succeeds, the second is refused (503), and
-        // releasing the first restores capacity.
-        let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(1));
-        let first = super::acquire_run_permit_from(Some(&semaphore)).unwrap();
-        assert!(first.is_some());
-        assert!(super::acquire_run_permit_from(Some(&semaphore)).is_err());
-        drop(first);
-        assert!(
-            super::acquire_run_permit_from(Some(&semaphore))
-                .unwrap()
-                .is_some()
-        );
     }
 
     #[test]

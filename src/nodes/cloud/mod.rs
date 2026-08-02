@@ -1,3 +1,4 @@
+mod s3_body;
 mod s3_helpers;
 mod s3_listing;
 mod s3_objects;

@@ -104,7 +104,7 @@ The core engine, minimal node set, and CLI. Goal: execute a simple multi-step fl
 
 ## Phase 2: Nodes ✅
 
-101 built-in nodes across HTTP, shell, file, S3, MCP, data transforms, conditionals, caching, database, AI, notifications, composition, S3 vector, XML, YAML, HTML sanitization, date/time, encoding, and utility categories. Each node is a Rust struct implementing the `Node` trait.
+102 built-in nodes across HTTP, shell, file, S3, MCP, data transforms, conditionals, caching, database, AI, notifications, composition, S3 vector, XML, YAML, HTML sanitization, date/time, encoding, and utility categories. Each node is a Rust struct implementing the `Node` trait.
 
 See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters, context output, and Lua examples.
 
@@ -122,7 +122,7 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
 - [x] `GET /runs/:id` — Get full run info (context, tasks, timing)
 - [x] `DELETE /runs/:id` — Delete state and retained events, fence late event
   publication, and recover orphaned event cleanup on retry (404 when neither
-  state nor orphaned events exist)
+  state nor orphaned events exist; 409 while a non-terminal owner lease is live)
 - [x] `GET /nodes` — List registered nodes with descriptions
 - [x] `GET /health` — Version and status check
 - [x] `source_base64` field for escaping-free Lua submission
@@ -245,6 +245,13 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
       environment > selected dotenv > config file > built-in default; an
       explicit value equal to a default still wins
 - [x] Webhook routes via config — scalar or structured `webhooks:` entries create `POST /webhooks/{name}` endpoints; request headers are default-denied and explicitly forwarded only through redacted execution overlays
+- [x] Scheduled triggers — `schedules:` block in `ironflow.yaml`, evaluated by a
+      30-second tick inside `ironflow serve`. Cross-replica at-most-one claims via
+      `StateStore::claim_schedule` (SQL unique index, Redis `SET NX EX`, JSON
+      exclusive create, Null process-local always-true). A successful claim can
+      still be deliberately burned by lateness, bounded best-effort overlap,
+      capacity, or a start failure. Claim keys are local wall-clock, so a
+      fall-back hour is claimed once; a spring-forward gap fires after the gap.
 - [x] Storage backend selection via config — `store_backend`, `store_url`,
   `event_store`, `event_store_url`, `event_memory_capacity`, and
   `sql_table_prefix`; env-var equivalents include `IRONFLOW_STORE`,
@@ -269,13 +276,22 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
 
 ### 5.5 Infrastructure ✅
 - [x] GitHub Actions CI (module-size ratchet, check, clippy, fmt, test, build,
-  validate examples) — push-path-filtered to skip docs-only changes while
-  checker and policy changes remain in scope; pull requests run the full suite
-- [x] Schema-v2 example catalog classifies all 125 Lua flows, records composable service/credential/state/platform requirements, and evaluates every flow against the built-in registry so all 100 node types remain covered without exemptions
+  validate examples) — runs on pushes to `develop` and `main` (plus explicit
+  manual dispatch), with path filters that skip docs-only changes while
+  checker and policy changes remain in scope. Routine work uses focused local
+  checks; `.githooks/pre-push` runs the full integration gate before `develop`.
+- [x] Schema-v2 example catalog classifies all 129 Lua flows, records composable service/credential/state/platform requirements, and evaluates every flow against the built-in registry so all 102 node types remain covered without exemptions
 - [x] GitHub Actions Release workflow — builds Linux (musl), macOS (x86_64 + aarch64), Windows on version tags
 - [x] Shared Lua sandbox module (`src/lua/sandbox.rs`) for consistent VM setup
 
 ### 5.6 Memory Hardening ✅
+- [x] Immutable local `ArtifactRef` store keeps large binary handoffs out of
+  workflow context; PPTX media, `read_file`, and PDF renderers publish
+  content-addressed files while extractors and image/PDF consumers resolve
+  descriptors without Base64
+- [x] DOCX and PPTX XML parts parse directly from bounded ZIP-entry readers
+  with cumulative decoded-byte accounting, incremental UTF-8 validation,
+  cancellation checkpoints, and end-of-entry CRC verification
 - [x] Bounded in-memory cache with LRU eviction + proactive TTL sweep (`src/util/bounded_cache.rs`)
 - [x] Bound the default in-memory run-event backend globally to 10,000 events
   and deletion fences plus a fixed 64 MiB retained-heap estimate, with
@@ -294,7 +310,9 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
 - [x] `RunStatus::is_terminal()` helper; all state backends only stamp `finished` for terminal states
 - [x] Supervised run coordinator with typed workflow/infrastructure outcomes, panic containment, detached-waiter safety, explicit cancellation, task-state repair, and terminal-write retry
 - [x] Total step execution deadline shared across attempts/backoff; deadline-aware Lua blocking workers, structured child-run cancellation, shell process-tree cleanup, and cancellation-safe MCP session invalidation
-- [x] API flow-path resolver canonicalizes and confines paths under configured `flows_dir`; cwd fallback disabled in that mode; traversal and absolute-path escapes return HTTP 403
+- [x] API flow-path resolver canonicalizes and confines paths under configured
+  `flows_dir`; cwd fallback is disabled in that mode, and existing/missing
+  traversal or absolute-path escapes return the same generic HTTP 404
 - [x] API `/runs` keyset pagination: `?limit` (default 50) and filter-bound
   `?after`; response includes `limit`, `returned`, `has_more`, and
   `next_cursor`. API and CLI share the positive `IRONFLOW_MAX_LIST_RECORDS`

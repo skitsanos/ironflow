@@ -55,7 +55,8 @@ credentialed, local-state, and platform-specific flow at the same time.
 
 ## 04-file-operations
 - **read_write_files.lua** — Write, read, list, and delete files
-- **binary_file_io.lua** — Read and write binary files using base64 encoding
+- **artifact_handoff.lua** — Stream a DOCX to the artifact store and pass its descriptor directly to `extract_word`
+- **binary_file_io.lua** — Contrast explicit Base64 with a disk-backed artifact restore through `write_file`
 - **copy_move_files.lua** — Copy and move files between locations
 - **[s3_put_get_list.lua](04-file-operations/s3_put_get_list.lua)** — List visible buckets, then upload, download, list, and delete one UUID-scoped object
 - **s3_copy.lua** — Copy objects inside S3 and verify object list
@@ -90,13 +91,14 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **base64_encode_decode.lua** — Base64 encode and decode round-trip
 
 ## 08-extraction
-- **extract_word.lua** — Extract text and metadata from Word (.docx) files
+- **extract_word.lua** — Extract Word (.docx) JSON blocks, metadata, and comments
 - **extract_pdf.lua** — Extract text and metadata from PDF files
-- **extract_pptx.lua** — Extract slides, metadata, and comments from PowerPoint (.pptx) files
+- **extract_pptx.lua** — Extract slides, metadata, comments, and disk-backed media descriptors when present in PowerPoint (.pptx) files
 - **extract_vtt.lua** — Extract text and metadata from WebVTT subtitle files
 - **extract_srt.lua** — Extract text and metadata from SRT subtitle files
-- **pdf_to_image.lua** — Render PDF pages to images
-- **pdf_thumbnail.lua** — Render one PDF page as a thumbnail image
+- **xlsx_workbook.lua** — Extract every sheet of an Excel (.xlsx) workbook and count rows per sheet via `foreach`
+- **pdf_to_image.lua** — Render PDF pages to disk-backed image artifacts
+- **pdf_thumbnail.lua** — Render one PDF page as a disk-backed thumbnail artifact
 - **pdf_metadata.lua** — Read PDF metadata and page count
 - **image_to_pdf.lua** — Build a PDF from one or more image files
 - **image_resize.lua** — Resize an image and write it to disk
@@ -107,7 +109,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **image_convert.lua** — Convert an image between supported formats
 - **image_watermark.lua** — Apply a text watermark to an image
 - **extract_html.lua** — Extract text and metadata from HTML
-- **pdf_merge.lua** — Merge multiple PDF files into one
+- **pdf_merge.lua** — Merge verified PDF artifact descriptors sequentially into one bounded output
 - **pdf_split.lua** — Split a PDF into individual pages
 - **image_metadata.lua** — Extract image dimensions, format, and color info
 
@@ -277,14 +279,14 @@ duplicated, unclassified, or inconsistent entries.
 
 | Category | Count | Default CI execution |
 | --- | ---: | --- |
-| Offline | 42 | Fixture-backed deterministic subset; Pdfium cases capability-gated |
-| Offline with outputs/processes | 20 | MCP stdio only; other cases require isolated outputs |
+| Offline | 40 | Fixture-backed deterministic subset |
+| Offline with outputs/processes | 24 | Fixture-backed local-output cases and MCP stdio use isolated paths; others require isolated outputs |
 | Public/local network | 9 | No |
-| Credentialed external service | 45 | No |
+| Credentialed external service | 47 | No |
 | Server/manual HTTP | 2 | No |
 | Composition parent/helper flow | 7 | Exercised as coordinated cases where applicable |
 
-All 125 flows are still parsed by `ironflow validate`. Ten fixture-backed
+All 129 flows are still parsed by `ironflow validate`. Twelve fixture-backed
 offline flows and the local MCP stdio example also run from a disposable
 working directory as part of:
 
@@ -292,6 +294,7 @@ working directory as part of:
 cargo test --test test_example_fixtures
 ```
 
-This runtime gate checks real PDF, DOCX, PPTX, image, VTT, and SRT behavior.
+This runtime gate checks real PDF, DOCX, PPTX, image, VTT, SRT, and
+artifact-to-extractor handoff behavior.
 It deliberately excludes network calls, credentials, remote mutations, native
 Pdfium rendering, and the macOS-only Quick Look preview path.

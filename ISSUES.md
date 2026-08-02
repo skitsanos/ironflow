@@ -103,13 +103,25 @@ Static validation must be supplemented with representative runtime probes.
 | IF-049 | P2 | Resolved | Nodes | `read_file` size guard bypassed for special files |
 | IF-050 | P2 | Resolved | Nodes | `base64_decode` performs unbounded arbitrary-path writes |
 | IF-051 | P2 | Resolved | Storage | `prune_before` default loads the full catalog into memory |
-| IF-052 | P3 | In progress | Maintainability | Assorted consistency/operability follow-ups |
+| IF-052 | P3 | Resolved | Maintainability | Assorted consistency/operability follow-ups |
 | IF-053 | P2 | Resolved | Nodes | `subworkflow` error propagation is implicitly coupled to `output_key` |
 | IF-054 | P2 | Resolved | API | `/flows/run` always accepts inline flow source, so an API key implies arbitrary execution |
 | IF-055 | P1 | Resolved | Storage | Concurrent SQL schema creation crash-loops a replica on first start |
 | IF-056 | P2 | Resolved | CLI config | `IRONFLOW_ALLOW_ADHOC_FLOWS` parses leniently and fails open on an unrecognized value |
 | IF-057 | P2 | Resolved | Nodes | `_`-prefixed context keys are not private when a child result is namespaced |
 | IF-058 | P2 | Resolved | Lua runtime | Conversion ceilings have no environment override and fail with an unactionable error |
+| IF-059 | P1 | Resolved | Scheduler | No way to run a flow on a schedule |
+| IF-060 | P1 | Resolved | Nodes | No way to read a spreadsheet |
+| IF-061 | P1 | Resolved | API security | Flow admission and HTTP redirect trust boundaries are incomplete |
+| IF-062 | P1 | Resolved | Engine/storage | Run ownership and crash recovery are not replica-safe |
+| IF-063 | P1 | Resolved | Resource safety | Transcription, S3, and XLSX work bypass end-to-end ceilings |
+| IF-064 | P1 | Resolved | ZIP/security | ZIP work outlives cancellation and extraction follows destination symlinks |
+| IF-065 | P1 | Resolved | Extraction/runtime | Non-XLSX extractors block async workers and lack end-to-end limits |
+| IF-066 | P1 | Resolved | Engine/resource safety | Extraction output and ZIP metadata amplify before memory caps apply |
+| IF-067 | P2 | Resolved | Tooling/performance | Extraction resource behavior has no repeatable benchmark harness |
+| IF-068 | P1 | Resolved | Artifact security | Local artifact reads trust a mutable pathname and do not verify content identity |
+| IF-069 | P1 | Resolved | Binary/PDF safety | Legacy file materialization and PDF merge amplify before their limits apply |
+
 ## P0 — release-blocking safety and durability
 
 ### IF-001 — Lua package-loader sandbox escape
@@ -1704,6 +1716,10 @@ Pending/Running runs become `Stalled`, terminal runs are untouched, and the swee
 is idempotent. Graceful shutdown (`with_graceful_shutdown`) remains a separate
 follow-up; this closes the operability gap of permanently-`Running` zombies.
 
+**Superseded by IF-062:** startup no longer treats every non-terminal record as
+abandoned. Runs carry renewable ownership leases; only expired leases may be
+reconciled, and reconciliation continues periodically while a server is alive.
+
 ### IF-044 — API key compared in non-constant time
 
 **Status:** Resolved on 2026-07-24.
@@ -1795,9 +1811,11 @@ ones preserved.
 The guard trusted `metadata().len()`, which is 0 for `/dev/zero`, fifos, and many
 `/proc` files, so the subsequent read streamed unbounded.
 
-Resolution: `read_file` keeps the fast metadata pre-flight but now performs the
-actual read through `bounded_read::read_file_capped_async`, which bounds bytes
-via `Read::take`. Regression `tests/test_read_file_special.rs` (Unix-only) reads
+Resolution: `read_file` keeps the fast metadata pre-flight and now performs the
+actual read through the shared regular-file, no-follow bounded reader. Special
+files are rejected before consumption, while actual bytes remain capped even
+if a regular file grows after its metadata check. Regression
+`tests/test_read_file_special.rs` (Unix-only) reads
 `/dev/zero` under a small cap and asserts a bounded error within a timeout
 instead of hanging.
 
@@ -1832,7 +1850,7 @@ and keeps non-terminal and newer ones.
 
 ### IF-052 — Assorted consistency/operability follow-ups
 
-**Status:** In progress (2026-07-24). **Done:** (a) CI toolchain bumped to
+**Status:** Resolved on 2026-07-31. **Done:** (a) CI toolchain bumped to
 `1.97.1` across all jobs to match `rust-toolchain.toml`; (c) the finalizer's
 `ContextUpdated` event is now stamped with the resolved terminal status instead
 of a misleading `Running`; (e) flow validation now rejects a routed step with no
@@ -1852,23 +1870,6 @@ orphaned temp-file startup sweep (cosmetic; no correctness impact), (h) `pcall`
 budget evasion (a documented cooperative-cancellation boundary with no clean
 Lua 5.4 interrupt), (i) stale `docs/superpowers/` node counts (historical
 point-in-time records, intentionally not rewritten).
-
-Low-severity items to batch: (a) CI pins Rust `1.96.0`
-(`.github/workflows/ci.yml`) while `rust-toolchain.toml` pins `1.97.1`; (b)
-`env(key)` exposes the entire process environment to any flow/code node — decide
-whether an allowlist is wanted; (c) the finalizer emits a `ContextUpdated` event
-stamped `RunStatus::Running` during terminalization
-(`src/engine/executor/finalizer.rs:33`); (d) the post-hoc deadline check can
-convert a completed success into a timeout failure in a race window
-(`src/engine/executor/deadline.rs:48`); (e) a route-gated step with no
-dependencies is silently always-skipped with no validation
-(`src/engine/executor/scheduler.rs:22`); (f) orphaned `.*.tmp` files leak on hard
-crash with no startup sweep (`src/storage/json_store/temp.rs:65`); (g) the
-`finished` timestamp is overwritten on repeated terminal transitions in
-JSON/Redis/SQL but preserved in `NullStateStore`; (h) the instruction/time budget
-is evadable via `pcall`; (i) `docs/superpowers/` planning files still say "99
-nodes" and reference the removed `nodes/builtin/` layout. Each is independently
-small; group or split as convenient.
 
 ## Audit evidence snapshot
 
@@ -2014,9 +2015,10 @@ way to reduce it.
 keeps its existing `flows_dir` confinement. Webhooks are unaffected — they name a
 flow from config. Defaulting to `true` leaves every existing deployment unchanged.
 
-`/flows/validate` is deliberately not gated: it parses without executing a step,
-and flow-level Lua runs in the sandbox (no `io`/`os`) under the
-`IRONFLOW_LUA_MAX_*` limits.
+The original resolution left `/flows/validate` ungated because it does not
+execute workflow steps. IF-061 supersedes that exception: validation evaluates
+top-level Lua (including `env()`), so both inline endpoints now share the same
+ad-hoc-flow policy and flow-loading admission limit.
 
 **Acceptance:**
 
@@ -2150,7 +2152,8 @@ work, and its regression coverage passes unchanged.
 
 ### IF-058 — Conversion ceilings have no environment override
 
-**Status:** Resolved on 2026-07-28.
+**Status:** Resolved on 2026-07-28. Reported as
+[#103](https://github.com/skitsanos/ironflow/issues/103).
 
 `MAX_CONVERSION_DEPTH` (64) and `MAX_CONVERSION_NODES` (100,000) in
 `src/lua/conversion/mod.rs` were the only ceilings in the engine with no
@@ -2185,3 +2188,917 @@ directions and that the error names its override.
 Not addressed: attributing the payload to the step that produced it, and a
 warning threshold before the cap is reached. Both need the converter to carry
 execution context it does not currently receive.
+
+### IF-059 — No way to run a flow on a schedule
+
+**Status:** Resolved on 2026-07-29.
+
+IronFlow could only be triggered two ways: `ironflow run` from a shell, and
+`POST /webhooks/{name}`. There was no way to say "run this flow every night at
+02:00". The repository's own flagship example, `examples/00-showcase/
+nightly_report.lua`, advertised a cadence the engine could not provide — it
+needed an external cron calling the CLI or the API.
+
+Resolution: a `schedules:` block in `ironflow.yaml`, evaluated by a background
+task inside `ironflow serve` that ticks every 30 seconds. Configuration-file
+only, exactly like `webhooks:` — timing is a deployment decision, so the same
+flow can run hourly in staging and nightly in production without editing flow
+source. Cron is the standard five-field form; the `cron` crate parses six
+fields and reads the first as seconds, so six- and seven-field expressions are
+rejected rather than silently reinterpreted as something their author did not
+write. Invalid configuration — bad expression, unknown zone, unresolvable flow
+path, reserved context key, `grace_seconds` below the 60-second floor — fails
+the process at startup, because a schedule that only fails at 02:00 is a
+schedule nobody finds out about until 02:00.
+
+Multi-replica safety rests on one new `StateStore` method, `claim_schedule`,
+which returns true exactly once per instant across every process sharing a
+store. Each backend uses a primitive it already had: a unique index on SQL,
+`SET NX EX` on Redis, exclusive file creation on JSON, always-true on Null. The
+default implementation **fails closed** — a store that cannot coordinate makes
+scheduling unavailable rather than letting every replica fire the same instant.
+Claims are keyed on **local wall-clock**, not the UTC instant: on a fall-back
+date the same local time maps to two distinct UTC instants, so a UTC key would
+treat them as different fires and run the schedule twice.
+
+Per due instant the order is claim → grace → overlap → admission → run.
+Claiming first is what makes replicas agree — one process owns the decision, so
+two cannot reach different conclusions and both act. The deliberate consequence
+is that a claimed instant skipped for grace, overlap or capacity is burned
+rather than retried elsewhere, so a saturated server does not build a backlog.
+A claim that fails with a *store error* is the exception: nobody owned that
+instant, so the watermark does not advance past it and it is retried while it
+remains inside its grace window.
+
+DST needed explicit handling in both directions, and neither is what the
+library does by default. Occurrences are enumerated in local wall-clock space
+and then resolved: a fall-back hour fires once, on the earlier instant; a
+spring-forward gap fires at the first valid instant after it rather than
+skipping the day, which is what iterating in the target zone does natively —
+for `0 2 * * *` in Europe/Berlin from 2026-03-28 the library yields 03-30,
+03-31, 04-01 and 03-29 never appears. Because every local time inside a gap
+resolves to the same real instant, the claim key is derived from the *resolved*
+time, so a `*/15 * * * *` schedule fires once across the gap instead of five
+times back to back.
+
+Runs are started and detached rather than awaited. Awaiting them made the tick
+loop serial, so one long flow starved every other schedule, and a flow that
+never returned — there is no default step deadline — silently ended all
+scheduling for the process lifetime while HTTP kept serving. The admission
+permit moves into the detached task, so `IRONFLOW_MAX_CONCURRENT_RUNS` still
+bounds concurrency for the run's real duration.
+
+Scheduled runs are ordinary runs: visible in `ironflow list`, `ironflow
+inspect` and the events stream, carrying the schedule's name under `_schedule`
+so a run traces back to its trigger. Every skip logs the rule that caused it at
+`WARN`; a lost claim logs at `debug`, because on N replicas it is the expected
+outcome N-1 times per tick and `WARN` would be pure noise.
+
+Two supporting changes, both behaviour-preserving: `resolve_flow_path` was
+split so the sandbox check can be reused without an `AppState`, and the Redis
+`StateStore` impl moved into its own `state_store.rs` mirroring `sql_store`,
+which dropped `redis_store/mod.rs` below the size target and returned an
+exception to the budget (17 → 16).
+
+Not addressed, and each its own future decision: sub-minute schedules,
+`@reboot`-style triggers, a REST API for managing schedules, backfilling
+arbitrary past instants, and running the scheduler outside `serve`. Nothing
+calls `prune_before`, so run retention remains manual — schedule claims prune
+themselves on the claim path because there is no retention sweep to attach to.
+`grace_seconds` has a 60-second floor but no ceiling, so an absurd value stops
+the SQL claim table being reaped. The overlap scan is bounded at 256 candidate
+runs and logs when it stops early or cannot complete; beyond that bound a
+second concurrent run of the same schedule can start. The tick loop is
+unsupervised — a panic inside evaluation would end scheduling silently.
+
+### IF-060 — No way to read a spreadsheet
+
+**Status:** Resolved on 2026-07-30.
+
+IronFlow could extract text and structure from Word, PowerPoint, PDF, HTML and
+subtitle files, and could parse CSV already held in context. It could not read
+`.xlsx` — the format business data actually arrives in. An author had to export
+each sheet to CSV by hand first, losing every sheet but one and every type but
+text.
+
+Resolution: `extract_xlsx`, built on `calamine` (node count 101 → 102). One call
+returns every sheet as an object keyed by sheet name, plus
+`<output_key>_sheet_names` in workbook order — object key order does not survive
+into Lua, so a `foreach` needs the array. An optional `sheet` narrows the
+extraction and the output stays keyed by sheet name even then, so downstream
+code never branches on whether narrowing happened. `sheet` is resolved by JSON
+type: a string is a name, a number a 0-based index, which keeps a sheet literally
+named `0` reachable via `"0"`.
+
+Cells are typed. Whole numbers become JSON integers, but only when they
+round-trip exactly through `i64` — `.xlsx` stores every number as a double, so
+without that a quantity column reaches Lua as `3.0`, and Lua 5.4 distinguishes
+that from `3`. The bound is deliberately strict rather than `<= i64::MAX as f64`,
+because that cast rounds up to 2⁶³ and admitted a value one larger than `i64`
+holds. Date-formatted cells become ISO-8601 strings: `.xlsx` has no date type, so
+a date is a float plus a number-format code, and emitting the serial would push
+the format lookup and the 1900-epoch quirk onto every flow. Blanks and Excel
+error cells both become `null`, so a consumer treats "no usable value" uniformly.
+
+Header rules differ from `csv_parse` in two places, because spreadsheets are not
+CSVs: a blank header cell becomes `column_{n}` rather than an empty-string key,
+and duplicates gain `_2`/`_3` suffixes rather than overwriting — repeated group
+headers are normal, and last-wins would drop real data silently.
+
+Three things were found by testing rather than by reasoning, and each changed the
+implementation.
+
+**A 1,403-byte file with two cells killed the process.** `calamine`'s
+`worksheet_range` materialises a dense array over the bounding box of the used
+cells, so a workbook holding only `A1` and `XFD1048576` requested about 550 GB
+and was SIGKILLed. No ceiling could catch it — every check ran after the
+allocation. Under `serve` that would take down the API and every concurrent run,
+from a file small enough to arrive in a webhook body, and Excel's "phantom last
+cell" makes the milder shape an ordinary real-world condition rather than an
+attack. The node now streams cells and never materialises the bounding box, so
+memory is bounded by cells actually read: the same file now returns a clean
+ceiling error at roughly baseline process memory.
+
+**The ceilings could never fire.** `IRONFLOW_MAX_XLSX_CELLS` began at 1,000,000,
+but the Lua conversion budget (`IRONFLOW_MAX_CONVERSION_NODES`, default 100,000)
+always bit first, producing the JSON-path error IF-058 was filed about instead of
+a message naming the sheet. Conversion cost is roughly `rows × (cols + 1)`, worst
+at one column, so the ceiling is now 33,000 — a third of the conversion budget,
+which holds at every width. Raising one variable without the other mostly just
+moves where an oversized workbook fails.
+
+**Streaming initially widened ordinary workbooks.** `worksheet_range` discarded
+formatting-only cells before computing the bounding box; the first streaming
+version did not. A sheet with two real columns and one leftover styled-blank cell
+gained 24 spurious null columns. The stream now filters those records, matching
+the original behaviour.
+
+Not addressed, and each its own future decision: `.xls`, `.xlsb` and `.ods` are
+readable by the underlying library but unsupported and untested; writing
+workbooks; formulas as expressions rather than cached values; cell formatting,
+colours and comments; charts, images, named ranges and pivot tables. A
+`skip_rows` parameter is the obvious next addition — real workbooks commonly
+carry a title row above the header, and with the default `has_header` that title
+becomes the keys.
+
+Known limitations, stated plainly rather than implied:
+
+- Excel error cells collapse to `null` alongside blanks, so a flow auditing a
+  workbook cannot distinguish `#DIV/0!` from an empty cell.
+- Formulas yield the cached value only. A workbook written by a tool that did not
+  populate cached values reads as blank.
+- Merged cells report their value in the top-left cell and `null` across the rest
+  of the span — the file's own representation.
+- Hidden and very-hidden sheets are extracted like any other.
+- The zip pre-flight, which enforces the uncompressed-bytes and entry-count
+  limits `calamine` would otherwise bypass, trusts the archive's declared sizes.
+  It restores parity with the other OOXML nodes; it is not a hard bound. The
+  memory bound is the streaming path, not this.
+- **No committed test reads a real Excel-authored workbook.** `data/samples/` is
+  gitignored by policy — it holds internal data — so such a test would fail in CI
+  and for every other developer. Real-file verification was done manually against
+  three workbooks and is recorded in the branch's development notes.
+- **Excel date serials have no real-file coverage.** None of those three
+  workbooks contained a single Excel-typed date cell; one has a column named
+  "FMV Approval Date" whose values are strings like `"8/30/2024, 9:01 PM"`,
+  because report exports commonly pre-format dates as text. Date-serial handling
+  is covered only by synthetic fixtures — one custom number-format code and one
+  built-in format id end to end through a file, plus 1900-epoch boundary tests
+  that construct the value directly and so bypass format detection.
+- **The committed tests do not guard the original out-of-memory bug.** At any
+  bounding box small enough to test automatically, the pre-fix and post-fix code
+  reach the same decision and differ only in memory; the defect appears only at a
+  scale that cannot be safely automated. The repro is preserved as an ignored
+  test with its history in the body.
+
+### IF-061 — API trust-boundary and admission gaps
+
+**Status:** Resolved on 2026-07-31.
+
+Six boundaries were independently weaker than their public contract:
+
+- disabling ad-hoc execution still allowed caller-supplied Lua through
+  `POST /flows/validate`; top-level flow Lua can read allowlisted environment
+  values even though validation does not execute workflow steps;
+- disabling ad-hoc flows without `flows_dir` left file mode able to resolve
+  arbitrary process-visible paths;
+- run admission was acquired after Lua parsing, so expensive parse work bypassed
+  the process run cap, and cancelling an HTTP waiter could release either a
+  parse or run permit while the underlying work continued;
+- file flow loading created its Lua VM before performing an unbounded
+  `read_to_string`; special files could block a worker indefinitely and regular
+  files had no independent source-size ceiling;
+- configured `flows_dir` failures distinguished existing outside paths from
+  missing ones, exposing a filesystem-existence oracle;
+- HTTP nodes followed cross-origin redirects by default. Reqwest can forward
+  caller-configured authentication, headers, or request bodies, and generated
+  `Referer` values can expose query-string credentials. IPv4-mapped IPv6 also
+  bypassed the literal private-address classifier.
+
+Implemented locally:
+
+- `/flows/run` and `/flows/validate` now enforce one ad-hoc policy before
+  decoding or evaluating inline source. `allow_adhoc_flows=false` requires a
+  configured `flows_dir`; startup and direct handler construction both fail
+  closed rather than reverting to arbitrary paths.
+- `IRONFLOW_MAX_CONCURRENT_FLOW_LOADS` is a strict, positive process-wide
+  semaphore with a default of two. API, webhook, and scheduler entry points
+  acquire it before blocking Lua flow loading, while the existing run semaphore
+  is acquired before parsing for every path that can create a run.
+- Detached supervisors retain parse and run permits until the blocking parse or
+  durable `RunHandle` actually settles. Aborting the request future therefore
+  cannot create hidden work above either advertised ceiling.
+- `IRONFLOW_MAX_FLOW_SOURCE_BYTES` (1 MiB default) bounds inline and file Lua
+  before VM creation. File reads use opened-handle metadata, accept only regular
+  files, read in capped chunks with cancellation checkpoints, and use
+  non-blocking open on Unix so FIFOs cannot strand a loader.
+- configured-root path escapes are rejected before probing caller-selected
+  outside paths; existing, missing, traversal, and symlink escapes share one
+  generic `404` response while detailed reasons remain server-side.
+- HTTP redirects are same-origin by default and capped at 100. A cross-origin
+  opt-in applies only to plain requests: configured auth, headers, or a body are
+  an unconditional cross-origin fence. Generated `Referer` headers are disabled,
+  retry/redirect numeric fields are strictly bounded, and private-address
+  classification normalizes IPv4-mapped IPv6.
+
+Focused regressions cover validation policy, the required `flows_dir` startup
+invariant, generic webhook file-load errors, bounded regular-file reads, prompt
+FIFO rejection, indistinguishable outside-path failures, aborted waiters
+retaining both permit types, redirect credentials/body/header cases, same-origin
+behavior, explicit safe opt-in, IPv4-mapped addresses, and strict runtime-limit
+parsing.
+
+Contract boundary: the flow-load limit bounds concurrent Lua parses, not queued
+requests; the run limit owns a run from before its parse until durable completion.
+These controls do not make an allowed workflow unprivileged—the node set still
+has the process permissions of the IronFlow deployment.
+
+Validation: default and combined-feature checks pass; both exact all-target
+Clippy commands pass with warnings denied; the full default all-target suite,
+doctests, and all 128 Lua example validations pass.
+
+### IF-062 — Replica-safe run ownership and reconciliation
+
+**Status:** Resolved on 2026-07-31.
+
+IF-043 marked every non-terminal run `Stalled` on startup. That was safe for a
+single stopped process but incorrect for rolling or multi-replica deployments:
+one replica could terminalize work actively owned by another. Conversely, a
+startup-only sweep never recovered a run abandoned after the server was already
+up. Even with ownership metadata, unfenced task/context writes could let a stale
+worker mutate a run after another replica reconciled it.
+
+Implemented locally:
+
+- each initialized run receives an opaque owner and renewable 90-second lease;
+  a 30-second heartbeat emits a typed infrastructure stop when renewal times
+  out, fails, or loses ownership. Infrastructure stops outrank simultaneous
+  explicit/deadline cancellation and converge to durable `Stalled` state;
+- owner-aware status, task, and context mutations fence stale workers. Built-in
+  JSON, SQLite/PostgreSQL, and Redis stores implement the contract; third-party
+  `StateStore` implementations retain compatible permissive defaults and opt out
+  of automatic lease reconciliation until they override the methods;
+- Redis uses atomic Lua fencing and Redis `TIME`; SQL uses transactional writes
+  and the database clock. Reconciliation is bounded in 256-record batches and
+  terminalizes abandoned pending/running tasks before marking the run `Stalled`;
+- JSON stores leases in a separate protected namespace and serializes each
+  lease read/modify/write transaction under an OS lock. Reconciliation streams
+  candidates rather than holding the complete catalog or one lock across the
+  backlog;
+- server startup performs fail-closed reconciliation after configuration and
+  binding succeed but before the scheduler starts. A supervised periodic reaper
+  retries bounded reconciliation calls, so leases expiring after startup also
+  converge;
+- run initialization, task/context/status persistence, event publication, and
+  finalization have explicit liveness budgets. Cancellation, the run deadline,
+  or lease loss can preempt the whole execution future—even if a node or custom
+  store future ignores cooperative cancellation—and release process admission.
+- Redis active-run expiration never shortens configured retention below the
+  lease safety window. With no configured retention, run state remains
+  persistent throughout init, renewal, and owned mutations.
+- JSON, SQL, and Redis deletion atomically refuses a live non-terminal owner
+  with typed `Conflict` (`409` at the API), without removing its lease or event
+  stream. Terminal and expired-lease runs remain deletable; SQL follows the
+  existing lease-before-run lock order and Redis performs the decision in Lua.
+
+Focused coverage exercises ownership loss with durable `Stalled` convergence,
+typed stop precedence, stale-writer fencing, live renewal, live/expired/terminal
+deletion across JSON, SQL, and Redis, API `409` event preservation, more than
+one SQL reconciliation batch, reaper timeout/retry, JSON cancellation during a
+commit, Redis lease TTL/persistence, API and CLI lifecycle startup, and hanging
+state/event futures under run deadlines.
+
+Contract boundary: reconciliation makes durable state converge; it cannot roll
+back an external side effect that completed before a worker crashed or lost its
+lease. A custom backend is replica-safe only after it implements the owned
+methods and reconciliation contract. JSON coordinates only processes sharing
+the same filesystem.
+
+Validation: the required combined-feature all-target suite passes serially
+against disposable `redis:latest` (Redis 8.10.0) and `postgres:latest`
+(PostgreSQL 18.4), with service-required flags preventing skips. This includes
+53 Redis atomicity tests, 18 Redis store tests, and live PostgreSQL event,
+schema, concurrency, schedule-claim, state, lease, and deletion coverage. The
+two explicitly named containers were removed after the run.
+
+### IF-063 — End-to-end resource ceilings for transcription, S3, and XLSX
+
+**Status:** Resolved on 2026-07-31.
+
+Several paths performed bounded input checks but still admitted unbounded work
+later in the operation. Transcription buffered arbitrary provider responses and
+allowed cross-origin redirects; S3 `get_object` collected a response before
+checking its final size; and `extract_xlsx` performed blocking decode on an
+async worker, trusted declared ZIP sizes, materialized shared strings before its
+cell ceiling, and did not bound cumulative output bytes. Its row ceiling also
+counted stored records rather than the highest spreadsheet row position, so a
+sparse sheet could evade the documented limit.
+
+Implemented locally:
+
+- transcription streams provider bodies under
+  `IRONFLOW_MAX_TRANSCRIBE_RESPONSE_BYTES` (25 MiB default), rejecting both an
+  oversized `Content-Length` and chunked overflow. Redirects are capped at ten
+  and must retain scheme, host, and effective port. `temperature` is parsed
+  strictly as a finite value in `0..=1`. Audio input uses the shared no-follow
+  regular-file reader, successful JSON is preflighted against conversion depth
+  and node ceilings before materialization, and provider error extraction is
+  bounded;
+- S3 downloads stream chunks under the shared `IRONFLOW_MAX_FILE_BYTES` ceiling
+  instead of collecting first;
+- XLSX work runs through the cancellation-aware blocking-step bridge, checks
+  cancellation throughout workbook/sheet decoding, preflights shared strings
+  with a streaming parser, and applies
+  `IRONFLOW_MAX_XLSX_OUTPUT_BYTES` (50 MiB default) to cumulative decoded/result
+  bytes. Repeated shared-string references are charged per use;
+- XLSX validates classic and ZIP64 end-of-central-directory metadata before
+  constructing `ZipArchive`, retains one no-follow regular-file handle across
+  every preflight and decode stage, and enforces declared and actual per-part
+  compressed/uncompressed plus cumulative archive ceilings;
+- XLSX headers use budget-aware construction and amortized collision handling,
+  selector conversions are checked, sparse positions enforce the documented
+  one-based row ceiling, and the implementation is split into focused modules
+  below the hard size limit.
+
+Focused XLSX unit/integration suites cover wide rows, sparse bounds, shared
+strings, output accounting, cancellation, and header collisions. Transcription
+tests cover streaming overflow, redirect origin changes, Azure's two-origin
+request shape, and strict temperature; S3 body tests cover declared and streamed
+overflow.
+
+Contract boundary: an archive's declared uncompressed sizes are a useful
+preflight but not a trusted memory bound. The streaming parser, cell/row limits,
+decoded-output budget, and cancellation checkpoints form the enforcement path.
+
+Validation: 47 focused XLSX unit tests and 17 integration tests pass (the
+documented pre-fix OOM reproducer remains intentionally ignored), followed by
+the full default and live combined-feature all-target suites. `cargo audit`
+passes with the four explicitly reviewed unmaintained transitive warnings, and
+the 371-module policy passes with no new production module above 300 LOC.
+
+Integration evidence for `1.16.0-dev.1` on 2026-07-31: the repository integration
+gate passed formatting, the 371-module size policy, repository skill and hook
+tests, `actionlint`, default and `postgres,redis` all-target checks, both exact
+Clippy gates with warnings denied, the default all-target suite, doctests,
+`cargo audit`, a release build, and static validation of all 128 Lua examples.
+The required combined-feature all-target suite then passed serially against
+freshly pulled `redis:latest` and `postgres:latest` containers with required-test
+flags enabled; this included the 53-test Redis atomicity suite, 18 Redis store
+tests, and live PostgreSQL event, schema, concurrency, claim, state, lease, and
+deletion coverage. The gate removed its two explicitly named containers.
+
+### IF-064 — ZIP filesystem lifecycle is neither root-confined nor cancellation-safe
+
+**Status:** Resolved on 2026-07-31.
+
+`zip_create`, `zip_list`, and `zip_extract` launch raw `spawn_blocking` workers
+instead of the cancellation-aware blocking-step bridge. Traversal, compression,
+entry reads, and extraction copies have no execution-control checkpoints. A
+timed-out or cancelled run can therefore become durably terminal and release its
+run-admission permit while detached ZIP work keeps consuming a blocking worker
+and mutating files.
+
+There are two path-safety defects in the same loops:
+
+- extraction validates archive entry names lexically, then uses
+  `create_dir_all` and `File::create`; a pre-existing symlink in the destination
+  path—or at the leaf—can redirect/truncate a file outside the extraction root;
+- creation uses metadata helpers that follow directory symlinks recursively,
+  so it can archive data outside the requested source and a symlink cycle can
+  recurse until failure or resource exhaustion.
+
+Required outcome:
+
+- route all ZIP blocking work through the shared cancellation bridge and add
+  checkpoints during traversal and chunked copies, with an explicit partial
+  output/cleanup policy;
+- use race-safe no-follow traversal for extraction (directory-relative/openat
+  semantics on Unix), reject unsafe existing parent and leaf entries, and never
+  truncate an external symlink target;
+- define and document a no-follow policy plus depth/work ceiling for creation;
+- prove cancellation stops physical filesystem work before the relevant worker
+  capacity is reusable, and add Unix parent-symlink, leaf-symlink, external-tree,
+  and symlink-cycle regressions.
+
+Implemented locally:
+
+- all three ZIP nodes now use the tracked cooperative blocking bridge. Step
+  deadlines retain task capacity until a worker physically exits, and the run
+  coordinator retains external run admission until tracked cleanup is idle;
+- traversal, metadata loops, compression, and extraction copies checkpoint at
+  bounded entry/chunk boundaries. A one-slot blocking-pool regression proves a
+  cancelled copy removes its temporary file and preserves the prior target
+  before that capacity can be reused;
+- ZIP creation uses iterative traversal, rejects source-root and descendant
+  symlinks plus special files, enforces the shared directory-depth limit, and
+  counts both files and directories against its traversal-work ceiling. Actual
+  copied bytes are rechecked instead of trusting metadata alone;
+- creation and extraction stage sibling temporary files. Creation publishes
+  only a finished archive; extraction publishes each complete file atomically.
+  Failure/cancellation removes the active temporary and preserves an existing
+  leaf, while earlier committed extraction entries and directories may remain;
+- extraction preflights every name, type, normalized collision, declared byte
+  total, entry count, and path depth before destination mutation. ZIP symlink
+  and special-file entries are rejected, and actual decoded bytes remain
+  bounded during copying;
+- Unix extraction pins the destination with directory descriptors, walks every
+  archive-controlled component with `openat`/`mkdirat` and `O_NOFOLLOW`, checks
+  leaves with `fstatat`, and commits with `renameat` or no-replace
+  `linkat`/`unlinkat`. The portable fallback rejects observed symlinks but
+  documents its weaker concurrent-race boundary;
+- archive inputs use the shared no-follow regular-file opener, output symlinks
+  are rejected, duplicate and non-portable archive destinations fail, and the
+  ZIP node docs plus bounded Lua workflow now match the implemented contract.
+
+Focused validation: 23 public ZIP tests pass across the existing file-node and
+new cancellation, traversal-limit, and Unix security suites. Four private
+tests cover chunk cancellation, physical worker lifetime, temporary cleanup,
+and descriptor anchoring; the 12 step-timeout/engine-terminalization tests also
+pass. The rebuilt binary validates all 128 Lua examples, the three example
+catalog tests pass, formatting and diff checks are clean, the 379-module size
+policy passes with every new production module below 300 lines, and
+`cargo clippy --all-targets -- -D warnings` passes. Per the ordinary-change
+policy, the unrelated full integration suite was not run.
+
+## Extraction resource baseline before IF-065 (2026-07-31)
+
+The release binary at `fac37b6` (`1.16.0-dev.2`) was profiled on macOS 26.5.2,
+an Apple M4 Pro with 12 logical CPUs and 24 GiB RAM. Each case ran in a fresh
+JSON state directory under `/usr/bin/time -lp`; the table reports the median of
+three runs. CPU is user plus system time. These short wall times are coarse and
+include a roughly 0.3-second CLI/startup/storage floor, so the useful signals
+are peak RSS, output amplification, limit behavior, and concurrency rather than
+small timing differences.
+
+`Output` is the compact serialized task output before the executor's 2 MiB
+history truncation. `data/samples/` is gitignored and machine-local, so these
+figures are calibration evidence, not a reproducible CI gate.
+
+| Case | Input / shape | Wall | CPU | Peak RSS | Output |
+|---|---:|---:|---:|---:|---:|
+| Empty workflow baseline | — | 0.32 s | 0.03 s | 17.1 MiB | 11 B |
+| XLSX small | 177,369 B / 432 cells | 0.26 s | 0.04 s | 18.5 MiB | 3,311 B |
+| XLSX near default ceiling | 354,086 B / 32,014 cells | 0.33 s | 0.10 s | 59.7 MiB | 694,273 B |
+| XLSX raised ceiling | 720,564 B / 85,908 cells | 0.41 s | 0.16 s | 98.3 MiB | 1,375,676 B |
+| Four concurrent XLSX steps | 4 x 32,014 cells | 0.72 s | 0.38 s | 181.1 MiB | about 2.65 MiB |
+| PDF text + metadata | 108,505 B / one page | 0.26 s | 0.03 s | 21.6 MiB | 3,277 B |
+| Word JSON + metadata/comments | 19,842 B | 0.26 s | 0.04 s | 23.9 MiB | 63,241 B |
+| VTT text + cues/metadata | 11,097 B / 80 cues | 0.25 s | 0.03 s | 18.6 MiB | 32,425 B |
+| PPTX text | 38,741,985 B / 86 slides | 0.29 s | 0.06 s | 21.0 MiB | 109,757 B |
+| PPTX JSON, no image bytes | same deck | 0.28 s | 0.05 s | 40.4 MiB | 193,002 B |
+| PPTX JSON with image bytes | same deck | 0.34 s | 0.10 s | 231.3 MiB | 36,404,071 B |
+| PPTX text with image bytes requested (pre-IF-065) | same deck | 0.32 s | 0.09 s | 98.2 MiB | 109,757 B |
+
+The 85,908-cell workbook is correctly rejected by the default 33,000-cell
+budget; its successful row above used `IRONFLOW_MAX_XLSX_CELLS=100000`. A Lua
+consumer would also need a coordinated conversion-node budget. The four-way
+case used distinct output keys and `IRONFLOW_MAX_CONCURRENT_TASKS=4`. The
+1.84 MiB `generated_book.pdf` sample is image-only for this extractor and
+returned no text, so it is not a useful PDF stress case.
+
+The PPTX contains 536 ZIP entries and 119 media files (about 26 MiB
+uncompressed). Its 102 resolved image occurrences refer to 85 unique paths; one
+image is read and encoded eleven times. When image bytes are enabled, the full
+36.4 MiB result is materialized and copied before durable output is replaced by
+the 2 MiB truncation marker. At the profiled pre-remediation commit, requesting
+image bytes with text output produced the same 109,757-byte result as ordinary
+text while raising median RSS from 21.0 to 98.2 MiB. The current contract
+rejects `include_image_bytes = true` for every format and directs JSON callers
+to `media_mode = "artifact"`.
+
+A post-remediation release build from the final IF-065 working tree was checked
+against the same 37 MiB deck with fresh state directories (median of three
+runs). This is a compatibility/resource spot check, not a benchmark gate:
+
+| Current IF-065 case | Wall | CPU | Peak RSS |
+|---|---:|---:|---:|
+| PPTX text | 0.27 s | 0.04 s | 20.4 MiB |
+| PPTX JSON, no image bytes | 0.29 s | 0.05 s | 38.7 MiB |
+| PPTX JSON with image bytes | 0.33 s | 0.10 s | 247.0 MiB |
+
+Text and metadata-only JSON remained near or below the baseline footprint.
+Embedded-image JSON remains the dominant allocation path and measured higher
+in this spot check despite similar CPU and wall time. IF-065 provides bounded
+work, explicit failure, and cancellation lifecycle guarantees; it does not
+claim an RSS reduction. Repeated-media and output-copy amplification therefore
+remain P1 work under IF-066, while IF-067 owns reproducible trend measurement.
+
+### IF-065 — Non-XLSX extraction blocks async workers and lacks end-to-end limits
+
+**Status:** Resolved on 2026-07-31.
+
+`extract_html`, `extract_pdf`, `extract_word`, `extract_pptx`, `extract_srt`,
+and `extract_vtt` perform synchronous file reads, ZIP work, parsing, and output
+construction directly inside `async fn execute`. None uses the shared
+`run_blocking_step`/`ExecutionControl` path that `extract_xlsx` already uses. A
+PPTX step with a 1 ms timeout still occupied its runtime worker for about 300 ms
+and reported the timeout only after parsing returned: the deadline bounded
+publication, not physical CPU or memory work.
+
+The format ceilings are also incomplete:
+
+- HTML and subtitles cap only the raw UTF-8 file at 50 MiB. HTML can parse and
+  copy it several times; subtitles always materialize cue-owned text, a plain
+  transcript, cue JSON, and possibly a second formatted transcript. There is no
+  output or structural-count budget.
+- PDF caps the raw file at 100 MiB but not pages, decoded streams, extracted
+  text, or output. Text mode clones the extracted text, and requesting metadata
+  parses the PDF a second time.
+- DOCX/PPTX construct `ZipArchive` from an ordinary followed path before a raw
+  file, entry-count, or central-directory guard. The shared ZIP byte limit is a
+  per-read ceiling, not a cumulative archive budget, and PPTX commonly converts
+  a limit/read failure into an empty part and silently returns partial output.
+- DOCX comment anchoring appends each text event to every open comment range,
+  allowing adversarial work proportional to open ranges times text events.
+
+This also contradicts the current documentation: `NODE_REFERENCE.md` broadly
+claims node execution runs on the blocking pool; `CLI_REFERENCE.md` omits HTML
+and subtitles from `IRONFLOW_MAX_FILE_BYTES`, describes the PDF limit as
+render-only, and implies the ZIP totals apply to every archive node. The
+individual non-XLSX node documents state no resource or cancellation contract.
+
+Required outcome:
+
+- move every synchronous extractor behind the cancellation-aware blocking
+  bridge, thread checkpoints through controllable loops, and retain physical
+  worker admission until work really stops;
+- generalize the no-follow regular-file and archive preflight used by XLSX for
+  DOCX/PPTX, enforcing raw size, central-directory/entry count, cumulative
+  declared and actual decoded bytes, and explicit failure instead of partial
+  success on a breached limit;
+- add format-appropriate structural and output budgets (pages/text, blocks and
+  comments, slides/elements/media, cues, and HTML result bytes), charging before
+  expensive allocation where possible;
+- reject present-but-invalid configuration types consistently, including
+  `extract_xlsx.has_header`, rather than silently selecting a default;
+- add focused FIFO/symlink, cumulative archive, timeout/cancellation, output,
+  and adversarial-count regressions, then align all affected node and CLI docs.
+
+Keep the implementation split by format and responsibility; the resource
+policy must not turn any extractor into a 300-400-line coordinator.
+
+Implemented locally:
+
+- `extract_html`, `extract_pdf`, `extract_word`, `extract_pptx`, `extract_srt`,
+  and `extract_vtt` now run synchronous filesystem, archive, parser, and output
+  work through the tracked cooperative blocking bridge. Controllable loops
+  checkpoint deadlines and cancellation, and task/run admission remains held
+  until physical worker cleanup completes;
+- raw inputs use the shared regular-file/no-follow boundary. DOCX and PPTX
+  preflight EOCD/ZIP64 metadata before constructing `ZipArchive`, reject
+  duplicate, symlink, and special-file parts, and enforce entry-count,
+  cumulative declared-byte, cumulative actual decoded-byte, and per-part
+  ceilings. Present malformed or unreadable parts fail explicitly instead of
+  producing partial output;
+- `IRONFLOW_MAX_EXTRACT_ITEMS` and
+  `IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES` provide cumulative structural/work and
+  complete serialized-result limits for all six non-XLSX extractors.
+  `IRONFLOW_MAX_PDF_EXTRACT_PAGES` bounds PDF page count before text extraction;
+- controllable subtitle, PDF Markdown, and DOCX formatting charges generated
+  output before allocation and checkpoints throughout its loops. DOCX comment
+  fan-out is charged before expansion. PPTX no longer clones the complete slide
+  graph to attach comments, reads image bytes only for explicitly requested
+  JSON output, and charges Base64 size before encoding;
+- present invalid configuration types and colliding output keys fail before
+  filesystem work, including `extract_xlsx.has_header`. Subtitle parsing keeps
+  the canonical plain `transcript` while requiring a distinct key for optional
+  formatted output;
+- the CLI and node references, all seven extractor documents, and the affected
+  Lua examples describe the implemented raw, decoded, structural, output,
+  persistence, malformed-input, and cancellation boundaries.
+
+Contract boundary: these are logical work/result ceilings rather than a
+process-RSS guarantee. Opaque third-party HTML and PDF calls can still allocate
+a result before IronFlow inspects it, although they are bracketed by
+checkpoints and worker admission remains held until they stop. Executor output
+copies, XLSX metadata/cell amplification, and repeated PPTX-media processing
+remain tracked by IF-066; repeatable CPU/RSS benchmarking remains IF-067.
+
+Focused validation: `cargo test --lib nodes::extract` passed 52 tests. The ten
+extractor integration targets passed 47 tests with only the documented pre-fix
+XLSX OOM reproducer intentionally ignored. This includes deterministic
+mid-flight cancellation that gates a real extractor worker and proves run
+admission remains held until physical drain, plus formatting-amplification,
+configuration, PDF, HTML/subtitle, DOCX, PPTX-limit, and PPTX-media regressions.
+Static validation passed for all 128 Lua examples, the six changed extraction
+examples executed successfully against isolated fixtures, and the three
+example-catalog tests pass. Formatting and diff checks are clean, the
+393-module size policy passes with every new production module below 300 lines,
+and `cargo clippy --all-targets -- -D warnings` passes. Per the ordinary-change
+policy, the unrelated full integration suite was not run.
+
+### IF-066 — Extraction amplification occurs before memory ceilings apply
+
+**Status:** Resolved on 2026-07-31.
+
+IronFlow now uses a content-addressed local artifact store for binary workflow
+handoff. `ArtifactRef` carries a canonical `artifact://sha256/<digest>` URI,
+digest, size, and an optional validated MIME type. Publication streams into a
+private staging file, enforces byte and cancellation limits, hashes before atomic
+publication, deduplicates verified content, and never places Base64 bytes in
+the workflow context for that artifact payload. `read_file` can publish an
+artifact directly; PPTX, `pdf_to_image`, and `pdf_thumbnail` return
+descriptors; image consumers and artifact-enabled PDF extraction, rendering,
+metadata, and split consumers accept those descriptors through bounded source
+triage. PPTX rejects
+the deprecated `include_image_bytes = true` contract in every format and uses
+`media_mode = "artifact"` for media extraction.
+
+The earlier amplification paths were also removed or admitted before ownership:
+
+- raw XLSX central-directory traversal validates the exact declared boundary,
+  caps cumulative names/extra fields/comments at 8 MiB by default, detects
+  duplicate part names using fixed-size digests plus exact collision checks,
+  and runs before `ZipArchive` or Calamine construction;
+- XLSX cell cost and retained output are charged before borrowed values become
+  owned, selectors and sheet diagnostics are bounded, and the archive/input
+  admission precedes `DataRef` ownership;
+- DOCX and PPTX XML parts are consumed through bounded streaming readers rather
+  than complete part `Vec`/`String` allocations; declared and actual ZIP bytes,
+  entry counts, duplicate names, CRC completion, UTF-8, and cancellation remain
+  enforced;
+- PPTX resolves only valid internal image relationships, validates package MIME
+  data before publication, caches media by normalized archive path, and streams
+  each unique media part once into the artifact store;
+- executor output preparation has an empty-redactor fast path, a bounded
+  counting serializer that stops beyond the persistence threshold, and moves
+  uniquely owned phase values instead of cloning them;
+- image inputs are admitted by encoded bytes, dimensions, working allocation,
+  source count, and cumulative `image_to_pdf` limits before Base64 ownership or
+  pixel decoding. Image work, PDF metadata/split, and Pdfium rendering execute
+  on tracked blocking workers with cancellation-aware, growth-aware capped
+  readers.
+
+A final release build was measured against the same ignored 38,741,985-byte
+`data/samples/sample.pptx` used for IF-065, with fresh state and artifact
+directories for each run. This is a local compatibility/resource spot check,
+not a portable benchmark gate:
+
+| Run | Wall | User + system CPU | Peak RSS | Unique artifacts | Artifact bytes on disk |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 1.32 s | 0.28 s | 39.8 MiB | 85 | 24.4 MiB |
+| 2 | 1.18 s | 0.27 s | 35.5 MiB | 85 | 24.4 MiB |
+| 3 | 1.33 s | 0.34 s | 35.1 MiB | 85 | 24.4 MiB |
+
+Median peak RSS was 35.5 MiB, an 85.6% reduction from the 247.0 MiB IF-065
+inline-Base64 spot check. Every run published the same 85 unique artifacts and
+left no staging `.tmp` files. The additional wall time is the deliberate cost
+of streaming, hashing, syncing, and atomically publishing 85 files.
+
+Focused validation passed 67 extractor library tests; 55 extractor integration
+tests with the documented pre-fix XLSX reproducer still ignored; 50 artifact,
+image, executor, and redaction library tests; 48 artifact/image/PDF and
+executor/recovery/security integration tests; three catalog tests; and the
+isolated example runtime matrix. All 129 Lua examples validate, Rust doctests
+complete successfully, formatting and `git diff --check` are clean, the
+425-module size policy passes, and
+`cargo clippy --all-targets -- -D warnings` passes. Per the ordinary-change
+policy, the unrelated full integration suite was not run.
+
+Remaining boundaries are explicit rather than hidden by this closure. The
+local artifact directory is a trusted same-process-identity store and read-side
+path identity still requires IF-068. `write_file` Base64 and `pdf_merge`
+materialization remain IF-069. Repeatable cross-machine RSS/CPU trend tooling
+remains IF-067. Artifacts have no automatic garbage collection, transaction
+rollback, or multi-host replication; Calamine, codecs, `lopdf`, and `quick-xml`
+may retain bounded internal models or one token-sized allocation; logical byte
+limits are safety contracts, not exact process-RSS promises. The two
+Pdfium-dependent integration cases retain a capability-skip path when the
+native library is unavailable, so this focused gate does not claim live native
+Pdfium coverage.
+
+### IF-067 — Extraction resource behavior has no repeatable benchmark harness
+
+**Status:** Resolved 2026-08-02 (found 2026-07-31).
+
+The committed extraction fixtures remain intentionally small and functional;
+`data/samples/` is gitignored, and examples must not depend on it. IF-065 added
+deterministic regressions for cumulative declared and actual OOXML bytes,
+structural and serialized-output limits, malformed parts, overlapping DOCX
+comments, subtitle work, regular-file boundaries, and mid-flight physical
+cancellation/drain behavior. It also documented each extractor's current
+resource and persistence contract.
+
+Those regressions prove rejection and lifecycle semantics, not peak CPU/RSS,
+concurrent amplification, or post-cancellation drain time. The XLSX pre-fix OOM
+reproducer remains ignored and measures elapsed time rather than resources.
+There is still no repeatable release-mode subprocess benchmark for comparing
+machines or detecting broad memory-shape regressions.
+
+Required outcome:
+
+- add an opt-in release-mode subprocess benchmark that accepts an explicit
+  samples directory and emits JSON/JSONL containing input checksum and raw/
+  declared bytes, status/limit, wall and user/system CPU time, peak RSS,
+  serialized output and persisted bytes, plus post-cancellation drain time;
+- include an empty baseline, configurable repetitions, and concurrency 1/2/4;
+  keep machine metadata with each result and never include document content;
+- use local ignored samples for calibration while adding compact deterministic
+  fixtures for long ZIP metadata, repeated PPTX media, compressed PDF text,
+  pathological HTML, and concurrent extraction. Existing cumulative OOXML,
+  DOCX comment-fan-out, subtitle, cancellation, and logical output-limit
+  fixtures need not be duplicated;
+- document the benchmark command, result schema, machine metadata, and
+  interpretation rules. Keep trends opt-in and use only broad safety ceilings
+  in CI, never brittle wall-time assertions.
+
+Resolution: `scripts/extraction_benchmark.ts` now builds a dedicated release
+worker once and runs each extraction input in a separate `/usr/bin/time`
+subprocess on macOS or Linux. It accepts an explicit ignored samples directory,
+configurable repetitions, and concurrency subsets of 1/2/4. Each JSONL record
+contains the input checksum, raw and declared-uncompressed bytes, success/limit/
+error/cancelled classification, named limit, wall and user/system CPU time,
+peak RSS normalized to bytes, counted serialized output bytes, persisted
+artifact bytes, cancellation request and physical drain timing, batch identity,
+and a conservative concurrent peak-RSS sum. Machine metadata includes platform,
+CPU/memory, toolchain, commit/dirty state, hostname hash, and release-worker
+checksum. Extracted content, raw errors, absolute sample paths, and media bytes
+never enter results.
+
+The committed sub-500-KiB deterministic corpus covers long ZIP metadata,
+repeated PPTX media references, compressed PDF text, and pathological HTML.
+Its manifest pins raw sizes and SHA-256 identities, and the generator is covered
+by a byte-determinism regression. The pathological HTML also supplies the
+post-cancellation drain probe. Local JSONL results and isolated worker artifact
+directories are ignored/removed; `data/samples/` remains ignored and is never
+an example dependency. The benchmark guide defines the schema, baseline,
+comparison rules, conservative concurrency interpretation, and prohibition on
+brittle CPU/RSS/wall-time CI assertions.
+
+Focused validation passed three release-worker Rust tests, five Bun parser/
+policy/checksum tests, deterministic fixture regeneration, and a 42-record
+release subprocess matrix spanning baseline, four fixtures, cancellation, and
+concurrency 1/2/4. All seven cancellation workers cancelled and physically
+drained. A separate concurrency-1 calibration processed 12 supported local
+`data/samples` files: 11 succeeded and `sample-big-dates.xlsx` produced the
+expected `IRONFLOW_MAX_XLSX_CELLS` bounded rejection. On this Apple M4 Pro
+calibration only, the largest observed sample-process RSS was about 35.3 MB for
+`sample-big.xlsx`; this is local trend evidence, not a portable ceiling.
+Formatting, the 436-module size policy, `git diff --check`, and
+`cargo clippy --all-targets -- -D warnings` pass. The whole integration gate was
+not run under the ordinary issue-completion policy.
+
+### IF-068 — Local artifact reads flatten identity into a trusted mutable pathname
+
+**Status:** Resolved on 2026-08-02.
+
+The local artifact store hashes every publication and verifies an existing
+content-addressed file before deduplicating into it. Read-side resolution,
+however, validates the canonical URI, regular-file type, and descriptor size
+without re-hashing the stored bytes. General file consumers then receive a
+pathname rather than the opened file handle that was inspected. A process with
+write access to `IRONFLOW_ARTIFACT_DIR` can therefore replace an artifact with
+same-sized content, or race a consumer between validation and open. Unix mode
+hardening reduces accidental writes but does not isolate another workflow or
+shell node running under the same OS identity; non-Unix permissions inherit the
+configured directory's ACL.
+
+IF-066 documents and preserves this trusted-local-store boundary rather than
+claiming that artifact descriptors provide hostile-storage integrity. It is not
+a blocker for a deployment that protects the directory from workflow writes,
+but it remains P1 for shared or multi-tenant execution.
+
+Required outcome:
+
+- introduce a file-source abstraction so handle-capable consumers never need a
+  resolved artifact pathname;
+- resolve and open artifacts inside the tracked blocking worker, refuse links
+  and non-regular files, hash the opened handle, compare it with the descriptor,
+  then rewind and pass that same handle to the parser or decoder;
+- provide a guarded verified-path lease only for third-party APIs that cannot
+  consume a file handle, and define its cleanup and race guarantees explicitly;
+- add same-size replacement, link-swap, cancellation, and cross-platform
+  permission regressions;
+- document the process-identity and shared-storage isolation requirements, and
+  evaluate a separately authenticated artifact service for hostile multi-tenant
+  deployments.
+
+Resolution: file inputs now retain a typed raw-path, artifact-descriptor, or
+canonical-artifact-URI identity until a tracked blocking worker consumes them.
+Artifact reads refuse final links/reparse points on Unix and Windows, require an
+opened regular file, hash that opened handle with cancellation checkpoints,
+compare the digest and descriptor size, rewind it, and pass that same handle to
+the extractor, image/PDF decoder, or transcription reader. HTML, PDF, OOXML,
+XLSX, subtitle, image, PDF metadata/render/split, and transcription consumers no
+longer flatten artifact identity into the store pathname. Administrative
+`resolve` remains explicitly documented as an unauthenticated pathname view,
+not a consumer API.
+
+`LocalArtifactStore::verified_path_lease` covers a future third-party path-only
+API by copying the verified handle into a private random, size-bounded,
+cancellation-aware, read-only temporary file. The lease keeps its handle open
+and removes the path on drop, including the Windows read-only cleanup case. No
+current built-in consumer needs this weaker path bridge. Documentation now
+states that verified handles close the same-size replacement and pathname
+TOCTOU gaps but cannot stop a hostile same-OS-identity process from mutating an
+already-open inode. Hostile multi-tenant deployments therefore require
+separate identities/ACLs or a separately authenticated streaming artifact
+service; a shared network filesystem alone does not change the trust boundary.
+
+Regression coverage includes same-size replacement at the store and real
+extractor boundary, final-link refusal, pathname replacement after verified
+open, cooperative read-verification cancellation, and portable read-only lease
+permissions/drop cleanup. Focused validation passed 12 artifact unit tests, two
+file-source parser tests, four artifact-handoff integration tests, 21 extractor
+integration tests, 17 XLSX integration tests (one existing destructive
+reproducer remains ignored), 11 image/PDF integration tests, 28 transcription
+tests, and three example-catalog tests. The updated artifact-handoff Lua flow
+validates. Formatting, `git diff --check`, the 429-module size policy, and
+`cargo clippy --all-targets -- -D warnings` pass. The whole integration gate was
+not run under the ordinary-change policy.
+
+### IF-069 — Legacy file materialization and PDF merge amplify before admission
+
+**Status:** Resolved 2026-08-02 (found 2026-07-31).
+
+IF-066 made artifact references the preferred binary handoff and bounded their
+extraction, image, PDF-render, metadata, and split consumers. Two older utility
+paths still retain the amplification pattern:
+
+- `write_file` decodes a complete Base64 context string into a `Vec<u8>` on the
+  async execution path and checks `IRONFLOW_MAX_FILE_BYTES` only afterward. It
+  cannot consume an artifact descriptor directly, and append mode limits only
+  the new payload rather than the resulting file.
+- `pdf_merge` synchronously loads every input into a `Vec<Document>` without a
+  file-count, per-file, cumulative-byte, or cumulative-page ceiling. It then
+  walks each page separately and can clone the same reachable font, image, or
+  resource objects once per page before saving the merged graph. Its `files`
+  input accepts paths only, so an artifact must be flattened back to a pathname
+  or Base64-adjacent workflow step.
+
+Required outcome:
+
+- preflight Base64 decoded length before allocation and stream decode into a
+  bounded destination on a tracked worker; support a mutually exclusive
+  artifact source that copies in bounded chunks from the store;
+- define overwrite/append final-size behavior, cancellation, partial-file
+  cleanup, regular-file, and symlink contracts for `write_file`;
+- add PDF merge file-count, per-file, cumulative-byte, page, and retained-object
+  ceilings; load inputs sequentially on a tracked worker and remap the union of
+  each source's reachable page graph so shared objects are copied once;
+- accept canonical artifact descriptors for merge inputs and document local
+  store/multi-host requirements;
+- add focused malformed/oversized Base64, append-growth, repeated-resource PDF,
+  cancellation, artifact-handoff, and partial-output regressions.
+
+Resolution: `write_file` now admits the decoded Base64 length before starting a
+tracked blocking worker, streams decoding directly into a staged file, and can
+copy a canonical artifact URI or descriptor from the same verified handle used
+for its digest and size check. `content`, `source_key`, and `artifact` are
+mutually exclusive. Both overwrite and append publish through the shared
+rooted staged-file abstraction; append charges the existing bytes plus the new
+input against `IRONFLOW_MAX_FILE_BYTES`. Existing append targets must be
+regular non-link files. Decode, limit, cancellation, flush/sync, and commit
+failures remove staging and preserve an existing destination.
+
+`pdf_merge` now accepts either a static `files` array or a context `source_key`
+array containing paths, canonical artifact URIs, or artifact descriptors. It
+admits source count before collection, opens and parses sources sequentially on
+a tracked blocking worker, and enforces per-file bytes, cumulative input/output
+bytes, cumulative pages, and retained graph objects through
+`IRONFLOW_MAX_PDF_BYTES`, `IRONFLOW_MAX_PDF_MERGE_FILES`,
+`IRONFLOW_MAX_PDF_MERGE_BYTES`, `IRONFLOW_MAX_PDF_MERGE_PAGES`, and
+`IRONFLOW_MAX_PDF_MERGE_OBJECTS`. Each source's complete reachable page-object
+union is remapped once, so shared fonts, images, and resources are retained once
+per source rather than cloned per page. The merged output is staged, bounded
+while serializing, synchronized, and atomically committed.
+
+The atomic replacement boundary is handle-relative on Unix. Portable platforms
+revalidate the destination immediately before OS-level atomic replacement but
+cannot close a hostile parent-directory swap race, so destination trees must be
+protected from same-identity mutation. Verified artifact handles remove
+pathname re-resolution from these consumers but do not authenticate a hostile
+process running under the same OS identity; multi-host execution still requires
+the same protected artifact store path or a separately authenticated artifact
+service. Artifact retention remains operator-owned.
+
+Focused validation passed two `write_file` unit tests, four file-safety
+integration tests, six PDF merge unit tests, one artifact-source PDF merge
+integration test, five legacy merge/split integration tests, and three example
+catalog tests. All 129 Lua examples validated against the debug binary.
+The updated binary round-trip and PDF merge examples also executed successfully
+against a disposable local artifact store; the artifact restore matched its
+Base64 source and the repeated sample PDF produced a six-page merged output.
+Formatting, the 436-module size policy, and
+`cargo clippy --all-targets -- -D warnings` pass. The whole integration gate was
+not run under the ordinary issue-completion policy.

@@ -6,6 +6,7 @@
 
 use std::future::Future;
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::Result;
@@ -13,6 +14,90 @@ use tokio::time::Instant;
 
 tokio::task_local! {
     static EXECUTION_DEADLINE: Option<Instant>;
+    static RUN_WORKERS: CooperativeWorkerSet;
+    static ATTEMPT_WORKERS: CooperativeWorkerSet;
+}
+
+/// Physical cooperative workers associated with an execution scope.
+///
+/// Dropping an async waiter can only signal synchronous work; it cannot join a
+/// Tokio blocking task. The executor therefore retains these sets separately
+/// and waits for tracked workers before reusing task or run capacity.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct CooperativeWorkerSet {
+    inner: Arc<CooperativeWorkerState>,
+}
+
+#[derive(Debug, Default)]
+struct CooperativeWorkerState {
+    active: AtomicUsize,
+    idle: tokio::sync::Notify,
+}
+
+impl CooperativeWorkerSet {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    fn register(&self) -> CooperativeWorkerGuard {
+        self.inner.active.fetch_add(1, Ordering::AcqRel);
+        CooperativeWorkerGuard { set: self.clone() }
+    }
+
+    pub(crate) async fn wait_until_idle(&self) {
+        loop {
+            let idle = self.inner.idle.notified();
+            if self.inner.active.load(Ordering::Acquire) == 0 {
+                return;
+            }
+            idle.await;
+        }
+    }
+}
+
+struct CooperativeWorkerGuard {
+    set: CooperativeWorkerSet,
+}
+
+impl Drop for CooperativeWorkerGuard {
+    fn drop(&mut self) {
+        if self.set.inner.active.fetch_sub(1, Ordering::AcqRel) == 1 {
+            self.set.inner.idle.notify_waiters();
+        }
+    }
+}
+
+struct CooperativeWorkerGuards {
+    _run: Option<CooperativeWorkerGuard>,
+    _attempt: Option<CooperativeWorkerGuard>,
+}
+
+impl CooperativeWorkerGuards {
+    fn for_current_task() -> Self {
+        Self {
+            _run: RUN_WORKERS.try_with(CooperativeWorkerSet::register).ok(),
+            _attempt: ATTEMPT_WORKERS
+                .try_with(CooperativeWorkerSet::register)
+                .ok(),
+        }
+    }
+}
+
+pub(crate) async fn with_run_worker_set<F>(workers: CooperativeWorkerSet, future: F) -> F::Output
+where
+    F: Future,
+{
+    RUN_WORKERS.scope(workers, future).await
+}
+
+pub(crate) async fn with_attempt_worker_set<F>(
+    workers: CooperativeWorkerSet,
+    future: F,
+) -> F::Output
+where
+    F: Future,
+{
+    ATTEMPT_WORKERS.scope(workers, future).await
 }
 
 /// Run `future` with the total step deadline visible to nested node work.
@@ -70,6 +155,10 @@ impl ExecutionControl {
 
     fn cancel(&self) {
         self.cancelled.store(true, Ordering::Release);
+        tracing::trace!(
+            target: "ironflow::execution::cooperative_worker",
+            "cooperative blocking worker cancellation requested"
+        );
     }
 }
 
@@ -118,3 +207,33 @@ where
 
     outcome.map_err(|error| anyhow::anyhow!("blocking step worker failed: {error}"))?
 }
+
+/// Run cooperative blocking work whose physical lifetime must be retained by
+/// the surrounding task and run admission scopes.
+///
+/// This is intentionally separate from [`run_blocking_step`]: only operations
+/// with bounded, well-placed cancellation checkpoints are safe to retain
+/// during executor shutdown.
+pub(crate) async fn run_tracked_blocking_step<T, F>(operation: F) -> Result<T>
+where
+    T: Send + 'static,
+    F: FnOnce(ExecutionControl) -> Result<T> + Send + 'static,
+{
+    let control = ExecutionControl::for_current_task();
+    control.checkpoint()?;
+
+    let worker_control = control.clone();
+    let guards = CooperativeWorkerGuards::for_current_task();
+    let handle = tokio::task::spawn_blocking(move || {
+        let _guards = guards;
+        operation(worker_control)
+    });
+    let mut cancel_on_drop = CancelOnDrop::new(control);
+    let outcome = handle.await;
+    cancel_on_drop.disarm();
+
+    outcome.map_err(|error| anyhow::anyhow!("blocking step worker failed: {error}"))?
+}
+
+#[cfg(test)]
+mod tests;

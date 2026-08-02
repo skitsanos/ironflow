@@ -124,7 +124,7 @@ impl Node for S3GetObjectNode {
             );
         }
 
-        let bytes = response.body.collect().await?.into_bytes().to_vec();
+        let bytes = super::s3_body::collect_capped(response.body, max_bytes).await?;
 
         let mut output = NodeOutput::new();
         output.insert(

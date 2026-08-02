@@ -1,15 +1,15 @@
 mod config;
 mod provider;
 mod response;
+mod response_json;
 
 use anyhow::Result;
 use async_trait::async_trait;
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
-use crate::util::bounded_read::read_file_capped_async;
 use crate::util::duration::positive_duration;
-use crate::util::limits::max_audio_bytes;
+use crate::util::limits::{max_audio_bytes, max_transcribe_response_bytes};
 
 pub struct TranscribeNode;
 
@@ -66,16 +66,29 @@ impl Node for TranscribeNode {
         let resolved = config::resolve(config, ctx)?;
         let timeout = positive_duration(resolved.timeout_s, "transcribe timeout")?;
 
-        let path = std::path::Path::new(&resolved.path);
-        let audio = read_file_capped_async(path, max_audio_bytes(), "transcribe").await?;
-        let file_name = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("audio")
-            .to_string();
+        let file_name = resolved.source.file_name();
+        let audio_source = resolved.source.clone();
+        let audio = crate::util::execution::run_tracked_blocking_step(move |execution| {
+            let (file, label) = audio_source.open("transcribe", &execution)?.into_parts();
+            let declared = file.metadata()?.len();
+            let maximum = max_audio_bytes();
+            if declared > maximum {
+                anyhow::bail!(
+                    "transcribe input '{label}' is {declared} bytes, exceeds IRONFLOW_MAX_AUDIO_BYTES limit ({maximum})"
+                );
+            }
+            crate::util::bounded_read::read_capped_controlled(
+                file,
+                maximum,
+                &format!("transcribe input '{label}'"),
+                &execution,
+            )
+        })
+        .await?;
 
         let client = reqwest::Client::builder()
             .timeout(timeout)
+            .redirect(provider::same_origin_redirect_policy())
             .build()
             .map_err(|error| {
                 anyhow::anyhow!("transcribe: failed to build HTTP client: {}", error)
@@ -89,11 +102,17 @@ impl Node for TranscribeNode {
         // provider-error/parse path inside `response::interpret`) is what
         // guarantees every error path out of this node gets the positional
         // scrub, not just one branch of it.
-        let (status, body) = provider::send(&client, &resolved, audio, &file_name)
-            .await
-            .map_err(|error| {
-                anyhow::anyhow!("{}", redact_own_key(&error.to_string(), &resolved.api_key))
-            })?;
+        let (status, body) = provider::send(
+            &client,
+            &resolved,
+            audio,
+            &file_name,
+            max_transcribe_response_bytes(),
+        )
+        .await
+        .map_err(|error| {
+            anyhow::anyhow!("{}", redact_own_key(&error.to_string(), &resolved.api_key))
+        })?;
         let transcript = response::interpret(status, &body, resolved.format).map_err(|error| {
             anyhow::anyhow!("{}", redact_own_key(&error.to_string(), &resolved.api_key))
         })?;

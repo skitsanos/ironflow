@@ -6,8 +6,12 @@ use ironflow::engine::types::*;
 use ironflow::storage::json_store::JsonStateStore;
 use ironflow::storage::null_store::NullStateStore;
 use ironflow::storage::sql_store::SqlStateStore;
-use ironflow::storage::{PageSize, RunListQuery, StateStore, StorageErrorKind};
+use ironflow::storage::{PageSize, RunLease, RunListQuery, StateStore, StorageErrorKind};
 use sqlx::Row;
+
+#[cfg(feature = "postgres")]
+#[path = "support/postgres.rs"]
+mod postgres_support;
 
 fn test_ctx() -> Context {
     let mut ctx = HashMap::new();
@@ -263,59 +267,307 @@ async fn json_store_prune_before_keeps_runs_newer_than_cutoff() {
     assert!(store.get_run_info("recent").await.is_ok());
 }
 
-// IF-043: startup reconciliation marks runs left Pending/Running by a previous
-// process as Stalled, leaving terminal runs untouched.
-#[tokio::test]
-async fn reconcile_nonterminal_runs_stalls_stranded_runs() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = JsonStateStore::new(dir.path());
+async fn assert_run_lease_contract<F, Fut>(
+    owner: &dyn StateStore,
+    peer: &dyn StateStore,
+    prefix: &str,
+    initial_lease: RunLease,
+    expire_lease: F,
+) where
+    F: Fn(String) -> Fut,
+    Fut: std::future::Future<Output = ()>,
+{
+    let expired_id = format!("{prefix}-expired");
+    let live_id = format!("{prefix}-live");
+    owner
+        .init_run_owned(&expired_id, "flow", &Context::new(), &initial_lease)
+        .await
+        .unwrap();
+    // Seed the state reached before the original owner paused beyond its TTL.
+    owner
+        .set_run_status(&expired_id, RunStatus::Running)
+        .await
+        .unwrap();
+    let mut running_task = TaskState::new("active-task", "log");
+    running_task.status = TaskStatus::Running;
+    owner.upsert_task(&expired_id, &running_task).await.unwrap();
+    expire_lease(expired_id.clone()).await;
 
-    store
-        .init_run("running", "flow", &HashMap::new())
-        .await
-        .unwrap();
-    store
-        .set_run_status("running", RunStatus::Running)
-        .await
-        .unwrap();
-    store
-        .init_run("pending", "flow", &HashMap::new())
-        .await
-        .unwrap(); // stays Pending
-    store
-        .init_run("done", "flow", &HashMap::new())
-        .await
-        .unwrap();
-    store
-        .set_run_status("done", RunStatus::Success)
-        .await
-        .unwrap();
-
-    let reconciled = ironflow::storage::reconcile_nonterminal_runs(&store)
-        .await
-        .unwrap();
-    assert_eq!(reconciled, 2);
+    let attempted_renewal = RunLease::at(
+        "original-owner",
+        chrono::Utc::now() + chrono::Duration::minutes(5),
+    );
+    assert!(
+        !owner
+            .renew_run_lease(&expired_id, &attempted_renewal)
+            .await
+            .unwrap(),
+        "an expired owner must not revive its lease"
+    );
+    for status in [RunStatus::Pending, RunStatus::Success] {
+        assert!(
+            !owner
+                .set_run_status_owned(&expired_id, status, "original-owner")
+                .await
+                .unwrap(),
+            "an expired owner must not mutate run status"
+        );
+    }
 
     assert_eq!(
-        store.get_run_info("running").await.unwrap().status,
-        RunStatus::Stalled
+        peer.reconcile_expired_run_leases(chrono::Utc::now())
+            .await
+            .unwrap(),
+        1
     );
     assert_eq!(
-        store.get_run_info("pending").await.unwrap().status,
-        RunStatus::Stalled
+        owner.get_run_info(&expired_id).await.unwrap().status,
+        RunStatus::Stalled,
     );
-    assert_eq!(
-        store.get_run_info("done").await.unwrap().status,
-        RunStatus::Success
+    let reconciled = owner.get_run_info(&expired_id).await.unwrap();
+    assert_eq!(reconciled.tasks["active-task"].status, TaskStatus::Failed);
+    assert!(reconciled.tasks["active-task"].finished.is_some());
+    let mut late_task = running_task.clone();
+    late_task.status = TaskStatus::Success;
+    assert!(
+        !owner
+            .upsert_task_owned(&expired_id, &late_task, "original-owner")
+            .await
+            .unwrap(),
+        "a reconciled owner must not mutate task state"
+    );
+    let late_ctx = Context::from([("late".to_string(), serde_json::json!(true))]);
+    assert!(
+        !owner
+            .update_ctx_owned(&expired_id, &late_ctx, "original-owner")
+            .await
+            .unwrap(),
+        "a reconciled owner must not mutate context"
+    );
+    assert!(
+        !owner
+            .get_ctx(&expired_id)
+            .await
+            .unwrap()
+            .contains_key("late")
     );
 
-    // Idempotent: a second run has nothing left to reconcile.
+    let abandoned_id = format!("{prefix}-abandoned");
+    owner
+        .init_run_owned(&abandoned_id, "flow", &Context::new(), &initial_lease)
+        .await
+        .unwrap();
+    owner
+        .set_run_status(&abandoned_id, RunStatus::Running)
+        .await
+        .unwrap();
+    expire_lease(abandoned_id.clone()).await;
+    peer.delete_run(&abandoned_id).await.unwrap();
     assert_eq!(
-        ironflow::storage::reconcile_nonterminal_runs(&store)
+        owner.get_run_info(&abandoned_id).await.unwrap_err().kind(),
+        StorageErrorKind::NotFound,
+        "an expired lease must not prevent deletion of an abandoned run"
+    );
+
+    let live = RunLease::at(
+        "live-owner",
+        chrono::Utc::now() + chrono::Duration::minutes(5),
+    );
+    owner
+        .init_run_owned(&live_id, "flow", &Context::new(), &live)
+        .await
+        .unwrap();
+    assert!(
+        owner
+            .set_run_status_owned(&live_id, RunStatus::Running, "live-owner")
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        peer.reconcile_expired_run_leases(chrono::Utc::now())
             .await
             .unwrap(),
         0
     );
+    assert_eq!(
+        peer.get_run_info(&live_id).await.unwrap().status,
+        RunStatus::Running,
+        "a new replica must not stall a live peer"
+    );
+    assert!(
+        !peer
+            .set_run_status_owned(&live_id, RunStatus::Success, "wrong-owner")
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        peer.delete_run(&live_id).await.unwrap_err().kind(),
+        StorageErrorKind::Conflict,
+        "a peer must not delete a non-terminal run with a live lease"
+    );
+    assert_eq!(
+        owner.get_run_info(&live_id).await.unwrap().status,
+        RunStatus::Running,
+    );
+    assert!(
+        owner
+            .renew_run_lease(&live_id, &RunLease::renewed("live-owner".to_string()))
+            .await
+            .unwrap(),
+        "a rejected deletion must preserve the live owner's lease"
+    );
+    assert!(
+        owner
+            .set_run_status_owned(&live_id, RunStatus::Success, "live-owner")
+            .await
+            .unwrap()
+    );
+    assert!(
+        !owner
+            .renew_run_lease(&live_id, &RunLease::renewed("live-owner".to_string()))
+            .await
+            .unwrap()
+    );
+    peer.delete_run(&live_id).await.unwrap();
+    assert_eq!(
+        owner.get_run_info(&live_id).await.unwrap_err().kind(),
+        StorageErrorKind::NotFound,
+        "terminal runs must remain deletable"
+    );
+}
+
+// IF-062: startup reconciliation is fenced by expiring run ownership.
+#[tokio::test]
+async fn json_run_leases_protect_live_peers_and_reconcile_expired_owners() {
+    let dir = tempfile::tempdir().unwrap();
+    let owner = JsonStateStore::new(dir.path());
+    let peer = JsonStateStore::new(dir.path());
+    let expired = RunLease::at(
+        "original-owner",
+        chrono::Utc::now() - chrono::Duration::seconds(1),
+    );
+    assert_run_lease_contract(&owner, &peer, "json", expired, |_| async {}).await;
+}
+
+#[tokio::test]
+async fn sql_run_leases_protect_live_peers_and_reconcile_expired_owners() {
+    let dir = tempfile::tempdir().unwrap();
+    let url = sqlite_store_url(dir.path());
+    let owner = SqlStateStore::new(&url).await.unwrap();
+    let peer = SqlStateStore::new(&url).await.unwrap();
+    let expiry_url = url.clone();
+    assert_run_lease_contract(
+        &owner,
+        &peer,
+        "sql",
+        RunLease::at(
+            "original-owner",
+            chrono::Utc::now() + chrono::Duration::minutes(5),
+        ),
+        move |run_id| {
+            let expiry_url = expiry_url.clone();
+            async move {
+                let pool = sqlx::AnyPool::connect(&expiry_url).await.unwrap();
+                sqlx::query("UPDATE ironflow_run_leases SET expires_micros = 0 WHERE run_id = ?")
+                    .bind(run_id)
+                    .execute(&pool)
+                    .await
+                    .unwrap();
+            }
+        },
+    )
+    .await;
+}
+
+#[cfg(feature = "postgres")]
+#[tokio::test]
+async fn postgres_run_leases_protect_live_peers_and_reconcile_expired_owners() {
+    let Some(fixture) = postgres_support::PostgresStateTest::from_env("pg_run_lease") else {
+        return;
+    };
+    let owner = fixture.state_store().await.unwrap();
+    let peer = fixture.state_store().await.unwrap();
+    let expiry_url = fixture.url().to_string();
+    let lease_table = fixture.table("run_leases");
+
+    assert_run_lease_contract(
+        &owner,
+        &peer,
+        "postgres",
+        RunLease::at(
+            "original-owner",
+            chrono::Utc::now() + chrono::Duration::minutes(5),
+        ),
+        move |run_id| {
+            let expiry_url = expiry_url.clone();
+            let lease_table = lease_table.clone();
+            async move {
+                let pool = sqlx::AnyPool::connect(&expiry_url).await.unwrap();
+                let sql = format!("UPDATE {lease_table} SET expires_micros = 0 WHERE run_id = $1");
+                sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+                    .bind(run_id)
+                    .execute(&pool)
+                    .await
+                    .unwrap();
+                pool.close().await;
+            }
+        },
+    )
+    .await;
+
+    drop(peer);
+    drop(owner);
+    fixture.cleanup().await.unwrap();
+}
+
+#[tokio::test]
+async fn sql_run_lease_reconciliation_drains_more_than_one_batch() {
+    const RUN_COUNT: usize = 300;
+
+    let directory = tempfile::tempdir().unwrap();
+    let url = sqlite_store_url(directory.path());
+    let store = SqlStateStore::new(&url).await.unwrap();
+    let pool = sqlx::AnyPool::connect(&url).await.unwrap();
+    let mut transaction = pool.begin().await.unwrap();
+    for index in 0..RUN_COUNT {
+        let run_id = format!("expired-batch-{index:03}");
+        sqlx::query(
+            "INSERT INTO ironflow_runs (id, flow_name, status, ctx) \
+             VALUES (?, 'flow', 'running', '{}')",
+        )
+        .bind(&run_id)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO ironflow_run_leases (run_id, owner, expires_micros) \
+             VALUES (?, 'dead-owner', 0)",
+        )
+        .bind(run_id)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+    }
+    transaction.commit().await.unwrap();
+
+    assert_eq!(
+        store
+            .reconcile_expired_run_leases(chrono::Utc::now())
+            .await
+            .unwrap(),
+        RUN_COUNT
+    );
+    let stalled: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM ironflow_runs WHERE status = 'stalled'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let leases: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM ironflow_run_leases")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(stalled as usize, RUN_COUNT);
+    assert_eq!(leases, 0);
 }
 
 #[tokio::test]

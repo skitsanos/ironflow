@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Result, anyhow, bail};
 use rmcp::model::{
     CallToolRequest, CallToolRequestParams, CallToolResult, ClientInfo, ClientRequest,
-    ListToolsRequest, ListToolsResult, ProtocolVersion, ServerInfo, ServerResult,
+    ListToolsRequest, ListToolsResult, ProtocolVersion, ServerPeerInfo, ServerResult,
 };
 use rmcp::service::{PeerRequestOptions, RoleClient, RunningService};
 use tokio::sync::Mutex as AsyncMutex;
@@ -44,7 +44,7 @@ impl McpSession {
         self.transport
     }
 
-    pub(super) fn server_info(&self) -> Result<ServerInfo> {
+    pub(super) fn server_info(&self) -> Result<ServerPeerInfo> {
         self.service
             .peer_info()
             .map(|info| info.as_ref().clone())

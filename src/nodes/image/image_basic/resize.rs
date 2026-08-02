@@ -4,13 +4,14 @@ use async_trait::async_trait;
 use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
+use crate::util::execution::run_tracked_blocking_step;
 use crate::util::node_config::config_u64;
 
 use super::super::common::{
-    load_image_bytes, parse_positive_u32, resolve_image_output_format, save_dynamic_image,
-    target_size,
+    load_image, parse_positive_u32, resolve_image_output_format, save_dynamic_image, target_size,
 };
 use super::super::image_sources::resolve_single_image_source;
+use super::super::resource::{ImageDecodeLimits, validate_output_shape};
 
 pub(crate) struct ImageResizeNode;
 
@@ -34,7 +35,8 @@ impl Node for ImageResizeNode {
         let output_key = config
             .get("output_key")
             .and_then(|v| v.as_str())
-            .unwrap_or("resized_image");
+            .unwrap_or("resized_image")
+            .to_owned();
         let format = resolve_image_output_format(
             config.get("format").and_then(|v| v.as_str()),
             &output_path,
@@ -49,45 +51,46 @@ impl Node for ImageResizeNode {
             anyhow::bail!("image_resize requires either 'width' or 'height'");
         }
 
-        let source_loaded = load_image_bytes(source)?;
-        let (target_w, target_h) = target_size(
-            source_loaded.image.width(),
-            source_loaded.image.height(),
-            width,
-            height,
-        )?;
-        let resized = source_loaded.image.resize_exact(
-            target_w,
-            target_h,
-            image::imageops::FilterType::Lanczos3,
-        );
-        save_dynamic_image(resized, &output_path, format)?;
+        let limits = ImageDecodeLimits::current();
+        run_tracked_blocking_step(move |execution| {
+            let source_loaded = load_image(source, limits, &execution)?;
+            let source_bytes =
+                u64::try_from(source_loaded.image.as_bytes().len()).unwrap_or(u64::MAX);
+            let (target_w, target_h) = target_size(
+                source_loaded.image.width(),
+                source_loaded.image.height(),
+                width,
+                height,
+            )?;
+            validate_output_shape(
+                "image_resize",
+                target_w,
+                target_h,
+                source_loaded.image.color(),
+                source_bytes,
+                limits,
+            )?;
+            execution.checkpoint()?;
+            let resized = source_loaded.image.resize_exact(
+                target_w,
+                target_h,
+                image::imageops::FilterType::Lanczos3,
+            );
+            execution.checkpoint()?;
+            save_dynamic_image(resized, &output_path, format)?;
+            execution.checkpoint()?;
 
-        let mut output = NodeOutput::new();
-        output.insert(
-            output_key.to_string(),
-            serde_json::Value::String(output_path),
-        );
-        output.insert(
-            format!("{}_width", output_key),
-            serde_json::Value::Number(serde_json::Number::from(u64::from(target_w))),
-        );
-        output.insert(
-            format!("{}_height", output_key),
-            serde_json::Value::Number(serde_json::Number::from(u64::from(target_h))),
-        );
-        output.insert(
-            format!("{}_format", output_key),
-            serde_json::Value::String(if format == image::ImageFormat::Jpeg {
-                "jpeg".to_string()
-            } else {
-                "png".to_string()
-            }),
-        );
-        output.insert(
-            format!("{}_success", output_key),
-            serde_json::Value::Bool(true),
-        );
-        Ok(output)
+            let mut output = NodeOutput::new();
+            output.insert(output_key.clone(), serde_json::json!(output_path));
+            output.insert(format!("{output_key}_width"), serde_json::json!(target_w));
+            output.insert(format!("{output_key}_height"), serde_json::json!(target_h));
+            output.insert(
+                format!("{output_key}_format"),
+                serde_json::json!(super::super::common::image_format_name(format)),
+            );
+            output.insert(format!("{output_key}_success"), serde_json::json!(true));
+            Ok(output)
+        })
+        .await
     }
 }

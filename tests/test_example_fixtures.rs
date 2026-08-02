@@ -98,13 +98,20 @@ fn clean_checkout_runtime_matrix_runs_from_an_isolated_working_directory() {
             "runtime case is not classified as a local flow: {flow}"
         );
 
-        let store = workspace.path().join(format!("store-{index}"));
+        let case_root = workspace.path().join(format!("case-{index}"));
+        fs::create_dir_all(&case_root).unwrap();
+        let store = case_root.join("store");
+        let artifacts = case_root.join("artifacts");
         let output = Command::new(env!("CARGO_BIN_EXE_ironflow"))
             .current_dir(workspace.path())
             .env_remove("IRONFLOW_STORE")
             .env_remove("IRONFLOW_STORE_URL")
             .env_remove("IRONFLOW_SQL_TABLE_PREFIX")
             .env_remove("REDIS_URL")
+            .env("TMPDIR", &case_root)
+            .env("TMP", &case_root)
+            .env("TEMP", &case_root)
+            .env("IRONFLOW_ARTIFACT_DIR", artifacts)
             .arg("run")
             .arg(root.join(flow))
             .arg("--store-dir")

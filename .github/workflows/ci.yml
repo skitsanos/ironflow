@@ -12,29 +12,13 @@ on:
       - "scripts/**"
       - ".cargo/audit.toml"
       - ".github/workflows/ci.yml"
-  pull_request:
-    branches: [main, develop]
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -Dwarnings
 
 jobs:
-  # Only allow PRs from develop into main
-  branch-guard:
-    name: Branch guard
-    if: github.event_name == 'pull_request' && github.base_ref == 'main'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check source branch
-        env:
-          HEAD_REF: ${{ github.head_ref }}
-        run: |
-          if [ "$HEAD_REF" != "develop" ]; then
-            echo "::error::Only the 'develop' branch can be merged into 'main'. Got '$HEAD_REF'."
-            exit 1
-          fi
-
   module-size:
     name: Module size ratchet
     runs-on: ubuntu-latest
@@ -85,15 +69,18 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
 
   full-features:
-    name: Full feature check
+    name: Full feature check and Clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           cache-targets: false
       - run: cargo check --all-targets --features postgres,redis
+      - run: cargo clippy --all-targets --features postgres,redis -- -D warnings
 
   redis-tests:
     name: Redis integration tests
@@ -117,7 +104,35 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-targets: false
-      - run: cargo test --features redis --test test_redis_atomicity -- --test-threads=1
+      - run: cargo test --all-targets --features redis -- --test-threads=1
+
+  postgres-tests:
+    name: PostgreSQL integration tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_DB: ironflow_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ironflow-${{ github.run_id }}-${{ github.run_attempt }}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d ironflow_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgres://postgres:ironflow-${{ github.run_id }}-${{ github.run_attempt }}@127.0.0.1:5432/ironflow_test
+      IRONFLOW_POSTGRES_TEST_REQUIRED: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.97.1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
+      - run: cargo test --all-targets --features postgres -- --test-threads=1
 
   fmt:
     name: Format

@@ -5,16 +5,12 @@ use async_trait::async_trait;
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
+use crate::util::execution::run_tracked_blocking_step;
 
 pub(crate) struct PdfMetadataNode;
 
-pub(crate) fn extract_pdf_metadata_for_node(
-    bytes: &[u8],
-) -> Result<BTreeMap<String, serde_json::Value>> {
+fn extract_pdf_metadata_for_node(doc: &lopdf::Document) -> BTreeMap<String, serde_json::Value> {
     let mut metadata = BTreeMap::new();
-    let doc = lopdf::Document::load_mem(bytes)
-        .map_err(|e| anyhow::anyhow!("pdf_metadata: failed to parse PDF: {:?}", e))?;
-
     let page_count = doc.get_pages().len();
     metadata.insert("pages".to_string(), serde_json::json!(page_count));
 
@@ -46,7 +42,7 @@ pub(crate) fn extract_pdf_metadata_for_node(
         }
     }
 
-    Ok(metadata)
+    metadata
 }
 
 #[async_trait]
@@ -60,18 +56,21 @@ impl Node for PdfMetadataNode {
     }
 
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
-        let path = super::common::resolve_path(config, ctx, "pdf_metadata")?;
+        let source = super::common::resolve_source(config, ctx, "pdf_metadata")?;
         let output_key = config
             .get("output_key")
             .and_then(|v| v.as_str())
-            .unwrap_or("metadata");
+            .unwrap_or("metadata")
+            .to_owned();
 
-        let bytes = std::fs::read(&path)
-            .map_err(|e| anyhow::anyhow!("Failed to read '{}': {}", path, e))?;
-        let metadata = extract_pdf_metadata_for_node(&bytes)?;
-
-        let mut output = NodeOutput::new();
-        output.insert(output_key.to_string(), serde_json::to_value(metadata)?);
-        Ok(output)
+        run_tracked_blocking_step(move |execution| {
+            let document = super::pdf_input::load_document(&source, "pdf_metadata", &execution)?;
+            let metadata = extract_pdf_metadata_for_node(&document);
+            execution.checkpoint()?;
+            let mut output = NodeOutput::new();
+            output.insert(output_key, serde_json::to_value(metadata)?);
+            Ok(output)
+        })
+        .await
     }
 }

@@ -10,19 +10,30 @@ use tracing::{info, warn};
 use crate::engine::events::{RunEvent, RunEventType};
 use crate::engine::types::{RunStatus, StepDefinition, TaskState, TaskStatus};
 
-use super::coordinator::{ExecutionOutcome, RunCoordinator};
+use super::coordinator::RunCoordinator;
 use super::engine::WorkflowEngine;
 use super::error_handler::{ExecutionState, RecoveryInvocation};
 use super::phase_output::PhaseOutputAccumulator;
+use super::signal::{ExecutionOutcome, ExecutionSignal};
 
 impl RunCoordinator {
-    pub(super) async fn run(&self, cancel: &mut watch::Receiver<bool>) -> ExecutionOutcome {
+    pub(super) async fn run(
+        &self,
+        cancel: &mut watch::Receiver<ExecutionSignal>,
+    ) -> ExecutionOutcome {
         for step in &self.flow.steps {
-            if *cancel.borrow() {
-                return ExecutionOutcome::Cancelled;
+            if let Some(outcome) = cancel.borrow().outcome() {
+                return outcome;
             }
             let task_state = TaskState::new(&step.name, &step.node_type);
-            if let Err(error) = self.store.upsert_task(&self.run_id, &task_state).await {
+            if let Err(error) = super::lease::persist_task(
+                self.store.as_ref(),
+                &self.run_id,
+                &task_state,
+                &self.lease_owner,
+            )
+            .await
+            {
                 return ExecutionOutcome::Infrastructure(anyhow::Error::new(error).context(
                     format!(
                         "Failed to initialize task '{}' for run {}",
@@ -32,18 +43,30 @@ impl RunCoordinator {
             }
         }
 
-        if *cancel.borrow() {
-            return ExecutionOutcome::Cancelled;
+        if let Some(outcome) = cancel.borrow().outcome() {
+            return outcome;
         }
-        if let Err(error) = self
-            .store
-            .set_run_status(&self.run_id, RunStatus::Running)
-            .await
+        let owned = match super::lease::persist_status(
+            self.store.as_ref(),
+            &self.run_id,
+            RunStatus::Running,
+            &self.lease_owner,
+        )
+        .await
         {
-            return ExecutionOutcome::Infrastructure(
-                anyhow::Error::new(error)
-                    .context(format!("Failed to mark run {} as running", self.run_id)),
-            );
+            Ok(owned) => owned,
+            Err(error) => {
+                return ExecutionOutcome::Infrastructure(
+                    anyhow::Error::new(error)
+                        .context(format!("Failed to mark run {} as running", self.run_id)),
+                );
+            }
+        };
+        if !owned {
+            return ExecutionOutcome::Infrastructure(anyhow::anyhow!(
+                "run {} lost its execution-owner lease before starting",
+                self.run_id
+            ));
         }
         WorkflowEngine::publish_event_ref(
             self.events.as_ref(),
@@ -68,8 +91,8 @@ impl RunCoordinator {
         let state = Arc::new(RwLock::new(ExecutionState::default()));
 
         for phase in &self.execution_plan.phases {
-            if *cancel.borrow() {
-                return ExecutionOutcome::Cancelled;
+            if let Some(outcome) = cancel.borrow().outcome() {
+                return outcome;
             }
 
             // Every member and retry in one phase reads this exact snapshot.
@@ -80,7 +103,7 @@ impl RunCoordinator {
                 let step = step_map[step_name].clone();
 
                 if let Some(source) = self.execution_plan.recovery_sources.get(step_name) {
-                    let source_failure = state.read().await.failure(source);
+                    let source_failure = state.write().await.take_for_recovery(source);
                     let Some(source_failure) = source_failure else {
                         if let Err(error) = self
                             .mark_unavailable(&step, &state, "error handler was not triggered")
@@ -167,8 +190,13 @@ impl RunCoordinator {
                 tokio::select! {
                     biased;
                     changed = cancel.changed() => {
-                        if changed.is_ok() && *cancel.borrow() {
-                            return ExecutionOutcome::Cancelled;
+                        if changed.is_err() {
+                            return ExecutionOutcome::Infrastructure(anyhow::anyhow!(
+                                "workflow execution control channel closed unexpectedly"
+                            ));
+                        }
+                        if let Some(outcome) = cancel.borrow().outcome() {
+                            return outcome;
                         }
                     }
                     result = tasks.next() => {
@@ -213,10 +241,14 @@ impl RunCoordinator {
         let mut task_state = TaskState::new(&step.name, &step.node_type);
         task_state.status = TaskStatus::Skipped;
         task_state.finished = Some(Utc::now());
-        self.store
-            .upsert_task(&self.run_id, &task_state)
-            .await
-            .with_context(|| format!("Failed to persist task '{}' as skipped", step.name))?;
+        super::lease::persist_task(
+            self.store.as_ref(),
+            &self.run_id,
+            &task_state,
+            &self.lease_owner,
+        )
+        .await
+        .with_context(|| format!("Failed to persist task '{}' as skipped", step.name))?;
         WorkflowEngine::publish_event_ref(
             self.events.as_ref(),
             RunEvent::task(

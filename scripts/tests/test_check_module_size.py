@@ -229,14 +229,14 @@ class ModuleSizeCheckerTests(unittest.TestCase):
         with self.assertRaisesRegex(CHECKER.PolicyError, "explicit policy review"):
             CHECKER.load_policy(policy)
 
-    def test_exception_budget_cannot_exceed_the_if034_baseline(self) -> None:
+    def test_exception_budget_cannot_exceed_the_reviewed_baseline(self) -> None:
         exceptions = []
-        for index in range(18):
+        for index in range(15):
             path = f"src/module_{index:02}.rs"
             self.write_module(path, 301)
             exceptions.append(self.exception(path, 301))
 
-        with self.assertRaisesRegex(CHECKER.PolicyError, "fixed IF-034 baseline of 17"):
+        with self.assertRaisesRegex(CHECKER.PolicyError, "fixed reviewed baseline of 14"):
             CHECKER.load_policy(self.write_policy(exceptions))
 
 

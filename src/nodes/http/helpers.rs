@@ -20,6 +20,13 @@ fn ip_is_internal(ip: IpAddr) -> bool {
             v4.is_private() || v4.is_loopback() || v4.is_link_local() || v4.is_unspecified()
         }
         IpAddr::V6(v6) => {
+            // IPv4-mapped IPv6 literals retain the security properties of the
+            // embedded IPv4 address. Without this normalization,
+            // `::ffff:127.0.0.1` bypasses the IPv6-only range checks below.
+            if let Some(mapped) = v6.to_ipv4_mapped() {
+                return ip_is_internal(IpAddr::V4(mapped));
+            }
+
             let first = v6.segments()[0];
             v6.is_loopback()
                 || v6.is_unspecified()
@@ -105,6 +112,9 @@ mod tests {
         assert!(internal("http://169.254.169.254/latest/meta-data")); // cloud metadata
         assert!(internal("http://[::1]/x"));
         assert!(internal("http://[fd00::1]/x")); // unique local
+        assert!(internal("http://[::ffff:127.0.0.1]/x"));
+        assert!(internal("http://[::ffff:10.0.0.5]/x"));
+        assert!(internal("http://[::ffff:169.254.169.254]/x"));
     }
 
     #[test]
@@ -112,5 +122,6 @@ mod tests {
         assert!(!internal("http://example.com/x"));
         assert!(!internal("https://8.8.8.8/x"));
         assert!(!internal("http://93.184.216.34/x"));
+        assert!(!internal("http://[::ffff:8.8.8.8]/x"));
     }
 }

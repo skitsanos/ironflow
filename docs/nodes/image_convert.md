@@ -7,10 +7,14 @@ Convert between image formats (e.g. PNG to JPEG). Output format is inferred from
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `path` | string | one of `path` or `source_key` | — | Input image path (supports `${ctx.key}` interpolation) |
-| `source_key` | string | one of `path` or `source_key` | — | Context key containing a source path |
+| `source_key` | string | one of `path` or `source_key` | — | Context key containing a source path, artifact URI/descriptor, `{ artifact = ... }`, or explicit Base64 object |
 | `output_path` | string | yes | — | Output image path (format inferred from extension) |
 | `quality` | number | no | `85` | JPEG quality (1-100), only used for JPEG output |
 | `output_key` | string | no | `"image_convert"` | Prefix for output values |
+
+Artifact inputs are opened and SHA-256 verified inside the tracked blocking
+worker; decoding consumes that same rewound handle rather than a resolved store
+pathname.
 
 ## Context Output
 
@@ -35,3 +39,13 @@ flow:step("log", nodes.log({
 
 return flow
 ```
+
+## Resource contract
+
+Image headers and decoded byte requirements are checked before allocation using
+`IRONFLOW_MAX_IMAGE_ENCODED_BYTES` (50 MiB), `IRONFLOW_MAX_IMAGE_PIXELS` (25
+million), and `IRONFLOW_MAX_IMAGE_DECODE_ALLOCATION_BYTES` (128 MiB). JPEG
+conversion admits the retained source plus RGB conversion buffer. Decode,
+format conversion, and encode run on a tracked blocking worker with cancellation
+checkpoints between opaque codec operations. JPEG output is streamed to its
+destination instead of first accumulating the complete encoded file in memory.

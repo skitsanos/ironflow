@@ -1,6 +1,6 @@
 # IronFlow — Node Reference
 
-Complete reference for all 101 built-in nodes. Click any node name for full documentation with parameters, context output, and Lua examples.
+Complete reference for all 102 built-in nodes. Click any node name for full documentation with parameters, context output, and Lua examples.
 
 For adding or maintaining node implementations, see [Node Contributor Manual](NODE_CONTRIBUTING.md).
 
@@ -26,7 +26,7 @@ For adding or maintaining node implementations, see [Node Contributor Manual](NO
 
 | Node | Description |
 |------|-------------|
-| [`read_file`](nodes/read_file.md) | Read file contents as text |
+| [`read_file`](nodes/read_file.md) | Read text, explicitly encode Base64, or stream a file to the artifact store |
 | [`write_file`](nodes/write_file.md) | Write content to a file |
 | [`copy_file`](nodes/copy_file.md) | Copy a file to a new location |
 | [`move_file`](nodes/move_file.md) | Move or rename a file |
@@ -164,14 +164,15 @@ endpoint, and AWS credential configuration may still come from the environment.
 | Node | Description |
 |------|-------------|
 | [`extract_word`](nodes/extract_word.md) | Extract text and metadata from Word (.docx) |
-| [`extract_pptx`](nodes/extract_pptx.md) | Extract text, tables, notes, and comments from PowerPoint (.pptx) |
+| [`extract_pptx`](nodes/extract_pptx.md) | Extract PowerPoint content and optionally stream embedded media to artifacts |
 | [`extract_pdf`](nodes/extract_pdf.md) | Extract text and metadata from PDF |
 | [`extract_html`](nodes/extract_html.md) | Extract text and metadata from HTML |
 | [`extract_vtt`](nodes/extract_vtt.md) | Extract text and metadata from WebVTT subtitles |
 | [`extract_srt`](nodes/extract_srt.md) | Extract text and metadata from SRT subtitles |
+| [`extract_xlsx`](nodes/extract_xlsx.md) | Extract typed rows from an Excel (.xlsx) workbook |
 | [`pdf_metadata`](nodes/pdf_metadata.md) | Extract PDF metadata fields and page count |
-| [`pdf_to_image`](nodes/pdf_to_image.md) | Render PDF pages to images |
-| [`pdf_thumbnail`](nodes/pdf_thumbnail.md) | Render a single PDF page as a thumbnail image |
+| [`pdf_to_image`](nodes/pdf_to_image.md) | Render PDF pages to disk-backed image artifacts |
+| [`pdf_thumbnail`](nodes/pdf_thumbnail.md) | Render one PDF page to a disk-backed thumbnail artifact |
 | [`pdf_merge`](nodes/pdf_merge.md) | Merge multiple PDF files into one |
 | [`pdf_split`](nodes/pdf_split.md) | Split a PDF into individual pages or page ranges |
 | [`image_metadata`](nodes/image_metadata.md) | Extract image dimensions, format, and color type |
@@ -183,6 +184,16 @@ endpoint, and AWS credential configuration may still come from the environment.
 | [`image_to_pdf`](nodes/image_to_pdf.md) | Convert images to PDF |
 | [`image_resize`](nodes/image_resize.md) | Resize a single image |
 | [`image_crop`](nodes/image_crop.md) | Crop a single image |
+
+The seven file parsers (`extract_word`, `extract_pptx`, `extract_pdf`,
+`extract_html`, `extract_vtt`, `extract_srt`, and `extract_xlsx`) require
+regular-file inputs and apply format-specific archive, structure, and result
+budgets described on their node pages. Their synchronous phases use tracked
+blocking workers, so task/run admission remains occupied until physical work
+stops after cancellation. Controllable loops checkpoint cooperatively;
+third-party calls without an interruption hook are checked immediately before
+and after the call. A failed or limited extraction publishes no partial node
+output.
 
 ## Database Nodes
 
@@ -366,7 +377,12 @@ end)
 
 ## Runtime Limits
 
-Lua flow parsing and `code` / `foreach` execution enforce process-wide budgets by default. Node execution runs on Tokio's blocking pool; for flow steps, the same Lua hook also observes the total step deadline and dropped-future cancellation signal:
+Lua flow parsing and `code` / `foreach` execution enforce process-wide budgets
+by default. Node futures run on Tokio's asynchronous runtime; nodes with
+synchronous filesystem, archive, parser, database-driver, or process work must
+dispatch that phase to the blocking pool instead of occupying an async worker.
+For Lua-backed flow steps, the Lua hook also observes the total step deadline
+and dropped-future cancellation signal:
 
 | Variable | Default | Description |
 |----------|---------|-------------|

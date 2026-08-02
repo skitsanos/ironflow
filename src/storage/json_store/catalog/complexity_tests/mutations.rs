@@ -155,3 +155,39 @@ async fn task_and_context_updates_leave_base_and_delta_bytes_unchanged() {
     assert_eq!(io.delta_replacements, 0);
     assert_eq!(io.compactions, 0);
 }
+
+#[tokio::test]
+async fn schedule_claims_do_not_invalidate_the_run_catalog() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = JsonStateStore::new(directory.path());
+    for index in 0..96 {
+        store
+            .init_run(
+                &format!("claim-catalog-{index:03}"),
+                "flow",
+                &Context::new(),
+            )
+            .await
+            .unwrap();
+    }
+
+    store.reset_catalog_io_counters();
+    assert!(
+        store
+            .claim_schedule("nightly", "first", 3600)
+            .await
+            .unwrap()
+    );
+    store
+        .init_run("claim-catalog-after", "flow", &Context::new())
+        .await
+        .unwrap();
+
+    let io = store.catalog_io_counters();
+    assert_eq!(
+        io.base_full_reads, 0,
+        "claim traffic forced a catalog rebuild"
+    );
+    assert_eq!(io.base_replacements, 0);
+    assert_eq!(io.compactions, 0);
+}

@@ -19,14 +19,16 @@ pub async fn run_flow(
     State(state): State<Arc<AppState>>,
     Json(req): Json<RunFlowRequest>,
 ) -> Result<Json<RunFlowResponse>, AppError> {
-    let source_count = [
-        req.source.is_some(),
-        req.source_base64.is_some(),
-        req.file.is_some(),
-    ]
-    .iter()
-    .filter(|&&v| v)
-    .count();
+    let RunFlowRequest {
+        source,
+        source_base64,
+        file,
+        context,
+    } = req;
+    let source_count = [source.is_some(), source_base64.is_some(), file.is_some()]
+        .iter()
+        .filter(|&&v| v)
+        .count();
 
     if source_count == 0 {
         return Err(AppError::BadRequest(
@@ -39,48 +41,58 @@ pub async fn run_flow(
         ));
     }
 
-    // Inline source is arbitrary workflow execution: the caller chooses the
-    // nodes, so an API key that reaches this endpoint can read and write any
-    // path the process can and run shell commands. That is the intended
-    // contract for a general-purpose engine, but a deployment that exposes a
-    // fixed set of flows to consumer applications wants the key to grant only
-    // those flows. `file` stays available either way — it is already confined
-    // to `flows_dir` by resolve_flow_path (IF-054).
-    if !state.allow_adhoc_flows && (req.source.is_some() || req.source_base64.is_some()) {
-        return Err(AppError::Forbidden(
-            "Inline flow source is disabled on this server (allow_adhoc_flows: false). \
-             Use 'file' to run a flow already present in the configured flows directory."
-                .to_string(),
-        ));
-    }
+    reject_inline_source_when_disabled(&state, source.is_some() || source_base64.is_some())?;
+
+    // Resolve the confined file path before reserving scarce execution/parser
+    // capacity. The resolved value is reused for loading and `_flow_dir`.
+    let resolved_file = match file.as_deref() {
+        Some(file) => Some(resolve_flow_path(file, &state)?),
+        None => None,
+    };
+
+    // Run admission covers the whole expensive lifecycle, including Lua flow
+    // evaluation. Acquiring after parsing let rejected requests each allocate
+    // a separate bounded-but-large VM before receiving 503.
+    let run_permit = crate::api::acquire_run_permit()?;
+    let flow_load_permit = crate::api::acquire_flow_load_permit()?;
 
     // Parse off the async runtime so a pathological flow cannot pin a worker
     // thread and stall the whole server (IF-038).
-    let flow = if let Some(source) = &req.source {
-        LuaRuntime::load_flow_from_string_async(source, &state.registry)
-            .await
-            .map_err(|e| AppError::BadRequest(format!("Failed to parse flow: {:#}", e)))?
-    } else if let Some(b64) = &req.source_base64 {
-        let source = decode_base64_source(b64)?;
-        LuaRuntime::load_flow_from_string_async(&source, &state.registry)
-            .await
-            .map_err(|e| AppError::BadRequest(format!("Failed to parse flow: {:#}", e)))?
+    let flow = if let Some(source) = source {
+        let registry = state.registry.clone();
+        crate::api::supervise_flow_load(flow_load_permit, async move {
+            LuaRuntime::load_flow_from_string_async(&source, &registry).await
+        })
+        .await
+        .map_err(|e| AppError::BadRequest(format!("Failed to parse flow: {:#}", e)))?
+    } else if let Some(b64) = source_base64 {
+        let source = decode_base64_source(&b64)?;
+        let registry = state.registry.clone();
+        crate::api::supervise_flow_load(flow_load_permit, async move {
+            LuaRuntime::load_flow_from_string_async(&source, &registry).await
+        })
+        .await
+        .map_err(|e| AppError::BadRequest(format!("Failed to parse flow: {:#}", e)))?
     } else {
-        let file_path = req.file.as_ref().unwrap();
-        let path = resolve_flow_path(file_path, &state)?;
-        LuaRuntime::load_flow_async(&path, &state.registry)
-            .await
-            .map_err(|e| flow_file_load_error(&path, &e))?
+        let path = resolved_file
+            .as_deref()
+            .expect("source validation guarantees one resolved file")
+            .to_string();
+        let registry = state.registry.clone();
+        let load_path = path.clone();
+        crate::api::supervise_flow_load(flow_load_permit, async move {
+            LuaRuntime::load_flow_async(&load_path, &registry).await
+        })
+        .await
+        .map_err(|e| flow_file_load_error(&path, &e))?
     };
 
-    let mut initial_ctx = req.context.unwrap_or_default();
+    let mut initial_ctx = context.unwrap_or_default();
     let flow_name = flow.name.clone();
 
     // Inject _flow_dir for subworkflow path resolution
-    if let Some(ref file_path) = req.file {
-        if let Ok(resolved) = resolve_flow_path(file_path, &state)
-            && let Some(dir) = std::path::Path::new(&resolved).parent()
-        {
+    if let Some(resolved) = resolved_file {
+        if let Some(dir) = std::path::Path::new(&resolved).parent() {
             initial_ctx.insert(
                 "_flow_dir".to_string(),
                 serde_json::Value::String(dir.to_string_lossy().to_string()),
@@ -93,17 +105,15 @@ pub async fn run_flow(
         );
     }
 
-    // Bound concurrent API-triggered runs process-wide; held until the run
-    // finishes (IF-042).
-    let _run_permit = crate::api::acquire_run_permit()?;
-
     let engine = WorkflowEngine::new_with_events(
         state.registry.clone(),
         state.store.clone(),
         state.event_store.clone(),
         state.max_concurrent_tasks,
     );
-    let run_id = engine.execute(&flow, initial_ctx).await?;
+    let handle = engine.start(&flow, initial_ctx).await?;
+    let run_id = handle.id().to_string();
+    crate::api::wait_for_admitted_run(handle, run_permit).await?;
 
     let run_info = state.store.get_run_info(&run_id).await?;
 
@@ -119,14 +129,15 @@ pub async fn validate_flow(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ValidateFlowRequest>,
 ) -> Result<Json<ValidateResponse>, AppError> {
-    let source_count = [
-        req.source.is_some(),
-        req.source_base64.is_some(),
-        req.file.is_some(),
-    ]
-    .iter()
-    .filter(|&&v| v)
-    .count();
+    let ValidateFlowRequest {
+        source,
+        source_base64,
+        file,
+    } = req;
+    let source_count = [source.is_some(), source_base64.is_some(), file.is_some()]
+        .iter()
+        .filter(|&&v| v)
+        .count();
 
     if source_count == 0 {
         return Err(AppError::BadRequest(
@@ -139,18 +150,45 @@ pub async fn validate_flow(
         ));
     }
 
+    // Validation executes the top-level Lua chunk, including `env()`, so it
+    // has the same trust boundary as execution. Reject before decoding or
+    // evaluating any caller-controlled source (IF-061).
+    reject_inline_source_when_disabled(&state, source.is_some() || source_base64.is_some())?;
+
+    let resolved_file = match file.as_deref() {
+        Some(file) => Some(resolve_flow_path(file, &state)?),
+        None => None,
+    };
+    let flow_load_permit = crate::api::acquire_flow_load_permit()?;
+
     // Parse off the async runtime (IF-038).
-    let flow_result = if let Some(source) = &req.source {
-        LuaRuntime::load_flow_from_string_async(source, &state.registry).await
-    } else if let Some(b64) = &req.source_base64 {
-        let source = decode_base64_source(b64)?;
-        LuaRuntime::load_flow_from_string_async(&source, &state.registry).await
+    let flow_result = if let Some(source) = source {
+        let registry = state.registry.clone();
+        crate::api::supervise_flow_load(flow_load_permit, async move {
+            LuaRuntime::load_flow_from_string_async(&source, &registry).await
+        })
+        .await
+    } else if let Some(b64) = source_base64 {
+        let source = decode_base64_source(&b64)?;
+        let registry = state.registry.clone();
+        crate::api::supervise_flow_load(flow_load_permit, async move {
+            LuaRuntime::load_flow_from_string_async(&source, &registry).await
+        })
+        .await
     } else {
-        let file_path = req.file.as_ref().unwrap();
-        let path = resolve_flow_path(file_path, &state)?;
+        let path = resolved_file
+            .as_deref()
+            .expect("source validation guarantees one resolved file")
+            .to_string();
+        let registry = state.registry.clone();
+        let load_path = path.clone();
         // File-mode parse errors must not echo file-derived detail (IF-045);
         // return a generic validation failure instead of the raw Lua error.
-        match LuaRuntime::load_flow_async(&path, &state.registry).await {
+        match crate::api::supervise_flow_load(flow_load_permit, async move {
+            LuaRuntime::load_flow_async(&load_path, &registry).await
+        })
+        .await
+        {
             Ok(flow) => Ok(flow),
             Err(e) => {
                 log_flow_file_load_failure(&path, &e);
@@ -195,4 +233,34 @@ pub async fn validate_flow(
             errors: vec![format!("{:#}", e)],
         })),
     }
+}
+
+/// Inline source evaluates arbitrary caller-controlled Lua. A deployment that
+/// exposes only its configured flow catalog must apply this boundary to both
+/// execution and validation; file mode remains confined by `flows_dir`.
+fn reject_inline_source_when_disabled(
+    state: &AppState,
+    has_inline_source: bool,
+) -> Result<(), AppError> {
+    if !state.allow_adhoc_flows && has_inline_source {
+        return Err(AppError::Forbidden(
+            "Inline flow source is disabled on this server (allow_adhoc_flows: false). \
+             Use 'file' to access a flow already present in the configured flows directory."
+                .to_string(),
+        ));
+    }
+
+    // Disabling ad-hoc evaluation only creates a fixed catalog when file
+    // requests have an explicit root. Without this defense, an API caller
+    // could still name any absolute or cwd-existing Lua file readable by the
+    // process. Server startup rejects this configuration too; keep the handler
+    // check for directly-constructed routers and future embedding callers.
+    if !state.allow_adhoc_flows && state.flows_dir.is_none() {
+        return Err(AppError::Forbidden(
+            "File-based flow access requires a configured flows_dir when ad-hoc flows are disabled"
+                .to_string(),
+        ));
+    }
+
+    Ok(())
 }

@@ -13,7 +13,7 @@ from typing import TextIO
 TARGET_LINES = 300
 HARD_LIMIT_LINES = 400
 REPORT_COUNT = 20
-MAX_EXCEPTION_BUDGET = 17
+MAX_EXCEPTION_BUDGET = 14
 DEFAULT_POLICY = Path("scripts/module_size_policy.json")
 MIN_RATIONALE_LENGTH = 20
 REVIEW_NOTE = (
@@ -115,7 +115,7 @@ def load_policy(path: Path) -> Policy:
         raise PolicyError("policy exception_budget must be a non-negative integer")
     if budget > MAX_EXCEPTION_BUDGET:
         raise PolicyError(
-            f"policy exception_budget {budget} exceeds the fixed IF-034 baseline "
+            f"policy exception_budget {budget} exceeds the fixed reviewed baseline "
             f"of {MAX_EXCEPTION_BUDGET}"
         )
     entries = raw["exceptions"]

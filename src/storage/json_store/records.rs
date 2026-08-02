@@ -163,7 +163,10 @@ impl JsonStateStore {
 
     pub(super) async fn listed_run_ids(&self) -> StorageResult<Vec<String>> {
         let mut run_ids = Vec::new();
-        for entry in self.directory.list_entries().await? {
+        let Some(mut entries) = self.directory.stream_entries().await? else {
+            return Ok(run_ids);
+        };
+        while let Some(entry) = entries.next().await? {
             #[cfg(test)]
             self.directory_entries_examined
                 .fetch_add(1, Ordering::Relaxed);

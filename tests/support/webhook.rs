@@ -17,6 +17,11 @@ use tower::ServiceExt as _;
 
 pub const PLATFORM_API_KEY: &str = "platform-api-secret-12345";
 
+// Webhook integration cases create independent routers, while flow parsing is
+// intentionally admitted by one process-wide semaphore. Tests sharing this
+// support module serialize those synthetic server lifetimes.
+pub static PROCESS_ADMISSION_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 #[allow(dead_code)] // Each integration-test crate uses a different subset.
 pub struct TestApp {
     pub router: Router,

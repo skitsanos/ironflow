@@ -297,9 +297,11 @@ tests. Files through 300 lines need no exception; a cohesive 301–400-line file
 must have its exact physical-line ceiling and an architectural rationale in
 `scripts/module_size_policy.json`. If it shrinks, lower the ceiling immediately;
 remove the entry at 300 lines or fewer. New exceptions and exception-budget
-changes are architecture-policy decisions that require maintainer review. The
-IF-034 budget cannot exceed 13, so a new exception must replace an existing
-one; files above 400 lines are never exempt. Passing this check does not
+changes are architecture-policy decisions that require maintainer review.
+IF-034 established 13 reviewed exceptions; IF-052 later approved a temporary
+ceiling of 17 for security-fix growth, and subsequent extraction ratcheted the
+current checked-in ceiling to 14. A new exception must therefore replace an
+existing one; files above 400 lines are never exempt. Passing this check does not
 establish good modularity: reviewers must still examine responsibility
 boundaries, cognitive complexity, and whether moving tests or helpers improves
 cohesion.

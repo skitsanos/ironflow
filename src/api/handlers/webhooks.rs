@@ -9,7 +9,7 @@ use crate::lua::LuaRuntime;
 
 use super::super::AppState;
 use super::super::errors::AppError;
-use super::helpers::resolve_flow_path;
+use super::helpers::{flow_file_load_error, resolve_flow_path};
 use super::types::RunFlowResponse;
 
 /// POST /webhooks/{name}
@@ -25,12 +25,6 @@ pub async fn run_webhook(
         .ok_or_else(|| AppError::NotFound(format!("Webhook '{}' not found", name)))?;
 
     let path = resolve_flow_path(webhook.flow(), &state)?;
-    // Parse off the async runtime so a pathological flow cannot pin a worker
-    // thread and stall the whole server (IF-038).
-    let flow = LuaRuntime::load_flow_async(&path, &state.registry)
-        .await
-        .map_err(|e| AppError::BadRequest(format!("Failed to load flow: {:#}", e)))?;
-
     let mut initial_ctx = body.map(|Json(ctx)| ctx).unwrap_or_default();
     for reserved in ["_headers", "_webhook", "_flow_dir"] {
         if initial_ctx.contains_key(reserved) {
@@ -43,23 +37,32 @@ pub async fn run_webhook(
         .execution_overlay(&headers)
         .map_err(AppError::BadRequest)?;
 
+    // Reserve run capacity before evaluating the flow. The parser has its own
+    // small process-wide ceiling because each Lua VM has a substantial memory
+    // budget even when the eventual run is refused.
+    let run_permit = crate::api::acquire_run_permit()?;
+    let flow_load_permit = crate::api::acquire_flow_load_permit()?;
+    // Parse off the async runtime so a pathological flow cannot pin a worker
+    // thread and stall the whole server (IF-038).
+    let registry = state.registry.clone();
+    let load_path = path.clone();
+    let flow = crate::api::supervise_flow_load(flow_load_permit, async move {
+        LuaRuntime::load_flow_async(&load_path, &registry).await
+    })
+    .await
+    .map_err(|e| flow_file_load_error(&path, &e))?;
+
     // Inject webhook name
     initial_ctx.insert("_webhook".to_string(), serde_json::Value::String(name));
     let flow_name = flow.name.clone();
 
     // Inject _flow_dir for subworkflow path resolution
-    if let Ok(resolved) = resolve_flow_path(webhook.flow(), &state)
-        && let Some(dir) = std::path::Path::new(&resolved).parent()
-    {
+    if let Some(dir) = std::path::Path::new(&path).parent() {
         initial_ctx.insert(
             "_flow_dir".to_string(),
             serde_json::Value::String(dir.to_string_lossy().to_string()),
         );
     }
-
-    // Bound concurrent API-triggered runs process-wide; held until the run
-    // finishes (IF-042).
-    let _run_permit = crate::api::acquire_run_permit()?;
 
     let engine = WorkflowEngine::new_with_events(
         state.registry.clone(),
@@ -67,9 +70,11 @@ pub async fn run_webhook(
         state.event_store.clone(),
         state.max_concurrent_tasks,
     );
-    let run_id = engine
-        .execute_with_overlay(&flow, initial_ctx, execution_overlay)
+    let handle = engine
+        .start_with_overlay(&flow, initial_ctx, execution_overlay)
         .await?;
+    let run_id = handle.id().to_string();
+    crate::api::wait_for_admitted_run(handle, run_permit).await?;
 
     let run_info = state.store.get_run_info(&run_id).await?;
 

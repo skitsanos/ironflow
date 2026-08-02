@@ -18,7 +18,7 @@ flow:step("probe", nodes.http_get({
     fail_on_status = false,
     retry_statuses = { 429, 500, 502, 503 },
     status_retries = 1,
-    status_retry_backoff = 0,
+    status_retry_backoff = 0.01,
     respect_retry_after = true,
     max_retry_after = 1
 })):depends_on("seed")

@@ -1,9 +1,9 @@
 use std::collections::HashMap;
-use std::path::Path;
+use std::sync::Arc;
+#[cfg(test)]
+use std::sync::Mutex;
 #[cfg(test)]
 use std::sync::atomic::{AtomicBool, AtomicUsize};
-#[cfg(test)]
-use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use chrono::Utc;
@@ -16,8 +16,13 @@ use crate::storage::{RunListQuery, RunSummaryPage, StateStore, StorageError, Sto
 #[cfg(test)]
 mod cancellation_tests;
 mod catalog;
+mod claims;
 mod codec;
+mod configuration;
 mod fs;
+mod lease_lock;
+mod lease_reconciliation;
+mod leases;
 mod listing;
 mod platform;
 mod records;
@@ -29,43 +34,34 @@ mod test_support;
 
 use fs::{FileState, SecureStoreDir};
 
+#[cfg(test)]
+type PauseHook = Arc<Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>>;
+
 /// File-based JSON state store. Each run is stored as a separate JSON file.
+#[derive(Clone)]
 pub struct JsonStateStore {
     directory: SecureStoreDir,
-    lock: RwLock<()>,
+    schedule_claims: SecureStoreDir,
+    run_leases: SecureStoreDir,
+    lock: Arc<RwLock<()>>,
     #[cfg(test)]
-    fail_next_summary_commit: AtomicBool,
+    fail_next_summary_commit: Arc<AtomicBool>,
     #[cfg(test)]
-    directory_entries_examined: AtomicUsize,
+    directory_entries_examined: Arc<AtomicUsize>,
     #[cfg(test)]
-    current_summary_reads: AtomicUsize,
+    current_summary_reads: Arc<AtomicUsize>,
     #[cfg(test)]
-    catalog_io: test_support::CatalogIoCounters,
+    catalog_io: Arc<test_support::CatalogIoCounters>,
     #[cfg(test)]
-    catalog_read_hook: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
+    catalog_read_hook: PauseHook,
     #[cfg(test)]
-    catalog_rebuild_hook: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
-}
-
-impl JsonStateStore {
-    pub fn new(base_dir: impl AsRef<Path>) -> Self {
-        Self {
-            directory: SecureStoreDir::new(base_dir.as_ref().to_path_buf()),
-            lock: RwLock::new(()),
-            #[cfg(test)]
-            fail_next_summary_commit: AtomicBool::new(false),
-            #[cfg(test)]
-            directory_entries_examined: AtomicUsize::new(0),
-            #[cfg(test)]
-            current_summary_reads: AtomicUsize::new(0),
-            #[cfg(test)]
-            catalog_io: test_support::CatalogIoCounters::default(),
-            #[cfg(test)]
-            catalog_read_hook: Mutex::new(None),
-            #[cfg(test)]
-            catalog_rebuild_hook: Mutex::new(None),
-        }
-    }
+    catalog_rebuild_hook: PauseHook,
+    #[cfg(test)]
+    lease_reap_hook: PauseHook,
+    #[cfg(test)]
+    lease_commit_hook: PauseHook,
+    #[cfg(test)]
+    lease_lock_attempt_hook: Arc<Mutex<Option<Arc<tokio::sync::Notify>>>>,
 }
 
 #[async_trait]
@@ -103,6 +99,17 @@ impl StateStore for JsonStateStore {
         Ok(())
     }
 
+    async fn init_run_owned(
+        &self,
+        run_id: &str,
+        flow_name: &str,
+        ctx: &Context,
+        lease: &crate::storage::RunLease,
+    ) -> StorageResult<()> {
+        self.init_run_with_lease(run_id, flow_name, ctx, lease)
+            .await
+    }
+
     async fn set_run_status(&self, run_id: &str, status: RunStatus) -> StorageResult<()> {
         codec::validate_input_id(run_id)?;
         let _lock = self.lock.write().await;
@@ -121,6 +128,30 @@ impl StateStore for JsonStateStore {
         Ok(())
     }
 
+    async fn set_run_status_owned(
+        &self,
+        run_id: &str,
+        status: RunStatus,
+        owner: &str,
+    ) -> StorageResult<bool> {
+        self.set_status_with_lease(run_id, status, owner).await
+    }
+
+    async fn renew_run_lease(
+        &self,
+        run_id: &str,
+        lease: &crate::storage::RunLease,
+    ) -> StorageResult<bool> {
+        self.renew_lease_file(run_id, lease).await
+    }
+
+    async fn reconcile_expired_run_leases(
+        &self,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> StorageResult<usize> {
+        self.reconcile_lease_files(now).await
+    }
+
     async fn upsert_task(&self, run_id: &str, task: &TaskState) -> StorageResult<()> {
         codec::validate_input_id(run_id)?;
         let _lock = self.lock.write().await;
@@ -131,6 +162,15 @@ impl StateStore for JsonStateStore {
         self.commit_catalog_unchanged_best_effort(run_id, catalog)
             .await;
         Ok(())
+    }
+
+    async fn upsert_task_owned(
+        &self,
+        run_id: &str,
+        task: &TaskState,
+        owner: &str,
+    ) -> StorageResult<bool> {
+        self.upsert_task_with_lease(run_id, task, owner).await
     }
 
     async fn get_ctx(&self, run_id: &str) -> StorageResult<Context> {
@@ -149,6 +189,15 @@ impl StateStore for JsonStateStore {
         self.commit_catalog_unchanged_best_effort(run_id, catalog)
             .await;
         Ok(())
+    }
+
+    async fn update_ctx_owned(
+        &self,
+        run_id: &str,
+        ctx: &Context,
+        owner: &str,
+    ) -> StorageResult<bool> {
+        self.update_ctx_with_lease(run_id, ctx, owner).await
     }
 
     async fn get_run_info(&self, run_id: &str) -> StorageResult<RunInfo> {
@@ -177,32 +226,7 @@ impl StateStore for JsonStateStore {
 
     async fn delete_run(&self, run_id: &str) -> StorageResult<()> {
         codec::validate_input_id(run_id)?;
-        let _lock = self.lock.write().await;
-        let mut catalog = catalog::CatalogTransaction::begin(self).await?;
-        let run_name = Self::run_name(run_id);
-        let summary_name = Self::summary_name(run_id);
-        self.directory.inspect_regular(&summary_name).await?;
-        if self.directory.inspect_regular(&run_name).await? == FileState::Missing {
-            // Finish cleanup after a crash that removed the authoritative
-            // primary but left its derived sidecar behind.
-            catalog.mark_dirty().await?;
-            self.directory.remove_regular(&summary_name).await?;
-            self.remove_from_catalog_best_effort(run_id, catalog).await;
-            return Err(StorageError::not_found(format_args!(
-                "Run '{run_id}' not found"
-            )));
-        }
-        // Remove the cache first. If deletion stops between the two commits,
-        // listing derives the summary from the still-authoritative primary.
-        catalog.mark_dirty().await?;
-        self.directory.remove_regular(&summary_name).await?;
-        if !self.directory.remove_regular(&run_name).await? {
-            return Err(StorageError::not_found(format_args!(
-                "Run '{run_id}' not found"
-            )));
-        }
-        self.remove_from_catalog_best_effort(run_id, catalog).await;
-        Ok(())
+        self.delete_run_with_lease_lock(run_id).await
     }
 
     async fn list_run_summaries(
@@ -233,5 +257,9 @@ impl StateStore for JsonStateStore {
     /// (IF-051).
     async fn prune_before(&self, cutoff: chrono::DateTime<chrono::Utc>) -> StorageResult<usize> {
         crate::storage::prune_before_via_summary_pages(self, cutoff).await
+    }
+
+    async fn claim_schedule(&self, name: &str, key: &str, ttl_seconds: u64) -> StorageResult<bool> {
+        self.claim_schedule_file(name, key, ttl_seconds).await
     }
 }

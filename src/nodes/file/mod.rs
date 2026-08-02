@@ -3,6 +3,7 @@ mod directory;
 mod helpers;
 mod io;
 
+pub(crate) use archive::rooted::RootedDir;
 pub use archive::{ZipCreateNode, ZipExtractNode, ZipListNode};
 pub use directory::ListDirectoryNode;
 pub use io::{CopyFileNode, DeleteFileNode, MoveFileNode, ReadFileNode, WriteFileNode};

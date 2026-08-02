@@ -1,0 +1,38 @@
+#!/bin/sh
+set -eu
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+echo "IronFlow pre-commit: checking staged diff"
+git diff --cached --check
+
+staged_paths=$(git diff --cached --name-only --diff-filter=ACMR)
+
+if printf '%s\n' "$staged_paths" | grep -Eq '(^|/)(Cargo\.(toml|lock)|.*\.rs)$'; then
+  echo "IronFlow pre-commit: checking Rust formatting"
+  cargo fmt --all -- --check
+fi
+
+if printf '%s\n' "$staged_paths" | grep -Eq '^(src/.*\.rs|scripts/check_module_size\.py|scripts/module_size_policy\.json|scripts/tests/test_check_module_size\.py)$'; then
+  echo "IronFlow pre-commit: checking module-size policy"
+  python3 -B -m unittest discover -s scripts/tests -p 'test_check_module_size.py'
+  python3 -B scripts/check_module_size.py
+fi
+
+if printf '%s\n' "$staged_paths" | grep -Eq '^(\.agents/skills/|scripts/validate_skills\.ts$)'; then
+  echo "IronFlow pre-commit: validating repository skills"
+  bun run scripts/validate_skills.ts
+fi
+
+if printf '%s\n' "$staged_paths" | grep -Eq '^(\.codex/|\.githooks/|scripts/(development_version|check_incoming_prs)\.ts$|scripts/tests/.*\.test\.ts$)'; then
+  echo "IronFlow pre-commit: testing repository automation"
+  python3 -B -m unittest discover -s .codex/hooks/tests -p 'test_*.py'
+  bun test scripts/tests/*.test.ts
+fi
+
+if printf '%s\n' "$staged_paths" | grep -Eq '^(\.githooks/|scripts/integration_gate\.sh$)'; then
+  echo "IronFlow pre-commit: checking shell syntax"
+  sh -n .githooks/pre-commit
+  bash -n .githooks/pre-push scripts/integration_gate.sh
+fi

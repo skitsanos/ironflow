@@ -1,4 +1,10 @@
 use std::collections::{HashMap, HashSet};
+use std::io::BufRead;
+
+use anyhow::Result;
+
+use super::super::docx_parser::{XmlDocument, visit_attributes};
+use super::super::resource::Budget;
 
 #[derive(serde::Serialize, Default)]
 pub(super) struct DocxComment {
@@ -15,153 +21,144 @@ pub(super) struct DocxComment {
     anchored_text: Option<String>,
 }
 
-pub(super) fn extract_docx_comments(
-    archive: &mut zip::ZipArchive<std::fs::File>,
-) -> Vec<DocxComment> {
-    let Some(comments_xml) = read_archive_string(archive, "word/comments.xml") else {
-        return Vec::new();
-    };
-    let mut comments = parse_comments(&comments_xml);
-    if let Some(document_xml) = read_archive_string(archive, "word/document.xml") {
-        let anchors = collect_anchors(&document_xml);
-        for comment in &mut comments {
-            if let Some(text) = anchors.get(&comment.id) {
-                comment.anchored_text = Some(text.trim().to_string());
-            }
+pub(super) fn parse_docx_comments<R: BufRead>(
+    comments_xml: R,
+    budget: &mut Budget<'_>,
+) -> Result<Vec<DocxComment>> {
+    parse_comments(comments_xml, budget)
+}
+
+pub(super) fn validated_comment_ids<'a>(
+    comments: &'a [DocxComment],
+    budget: &Budget<'_>,
+) -> Result<HashSet<&'a str>> {
+    let mut comment_ids = HashSet::with_capacity(comments.len());
+    for comment in comments {
+        budget.checkpoint()?;
+        if !comment_ids.insert(comment.id.as_str()) {
+            anyhow::bail!(
+                "extract_word: duplicate comment id '{}' in word/comments.xml",
+                comment.id
+            );
         }
     }
-    comments
+    Ok(comment_ids)
 }
 
-fn read_archive_string(archive: &mut zip::ZipArchive<std::fs::File>, path: &str) -> Option<String> {
-    let entry = archive.by_name(path).ok()?;
-    let xml = crate::util::bounded_read::read_to_string_capped(
-        entry,
-        crate::util::limits::max_zip_uncompressed_bytes(),
-        "extract_word",
-    )
-    .ok()?;
-    Some(xml)
+pub(super) fn attach_comment_anchors(
+    comments: &mut [DocxComment],
+    anchors: &HashMap<String, String>,
+    budget: &Budget<'_>,
+) -> Result<()> {
+    for comment in comments {
+        budget.checkpoint()?;
+        if let Some(text) = anchors.get(&comment.id) {
+            comment.anchored_text = Some(text.trim().to_string());
+        }
+    }
+    Ok(())
 }
 
-fn parse_comments(xml: &str) -> Vec<DocxComment> {
+fn parse_comments<R: BufRead>(xml: R, budget: &mut Budget<'_>) -> Result<Vec<DocxComment>> {
     use quick_xml::events::Event;
 
     let mut comments = Vec::new();
-    let mut reader = quick_xml::Reader::from_str(xml);
+    let mut reader = quick_xml::Reader::from_reader(xml);
+    reader.config_mut().check_comments = true;
     let mut buf = Vec::new();
     let mut current = None;
     let mut in_text = false;
+    let mut document = XmlDocument::new("word/comments.xml");
     loop {
-        match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(ref event) | Event::Empty(ref event)) => {
+        budget.charge_item("DOCX comment XML events")?;
+        let event = reader
+            .read_event_into(&mut buf)
+            .map_err(|error| anyhow::anyhow!("extract_word: invalid word/comments.xml: {error}"))?;
+        document.observe(&event, budget)?;
+        let is_empty = matches!(&event, Event::Empty(_));
+        match event {
+            Event::Start(ref event) | Event::Empty(ref event) => {
                 let name = String::from_utf8_lossy(event.name().as_ref()).to_string();
                 if name == "w:comment" {
-                    current = Some(parse_comment(event));
+                    if current.is_some() {
+                        anyhow::bail!(
+                            "extract_word: nested comments are invalid in word/comments.xml"
+                        );
+                    }
+                    let comment = parse_comment(event, budget)?;
+                    if is_empty {
+                        budget.charge_item("DOCX comments")?;
+                        comments.push(comment);
+                    } else {
+                        current = Some(comment);
+                    }
                 } else if name == "w:t" {
-                    in_text = current.is_some();
+                    in_text = current.is_some() && !is_empty;
                 }
             }
-            Ok(Event::Text(ref event)) if in_text => {
+            Event::Text(ref event) if in_text => {
                 if let Some(comment) = current.as_mut() {
                     if !comment.text.is_empty() {
+                        budget.charge_output(1, "DOCX comment text")?;
                         comment.text.push(' ');
                     }
+                    budget.charge_output(event.len() as u64, "DOCX comment text")?;
                     comment
                         .text
                         .push_str(&String::from_utf8_lossy(event.as_ref()));
                 }
             }
-            Ok(Event::End(ref event)) => {
+            Event::End(ref event) => {
                 let name = String::from_utf8_lossy(event.name().as_ref()).to_string();
                 if name == "w:t" {
                     in_text = false;
-                } else if name == "w:comment"
-                    && let Some(comment) = current.take()
-                {
+                } else if name == "w:comment" {
+                    let Some(comment) = current.take() else {
+                        anyhow::bail!("extract_word: unmatched comment end in word/comments.xml");
+                    };
+                    budget.charge_item("DOCX comments")?;
                     comments.push(comment);
                 }
             }
-            Ok(Event::Eof) => break,
-            Err(_) => break,
+            Event::Eof => break,
             _ => {}
         }
         buf.clear();
     }
-    comments
+    Ok(comments)
 }
 
-fn parse_comment(event: &quick_xml::events::BytesStart<'_>) -> DocxComment {
-    let mut comment = DocxComment::default();
-    for attr in event.attributes().flatten() {
-        let value = String::from_utf8_lossy(&attr.value).to_string();
-        match attr.key.as_ref() {
-            b"w:id" => comment.id = value,
-            b"w:author" => comment.author = Some(value),
-            b"w:initials" => comment.initials = Some(value),
-            b"w:date" => comment.date = Some(value),
-            _ => {}
-        }
-    }
-    comment
-}
-
-fn collect_anchors(xml: &str) -> HashMap<String, String> {
-    use quick_xml::events::Event;
-
-    let mut reader = quick_xml::Reader::from_str(xml);
-    let mut buf = Vec::new();
-    let mut open = HashSet::new();
-    let mut anchors: HashMap<String, String> = HashMap::new();
-    let mut in_text = false;
-    loop {
-        match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(ref event) | Event::Empty(ref event)) => {
-                let name = String::from_utf8_lossy(event.name().as_ref()).to_string();
-                match name.as_str() {
-                    "w:commentRangeStart" => update_open_ranges(event, &mut open, true),
-                    "w:commentRangeEnd" => update_open_ranges(event, &mut open, false),
-                    "w:t" => in_text = true,
-                    _ => {}
-                }
-            }
-            Ok(Event::Text(ref event)) if in_text && !open.is_empty() => {
-                let text = String::from_utf8_lossy(event.as_ref());
-                for id in &open {
-                    let anchor = anchors.entry(id.clone()).or_default();
-                    if !anchor.is_empty() {
-                        anchor.push(' ');
-                    }
-                    anchor.push_str(&text);
-                }
-            }
-            Ok(Event::End(ref event)) => {
-                if event.name().as_ref() == b"w:t" {
-                    in_text = false;
-                }
-            }
-            Ok(Event::Eof) => break,
-            Err(_) => break,
-            _ => {}
-        }
-        buf.clear();
-    }
-    anchors
-}
-
-fn update_open_ranges(
+fn parse_comment(
     event: &quick_xml::events::BytesStart<'_>,
-    open: &mut HashSet<String>,
-    insert: bool,
-) {
-    for attr in event.attributes().flatten() {
-        if attr.key.as_ref() == b"w:id" {
-            let id = String::from_utf8_lossy(&attr.value).to_string();
-            if insert {
-                open.insert(id);
-            } else {
-                open.remove(&id);
+    budget: &mut Budget<'_>,
+) -> Result<DocxComment> {
+    let mut comment = DocxComment::default();
+    visit_attributes(event, "word/comments.xml", budget, |key, raw, budget| {
+        let value = String::from_utf8_lossy(raw).to_string();
+        match key {
+            b"w:id" => {
+                budget.charge_output(value.len() as u64, "DOCX comment id")?;
+                comment.id = value;
             }
+            b"w:author" => {
+                budget.charge_output(value.len() as u64, "DOCX comment author")?;
+                comment.author = Some(value);
+            }
+            b"w:initials" => {
+                budget.charge_output(value.len() as u64, "DOCX comment initials")?;
+                comment.initials = Some(value);
+            }
+            b"w:date" => {
+                budget.charge_output(value.len() as u64, "DOCX comment date")?;
+                comment.date = Some(value);
+            }
+            _ => {}
         }
-    }
+        Ok(())
+    })?;
+    Ok(comment)
 }
+
+#[cfg(test)]
+#[path = "comments/tests.rs"]
+mod tests;

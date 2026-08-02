@@ -3,6 +3,11 @@ use async_trait::async_trait;
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
+use crate::util::execution::run_tracked_blocking_step;
+
+use super::common::inspect_image;
+use super::image_sources::resolve_single_image_source;
+use super::resource::ImageDecodeLimits;
 
 pub(crate) struct ImageMetadataNode;
 
@@ -17,42 +22,34 @@ impl Node for ImageMetadataNode {
     }
 
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
-        let path = super::common::resolve_path(config, ctx, "image_metadata")?;
+        let source = resolve_single_image_source(config, ctx, "image_metadata")?;
         let output_key = config
             .get("output_key")
-            .and_then(|v| v.as_str())
-            .unwrap_or("image_metadata");
+            .and_then(|value| value.as_str())
+            .unwrap_or("image_metadata")
+            .to_owned();
+        let limits = ImageDecodeLimits::current();
 
-        let (width, height) = image::image_dimensions(&path)
-            .map_err(|e| anyhow::anyhow!("image_metadata: failed to read '{}': {}", path, e))?;
-
-        let format = std::path::Path::new(&path)
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .map(|ext| ext.to_lowercase())
-            .unwrap_or_default();
-
-        let img = image::open(&path)
-            .map_err(|e| anyhow::anyhow!("image_metadata: failed to open '{}': {}", path, e))?;
-        let color_type = format!("{:?}", img.color());
-
-        let mut output = NodeOutput::new();
-        output.insert(
-            format!("{}_width", output_key),
-            serde_json::Value::Number(serde_json::Number::from(u64::from(width))),
-        );
-        output.insert(
-            format!("{}_height", output_key),
-            serde_json::Value::Number(serde_json::Number::from(u64::from(height))),
-        );
-        output.insert(
-            format!("{}_format", output_key),
-            serde_json::Value::String(format),
-        );
-        output.insert(
-            format!("{}_color_type", output_key),
-            serde_json::Value::String(color_type),
-        );
-        Ok(output)
+        run_tracked_blocking_step(move |execution| {
+            let info = inspect_image(source, limits, &execution).map_err(|error| {
+                anyhow::anyhow!("image_metadata: failed to inspect image: {error}")
+            })?;
+            let mut output = NodeOutput::new();
+            output.insert(format!("{output_key}_width"), serde_json::json!(info.width));
+            output.insert(
+                format!("{output_key}_height"),
+                serde_json::json!(info.height),
+            );
+            output.insert(
+                format!("{output_key}_format"),
+                serde_json::json!(format!("{:?}", info.format).to_ascii_lowercase()),
+            );
+            output.insert(
+                format!("{output_key}_color_type"),
+                serde_json::json!(format!("{:?}", info.color_type)),
+            );
+            Ok(output)
+        })
+        .await
     }
 }

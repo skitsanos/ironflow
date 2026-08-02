@@ -147,7 +147,10 @@ async fn pdf_merge_missing_file_error() {
     let result = node.execute(&config, &ctx).await;
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("failed to load"), "Error: {}", err);
+    assert!(
+        err.contains("pdf_merge") && err.contains("file.pdf"),
+        "Error: {err}"
+    );
 }
 
 #[tokio::test]
@@ -230,5 +233,8 @@ async fn pdf_split_missing_file_error() {
     let result = node.execute(&config, &ctx).await;
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("failed to load"), "Error: {}", err);
+    assert!(
+        err.contains("pdf_split") && err.contains("failed to read"),
+        "Error: {err}"
+    );
 }

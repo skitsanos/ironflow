@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "generator": "target/release/examples/extraction_benchmark_worker generate-fixtures",
+  "fixtures": [
+    {
+      "label": "long_zip_metadata",
+      "node": "extract_word",
+      "file": "long-zip-metadata.docx",
+      "sha256": "c7173ab6f1329b5b50668e81854ecbc8170a80121923dd0fc65060b435fdeb12",
+      "raw_bytes": 76093,
+      "declared_bytes": 2275
+    },
+    {
+      "label": "repeated_pptx_media",
+      "node": "extract_pptx",
+      "file": "repeated-media.pptx",
+      "sha256": "de10706d4b1f7a0259d626813c1d6b31de58df265fd7be2a0ff3dda4d40708e2",
+      "raw_bytes": 22698,
+      "declared_bytes": 29604
+    },
+    {
+      "label": "compressed_pdf_text",
+      "node": "extract_pdf",
+      "file": "compressed-text.pdf",
+      "sha256": "7406ee5dcfc555caa9fbc1f9f9e308cbd97206c9cfb2edc9e48f18879cca239a",
+      "raw_bytes": 8164,
+      "declared_bytes": 8164
+    },
+    {
+      "label": "pathological_html",
+      "node": "extract_html",
+      "file": "pathological.html",
+      "sha256": "6094e61a35c22654ac9597bc1a771079612c38ba80727d22b456897472254530",
+      "raw_bytes": 379045,
+      "declared_bytes": 379045
+    }
+  ]
+}

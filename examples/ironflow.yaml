@@ -44,3 +44,20 @@ store_backend: "json"     # IRONFLOW_STORE: json, sqlite, postgres, or redis
 #     flow: auth_check.lua
 #     forward_headers:
 #       - x-webhook-signature
+
+# Schedules — cron triggers evaluated by `ironflow serve`. Configuration-file
+# only: timing is a deployment decision, so the same flow can run hourly in
+# staging and nightly in production without editing flow source.
+#
+# `cron` is standard five-field (minute hour day month weekday); seconds are
+# fixed at zero. `timezone` is an IANA name and defaults to UTC.
+# `grace_seconds` is the maximum lateness for which a missed instant still
+# fires (default 300, minimum 60). Invalid values fail at startup, not at 02:00.
+# schedules:
+#   nightly_report:
+#     flow: reports/nightly.lua
+#     cron: "0 2 * * *"
+#     timezone: "Europe/Berlin"
+#     grace_seconds: 3600
+#     context:
+#       region: "eu"

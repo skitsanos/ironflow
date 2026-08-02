@@ -1,13 +1,19 @@
 //! Process-wide size limits for I/O-heavy nodes and embedded runtimes.
 //!
-//! Each limit is overrideable via environment variable so deployments can tune
-//! them without recompiling. Every read path should consult these before
-//! allocating unbounded amounts of memory.
-
+//! Limits are environment-overridable so deployments can tune them without recompiling.
+//! Read paths should consult them before allocating unbounded amounts of memory.
+mod image;
 mod lua;
+mod pdf;
+mod xlsx;
 
+pub use image::*;
 pub use lua::{
     LuaExecutionLimits, apply_lua_limits, apply_lua_limits_with_control, collect_lua_garbage,
+};
+pub use pdf::*;
+pub use xlsx::{
+    max_xlsx_archive_metadata_bytes, max_xlsx_cells, max_xlsx_output_bytes, max_xlsx_rows,
 };
 
 /// Default cap for HTTP response bodies (50 MB).
@@ -40,13 +46,24 @@ const DEFAULT_MAX_ZIP_ENTRIES: u64 = 10_000;
 /// Default cap for total ZIP uncompressed bytes (512 MB).
 const DEFAULT_MAX_ZIP_UNCOMPRESSED_BYTES: u64 = 512 * 1024 * 1024;
 
-/// Default cap for PDF files loaded for rendering (100 MB).
-const DEFAULT_MAX_PDF_BYTES: u64 = 100 * 1024 * 1024;
+/// Default cumulative serialized output cap for document extraction (50 MiB).
+const DEFAULT_MAX_EXTRACT_OUTPUT_BYTES: u64 = 50 * 1024 * 1024;
+
+/// Default structural/work-item cap for one document extraction.
+const DEFAULT_MAX_EXTRACT_ITEMS: u64 = 250_000;
 
 /// Whisper-style transcription APIs reject uploads above 25 MB. This is decimal
 /// 25 MB, not 25 MiB: a larger default would pass our pre-flight only for the
 /// provider to reject the request.
 const DEFAULT_MAX_AUDIO_BYTES: u64 = 25_000_000;
+
+/// Default cap for transcription provider response bodies (25 MiB).
+///
+/// Unlike the upload limit above, providers do not define one universal
+/// response ceiling. This process-side bound prevents an arbitrary
+/// OpenAI-compatible endpoint from making IronFlow buffer an unbounded error
+/// or transcript before parsing it or writing `output_file`.
+const DEFAULT_MAX_TRANSCRIBE_RESPONSE_BYTES: u64 = 25 * 1024 * 1024;
 
 /// Default nesting depth accepted when converting between JSON and Lua.
 const DEFAULT_MAX_CONVERSION_DEPTH: u64 = 64;
@@ -55,15 +72,6 @@ const DEFAULT_MAX_CONVERSION_DEPTH: u64 = 64;
 /// A flow that legitimately builds a large structure needs a way to raise this
 /// without recompiling (IF-058).
 const DEFAULT_MAX_CONVERSION_NODES: u64 = 100_000;
-
-/// Default cap for PDF pages rendered into base64 in one node call.
-const DEFAULT_MAX_PDF_RENDER_PAGES: u64 = 25;
-
-/// Default cap for a rendered PDF page's pixels (25 megapixels).
-const DEFAULT_MAX_PDF_RENDER_PIXELS: u64 = 25_000_000;
-
-/// Default cap for PDF render DPI.
-const DEFAULT_MAX_PDF_DPI: u64 = 300;
 
 /// Default Lua instruction budget per Lua state.
 const DEFAULT_LUA_MAX_INSTRUCTIONS: u64 = 5_000_000;
@@ -74,10 +82,13 @@ const DEFAULT_LUA_MAX_SECONDS: u64 = 10;
 /// Default Lua VM memory cap (128 MB).
 const DEFAULT_LUA_MAX_MEMORY_BYTES: u64 = 128 * 1024 * 1024;
 
+/// Default cap for Lua flow source files and inline source (1 MiB).
+const DEFAULT_MAX_FLOW_SOURCE_BYTES: u64 = 1024 * 1024;
+
 /// How often the Lua debug hook checks budgets.
 const DEFAULT_LUA_HOOK_INTERVAL: u64 = 10_000;
 
-fn env_u64(var: &str, default: u64) -> u64 {
+pub(super) fn env_u64(var: &str, default: u64) -> u64 {
     std::env::var(var)
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
@@ -153,12 +164,30 @@ pub fn max_zip_uncompressed_bytes() -> u64 {
     )
 }
 
-pub fn max_pdf_bytes() -> u64 {
-    env_u64("IRONFLOW_MAX_PDF_BYTES", DEFAULT_MAX_PDF_BYTES)
+pub fn max_extract_output_bytes() -> u64 {
+    env_u64(
+        "IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES",
+        DEFAULT_MAX_EXTRACT_OUTPUT_BYTES,
+    )
+}
+
+pub fn max_extract_items() -> u64 {
+    env_u64("IRONFLOW_MAX_EXTRACT_ITEMS", DEFAULT_MAX_EXTRACT_ITEMS)
 }
 
 pub fn max_audio_bytes() -> u64 {
     env_u64("IRONFLOW_MAX_AUDIO_BYTES", DEFAULT_MAX_AUDIO_BYTES)
+}
+
+/// Maximum response bytes accepted from a transcription provider.
+///
+/// Invalid and zero values fall back to the safe default rather than disabling
+/// the ceiling.
+pub fn max_transcribe_response_bytes() -> u64 {
+    env_u64(
+        "IRONFLOW_MAX_TRANSCRIBE_RESPONSE_BYTES",
+        DEFAULT_MAX_TRANSCRIBE_RESPONSE_BYTES,
+    )
 }
 
 pub fn max_conversion_depth() -> u64 {
@@ -173,24 +202,6 @@ pub fn max_conversion_nodes() -> u64 {
         "IRONFLOW_MAX_CONVERSION_NODES",
         DEFAULT_MAX_CONVERSION_NODES,
     )
-}
-
-pub fn max_pdf_render_pages() -> u64 {
-    env_u64(
-        "IRONFLOW_MAX_PDF_RENDER_PAGES",
-        DEFAULT_MAX_PDF_RENDER_PAGES,
-    )
-}
-
-pub fn max_pdf_render_pixels() -> u64 {
-    env_u64(
-        "IRONFLOW_MAX_PDF_RENDER_PIXELS",
-        DEFAULT_MAX_PDF_RENDER_PIXELS,
-    )
-}
-
-pub fn max_pdf_dpi() -> u64 {
-    env_u64("IRONFLOW_MAX_PDF_DPI", DEFAULT_MAX_PDF_DPI)
 }
 
 pub fn max_lua_instructions() -> Option<u64> {
@@ -208,6 +219,17 @@ pub fn max_lua_memory_bytes() -> Option<u64> {
     env_optional_u64(
         "IRONFLOW_LUA_MAX_MEMORY_BYTES",
         DEFAULT_LUA_MAX_MEMORY_BYTES,
+    )
+}
+
+/// Maximum UTF-8 bytes accepted for one Lua flow source.
+///
+/// Invalid and zero values retain the safe default instead of disabling the
+/// ceiling.
+pub fn max_flow_source_bytes() -> u64 {
+    env_u64(
+        "IRONFLOW_MAX_FLOW_SOURCE_BYTES",
+        DEFAULT_MAX_FLOW_SOURCE_BYTES,
     )
 }
 

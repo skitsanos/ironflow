@@ -13,14 +13,11 @@ pub(super) const LEGACY_REVISION: &str = "__ironflow_legacy_revision__";
 const INITIAL_CAS_BACKOFF_MICROS: u64 = 50;
 const MAX_CAS_BACKOFF_MICROS: u64 = 50_000;
 
-const INIT_SCRIPT_SOURCE: &str = include_str!("scripts/init.lua");
 const CAS_SCRIPT_SOURCE: &str = include_str!("scripts/cas.lua");
 const DELETE_SCRIPT_SOURCE: &str = include_str!("scripts/delete.lua");
 const MIGRATE_SCRIPT_SOURCE: &str = include_str!("scripts/migrate.lua");
 const SWEEP_SCRIPT_SOURCE: &str = include_str!("scripts/sweep.lua");
 
-static INIT_SCRIPT: LazyLock<redis::Script> =
-    LazyLock::new(|| redis::Script::new(INIT_SCRIPT_SOURCE));
 static CAS_SCRIPT: LazyLock<redis::Script> =
     LazyLock::new(|| redis::Script::new(CAS_SCRIPT_SOURCE));
 static DELETE_SCRIPT: LazyLock<redis::Script> =
@@ -33,10 +30,10 @@ static SWEEP_SCRIPT: LazyLock<redis::Script> =
 pub(super) struct RunSnapshot {
     pub(super) info: RunInfo,
     pub(super) revision: String,
-    incarnation: String,
+    pub(super) incarnation: String,
 }
 
-fn legacy_incarnation(info: &RunInfo) -> StorageResult<String> {
+pub(super) fn legacy_incarnation(info: &RunInfo) -> StorageResult<String> {
     let immutable_identity = serde_json::to_vec(&(&info.id, &info.flow_name, info.started))
         .map_err(|error| {
             StorageError::backend(
@@ -50,7 +47,7 @@ fn legacy_incarnation(info: &RunInfo) -> StorageResult<String> {
     ))
 }
 
-async fn backoff_after_conflict(conflicts: u32) {
+pub(super) async fn backoff_after_conflict(conflicts: u32) {
     let exponent = conflicts.saturating_sub(1).min(10);
     let ceiling_micros = INITIAL_CAS_BACKOFF_MICROS
         .saturating_mul(1_u64 << exponent)
@@ -144,68 +141,6 @@ impl RedisStateStore {
         })
     }
 
-    pub(super) async fn initialize_run(&self, info: &RunInfo) -> StorageResult<()> {
-        let run_key = self.resolve_run_key(&info.id).await?;
-        let mut conn = self.conn.clone();
-        let index_key = self.index_key();
-        let raw_info = serde_json::to_string(info).map_err(|error| {
-            StorageError::backend(
-                format_args!("Failed to serialize Redis run '{}'", info.id),
-                error,
-            )
-        })?;
-        let raw_summary = serde_json::to_string(&RunSummary::from(info)).map_err(|error| {
-            StorageError::backend(
-                format_args!("Failed to serialize Redis run summary '{}'", info.id),
-                error,
-            )
-        })?;
-        let revision = Uuid::new_v4().simple().to_string();
-        let incarnation = Uuid::new_v4().simple().to_string();
-        let ordered_member = super::listing::ordered_member(&RunSummary::from(info));
-        let status_keys = self.ordered_status_keys();
-
-        let initialized: i64 = INIT_SCRIPT
-            .key(&run_key)
-            .key(&index_key)
-            .key(self.ordered_catalog_members_key())
-            .key(self.ordered_catalog_key())
-            .key(&status_keys[0])
-            .key(&status_keys[1])
-            .key(&status_keys[2])
-            .key(&status_keys[3])
-            .key(&status_keys[4])
-            .key(&status_keys[5])
-            .key(self.ordered_catalog_ready_key())
-            .arg(&raw_info)
-            .arg(&raw_summary)
-            .arg(&revision)
-            .arg(&incarnation)
-            .arg(&info.id)
-            .arg(self.ttl.unwrap_or(-1))
-            .arg(&ordered_member)
-            .arg(info.status.to_string())
-            .invoke_async(&mut conn)
-            .await
-            .map_err(|error| {
-                map_redis_error(
-                    format_args!("Failed to initialize Redis run '{}'", info.id),
-                    error,
-                )
-            })?;
-        match initialized {
-            1 => Ok(()),
-            0 => Err(StorageError::conflict(format_args!(
-                "Run '{}' already exists",
-                info.id
-            ))),
-            _ => Err(StorageError::corruption(
-                format_args!("Invalid initialization result for Redis run '{}'", info.id),
-                initialized,
-            )),
-        }
-    }
-
     pub(super) async fn mutate_run<F>(&self, run_id: &str, mutate: F) -> StorageResult<()>
     where
         F: Fn(&mut RunInfo) -> StorageResult<bool>,
@@ -261,6 +196,7 @@ impl RedisStateStore {
                 .arg(run_id)
                 .arg(&ordered_member)
                 .arg(summary.status.to_string())
+                .arg(crate::storage::run_lease::RUN_LEASE_KEY_SAFETY.as_micros())
                 .invoke_async(&mut conn)
                 .await
                 .map_err(|error| {
@@ -304,6 +240,7 @@ impl RedisStateStore {
             .key(&status_keys[3])
             .key(&status_keys[4])
             .key(&status_keys[5])
+            .key(self.run_lease_expiry_key())
             .arg(run_id)
             .invoke_async(&mut conn)
             .await
@@ -312,6 +249,9 @@ impl RedisStateStore {
             })?;
         match deleted {
             1 => Ok(()),
+            2 => Err(StorageError::conflict(format_args!(
+                "Run '{run_id}' is still executing"
+            ))),
             0 => Err(StorageError::not_found(format_args!(
                 "Run '{run_id}' not found"
             ))),
@@ -337,6 +277,7 @@ impl RedisStateStore {
             .key(&status_keys[3])
             .key(&status_keys[4])
             .key(&status_keys[5])
+            .key(self.run_lease_expiry_key())
             .arg(run_id)
             .invoke_async(&mut conn)
             .await

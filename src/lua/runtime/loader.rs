@@ -11,10 +11,12 @@ use crate::nodes::NodeRegistry;
 use crate::util::execution::{ExecutionControl, run_blocking_step};
 use crate::util::limits::{
     LuaExecutionLimits, apply_lua_limits, apply_lua_limits_with_control, collect_lua_garbage,
+    max_flow_source_bytes,
 };
 
 use super::api::register_flow_api;
 use super::extractor::extract_flow;
+use super::source;
 
 /// Lua runtime for loading and parsing flow definitions.
 pub struct LuaRuntime;
@@ -42,6 +44,9 @@ impl LuaRuntime {
         execution: Option<ExecutionControl>,
     ) -> Result<FlowDefinition> {
         checkpoint(&execution)?;
+        let source = source::read_file(path, max_flow_source_bytes(), execution.as_ref())?;
+        checkpoint(&execution)?;
+
         let lua = new_sandboxed_lua()?;
         let limits = LuaExecutionLimits::from_env();
         apply_limits(&lua, limits, execution.clone())?;
@@ -52,11 +57,6 @@ impl LuaRuntime {
 
         // Register the Flow class and nodes table
         register_flow_api(&lua, registry)?;
-        checkpoint(&execution)?;
-
-        // Load and execute the Lua file
-        let source = std::fs::read_to_string(path)
-            .map_err(|e| anyhow::anyhow!("Failed to read flow file '{}': {}", path, e))?;
         checkpoint(&execution)?;
 
         let flow_table: LuaTable = lua
@@ -85,6 +85,7 @@ impl LuaRuntime {
         source: &str,
         registry: &NodeRegistry,
     ) -> Result<FlowDefinition> {
+        source::validate(source, max_flow_source_bytes())?;
         let source = source.to_owned();
         let registry = registry.snapshot();
         run_blocking_step(move |execution| {
@@ -99,6 +100,9 @@ impl LuaRuntime {
         execution: Option<ExecutionControl>,
     ) -> Result<FlowDefinition> {
         checkpoint(&execution)?;
+        source::validate(source, max_flow_source_bytes())?;
+        checkpoint(&execution)?;
+
         let lua = new_sandboxed_lua()?;
         let limits = LuaExecutionLimits::from_env();
         apply_limits(&lua, limits, execution.clone())?;

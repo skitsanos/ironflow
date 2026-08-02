@@ -7,10 +7,21 @@ Extract metadata from a PDF file (document info dictionary + page count).
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `path` | string | one of `path` or `source_key` | — | PDF file path |
-| `source_key` | string | one of `path` or `source_key` | — | Context key containing a file path |
+| `source_key` | string | one of `path` or `source_key` | — | Context key containing a file path, artifact URI, or artifact descriptor |
 | `output_key` | string | no | `"metadata"` | Prefix for output key |
 
 > Providing both `path` and `source_key` is an error.
+> Artifact inputs are opened and SHA-256 verified inside the tracked blocking worker; PDF parsing consumes that same rewound handle rather than a resolved store pathname.
+
+## Resource contract
+
+The source must be a regular file and is capped by
+`IRONFLOW_MAX_PDF_BYTES` (default 100 MiB) before and while it is read; a file
+that grows after the initial metadata check cannot cross the limit. On Unix and
+Windows the final path component may not be a symlink/reparse point. Loading and metadata traversal run on
+a tracked blocking worker with cancellation checkpoints around and during input
+reads. `lopdf` still constructs its document object model in memory, so the byte
+ceiling bounds raw input rather than promising that parser RSS equals file size.
 
 ## Context Output
 

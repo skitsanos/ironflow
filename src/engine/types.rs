@@ -22,7 +22,8 @@ pub enum RunStatus {
     Failed,
     /// An executor, panic, or persistence failure prevented normal completion.
     Stalled,
-    /// An explicit [`crate::engine::RunHandle`] cancellation was processed.
+    /// An explicit [`crate::engine::RunHandle`] cancellation or run-level
+    /// deadline was processed.
     Cancelled,
 }
 
@@ -59,7 +60,8 @@ pub enum TaskStatus {
     Success,
     Failed,
     Skipped,
-    /// The supervising run was explicitly cancelled before this task finished.
+    /// The supervising run was cancelled or reached its run-level deadline
+    /// before this task finished.
     Cancelled,
 }
 

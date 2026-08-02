@@ -23,6 +23,10 @@ impl<'store> CatalogTransaction<'store> {
     pub(in crate::storage::json_store) async fn begin(
         store: &'store JsonStateStore,
     ) -> StorageResult<Self> {
+        // Create control directories before a clean token fingerprints the run
+        // root. Later schedule claims and lease heartbeats mutate only those
+        // children and cannot invalidate the catalog (IF-062).
+        store.ensure_control_directories().await?;
         let lock = state::acquire_lock(&store.directory).await?;
         let mut token = None;
         for attempt in 0..=3 {
@@ -157,12 +161,14 @@ impl JsonStateStore {
     pub async fn rebuild_run_summary_catalog(&self) -> StorageResult<usize> {
         let _local = self.lock.write().await;
         self.directory.ensure_created().await?;
+        self.ensure_control_directories().await?;
         let _catalog = state::acquire_lock(&self.directory).await?;
         rebuild_locked(self).await
     }
 }
 
 pub(super) async fn ensure_current(store: &JsonStateStore) -> StorageResult<()> {
+    store.ensure_control_directories().await?;
     if state::current_token(&store.directory).await?.is_some() {
         return Ok(());
     }

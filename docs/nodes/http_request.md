@@ -16,13 +16,14 @@ Generic HTTP request with configurable method.
 | `output_key` | string | no       | `"http"`  | Prefix for context output keys.                                                                      |
 | `fail_on_status` | boolean | no | `true` | When `true`, non-2xx responses return an error after any configured status retries. When `false`, non-2xx responses are returned as normal output. |
 | `retry_statuses` | array | no | `[]` | HTTP status codes to retry, as numbers or numeric strings. |
-| `status_retries` | integer | no | `0` | Number of retries for responses whose status appears in `retry_statuses`. |
-| `max_status_retries` | integer | no | `0` | Alias for `status_retries`. |
-| `status_retry_backoff` | number | no | `1` | Base retry delay in seconds. Delay uses exponential backoff by attempt. |
+| `status_retries` | integer | no | `0` | Number of retries for responses whose status appears in `retry_statuses`; maximum `100`. |
+| `max_status_retries` | integer | no | `0` | Alias for `status_retries`, with the same maximum `100`. |
+| `status_retry_backoff` | number | no | `1` | Base retry delay in seconds. Delay uses exponential backoff by attempt; minimum `0.01` when retries are enabled. |
 | `respect_retry_after` | boolean | no | `true` | When `true`, a numeric `Retry-After` response header overrides the backoff delay. |
-| `max_retry_after` | number | no | `60` | Maximum status retry delay in seconds. |
-| `max_redirects` | integer | no | `10` | Maximum number of redirects to follow. Set to `0` to disable redirect following. |
-| `block_private_network` | boolean | no | `false` | When `true`, refuses the request (and any redirect hop) if the target host is `localhost` or a literal private/loopback/link-local IP, including the cloud-metadata address `169.254.169.254`. A hostname that resolves to an internal address via DNS is not detected. |
+| `max_retry_after` | number | no | `60` | Maximum status retry delay in seconds; minimum `0.01` when retries are enabled. |
+| `max_redirects` | integer | no | `10` | Maximum number of redirects to follow. Set to `0` to disable redirect following; maximum `100`. |
+| `allow_cross_origin_redirects` | boolean | no | `false` | Allow redirects that change scheme, host, or port. Even when enabled, cross-origin redirects are refused when `auth`, credentials embedded in URL userinfo, caller-configured `headers`, or a request `body` is present, because arbitrary credentials cannot be stripped safely. Generated `Referer` headers are disabled. |
+| `block_private_network` | boolean | no | `false` | When `true`, refuses the request (and any redirect hop) if the target host is `localhost` or a literal private/loopback/link-local IP, including IPv4-mapped IPv6 and the cloud-metadata address `169.254.169.254`. A hostname that resolves to an internal address via DNS is not detected. |
 
 For `body_type = "json"`, string values in `body` are recursively interpolated via `${ctx.key}`.
 
@@ -59,6 +60,10 @@ With the default `output_key` of `"http"`, the keys are: `http_status`, `http_da
 ## Status Retries
 
 Status retries are separate from step-level retries. They retry only HTTP responses whose status is listed in `retry_statuses`; transport errors still surface as node errors and can be handled by step retry configuration.
+
+Retry counts, redirect counts, booleans, and delay values are parsed strictly:
+a present but invalid value is an error rather than being treated as an omitted
+default. A provider's `Retry-After: 0` is floored to 0.01 seconds.
 
 ```lua
 flow:step("provider_call", nodes.http_request({

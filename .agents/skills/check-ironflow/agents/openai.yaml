@@ -1,0 +1,4 @@
+interface:
+  display_name: "Check IronFlow"
+  short_description: "Run IronFlow complete quality gates"
+  default_prompt: "Use $check-ironflow to validate the current IronFlow worktree."

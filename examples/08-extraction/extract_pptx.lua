@@ -1,9 +1,15 @@
 local flow = Flow.new("extract_pptx_demo")
 
 -- Extract a PowerPoint deck as structured JSON with metadata and comments.
+-- Embedded media, when present, is streamed to IRONFLOW_ARTIFACT_DIR and
+-- represented by a small artifact descriptor; binary bytes never enter the
+-- workflow context. Only internal OOXML image relationships are published;
+-- external and non-image relationships are ignored. Published artifacts are
+-- not automatically pruned.
 flow:step("extract_deck", nodes.extract_pptx({
     path = "${ctx._flow_dir}/../fixtures/ironflow-sample.pptx",
     format = "json",
+    media_mode = "artifact",
     output_key = "deck",
     metadata_key = "deck_meta",
     comments_key = "deck_comments"

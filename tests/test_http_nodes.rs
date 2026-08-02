@@ -816,6 +816,25 @@ async fn http_get_blocks_private_network_when_configured() {
 }
 
 #[tokio::test]
+async fn http_get_blocks_ipv4_mapped_ipv6_private_network_when_configured() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("http_get").unwrap();
+    let config = serde_json::json!({
+        "url": "http://[::ffff:127.0.0.1]:1/",
+        "block_private_network": true
+    });
+    let err = node
+        .execute(&config, &empty_ctx())
+        .await
+        .expect_err("IPv4-mapped loopback target must be blocked")
+        .to_string();
+    assert!(
+        err.contains("private network"),
+        "expected an SSRF-guard error, got: {err}"
+    );
+}
+
+#[tokio::test]
 async fn http_get_allows_private_network_by_default() {
     // Without the opt-in guard, a private target is attempted (and fails to
     // connect) rather than being refused by the guard.

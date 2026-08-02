@@ -146,6 +146,7 @@ pub async fn run_cli() -> Result<()> {
             verbose,
             store_dir,
         } => {
+            resolution::validate_run_deadline_environment()?;
             let store_dir = resolution::with_config(
                 store_dir,
                 sources.store_dir,
@@ -220,7 +221,13 @@ pub async fn run_cli() -> Result<()> {
             };
             let store = create_store(&cfg, &store_dir).await?;
             let event_store = create_event_store(&cfg, &store_dir).await?;
-            commands::cmd_serve(store, event_store, options).await
+            commands::cmd_serve(
+                store,
+                event_store,
+                options,
+                cfg.schedules.clone().unwrap_or_default(),
+            )
+            .await
         }
     }
 }
