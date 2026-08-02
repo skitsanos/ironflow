@@ -121,6 +121,8 @@ Static validation must be supplemented with representative runtime probes.
 | IF-067 | P2 | Resolved | Tooling/performance | Extraction resource behavior has no repeatable benchmark harness |
 | IF-068 | P1 | Resolved | Artifact security | Local artifact reads trust a mutable pathname and do not verify content identity |
 | IF-069 | P1 | Resolved | Binary/PDF safety | Legacy file materialization and PDF merge amplify before their limits apply |
+| IF-070 | P2 | Resolved | Release governance | `main` requires a check that cannot run before merge |
+| IF-071 | P2 | Resolved | Test reliability | Cancellation cleanup test signals completion before staging cleanup |
 
 ## P0 — release-blocking safety and durability
 
@@ -3102,3 +3104,39 @@ Base64 source and the repeated sample PDF produced a six-page merged output.
 Formatting, the 436-module size policy, and
 `cargo clippy --all-targets -- -D warnings` pass. The whole integration gate was
 not run under the ordinary issue-completion policy.
+
+### IF-070 — `main` requires a check that cannot run before merge
+
+**Status:** Resolved 2026-08-02.
+
+The protected `main` branch required a GitHub Actions status named
+`Branch guard`, but repository CI intentionally runs only after pushes to
+`main` and `develop`. No pull-request workflow or ruleset emitted that status,
+so every release PR was permanently blocked and could only be merged through
+an administrator bypass.
+
+The stale required-status-check block was removed from GitHub branch
+protection. Pull requests and resolved conversations remain required, while
+force pushes and branch deletion remain disabled. The repository CI trigger
+contract is unchanged: full CI still runs only on pushes to `main` and
+`develop`, plus explicit workflow dispatch. GitHub's branch-protection API now
+reports `required_status_checks: null` while the other protections remain
+enabled.
+
+### IF-071 — Cancellation cleanup test signals completion before staging cleanup
+
+**Status:** Resolved 2026-08-02.
+
+The `write_file` cancellation regression set its worker-completion flag before
+the local `StagedFile` was dropped. A waiter could therefore inspect the
+directory during the small interval between the flag becoming visible and the
+destructor unlinking the temporary file. This appeared as an intermittent
+macOS CI failure with two directory entries even though the production cleanup
+path completed correctly.
+
+The test worker now explicitly drops the staged file before publishing its
+completion flag. The assertion consequently observes the lifecycle boundary it
+claims to test: cancellation has drained the blocking worker, removed staging,
+and preserved the original destination. The exact regression passed 100
+consecutive focused iterations. Formatting, `git diff --check`, the 436-module
+size policy, and `cargo clippy --all-targets -- -D warnings` pass.

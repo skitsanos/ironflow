@@ -44,6 +44,10 @@ async fn cancellation_removes_staging_and_preserves_destination() {
                 &execution,
                 "test input",
             );
+            // The waiter observes physical cleanup, not merely the final write.
+            // In particular, StagedFile::drop must unlink the temporary file
+            // before the test inspects the destination directory.
+            drop(staged);
             worker_finished.store(true, Ordering::Release);
             result
         })
