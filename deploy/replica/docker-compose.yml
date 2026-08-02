@@ -62,7 +62,7 @@ services:
       - "127.0.0.1:3102:3000"
 
   proxy:
-    image: nginx:1.29-alpine
+    image: nginx:1.31-alpine
     read_only: true
     tmpfs:
       - /var/cache/nginx:rw,noexec,nosuid,size=16m
