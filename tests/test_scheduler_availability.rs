@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use chrono::{TimeZone as _, Utc};
 use ironflow::engine::types::{Context, RunInfo, RunStatus, TaskState};
 use ironflow::scheduler::config::ScheduleConfig;
-use ironflow::scheduler::{Outcome, ScheduleExecutor, Scheduler};
+use ironflow::scheduler::{Outcome, ScheduleExecutor, ScheduleRun, Scheduler};
 use ironflow::storage::null_store::NullStateStore;
 use ironflow::storage::{RunListQuery, RunSummaryPage, StateStore, StorageResult};
 
@@ -60,9 +60,16 @@ impl ScheduleExecutor for RecordingExecutor {
         true
     }
 
-    async fn run(&self, schedule_name: &str, _schedule: &ScheduleConfig) -> Result<String, String> {
+    async fn run(
+        &self,
+        schedule_name: &str,
+        _instant_key: &str,
+        _schedule: &ScheduleConfig,
+    ) -> Result<ScheduleRun, String> {
         self.runs.lock().unwrap().push(schedule_name.to_string());
-        Ok(format!("run-{schedule_name}"))
+        Ok(ScheduleRun::Started {
+            run_id: format!("run-{schedule_name}"),
+        })
     }
 }
 

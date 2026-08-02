@@ -25,6 +25,7 @@ fn app(store: Arc<dyn StateStore>) -> Router {
         listing_policy: ironflow::util::listing::ListingPolicy::default(),
         webhooks: std::collections::HashMap::new(),
         allow_adhoc_flows: true,
+        lifecycle: ironflow::api::ServiceLifecycle::default(),
     });
     Router::new()
         .route("/flows/run", post(ironflow::api::handlers::run_flow))

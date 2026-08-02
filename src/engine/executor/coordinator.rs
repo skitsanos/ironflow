@@ -29,6 +29,19 @@ pub struct RunHandle {
     completion: oneshot::Receiver<Result<()>>,
 }
 
+/// Cloneable cancellation authority retained by the service lifecycle while a
+/// run is active. It cannot await or otherwise consume the public run handle.
+#[derive(Clone)]
+pub(crate) struct RunCancellation {
+    signal: watch::Sender<ExecutionSignal>,
+}
+
+impl RunCancellation {
+    pub(crate) fn request(&self) {
+        request_cancellation(&self.signal);
+    }
+}
+
 struct CancelRunOnDrop {
     cancel: Option<watch::Sender<ExecutionSignal>>,
 }
@@ -56,6 +69,12 @@ impl Drop for CancelRunOnDrop {
 impl RunHandle {
     pub fn id(&self) -> &str {
         &self.run_id
+    }
+
+    pub(crate) fn cancellation(&self) -> RunCancellation {
+        RunCancellation {
+            signal: self.cancel.clone(),
+        }
     }
 
     pub async fn wait(self) -> Result<String> {

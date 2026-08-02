@@ -75,22 +75,14 @@ impl SqlEventStore {
 
         Ok((event, sequence))
     }
-
-    async fn rollback_publish(
-        transaction: sqlx::Transaction<'_, sqlx::Any>,
-        event_id: &str,
-    ) -> StorageResult<()> {
-        transaction.rollback().await.map_err(|error| {
-            StorageError::backend(
-                format_args!("Failed to roll back event publication '{event_id}'"),
-                error,
-            )
-        })
-    }
 }
 
 #[async_trait]
 impl EventStore for SqlEventStore {
+    async fn healthcheck(&self) -> StorageResult<()> {
+        self.probe().await
+    }
+
     async fn publish(&self, event: RunEvent) -> StorageResult<()> {
         validate_publish_event(&event)?;
         // Older processes do not know about the sequence column. Adopt any

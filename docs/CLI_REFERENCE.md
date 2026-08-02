@@ -180,6 +180,20 @@ ironflow serve --host 127.0.0.1 --port 8080
 IRONFLOW_API_KEY="change-me" ironflow serve
 ```
 
+`GET /health/live` reports process liveness without storage I/O.
+`GET /health/ready` returns 200 only while execution admission is open and
+both configured stores answer a two-second probe. `/health` remains a liveness
+alias. SIGTERM/SIGINT closes readiness, stops scheduling and new run admission,
+then drains accepted work according to `IRONFLOW_SHUTDOWN_GRACE_SECONDS`.
+
+`POST /flows/run` accepts an optional `Idempotency-Key`. It is limited to 128
+portable ASCII characters (`A-Z`, `a-z`, `0-9`, `-`, `_`, `.`, `:`). The key is
+hashed rather than stored; its deterministic run ID and request fingerprint are
+created atomically. A same-key/same-body retry returns that run from any
+replica, while a different source/file/context receives `409 conflict`.
+Deleting the run releases the retained identity. See
+[Replica deployment](REPLICA_DEPLOYMENT.md) for the complete boundary.
+
 ### Configuration File
 
 The `serve` command (and all other commands) can load settings from `ironflow.yaml`. Place it in the working directory for auto-detection, or specify a path with `-C`. Environment values, including values supplied by dotenv, override matching fields in this file:
@@ -279,6 +293,8 @@ Or via environment variables (override config file):
 | `IRONFLOW_STORE_URL` | SQLite auto path for `sqlite`; required for `postgres` | SQL store URL |
 | `IRONFLOW_EVENT_STORE` | `memory` | Event backend for `/runs/{id}/events`: `memory`, `sqlite`, `postgres`, or `redis` |
 | `IRONFLOW_EVENT_STORE_URL` | SQLite auto path for `sqlite`; required for `postgres` | SQL event store URL |
+| `IRONFLOW_REPLICA_MODE` | `false` | Require `postgres` or `redis` for both state and events; reject process-local backends |
+| `IRONFLOW_SHUTDOWN_GRACE_SECONDS` | `30` | Seconds accepted runs may finish before cooperative cancellation (`0..=3600`) |
 | `IRONFLOW_EVENT_MEMORY_CAPACITY` | `10000` | Positive global event/fence count when the event backend is `memory`; a fixed 64 MiB retained-heap estimate is enforced independently |
 | `IRONFLOW_SQL_TABLE_PREFIX` | `ironflow_` | SQL table/index prefix for SQLite/Postgres state and event stores |
 | `REDIS_URL` | `redis://127.0.0.1:6379` | Redis connection URL |
@@ -737,13 +753,15 @@ nobody finds out about until 02:00.
 `ironflow inspect`, and the events stream, and carry the schedule's name in
 their context under `_schedule`, so a run can be traced back to its trigger.
 
-**Multiple replicas.** Each instant is claimed through the state store, so at
-most one `serve` replica sharing that store evaluates it beyond the claim. This
-is not an exactly-once run guarantee: the owner can deliberately consume the
-claim without starting a run when the instant is late, an earlier run appears
-active, process capacity is exhausted, or flow loading/startup fails. The JSON
-store coordinates only among processes sharing a `store_dir`; use SQL or Redis
-across hosts. JSON and SQL claim retention runs in schedule-specific batches of
+**Multiple replicas.** Each instant is claimed through the state store and also
+derives a deterministic durable run ID from the schedule name and resolved
+instant. A replica that loses or observes an earlier claim still converges on
+that identity; atomic run initialization chooses the one executor. This closes
+the crash window between claim and run creation without replaying an existing
+or later-stalled run. A late, overlapping, capacity-constrained, or invalid
+occurrence can still be deliberately skipped. The JSON store coordinates only
+among processes sharing a `store_dir`; replica mode requires PostgreSQL or
+Redis across hosts. JSON and SQL claim retention runs in schedule-specific batches of
 at most 256, no more than once per hour for the normal seven-day-or-longer claim
 TTL. JSON uses digest/time-bucket cleanup shards while preserving its existing
 exclusive claim file as the atomic lock; claims from an earlier binary are
@@ -763,6 +781,10 @@ than retried. Unrelated schedule names continue. If the scheduler task itself
 returns or panics, `serve` stops with an error so `/health` cannot remain green
 while scheduled execution is dead; normal server shutdown also waits for the
 scheduler loop to stop.
+
+See [Replica deployment](REPLICA_DEPLOYMENT.md) for liveness/readiness,
+SIGTERM drain, idempotent API submission, Docker acceptance, and platform
+configuration.
 
 **Daylight saving.** Schedules fire on local wall-clock time.
 
@@ -800,6 +822,8 @@ configuration-file fields. `IRONFLOW_STORE_DIR` applies to `run`, `list`,
 | `IRONFLOW_EVENT_STORE` | `memory` | Event backend for `/runs/{id}/events`: `memory`, `sqlite`, `postgres`, or `redis` |
 | `IRONFLOW_EVENT_STORE_URL` | SQLite auto path for `sqlite`; required for `postgres` | SQL event store URL |
 | `IRONFLOW_EVENT_MEMORY_CAPACITY` | `10000` | Positive global event/fence count when the event backend is `memory`; a fixed 64 MiB retained-heap estimate applies independently; zero or invalid values fail startup |
+| `IRONFLOW_REPLICA_MODE` | `false` | Fail startup unless state and events use PostgreSQL or Redis |
+| `IRONFLOW_SHUTDOWN_GRACE_SECONDS` | `30` | Accepted-run drain before cancellation (`0..=3600` seconds) |
 | `IRONFLOW_SQL_TABLE_PREFIX` | `ironflow_` | SQL table/index prefix for SQLite/Postgres state and event stores |
 | `FLOWS_DIR` | — | Flow files directory |
 | `MAX_BODY` | `1048576` | Max request body size (bytes) |

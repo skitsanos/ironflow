@@ -129,15 +129,19 @@ impl Scheduler {
         instant: &DueInstant,
         now: DateTime<Utc>,
     ) -> Outcome {
-        match self
+        let claimed = match self
             .store
             .claim_schedule(name, &instant.key, schedule.claim_ttl_seconds())
             .await
         {
-            Ok(true) => {}
+            Ok(true) => true,
             Ok(false) => {
-                tracing::debug!(schedule = %name, key = %instant.key, "instant claimed by a peer");
-                return Outcome::NotClaimed;
+                tracing::debug!(
+                    schedule = %name,
+                    key = %instant.key,
+                    "instant claimed by a peer; converging on its deterministic run identity"
+                );
+                false
             }
             Err(error) => {
                 tracing::warn!(schedule = %name, key = %instant.key, %error, "claim failed");
@@ -145,7 +149,7 @@ impl Scheduler {
                     error: error.to_string(),
                 };
             }
-        }
+        };
 
         let lateness_seconds = (now - instant.instant.with_timezone(&Utc)).num_seconds();
         if lateness_seconds > schedule.grace_seconds_i64() {
@@ -178,10 +182,20 @@ impl Scheduler {
             return Outcome::AtCapacity;
         }
 
-        match self.executor.run(name, schedule).await {
-            Ok(run_id) => {
+        match self.executor.run(name, &instant.key, schedule).await {
+            Ok(super::ScheduleRun::Started { run_id }) => {
                 tracing::info!(schedule = %name, key = %instant.key, %run_id, "scheduled run started");
                 Outcome::Fired { run_id }
+            }
+            Ok(super::ScheduleRun::Existing { run_id }) => {
+                tracing::debug!(
+                    schedule = %name,
+                    key = %instant.key,
+                    %run_id,
+                    claimed,
+                    "schedule occurrence already has a durable run"
+                );
+                Outcome::NotClaimed
             }
             Err(error) => {
                 tracing::warn!(schedule = %name, key = %instant.key, %error, "scheduled run failed");

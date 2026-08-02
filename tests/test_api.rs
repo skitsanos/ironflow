@@ -197,6 +197,7 @@ async fn delete_endpoint_cleans_events_and_recovers_an_orphaned_stream() {
         listing_policy: ironflow::util::listing::ListingPolicy::default(),
         webhooks: std::collections::HashMap::new(),
         allow_adhoc_flows: true,
+        lifecycle: ironflow::api::ServiceLifecycle::default(),
     });
     let app = Router::new()
         .route("/runs/{id}", delete(ironflow::api::handlers::delete_run))
@@ -358,6 +359,7 @@ fn build_state_with_flows_dir(flows_dir: std::path::PathBuf) -> ironflow::api::A
         listing_policy: ironflow::util::listing::ListingPolicy::default(),
         webhooks: std::collections::HashMap::new(),
         allow_adhoc_flows: true,
+        lifecycle: ironflow::api::ServiceLifecycle::default(),
     }
 }
 
@@ -537,6 +539,7 @@ async fn api_run_events_streams_first_sse_event() {
         listing_policy: ironflow::util::listing::ListingPolicy::default(),
         webhooks: std::collections::HashMap::new(),
         allow_adhoc_flows: true,
+        lifecycle: ironflow::api::ServiceLifecycle::default(),
     });
 
     store
@@ -784,6 +787,7 @@ async fn runs_endpoint_enforces_cap_and_uses_filter_bound_cursors() {
         listing_policy: ironflow::util::listing::ListingPolicy::from_value(Some("3")).unwrap(),
         webhooks: std::collections::HashMap::new(),
         allow_adhoc_flows: true,
+        lifecycle: ironflow::api::ServiceLifecycle::default(),
     });
     let app = Router::new()
         .route("/runs", get(ironflow::api::handlers::list_runs))

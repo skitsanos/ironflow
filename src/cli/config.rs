@@ -60,6 +60,8 @@ pub struct IronFlowConfig {
     /// deployments that expose a fixed set of flows, so an API key grants only
     /// those flows rather than arbitrary workflow evaluation or execution.
     pub allow_adhoc_flows: Option<bool>,
+    /// Require shared durable state and event backends suitable for replicas.
+    pub replica_mode: Option<bool>,
 }
 
 struct BoundedSchedules(HashMap<String, ScheduleConfig>);

@@ -280,6 +280,41 @@ async fn two_schedulers_sharing_one_store_fire_an_instant_exactly_once() {
 }
 
 #[tokio::test]
+async fn a_preclaimed_instant_without_a_run_is_recovered_after_restart() {
+    let _admission = PROCESS_ADMISSION_LOCK.lock().await;
+    let flows = flows_with_logger();
+    let store_dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(ironflow::storage::json_store::JsonStateStore::new(
+        store_dir.path(),
+    ));
+    let key = "UTC@2026-05-01T02:00";
+    assert!(store.claim_schedule("nightly", key, 604_800).await.unwrap());
+
+    let events = Arc::new(ironflow::storage::event_store::MemoryEventStore::new());
+    let executor = Arc::new(ironflow::scheduler::execution::FlowExecutor::new(
+        Arc::new(ironflow::nodes::NodeRegistry::with_builtins()),
+        store.clone() as Arc<dyn StateStore>,
+        events,
+        Some(flows.path().to_path_buf()),
+        None,
+    ));
+    let schedules =
+        std::collections::HashMap::from([("nightly".to_string(), nightly("nightly.lua"))]);
+    let mut scheduler = Scheduler::new(
+        schedules,
+        store.clone() as Arc<dyn StateStore>,
+        executor,
+        Utc.with_ymd_and_hms(2026, 5, 1, 1, 59, 0).unwrap(),
+    );
+
+    let decisions = scheduler
+        .evaluate(Utc.with_ymd_and_hms(2026, 5, 1, 2, 0, 0).unwrap())
+        .await;
+    assert!(matches!(decisions[0].outcome, Outcome::Fired { .. }));
+    assert_eq!(store.list_runs(None).await.unwrap().len(), 1);
+}
+
+#[tokio::test]
 async fn the_spawned_tick_loop_fires_a_due_schedule() {
     let _admission = PROCESS_ADMISSION_LOCK.lock().await;
     let flows = flows_with_logger();

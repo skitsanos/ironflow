@@ -204,6 +204,12 @@ credentialed, local-state, and platform-specific flow at the same time.
 
 ## Running Examples
 
+`22-replica-deployment` is the flow/config fixture for the opt-in Docker
+replica gate. It is not a standalone `ironflow run` example: two `serve`
+processes load it with shared PostgreSQL state and exercise idempotent HTTP,
+scheduled occurrence, graceful shutdown, and owner-death behavior. See
+[`docs/REPLICA_DEPLOYMENT.md`](../docs/REPLICA_DEPLOYMENT.md).
+
 Give experiments a disposable state-store directory so IronFlow's run records
 do not accumulate in the normal store:
 
@@ -286,10 +292,10 @@ duplicated, unclassified, or inconsistent entries.
 | Offline with outputs/processes | 24 | Fixture-backed local-output cases and MCP stdio use isolated paths; others require isolated outputs |
 | Public/local network | 9 | No |
 | Credentialed external service | 47 | No |
-| Server/manual HTTP or scheduler | 3 | No |
+| Server/manual HTTP or scheduler | 5 | No |
 | Composition parent/helper flow | 7 | Exercised as coordinated cases where applicable |
 
-All 130 flows are still parsed by `ironflow validate`. Twelve fixture-backed
+All 132 flows are still parsed by `ironflow validate`. Twelve fixture-backed
 offline flows and the local MCP stdio example also run from a disposable
 working directory as part of:
 

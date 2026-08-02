@@ -1,6 +1,7 @@
 mod bootstrap;
 mod commands;
 mod config;
+mod replica_config;
 mod resolution;
 mod store_factory;
 
@@ -193,6 +194,7 @@ pub async fn run_cli() -> Result<()> {
         } => {
             let listing_policy = crate::util::listing::ListingPolicy::from_env()?;
             let server_config = resolution::ServerConfig::resolve(&cfg)?;
+            replica_config::validate(&cfg, server_config.replica_mode)?;
             let host = resolution::with_config(host, sources.host, cfg.host.clone());
             let port = resolution::with_config(port, sources.port, cfg.port);
             let store_dir = resolution::with_config(

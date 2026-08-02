@@ -192,7 +192,7 @@ gates for ordinary CI.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/flows/run` | Execute a flow |
+| `POST` | `/flows/run` | Execute a flow; optional `Idempotency-Key` makes retries converge on one durable run |
 | `POST` | `/flows/validate` | Validate a flow |
 | `GET` | `/runs` | List run summaries with `status`, `limit`, and `after` cursor parameters |
 | `GET` | `/runs/{id}` | Get run details |
@@ -200,7 +200,9 @@ gates for ordinary CI.
 | `DELETE` | `/runs/{id}` | Delete run state and retained events (`409` while a non-terminal owner lease is live) |
 | `GET` | `/nodes` | List available nodes |
 | `POST` | `/webhooks/{name}` | Execute a webhook-mapped flow |
-| `GET` | `/health` | Health check |
+| `GET` | `/health` | Backwards-compatible liveness check |
+| `GET` | `/health/live` | Process liveness |
+| `GET` | `/health/ready` | Admission and durable-store readiness |
 
 Flows can also run on a schedule. A `schedules:` block in `ironflow.yaml`
 declares bounded standard five-field cron triggers that `ironflow serve`
@@ -215,6 +217,12 @@ instead of leaving an apparently healthy API with no triggers. JSON and SQL
 claim retention is schedule-scoped, cadence-limited, and capped at 256 records
 per cleanup pass; Redis uses per-claim TTL. See
 [Schedules](docs/CLI_REFERENCE.md#schedules).
+
+Active-active deployments must set `IRONFLOW_REPLICA_MODE=true` and use
+PostgreSQL or Redis for both state and events. SIGTERM closes readiness and new
+execution admission before a bounded drain. See the
+[replica deployment contract](docs/REPLICA_DEPLOYMENT.md) and its opt-in
+two-process Docker fault gate.
 
 Handler failures return JSON with `error` and a stable `code`. Internal failures
 return only a generic message plus an opaque `error_id`, also exposed as

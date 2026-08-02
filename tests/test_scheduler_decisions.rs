@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use chrono::{DateTime, TimeZone as _, Utc};
 use ironflow::engine::types::Context;
 use ironflow::scheduler::config::ScheduleConfig;
-use ironflow::scheduler::{Outcome, ScheduleExecutor, Scheduler};
+use ironflow::scheduler::{Outcome, ScheduleExecutor, ScheduleRun, Scheduler};
 use ironflow::storage::StateStore;
 use ironflow::storage::null_store::NullStateStore;
 
@@ -15,6 +15,7 @@ struct StubExecutor {
     active: std::sync::Mutex<Option<String>>,
     at_capacity: AtomicBool,
     fail: AtomicBool,
+    existing: AtomicBool,
 }
 
 #[async_trait::async_trait]
@@ -30,13 +31,21 @@ impl ScheduleExecutor for StubExecutor {
     async fn run(
         &self,
         _schedule_name: &str,
+        _instant_key: &str,
         _schedule: &ScheduleConfig,
-    ) -> Result<String, String> {
+    ) -> Result<ScheduleRun, String> {
         if self.fail.load(Ordering::SeqCst) {
             return Err("flow blew up".to_string());
         }
         let index = self.runs.fetch_add(1, Ordering::SeqCst);
-        Ok(format!("run-{index}"))
+        if self.existing.load(Ordering::SeqCst) {
+            return Ok(ScheduleRun::Existing {
+                run_id: "run-owned-by-peer".to_string(),
+            });
+        }
+        Ok(ScheduleRun::Started {
+            run_id: format!("run-{index}"),
+        })
     }
 }
 
@@ -141,7 +150,7 @@ async fn an_instant_fires_only_once_across_consecutive_ticks() {
 }
 
 #[tokio::test]
-async fn losing_the_claim_skips_without_running() {
+async fn losing_the_claim_converges_on_the_peer_run() {
     // A real store with the instant already claimed, rather than a stub: this
     // exercises the actual claim path a peer replica would have taken.
     let dir = tempfile::tempdir().unwrap();
@@ -154,6 +163,7 @@ async fn losing_the_claim_skips_without_running() {
         .unwrap();
 
     let executor = Arc::new(StubExecutor::default());
+    executor.existing.store(true, Ordering::SeqCst);
     let mut scheduler = scheduler(
         store.clone() as Arc<dyn StateStore>,
         executor.clone(),
@@ -164,7 +174,7 @@ async fn losing_the_claim_skips_without_running() {
 
     assert_eq!(decisions.len(), 1);
     assert!(matches!(decisions[0].outcome, Outcome::NotClaimed));
-    assert_eq!(executor.runs.load(Ordering::SeqCst), 0);
+    assert_eq!(executor.runs.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]

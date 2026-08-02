@@ -1,3 +1,4 @@
+use std::future::IntoFuture;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -18,6 +19,7 @@ pub(crate) struct PreparedServer {
     listener: tokio::net::TcpListener,
     app: Router,
     bound_addr: std::net::SocketAddr,
+    lifecycle: super::ServiceLifecycle,
 }
 
 impl PreparedServer {
@@ -68,14 +70,73 @@ pub(crate) struct RunningServer {
 }
 
 impl RunningServer {
+    pub(crate) fn lifecycle(&self) -> super::ServiceLifecycle {
+        self.prepared.lifecycle.clone()
+    }
+
     pub(crate) async fn serve(self) -> Result<()> {
+        let grace = crate::util::runtime_config::shutdown_grace()?;
+        self.serve_until(shutdown_signal(), grace).await
+    }
+
+    async fn serve_until<F>(self, shutdown: F, grace: std::time::Duration) -> Result<()>
+    where
+        F: std::future::Future<Output = ()> + Send,
+    {
         tracing::info!(
             "IronFlow API server listening on {}",
             self.prepared.bound_addr
         );
-        axum::serve(self.prepared.listener, self.prepared.app).await?;
+        let lifecycle = self.prepared.lifecycle.clone();
+        let graceful_lifecycle = lifecycle.clone();
+        let server = axum::serve(self.prepared.listener, self.prepared.app)
+            .with_graceful_shutdown(async move { graceful_lifecycle.wait_for_draining().await })
+            .into_future();
+        tokio::pin!(server);
+        tokio::pin!(shutdown);
+
+        let completed = tokio::select! {
+            result = &mut server => Some(result),
+            () = &mut shutdown => {
+                lifecycle.begin_draining();
+                None
+            }
+        };
+
+        lifecycle.begin_draining();
+        lifecycle.drain(grace).await;
+
+        if let Some(result) = completed {
+            result?;
+            return Ok(());
+        }
+
+        match tokio::time::timeout(std::time::Duration::from_secs(5), &mut server).await {
+            Ok(result) => result?,
+            Err(_) => tracing::warn!(
+                "HTTP connections did not close after the run drain; forcing process shutdown"
+            ),
+        }
         Ok(())
     }
+}
+
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        let mut terminate =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                .expect("SIGTERM handler can be installed");
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = terminate.recv() => {}
+        }
+    }
+
+    #[cfg(not(unix))]
+    tokio::signal::ctrl_c()
+        .await
+        .expect("shutdown signal handler can be installed");
 }
 
 pub(crate) async fn prepare(
@@ -86,6 +147,7 @@ pub(crate) async fn prepare(
     validate_execution_policy(options.allow_adhoc_flows, options.flows_dir.as_deref())?;
     super::admission::validate_configuration()?;
     let _ = crate::util::runtime_config::run_deadline()?;
+    let _ = crate::util::runtime_config::shutdown_grace()?;
     let max_concurrent_tasks =
         crate::util::runtime_config::max_concurrent_tasks(options.max_concurrent_tasks)?;
 
@@ -108,6 +170,7 @@ pub(crate) async fn prepare(
         listing_policy: options.listing_policy,
         webhooks: options.webhooks,
         allow_adhoc_flows: options.allow_adhoc_flows,
+        lifecycle: super::ServiceLifecycle::default(),
     });
 
     let protected_routes = Router::new()
@@ -127,16 +190,19 @@ pub(crate) async fn prepare(
 
     let app = Router::new()
         .route("/health", get(handlers::health))
+        .route("/health/live", get(handlers::liveness))
+        .route("/health/ready", get(handlers::readiness))
         .merge(protected_routes)
         .layer(DefaultBodyLimit::max(options.max_body))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
-        .with_state(state);
+        .with_state(state.clone());
 
     Ok(PreparedServer {
         listener,
         app,
         bound_addr,
+        lifecycle: state.lifecycle.clone(),
     })
 }
 

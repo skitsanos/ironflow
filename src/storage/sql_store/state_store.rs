@@ -9,6 +9,16 @@ use crate::storage::{RunListQuery, RunSummaryPage, StateStore, StorageError, Sto
 
 #[async_trait]
 impl StateStore for SqlStateStore {
+    async fn healthcheck(&self) -> StorageResult<()> {
+        sqlx::query("SELECT 1")
+            .execute(&self.pool)
+            .await
+            .map_err(|error| {
+                StorageError::backend("SQL state store readiness probe failed", error)
+            })?;
+        Ok(())
+    }
+
     async fn init_run(&self, run_id: &str, flow_name: &str, ctx: &Context) -> StorageResult<()> {
         let info = RunInfo {
             id: run_id.to_string(),

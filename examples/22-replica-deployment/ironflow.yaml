@@ -1,0 +1,13 @@
+host: 0.0.0.0
+port: 3000
+flows_dir: /data/flows
+allow_adhoc_flows: false
+allow_unauthenticated_api: true
+replica_mode: true
+
+schedules:
+  replica_minute:
+    flow: quick.lua
+    cron: "* * * * *"
+    timezone: UTC
+    grace_seconds: 60

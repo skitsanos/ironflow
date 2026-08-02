@@ -36,6 +36,11 @@ fn validate_event_run_id(run_id: &str) -> StorageResult<()> {
 
 #[async_trait]
 pub trait EventStore: Send + Sync {
+    /// Lightweight backend availability probe used by service readiness.
+    async fn healthcheck(&self) -> StorageResult<()> {
+        Ok(())
+    }
+
     /// Publish one logical event with a non-empty ID unique within its run.
     ///
     /// Callers must never assign that ID to another logical event in the same

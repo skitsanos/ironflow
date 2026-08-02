@@ -47,6 +47,28 @@ impl SqlEventStore {
         self.dialect.placeholder(index)
     }
 
+    async fn probe(&self) -> StorageResult<()> {
+        sqlx::query("SELECT 1")
+            .execute(&self.pool)
+            .await
+            .map_err(|error| {
+                StorageError::backend("SQL event store readiness probe failed", error)
+            })?;
+        Ok(())
+    }
+
+    async fn rollback_publish(
+        transaction: sqlx::Transaction<'_, sqlx::Any>,
+        event_id: &str,
+    ) -> StorageResult<()> {
+        transaction.rollback().await.map_err(|error| {
+            StorageError::backend(
+                format_args!("Failed to roll back event publication '{event_id}'"),
+                error,
+            )
+        })
+    }
+
     /// Reserve the next durable publication position for one run.
     ///
     /// The counter row is updated in the same transaction as the event insert.

@@ -19,6 +19,7 @@ use crate::storage::event_store::EventStore;
 pub struct SchedulerTask {
     shutdown: Option<oneshot::Sender<()>>,
     handle: JoinHandle<()>,
+    lifecycle: crate::api::ServiceLifecycle,
 }
 
 impl SchedulerTask {
@@ -40,6 +41,7 @@ impl SchedulerTask {
         tokio::pin!(server);
         tokio::select! {
             server_result = &mut server => {
+                self.lifecycle.begin_draining();
                 if let Some(shutdown) = self.shutdown.take() {
                     let _ = shutdown.send(());
                 }
@@ -47,11 +49,16 @@ impl SchedulerTask {
                 server_result
             }
             task_result = &mut self.handle => {
+                if !self.lifecycle.is_ready() {
+                    task_result.map_err(join_error)?;
+                    return server.await;
+                }
                 let error = match task_result {
                     Ok(()) => anyhow!("scheduler task stopped unexpectedly"),
                     Err(error) => join_error(error),
                 };
                 tracing::error!(%error, "scheduler task stopped; stopping API server");
+                self.lifecycle.begin_draining();
                 Err(error)
             }
         }
@@ -73,6 +80,24 @@ pub fn spawn(
     flows_dir: Option<PathBuf>,
     max_concurrent_tasks: Option<usize>,
 ) -> Option<SchedulerTask> {
+    spawn_with_lifecycle(
+        schedules,
+        store,
+        event_store,
+        flows_dir,
+        max_concurrent_tasks,
+        crate::api::ServiceLifecycle::default(),
+    )
+}
+
+pub(crate) fn spawn_with_lifecycle(
+    schedules: HashMap<String, ScheduleConfig>,
+    store: Arc<dyn StateStore>,
+    event_store: Arc<dyn EventStore>,
+    flows_dir: Option<PathBuf>,
+    max_concurrent_tasks: Option<usize>,
+    lifecycle: crate::api::ServiceLifecycle,
+) -> Option<SchedulerTask> {
     if schedules.is_empty() {
         return None;
     }
@@ -86,15 +111,17 @@ pub fn spawn(
         "scheduler started"
     );
 
-    let executor = Arc::new(super::execution::FlowExecutor::new(
+    let executor = Arc::new(super::execution::FlowExecutor::new_with_lifecycle(
         Arc::new(crate::nodes::NodeRegistry::with_builtins()),
         store.clone(),
         event_store,
         flows_dir,
         max_concurrent_tasks,
+        lifecycle.clone(),
     ));
     let mut scheduler = Scheduler::new(schedules, store, executor, Utc::now());
     let (shutdown, mut shutdown_requested) = oneshot::channel();
+    let task_lifecycle = lifecycle.clone();
     let handle = tokio::spawn(async move {
         let mut ticker = tokio::time::interval(TICK_INTERVAL);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -107,6 +134,10 @@ pub fn spawn(
                     tracing::info!("scheduler stopped");
                     return;
                 }
+                _ = task_lifecycle.wait_for_draining() => {
+                    tracing::info!("scheduler stopped for service drain");
+                    return;
+                }
             }
         }
     });
@@ -114,6 +145,7 @@ pub fn spawn(
     Some(SchedulerTask {
         shutdown: Some(shutdown),
         handle,
+        lifecycle,
     })
 }
 
@@ -125,6 +157,7 @@ mod tests {
         SchedulerTask {
             shutdown: Some(shutdown),
             handle,
+            lifecycle: crate::api::ServiceLifecycle::default(),
         }
     }
 

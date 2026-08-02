@@ -125,6 +125,7 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
   state nor orphaned events exist; 409 while a non-terminal owner lease is live)
 - [x] `GET /nodes` — List registered nodes with descriptions
 - [x] `GET /health` — Version and status check
+- [x] Split process liveness from storage/admission readiness and drain on SIGTERM/SIGINT
 - [x] `source_base64` field for escaping-free Lua submission
 - [x] Mutual exclusion — reject requests with multiple source fields
 - [x] Configurable request body size limit (default 1 MB, `--max-body` flag)
@@ -167,6 +168,7 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
 ### 3.4 Run Event Streaming ✅
 - [x] Define compact `RunEvent` payloads for run/task lifecycle monitoring; include step name, `node_type`, attempt, status, timing, and error metadata, but never full node input/output.
 - [x] Add separate event backend selection via `IRONFLOW_EVENT_STORE=memory|sqlite|postgres|redis` and `IRONFLOW_EVENT_STORE_URL`; do not reuse `IRONFLOW_STORE` so deployments can store runs and events in different systems.
+- [x] Fail closed in explicit replica mode unless both state and event stores are shared and durable; provide Docker owner-death acceptance.
 - [x] Implement a globally bounded in-memory event store for single-instance
   deployments; `event_memory_capacity` /
   `IRONFLOW_EVENT_MEMORY_CAPACITY` defaults to 10,000 retained events and

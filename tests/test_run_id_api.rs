@@ -20,6 +20,7 @@ fn app() -> Router {
         listing_policy: ironflow::util::listing::ListingPolicy::default(),
         webhooks: std::collections::HashMap::new(),
         allow_adhoc_flows: true,
+        lifecycle: ironflow::api::ServiceLifecycle::default(),
     });
 
     Router::new()

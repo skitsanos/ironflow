@@ -99,6 +99,7 @@ pub async fn harness(event_store: Arc<dyn EventStore>, status: RunStatus) -> Har
         listing_policy: ironflow::util::listing::ListingPolicy::default(),
         webhooks: std::collections::HashMap::new(),
         allow_adhoc_flows: true,
+        lifecycle: ironflow::api::ServiceLifecycle::default(),
     });
     let router = Router::new()
         .route(

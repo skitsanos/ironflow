@@ -38,6 +38,7 @@ fn app(
         listing_policy: ironflow::util::listing::ListingPolicy::default(),
         webhooks: std::collections::HashMap::new(),
         allow_adhoc_flows,
+        lifecycle: ironflow::api::ServiceLifecycle::default(),
     });
     let router = Router::new()
         .route("/flows/run", post(ironflow::api::handlers::run_flow))

@@ -127,6 +127,9 @@ Static validation must be supplemented with representative runtime probes.
 | IF-073 | P1 | Resolved | Scheduler availability | A hung evaluation or dead scheduler task silently stops every schedule |
 | IF-074 | P1 | Resolved | Scheduler contract | Schedule configuration and cron semantics are not bounded or portable |
 | IF-075 | P2 | Resolved | Scheduler performance | Schedule claim cleanup is linear on every fire |
+| IF-076 | P1 | Resolved | Replica availability | Replica survival has no real-process Docker acceptance gate |
+| IF-077 | P1 | Resolved | Deployment lifecycle | Serve lacks draining, readiness, and restricted-container support |
+| IF-078 | P1 | Resolved | Durable admission | Retried submissions and schedule claim-to-run gaps can duplicate or lose work |
 
 ## P0 — release-blocking safety and durability
 
@@ -3323,3 +3326,145 @@ without a sweep. The named containers were removed afterward. Three example
 catalog tests and all 130 Lua examples validate. Formatting, `git diff --check`,
 the 441-module size policy, and exact all-target Clippy pass. This is focused
 local and live-service evidence, not the full integration suite or deployed CI.
+
+### IF-076 — Replica survival has no real-process Docker acceptance gate
+
+**Status:** Resolved 2026-08-02 (found 2026-08-02).
+
+Run ownership is fenced through shared PostgreSQL or Redis leases and expired
+owners are reconciled, but the repository has no repeatable acceptance test
+that starts multiple real IronFlow processes, routes requests across them, and
+kills the owning process. Store-level concurrency tests do not prove that a
+surviving replica remains available, sees the same durable state and events,
+or terminalizes an abandoned run within the lease budget. They also do not
+exercise simultaneous cold-start schema initialization, rolling overlap,
+arbitrary container UIDs, or a read-only root filesystem.
+
+Required outcome:
+
+- add an opt-in Docker acceptance environment with two IronFlow replicas, a
+  shared durable backend, and a round-robin entry point;
+- exercise cross-replica create/read visibility, simultaneous cold start,
+  schedule exclusion, SIGTERM and SIGKILL owner death, and bounded lease
+  reconciliation with concrete assertions;
+- run the image under restricted-container conditions representative of
+  OpenShift and document what Docker cannot prove about Railway/OpenShift
+  routing and security policy;
+- keep the destructive/slow gate outside ordinary focused test execution and
+  provide deterministic cleanup of only its explicitly named resources.
+
+Resolution: `deploy/replica/docker-compose.yml` now defines an explicitly named,
+opt-in acceptance environment with PostgreSQL 18, two IronFlow processes, and
+an nginx round-robin proxy. The IronFlow containers run as arbitrary UID
+`1001230000` in root group, with a read-only root filesystem, all capabilities
+dropped, `no-new-privileges`, and a `/tmp` tmpfs. The Bun harness refuses to run
+without `IRONFLOW_RUN_REPLICA_ACCEPTANCE=1`, creates only the named
+`ironflow-replica-acceptance` project, and always removes that project's
+containers, network, and disposable volume.
+
+The clean unattended acceptance run proved simultaneous cold start,
+round-robin reachability of both replicas, cross-replica durable visibility,
+same-key idempotent retry, graceful SIGTERM cancellation and restart, continued
+readiness of the survivor after real SIGKILL, production 90-second lease
+reconciliation to `stalled`, and one durable run per observed schedule instant.
+The harness deliberately retains the production lease duration and is not part
+of ordinary focused validation. `docs/REPLICA_DEPLOYMENT.md` records the local
+procedure and explicitly limits this evidence: it does not prove Railway edge
+routing, OpenShift Route/SCC selection, managed-storage availability, or actual
+platform rollout timing.
+
+### IF-077 — Serve lacks draining, readiness, and restricted-container support
+
+**Status:** Resolved 2026-08-02 (found 2026-08-02).
+
+`RunningServer::serve` awaits `axum::serve` without a shutdown signal. The
+single `/health` endpoint always returns `ok`, so an orchestrator cannot remove
+a terminating or storage-isolated replica before routing new work. API and
+scheduler run waiters detach from request/tick ownership and are not registered
+with a process lifecycle coordinator, leaving no bounded drain contract.
+The runtime image is owned by one fixed user rather than OpenShift's arbitrary
+UID/root-group convention, and replica deployments can accidentally select
+local JSON/SQLite state or in-memory events.
+
+Required outcome:
+
+- expose distinct liveness and readiness endpoints, with readiness becoming
+  false before listener shutdown or run cancellation begins;
+- handle SIGTERM/SIGINT through one lifecycle coordinator that stops scheduler
+  admission, gracefully stops HTTP admission, tracks accepted runs, waits for
+  a bounded drain interval, and cooperatively cancels remaining work;
+- add an explicit replica deployment mode that fails closed unless state and
+  event backends are shared and durable;
+- make the image runnable with an arbitrary non-root UID, dropped capabilities,
+  and a read-only root filesystem, and document Railway/OpenShift settings.
+
+Resolution: one shared service lifecycle now owns HTTP and scheduler admission,
+accepted-run cancellation authority, and signal-driven draining. SIGTERM and
+SIGINT first make readiness fail and stop scheduler admission, then Axum stops
+accepting connections while admitted runs receive the configured grace period.
+Remaining runs are cooperatively cancelled and given a bounded settling period;
+connection shutdown is bounded separately. `IRONFLOW_SHUTDOWN_GRACE_SECONDS`
+defaults to 30 seconds, is validated before bind, and is capped at 3,600.
+
+`/health/live` is the process liveness contract (`/health` remains a compatible
+alias). `/health/ready` returns success only while the lifecycle admits work and
+both state and event stores pass bounded live probes. The explicit
+`IRONFLOW_REPLICA_MODE=true` setting fails closed before opening stores unless
+both state and event backends are PostgreSQL or Redis. The production image now
+uses root-group-writable runtime paths and an arbitrary non-root-compatible
+user/group contract; the acceptance environment verifies it with dropped
+capabilities and a read-only root filesystem. The deployment guide covers the
+required Railway/OpenShift configuration and termination-window boundary.
+
+Focused validation passed two lifecycle tests, including real cooperative
+cancellation, the replica-mode fail-closed matrix, 25 API tests, webhook
+composition, and the real-process Docker acceptance described by IF-076.
+
+### IF-078 — Retried submissions and schedule claim-to-run gaps can duplicate or lose work
+
+**Status:** Resolved 2026-08-02 (found 2026-08-02).
+
+`POST /flows/run` creates a random run ID after parsing. If a proxy or container
+dies after durable creation but before the client receives the response, a
+retry starts a second workflow. Schedule admission separately claims an
+instant and then loads/starts its flow; owner death in that interval consumes
+the claim without leaving a durable run that explains the skipped occurrence.
+Automatic replay is unsafe because arbitrary nodes may already have produced
+non-idempotent external side effects.
+
+Required outcome:
+
+- accept a bounded `Idempotency-Key` for `/flows/run` and persist its mapping
+  atomically with run creation in every shared built-in state backend;
+- make same-key/same-request retries return the original run while rejecting a
+  key reused for a different admitted request;
+- persist a deterministic schedule occurrence identity through run creation so
+  retries converge on the same run instead of opening a claim-to-run hole;
+- cover concurrent replicas, crash ambiguity, expiration/retention, negative
+  key validation, and document that arbitrary workflow execution is fenced and
+  terminalized rather than transparently replayed.
+
+Resolution: `/flows/run` now accepts a bounded, validated `Idempotency-Key` of
+1-128 ASCII letters, digits, `-`, `_`, `.`, or `:`. IronFlow hashes the key into
+a deterministic run identity, never persists the raw key, and stores a
+canonical request fingerprint with the run. Same-key/same-request submissions
+converge on the existing run across replicas; reusing a key for a different
+source or context returns HTTP 409. The mapping intentionally has the same
+lifetime as the run record, so deleting the run releases that identity.
+
+Scheduled occurrences now derive a deterministic run ID from the schedule name
+and evaluated instant and persist the instant as `_schedule_instant`. A process
+that loses or observes the separate claim still converges on that durable run;
+atomic run initialization elects the sole executor. This closes owner death
+between claim and run creation without replaying already-started arbitrary side
+effects. Lease recovery continues to terminalize abandoned execution as
+`stalled`; transparent workflow replay remains outside the contract.
+
+Focused validation passed canonical fingerprint and raw-key secrecy unit tests,
+the concurrent API idempotency regression (including invalid-key and conflict
+cases), 15 scheduler-decision tests, 13 scheduler end-to-end tests including
+preclaimed recovery and two-scheduler convergence, three availability tests,
+and the live two-process PostgreSQL acceptance. All 132 Lua examples validate;
+Rustdoc, formatting, `git diff --check`, the 446-module policy, and exact
+all-target Clippy with warnings denied pass. This is focused local and Docker
+evidence, not the full integration suite or a Railway/OpenShift deployment.

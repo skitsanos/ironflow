@@ -5,6 +5,7 @@ pub mod config;
 mod cron;
 mod evaluation;
 pub mod execution;
+mod identity;
 mod runtime;
 pub mod startup;
 pub mod timing;
@@ -20,6 +21,7 @@ use crate::storage::StateStore;
 
 use config::ScheduleConfig;
 
+pub(crate) use runtime::spawn_with_lifecycle;
 pub use runtime::{SchedulerTask, spawn};
 
 /// How often the scheduler evaluates every schedule.
@@ -59,6 +61,13 @@ pub enum Outcome {
     TimedOut,
 }
 
+/// Durable start result for one deterministic schedule occurrence.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ScheduleRun {
+    Started { run_id: String },
+    Existing { run_id: String },
+}
+
 /// One evaluated instant.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Decision {
@@ -80,7 +89,12 @@ pub trait ScheduleExecutor: Send + Sync {
 
     /// Start the schedule's flow and return its run id, without waiting for
     /// the run to finish.
-    async fn run(&self, schedule_name: &str, schedule: &ScheduleConfig) -> Result<String, String>;
+    async fn run(
+        &self,
+        schedule_name: &str,
+        instant_key: &str,
+        schedule: &ScheduleConfig,
+    ) -> Result<ScheduleRun, String>;
 }
 
 /// Evaluates every schedule on a tick.

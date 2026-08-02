@@ -4,6 +4,7 @@ use std::sync::{Arc, OnceLock};
 
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
+use super::ServiceLifecycle;
 use super::errors::AppError;
 use crate::engine::RunHandle;
 
@@ -47,7 +48,14 @@ pub(super) fn validate_configuration() -> anyhow::Result<()> {
 ///
 /// `None` means the cap is explicitly unlimited. An invalid configured limit
 /// is an internal configuration failure, never an implicit unlimited mode.
-pub(crate) fn acquire_run_permit() -> Result<Option<OwnedSemaphorePermit>, AppError> {
+pub(crate) fn acquire_run_permit(
+    lifecycle: &ServiceLifecycle,
+) -> Result<Option<OwnedSemaphorePermit>, AppError> {
+    if !lifecycle.is_ready() {
+        return Err(AppError::ServiceUnavailable(
+            "server is draining; retry on another replica".to_string(),
+        ));
+    }
     let semaphore = configured_semaphore().map_err(AppError::Internal)?;
     acquire_run_permit_from(semaphore)
 }
@@ -94,10 +102,13 @@ where
 /// the HTTP request future. `RunHandle` deliberately detaches on drop, so the
 /// permit must be owned by an equally detached waiter.
 pub(crate) async fn wait_for_admitted_run(
+    lifecycle: ServiceLifecycle,
     handle: RunHandle,
     permit: Option<OwnedSemaphorePermit>,
 ) -> anyhow::Result<String> {
+    let active_run = lifecycle.track(&handle);
     let task = tokio::spawn(async move {
+        let _active_run = active_run;
         let _permit = permit;
         handle.wait().await
     });

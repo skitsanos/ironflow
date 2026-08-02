@@ -11,6 +11,20 @@ use super::RedisStateStore;
 
 #[async_trait]
 impl StateStore for RedisStateStore {
+    async fn healthcheck(&self) -> StorageResult<()> {
+        let mut conn = self.conn.clone();
+        redis::cmd("PING")
+            .query_async::<String>(&mut conn)
+            .await
+            .map_err(|error| {
+                crate::storage::StorageError::backend(
+                    "Redis state store readiness probe failed",
+                    error,
+                )
+            })?;
+        Ok(())
+    }
+
     async fn init_run(&self, run_id: &str, flow_name: &str, ctx: &Context) -> StorageResult<()> {
         let info = RunInfo {
             id: run_id.to_string(),

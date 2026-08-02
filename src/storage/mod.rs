@@ -35,6 +35,13 @@ use crate::engine::types::*;
 /// Trait for workflow state persistence.
 #[async_trait]
 pub trait StateStore: Send + Sync {
+    /// Lightweight backend availability probe used by service readiness.
+    /// Embedded stores may retain the no-op default; networked built-ins must
+    /// override it with a real round trip.
+    async fn healthcheck(&self) -> StorageResult<()> {
+        Ok(())
+    }
+
     /// Initialize a new workflow run.
     async fn init_run(&self, run_id: &str, flow_name: &str, ctx: &Context) -> StorageResult<()>;
 

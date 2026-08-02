@@ -2,21 +2,20 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::State;
+use axum::http::HeaderMap;
 
 use crate::engine::WorkflowEngine;
 use crate::lua::LuaRuntime;
 
 use super::super::AppState;
 use super::super::errors::AppError;
-use super::helpers::{
-    FLOW_FILE_LOAD_ERROR, decode_base64_source, flow_file_load_error, log_flow_file_load_failure,
-    resolve_flow_path,
-};
-use super::types::{RunFlowRequest, RunFlowResponse, ValidateFlowRequest, ValidateResponse};
+use super::helpers::{decode_base64_source, flow_file_load_error, resolve_flow_path};
+use super::types::{RunFlowRequest, RunFlowResponse};
 
 /// POST /flows/run
 pub async fn run_flow(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(req): Json<RunFlowRequest>,
 ) -> Result<Json<RunFlowResponse>, AppError> {
     let RunFlowRequest {
@@ -41,6 +40,32 @@ pub async fn run_flow(
         ));
     }
 
+    let identity = super::super::idempotency::RequestIdentity::from_request(
+        &headers,
+        source.as_deref(),
+        source_base64.as_deref(),
+        file.as_deref(),
+        context.as_ref(),
+    )?;
+    if let Some(identity) = &identity {
+        match state.store.get_run_info(&identity.run_id).await {
+            Ok(existing) => {
+                if !identity.matches(&existing.ctx) {
+                    return Err(AppError::Conflict(
+                        "Idempotency-Key was already used for a different request".to_string(),
+                    ));
+                }
+                return Ok(Json(RunFlowResponse {
+                    run_id: existing.id,
+                    flow_name: existing.flow_name,
+                    status: existing.status.to_string(),
+                }));
+            }
+            Err(error) if error.kind() == crate::storage::StorageErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+
     reject_inline_source_when_disabled(&state, source.is_some() || source_base64.is_some())?;
 
     // Resolve the confined file path before reserving scarce execution/parser
@@ -53,7 +78,7 @@ pub async fn run_flow(
     // Run admission covers the whole expensive lifecycle, including Lua flow
     // evaluation. Acquiring after parsing let rejected requests each allocate
     // a separate bounded-but-large VM before receiving 503.
-    let run_permit = crate::api::acquire_run_permit()?;
+    let run_permit = crate::api::acquire_run_permit(&state.lifecycle)?;
     let flow_load_permit = crate::api::acquire_flow_load_permit()?;
 
     // Parse off the async runtime so a pathological flow cannot pin a worker
@@ -104,6 +129,9 @@ pub async fn run_flow(
             serde_json::Value::String(flows_dir.to_string_lossy().to_string()),
         );
     }
+    if let Some(identity) = &identity {
+        identity.insert_marker(&mut initial_ctx);
+    }
 
     let engine = WorkflowEngine::new_with_events(
         state.registry.clone(),
@@ -111,9 +139,30 @@ pub async fn run_flow(
         state.event_store.clone(),
         state.max_concurrent_tasks,
     );
-    let handle = engine.start(&flow, initial_ctx).await?;
+    let handle = match &identity {
+        Some(identity) => match engine
+            .start_with_run_id(&flow, initial_ctx, identity.run_id.clone())
+            .await?
+        {
+            Some(handle) => handle,
+            None => {
+                let existing = state.store.get_run_info(&identity.run_id).await?;
+                if !identity.matches(&existing.ctx) {
+                    return Err(AppError::Conflict(
+                        "Idempotency-Key was already used for a different request".to_string(),
+                    ));
+                }
+                return Ok(Json(RunFlowResponse {
+                    run_id: existing.id,
+                    flow_name: existing.flow_name,
+                    status: existing.status.to_string(),
+                }));
+            }
+        },
+        None => engine.start(&flow, initial_ctx).await?,
+    };
     let run_id = handle.id().to_string();
-    crate::api::wait_for_admitted_run(handle, run_permit).await?;
+    crate::api::wait_for_admitted_run(state.lifecycle.clone(), handle, run_permit).await?;
 
     let run_info = state.store.get_run_info(&run_id).await?;
 
@@ -124,121 +173,10 @@ pub async fn run_flow(
     }))
 }
 
-/// POST /flows/validate
-pub async fn validate_flow(
-    State(state): State<Arc<AppState>>,
-    Json(req): Json<ValidateFlowRequest>,
-) -> Result<Json<ValidateResponse>, AppError> {
-    let ValidateFlowRequest {
-        source,
-        source_base64,
-        file,
-    } = req;
-    let source_count = [source.is_some(), source_base64.is_some(), file.is_some()]
-        .iter()
-        .filter(|&&v| v)
-        .count();
-
-    if source_count == 0 {
-        return Err(AppError::BadRequest(
-            "Exactly one of 'source', 'source_base64', or 'file' is required".to_string(),
-        ));
-    }
-    if source_count > 1 {
-        return Err(AppError::BadRequest(
-            "Only one of 'source', 'source_base64', or 'file' may be provided".to_string(),
-        ));
-    }
-
-    // Validation executes the top-level Lua chunk, including `env()`, so it
-    // has the same trust boundary as execution. Reject before decoding or
-    // evaluating any caller-controlled source (IF-061).
-    reject_inline_source_when_disabled(&state, source.is_some() || source_base64.is_some())?;
-
-    let resolved_file = match file.as_deref() {
-        Some(file) => Some(resolve_flow_path(file, &state)?),
-        None => None,
-    };
-    let flow_load_permit = crate::api::acquire_flow_load_permit()?;
-
-    // Parse off the async runtime (IF-038).
-    let flow_result = if let Some(source) = source {
-        let registry = state.registry.clone();
-        crate::api::supervise_flow_load(flow_load_permit, async move {
-            LuaRuntime::load_flow_from_string_async(&source, &registry).await
-        })
-        .await
-    } else if let Some(b64) = source_base64 {
-        let source = decode_base64_source(&b64)?;
-        let registry = state.registry.clone();
-        crate::api::supervise_flow_load(flow_load_permit, async move {
-            LuaRuntime::load_flow_from_string_async(&source, &registry).await
-        })
-        .await
-    } else {
-        let path = resolved_file
-            .as_deref()
-            .expect("source validation guarantees one resolved file")
-            .to_string();
-        let registry = state.registry.clone();
-        let load_path = path.clone();
-        // File-mode parse errors must not echo file-derived detail (IF-045);
-        // return a generic validation failure instead of the raw Lua error.
-        match crate::api::supervise_flow_load(flow_load_permit, async move {
-            LuaRuntime::load_flow_async(&load_path, &registry).await
-        })
-        .await
-        {
-            Ok(flow) => Ok(flow),
-            Err(e) => {
-                log_flow_file_load_failure(&path, &e);
-                return Ok(Json(ValidateResponse {
-                    valid: false,
-                    flow_name: None,
-                    steps: None,
-                    errors: vec![FLOW_FILE_LOAD_ERROR.to_string()],
-                }));
-            }
-        }
-    };
-
-    match flow_result {
-        Ok(flow) => {
-            let mut errors = Vec::new();
-
-            // Check node types exist
-            for step in &flow.steps {
-                if state.registry.get(&step.node_type).is_none() {
-                    errors.push(format!(
-                        "Step '{}' uses unknown node type '{}'",
-                        step.name, step.node_type
-                    ));
-                }
-            }
-
-            // Validate DAG (dependencies + cycle detection)
-            errors.extend(flow.validate_dag());
-
-            Ok(Json(ValidateResponse {
-                valid: errors.is_empty(),
-                flow_name: Some(flow.name),
-                steps: Some(flow.steps.len()),
-                errors,
-            }))
-        }
-        Err(e) => Ok(Json(ValidateResponse {
-            valid: false,
-            flow_name: None,
-            steps: None,
-            errors: vec![format!("{:#}", e)],
-        })),
-    }
-}
-
 /// Inline source evaluates arbitrary caller-controlled Lua. A deployment that
 /// exposes only its configured flow catalog must apply this boundary to both
 /// execution and validation; file mode remains confined by `flows_dir`.
-fn reject_inline_source_when_disabled(
+pub(super) fn reject_inline_source_when_disabled(
     state: &AppState,
     has_inline_source: bool,
 ) -> Result<(), AppError> {

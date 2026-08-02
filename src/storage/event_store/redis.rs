@@ -63,6 +63,17 @@ impl RedisEventStore {
 
 #[async_trait]
 impl EventStore for RedisEventStore {
+    async fn healthcheck(&self) -> StorageResult<()> {
+        let mut conn = self.conn.clone();
+        redis::cmd("PING")
+            .query_async::<String>(&mut conn)
+            .await
+            .map_err(|error| {
+                StorageError::backend("Redis event store readiness probe failed", error)
+            })?;
+        Ok(())
+    }
+
     async fn publish(&self, event: RunEvent) -> StorageResult<()> {
         validate_publish_event(&event)?;
         self.ensure_layout(&event.run_id).await?;
