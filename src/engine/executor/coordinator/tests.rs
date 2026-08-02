@@ -157,7 +157,10 @@ async fn lost_lease_stops_as_infrastructure_and_is_durably_stalled() {
         None,
     )
     .with_heartbeat_timing(
-        std::time::Duration::from_millis(500),
+        // Keep the first heartbeat outside the one-second task-start window.
+        // Otherwise a loaded test runner can let renewal race the deliberate
+        // lease-file expiry below and replace it with a fresh lease.
+        std::time::Duration::from_secs(2),
         std::time::Duration::from_millis(100),
     );
     let handle = coordinator.spawn();
@@ -190,7 +193,7 @@ async fn lost_lease_stops_as_infrastructure_and_is_durably_stalled() {
     )
     .unwrap();
 
-    let result = tokio::time::timeout(std::time::Duration::from_secs(3), handle.wait())
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), handle.wait())
         .await
         .expect("lease loss did not settle the run");
     assert!(

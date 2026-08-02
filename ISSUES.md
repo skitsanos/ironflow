@@ -123,6 +123,7 @@ Static validation must be supplemented with representative runtime probes.
 | IF-069 | P1 | Resolved | Binary/PDF safety | Legacy file materialization and PDF merge amplify before their limits apply |
 | IF-070 | P2 | Resolved | Release governance | `main` requires a check that cannot run before merge |
 | IF-071 | P2 | Resolved | Test reliability | Cancellation cleanup test signals completion before staging cleanup |
+| IF-072 | P2 | Resolved | Test reliability | Lease-loss test can race its first heartbeat under load |
 
 ## P0 — release-blocking safety and durability
 
@@ -3140,3 +3141,19 @@ claims to test: cancellation has drained the blocking worker, removed staging,
 and preserved the original destination. The exact regression passed 100
 consecutive focused iterations. Formatting, `git diff --check`, the 436-module
 size policy, and `cargo clippy --all-targets -- -D warnings` pass.
+
+### IF-072 — Lease-loss test can race its first heartbeat under load
+
+**Status:** Resolved 2026-08-02.
+
+The executor lease-loss regression waited up to one second for its delay task
+to start, but scheduled the first lease heartbeat after only 500 milliseconds.
+Under full-suite load, the test's direct lease-file expiry could race a renewal
+that had already read the old live lease. That renewal could then replace the
+expired fixture with a fresh lease, leaving the five-second delay running past
+the test's three-second completion timeout.
+
+The first test heartbeat now starts after two seconds, outside the bounded
+one-second task-start window, and the completion budget includes that deliberate
+delay. The injected expiry therefore precedes renewal deterministically while
+the production heartbeat and lease reconciliation paths remain unchanged.
