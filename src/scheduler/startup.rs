@@ -25,12 +25,20 @@ pub fn validate_schedule_flows(
     schedules: &HashMap<String, ScheduleConfig>,
     flows_dir: Option<&Path>,
 ) -> Result<()> {
+    if schedules.len() > super::config::MAX_SCHEDULES {
+        bail!(
+            "schedules contains {} entries, exceeding the {}-entry limit",
+            schedules.len(),
+            super::config::MAX_SCHEDULES
+        );
+    }
     // Sorted so a multi-schedule misconfiguration always names the same
     // schedule first, regardless of `HashMap` iteration order.
     let mut names: Vec<&String> = schedules.keys().collect();
     names.sort();
 
     for name in names {
+        super::config::validate_schedule_name(name).map_err(anyhow::Error::msg)?;
         let flow = schedules[name].flow();
         if let Err(error) = resolve_flow_path_in(flow, flows_dir) {
             bail!("schedule '{name}': flow '{flow}' could not be resolved: {error:?}");

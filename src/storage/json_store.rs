@@ -42,6 +42,8 @@ type PauseHook = Arc<Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::No
 pub struct JsonStateStore {
     directory: SecureStoreDir,
     schedule_claims: SecureStoreDir,
+    schedule_claim_index: SecureStoreDir,
+    schedule_cleanup: crate::storage::schedule_cleanup::ScheduleCleanupCadence,
     run_leases: SecureStoreDir,
     lock: Arc<RwLock<()>>,
     #[cfg(test)]

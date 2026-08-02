@@ -331,7 +331,7 @@ async fn the_spawned_tick_loop_fires_a_due_schedule() {
     // appears would pass even if more were still landing.
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     let runs = store.list_runs(None).await.unwrap();
-    handle.abort();
+    handle.shutdown().await.unwrap();
 
     assert_eq!(
         runs.len(),

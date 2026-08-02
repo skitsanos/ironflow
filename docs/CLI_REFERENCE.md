@@ -701,23 +701,37 @@ schedules:
     flow: reports/nightly.lua      # resolved through flows_dir
     cron: "0 2 * * *"              # standard five-field cron
     timezone: "Europe/Berlin"      # IANA name; defaults to UTC
-    grace_seconds: 3600            # optional; default 300, minimum 60
+    grace_seconds: 3600            # optional; default 300, range 60..=604800
     context:                       # optional initial context
       region: "eu"
 ```
 
 | Field | Required | Default | Notes |
 |---|---|---|---|
-| `flow` | yes | — | Resolved against `flows_dir`, so a schedule cannot escape it |
-| `cron` | yes | — | Five fields: minute hour day month weekday. Seconds are fixed at zero; six- and seven-field expressions are rejected rather than reinterpreted |
-| `timezone` | no | `UTC` | IANA name. Unknown names fail at startup |
-| `grace_seconds` | no | `300` | Maximum lateness for which a missed instant still fires. Minimum 60, because the scheduler evaluates every 30 seconds |
-| `context` | no | `{}` | Merged into the run's initial context. Must not define `_schedule` or `_flow_dir` |
+| `flow` | yes | — | Resolved against `flows_dir`, so a schedule cannot escape it. Maximum 1,024 UTF-8 bytes |
+| `cron` | yes | — | Maximum 256 UTF-8 bytes. Five fields: minute hour day month weekday. Seconds are fixed at zero; six- and seven-field expressions are rejected. If day and weekday are both restricted, either matching fires the schedule, as in traditional crontab |
+| `timezone` | no | `UTC` | IANA name, maximum 128 UTF-8 bytes. Unknown names fail at startup |
+| `grace_seconds` | no | `300` | Maximum lateness for which a missed instant still fires. Range 60..=604,800 because the scheduler evaluates every 30 seconds and catch-up must remain bounded |
+| `context` | no | `{}` | Merged into the run's initial context, maximum 65,536 serialized JSON bytes. Must not define `_schedule` or `_flow_dir` |
 
-Invalid configuration — an unparseable expression, an unknown zone, a flow
-outside `flows_dir`, a reserved context key — fails the process at startup. A
-schedule that only fails at 02:00 is a schedule nobody finds out about until
-02:00.
+The `schedules` map accepts at most 256 entries, and each schedule name is at
+most 48 UTF-8 bytes with no control characters. One tick considers at most 64
+due instants for each name. If a longer grace window contains more occurrences,
+the remainder are logged and skipped rather than queued. This makes
+`grace_seconds` a lateness admission window, not an unbounded replay promise.
+
+A deterministic offline configuration and flow are available at
+`examples/21-schedules/ironflow.yaml` and
+`examples/21-schedules/scheduled_hello.lua`. From the repository root, run:
+
+```bash
+cargo run -- -C examples/21-schedules/ironflow.yaml serve
+```
+
+Invalid configuration—an over-limit map or value, an unparseable expression,
+an unknown zone, a flow outside `flows_dir`, or a reserved context key—fails
+the process at startup. A schedule that only fails at 02:00 is a schedule
+nobody finds out about until 02:00.
 
 **Scheduled runs are ordinary runs.** They appear in `ironflow list`,
 `ironflow inspect`, and the events stream, and carry the schedule's name in
@@ -729,11 +743,26 @@ is not an exactly-once run guarantee: the owner can deliberately consume the
 claim without starting a run when the instant is late, an earlier run appears
 active, process capacity is exhausted, or flow loading/startup fails. The JSON
 store coordinates only among processes sharing a `store_dir`; use SQL or Redis
-across hosts.
+across hosts. JSON and SQL claim retention runs in schedule-specific batches of
+at most 256, no more than once per hour for the normal seven-day-or-longer claim
+TTL. JSON uses digest/time-bucket cleanup shards while preserving its existing
+exclusive claim file as the atomic lock; claims from an earlier binary are
+indexed in bounded migration batches without moving that lock. SQL uses a
+covering cleanup index.
+
+Redis claims expire independently through their atomic key TTL. Cleanup is
+best-effort and never changes whether an unexpired claim was won.
 
 **Skips are logged, never silent.** A skip states which rule caused it — grace,
 overlap, or capacity — and the instant involved, at `WARN`. Losing a claim is
 logged at `debug`, because on N replicas it is the expected outcome N-1 times.
+Schedule names evaluate concurrently under a 15-second per-name budget. If that
+budget expires, the claim or run-start result can be indeterminate, so every
+due instant in that schedule's window is logged as timed out and burned rather
+than retried. Unrelated schedule names continue. If the scheduler task itself
+returns or panics, `serve` stops with an error so `/health` cannot remain green
+while scheduled execution is dead; normal server shutdown also waits for the
+scheduler loop to stop.
 
 **Daylight saving.** Schedules fire on local wall-clock time.
 

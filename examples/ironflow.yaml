@@ -50,9 +50,13 @@ store_backend: "json"     # IRONFLOW_STORE: json, sqlite, postgres, or redis
 # staging and nightly in production without editing flow source.
 #
 # `cron` is standard five-field (minute hour day month weekday); seconds are
-# fixed at zero. `timezone` is an IANA name and defaults to UTC.
+# fixed at zero. If day and weekday are both restricted, either one matching
+# fires the schedule. `timezone` is an IANA name and defaults to UTC.
 # `grace_seconds` is the maximum lateness for which a missed instant still
-# fires (default 300, minimum 60). Invalid values fail at startup, not at 02:00.
+# fires (default 300, range 60..=604800). One tick evaluates at most 64 due
+# instants per schedule; any remainder is skipped. Invalid values fail at
+# startup, not at 02:00. See examples/21-schedules/ironflow.yaml for a runnable
+# offline configuration.
 # schedules:
 #   nightly_report:
 #     flow: reports/nightly.lua

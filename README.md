@@ -203,10 +203,17 @@ gates for ordinary CI.
 | `GET` | `/health` | Health check |
 
 Flows can also run on a schedule. A `schedules:` block in `ironflow.yaml`
-declares cron triggers that `ironflow serve` evaluates — in a named time zone,
-with at most one replica claiming a given instant. A claimed instant may still
+declares bounded standard five-field cron triggers that `ironflow serve`
+evaluates—in a named time zone, with at most one replica claiming a given
+instant. If day-of-month and weekday are both restricted, either match fires
+the schedule, as in traditional crontab. A claimed instant may still
 be skipped for lateness, overlap, or capacity; overlap suppression is a bounded
-best-effort check rather than a distributed lock. See
+best-effort check rather than a distributed lock. Schedule names evaluate
+concurrently under a 15-second per-tick budget, and the scheduler task is
+supervised with the API server: an unexpected scheduler exit stops `serve`
+instead of leaving an apparently healthy API with no triggers. JSON and SQL
+claim retention is schedule-scoped, cadence-limited, and capped at 256 records
+per cleanup pass; Redis uses per-claim TTL. See
 [Schedules](docs/CLI_REFERENCE.md#schedules).
 
 Handler failures return JSON with `error` and a stable `code`. Internal failures

@@ -124,6 +124,9 @@ Static validation must be supplemented with representative runtime probes.
 | IF-070 | P2 | Resolved | Release governance | `main` requires a check that cannot run before merge |
 | IF-071 | P2 | Resolved | Test reliability | Cancellation cleanup test signals completion before staging cleanup |
 | IF-072 | P2 | Resolved | Test reliability | Lease-loss test can race its first heartbeat under load |
+| IF-073 | P1 | Resolved | Scheduler availability | A hung evaluation or dead scheduler task silently stops every schedule |
+| IF-074 | P1 | Resolved | Scheduler contract | Schedule configuration and cron semantics are not bounded or portable |
+| IF-075 | P2 | Resolved | Scheduler performance | Schedule claim cleanup is linear on every fire |
 
 ## P0 — release-blocking safety and durability
 
@@ -3157,3 +3160,166 @@ The first test heartbeat now starts after two seconds, outside the bounded
 one-second task-start window, and the completion budget includes that deliberate
 delay. The injected expiry therefore precedes renewal deterministically while
 the production heartbeat and lease reconciliation paths remain unchanged.
+
+### IF-073 — A hung evaluation or dead scheduler task silently stops every schedule
+
+**Status:** Resolved 2026-08-02 (found 2026-08-02).
+
+The scheduler has a sound ordinary execution path, but its availability is
+coupled to one unsupervised serial task. `scheduler::spawn` returns a
+`JoinHandle<()>`; `cmd_serve` stores it in `_scheduler` and only awaits the HTTP
+server. A panic or unexpected task exit therefore leaves the API healthy while
+all scheduled work has stopped. One evaluation also awaits each schedule claim
+and the overlap store reads without a deadline. A backend call that never
+returns blocks the only tick loop, including every unrelated schedule.
+
+A claim timeout is not equivalent to a safe claim failure: the backend may
+have committed after the caller lost the response, so blindly firing after a
+timeout could duplicate a run. The availability repair must preserve this
+ambiguity boundary rather than weakening at-most-one admission.
+
+Required outcome:
+
+- tie the scheduler task lifecycle to `serve`, surface unexpected exit through
+  process health and structured diagnostics, and shut it down deliberately;
+- bound claim and overlap-store operations without treating an ambiguous claim
+  timeout as permission to run;
+- isolate a stalled schedule so it cannot indefinitely block unrelated names;
+- add regressions for a hanging claim, a hanging overlap read, and unexpected
+  scheduler task termination while the HTTP server remains otherwise healthy.
+
+Resolution: schedule names now evaluate concurrently, with deterministic
+name-sorted results and a 15-second wall-time budget per name. One hanging
+claim, overlap read, or flow start therefore cannot hold unrelated schedules.
+When the budget expires, every due instant in that schedule's window is
+reported as `TimedOut` and its watermark advances through the window. This is
+deliberately at-most-once: cancellation cannot prove whether an in-flight claim
+or run start committed, so retrying would risk a duplicate.
+
+The tick loop now runs inside a `SchedulerTask` with explicit shutdown. CLI
+`serve` supervises that task alongside the API server: normal server completion
+requests and awaits scheduler shutdown, while an unexpected return or panic is
+logged and returned as a service error, dropping the HTTP server so health
+cannot remain green with dead triggers. Focused validation passed three task
+lifecycle tests, two hanging-operation isolation tests, 15 scheduler-decision
+tests, and 12 scheduler end-to-end tests.
+
+### IF-074 — Schedule configuration and cron semantics are not bounded or portable
+
+**Status:** Resolved 2026-08-02 (found 2026-08-02).
+
+Schedule deserialization validates a non-empty flow, five cron fields, an IANA
+timezone, a minimum 60-second grace window, and reserved context keys. It does
+not bound schedule count, name length, flow/cron/context size, or maximum grace.
+`timing::grace_floor` converts the public `u64` grace to `i64` with `as`, so a
+large valid YAML integer can wrap before `chrono::Duration` is constructed.
+JSON claims also hex-encode the complete schedule name into a filename, making
+an otherwise valid long name fail only when its first instant is claimed.
+
+The catch-up implementation admits at most 64 instants per schedule per tick,
+but the CLI contract describes `grace_seconds` as a maximum lateness without
+stating that cap. A large grace window can also require scanning many local
+minutes before the cap is applied. Finally, the documentation calls the input
+"standard five-field cron" while the selected parser requires both restricted
+day-of-month and day-of-week fields to match. Traditional crontab semantics use
+either field in that case, so an expression such as `0 4 1 * 5` can fire less
+often than an operator expects. There is no regression that fixes this joint
+day-field contract, and the schedule YAML under `examples/` is only a commented
+template rather than a deterministic runnable example.
+
+Required outcome:
+
+- impose reviewed limits on schedule count, names, flow and cron strings,
+  context size, and grace; use checked time arithmetic and portable claim keys;
+- make the 64-instant catch-up limit and its skip behavior part of the public
+  contract, with bounded parsing/catch-up work under hostile configuration;
+- either implement traditional day-of-month/day-of-week OR behavior or name
+  and document the accepted dialect explicitly, with joint-field regressions;
+- provide a deterministic runnable schedule configuration and align its flow,
+  README/catalog entry, CLI reference, and validation coverage.
+
+Resolution: `schedules` now deserializes through a bounded map visitor that
+rejects more than 256 entries, duplicate/empty names, control characters, and
+names longer than 48 UTF-8 bytes before accepting their values. Individual
+schedule construction caps flow paths at 1,024 bytes, cron expressions at 256,
+timezone names at 128, serialized context at 65,536, and grace at
+60..=604,800 seconds. Checked signed conversion replaces the wrapping grace
+cast. The schedule-name bound keeps the existing claim filename format within
+common component limits, preserving rolling-upgrade claim compatibility rather
+than introducing a new hash namespace that old replicas could claim around.
+
+Cron parsing now builds a bounded union when day-of-month and weekday are both
+restricted, implementing traditional OR semantics and deduplicating dates that
+match both fields. The public contract explicitly states that each tick admits
+at most 64 occurrences and skips, rather than queues, the remainder. A new
+offline `examples/21-schedules` flow and configuration make the `serve`
+scheduler runnable without credentials or external services; the catalog and
+example counts include it.
+
+Focused validation passed three bounded-map configuration tests, 16 schedule
+configuration/cron tests, nine timezone/catch-up timing tests, 14 default
+schedule-claim tests, 15 scheduler-decision tests, 12 scheduler end-to-end
+tests, three availability tests, 16 CLI precedence tests, and three example
+catalog tests. The runnable configuration claimed and completed one
+`scheduled_hello` run against a disposable JSON store with the expected
+`_schedule` provenance, and all 130 Lua examples validated. Rustdoc, formatting,
+`git diff --check`, the 439-module size policy, and exact all-target Clippy pass.
+
+### IF-075 — Schedule claim cleanup is linear on every fire
+
+**Status:** Resolved 2026-08-02 (found 2026-08-02).
+
+Every JSON and SQL claim first performs best-effort retention cleanup for the
+same schedule. JSON streams the complete shared claims directory and stats each
+matching entry before atomically creating the new claim. The normal minimum TTL
+is seven days, so a minutely schedule retains about 10,080 claims and then scans
+that population every minute. SQL likewise performs an unbatched delete before
+every insert; the claim table is keyed by `(name, claim_key)` without a cleanup
+index ordered by `(name, claimed_micros)`. Redis avoids the scan by assigning a
+TTL to each claim key.
+
+The current tests prove cross-replica exclusion and eventual cleanup, including
+schedule-specific TTL isolation, but do not exercise the steady-state cost of a
+high-frequency schedule with thousands of retained claims.
+
+Required outcome:
+
+- decouple retention from every claim and make cleanup cadence and batch size
+  bounded without reopening a duplicate-fire window;
+- use a scalable JSON layout/index and add the SQL cleanup index needed by the
+  retention predicate;
+- retain per-schedule TTL isolation and atomic at-most-one claims under cleanup
+  concurrency;
+- add a representative 10,000-plus-claim benchmark/regression for JSON and SQL,
+  while keeping Redis TTL behavior covered independently.
+
+Resolution: JSON and SQL now admit cleanup through a shared process-local
+cadence gate. A schedule runs retention at most once per
+`clamp(ttl / 4, 60 seconds, 1 hour)` for each store process and removes no more
+than 256 expired claims per pass. The gate retains only SHA-256 schedule
+identities and caps its bookkeeping at 1,024 entries; the public scheduler is
+already limited to 256 names. A zero TTL remains an explicit immediate-cleanup
+contract for deterministic storage tests.
+
+The rolling-upgrade-compatible JSON claim file remains the authoritative atomic
+lock. Retention metadata is now stored separately in SHA-256 schedule shards
+and hourly buckets, so steady-state cleanup never enumerates another schedule's
+claims or live future buckets. Claims written before the index existed are
+indexed across all schedule shards in batches of 256, after which one durable
+global completion marker removes the transitional flat scan. Index creation and
+cleanup remain best-effort: a failure can retain a claim longer but cannot
+invalidate its ownership or allow a second winner. SQL now uses a portable
+256-row oldest-first delete backed by a covering
+`(name, claimed_micros, claim_key)` index. Redis remains independently bounded
+by atomic per-key TTL and does not enter the cleanup gate.
+
+Focused validation passed 17 default schedule-claim tests, including 10,001
+record JSON and SQLite regressions, bounded legacy migration, schedule-specific
+TTL isolation, and same-key races while two stores clean expired claims. The
+cadence and existing SQL-prefix-limit unit regressions pass. Live required-test
+feature suites passed against disposable PostgreSQL 18.4 (18 tests) and Redis
+8.10.0 (19 tests); the Redis TTL regression expired and reclaimed its key
+without a sweep. The named containers were removed afterward. Three example
+catalog tests and all 130 Lua examples validate. Formatting, `git diff --check`,
+the 441-module size policy, and exact all-target Clippy pass. This is focused
+local and live-service evidence, not the full integration suite or deployed CI.

@@ -37,6 +37,7 @@ pub struct SqlStateTableNames {
     pub run_leases: String,
     pub run_leases_expiry_idx: String,
     pub schedule_claims: String,
+    pub schedule_claims_cleanup_idx: String,
 }
 
 #[derive(Debug, Clone)]
@@ -61,6 +62,7 @@ impl SqlStateTableNames {
             run_leases: format!("{prefix}run_leases"),
             run_leases_expiry_idx: format!("{prefix}run_leases_expiry_idx"),
             schedule_claims: format!("{prefix}schedule_claims"),
+            schedule_claims_cleanup_idx: format!("{prefix}schedule_claims_gc_idx"),
         };
         validate_identifier(&names.runs)?;
         validate_identifier(&names.tasks)?;
@@ -70,6 +72,7 @@ impl SqlStateTableNames {
         validate_identifier(&names.run_leases)?;
         validate_identifier(&names.run_leases_expiry_idx)?;
         validate_identifier(&names.schedule_claims)?;
+        validate_identifier(&names.schedule_claims_cleanup_idx)?;
         Ok(names)
     }
 }
@@ -144,6 +147,10 @@ mod tests {
         assert_eq!(names.tasks, "ironflow_tasks");
         assert_eq!(names.run_leases, "ironflow_run_leases");
         assert_eq!(names.schedule_claims, "ironflow_schedule_claims");
+        assert_eq!(
+            names.schedule_claims_cleanup_idx,
+            "ironflow_schedule_claims_gc_idx"
+        );
 
         let events = SqlEventTableNames::new(None).unwrap();
         assert_eq!(events.events, "ironflow_events");
@@ -170,5 +177,11 @@ mod tests {
         let names = SqlStateTableNames::new(Some("Tenant_A_")).unwrap();
         assert_eq!(names.runs, "tenant_a_runs");
         assert_eq!(names.tasks, "tenant_a_tasks");
+    }
+
+    #[test]
+    fn cleanup_index_does_not_reduce_the_existing_prefix_limit() {
+        let prefix = "p".repeat(63 - "runs_status_started_id_idx".len());
+        SqlStateTableNames::new(Some(&prefix)).unwrap();
     }
 }

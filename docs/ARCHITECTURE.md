@@ -638,10 +638,18 @@ Rolling deployments must not mix pre-CAS and CAS-capable Redis writers: an old b
 `ironflow serve` evaluates configuration-only `schedules:` entries every 30
 seconds. Each scheduler keeps a local wall-clock watermark per schedule,
 enumerates only occurrences still reachable within that schedule's grace
-window, and caps one tick at 64 occurrences. Cron expressions have five fields;
-time zones use IANA names. A repeated fall-back wall-clock instant resolves to
-the earlier occurrence, while a spring-forward gap resolves to the first real
-instant after the gap.
+window, and caps one tick at 64 occurrences; excess occurrences are skipped,
+not queued. Cron expressions have five fields and traditional crontab
+day-of-month/day-of-week OR semantics; time zones use IANA names. A repeated
+fall-back wall-clock instant resolves to the earlier occurrence, while a
+spring-forward gap resolves to the first real instant after the gap.
+
+Configuration admits at most 256 schedules. Names are at most 48 UTF-8 bytes,
+flow paths 1,024 bytes, cron expressions 256 bytes, timezone names 128 bytes,
+and serialized initial contexts 65,536 bytes. Grace is bounded to
+60..=604,800 seconds and converted to signed duration only after validation.
+The name limit also keeps the existing rolling-upgrade-compatible JSON claim
+filename below common filesystem component limits.
 
 For every due instant, the scheduler first calls
 `StateStore::claim_schedule(name, key, ttl_seconds)`. The key contains the time
@@ -650,6 +658,22 @@ same identity. JSON uses exclusive file creation, SQL uses a unique row, and
 Redis uses `SET NX EX`; the transient null store always succeeds and is suitable
 only when no peer scheduler exists. Claim retention exceeds the grace window so
 a late replica cannot re-fire a recently reaped instant.
+
+JSON keeps that rolling-upgrade-compatible exclusive file as the authoritative
+lock and writes separate SHA-256 schedule shards with hourly cleanup buckets.
+Pre-index flat claims are indexed across all schedule shards in batches of 256;
+a durable global completion marker removes that transitional scan once
+migration reaches the end of the legacy namespace. The authoritative claim file
+is never moved or renamed during migration.
+
+SQL has a covering `(name, claimed_micros, claim_key)` retention index. For
+both backends, each process sweeps a schedule at most once per
+`clamp(ttl / 4, 60 seconds, 1 hour)` and deletes no more than 256 expired claims
+per sweep; a zero TTL used by storage contract tests requests immediate
+cleanup. Cleanup is best-effort and schedule-scoped, so a retention failure can
+retain storage but cannot invalidate a committed claim or apply one schedule's
+grace-derived TTL to another. Redis needs no sweep because expiry belongs to
+each atomic claim key.
 
 This is an **at-most-one claim**, not an exactly-once run guarantee. After a
 claim succeeds, the owning replica checks lateness, overlap, and process run
@@ -665,6 +689,16 @@ run-admission semaphore, and flow-path confinement. Their initial context adds
 `_schedule` for provenance and `_flow_dir` for relative resources. A scheduled
 run is detached from the tick loop after it starts, so a long-running flow does
 not block later scheduler evaluations.
+
+Schedule names evaluate concurrently, each under a 15-second wall-time budget.
+A timed-out evaluation is indeterminate: its storage claim or run start may
+have committed after the caller lost the result. IronFlow therefore logs the
+timeout, reports each due instant as `TimedOut`, and advances that schedule's
+watermark through the evaluated window instead of retrying and risking a
+duplicate. Other schedule names continue independently. The tick task and API
+server are supervised as one availability unit; an unexpected scheduler return
+or panic ends `serve` with an error, while normal server completion requests and
+awaits scheduler shutdown.
 
 ### 6. CLI (`cli/`)
 

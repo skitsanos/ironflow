@@ -13,6 +13,7 @@ pub mod run_id;
 pub mod run_lease;
 mod run_listing;
 mod run_reaper;
+mod schedule_cleanup;
 pub(crate) mod sql_ddl;
 pub mod sql_names;
 pub mod sql_store;

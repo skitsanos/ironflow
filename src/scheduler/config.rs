@@ -1,15 +1,28 @@
 //! Schedule declarations loaded from `ironflow.yaml`.
 
-use std::str::FromStr;
-
 use chrono_tz::Tz;
-use cron::Schedule;
 use serde::Deserialize;
 
 use crate::engine::types::Context;
 
-/// Number of fields in the cron dialect IronFlow accepts.
-const CRON_FIELDS: usize = 5;
+pub use super::cron::{CronSchedule, MAX_CRON_EXPRESSION_BYTES, parse_cron};
+
+/// Maximum number of configured schedule names.
+pub const MAX_SCHEDULES: usize = 256;
+
+/// Maximum UTF-8 bytes in a schedule name. This keeps JSON claim filenames
+/// below common 255-byte component limits without changing their durable key
+/// format during rolling upgrades.
+pub const MAX_SCHEDULE_NAME_BYTES: usize = 48;
+
+/// Maximum UTF-8 bytes in a configured flow path.
+pub const MAX_SCHEDULE_FLOW_BYTES: usize = 1_024;
+
+/// Maximum UTF-8 bytes in an IANA timezone name.
+pub const MAX_SCHEDULE_TIMEZONE_BYTES: usize = 128;
+
+/// Maximum serialized JSON bytes in one schedule's initial context.
+pub const MAX_SCHEDULE_CONTEXT_BYTES: usize = 64 * 1_024;
 
 /// Default maximum lateness for which a missed instant still fires.
 const DEFAULT_GRACE_SECONDS: u64 = 300;
@@ -17,39 +30,37 @@ const DEFAULT_GRACE_SECONDS: u64 = 300;
 /// Shortest grace window that behaves predictably against the tick interval.
 pub const MIN_GRACE_SECONDS: u64 = 60;
 
+/// Longest catch-up window accepted from configuration.
+pub const MAX_GRACE_SECONDS: u64 = 7 * 24 * 3_600;
+
 /// Claim records are kept at least this long regardless of grace.
 const MIN_CLAIM_TTL_SECONDS: u64 = 7 * 24 * 3_600;
 
 /// Context keys IronFlow injects itself; a schedule must not preset them.
 pub const RESERVED_SCHEDULE_CONTEXT_KEYS: &[&str] = &["_schedule", "_flow_dir"];
 
-/// Parse a standard five-field cron expression.
-///
-/// The `cron` crate parses six fields, reading the first as seconds, and
-/// rejects the five-field form outright. Accepting six here would silently
-/// reinterpret `"0 2 * * * *"` as something its author did not write, so only
-/// the five-field form is accepted and the seconds field is fixed at zero.
-/// Sub-minute scheduling is out of scope, so nothing is lost by that.
-pub fn parse_cron(expression: &str) -> Result<Schedule, String> {
-    let fields = expression.split_whitespace().count();
-    if fields != CRON_FIELDS {
+/// Validate a schedule map key before it reaches logs, context, or storage.
+pub fn validate_schedule_name(name: &str) -> Result<(), String> {
+    if name.trim().is_empty() {
+        return Err("schedule name must not be empty".to_string());
+    }
+    if name.len() > MAX_SCHEDULE_NAME_BYTES {
         return Err(format!(
-            "cron expression must have five fields \
-             (minute hour day month weekday), but {fields} were supplied in '{expression}'"
+            "schedule name is {} bytes, exceeding the {MAX_SCHEDULE_NAME_BYTES}-byte limit",
+            name.len()
         ));
     }
-
-    // The parser's error is a multi-line caret diagram. A startup failure is
-    // more useful naming the expression than reprinting that.
-    Schedule::from_str(&format!("0 {expression}"))
-        .map_err(|_| format!("cron expression '{expression}' is not valid"))
+    if name.chars().any(char::is_control) {
+        return Err("schedule name must not contain control characters".to_string());
+    }
+    Ok(())
 }
 
 /// One named schedule.
 #[derive(Clone, Debug)]
 pub struct ScheduleConfig {
     flow: String,
-    cron: Schedule,
+    cron: CronSchedule,
     cron_source: String,
     timezone: Tz,
     grace_seconds: u64,
@@ -68,14 +79,29 @@ impl ScheduleConfig {
         if flow.trim().is_empty() {
             return Err("schedule flow path must not be empty".to_string());
         }
+        if flow.len() > MAX_SCHEDULE_FLOW_BYTES {
+            return Err(format!(
+                "schedule flow path is {} bytes, exceeding the {MAX_SCHEDULE_FLOW_BYTES}-byte limit",
+                flow.len()
+            ));
+        }
 
         let parsed = parse_cron(cron)?;
 
         let timezone = match timezone {
             None => Tz::UTC,
-            Some(name) => Tz::from_str(name).map_err(|_| {
-                format!("schedule timezone '{name}' is not a known IANA time zone name")
-            })?,
+            Some(name) => {
+                if name.len() > MAX_SCHEDULE_TIMEZONE_BYTES {
+                    return Err(format!(
+                        "schedule timezone is {} bytes, exceeding the \
+                         {MAX_SCHEDULE_TIMEZONE_BYTES}-byte limit",
+                        name.len()
+                    ));
+                }
+                name.parse::<Tz>().map_err(|_| {
+                    format!("schedule timezone '{name}' is not a known IANA time zone name")
+                })?
+            }
         };
 
         let grace_seconds = grace_seconds.unwrap_or(DEFAULT_GRACE_SECONDS);
@@ -86,6 +112,12 @@ impl ScheduleConfig {
                  would skip fires unpredictably"
             ));
         }
+        if grace_seconds > MAX_GRACE_SECONDS {
+            return Err(format!(
+                "schedule grace_seconds must not exceed {MAX_GRACE_SECONDS}; \
+                 {grace_seconds} was supplied"
+            ));
+        }
 
         for reserved in RESERVED_SCHEDULE_CONTEXT_KEYS {
             if context.contains_key(*reserved) {
@@ -93,6 +125,15 @@ impl ScheduleConfig {
                     "schedule context must not define reserved key '{reserved}'"
                 ));
             }
+        }
+        let context_bytes = serde_json::to_vec(&context)
+            .map_err(|error| format!("schedule context could not be serialized: {error}"))?
+            .len();
+        if context_bytes > MAX_SCHEDULE_CONTEXT_BYTES {
+            return Err(format!(
+                "schedule context is {context_bytes} bytes, exceeding the \
+                 {MAX_SCHEDULE_CONTEXT_BYTES}-byte limit"
+            ));
         }
 
         Ok(Self {
@@ -109,7 +150,7 @@ impl ScheduleConfig {
         &self.flow
     }
 
-    pub fn cron(&self) -> &Schedule {
+    pub fn cron(&self) -> &CronSchedule {
         &self.cron
     }
 
@@ -123,6 +164,10 @@ impl ScheduleConfig {
 
     pub fn grace_seconds(&self) -> u64 {
         self.grace_seconds
+    }
+
+    pub(super) fn grace_seconds_i64(&self) -> i64 {
+        i64::try_from(self.grace_seconds).expect("validated grace fits i64")
     }
 
     pub fn context(&self) -> &Context {

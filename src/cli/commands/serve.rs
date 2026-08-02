@@ -31,7 +31,7 @@ pub(crate) async fn cmd_serve(
 
     // Spawned here rather than inside `api::serve` so schedules stay off
     // `ServeOptions` and the REST surface keeps one responsibility.
-    let _scheduler = crate::scheduler::spawn(
+    let scheduler = crate::scheduler::spawn(
         schedules,
         store.clone(),
         event_store.clone(),
@@ -39,5 +39,8 @@ pub(crate) async fn cmd_serve(
         scheduler_max_concurrent_tasks,
     );
 
-    server.serve().await
+    match scheduler {
+        Some(scheduler) => scheduler.supervise(server.serve()).await,
+        None => server.serve().await,
+    }
 }

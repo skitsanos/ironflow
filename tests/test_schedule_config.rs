@@ -51,6 +51,35 @@ fn a_five_field_expression_fires_at_the_top_of_the_minute() {
     assert_eq!(next, Utc.with_ymd_and_hms(2026, 5, 1, 2, 0, 0).unwrap());
 }
 
+#[test]
+fn restricted_day_of_month_and_weekday_use_traditional_or_semantics() {
+    use chrono::{TimeZone as _, Utc};
+
+    let schedule = parse_cron("0 4 1 * Fri").unwrap();
+    let after = Utc.with_ymd_and_hms(2026, 5, 29, 4, 0, 0).unwrap();
+    let next = schedule.after(&after).take(2).collect::<Vec<_>>();
+
+    assert_eq!(
+        next,
+        [
+            Utc.with_ymd_and_hms(2026, 6, 1, 4, 0, 0).unwrap(),
+            Utc.with_ymd_and_hms(2026, 6, 5, 4, 0, 0).unwrap(),
+        ]
+    );
+}
+
+#[test]
+fn a_date_matching_both_day_fields_is_emitted_once() {
+    use chrono::{TimeZone as _, Utc};
+
+    let schedule = parse_cron("0 4 1 * Fri").unwrap();
+    let after = Utc.with_ymd_and_hms(2026, 4, 30, 4, 0, 0).unwrap();
+    let next = schedule.after(&after).take(2).collect::<Vec<_>>();
+
+    assert_eq!(next[0], Utc.with_ymd_and_hms(2026, 5, 1, 4, 0, 0).unwrap());
+    assert_eq!(next[1], Utc.with_ymd_and_hms(2026, 5, 8, 4, 0, 0).unwrap());
+}
+
 use ironflow::engine::types::Context;
 use ironflow::scheduler::config::ScheduleConfig;
 
@@ -102,6 +131,82 @@ fn grace_below_one_tick_is_rejected_rather_than_silently_flaky() {
 }
 
 #[test]
+fn schedule_strings_context_and_grace_are_bounded() {
+    use ironflow::scheduler::config::{
+        MAX_CRON_EXPRESSION_BYTES, MAX_GRACE_SECONDS, MAX_SCHEDULE_CONTEXT_BYTES,
+        MAX_SCHEDULE_FLOW_BYTES, MAX_SCHEDULE_NAME_BYTES, MAX_SCHEDULE_TIMEZONE_BYTES,
+        validate_schedule_name,
+    };
+
+    let error = ScheduleConfig::new(
+        "x".repeat(MAX_SCHEDULE_FLOW_BYTES + 1),
+        "0 2 * * *",
+        None,
+        None,
+        Context::new(),
+    )
+    .unwrap_err();
+    assert!(
+        error.contains("flow path") && error.contains("limit"),
+        "{error}"
+    );
+
+    let error = ScheduleConfig::new(
+        "f.lua",
+        &"x".repeat(MAX_CRON_EXPRESSION_BYTES + 1),
+        None,
+        None,
+        Context::new(),
+    )
+    .unwrap_err();
+    assert!(error.contains("cron") && error.contains("limit"), "{error}");
+
+    let timezone = "x".repeat(MAX_SCHEDULE_TIMEZONE_BYTES + 1);
+    let error = ScheduleConfig::new("f.lua", "0 2 * * *", Some(&timezone), None, Context::new())
+        .unwrap_err();
+    assert!(
+        error.contains("timezone") && error.contains("limit"),
+        "{error}"
+    );
+
+    let error = ScheduleConfig::new(
+        "f.lua",
+        "0 2 * * *",
+        None,
+        Some(MAX_GRACE_SECONDS + 1),
+        Context::new(),
+    )
+    .unwrap_err();
+    assert!(
+        error.contains("grace_seconds") && error.contains("exceed"),
+        "{error}"
+    );
+
+    let mut context = Context::new();
+    context.insert(
+        "payload".to_string(),
+        serde_json::json!("x".repeat(MAX_SCHEDULE_CONTEXT_BYTES)),
+    );
+    let error = ScheduleConfig::new("f.lua", "0 2 * * *", None, None, context).unwrap_err();
+    assert!(
+        error.contains("context") && error.contains("limit"),
+        "{error}"
+    );
+
+    let long_name = "n".repeat(MAX_SCHEDULE_NAME_BYTES + 1);
+    assert!(
+        validate_schedule_name(&long_name)
+            .unwrap_err()
+            .contains("limit")
+    );
+    assert!(
+        validate_schedule_name("bad\nname")
+            .unwrap_err()
+            .contains("control")
+    );
+}
+
+#[test]
 fn reserved_context_keys_are_refused_at_startup() {
     for reserved in ["_schedule", "_flow_dir"] {
         let mut ctx = Context::new();
@@ -122,7 +227,7 @@ fn claim_ttl_always_outlives_the_grace_window() {
         "f.lua",
         "0 2 * * *",
         None,
-        Some(30 * 86_400),
+        Some(ironflow::scheduler::config::MAX_GRACE_SECONDS),
         Context::new(),
     )
     .unwrap();

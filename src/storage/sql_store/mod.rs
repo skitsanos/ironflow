@@ -32,6 +32,7 @@ pub struct SqlStateStore {
     pub(super) pool: AnyPool,
     pub(super) tables: SqlStateTableNames,
     pub(super) dialect: SqlDialect,
+    schedule_cleanup: crate::storage::schedule_cleanup::ScheduleCleanupCadence,
 }
 
 impl SqlStateStore {
@@ -55,6 +56,7 @@ impl SqlStateStore {
                 StorageError::backend("Invalid SQL state store table prefix", error)
             })?,
             dialect,
+            schedule_cleanup: crate::storage::schedule_cleanup::ScheduleCleanupCadence::default(),
         };
         store.ensure_schema().await?;
         Ok(store)

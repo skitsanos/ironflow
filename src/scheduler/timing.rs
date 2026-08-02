@@ -81,7 +81,7 @@ pub fn claim_key(tz: Tz, local: NaiveDateTime) -> String {
 /// permanently failing claim from pinning the watermark past this same
 /// horizon.
 pub(super) fn grace_floor(now: DateTime<Utc>, schedule: &ScheduleConfig) -> NaiveDateTime {
-    let grace = Duration::seconds(schedule.grace_seconds() as i64);
+    let grace = Duration::seconds(schedule.grace_seconds_i64());
     (now - grace)
         .with_timezone(&schedule.timezone())
         .naive_local()
