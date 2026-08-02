@@ -171,6 +171,12 @@ The repository's [`.env.example`](.env.example) contains safe starter values.
 See the [CLI reference](docs/CLI_REFERENCE.md#configuration-resolution) for the
 complete contract and configuration variables.
 
+Extraction CPU, RSS, output, persistence, concurrency, and cancellation-drain
+trends can be measured with the opt-in
+[release subprocess benchmark](docs/EXTRACTION_BENCHMARK.md). Local calibration
+documents stay in ignored `data/samples/`; benchmark results are not timing
+gates for ordinary CI.
+
 ## CLI Commands
 
 | Command | Description |

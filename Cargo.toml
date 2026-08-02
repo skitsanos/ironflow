@@ -69,3 +69,7 @@ futures-util = "0.3"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.186"
+
+[[example]]
+name = "extraction_benchmark_worker"
+path = "tools/extraction_benchmark_worker.rs"

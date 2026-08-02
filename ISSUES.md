@@ -118,7 +118,7 @@ Static validation must be supplemented with representative runtime probes.
 | IF-064 | P1 | Resolved | ZIP/security | ZIP work outlives cancellation and extraction follows destination symlinks |
 | IF-065 | P1 | Resolved | Extraction/runtime | Non-XLSX extractors block async workers and lack end-to-end limits |
 | IF-066 | P1 | Resolved | Engine/resource safety | Extraction output and ZIP metadata amplify before memory caps apply |
-| IF-067 | P2 | Open | Tooling/performance | Extraction resource behavior has no repeatable benchmark harness |
+| IF-067 | P2 | Resolved | Tooling/performance | Extraction resource behavior has no repeatable benchmark harness |
 | IF-068 | P1 | Resolved | Artifact security | Local artifact reads trust a mutable pathname and do not verify content identity |
 | IF-069 | P1 | Resolved | Binary/PDF safety | Legacy file materialization and PDF merge amplify before their limits apply |
 
@@ -2889,7 +2889,7 @@ Pdfium coverage.
 
 ### IF-067 — Extraction resource behavior has no repeatable benchmark harness
 
-**Status:** Open (found 2026-07-31).
+**Status:** Resolved 2026-08-02 (found 2026-07-31).
 
 The committed extraction fixtures remain intentionally small and functional;
 `data/samples/` is gitignored, and examples must not depend on it. IF-065 added
@@ -2921,6 +2921,42 @@ Required outcome:
 - document the benchmark command, result schema, machine metadata, and
   interpretation rules. Keep trends opt-in and use only broad safety ceilings
   in CI, never brittle wall-time assertions.
+
+Resolution: `scripts/extraction_benchmark.ts` now builds a dedicated release
+worker once and runs each extraction input in a separate `/usr/bin/time`
+subprocess on macOS or Linux. It accepts an explicit ignored samples directory,
+configurable repetitions, and concurrency subsets of 1/2/4. Each JSONL record
+contains the input checksum, raw and declared-uncompressed bytes, success/limit/
+error/cancelled classification, named limit, wall and user/system CPU time,
+peak RSS normalized to bytes, counted serialized output bytes, persisted
+artifact bytes, cancellation request and physical drain timing, batch identity,
+and a conservative concurrent peak-RSS sum. Machine metadata includes platform,
+CPU/memory, toolchain, commit/dirty state, hostname hash, and release-worker
+checksum. Extracted content, raw errors, absolute sample paths, and media bytes
+never enter results.
+
+The committed sub-500-KiB deterministic corpus covers long ZIP metadata,
+repeated PPTX media references, compressed PDF text, and pathological HTML.
+Its manifest pins raw sizes and SHA-256 identities, and the generator is covered
+by a byte-determinism regression. The pathological HTML also supplies the
+post-cancellation drain probe. Local JSONL results and isolated worker artifact
+directories are ignored/removed; `data/samples/` remains ignored and is never
+an example dependency. The benchmark guide defines the schema, baseline,
+comparison rules, conservative concurrency interpretation, and prohibition on
+brittle CPU/RSS/wall-time CI assertions.
+
+Focused validation passed three release-worker Rust tests, five Bun parser/
+policy/checksum tests, deterministic fixture regeneration, and a 42-record
+release subprocess matrix spanning baseline, four fixtures, cancellation, and
+concurrency 1/2/4. All seven cancellation workers cancelled and physically
+drained. A separate concurrency-1 calibration processed 12 supported local
+`data/samples` files: 11 succeeded and `sample-big-dates.xlsx` produced the
+expected `IRONFLOW_MAX_XLSX_CELLS` bounded rejection. On this Apple M4 Pro
+calibration only, the largest observed sample-process RSS was about 35.3 MB for
+`sample-big.xlsx`; this is local trend evidence, not a portable ceiling.
+Formatting, the 436-module size policy, `git diff --check`, and
+`cargo clippy --all-targets -- -D warnings` pass. The whole integration gate was
+not run under the ordinary issue-completion policy.
 
 ### IF-068 — Local artifact reads flatten identity into a trusted mutable pathname
 
