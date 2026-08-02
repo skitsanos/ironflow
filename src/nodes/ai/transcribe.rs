@@ -74,7 +74,7 @@ impl Node for TranscribeNode {
             let maximum = max_audio_bytes();
             if declared > maximum {
                 anyhow::bail!(
-                    "transcribe input '{label}' is {declared} bytes, exceeds IRONFLOW_MAX_AUDIO_BYTES ({maximum})"
+                    "transcribe input '{label}' is {declared} bytes, exceeds IRONFLOW_MAX_AUDIO_BYTES limit ({maximum})"
                 );
             }
             crate::util::bounded_read::read_capped_controlled(
