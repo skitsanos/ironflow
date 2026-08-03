@@ -1,13 +1,32 @@
-FROM rust:1-bookworm AS builder
+# syntax=docker/dockerfile:1
+
+FROM lukemathwalker/cargo-chef:0.1.77-rust-1.97.1-bookworm@sha256:1689f62cfaa6603480356923cb5966544b2dd6ea523e30486bee4f149965d5bc AS chef
 
 WORKDIR /app
 
 ARG FEATURES="postgres redis"
 
+FROM chef AS planner
+
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
+COPY tools ./tools
 
-RUN cargo build --release --features "${FEATURES}" --bin ironflow
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM chef AS builder
+
+ARG FEATURES="postgres redis"
+
+COPY --from=planner /app/recipe.json recipe.json
+RUN cargo chef cook --release --locked --features "${FEATURES}" \
+    --bin ironflow --recipe-path recipe.json
+
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src
+COPY tools ./tools
+
+RUN cargo build --release --locked --features "${FEATURES}" --bin ironflow
 
 FROM debian:bookworm-slim AS runtime
 

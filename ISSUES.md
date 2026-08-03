@@ -132,7 +132,12 @@ Static validation must be supplemented with representative runtime probes.
 | IF-078 | P1 | Resolved | Durable admission | Retried submissions and schedule claim-to-run gaps can duplicate or lose work |
 | IF-079 | P1 | Resolved | Railway deployment | Replica lifecycle has no Railway canary evidence |
 | IF-080 | P1 | Resolved | OpenShift deployment | Restricted-SCC and Route behavior lack live platform evidence |
-| IF-081 | P1 | In progress | Container delivery | Hosted canaries build or deploy mutable images instead of a verified registry digest |
+| IF-081 | P1 | Resolved | Container delivery | Hosted canaries build or deploy mutable images instead of a verified registry digest |
+| IF-082 | P2 | Resolved | Tooling/resource use | Repeated integration gates retain tens of gigabytes of stale linked artifacts |
+| IF-083 | P2 | Resolved | Container performance | Package-version and source changes invalidate every Rust dependency layer |
+| IF-084 | P2 | Resolved | CI performance | Example validation waits for macOS and compiles the Linux release binary twice |
+| IF-085 | P2 | In progress | Hosted acceptance | CI consolidation and container caching lack hosted timing evidence |
+| IF-086 | P2 | Resolved | CI performance | Independent checks and storage jobs compile the same Rust graph repeatedly |
 
 ## P0 — release-blocking safety and durability
 
@@ -3683,3 +3688,219 @@ values without printing or committing them. After each live pass, exact-name
 and label checks confirmed that the two Deployments, two Services, Route, PDB,
 PVC, Secret, and canary pods were gone; the namespace and unrelated resources
 were not removed.
+
+### IF-082 — Repeated integration gates retain stale linked artifacts
+
+**Status:** Resolved 2026-08-03 (found 2026-08-03).
+
+The local integration gate reuses the repository `target/` directory across
+default, feature-enabled, and release builds. A clean complete gate occupied
+about 50 GiB, including 42 GiB in `target/debug/deps` and 5.9 GiB of incremental
+state. After the package version changed, Cargo retained the previous linked
+integration-test executables beside the new set. The directory reached 85 GiB
+and the macOS linker failed with `errno=28` before any test assertion ran.
+
+Required outcome:
+
+- keep default, feature-enabled, release, Lua, and live-storage coverage intact;
+- prevent repeated versioned gates from retaining old IronFlow binaries and
+  hundreds of statically linked integration-test executables;
+- preserve reusable third-party dependency artifacts rather than applying an
+  unrestricted `cargo clean` to the entire target directory;
+- remove gate-generated package artifacts on success, failure, or interruption,
+  and disclose that user-visible cleanup in repository instructions;
+- add a regression that prevents the package-scoped cleanup, exit cleanup, or
+  incremental-build boundary from being removed accidentally.
+
+Resolution: `scripts/integration_gate.sh` now registers cleanup before its
+command preflight, package-cleans only `ironflow` artifacts before validation,
+sets `CARGO_INCREMENTAL=0` for every Cargo phase, and repeats the same
+package-scoped cleanup from an `EXIT` trap. SIGINT and SIGTERM terminate through
+that exit path. Disposable Redis/PostgreSQL cleanup shares the same handler and
+remains limited to the exact per-process container names. Default,
+feature-enabled, release, Lua-example, audit, and live-storage commands remain
+in the gate unchanged.
+
+The package-scoped boundary was measured against the completed IF-081 gate
+cache. `target/` started at 52,219,332 KiB (about 50 GiB), and
+`cargo clean --package ironflow` removed 41,544 files / 43.6 GiB, leaving
+8,514,492 KiB (about 8.1 GiB) of reusable dependency and build artifacts. A
+subsequent `CARGO_INCREMENTAL=0 cargo check --all-targets` produced zero KiB in
+`target/debug/incremental`; the same package cleanup removed its 11.2 MiB of
+workspace output and restored the dependency-only baseline.
+
+Repository policy coverage now rejects unrestricted or workspace-wide Cargo
+cleanup, requires the pre-gate prune, disabled incremental output, and exit
+cleanup, and executes the gate with a fake toolchain to prove that a failing
+first Cargo command still produces the exact sequence `package clean -> work ->
+package clean` while preserving the command's exit code. `AGENTS.md` and the
+repository `check-ironflow` skill disclose that a full local gate intentionally
+removes IronFlow binaries and linked tests while retaining dependency caches.
+
+### IF-083 — Container dependency cache is invalidated by routine changes
+
+**Status:** Resolved 2026-08-03 (found 2026-08-03).
+
+The container builder copied `Cargo.toml`, `Cargo.lock`, and all production
+source before running one release build. Any source edit invalidated the entire
+compilation layer. The required development-version bump also changes the root
+package version in both Cargo files immediately before each `develop` push, so
+even a metadata-only candidate forced every third-party dependency to compile
+again. The external GitHub Actions cache could retain the resulting layer but
+could not reuse it when either input checksum changed.
+
+Required outcome:
+
+- separate dependency compilation from application compilation without a
+  manually maintained shadow manifest;
+- keep the dependency cache stable across source-only and local package-version
+  changes while invalidating it for dependency, feature, lockfile, builder, or
+  toolchain changes;
+- pin the Rust and dependency-planner versions used by the container build;
+- preserve the `postgres redis` production feature set and locked dependency
+  resolution;
+- isolate the exported BuildKit cache under an image-specific scope and prove a
+  version-only rebuild reuses the dependency layer.
+
+Resolution: the Dockerfile now uses the version- and manifest-digest-pinned
+`lukemathwalker/cargo-chef:0.1.77-rust-1.97.1-bookworm` image for planner and
+builder stages. `cargo chef prepare` derives the dependency recipe from the
+real manifests and target layout while masking local crate versions. The
+builder cooks that recipe with `--release --locked`, the production feature
+set, and the `ironflow` binary target before copying the real source for the
+application-only build. Dependency and source changes therefore remain
+separate without duplicating Cargo metadata. The container workflow exports
+and imports the layer using the dedicated `ironflow-container-amd64` GHA cache
+scope.
+
+A clean local BuildKit builder-stage probe compiled the dependency recipe in
+92.8 seconds and IronFlow itself in 32.8 seconds. An isolated second context
+changed only the root version from `1.16.1-dev.4` to `9.9.9-dev.9` in
+`Cargo.toml` and `Cargo.lock`: BuildKit reported both the recipe-copy and
+`cargo chef cook` steps as cached, then rebuilt only IronFlow in 38.4 seconds.
+A complete runtime image built from the normal context and returned
+`ironflow 1.16.1-dev.4`. This proves the local cache boundary; the first pushed
+workflow run will be the separate hosted-GHA cache observation.
+
+### IF-084 — Example validation serializes and recompiles CI work
+
+**Status:** Resolved 2026-08-03 (found 2026-08-03).
+
+The `validate-examples` job depended on the complete two-platform `build`
+matrix, so it could not start until the slower macOS build completed. It then
+ran `cargo build --release` again on Linux even though the matrix had already
+produced the exact binary it needed. Finally, it reran the catalog, contract,
+and fixture integration tests already covered by the independent default
+`cargo test --all-targets` jobs.
+
+Required outcome:
+
+- retain independent Linux and macOS release-build evidence and their existing
+  human-readable check names;
+- make example validation depend only on the Linux binary it executes;
+- transfer that exact commit-scoped binary between jobs with short retention
+  and fail if the producer did not create it;
+- preserve validation of every Lua file while leaving Rust example contract
+  tests under the existing default all-target test jobs;
+- add policy coverage that rejects a second build or test compilation in the
+  example-validation job.
+
+Resolution: the former build matrix is split into `build-linux` and
+`build-macos`, retaining check names `Build (ubuntu-latest)` and
+`Build (macos-latest)`. Linux uploads
+`ironflow-linux-release-${{ github.sha }}` with one-day retention and
+fail-on-missing behavior. `validate-examples` depends only on `build-linux`,
+downloads that artifact, restores its executable bit, and runs every Lua flow
+through it. It no longer installs Rust, builds a second release binary, waits
+for macOS, or repeats the three example integration-test targets; those remain
+included in both default runs of `cargo test --all-targets`.
+
+Focused repository-policy tests parse the workflows and require the split-job
+dependency, upload/download handoff, Lua invocation, and absence of Cargo build
+or test commands in example validation. All seven policy tests passed,
+`actionlint .github/workflows/*.yml` passed, and `git diff --check` passed. No
+Lua behavior, node contract, or example content changed, so the existing 132
+flows were not revalidated locally for this workflow-only scheduling change.
+
+### IF-085 — Hosted CI and container-cache acceptance is missing
+
+**Status:** In progress (found 2026-08-03).
+
+IF-083, IF-084, and IF-086 establish local and static evidence for dependency
+layer reuse, release-binary handoff, and bounded Rust compilation jobs. None of
+that proves GitHub-hosted runners import the new BuildKit cache, preserve the
+artifact handoff, or improve the real workflow critical path. The latest green
+baseline before those changes is CI run `30793338123`, which completed in
+25 minutes 38 seconds and spent about 51 runner-minutes across seven Linux Rust
+compilation jobs. Container run `30793340800` took 13 minutes 52 seconds with
+the old single compilation layer.
+
+Required outcome:
+
+- publish the accumulated IF-082 through IF-086 candidate only after incoming
+  PR, remote ancestry, clean-worktree, development-version, and complete local
+  integration gates pass;
+- require green hosted CI and container publication for that exact commit;
+- verify Lua validation downloads the Linux build artifact and does not compile
+  Rust or wait for the macOS build;
+- record hosted job durations and compare the Rust-compiling job count and CI
+  critical path with the baseline without overstating results;
+- publish a second version-only candidate and verify the hosted container build
+  imports the dedicated cache and reports the cargo-chef dependency cook as
+  cached;
+- record immutable image digests and distinguish local, first-run hosted, and
+  warm-cache hosted evidence.
+
+### IF-086 — CI repeatedly compiles the same Rust graph
+
+**Status:** Resolved 2026-08-03 (found 2026-08-03).
+
+The CI workflow isolated default `check`, default Clippy, full-feature check and
+Clippy, Redis tests, PostgreSQL tests, default Ubuntu tests, and the Linux
+release build into seven independent Rust workspaces. `rust-cache` deliberately
+keeps `cache-targets: false`, so each runner reused downloaded dependencies but
+not compiled target artifacts. The latest completed `develop` run before this
+change spent about 51 runner-minutes across those seven Linux compilation jobs;
+the Redis and PostgreSQL jobs alone ran for 9 minutes 48 seconds and 14 minutes
+58 seconds respectively.
+
+Required outcome:
+
+- retain exact default and `postgres,redis` Clippy coverage, default and
+  feature-enabled all-target tests, required live Redis/PostgreSQL execution,
+  doctests, Linux/macOS tests and release builds, and Lua validation;
+- reuse one workspace within related default and feature-enabled commands
+  instead of transferring a large mutable `target/` directory between runners;
+- run Redis and PostgreSQL tests together using the combined feature contract
+  already exercised by the local integration gate;
+- remove standalone `cargo check` passes already subsumed by exact all-target
+  Clippy invocations;
+- preserve the macOS test/build and Linux build check names, release artifact
+  handoff, generated storage credentials, and fail-closed required-test flags;
+- add a regression that bounds the set of Rust-compiling CI jobs.
+
+Resolution: default Linux Clippy, all-target tests, and doctests now share the
+`rust-default` job. Full-feature Clippy and all-target tests now share the
+`rust-features` job, which starts both Redis and PostgreSQL services and sets
+both required-test flags. This replaces the standalone check, full-feature,
+and per-backend jobs without weakening their commands. macOS keeps an
+independent `Test (macos-latest)` job, while both release-build jobs and the
+Linux artifact handoff from IF-084 remain unchanged. The workflow therefore
+has three Linux compilation boundaries—default, combined features/storage, and
+release—instead of seven. It intentionally does not exchange `target/`
+artifacts between runners because those artifacts are large, profile-specific,
+and responsible for the local growth addressed by IF-082.
+
+Repository-policy coverage rejects all six retired job IDs, requires the exact
+default Clippy/test/doctest commands, requires both services and required-test
+flags on the feature job, rejects a redundant feature `cargo check`, and bounds
+Rust compilation to the two Linux validation jobs, two release jobs, and the
+macOS test job. All eight focused policy tests and
+`actionlint .github/workflows/*.yml` passed. The exact combined feature Clippy
+command passed locally, followed by the complete `postgres,redis` all-target
+suite against disposable Redis and PostgreSQL containers: 411 library tests
+passed with one ignored, and every integration/example target passed. The two
+named containers were removed afterward, and package-scoped cleanup removed
+1,848 IronFlow artifacts / 17.9 GiB while retaining dependency caches. Hosted
+runner-time improvement remains an observation for the next pushed CI run; it
+is not claimed by this local validation.

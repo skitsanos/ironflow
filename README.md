@@ -548,8 +548,14 @@ bun run scripts/development_version.ts bump next   # 1.16.0-dev.1 -> dev.2
 ```
 
 CI runs the full suite on pushes to `develop` and `main`, with optional manual
-dispatch. Release promotion creates `release/X.Y.Z` from verified `develop`,
-finalizes the candidate there with
+dispatch. Its Linux release build is passed directly to Lua example validation;
+the example job does not wait for macOS or compile a second release binary.
+Default Clippy/tests and combined PostgreSQL/Redis feature checks each share a
+single Linux workspace, avoiding isolated check and per-backend compilations.
+Container publication uses a version- and digest-pinned Rust/cargo-chef builder
+so source and package-version changes retain the dependency layer, backed by a
+dedicated GitHub Actions BuildKit cache scope. Release promotion creates
+`release/X.Y.Z` from verified `develop`, finalizes the candidate there with
 `bun run scripts/development_version.ts finalize`, and merges that exact
 candidate into `main` before the stable tag. Stable versions never land on
 `develop`.

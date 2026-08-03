@@ -287,11 +287,18 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
 - [x] Examples organized by category with README
 
 ### 5.5 Infrastructure ✅
-- [x] GitHub Actions CI (module-size ratchet, check, clippy, fmt, test, build,
-  validate examples) — runs on pushes to `develop` and `main` (plus explicit
-  manual dispatch), with path filters that skip docs-only changes while
-  checker and policy changes remain in scope. Routine work uses focused local
-  checks; `.githooks/pre-push` runs the full integration gate before `develop`.
+- [x] GitHub Actions CI (module-size ratchet, audit, default/full-feature
+  Clippy and tests, fmt, Linux/macOS builds, validate examples) — runs on pushes
+  to `develop` and `main` (plus explicit manual dispatch), with path filters
+  that skip docs-only changes while checker and policy changes remain in scope.
+  Routine work uses focused local checks; `.githooks/pre-push` runs the full
+  integration gate before `develop`.
+  Linux example validation reuses the release-build artifact without waiting
+  for macOS or recompiling it. Container publication separates a cargo-chef
+  dependency layer from source and package-version changes and exports it under
+  a dedicated BuildKit cache scope. Default Clippy/tests share one Linux job;
+  full-feature Clippy and required Redis/PostgreSQL tests share another, so CI
+  keeps backend coverage without isolated check or per-backend compilations.
 - [x] Schema-v2 example catalog classifies all 130 Lua flows, records composable service/credential/state/platform requirements, and evaluates every flow against the built-in registry so all 102 node types remain covered without exemptions
 - [x] GitHub Actions Release workflow — builds Linux (musl), macOS (x86_64 + aarch64), Windows on version tags
 - [x] Shared Lua sandbox module (`src/lua/sandbox.rs`) for consistent VM setup

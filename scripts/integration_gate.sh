@@ -4,12 +4,43 @@ set -euo pipefail
 repo_root=$(git rev-parse --show-toplevel)
 cd "$repo_root"
 
+redis_container=""
+postgres_container=""
+
+clean_workspace_artifacts() {
+  cargo clean --package ironflow
+}
+
+cleanup() {
+  gate_status=$?
+  trap - EXIT INT TERM
+
+  if [[ -n "$redis_container" || -n "$postgres_container" ]]; then
+    docker rm -f "$redis_container" "$postgres_container" >/dev/null 2>&1 || true
+  fi
+
+  echo "[integration] removing gate-owned IronFlow artifacts"
+  if ! clean_workspace_artifacts; then
+    echo "Warning: could not remove gate-owned IronFlow artifacts." >&2
+  fi
+
+  exit "$gate_status"
+}
+
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 for command in cargo cargo-audit python3 bun actionlint docker; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "Integration gate requires '$command' on PATH." >&2
     exit 1
   fi
 done
+
+echo "[integration] pruning stale IronFlow artifacts"
+clean_workspace_artifacts
+export CARGO_INCREMENTAL=0
 
 echo "[integration] formatting and repository policies"
 cargo fmt --all -- --check
@@ -53,10 +84,6 @@ container_suffix="$$"
 redis_container="ironflow-integration-redis-$container_suffix"
 postgres_container="ironflow-integration-postgres-$container_suffix"
 postgres_password=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')
-cleanup() {
-  docker rm -f "$redis_container" "$postgres_container" >/dev/null 2>&1 || true
-}
-trap cleanup EXIT INT TERM
 
 echo "[integration] disposable Redis and PostgreSQL"
 docker pull redis:latest
