@@ -4068,6 +4068,9 @@ local runs, confirming the hosted failure was timing-sensitive rather than a
 reproducible permit leak. After the change it passed ten consecutive runs with
 `postgres,redis` enabled. `cargo fmt --all -- --check`,
 `python3 -B scripts/check_module_size.py`, and
-`cargo clippy --all-targets -- -D warnings` also passed. Hosted acceptance
-remains pending until the corrective commit is merged and the full `main` CI
-workflow passes; no release tag may be created before that boundary closes.
+`cargo clippy --all-targets -- -D warnings` also passed. Corrective PR 117
+merged as `febc88b9ea0af3fd91480d017260be12dec5dcc7`; full `main` CI run
+`30822724617` then passed in 13 minutes 14 seconds. Its combined feature and
+live-storage job passed in 12 minutes 32 seconds, including the previously
+failing regression against required disposable Redis and PostgreSQL services.
+This closes the hosted boundary; release tagging remains a separate approval.
