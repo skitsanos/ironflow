@@ -139,6 +139,7 @@ Static validation must be supplemented with representative runtime probes.
 | IF-085 | P2 | Resolved | Hosted acceptance | CI consolidation and container caching lack hosted timing evidence |
 | IF-086 | P2 | Resolved | CI performance | Independent checks and storage jobs compile the same Rust graph repeatedly |
 | IF-087 | P2 | Resolved | Container performance | Warm dependency reuse transfers a 755 MB gzip layer |
+| IF-088 | P2 | Resolved | Test reliability | Detached run-admission cleanup uses an undersized hosted-runner deadline |
 
 ## P0 — release-blocking safety and durability
 
@@ -4031,3 +4032,42 @@ dependency graph, and replaced it with zstd OCI cache manifest
 It published attested application index
 `sha256:11325f78399470d14044732e38fd42779b1a85708f53191533c8f31f0ca7fd5f`.
 This closes both the hosted registry-compatibility and warm-reuse boundaries.
+
+### IF-088 — Detached run-admission cleanup has a tight CI deadline
+
+**Status:** Resolved 2026-08-03 (found 2026-08-03).
+
+The stable `1.16.1` merge passed every `main` CI job except the combined
+feature/storage suite. Run `30820621471`, job `91709337732`, failed in
+`a_blocked_parse_makes_a_concurrent_validation_fail_fast` after the durable run
+had already reached `Success`: the test allowed one additional second for the
+detached coordinator to stop its lease heartbeat and release process admission.
+That cleanup is intentionally ordered after terminal status persistence, so a
+loaded hosted runner can observe the terminal record before the supervisor has
+finished even though admission is released correctly.
+
+Required outcome:
+
+- retain the one-second fail-fast checks for contested flow-load and run
+  admission;
+- continue proving that a disconnected request cannot release its run permit
+  before physical completion;
+- bound the post-terminal cleanup wait without treating durable terminal status
+  as synchronous supervisor completion;
+- change no production, public API, node, documentation, or Lua-example
+  contract for a test-only timing correction.
+
+Resolution: only the final post-`Success` permit-restoration observation window
+was increased from one to three seconds, matching the existing durable-status
+wait used by this regression. The one-second contention/refusal deadlines are
+unchanged. This preserves detection of a stranded permit while allowing the
+detached heartbeat supervisor to finish under hosted-runner scheduling load.
+
+Before the change, the exact feature-enabled regression passed five consecutive
+local runs, confirming the hosted failure was timing-sensitive rather than a
+reproducible permit leak. After the change it passed ten consecutive runs with
+`postgres,redis` enabled. `cargo fmt --all -- --check`,
+`python3 -B scripts/check_module_size.py`, and
+`cargo clippy --all-targets -- -D warnings` also passed. Hosted acceptance
+remains pending until the corrective commit is merged and the full `main` CI
+workflow passes; no release tag may be created before that boundary closes.

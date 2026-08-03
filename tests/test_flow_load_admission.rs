@@ -246,7 +246,10 @@ async fn a_blocked_parse_makes_a_concurrent_validation_fail_fast() {
     assert!(String::from_utf8_lossy(&body).contains("maximum concurrent run capacity"));
 
     wait_for_flow_status(&store, "detached-admission", RunStatus::Success).await;
-    tokio::time::timeout(std::time::Duration::from_secs(1), async {
+    // Durable terminal status is persisted before the detached coordinator
+    // stops its lease heartbeat and drops process admission. Give that bounded
+    // cleanup the same loaded-runner allowance as the status transition above.
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
         loop {
             let admitted = router
                 .clone()
