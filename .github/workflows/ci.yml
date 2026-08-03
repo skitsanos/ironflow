@@ -12,6 +12,9 @@ on:
       - "scripts/**"
       - ".cargo/audit.toml"
       - ".github/workflows/ci.yml"
+      - ".github/workflows/container.yml"
+      - "Dockerfile"
+      - ".dockerignore"
   workflow_dispatch:
 
 env:
@@ -44,19 +47,8 @@ jobs:
       - name: Audit dependencies
         run: cargo audit
 
-  check:
-    name: Check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.97.1
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-targets: false
-      - run: cargo check --all-targets
-
-  clippy:
-    name: Clippy
+  rust-default:
+    name: Clippy and tests (ubuntu-latest)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -67,23 +59,11 @@ jobs:
         with:
           cache-targets: false
       - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test --all-targets
+      - run: cargo test --doc
 
-  full-features:
-    name: Full feature check and Clippy
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.97.1
-        with:
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-targets: false
-      - run: cargo check --all-targets --features postgres,redis
-      - run: cargo clippy --all-targets --features postgres,redis -- -D warnings
-
-  redis-tests:
-    name: Redis integration tests
+  rust-features:
+    name: Full feature checks and storage tests
     runs-on: ubuntu-latest
     services:
       redis:
@@ -95,21 +75,6 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 20
-    env:
-      IRONFLOW_REDIS_TEST_URL: redis://127.0.0.1:6379
-      IRONFLOW_REDIS_TEST_REQUIRED: "1"
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.97.1
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-targets: false
-      - run: cargo test --all-targets --features redis -- --test-threads=1
-
-  postgres-tests:
-    name: PostgreSQL integration tests
-    runs-on: ubuntu-latest
-    services:
       postgres:
         image: postgres:latest
         env:
@@ -124,15 +89,20 @@ jobs:
           --health-timeout 3s
           --health-retries 20
     env:
+      IRONFLOW_REDIS_TEST_URL: redis://127.0.0.1:6379
+      IRONFLOW_REDIS_TEST_REQUIRED: "1"
       DATABASE_URL: postgres://postgres:ironflow-${{ github.run_id }}-${{ github.run_attempt }}@127.0.0.1:5432/ironflow_test
       IRONFLOW_POSTGRES_TEST_REQUIRED: "1"
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           cache-targets: false
-      - run: cargo test --all-targets --features postgres -- --test-threads=1
+      - run: cargo clippy --all-targets --features postgres,redis -- -D warnings
+      - run: cargo test --all-targets --features postgres,redis -- --test-threads=1
 
   fmt:
     name: Format
@@ -144,12 +114,9 @@ jobs:
           components: rustfmt
       - run: cargo fmt --all -- --check
 
-  test:
-    name: Test
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
+  test-macos:
+    name: Test (macos-latest)
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.97.1
@@ -158,12 +125,27 @@ jobs:
           cache-targets: false
       - run: cargo test --all-targets
 
-  build:
-    name: Build
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
+  build-linux:
+    name: Build (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.97.1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
+      - run: cargo build --release
+      - name: Upload Linux release binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: ironflow-linux-release-${{ github.sha }}
+          path: target/release/ironflow
+          if-no-files-found: error
+          retention-days: 1
+
+  build-macos:
+    name: Build (macos-latest)
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.97.1
@@ -175,16 +157,17 @@ jobs:
   validate-examples:
     name: Validate example flows
     runs-on: ubuntu-latest
-    needs: build
+    needs: build-linux
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.97.1
-      - uses: Swatinem/rust-cache@v2
+      - name: Download Linux release binary
+        uses: actions/download-artifact@v8
         with:
-          cache-targets: false
-      - run: cargo build --release
+          name: ironflow-linux-release-${{ github.sha }}
+          path: target/release
       - name: Validate all example flows
         run: |
+          chmod +x ./target/release/ironflow
           failed=0
           while IFS= read -r -d '' f; do
             echo "Validating $f..."
@@ -194,9 +177,3 @@ jobs:
             fi
           done < <(find examples -type f -name '*.lua' -print0)
           exit $failed
-      - name: Verify example contracts, catalog, fixtures, and offline matrix
-        run: >-
-          cargo test
-          --test test_example_catalog
-          --test test_example_contracts
-          --test test_example_fixtures

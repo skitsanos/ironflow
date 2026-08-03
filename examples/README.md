@@ -199,7 +199,16 @@ credentialed, local-state, and platform-specific flow at the same time.
 ## 20-date
 - **date_format.lua** — Parse, format, and display dates with timezone support
 
+## 21-schedules
+- **scheduled_hello.lua** — Deterministic offline flow used by the adjacent `ironflow.yaml` to demonstrate a minutely `serve` schedule; the JSON backend retains atomic claim files while cleaning schedule-specific index buckets in bounded background-on-claim passes. Run `cargo run -- -C examples/21-schedules/ironflow.yaml serve` from the repository root and stop it with Ctrl-C
+
 ## Running Examples
+
+`22-replica-deployment` is the flow/config fixture for the opt-in Docker
+replica gate. It is not a standalone `ironflow run` example: two `serve`
+processes load it with shared PostgreSQL state and exercise idempotent HTTP,
+scheduled occurrence, graceful shutdown, and owner-death behavior. See
+[`docs/REPLICA_DEPLOYMENT.md`](../docs/REPLICA_DEPLOYMENT.md).
 
 Give experiments a disposable state-store directory so IronFlow's run records
 do not accumulate in the normal store:
@@ -283,10 +292,10 @@ duplicated, unclassified, or inconsistent entries.
 | Offline with outputs/processes | 24 | Fixture-backed local-output cases and MCP stdio use isolated paths; others require isolated outputs |
 | Public/local network | 9 | No |
 | Credentialed external service | 47 | No |
-| Server/manual HTTP | 2 | No |
+| Server/manual HTTP or scheduler | 5 | No |
 | Composition parent/helper flow | 7 | Exercised as coordinated cases where applicable |
 
-All 129 flows are still parsed by `ironflow validate`. Twelve fixture-backed
+All 132 flows are still parsed by `ironflow validate`. Twelve fixture-backed
 offline flows and the local MCP stdio example also run from a disposable
 working directory as part of:
 

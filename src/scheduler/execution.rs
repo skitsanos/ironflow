@@ -15,6 +15,7 @@ use crate::storage::{PageSize, RunCursor, RunListQuery, StateStore};
 use crate::util::sensitive_url::redact_sensitive_text;
 
 use super::ScheduleExecutor;
+use super::ScheduleRun;
 use super::config::ScheduleConfig;
 
 /// Context key naming the schedule that triggered a run.
@@ -37,6 +38,7 @@ pub struct FlowExecutor {
     event_store: Arc<dyn EventStore>,
     flows_dir: Option<PathBuf>,
     max_concurrent_tasks: Option<usize>,
+    lifecycle: crate::api::ServiceLifecycle,
 }
 
 impl FlowExecutor {
@@ -47,18 +49,38 @@ impl FlowExecutor {
         flows_dir: Option<PathBuf>,
         max_concurrent_tasks: Option<usize>,
     ) -> Self {
+        Self::new_with_lifecycle(
+            registry,
+            store,
+            event_store,
+            flows_dir,
+            max_concurrent_tasks,
+            crate::api::ServiceLifecycle::default(),
+        )
+    }
+
+    pub(crate) fn new_with_lifecycle(
+        registry: Arc<NodeRegistry>,
+        store: Arc<dyn StateStore>,
+        event_store: Arc<dyn EventStore>,
+        flows_dir: Option<PathBuf>,
+        max_concurrent_tasks: Option<usize>,
+        lifecycle: crate::api::ServiceLifecycle,
+    ) -> Self {
         Self {
             registry,
             store,
             event_store,
             flows_dir,
             max_concurrent_tasks,
+            lifecycle,
         }
     }
 
     fn initial_context(
         &self,
         schedule_name: &str,
+        instant_key: &str,
         schedule: &ScheduleConfig,
         path: &str,
     ) -> Context {
@@ -67,6 +89,10 @@ impl FlowExecutor {
             SCHEDULE_CONTEXT_KEY.to_string(),
             serde_json::Value::String(schedule_name.to_string()),
         );
+        ctx.insert(
+            super::identity::SCHEDULE_INSTANT_CONTEXT_KEY.to_string(),
+            serde_json::Value::String(instant_key.to_string()),
+        );
         if let Some(dir) = std::path::Path::new(path).parent() {
             ctx.insert(
                 "_flow_dir".to_string(),
@@ -74,6 +100,20 @@ impl FlowExecutor {
             );
         }
         ctx
+    }
+
+    /// Embedded one-shot execution helper retained independently of cron
+    /// occurrence identity. The scheduler itself calls the trait method with
+    /// its durable instant key.
+    pub async fn run(
+        &self,
+        schedule_name: &str,
+        schedule: &ScheduleConfig,
+    ) -> Result<String, String> {
+        let instant_key = format!("embedded@{}", uuid::Uuid::new_v4().simple());
+        match <Self as ScheduleExecutor>::run(self, schedule_name, &instant_key, schedule).await? {
+            ScheduleRun::Started { run_id } | ScheduleRun::Existing { run_id } => Ok(run_id),
+        }
     }
 }
 
@@ -166,10 +206,15 @@ impl ScheduleExecutor for FlowExecutor {
     fn has_capacity(&self) -> bool {
         // The permit is dropped immediately; this is a probe, not a
         // reservation. `run` acquires the permit it actually holds.
-        crate::api::acquire_run_permit().is_ok()
+        crate::api::acquire_run_permit(&self.lifecycle).is_ok()
     }
 
-    async fn run(&self, schedule_name: &str, schedule: &ScheduleConfig) -> Result<String, String> {
+    async fn run(
+        &self,
+        schedule_name: &str,
+        instant_key: &str,
+        schedule: &ScheduleConfig,
+    ) -> Result<ScheduleRun, String> {
         let path = resolve_flow_path_in(schedule.flow(), self.flows_dir.as_deref())
             .map_err(|error| format!("{error:?}"))?;
 
@@ -177,7 +222,7 @@ impl ScheduleExecutor for FlowExecutor {
         // not dropped when this function returns. Reserve it before the Lua VM
         // is created so a run rejected for capacity cannot still consume parse
         // CPU and memory.
-        let run_permit = crate::api::acquire_run_permit()
+        let run_permit = crate::api::acquire_run_permit(&self.lifecycle)
             .map_err(|_| "server is at maximum concurrent run capacity".to_string())?;
         let flow_load_permit = crate::api::acquire_flow_load_permit()
             .map_err(|_| "server is at maximum concurrent flow-loading capacity".to_string())?;
@@ -200,7 +245,7 @@ impl ScheduleExecutor for FlowExecutor {
             )
         })?;
 
-        let initial_ctx = self.initial_context(schedule_name, schedule, &path);
+        let initial_ctx = self.initial_context(schedule_name, instant_key, schedule, &path);
 
         let engine = WorkflowEngine::new_with_events(
             self.registry.clone(),
@@ -217,20 +262,25 @@ impl ScheduleExecutor for FlowExecutor {
         // scheduling for the process's lifetime. `RunHandle::wait` retains
         // detach semantics, which is exactly what running it in a background
         // task needs.
-        let handle = engine
-            .start(&flow, initial_ctx)
+        let run_id = super::identity::run_id(schedule_name, instant_key);
+        let Some(handle) = engine
+            .start_with_run_id(&flow, initial_ctx, run_id.clone())
             .await
-            .map_err(|error| format!("{error:#}"))?;
-        let run_id = handle.id().to_string();
+            .map_err(|error| format!("{error:#}"))?
+        else {
+            return Ok(ScheduleRun::Existing { run_id });
+        };
         let waited_run_id = run_id.clone();
         let schedule_name = schedule_name.to_string();
 
+        let lifecycle = self.lifecycle.clone();
         tokio::spawn(async move {
             // Held until the run finishes, exactly as the API does for a
             // synchronous run (IF-042); the run outliving `run()` is the point
             // of this change, so the permit must too.
-            let _run_permit = run_permit;
-            if let Err(error) = handle.wait().await {
+            if let Err(error) =
+                crate::api::wait_for_admitted_run(lifecycle, handle, run_permit).await
+            {
                 // Nothing else observes this run again: `decide` already
                 // logged `Fired` with this run id, and no later tick will
                 // revisit it.
@@ -243,6 +293,6 @@ impl ScheduleExecutor for FlowExecutor {
             }
         });
 
-        Ok(run_id)
+        Ok(ScheduleRun::Started { run_id })
     }
 }

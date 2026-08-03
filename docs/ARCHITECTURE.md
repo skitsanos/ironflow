@@ -161,6 +161,7 @@ Nodes are registered in a `NodeRegistry` and exposed to Lua as callable factory 
 ```rust
 #[async_trait]
 pub trait StateStore: Send + Sync {
+    async fn healthcheck(&self) -> StorageResult<()>;
     async fn init_run(&self, run_id: &str, flow_name: &str, ctx: &Context) -> StorageResult<()>;
     async fn init_run_owned(
         &self,
@@ -222,6 +223,12 @@ nothing. A custom store using those defaults remains usable in one process but
 does **not** gain crash recovery or multi-replica fencing; it must override the
 owned methods atomically to claim those guarantees. The built-in JSON, SQL, and
 Redis stores do so.
+
+Networked built-in state and event stores also override `healthcheck` with a
+real `SELECT 1` or Redis `PING`. `/health/ready` bounds both probes to two
+seconds and combines them with the process admission state. Custom stores keep
+the compatibility no-op probe unless they override it; an embedding that wants
+dependency-sensitive readiness must provide that implementation.
 
 The two vector-returning methods remain compatibility/maintenance primitives;
 user-facing listing must use the required bounded page method. `RunListQuery`
@@ -638,10 +645,18 @@ Rolling deployments must not mix pre-CAS and CAS-capable Redis writers: an old b
 `ironflow serve` evaluates configuration-only `schedules:` entries every 30
 seconds. Each scheduler keeps a local wall-clock watermark per schedule,
 enumerates only occurrences still reachable within that schedule's grace
-window, and caps one tick at 64 occurrences. Cron expressions have five fields;
-time zones use IANA names. A repeated fall-back wall-clock instant resolves to
-the earlier occurrence, while a spring-forward gap resolves to the first real
-instant after the gap.
+window, and caps one tick at 64 occurrences; excess occurrences are skipped,
+not queued. Cron expressions have five fields and traditional crontab
+day-of-month/day-of-week OR semantics; time zones use IANA names. A repeated
+fall-back wall-clock instant resolves to the earlier occurrence, while a
+spring-forward gap resolves to the first real instant after the gap.
+
+Configuration admits at most 256 schedules. Names are at most 48 UTF-8 bytes,
+flow paths 1,024 bytes, cron expressions 256 bytes, timezone names 128 bytes,
+and serialized initial contexts 65,536 bytes. Grace is bounded to
+60..=604,800 seconds and converted to signed duration only after validation.
+The name limit also keeps the existing rolling-upgrade-compatible JSON claim
+filename below common filesystem component limits.
 
 For every due instant, the scheduler first calls
 `StateStore::claim_schedule(name, key, ttl_seconds)`. The key contains the time
@@ -651,10 +666,30 @@ Redis uses `SET NX EX`; the transient null store always succeeds and is suitable
 only when no peer scheduler exists. Claim retention exceeds the grace window so
 a late replica cannot re-fire a recently reaped instant.
 
-This is an **at-most-one claim**, not an exactly-once run guarantee. After a
-claim succeeds, the owning replica checks lateness, overlap, and process run
-capacity before starting the flow. Any such skip, or a flow-load/start failure,
-consumes the claim instead of creating a backlog. The overlap check pages
+JSON keeps that rolling-upgrade-compatible exclusive file as the authoritative
+lock and writes separate SHA-256 schedule shards with hourly cleanup buckets.
+Pre-index flat claims are indexed across all schedule shards in batches of 256;
+a durable global completion marker removes that transitional scan once
+migration reaches the end of the legacy namespace. The authoritative claim file
+is never moved or renamed during migration.
+
+SQL has a covering `(name, claimed_micros, claim_key)` retention index. For
+both backends, each process sweeps a schedule at most once per
+`clamp(ttl / 4, 60 seconds, 1 hour)` and deletes no more than 256 expired claims
+per sweep; a zero TTL used by storage contract tests requests immediate
+cleanup. Cleanup is best-effort and schedule-scoped, so a retention failure can
+retain storage but cannot invalidate a committed claim or apply one schedule's
+grace-derived TTL to another. Redis needs no sweep because expiry belongs to
+each atomic claim key.
+
+The claim is an admission/audit fence, while a deterministic run ID derived
+from `(schedule name, resolved instant)` is the execution fence. Replicas that
+observe an existing claim still converge on that run identity; the built-in
+stores atomically allow only one initializer. A process dying after its claim
+but before initialization therefore does not permanently consume the
+occurrence. Existing or later-stalled executions are never replayed. Lateness,
+overlap, process capacity, and flow-load failures may still skip an occurrence
+instead of creating a backlog. The overlap check pages
 through at most 256 non-terminal runs and tolerates read failures, so it is a
 bounded best-effort guard rather than a distributed per-schedule lock. A claim
 backend error is different: the watermark stops before that instant and retries
@@ -662,9 +697,37 @@ it on later ticks until it succeeds or falls outside grace.
 
 Scheduled flows use the ordinary registry, engine, state store, event store,
 run-admission semaphore, and flow-path confinement. Their initial context adds
-`_schedule` for provenance and `_flow_dir` for relative resources. A scheduled
+`_schedule`, `_schedule_instant` for provenance and `_flow_dir` for relative
+resources. A scheduled
 run is detached from the tick loop after it starts, so a long-running flow does
 not block later scheduler evaluations.
+
+Schedule names evaluate concurrently, each under a 15-second wall-time budget.
+A timed-out evaluation is indeterminate: its storage claim or run start may
+have committed after the caller lost the result. IronFlow therefore logs the
+timeout, reports each due instant as `TimedOut`, and advances that schedule's
+watermark through the evaluated window instead of retrying and risking a
+duplicate. Other schedule names continue independently. The tick task and API
+server are supervised as one availability unit; an unexpected scheduler return
+or panic ends `serve` with an error, while normal server completion requests and
+awaits scheduler shutdown.
+
+### Service lifecycle and replicas
+
+HTTP handlers and the scheduler register each accepted top-level run with one
+process `ServiceLifecycle`. Registration retains only cloneable cancellation
+authority; the ordinary `RunHandle` waiter still owns completion and admission.
+SIGTERM/SIGINT atomically closes readiness and execution admission. Axum stops
+accepting connections, the scheduler exits its tick loop, and accepted runs may
+finish for `IRONFLOW_SHUTDOWN_GRACE_SECONDS`. Remaining coordinators receive
+the same cooperative cancellation signal as explicit run cancellation. Final
+settlement and connection close are separately bounded so a defective task
+cannot hold an orchestrator termination forever.
+
+`IRONFLOW_REPLICA_MODE=true` is an operator assertion checked before stores are
+opened. It accepts only PostgreSQL/Redis state plus PostgreSQL/Redis events;
+JSON, SQLite, and memory are process/local-host backends. The detailed failure
+and platform boundary is in [Replica deployment](REPLICA_DEPLOYMENT.md).
 
 ### 6. CLI (`cli/`)
 
@@ -707,7 +770,7 @@ or event store.
 ### 7. REST API (`api/`)
 
 Built with `axum`. Endpoints:
-- `POST /flows/run` — Submit a flow for execution (via `source`, `source_base64`, or `file`)
+- `POST /flows/run` — Submit a flow for execution (via `source`, `source_base64`, or `file`); a bounded `Idempotency-Key` persists a request fingerprint and deterministic run identity
 - `POST /flows/validate` — Validate a flow without executing
 - `GET /runs` — List newest-first run summaries with optional `status`, `limit`
   (default 50), and filter-bound `after` cursor; the hard page cap comes from
@@ -719,7 +782,9 @@ Built with `axum`. Endpoints:
   fence
 - `GET /nodes` — List available nodes with descriptions
 - `POST /webhooks/{name}` — Execute a webhook-mapped flow (configured in `ironflow.yaml`)
-- `GET /health` — Version and status check
+- `GET /health` — Backwards-compatible liveness alias
+- `GET /health/live` — Process liveness without storage I/O
+- `GET /health/ready` — Execution admission plus bounded state/event-store probes
 
 Features:
 - Exactly one source field required per request (mutual exclusion enforced)

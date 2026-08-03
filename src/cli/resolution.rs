@@ -104,6 +104,7 @@ pub(super) struct ServerConfig {
     pub allow_unauthenticated_api: bool,
     pub allow_adhoc_flows: bool,
     pub cors_origins: Option<Vec<String>>,
+    pub replica_mode: bool,
 }
 
 impl ServerConfig {
@@ -150,6 +151,9 @@ impl ServerConfig {
                         .collect()
                 })
                 .or_else(|| config.cors_origins.clone()),
+            replica_mode: environment_value("IRONFLOW_REPLICA_MODE", "either 'true' or 'false'")?
+                .or(config.replica_mode)
+                .unwrap_or(false),
         })
     }
 }

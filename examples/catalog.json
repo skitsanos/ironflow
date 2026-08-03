@@ -142,10 +142,13 @@
       ]
     },
     "server_manual": {
-      "description": "Loaded by the API server and exercised through HTTP rather than run as a standalone CLI flow.",
+      "description": "Loaded by ironflow serve and exercised through HTTP or a configured scheduler rather than run as a standalone CLI flow.",
       "flows": [
         "examples/15-webhooks/auth_check.lua",
-        "examples/15-webhooks/simple_webhook.lua"
+        "examples/15-webhooks/simple_webhook.lua",
+        "examples/21-schedules/scheduled_hello.lua",
+        "examples/22-replica-deployment/hold.lua",
+        "examples/22-replica-deployment/quick.lua"
       ]
     },
     "composition": {

@@ -77,6 +77,31 @@ impl WorkflowEngine {
         initial_ctx: Context,
         execution_overlay: ExecutionOverlay,
     ) -> Result<RunHandle> {
+        let run_id = Uuid::new_v4().to_string();
+        self.start_new_with_run_id(flow, initial_ctx, execution_overlay, run_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("generated workflow run ID already exists"))
+    }
+
+    /// Atomically start a caller-identified run. `None` means another process
+    /// already initialized the same durable identity and owns execution.
+    pub(crate) async fn start_with_run_id(
+        &self,
+        flow: &FlowDefinition,
+        initial_ctx: Context,
+        run_id: String,
+    ) -> Result<Option<RunHandle>> {
+        self.start_new_with_run_id(flow, initial_ctx, ExecutionOverlay::default(), run_id)
+            .await
+    }
+
+    async fn start_new_with_run_id(
+        &self,
+        flow: &FlowDefinition,
+        initial_ctx: Context,
+        execution_overlay: ExecutionOverlay,
+        run_id: String,
+    ) -> Result<Option<RunHandle>> {
         // Resolve limits before validating the flow or creating durable state.
         // Embedded callers receive the same fail-closed behavior as the CLI.
         let max_concurrent_tasks =
@@ -96,18 +121,23 @@ impl WorkflowEngine {
             );
         }
 
-        let run_id = Uuid::new_v4().to_string();
         let lease = RunLease::fresh();
         let durable_initial_ctx = execution_overlay.redact_context(&initial_ctx);
-        super::lease::initialize_run(
+        let initialized = super::lease::initialize_run(
             self.store.as_ref(),
             &run_id,
             &flow.name,
             durable_initial_ctx.as_ref(),
             &lease,
         )
-        .await
-        .with_context(|| format!("Failed to initialize workflow run {run_id}"))?;
+        .await;
+        if let Err(error) = initialized {
+            if error.kind() == crate::storage::StorageErrorKind::Conflict {
+                return Ok(None);
+            }
+            return Err(error)
+                .with_context(|| format!("Failed to initialize workflow run {run_id}"));
+        }
 
         let coordinator = RunCoordinator::new(
             self.registry.clone(),
@@ -123,7 +153,7 @@ impl WorkflowEngine {
             run_deadline,
         );
 
-        Ok(coordinator.spawn())
+        Ok(Some(coordinator.spawn()))
     }
 
     /// Execute a flow definition and wait for its supervised run to finish.

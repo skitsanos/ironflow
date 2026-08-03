@@ -1,0 +1,21 @@
+# Run from the repository root:
+#   cargo run -- -C examples/21-schedules/ironflow.yaml serve
+#
+# The scheduler evaluates immediately and catches up the most recent minute.
+# Stop it with Ctrl-C; run records are written below data/runs/schedule-example.
+
+host: "127.0.0.1"
+port: 3100
+allow_unauthenticated_api: true
+flows_dir: "examples/21-schedules"
+store_dir: "data/runs/schedule-example"
+store_backend: "json"
+
+schedules:
+  hello_every_minute:
+    flow: "scheduled_hello.lua"
+    cron: "* * * * *"
+    timezone: "UTC"
+    grace_seconds: 60
+    context:
+      audience: "IronFlow operators"

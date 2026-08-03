@@ -30,6 +30,11 @@ Never point integration tests at shared or production infrastructure.
 `scripts/integration_gate.sh` is authoritative. It runs inexpensive failures
 first, then the following Rust and live-service gates:
 
+The local full gate sets `CARGO_INCREMENTAL=0` and runs package-scoped
+`cargo clean --package ironflow` before and after validation. Dependency caches
+remain available, but IronFlow binaries and linked test executables are
+intentionally removed so repeated versioned gates do not exhaust local disk.
+
 1. `cargo fmt --all -- --check`
 2. `git diff --check`
 3. `python3 -B -m unittest discover -s scripts/tests -p 'test_*.py' -v`

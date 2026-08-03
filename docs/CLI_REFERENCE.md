@@ -180,6 +180,20 @@ ironflow serve --host 127.0.0.1 --port 8080
 IRONFLOW_API_KEY="change-me" ironflow serve
 ```
 
+`GET /health/live` reports process liveness without storage I/O.
+`GET /health/ready` returns 200 only while execution admission is open and
+both configured stores answer a two-second probe. `/health` remains a liveness
+alias. SIGTERM/SIGINT closes readiness, stops scheduling and new run admission,
+then drains accepted work according to `IRONFLOW_SHUTDOWN_GRACE_SECONDS`.
+
+`POST /flows/run` accepts an optional `Idempotency-Key`. It is limited to 128
+portable ASCII characters (`A-Z`, `a-z`, `0-9`, `-`, `_`, `.`, `:`). The key is
+hashed rather than stored; its deterministic run ID and request fingerprint are
+created atomically. A same-key/same-body retry returns that run from any
+replica, while a different source/file/context receives `409 conflict`.
+Deleting the run releases the retained identity. See
+[Replica deployment](REPLICA_DEPLOYMENT.md) for the complete boundary.
+
 ### Configuration File
 
 The `serve` command (and all other commands) can load settings from `ironflow.yaml`. Place it in the working directory for auto-detection, or specify a path with `-C`. Environment values, including values supplied by dotenv, override matching fields in this file:
@@ -279,6 +293,8 @@ Or via environment variables (override config file):
 | `IRONFLOW_STORE_URL` | SQLite auto path for `sqlite`; required for `postgres` | SQL store URL |
 | `IRONFLOW_EVENT_STORE` | `memory` | Event backend for `/runs/{id}/events`: `memory`, `sqlite`, `postgres`, or `redis` |
 | `IRONFLOW_EVENT_STORE_URL` | SQLite auto path for `sqlite`; required for `postgres` | SQL event store URL |
+| `IRONFLOW_REPLICA_MODE` | `false` | Require `postgres` or `redis` for both state and events; reject process-local backends |
+| `IRONFLOW_SHUTDOWN_GRACE_SECONDS` | `30` | Seconds accepted runs may finish before cooperative cancellation (`0..=3600`) |
 | `IRONFLOW_EVENT_MEMORY_CAPACITY` | `10000` | Positive global event/fence count when the event backend is `memory`; a fixed 64 MiB retained-heap estimate is enforced independently |
 | `IRONFLOW_SQL_TABLE_PREFIX` | `ironflow_` | SQL table/index prefix for SQLite/Postgres state and event stores |
 | `REDIS_URL` | `redis://127.0.0.1:6379` | Redis connection URL |
@@ -701,39 +717,74 @@ schedules:
     flow: reports/nightly.lua      # resolved through flows_dir
     cron: "0 2 * * *"              # standard five-field cron
     timezone: "Europe/Berlin"      # IANA name; defaults to UTC
-    grace_seconds: 3600            # optional; default 300, minimum 60
+    grace_seconds: 3600            # optional; default 300, range 60..=604800
     context:                       # optional initial context
       region: "eu"
 ```
 
 | Field | Required | Default | Notes |
 |---|---|---|---|
-| `flow` | yes | — | Resolved against `flows_dir`, so a schedule cannot escape it |
-| `cron` | yes | — | Five fields: minute hour day month weekday. Seconds are fixed at zero; six- and seven-field expressions are rejected rather than reinterpreted |
-| `timezone` | no | `UTC` | IANA name. Unknown names fail at startup |
-| `grace_seconds` | no | `300` | Maximum lateness for which a missed instant still fires. Minimum 60, because the scheduler evaluates every 30 seconds |
-| `context` | no | `{}` | Merged into the run's initial context. Must not define `_schedule` or `_flow_dir` |
+| `flow` | yes | — | Resolved against `flows_dir`, so a schedule cannot escape it. Maximum 1,024 UTF-8 bytes |
+| `cron` | yes | — | Maximum 256 UTF-8 bytes. Five fields: minute hour day month weekday. Seconds are fixed at zero; six- and seven-field expressions are rejected. If day and weekday are both restricted, either matching fires the schedule, as in traditional crontab |
+| `timezone` | no | `UTC` | IANA name, maximum 128 UTF-8 bytes. Unknown names fail at startup |
+| `grace_seconds` | no | `300` | Maximum lateness for which a missed instant still fires. Range 60..=604,800 because the scheduler evaluates every 30 seconds and catch-up must remain bounded |
+| `context` | no | `{}` | Merged into the run's initial context, maximum 65,536 serialized JSON bytes. Must not define `_schedule` or `_flow_dir` |
 
-Invalid configuration — an unparseable expression, an unknown zone, a flow
-outside `flows_dir`, a reserved context key — fails the process at startup. A
-schedule that only fails at 02:00 is a schedule nobody finds out about until
-02:00.
+The `schedules` map accepts at most 256 entries, and each schedule name is at
+most 48 UTF-8 bytes with no control characters. One tick considers at most 64
+due instants for each name. If a longer grace window contains more occurrences,
+the remainder are logged and skipped rather than queued. This makes
+`grace_seconds` a lateness admission window, not an unbounded replay promise.
+
+A deterministic offline configuration and flow are available at
+`examples/21-schedules/ironflow.yaml` and
+`examples/21-schedules/scheduled_hello.lua`. From the repository root, run:
+
+```bash
+cargo run -- -C examples/21-schedules/ironflow.yaml serve
+```
+
+Invalid configuration—an over-limit map or value, an unparseable expression,
+an unknown zone, a flow outside `flows_dir`, or a reserved context key—fails
+the process at startup. A schedule that only fails at 02:00 is a schedule
+nobody finds out about until 02:00.
 
 **Scheduled runs are ordinary runs.** They appear in `ironflow list`,
 `ironflow inspect`, and the events stream, and carry the schedule's name in
 their context under `_schedule`, so a run can be traced back to its trigger.
 
-**Multiple replicas.** Each instant is claimed through the state store, so at
-most one `serve` replica sharing that store evaluates it beyond the claim. This
-is not an exactly-once run guarantee: the owner can deliberately consume the
-claim without starting a run when the instant is late, an earlier run appears
-active, process capacity is exhausted, or flow loading/startup fails. The JSON
-store coordinates only among processes sharing a `store_dir`; use SQL or Redis
-across hosts.
+**Multiple replicas.** Each instant is claimed through the state store and also
+derives a deterministic durable run ID from the schedule name and resolved
+instant. A replica that loses or observes an earlier claim still converges on
+that identity; atomic run initialization chooses the one executor. This closes
+the crash window between claim and run creation without replaying an existing
+or later-stalled run. A late, overlapping, capacity-constrained, or invalid
+occurrence can still be deliberately skipped. The JSON store coordinates only
+among processes sharing a `store_dir`; replica mode requires PostgreSQL or
+Redis across hosts. JSON and SQL claim retention runs in schedule-specific batches of
+at most 256, no more than once per hour for the normal seven-day-or-longer claim
+TTL. JSON uses digest/time-bucket cleanup shards while preserving its existing
+exclusive claim file as the atomic lock; claims from an earlier binary are
+indexed in bounded migration batches without moving that lock. SQL uses a
+covering cleanup index.
+
+Redis claims expire independently through their atomic key TTL. Cleanup is
+best-effort and never changes whether an unexpired claim was won.
 
 **Skips are logged, never silent.** A skip states which rule caused it — grace,
 overlap, or capacity — and the instant involved, at `WARN`. Losing a claim is
 logged at `debug`, because on N replicas it is the expected outcome N-1 times.
+Schedule names evaluate concurrently under a 15-second per-name budget. If that
+budget expires, the claim or run-start result can be indeterminate, so every
+due instant in that schedule's window is logged as timed out and burned rather
+than retried. Unrelated schedule names continue. If the scheduler task itself
+returns or panics, `serve` stops with an error so `/health` cannot remain green
+while scheduled execution is dead; normal server shutdown also waits for the
+scheduler loop to stop.
+
+See [Replica deployment](REPLICA_DEPLOYMENT.md) for liveness/readiness,
+SIGTERM drain, idempotent API submission, Docker acceptance, and platform
+configuration.
 
 **Daylight saving.** Schedules fire on local wall-clock time.
 
@@ -771,6 +822,8 @@ configuration-file fields. `IRONFLOW_STORE_DIR` applies to `run`, `list`,
 | `IRONFLOW_EVENT_STORE` | `memory` | Event backend for `/runs/{id}/events`: `memory`, `sqlite`, `postgres`, or `redis` |
 | `IRONFLOW_EVENT_STORE_URL` | SQLite auto path for `sqlite`; required for `postgres` | SQL event store URL |
 | `IRONFLOW_EVENT_MEMORY_CAPACITY` | `10000` | Positive global event/fence count when the event backend is `memory`; a fixed 64 MiB retained-heap estimate applies independently; zero or invalid values fail startup |
+| `IRONFLOW_REPLICA_MODE` | `false` | Fail startup unless state and events use PostgreSQL or Redis |
+| `IRONFLOW_SHUTDOWN_GRACE_SECONDS` | `30` | Accepted-run drain before cancellation (`0..=3600` seconds) |
 | `IRONFLOW_SQL_TABLE_PREFIX` | `ironflow_` | SQL table/index prefix for SQLite/Postgres state and event stores |
 | `FLOWS_DIR` | — | Flow files directory |
 | `MAX_BODY` | `1048576` | Max request body size (bytes) |

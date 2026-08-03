@@ -129,6 +129,16 @@ impl SqlStateStore {
         )
         .await?;
 
+        crate::storage::sql_ddl::create_if_absent(
+            &self.pool,
+            format!(
+                "CREATE INDEX IF NOT EXISTS {} ON {}(name, claimed_micros, claim_key)",
+                self.tables.schedule_claims_cleanup_idx, self.tables.schedule_claims
+            ),
+            "schedule claims cleanup index",
+        )
+        .await?;
+
         Ok(())
     }
 

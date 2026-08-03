@@ -1,6 +1,7 @@
 //! Cross-replica schedule claims backed by a uniqueness constraint.
 
 use super::SqlStateStore;
+use crate::storage::schedule_cleanup::CLAIM_CLEANUP_BATCH_SIZE;
 use crate::storage::{StorageError, StorageErrorKind, StorageResult};
 
 impl SqlStateStore {
@@ -10,7 +11,9 @@ impl SqlStateStore {
         key: &str,
         ttl_seconds: u64,
     ) -> StorageResult<bool> {
-        self.reap_expired_claims(name, ttl_seconds).await;
+        if self.schedule_cleanup.should_run(name, ttl_seconds).await {
+            self.reap_expired_claims(name, ttl_seconds).await;
+        }
 
         let sql = format!(
             "INSERT INTO {} (name, claim_key, claimed_micros) VALUES ({}, {}, {})",
@@ -41,27 +44,28 @@ impl SqlStateStore {
         }
     }
 
-    /// Delete this schedule's claims older than its TTL.
+    /// Delete a bounded batch of this schedule's claims older than its TTL.
     ///
-    /// Scoped to `name` deliberately. Each schedule derives its own TTL from
-    /// its own grace window, so reaping every schedule's rows against the
-    /// caller's TTL would let a short-grace schedule delete a long-grace
-    /// schedule's still-valid claim — reopening exactly the duplicate-fire
-    /// window the claim exists to close.
-    ///
-    /// Best-effort and unbatched: one row per schedule per fire means the table
-    /// stays tiny. Runs on the claim path because nothing in `serve` drives run
-    /// retention, so there is no periodic sweep to attach to.
+    /// The subquery is portable across SQLite and PostgreSQL. The covering
+    /// `(name, claimed_micros, claim_key)` index supplies both its retention
+    /// predicate and deterministic oldest-first batch without a table scan.
     async fn reap_expired_claims(&self, name: &str, ttl_seconds: u64) {
-        let cutoff = chrono::Utc::now().timestamp_micros()
-            - i64::try_from(ttl_seconds.saturating_mul(1_000_000)).unwrap_or(i64::MAX);
+        let ttl_micros = ttl_seconds.saturating_mul(1_000_000);
+        let cutoff = chrono::Utc::now()
+            .timestamp_micros()
+            .saturating_sub(i64::try_from(ttl_micros).unwrap_or(i64::MAX));
         let sql = format!(
-            "DELETE FROM {} WHERE name = {} AND claimed_micros < {}",
-            self.tables.schedule_claims,
-            self.placeholder(1),
-            self.placeholder(2),
+            "DELETE FROM {table} WHERE name = {p1} AND claim_key IN (\
+             SELECT claim_key FROM {table} WHERE name = {p2} AND claimed_micros < {p3} \
+             ORDER BY claimed_micros, claim_key LIMIT {batch})",
+            table = self.tables.schedule_claims,
+            p1 = self.placeholder(1),
+            p2 = self.placeholder(2),
+            p3 = self.placeholder(3),
+            batch = CLAIM_CLEANUP_BATCH_SIZE,
         );
         if let Err(error) = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+            .bind(name)
             .bind(name)
             .bind(cutoff)
             .execute(&self.pool)
@@ -69,6 +73,7 @@ impl SqlStateStore {
         {
             tracing::debug!(
                 error = %StorageError::backend("Reap expired schedule claims", error),
+                schedule = name,
                 "schedule claim cleanup failed; continuing"
             );
         }

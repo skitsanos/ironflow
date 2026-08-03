@@ -13,6 +13,7 @@ mod signal;
 mod task_runner;
 mod workflow;
 
+pub(crate) use coordinator::RunCancellation;
 pub use coordinator::RunHandle;
 pub use engine::WorkflowEngine;
 pub(crate) use overlay::ExecutionOverlay;

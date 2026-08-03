@@ -125,6 +125,7 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
   state nor orphaned events exist; 409 while a non-terminal owner lease is live)
 - [x] `GET /nodes` — List registered nodes with descriptions
 - [x] `GET /health` — Version and status check
+- [x] Split process liveness from storage/admission readiness and drain on SIGTERM/SIGINT
 - [x] `source_base64` field for escaping-free Lua submission
 - [x] Mutual exclusion — reject requests with multiple source fields
 - [x] Configurable request body size limit (default 1 MB, `--max-body` flag)
@@ -167,6 +168,7 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
 ### 3.4 Run Event Streaming ✅
 - [x] Define compact `RunEvent` payloads for run/task lifecycle monitoring; include step name, `node_type`, attempt, status, timing, and error metadata, but never full node input/output.
 - [x] Add separate event backend selection via `IRONFLOW_EVENT_STORE=memory|sqlite|postgres|redis` and `IRONFLOW_EVENT_STORE_URL`; do not reuse `IRONFLOW_STORE` so deployments can store runs and events in different systems.
+- [x] Fail closed in explicit replica mode unless both state and event stores are shared and durable; provide Docker owner-death acceptance.
 - [x] Implement a globally bounded in-memory event store for single-instance
   deployments; `event_memory_capacity` /
   `IRONFLOW_EVENT_MEMORY_CAPACITY` defaults to 10,000 retained events and
@@ -252,6 +254,16 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
       still be deliberately burned by lateness, bounded best-effort overlap,
       capacity, or a start failure. Claim keys are local wall-clock, so a
       fall-back hour is claimed once; a spring-forward gap fires after the gap.
+      Schedule names evaluate concurrently under a 15-second budget, and the
+      scheduler task is supervised with the API server so task death cannot
+      leave a healthy HTTP process with dead triggers. Configuration is bounded
+      to 256 names, finite string/context/grace sizes, and 64 catch-up instants
+      per tick. Restricted day-of-month and weekday fields use traditional OR
+      semantics. JSON and SQL retention is cadence-limited and deletes at most
+      256 schedule-scoped claims per pass; JSON uses digest/hour shards while
+      retaining its rolling-upgrade-compatible atomic file and incrementally
+      indexing legacy claims, SQL uses a covering cleanup index, and Redis
+      relies on per-key TTL.
 - [x] Storage backend selection via config — `store_backend`, `store_url`,
   `event_store`, `event_store_url`, `event_memory_capacity`, and
   `sql_table_prefix`; env-var equivalents include `IRONFLOW_STORE`,
@@ -275,12 +287,20 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
 - [x] Examples organized by category with README
 
 ### 5.5 Infrastructure ✅
-- [x] GitHub Actions CI (module-size ratchet, check, clippy, fmt, test, build,
-  validate examples) — runs on pushes to `develop` and `main` (plus explicit
-  manual dispatch), with path filters that skip docs-only changes while
-  checker and policy changes remain in scope. Routine work uses focused local
-  checks; `.githooks/pre-push` runs the full integration gate before `develop`.
-- [x] Schema-v2 example catalog classifies all 129 Lua flows, records composable service/credential/state/platform requirements, and evaluates every flow against the built-in registry so all 102 node types remain covered without exemptions
+- [x] GitHub Actions CI (module-size ratchet, audit, default/full-feature
+  Clippy and tests, fmt, Linux/macOS builds, validate examples) — runs on pushes
+  to `develop` and `main` (plus explicit manual dispatch), with path filters
+  that skip docs-only changes while checker and policy changes remain in scope.
+  Routine work uses focused local checks; `.githooks/pre-push` runs the full
+  integration gate before `develop`.
+  Linux example validation reuses the release-build artifact without waiting
+  for macOS or recompiling it. Container publication separates a cargo-chef
+  dependency layer from source and package-version changes and exports it to a
+  dedicated zstd-compressed GHCR BuildKit cache manifest. The mutable cache tag
+  is never a deployment reference. Default Clippy/tests share one Linux job;
+  full-feature Clippy and required Redis/PostgreSQL tests share another, so CI
+  keeps backend coverage without isolated check or per-backend compilations.
+- [x] Schema-v2 example catalog classifies all 130 Lua flows, records composable service/credential/state/platform requirements, and evaluates every flow against the built-in registry so all 102 node types remain covered without exemptions
 - [x] GitHub Actions Release workflow — builds Linux (musl), macOS (x86_64 + aarch64), Windows on version tags
 - [x] Shared Lua sandbox module (`src/lua/sandbox.rs`) for consistent VM setup
 

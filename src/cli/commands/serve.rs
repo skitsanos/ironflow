@@ -28,16 +28,21 @@ pub(crate) async fn cmd_serve(
         .await?
         .start_run_lifecycle(store.clone())
         .await?;
+    let lifecycle = server.lifecycle();
 
     // Spawned here rather than inside `api::serve` so schedules stay off
     // `ServeOptions` and the REST surface keeps one responsibility.
-    let _scheduler = crate::scheduler::spawn(
+    let scheduler = crate::scheduler::spawn_with_lifecycle(
         schedules,
         store.clone(),
         event_store.clone(),
         scheduler_flows_dir,
         scheduler_max_concurrent_tasks,
+        lifecycle,
     );
 
-    server.serve().await
+    match scheduler {
+        Some(scheduler) => scheduler.supervise(server.serve()).await,
+        None => server.serve().await,
+    }
 }

@@ -39,8 +39,8 @@
     },
     {
       "path": "src/storage/event_store/sql/store.rs",
-      "max_lines": 367,
-      "rationale": "IF-028 review: one EventStore implementation covering publish, list, decode, and delete transaction boundaries; split when another persistence responsibility appears."
+      "max_lines": 359,
+      "rationale": "IF-028 review, tightened during IF-077: one EventStore implementation covering publish, list, decode, and delete transaction boundaries; readiness and rollback helpers live in the parent SQL module."
     },
     {
       "path": "src/storage/json_store/codec.rs",

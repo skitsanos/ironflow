@@ -192,7 +192,7 @@ gates for ordinary CI.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/flows/run` | Execute a flow |
+| `POST` | `/flows/run` | Execute a flow; optional `Idempotency-Key` makes retries converge on one durable run |
 | `POST` | `/flows/validate` | Validate a flow |
 | `GET` | `/runs` | List run summaries with `status`, `limit`, and `after` cursor parameters |
 | `GET` | `/runs/{id}` | Get run details |
@@ -200,14 +200,29 @@ gates for ordinary CI.
 | `DELETE` | `/runs/{id}` | Delete run state and retained events (`409` while a non-terminal owner lease is live) |
 | `GET` | `/nodes` | List available nodes |
 | `POST` | `/webhooks/{name}` | Execute a webhook-mapped flow |
-| `GET` | `/health` | Health check |
+| `GET` | `/health` | Backwards-compatible liveness check |
+| `GET` | `/health/live` | Process liveness |
+| `GET` | `/health/ready` | Admission and durable-store readiness |
 
 Flows can also run on a schedule. A `schedules:` block in `ironflow.yaml`
-declares cron triggers that `ironflow serve` evaluates — in a named time zone,
-with at most one replica claiming a given instant. A claimed instant may still
+declares bounded standard five-field cron triggers that `ironflow serve`
+evaluates—in a named time zone, with at most one replica claiming a given
+instant. If day-of-month and weekday are both restricted, either match fires
+the schedule, as in traditional crontab. A claimed instant may still
 be skipped for lateness, overlap, or capacity; overlap suppression is a bounded
-best-effort check rather than a distributed lock. See
+best-effort check rather than a distributed lock. Schedule names evaluate
+concurrently under a 15-second per-tick budget, and the scheduler task is
+supervised with the API server: an unexpected scheduler exit stops `serve`
+instead of leaving an apparently healthy API with no triggers. JSON and SQL
+claim retention is schedule-scoped, cadence-limited, and capped at 256 records
+per cleanup pass; Redis uses per-claim TTL. See
 [Schedules](docs/CLI_REFERENCE.md#schedules).
+
+Active-active deployments must set `IRONFLOW_REPLICA_MODE=true` and use
+PostgreSQL or Redis for both state and events. SIGTERM closes readiness and new
+execution admission before a bounded drain. See the
+[replica deployment contract](docs/REPLICA_DEPLOYMENT.md) and its opt-in
+two-process Docker fault gate.
 
 Handler failures return JSON with `error` and a stable `code`. Internal failures
 return only a generic message plus an opaque `error_id`, also exposed as
@@ -533,8 +548,16 @@ bun run scripts/development_version.ts bump next   # 1.16.0-dev.1 -> dev.2
 ```
 
 CI runs the full suite on pushes to `develop` and `main`, with optional manual
-dispatch. Release promotion creates `release/X.Y.Z` from verified `develop`,
-finalizes the candidate there with
+dispatch. Its Linux release build is passed directly to Lua example validation;
+the example job does not wait for macOS or compile a second release binary.
+Default Clippy/tests and combined PostgreSQL/Redis feature checks each share a
+single Linux workspace, avoiding isolated check and per-backend compilations.
+Container publication uses a version- and digest-pinned Rust/cargo-chef builder
+so source and package-version changes retain the dependency layer, backed by a
+dedicated zstd-compressed GHCR BuildKit cache manifest. The mutable
+`buildcache-amd64` tag is build input only; deploy the commit-tagged application
+image by its immutable digest. Release promotion creates
+`release/X.Y.Z` from verified `develop`, finalizes the candidate there with
 `bun run scripts/development_version.ts finalize`, and merges that exact
 candidate into `main` before the stable tag. Stable versions never land on
 `develop`.

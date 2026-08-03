@@ -1,9 +1,12 @@
 mod admission;
 pub mod errors;
 pub mod handlers;
+mod idempotency;
+mod lifecycle;
 mod server;
 mod webhook_config;
 
+pub use lifecycle::ServiceLifecycle;
 pub use webhook_config::WebhookConfig;
 
 use std::collections::HashMap;
@@ -37,6 +40,9 @@ pub struct AppState {
     /// When false, `/flows/run` and `/flows/validate` refuse inline flow
     /// source. See `ServeOptions::allow_adhoc_flows`.
     pub allow_adhoc_flows: bool,
+    /// Process lifecycle used to reject new execution while draining and to
+    /// track accepted runs through graceful shutdown.
+    pub lifecycle: ServiceLifecycle,
 }
 
 pub(crate) use admission::{

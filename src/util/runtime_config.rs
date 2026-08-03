@@ -12,11 +12,14 @@ const MAX_CONCURRENT_TASKS: &str = "IRONFLOW_MAX_CONCURRENT_TASKS";
 const MAX_CONCURRENT_RUNS: &str = "IRONFLOW_MAX_CONCURRENT_RUNS";
 const MAX_CONCURRENT_FLOW_LOADS: &str = "IRONFLOW_MAX_CONCURRENT_FLOW_LOADS";
 const MAX_RUN_SECONDS: &str = "IRONFLOW_MAX_RUN_SECONDS";
+const SHUTDOWN_GRACE_SECONDS: &str = "IRONFLOW_SHUTDOWN_GRACE_SECONDS";
 
 /// Parsing one flow creates a Lua VM whose default memory allowance is 128 MiB.
 /// Keep the externally reachable parse surface small even when run admission is
 /// deliberately unlimited.
 pub const DEFAULT_MAX_CONCURRENT_FLOW_LOADS: usize = 2;
+pub const DEFAULT_SHUTDOWN_GRACE_SECONDS: u64 = 30;
+pub const MAX_SHUTDOWN_GRACE_SECONDS: u64 = 3_600;
 
 /// Resolve the per-run task limit.
 ///
@@ -76,6 +79,15 @@ pub fn run_deadline() -> Result<Option<Duration>> {
         bail!("{MAX_RUN_SECONDS} exceeds the supported timer range");
     }
     Ok(Some(duration))
+}
+
+/// Read the grace period allowed to accepted runs during service shutdown.
+pub fn shutdown_grace() -> Result<Duration> {
+    let seconds = optional_u64(SHUTDOWN_GRACE_SECONDS)?.unwrap_or(DEFAULT_SHUTDOWN_GRACE_SECONDS);
+    if seconds > MAX_SHUTDOWN_GRACE_SECONDS {
+        bail!("{SHUTDOWN_GRACE_SECONDS} exceeds the {MAX_SHUTDOWN_GRACE_SECONDS}-second limit");
+    }
+    Ok(Duration::from_secs(seconds))
 }
 
 /// Validate a concurrency value already resolved by the CLI/YAML layer.

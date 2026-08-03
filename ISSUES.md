@@ -121,6 +121,24 @@ Static validation must be supplemented with representative runtime probes.
 | IF-067 | P2 | Resolved | Tooling/performance | Extraction resource behavior has no repeatable benchmark harness |
 | IF-068 | P1 | Resolved | Artifact security | Local artifact reads trust a mutable pathname and do not verify content identity |
 | IF-069 | P1 | Resolved | Binary/PDF safety | Legacy file materialization and PDF merge amplify before their limits apply |
+| IF-070 | P2 | Resolved | Release governance | `main` requires a check that cannot run before merge |
+| IF-071 | P2 | Resolved | Test reliability | Cancellation cleanup test signals completion before staging cleanup |
+| IF-072 | P2 | Resolved | Test reliability | Lease-loss test can race its first heartbeat under load |
+| IF-073 | P1 | Resolved | Scheduler availability | A hung evaluation or dead scheduler task silently stops every schedule |
+| IF-074 | P1 | Resolved | Scheduler contract | Schedule configuration and cron semantics are not bounded or portable |
+| IF-075 | P2 | Resolved | Scheduler performance | Schedule claim cleanup is linear on every fire |
+| IF-076 | P1 | Resolved | Replica availability | Replica survival has no real-process Docker acceptance gate |
+| IF-077 | P1 | Resolved | Deployment lifecycle | Serve lacks draining, readiness, and restricted-container support |
+| IF-078 | P1 | Resolved | Durable admission | Retried submissions and schedule claim-to-run gaps can duplicate or lose work |
+| IF-079 | P1 | Resolved | Railway deployment | Replica lifecycle has no Railway canary evidence |
+| IF-080 | P1 | Resolved | OpenShift deployment | Restricted-SCC and Route behavior lack live platform evidence |
+| IF-081 | P1 | Resolved | Container delivery | Hosted canaries build or deploy mutable images instead of a verified registry digest |
+| IF-082 | P2 | Resolved | Tooling/resource use | Repeated integration gates retain tens of gigabytes of stale linked artifacts |
+| IF-083 | P2 | Resolved | Container performance | Package-version and source changes invalidate every Rust dependency layer |
+| IF-084 | P2 | Resolved | CI performance | Example validation waits for macOS and compiles the Linux release binary twice |
+| IF-085 | P2 | Resolved | Hosted acceptance | CI consolidation and container caching lack hosted timing evidence |
+| IF-086 | P2 | Resolved | CI performance | Independent checks and storage jobs compile the same Rust graph repeatedly |
+| IF-087 | P2 | Resolved | Container performance | Warm dependency reuse transfers a 755 MB gzip layer |
 
 ## P0 — release-blocking safety and durability
 
@@ -3102,3 +3120,914 @@ Base64 source and the repeated sample PDF produced a six-page merged output.
 Formatting, the 436-module size policy, and
 `cargo clippy --all-targets -- -D warnings` pass. The whole integration gate was
 not run under the ordinary issue-completion policy.
+
+### IF-070 — `main` requires a check that cannot run before merge
+
+**Status:** Resolved 2026-08-02.
+
+The protected `main` branch required a GitHub Actions status named
+`Branch guard`, but repository CI intentionally runs only after pushes to
+`main` and `develop`. No pull-request workflow or ruleset emitted that status,
+so every release PR was permanently blocked and could only be merged through
+an administrator bypass.
+
+The stale required-status-check block was removed from GitHub branch
+protection. Pull requests and resolved conversations remain required, while
+force pushes and branch deletion remain disabled. The repository CI trigger
+contract is unchanged: full CI still runs only on pushes to `main` and
+`develop`, plus explicit workflow dispatch. GitHub's branch-protection API now
+reports `required_status_checks: null` while the other protections remain
+enabled.
+
+### IF-071 — Cancellation cleanup test signals completion before staging cleanup
+
+**Status:** Resolved 2026-08-02.
+
+The `write_file` cancellation regression set its worker-completion flag before
+the local `StagedFile` was dropped. A waiter could therefore inspect the
+directory during the small interval between the flag becoming visible and the
+destructor unlinking the temporary file. This appeared as an intermittent
+macOS CI failure with two directory entries even though the production cleanup
+path completed correctly.
+
+The test worker now explicitly drops the staged file before publishing its
+completion flag. The assertion consequently observes the lifecycle boundary it
+claims to test: cancellation has drained the blocking worker, removed staging,
+and preserved the original destination. The exact regression passed 100
+consecutive focused iterations. Formatting, `git diff --check`, the 436-module
+size policy, and `cargo clippy --all-targets -- -D warnings` pass.
+
+### IF-072 — Lease-loss test can race its first heartbeat under load
+
+**Status:** Resolved 2026-08-02.
+
+The executor lease-loss regression waited up to one second for its delay task
+to start, but scheduled the first lease heartbeat after only 500 milliseconds.
+Under full-suite load, the test's direct lease-file expiry could race a renewal
+that had already read the old live lease. That renewal could then replace the
+expired fixture with a fresh lease, leaving the five-second delay running past
+the test's three-second completion timeout.
+
+The first test heartbeat now starts after two seconds, outside the bounded
+one-second task-start window, and the completion budget includes that deliberate
+delay. The injected expiry therefore precedes renewal deterministically while
+the production heartbeat and lease reconciliation paths remain unchanged.
+
+### IF-073 — A hung evaluation or dead scheduler task silently stops every schedule
+
+**Status:** Resolved 2026-08-02 (found 2026-08-02).
+
+The scheduler has a sound ordinary execution path, but its availability is
+coupled to one unsupervised serial task. `scheduler::spawn` returns a
+`JoinHandle<()>`; `cmd_serve` stores it in `_scheduler` and only awaits the HTTP
+server. A panic or unexpected task exit therefore leaves the API healthy while
+all scheduled work has stopped. One evaluation also awaits each schedule claim
+and the overlap store reads without a deadline. A backend call that never
+returns blocks the only tick loop, including every unrelated schedule.
+
+A claim timeout is not equivalent to a safe claim failure: the backend may
+have committed after the caller lost the response, so blindly firing after a
+timeout could duplicate a run. The availability repair must preserve this
+ambiguity boundary rather than weakening at-most-one admission.
+
+Required outcome:
+
+- tie the scheduler task lifecycle to `serve`, surface unexpected exit through
+  process health and structured diagnostics, and shut it down deliberately;
+- bound claim and overlap-store operations without treating an ambiguous claim
+  timeout as permission to run;
+- isolate a stalled schedule so it cannot indefinitely block unrelated names;
+- add regressions for a hanging claim, a hanging overlap read, and unexpected
+  scheduler task termination while the HTTP server remains otherwise healthy.
+
+Resolution: schedule names now evaluate concurrently, with deterministic
+name-sorted results and a 15-second wall-time budget per name. One hanging
+claim, overlap read, or flow start therefore cannot hold unrelated schedules.
+When the budget expires, every due instant in that schedule's window is
+reported as `TimedOut` and its watermark advances through the window. This is
+deliberately at-most-once: cancellation cannot prove whether an in-flight claim
+or run start committed, so retrying would risk a duplicate.
+
+The tick loop now runs inside a `SchedulerTask` with explicit shutdown. CLI
+`serve` supervises that task alongside the API server: normal server completion
+requests and awaits scheduler shutdown, while an unexpected return or panic is
+logged and returned as a service error, dropping the HTTP server so health
+cannot remain green with dead triggers. Focused validation passed three task
+lifecycle tests, two hanging-operation isolation tests, 15 scheduler-decision
+tests, and 12 scheduler end-to-end tests.
+
+### IF-074 — Schedule configuration and cron semantics are not bounded or portable
+
+**Status:** Resolved 2026-08-02 (found 2026-08-02).
+
+Schedule deserialization validates a non-empty flow, five cron fields, an IANA
+timezone, a minimum 60-second grace window, and reserved context keys. It does
+not bound schedule count, name length, flow/cron/context size, or maximum grace.
+`timing::grace_floor` converts the public `u64` grace to `i64` with `as`, so a
+large valid YAML integer can wrap before `chrono::Duration` is constructed.
+JSON claims also hex-encode the complete schedule name into a filename, making
+an otherwise valid long name fail only when its first instant is claimed.
+
+The catch-up implementation admits at most 64 instants per schedule per tick,
+but the CLI contract describes `grace_seconds` as a maximum lateness without
+stating that cap. A large grace window can also require scanning many local
+minutes before the cap is applied. Finally, the documentation calls the input
+"standard five-field cron" while the selected parser requires both restricted
+day-of-month and day-of-week fields to match. Traditional crontab semantics use
+either field in that case, so an expression such as `0 4 1 * 5` can fire less
+often than an operator expects. There is no regression that fixes this joint
+day-field contract, and the schedule YAML under `examples/` is only a commented
+template rather than a deterministic runnable example.
+
+Required outcome:
+
+- impose reviewed limits on schedule count, names, flow and cron strings,
+  context size, and grace; use checked time arithmetic and portable claim keys;
+- make the 64-instant catch-up limit and its skip behavior part of the public
+  contract, with bounded parsing/catch-up work under hostile configuration;
+- either implement traditional day-of-month/day-of-week OR behavior or name
+  and document the accepted dialect explicitly, with joint-field regressions;
+- provide a deterministic runnable schedule configuration and align its flow,
+  README/catalog entry, CLI reference, and validation coverage.
+
+Resolution: `schedules` now deserializes through a bounded map visitor that
+rejects more than 256 entries, duplicate/empty names, control characters, and
+names longer than 48 UTF-8 bytes before accepting their values. Individual
+schedule construction caps flow paths at 1,024 bytes, cron expressions at 256,
+timezone names at 128, serialized context at 65,536, and grace at
+60..=604,800 seconds. Checked signed conversion replaces the wrapping grace
+cast. The schedule-name bound keeps the existing claim filename format within
+common component limits, preserving rolling-upgrade claim compatibility rather
+than introducing a new hash namespace that old replicas could claim around.
+
+Cron parsing now builds a bounded union when day-of-month and weekday are both
+restricted, implementing traditional OR semantics and deduplicating dates that
+match both fields. The public contract explicitly states that each tick admits
+at most 64 occurrences and skips, rather than queues, the remainder. A new
+offline `examples/21-schedules` flow and configuration make the `serve`
+scheduler runnable without credentials or external services; the catalog and
+example counts include it.
+
+Focused validation passed three bounded-map configuration tests, 16 schedule
+configuration/cron tests, nine timezone/catch-up timing tests, 14 default
+schedule-claim tests, 15 scheduler-decision tests, 12 scheduler end-to-end
+tests, three availability tests, 16 CLI precedence tests, and three example
+catalog tests. The runnable configuration claimed and completed one
+`scheduled_hello` run against a disposable JSON store with the expected
+`_schedule` provenance, and all 130 Lua examples validated. Rustdoc, formatting,
+`git diff --check`, the 439-module size policy, and exact all-target Clippy pass.
+
+### IF-075 — Schedule claim cleanup is linear on every fire
+
+**Status:** Resolved 2026-08-02 (found 2026-08-02).
+
+Every JSON and SQL claim first performs best-effort retention cleanup for the
+same schedule. JSON streams the complete shared claims directory and stats each
+matching entry before atomically creating the new claim. The normal minimum TTL
+is seven days, so a minutely schedule retains about 10,080 claims and then scans
+that population every minute. SQL likewise performs an unbatched delete before
+every insert; the claim table is keyed by `(name, claim_key)` without a cleanup
+index ordered by `(name, claimed_micros)`. Redis avoids the scan by assigning a
+TTL to each claim key.
+
+The current tests prove cross-replica exclusion and eventual cleanup, including
+schedule-specific TTL isolation, but do not exercise the steady-state cost of a
+high-frequency schedule with thousands of retained claims.
+
+Required outcome:
+
+- decouple retention from every claim and make cleanup cadence and batch size
+  bounded without reopening a duplicate-fire window;
+- use a scalable JSON layout/index and add the SQL cleanup index needed by the
+  retention predicate;
+- retain per-schedule TTL isolation and atomic at-most-one claims under cleanup
+  concurrency;
+- add a representative 10,000-plus-claim benchmark/regression for JSON and SQL,
+  while keeping Redis TTL behavior covered independently.
+
+Resolution: JSON and SQL now admit cleanup through a shared process-local
+cadence gate. A schedule runs retention at most once per
+`clamp(ttl / 4, 60 seconds, 1 hour)` for each store process and removes no more
+than 256 expired claims per pass. The gate retains only SHA-256 schedule
+identities and caps its bookkeeping at 1,024 entries; the public scheduler is
+already limited to 256 names. A zero TTL remains an explicit immediate-cleanup
+contract for deterministic storage tests.
+
+The rolling-upgrade-compatible JSON claim file remains the authoritative atomic
+lock. Retention metadata is now stored separately in SHA-256 schedule shards
+and hourly buckets, so steady-state cleanup never enumerates another schedule's
+claims or live future buckets. Claims written before the index existed are
+indexed across all schedule shards in batches of 256, after which one durable
+global completion marker removes the transitional flat scan. Index creation and
+cleanup remain best-effort: a failure can retain a claim longer but cannot
+invalidate its ownership or allow a second winner. SQL now uses a portable
+256-row oldest-first delete backed by a covering
+`(name, claimed_micros, claim_key)` index. Redis remains independently bounded
+by atomic per-key TTL and does not enter the cleanup gate.
+
+Focused validation passed 17 default schedule-claim tests, including 10,001
+record JSON and SQLite regressions, bounded legacy migration, schedule-specific
+TTL isolation, and same-key races while two stores clean expired claims. The
+cadence and existing SQL-prefix-limit unit regressions pass. Live required-test
+feature suites passed against disposable PostgreSQL 18.4 (18 tests) and Redis
+8.10.0 (19 tests); the Redis TTL regression expired and reclaimed its key
+without a sweep. The named containers were removed afterward. Three example
+catalog tests and all 130 Lua examples validate. Formatting, `git diff --check`,
+the 441-module size policy, and exact all-target Clippy pass. This is focused
+local and live-service evidence, not the full integration suite or deployed CI.
+
+### IF-076 — Replica survival has no real-process Docker acceptance gate
+
+**Status:** Resolved 2026-08-02 (found 2026-08-02).
+
+Run ownership is fenced through shared PostgreSQL or Redis leases and expired
+owners are reconciled, but the repository has no repeatable acceptance test
+that starts multiple real IronFlow processes, routes requests across them, and
+kills the owning process. Store-level concurrency tests do not prove that a
+surviving replica remains available, sees the same durable state and events,
+or terminalizes an abandoned run within the lease budget. They also do not
+exercise simultaneous cold-start schema initialization, rolling overlap,
+arbitrary container UIDs, or a read-only root filesystem.
+
+Required outcome:
+
+- add an opt-in Docker acceptance environment with two IronFlow replicas, a
+  shared durable backend, and a round-robin entry point;
+- exercise cross-replica create/read visibility, simultaneous cold start,
+  schedule exclusion, SIGTERM and SIGKILL owner death, and bounded lease
+  reconciliation with concrete assertions;
+- run the image under restricted-container conditions representative of
+  OpenShift and document what Docker cannot prove about Railway/OpenShift
+  routing and security policy;
+- keep the destructive/slow gate outside ordinary focused test execution and
+  provide deterministic cleanup of only its explicitly named resources.
+
+Resolution: `deploy/replica/docker-compose.yml` now defines an explicitly named,
+opt-in acceptance environment with PostgreSQL 18, two IronFlow processes, and
+an nginx round-robin proxy. The IronFlow containers run as arbitrary UID
+`1001230000` in root group, with a read-only root filesystem, all capabilities
+dropped, `no-new-privileges`, and a `/tmp` tmpfs. The Bun harness refuses to run
+without `IRONFLOW_RUN_REPLICA_ACCEPTANCE=1`, creates only the named
+`ironflow-replica-acceptance` project, and always removes that project's
+containers, network, and disposable volume.
+
+The clean unattended acceptance run proved simultaneous cold start,
+round-robin reachability of both replicas, cross-replica durable visibility,
+same-key idempotent retry, graceful SIGTERM cancellation and restart, continued
+readiness of the survivor after real SIGKILL, production 90-second lease
+reconciliation to `stalled`, and one durable run per observed schedule instant.
+The harness deliberately retains the production lease duration and is not part
+of ordinary focused validation. `docs/REPLICA_DEPLOYMENT.md` records the local
+procedure and explicitly limits this evidence: it does not prove Railway edge
+routing, OpenShift Route/SCC selection, managed-storage availability, or actual
+platform rollout timing.
+
+### IF-077 — Serve lacks draining, readiness, and restricted-container support
+
+**Status:** Resolved 2026-08-02 (found 2026-08-02).
+
+`RunningServer::serve` awaits `axum::serve` without a shutdown signal. The
+single `/health` endpoint always returns `ok`, so an orchestrator cannot remove
+a terminating or storage-isolated replica before routing new work. API and
+scheduler run waiters detach from request/tick ownership and are not registered
+with a process lifecycle coordinator, leaving no bounded drain contract.
+The runtime image is owned by one fixed user rather than OpenShift's arbitrary
+UID/root-group convention, and replica deployments can accidentally select
+local JSON/SQLite state or in-memory events.
+
+Required outcome:
+
+- expose distinct liveness and readiness endpoints, with readiness becoming
+  false before listener shutdown or run cancellation begins;
+- handle SIGTERM/SIGINT through one lifecycle coordinator that stops scheduler
+  admission, gracefully stops HTTP admission, tracks accepted runs, waits for
+  a bounded drain interval, and cooperatively cancels remaining work;
+- add an explicit replica deployment mode that fails closed unless state and
+  event backends are shared and durable;
+- make the image runnable with an arbitrary non-root UID, dropped capabilities,
+  and a read-only root filesystem, and document Railway/OpenShift settings.
+
+Resolution: one shared service lifecycle now owns HTTP and scheduler admission,
+accepted-run cancellation authority, and signal-driven draining. SIGTERM and
+SIGINT first make readiness fail and stop scheduler admission, then Axum stops
+accepting connections while admitted runs receive the configured grace period.
+Remaining runs are cooperatively cancelled and given a bounded settling period;
+connection shutdown is bounded separately. `IRONFLOW_SHUTDOWN_GRACE_SECONDS`
+defaults to 30 seconds, is validated before bind, and is capped at 3,600.
+
+`/health/live` is the process liveness contract (`/health` remains a compatible
+alias). `/health/ready` returns success only while the lifecycle admits work and
+both state and event stores pass bounded live probes. The explicit
+`IRONFLOW_REPLICA_MODE=true` setting fails closed before opening stores unless
+both state and event backends are PostgreSQL or Redis. The production image now
+uses root-group-writable runtime paths and an arbitrary non-root-compatible
+user/group contract; the acceptance environment verifies it with dropped
+capabilities and a read-only root filesystem. The deployment guide covers the
+required Railway/OpenShift configuration and termination-window boundary.
+
+Focused validation passed two lifecycle tests, including real cooperative
+cancellation, the replica-mode fail-closed matrix, 25 API tests, webhook
+composition, and the real-process Docker acceptance described by IF-076.
+
+### IF-078 — Retried submissions and schedule claim-to-run gaps can duplicate or lose work
+
+**Status:** Resolved 2026-08-02 (found 2026-08-02).
+
+`POST /flows/run` creates a random run ID after parsing. If a proxy or container
+dies after durable creation but before the client receives the response, a
+retry starts a second workflow. Schedule admission separately claims an
+instant and then loads/starts its flow; owner death in that interval consumes
+the claim without leaving a durable run that explains the skipped occurrence.
+Automatic replay is unsafe because arbitrary nodes may already have produced
+non-idempotent external side effects.
+
+Required outcome:
+
+- accept a bounded `Idempotency-Key` for `/flows/run` and persist its mapping
+  atomically with run creation in every shared built-in state backend;
+- make same-key/same-request retries return the original run while rejecting a
+  key reused for a different admitted request;
+- persist a deterministic schedule occurrence identity through run creation so
+  retries converge on the same run instead of opening a claim-to-run hole;
+- cover concurrent replicas, crash ambiguity, expiration/retention, negative
+  key validation, and document that arbitrary workflow execution is fenced and
+  terminalized rather than transparently replayed.
+
+Resolution: `/flows/run` now accepts a bounded, validated `Idempotency-Key` of
+1-128 ASCII letters, digits, `-`, `_`, `.`, or `:`. IronFlow hashes the key into
+a deterministic run identity, never persists the raw key, and stores a
+canonical request fingerprint with the run. Same-key/same-request submissions
+converge on the existing run across replicas; reusing a key for a different
+source or context returns HTTP 409. The mapping intentionally has the same
+lifetime as the run record, so deleting the run releases that identity.
+
+Scheduled occurrences now derive a deterministic run ID from the schedule name
+and evaluated instant and persist the instant as `_schedule_instant`. A process
+that loses or observes the separate claim still converges on that durable run;
+atomic run initialization elects the sole executor. This closes owner death
+between claim and run creation without replaying already-started arbitrary side
+effects. Lease recovery continues to terminalize abandoned execution as
+`stalled`; transparent workflow replay remains outside the contract.
+
+Focused validation passed canonical fingerprint and raw-key secrecy unit tests,
+the concurrent API idempotency regression (including invalid-key and conflict
+cases), 15 scheduler-decision tests, 13 scheduler end-to-end tests including
+preclaimed recovery and two-scheduler convergence, three availability tests,
+and the live two-process PostgreSQL acceptance. All 132 Lua examples validate;
+Rustdoc, formatting, `git diff --check`, the 446-module policy, and exact
+all-target Clippy with warnings denied pass. This is focused local and Docker
+evidence, not the full integration suite or a Railway/OpenShift deployment.
+
+### IF-079 — Replica lifecycle has no Railway canary evidence
+
+**Status:** Resolved 2026-08-02 (found 2026-08-02).
+
+The Docker acceptance environment proves process and storage behavior under a
+local container runtime, but it does not prove Railway's injected port,
+deployment healthcheck, private PostgreSQL networking, public routing, or
+SIGTERM-to-SIGKILL drain window. A temporary Railway project is available for
+an isolated platform canary.
+
+Required outcome:
+
+- deploy two independently addressable IronFlow services sharing one managed
+  PostgreSQL backend, with replica mode and readiness healthchecks enabled;
+- prove both public endpoints are ready, a run submitted through one is visible
+  through the other, and same-key retries converge across services;
+- exercise a Railway restart or redeploy while a bounded run is active and
+  verify the surviving service remains ready and observes terminal durable
+  state within the documented lifecycle boundary;
+- record service topology and non-secret operational evidence without treating
+  a temporary canary as permanent production monitoring.
+
+Resolution: temporary Railway project
+`7d2bad5b-664e-4172-aa7e-898d7e3b0cbe` hosted managed PostgreSQL 18 and two
+independently addressable IronFlow services, `ironflow-a` and `ironflow-b`.
+Both services ran version `1.16.1-dev.1` with replica mode, PostgreSQL state and
+events, generated API authentication, no application volume, and private
+Railway reference variables for the database URL. The repository now owns
+`railway.json`: Dockerfile build, `/health/ready`, 300-second startup timeout,
+always-restart policy, five-second deployment overlap, and 60-second
+SIGTERM-to-SIGKILL draining. Railway's live schema requires numeric overlap and
+draining values even though its documentation example used strings; the first
+config-only failures were superseded by successful deployments
+`4ff50f59-1560-4a2d-9978-9d3b84c2f591` and
+`ab78c123-7ca1-4794-a591-3e0940539b4f`.
+
+Both public readiness endpoints returned HTTP 200. A run created through A was
+read through B as `success`; its same-key retry through B returned the same run
+and a different request with that key returned HTTP 409. Railway-native scaling
+temporarily ran A with two EU instances: HTTP telemetry attributed 40/40
+liveness responses to two distinct deployment-instance IDs. Twenty concurrent
+same-key submissions through A's load-balanced domain were distributed across
+both instances, all returned HTTP 200, converged on one run ID, and were visible
+through B as `success`.
+
+A 300-second delay admitted through A was visible through B as `running` before
+a Railway restart. Railway logs recorded readiness drain with one active run,
+the configured five-second application grace, cooperative cancellation, and a
+new listener on injected port 8080. B observed the durable terminal status as
+`cancelled` and remained ready. A was scaled back to one instance after the
+native-routing check to limit temporary testbed cost. After the Railway and
+OpenShift acceptance work completed, temporary project
+`7d2bad5b-664e-4172-aa7e-898d7e3b0cbe` was deleted through the Railway CLI,
+stopping `ironflow-a`, `ironflow-b`, and their dedicated PostgreSQL instance and
+volume. Railway direct status reports the project as deleted and the project
+list retains a deletion timestamp. No secret values were printed or written to
+the repository.
+
+This canary proves the tested Railway environment and current deployment
+configuration. Railway readiness checks deployment startup rather than
+continuous service health, and one temporary project is not evidence for a
+different region, plan, storage incident, or long-duration production load.
+
+### IF-080 — Restricted-SCC and Route behavior lack live platform evidence
+
+**Status:** Resolved 2026-08-02 (found 2026-08-02).
+
+Docker exercises an arbitrary UID and restricted container flags, but it does
+not run OpenShift admission, assign the namespace UID range, select an SCC,
+create a Route, or execute Kubernetes probe and termination behavior. The Red
+Hat Developer Sandbox project `gedankrayze-dev` is available for a namespace-
+scoped canary without local cluster storage.
+
+Required outcome:
+
+- deploy PostgreSQL and two IronFlow replicas through namespace-owned
+  manifests with requests, limits, probes, and a Route;
+- run IronFlow under the default restricted SCC without a fixed UID and prove
+  the admitted SCC, effective namespace UID, read-only root filesystem, dropped
+  capabilities, and non-root execution;
+- prove Route readiness, cross-pod durable state and idempotency, graceful pod
+  termination, forced owner death, and surviving-replica availability;
+- keep secrets out of manifests and output, clean up only named canary
+  resources, and document the limits of a shared single-cluster sandbox.
+
+Resolution: `deploy/openshift/canary.yaml` now provides a namespace-scoped
+ImageStream and binary BuildConfig, disposable PostgreSQL PVC, two-replica
+IronFlow Deployment, Services, edge-TLS Route, probes, resource bounds,
+preferred cross-node anti-affinity, and a `minAvailable: 1` disruption budget.
+During acceptance, credentials existed only in the generated
+`ironflow-canary-secrets` Secret and were neither committed nor printed. An
+ImageStream trigger was added after the first deployment showed that pods
+created before the binary build could remain in image-pull backoff; the live
+trigger resolved the tag to the published digest and completed a
+zero-unavailable rollout without a manual restart.
+
+The live acceptance ran in project `gedankrayze-dev` on OpenShift 4.21.21
+(Kubernetes 1.34.8). A 3.2 MiB source directory containing only `Cargo.toml`,
+`Cargo.lock`, `Dockerfile`, and `src/` avoided uploading the local 58 GiB
+`target/`. Build `ironflow-canary-5` compiled IronFlow `1.16.1-dev.1` with the
+PostgreSQL feature and published the internal image; the cold build ran from
+15:02:56Z to 15:18:30Z, with Cargo's optimized build taking 12m19s. Server-side
+dry-run accepted all nine manifest resources before the live application.
+
+Both IronFlow pods were admitted by `restricted-v2` with namespace UID
+`1004800000`, `runAsNonRoot`, `RuntimeDefault` seccomp, read-only root mounts,
+`allowPrivilegeEscalation: false`, all capabilities dropped, and effective
+capability mask zero. The size-limited memory-backed `/tmp` remained writable.
+Both replicas became ready on distinct nodes, the edge Route returned the
+expected live and ready payloads, and PostgreSQL's PVC was bound through the
+project's default storage class.
+
+A flow created directly through one pod completed as `success`, was read from
+the other pod, and a same-key retry through that peer returned the same durable
+run ID. During a 300-second delay, a normal pod deletion left the peer ready,
+cooperatively changed the run from `running` to `cancelled`, and restored two
+ready replicas. A second delay was then subjected to forced zero-grace pod
+deletion. The peer remained ready, a replacement became ready immediately, and
+the abandoned run changed from `running` to `stalled` after about 110 seconds,
+inside the documented 90–120 second lease/reaper window. The Route still
+returned ready afterward, and the PDB reported two healthy replicas with one
+allowed voluntary disruption.
+
+`docs/REPLICA_DEPLOYMENT.md` records the observed contract and limitations;
+`deploy/openshift/README.md` documents secret-safe setup, minimal-source build,
+admitted-policy inspection, lifecycle checks, and exact cleanup. After the
+acceptance, only the named manifest resources, generated Secret, and canary
+Build objects were deleted. Exact-name checks found no canary resources; the
+project itself and unrelated workloads were not deleted. This is live evidence
+for one shared Developer Sandbox cluster, SCC, ingress path, and storage class,
+not proof for other operators, quotas, network policies, node failure modes, or
+long-duration production availability.
+
+### IF-081 — Hosted canaries lack immutable registry delivery
+
+**Status:** Resolved 2026-08-03 (found 2026-08-03).
+
+The Railway acceptance built the repository independently for each service,
+while the OpenShift acceptance uploaded source to a namespace BuildConfig and
+deployed an ImageStream `latest` tag. Both platforms ultimately resolved an
+image digest, but the operator did not select one published artifact and prove
+that exact artifact ran on every replica. Rebuilding the same commit on each
+platform also duplicates a long Rust release build and leaves more room for
+builder or dependency drift.
+
+Required outcome:
+
+- publish a public `linux/amd64` GHCR image for `develop` and `main` using the
+  repository-scoped GitHub token, with a full-commit tag, OCI source/revision
+  labels, provenance, and an SBOM;
+- make the OpenShift canary reject tags and render only an exact
+  `ghcr.io/skitsanos/ironflow@sha256:...` reference;
+- prove the resolved Deployment image and every running container image ID use
+  the selected digest, while retaining restricted-SCC, readiness, shared-state,
+  idempotency, and owner-death behavior;
+- document the same digest-only source boundary for Railway without recreating
+  a paid temporary testbed merely to repeat already-proven lifecycle behavior;
+- remove only the named canary resources and record local, registry, and hosted
+  validation evidence separately.
+
+Resolution: `.github/workflows/container.yml` now publishes one public
+`linux/amd64` GHCR artifact for source-affecting pushes to `develop` and `main`.
+It uses the repository-scoped GitHub token, a full `sha-<40-character-commit>`
+tag, OCI source/revision labels, BuildKit provenance, and an SPDX SBOM. It does
+not publish `latest` or branch tags. CI now includes the Dockerfile, ignore
+file, and container workflow in its own source path boundary. The OpenShift
+template no longer contains a BuildConfig, ImageStream, or image trigger;
+`deploy/openshift/render.ts` accepts exactly one lowercase
+`ghcr.io/skitsanos/ironflow@sha256:...` reference and rejects tags, foreign
+repositories, malformed digests, and missing or duplicate markers.
+
+Local validation was separated from registry and hosted evidence. A clean
+`linux/amd64` Docker build completed from the prepublication candidate and its
+runtime passed the non-root/read-only packaging smoke check. After the final
+`1.16.1-dev.3` bump, the complete local integration gate passed: policies,
+module and skill checks, formatting, default and feature Clippy, default and
+Redis/PostgreSQL tests, the release build, and all 132 Lua examples. The first
+attempt exhausted the 89 GiB Cargo build cache rather than failing a test;
+`cargo clean` removed only recoverable build artifacts, and the clean rerun
+passed.
+
+Container workflow run
+`https://github.com/skitsanos/ironflow/actions/runs/30790340800` published commit
+`6694f091cb6fdd30690e5c22ada52b01b0ec756f`. Anonymous GHCR manifest access
+returned HTTP 200. The attested OCI index is
+`sha256:57be20c2f9468be7a56efe9f2b8c0fbf5560c1b7af17f517528aadbcef7680e3`;
+it contains one runnable `linux/amd64` manifest,
+`sha256:435a3c3ab154b9ca0454d2eac91275e8708204c18cded7e18a68cf74658f261f`,
+plus SPDX and SLSA provenance attestations. Deployment documentation selects
+that runnable child explicitly so the declared image and runtime `imageID`
+have the same digest instead of confusing the attested index with its platform
+manifest.
+
+The runnable digest was exercised in the Red Hat Developer Sandbox project
+`gedankrayze-dev` on OpenShift 4.21.21. The Deployment image and both container
+`imageID` values matched it exactly. Both replicas were ready under
+`restricted-v2`, namespace UID `1004800000`, zero effective capabilities, and
+a read-only root mount; the Route returned the `1.16.1-dev.3` ready payload.
+A run created directly through one pod was visible through its peer. A
+same-key retry converged on the single deterministic run and a different
+payload returned HTTP 409. After immediate zero-grace deletion of the owner,
+the peer and Route stayed ready, the replacement used the same digest, and the
+abandoned run became `stalled` after 94 seconds, within the documented
+90–120-second window.
+
+Railway now documents the same public digest-only source contract without
+recreating the deleted paid testbed. The OpenShift test used generated Secret
+values without printing or committing them. After each live pass, exact-name
+and label checks confirmed that the two Deployments, two Services, Route, PDB,
+PVC, Secret, and canary pods were gone; the namespace and unrelated resources
+were not removed.
+
+### IF-082 — Repeated integration gates retain stale linked artifacts
+
+**Status:** Resolved 2026-08-03 (found 2026-08-03).
+
+The local integration gate reuses the repository `target/` directory across
+default, feature-enabled, and release builds. A clean complete gate occupied
+about 50 GiB, including 42 GiB in `target/debug/deps` and 5.9 GiB of incremental
+state. After the package version changed, Cargo retained the previous linked
+integration-test executables beside the new set. The directory reached 85 GiB
+and the macOS linker failed with `errno=28` before any test assertion ran.
+
+Required outcome:
+
+- keep default, feature-enabled, release, Lua, and live-storage coverage intact;
+- prevent repeated versioned gates from retaining old IronFlow binaries and
+  hundreds of statically linked integration-test executables;
+- preserve reusable third-party dependency artifacts rather than applying an
+  unrestricted `cargo clean` to the entire target directory;
+- remove gate-generated package artifacts on success, failure, or interruption,
+  and disclose that user-visible cleanup in repository instructions;
+- add a regression that prevents the package-scoped cleanup, exit cleanup, or
+  incremental-build boundary from being removed accidentally.
+
+Resolution: `scripts/integration_gate.sh` now registers cleanup before its
+command preflight, package-cleans only `ironflow` artifacts before validation,
+sets `CARGO_INCREMENTAL=0` for every Cargo phase, and repeats the same
+package-scoped cleanup from an `EXIT` trap. SIGINT and SIGTERM terminate through
+that exit path. Disposable Redis/PostgreSQL cleanup shares the same handler and
+remains limited to the exact per-process container names. Default,
+feature-enabled, release, Lua-example, audit, and live-storage commands remain
+in the gate unchanged.
+
+The package-scoped boundary was measured against the completed IF-081 gate
+cache. `target/` started at 52,219,332 KiB (about 50 GiB), and
+`cargo clean --package ironflow` removed 41,544 files / 43.6 GiB, leaving
+8,514,492 KiB (about 8.1 GiB) of reusable dependency and build artifacts. A
+subsequent `CARGO_INCREMENTAL=0 cargo check --all-targets` produced zero KiB in
+`target/debug/incremental`; the same package cleanup removed its 11.2 MiB of
+workspace output and restored the dependency-only baseline.
+
+Repository policy coverage now rejects unrestricted or workspace-wide Cargo
+cleanup, requires the pre-gate prune, disabled incremental output, and exit
+cleanup, and executes the gate with a fake toolchain to prove that a failing
+first Cargo command still produces the exact sequence `package clean -> work ->
+package clean` while preserving the command's exit code. `AGENTS.md` and the
+repository `check-ironflow` skill disclose that a full local gate intentionally
+removes IronFlow binaries and linked tests while retaining dependency caches.
+
+### IF-083 — Container dependency cache is invalidated by routine changes
+
+**Status:** Resolved 2026-08-03 (found 2026-08-03).
+
+The container builder copied `Cargo.toml`, `Cargo.lock`, and all production
+source before running one release build. Any source edit invalidated the entire
+compilation layer. The required development-version bump also changes the root
+package version in both Cargo files immediately before each `develop` push, so
+even a metadata-only candidate forced every third-party dependency to compile
+again. The external GitHub Actions cache could retain the resulting layer but
+could not reuse it when either input checksum changed.
+
+Required outcome:
+
+- separate dependency compilation from application compilation without a
+  manually maintained shadow manifest;
+- keep the dependency cache stable across source-only and local package-version
+  changes while invalidating it for dependency, feature, lockfile, builder, or
+  toolchain changes;
+- pin the Rust and dependency-planner versions used by the container build;
+- preserve the `postgres redis` production feature set and locked dependency
+  resolution;
+- isolate the exported BuildKit cache under an image-specific scope and prove a
+  version-only rebuild reuses the dependency layer.
+
+Resolution: the Dockerfile now uses the version- and manifest-digest-pinned
+`lukemathwalker/cargo-chef:0.1.77-rust-1.97.1-bookworm` image for planner and
+builder stages. `cargo chef prepare` derives the dependency recipe from the
+real manifests and target layout while masking local crate versions. The
+builder cooks that recipe with `--release --locked`, the production feature
+set, and the `ironflow` binary target before copying the real source for the
+application-only build. Dependency and source changes therefore remain
+separate without duplicating Cargo metadata. The container workflow exports
+and imports the layer using the dedicated `ironflow-container-amd64` GHA cache
+scope.
+
+A clean local BuildKit builder-stage probe compiled the dependency recipe in
+92.8 seconds and IronFlow itself in 32.8 seconds. An isolated second context
+changed only the root version from `1.16.1-dev.4` to `9.9.9-dev.9` in
+`Cargo.toml` and `Cargo.lock`: BuildKit reported both the recipe-copy and
+`cargo chef cook` steps as cached, then rebuilt only IronFlow in 38.4 seconds.
+A complete runtime image built from the normal context and returned
+`ironflow 1.16.1-dev.4`. This proves the local cache boundary; the first pushed
+workflow run will be the separate hosted-GHA cache observation.
+
+### IF-084 — Example validation serializes and recompiles CI work
+
+**Status:** Resolved 2026-08-03 (found 2026-08-03).
+
+The `validate-examples` job depended on the complete two-platform `build`
+matrix, so it could not start until the slower macOS build completed. It then
+ran `cargo build --release` again on Linux even though the matrix had already
+produced the exact binary it needed. Finally, it reran the catalog, contract,
+and fixture integration tests already covered by the independent default
+`cargo test --all-targets` jobs.
+
+Required outcome:
+
+- retain independent Linux and macOS release-build evidence and their existing
+  human-readable check names;
+- make example validation depend only on the Linux binary it executes;
+- transfer that exact commit-scoped binary between jobs with short retention
+  and fail if the producer did not create it;
+- preserve validation of every Lua file while leaving Rust example contract
+  tests under the existing default all-target test jobs;
+- add policy coverage that rejects a second build or test compilation in the
+  example-validation job.
+
+Resolution: the former build matrix is split into `build-linux` and
+`build-macos`, retaining check names `Build (ubuntu-latest)` and
+`Build (macos-latest)`. Linux uploads
+`ironflow-linux-release-${{ github.sha }}` with one-day retention and
+fail-on-missing behavior. `validate-examples` depends only on `build-linux`,
+downloads that artifact, restores its executable bit, and runs every Lua flow
+through it. It no longer installs Rust, builds a second release binary, waits
+for macOS, or repeats the three example integration-test targets; those remain
+included in both default runs of `cargo test --all-targets`.
+
+Focused repository-policy tests parse the workflows and require the split-job
+dependency, upload/download handoff, Lua invocation, and absence of Cargo build
+or test commands in example validation. All seven policy tests passed,
+`actionlint .github/workflows/*.yml` passed, and `git diff --check` passed. No
+Lua behavior, node contract, or example content changed, so the existing 132
+flows were not revalidated locally for this workflow-only scheduling change.
+
+### IF-085 — Hosted CI and container-cache acceptance is missing
+
+**Status:** Resolved 2026-08-03 (found 2026-08-03).
+
+IF-083, IF-084, and IF-086 establish local and static evidence for dependency
+layer reuse, release-binary handoff, and bounded Rust compilation jobs. None of
+that proves GitHub-hosted runners import the new BuildKit cache, preserve the
+artifact handoff, or improve the real workflow critical path. The latest green
+baseline before those changes is CI run `30793338123`, which completed in
+25 minutes 38 seconds and spent about 51 runner-minutes across seven Linux Rust
+compilation jobs. Container run `30793340800` took 13 minutes 52 seconds with
+the old single compilation layer.
+
+Required outcome:
+
+- publish the accumulated IF-082 through IF-086 candidate only after incoming
+  PR, remote ancestry, clean-worktree, development-version, and complete local
+  integration gates pass;
+- require green hosted CI and container publication for that exact commit;
+- verify Lua validation downloads the Linux build artifact and does not compile
+  Rust or wait for the macOS build;
+- record hosted job durations and compare the Rust-compiling job count and CI
+  critical path with the baseline without overstating results;
+- publish a second version-only candidate and verify the hosted container build
+  imports the dedicated cache and reports the cargo-chef dependency cook as
+  cached;
+- record immutable image digests and distinguish local, first-run hosted, and
+  warm-cache hosted evidence.
+
+First hosted pass: commit `463bba63eb1953314506252383e58feb6b89476f`
+(`1.16.1-dev.5`) passed CI run `30806165397` in 12 minutes 51 seconds,
+compared with 25 minutes 38 seconds for baseline run `30793338123`—about a
+50% shorter critical path. Summed job time fell from 91 minutes 48 seconds to
+52 minutes 44 seconds, about 43% less hosted runner usage. The consolidated
+feature/storage job was the new critical path at 12 minutes 45 seconds. Lua
+validation downloaded artifact `ironflow-linux-release-463bba6...`, validated
+all 132 flows in a seven-second job, and finished before the macOS build; its
+log contains no Cargo build or test command.
+
+Cold container run `30806165551` passed in 13 minutes 5 seconds versus 13
+minutes 52 seconds for the old-layer baseline `30793340800`. As expected, the
+cargo-chef dependency cook compiled from cold state and exported the new scoped
+cache. It published attested OCI index
+`sha256:a3df7135ede24cb3c2896954af5d4c22bb242324e28e7fd7a4c5729b06d13be9`.
+This first pass proves workflow correctness and cache population, not warm
+dependency reuse.
+
+Warm hosted pass: the version-only follow-up commit
+`fc431dcf636b826d674e2d22cf3b6a3e9cd498d1` (`1.16.1-dev.6`) passed CI run
+`30808017710` in 12 minutes 12 seconds. Its five Rust-compiling jobs remained
+bounded to default Linux validation, combined feature/storage validation,
+Linux and macOS release builds, and macOS tests. Their durations were 10
+minutes 14 seconds, 12 minutes 7 seconds, 8 minutes 50 seconds, 11 minutes 37
+seconds, and 9 minutes 42 seconds respectively. Total hosted job time was 53
+minutes 27 seconds, within 43 seconds of the first pass and still about 42%
+below the 91-minute-48-second baseline. Linux artifact handoff remained
+independent of macOS: the Linux build completed first, and the downstream
+example job validated all 132 flows in 10 seconds without a Cargo command.
+
+Warm container run `30808017823` passed in 4 minutes 15 seconds, 8 minutes 50
+seconds (about 68%) faster than the cold cargo-chef run. The BuildKit log
+explicitly reports the `cargo chef cook --release --locked --features
+"postgres redis"` step as `CACHED`; importing and extracting its 755.54 MB
+dependency layer took 59 seconds and no dependency compilation occurred. The
+run published commit tag
+`sha-fc431dcf636b826d674e2d22cf3b6a3e9cd498d1` at attested OCI index
+`sha256:7334dc0630d8791d2db3825b48194ce53e71cf74ad6aa4114dbc6780573cc358`.
+An independent `docker buildx imagetools inspect` resolved that exact immutable
+reference and confirmed its Linux/amd64 image plus attestation manifest. This
+separates the complete local pre-push gate, cold hosted cache population, and
+warm hosted cache reuse and closes the acceptance gap.
+
+### IF-086 — CI repeatedly compiles the same Rust graph
+
+**Status:** Resolved 2026-08-03 (found 2026-08-03).
+
+The CI workflow isolated default `check`, default Clippy, full-feature check and
+Clippy, Redis tests, PostgreSQL tests, default Ubuntu tests, and the Linux
+release build into seven independent Rust workspaces. `rust-cache` deliberately
+keeps `cache-targets: false`, so each runner reused downloaded dependencies but
+not compiled target artifacts. The latest completed `develop` run before this
+change spent about 51 runner-minutes across those seven Linux compilation jobs;
+the Redis and PostgreSQL jobs alone ran for 9 minutes 48 seconds and 14 minutes
+58 seconds respectively.
+
+Required outcome:
+
+- retain exact default and `postgres,redis` Clippy coverage, default and
+  feature-enabled all-target tests, required live Redis/PostgreSQL execution,
+  doctests, Linux/macOS tests and release builds, and Lua validation;
+- reuse one workspace within related default and feature-enabled commands
+  instead of transferring a large mutable `target/` directory between runners;
+- run Redis and PostgreSQL tests together using the combined feature contract
+  already exercised by the local integration gate;
+- remove standalone `cargo check` passes already subsumed by exact all-target
+  Clippy invocations;
+- preserve the macOS test/build and Linux build check names, release artifact
+  handoff, generated storage credentials, and fail-closed required-test flags;
+- add a regression that bounds the set of Rust-compiling CI jobs.
+
+Resolution: default Linux Clippy, all-target tests, and doctests now share the
+`rust-default` job. Full-feature Clippy and all-target tests now share the
+`rust-features` job, which starts both Redis and PostgreSQL services and sets
+both required-test flags. This replaces the standalone check, full-feature,
+and per-backend jobs without weakening their commands. macOS keeps an
+independent `Test (macos-latest)` job, while both release-build jobs and the
+Linux artifact handoff from IF-084 remain unchanged. The workflow therefore
+has three Linux compilation boundaries—default, combined features/storage, and
+release—instead of seven. It intentionally does not exchange `target/`
+artifacts between runners because those artifacts are large, profile-specific,
+and responsible for the local growth addressed by IF-082.
+
+Repository-policy coverage rejects all six retired job IDs, requires the exact
+default Clippy/test/doctest commands, requires both services and required-test
+flags on the feature job, rejects a redundant feature `cargo check`, and bounds
+Rust compilation to the two Linux validation jobs, two release jobs, and the
+macOS test job. All eight focused policy tests and
+`actionlint .github/workflows/*.yml` passed. The exact combined feature Clippy
+command passed locally, followed by the complete `postgres,redis` all-target
+suite against disposable Redis and PostgreSQL containers: 411 library tests
+passed with one ignored, and every integration/example target passed. The two
+named containers were removed afterward, and package-scoped cleanup removed
+1,848 IronFlow artifacts / 17.9 GiB while retaining dependency caches. Hosted
+runner-time improvement remains an observation for the next pushed CI run; it
+is not claimed by this local validation.
+
+### IF-087 — Warm container cache transfer is oversized
+
+**Status:** Resolved 2026-08-03 (found 2026-08-03).
+
+IF-085 proved that cargo-chef avoids dependency recompilation, but GitHub's
+fresh runner still downloaded and extracted a 755,538,199-byte dependency
+layer. The GitHub Actions cache backend accepts `min` or `max` mode but exposes
+no compression control. Changing to `mode=min` would omit the intermediate
+cargo-chef layer and silently discard the reuse IF-083 established.
+
+Required outcome:
+
+- retain `mode=max`, the separate dependency cook, pinned builder, locked
+  feature-complete release build, immutable application tags, SBOM, and
+  provenance;
+- use a cache backend and OCI representation that supports explicit zstd
+  compression without turning the mutable cache tag into a deployment
+  reference;
+- keep cache reads and writes within the existing GHCR package boundary and
+  require policy coverage for the backend, cache reference, compression, and
+  removal of the former GHA exporter;
+- compare gzip and zstd exports of the same complete cached graph, including
+  the dependency-layer byte count and compression-time trade-off;
+- distinguish controlled local export evidence from hosted transfer evidence,
+  which can only be collected after the next authorized `develop` push.
+
+Resolution: container publication now imports and exports a dedicated
+`ghcr.io/skitsanos/ironflow:buildcache-amd64` registry cache. It retains
+`mode=max` so intermediate cargo-chef results remain available and emits an OCI
+image manifest with forced zstd level-15 compression. The existing GHCR login
+and package-write permission cover this cache; the commit-tagged application
+image, immutable digest, SBOM, and maximum provenance settings are unchanged.
+README, deployment, and implementation-plan documentation distinguish the
+mutable cache manifest from runnable deployment references. Repository-policy
+coverage requires the registry reference and every compression/OCI setting and
+rejects reintroduction of a GHA cache exporter.
+
+A controlled Docker Buildx benchmark compiled the graph once, then exported
+the same complete cache with forced gzip level 6 and forced zstd level 15.
+Total cache bytes fell from 1,434,765,316 to 991,163,277 (30.9%); the
+cargo-chef dependency layer fell from 755,538,199 to 461,494,335 bytes (38.9%).
+The gzip export took 52.8 seconds and zstd took 63.0 seconds locally, accepting
+about 10 seconds of producer CPU to avoid roughly 294 MB on each cold-runner
+dependency restore. Both builds used the same cached Dockerfile graph and the
+second reported every build step cached. The temporary 2.4 GB export directory
+was moved to the system Trash after measurement; reusable Docker build state
+was retained.
+
+All eight focused repository-policy tests, the full workflow `actionlint`
+check, and `git diff --check` passed. This is local
+OCI-export and static workflow evidence, not a claim that GHCR has accepted the
+new cache manifest or that a hosted runner has imported it. Those observations
+belong to the next authorized `develop` publication before release promotion.
+
+Hosted acceptance completed on 2026-08-03. Candidate
+`3c756831edfb67ea944647869d32c6630fc8d986` (`1.16.1-dev.7`) passed CI run
+`30815166883` in 13 minutes 14 seconds and populated the previously absent
+registry cache in Container run `30815167729`. GHCR accepted
+`buildcache-amd64` as an OCI image manifest at
+`sha256:206781b52f82bd15e9db88b0e700ea8440b15ed3fbdec0faf02d0d597ad8223d`;
+the cold migration completed in 13 minutes 28 seconds and published the
+attested application index
+`sha256:f6afec1b1026f9fd678f2c8571f10359c2a6cc3c64acebec138c5d2fc7a19879`.
+
+A manual fresh-runner rerun of that exact commit, Container run `30816243328`,
+completed in 34 seconds. BuildKit imported the registry manifest in 0.5 seconds,
+reported the cargo-chef cook and every application/runtime build step as
+`CACHED`, spent 0.3 seconds preparing the unchanged cache export, and completed
+the build/publish step in 12 seconds. This exact-graph rerun is the hosted warm
+cache proof; it does not claim that a changed dependency graph avoids its
+required rebuild.
+
+The final `1.16.1-dev.8` candidate integrated Renovate PR 115's Lettre 0.11.23
+lockfile update after 12 focused email-node tests and `cargo audit` passed. Its
+complete local pre-push gate and hosted CI run `30817537738` passed, including
+all 132 Lua examples and required disposable Redis/PostgreSQL suites. Container
+run `30817538258` imported the prior cache manifest, rebuilt the changed
+dependency graph, and replaced it with zstd OCI cache manifest
+`sha256:42c9bf597234b30420ed0308543a6bfa49cdb01ed873f6f6f17b67e2388f4087`.
+It published attested application index
+`sha256:11325f78399470d14044732e38fd42779b1a85708f53191533c8f31f0ca7fd5f`.
+This closes both the hosted registry-compatibility and warm-reuse boundaries.

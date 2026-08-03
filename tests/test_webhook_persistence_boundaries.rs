@@ -156,6 +156,7 @@ async fn forwarded_header_never_crosses_state_or_event_boundaries() {
         listing_policy: ironflow::util::listing::ListingPolicy::default(),
         webhooks: HashMap::from([("signed".to_string(), webhook)]),
         allow_adhoc_flows: true,
+        lifecycle: ironflow::api::ServiceLifecycle::default(),
     });
     let app = Router::new()
         .route(
