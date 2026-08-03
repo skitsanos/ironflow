@@ -295,8 +295,9 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
   integration gate before `develop`.
   Linux example validation reuses the release-build artifact without waiting
   for macOS or recompiling it. Container publication separates a cargo-chef
-  dependency layer from source and package-version changes and exports it under
-  a dedicated BuildKit cache scope. Default Clippy/tests share one Linux job;
+  dependency layer from source and package-version changes and exports it to a
+  dedicated zstd-compressed GHCR BuildKit cache manifest. The mutable cache tag
+  is never a deployment reference. Default Clippy/tests share one Linux job;
   full-feature Clippy and required Redis/PostgreSQL tests share another, so CI
   keeps backend coverage without isolated check or per-backend compilations.
 - [x] Schema-v2 example catalog classifies all 130 Lua flows, records composable service/credential/state/platform requirements, and evaluates every flow against the built-in registry so all 102 node types remain covered without exemptions

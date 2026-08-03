@@ -72,12 +72,17 @@ describe("repository integration policy", () => {
     expect(dependencyCook).toBeGreaterThan(-1);
     expect(applicationCopy).toBeGreaterThan(dependencyCook);
 
+    const cacheReference =
+      "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache-amd64";
     expect(workflowSource).toContain(
-      "cache-from: type=gha,scope=ironflow-container-amd64",
+      `cache-from: type=registry,ref=${cacheReference}`,
     );
     expect(workflowSource).toContain(
-      "cache-to: type=gha,scope=ironflow-container-amd64,mode=max",
+      `cache-to: type=registry,ref=${cacheReference},mode=max,` +
+        "oci-mediatypes=true,image-manifest=true,compression=zstd," +
+        "compression-level=15,force-compression=true",
     );
+    expect(workflowSource).not.toContain("cache-to: type=gha");
   });
 
   test("example validation reuses only the Linux release build", async () => {

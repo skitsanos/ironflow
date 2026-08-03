@@ -136,8 +136,9 @@ Static validation must be supplemented with representative runtime probes.
 | IF-082 | P2 | Resolved | Tooling/resource use | Repeated integration gates retain tens of gigabytes of stale linked artifacts |
 | IF-083 | P2 | Resolved | Container performance | Package-version and source changes invalidate every Rust dependency layer |
 | IF-084 | P2 | Resolved | CI performance | Example validation waits for macOS and compiles the Linux release binary twice |
-| IF-085 | P2 | In progress | Hosted acceptance | CI consolidation and container caching lack hosted timing evidence |
+| IF-085 | P2 | Resolved | Hosted acceptance | CI consolidation and container caching lack hosted timing evidence |
 | IF-086 | P2 | Resolved | CI performance | Independent checks and storage jobs compile the same Rust graph repeatedly |
+| IF-087 | P2 | Resolved | Container performance | Warm dependency reuse transfers a 755 MB gzip layer |
 
 ## P0 — release-blocking safety and durability
 
@@ -3824,7 +3825,7 @@ flows were not revalidated locally for this workflow-only scheduling change.
 
 ### IF-085 — Hosted CI and container-cache acceptance is missing
 
-**Status:** In progress (found 2026-08-03).
+**Status:** Resolved 2026-08-03 (found 2026-08-03).
 
 IF-083, IF-084, and IF-086 establish local and static evidence for dependency
 layer reuse, release-binary handoff, and bounded Rust compilation jobs. None of
@@ -3862,12 +3863,37 @@ all 132 flows in a seven-second job, and finished before the macOS build; its
 log contains no Cargo build or test command.
 
 Cold container run `30806165551` passed in 13 minutes 5 seconds versus 13
-minutes 52 seconds for the old-layer baseline `30790340800`. As expected, the
+minutes 52 seconds for the old-layer baseline `30793340800`. As expected, the
 cargo-chef dependency cook compiled from cold state and exported the new scoped
 cache. It published attested OCI index
 `sha256:a3df7135ede24cb3c2896954af5d4c22bb242324e28e7fd7a4c5729b06d13be9`.
 This first pass proves workflow correctness and cache population, not warm
-dependency reuse; IF-085 remains open until the version-only follow-up passes.
+dependency reuse.
+
+Warm hosted pass: the version-only follow-up commit
+`fc431dcf636b826d674e2d22cf3b6a3e9cd498d1` (`1.16.1-dev.6`) passed CI run
+`30808017710` in 12 minutes 12 seconds. Its five Rust-compiling jobs remained
+bounded to default Linux validation, combined feature/storage validation,
+Linux and macOS release builds, and macOS tests. Their durations were 10
+minutes 14 seconds, 12 minutes 7 seconds, 8 minutes 50 seconds, 11 minutes 37
+seconds, and 9 minutes 42 seconds respectively. Total hosted job time was 53
+minutes 27 seconds, within 43 seconds of the first pass and still about 42%
+below the 91-minute-48-second baseline. Linux artifact handoff remained
+independent of macOS: the Linux build completed first, and the downstream
+example job validated all 132 flows in 10 seconds without a Cargo command.
+
+Warm container run `30808017823` passed in 4 minutes 15 seconds, 8 minutes 50
+seconds (about 68%) faster than the cold cargo-chef run. The BuildKit log
+explicitly reports the `cargo chef cook --release --locked --features
+"postgres redis"` step as `CACHED`; importing and extracting its 755.54 MB
+dependency layer took 59 seconds and no dependency compilation occurred. The
+run published commit tag
+`sha-fc431dcf636b826d674e2d22cf3b6a3e9cd498d1` at attested OCI index
+`sha256:7334dc0630d8791d2db3825b48194ce53e71cf74ad6aa4114dbc6780573cc358`.
+An independent `docker buildx imagetools inspect` resolved that exact immutable
+reference and confirmed its Linux/amd64 image plus attestation manifest. This
+separates the complete local pre-push gate, cold hosted cache population, and
+warm hosted cache reuse and closes the acceptance gap.
 
 ### IF-086 — CI repeatedly compiles the same Rust graph
 
@@ -3922,3 +3948,57 @@ named containers were removed afterward, and package-scoped cleanup removed
 1,848 IronFlow artifacts / 17.9 GiB while retaining dependency caches. Hosted
 runner-time improvement remains an observation for the next pushed CI run; it
 is not claimed by this local validation.
+
+### IF-087 — Warm container cache transfer is oversized
+
+**Status:** Resolved 2026-08-03 (found 2026-08-03).
+
+IF-085 proved that cargo-chef avoids dependency recompilation, but GitHub's
+fresh runner still downloaded and extracted a 755,538,199-byte dependency
+layer. The GitHub Actions cache backend accepts `min` or `max` mode but exposes
+no compression control. Changing to `mode=min` would omit the intermediate
+cargo-chef layer and silently discard the reuse IF-083 established.
+
+Required outcome:
+
+- retain `mode=max`, the separate dependency cook, pinned builder, locked
+  feature-complete release build, immutable application tags, SBOM, and
+  provenance;
+- use a cache backend and OCI representation that supports explicit zstd
+  compression without turning the mutable cache tag into a deployment
+  reference;
+- keep cache reads and writes within the existing GHCR package boundary and
+  require policy coverage for the backend, cache reference, compression, and
+  removal of the former GHA exporter;
+- compare gzip and zstd exports of the same complete cached graph, including
+  the dependency-layer byte count and compression-time trade-off;
+- distinguish controlled local export evidence from hosted transfer evidence,
+  which can only be collected after the next authorized `develop` push.
+
+Resolution: container publication now imports and exports a dedicated
+`ghcr.io/skitsanos/ironflow:buildcache-amd64` registry cache. It retains
+`mode=max` so intermediate cargo-chef results remain available and emits an OCI
+image manifest with forced zstd level-15 compression. The existing GHCR login
+and package-write permission cover this cache; the commit-tagged application
+image, immutable digest, SBOM, and maximum provenance settings are unchanged.
+README, deployment, and implementation-plan documentation distinguish the
+mutable cache manifest from runnable deployment references. Repository-policy
+coverage requires the registry reference and every compression/OCI setting and
+rejects reintroduction of a GHA cache exporter.
+
+A controlled Docker Buildx benchmark compiled the graph once, then exported
+the same complete cache with forced gzip level 6 and forced zstd level 15.
+Total cache bytes fell from 1,434,765,316 to 991,163,277 (30.9%); the
+cargo-chef dependency layer fell from 755,538,199 to 461,494,335 bytes (38.9%).
+The gzip export took 52.8 seconds and zstd took 63.0 seconds locally, accepting
+about 10 seconds of producer CPU to avoid roughly 294 MB on each cold-runner
+dependency restore. Both builds used the same cached Dockerfile graph and the
+second reported every build step cached. The temporary 2.4 GB export directory
+was moved to the system Trash after measurement; reusable Docker build state
+was retained.
+
+All eight focused repository-policy tests, the full workflow `actionlint`
+check, and `git diff --check` passed. This is local
+OCI-export and static workflow evidence, not a claim that GHCR has accepted the
+new cache manifest or that a hosted runner has imported it. Those observations
+belong to the next authorized `develop` publication before release promotion.

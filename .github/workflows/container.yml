@@ -61,8 +61,8 @@ jobs:
           push: true
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
-          cache-from: type=gha,scope=ironflow-container-amd64
-          cache-to: type=gha,scope=ironflow-container-amd64,mode=max
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache-amd64
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache-amd64,mode=max,oci-mediatypes=true,image-manifest=true,compression=zstd,compression-level=15,force-compression=true
           provenance: mode=max
           sbom: true
 
