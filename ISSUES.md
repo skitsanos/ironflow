@@ -3851,6 +3851,24 @@ Required outcome:
 - record immutable image digests and distinguish local, first-run hosted, and
   warm-cache hosted evidence.
 
+First hosted pass: commit `463bba63eb1953314506252383e58feb6b89476f`
+(`1.16.1-dev.5`) passed CI run `30806165397` in 12 minutes 51 seconds,
+compared with 25 minutes 38 seconds for baseline run `30793338123`—about a
+50% shorter critical path. Summed job time fell from 91 minutes 48 seconds to
+52 minutes 44 seconds, about 43% less hosted runner usage. The consolidated
+feature/storage job was the new critical path at 12 minutes 45 seconds. Lua
+validation downloaded artifact `ironflow-linux-release-463bba6...`, validated
+all 132 flows in a seven-second job, and finished before the macOS build; its
+log contains no Cargo build or test command.
+
+Cold container run `30806165551` passed in 13 minutes 5 seconds versus 13
+minutes 52 seconds for the old-layer baseline `30790340800`. As expected, the
+cargo-chef dependency cook compiled from cold state and exported the new scoped
+cache. It published attested OCI index
+`sha256:a3df7135ede24cb3c2896954af5d4c22bb242324e28e7fd7a4c5729b06d13be9`.
+This first pass proves workflow correctness and cache population, not warm
+dependency reuse; IF-085 remains open until the version-only follow-up passes.
+
 ### IF-086 — CI repeatedly compiles the same Rust graph
 
 **Status:** Resolved 2026-08-03 (found 2026-08-03).
