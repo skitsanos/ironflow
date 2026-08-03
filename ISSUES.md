@@ -4002,3 +4002,32 @@ check, and `git diff --check` passed. This is local
 OCI-export and static workflow evidence, not a claim that GHCR has accepted the
 new cache manifest or that a hosted runner has imported it. Those observations
 belong to the next authorized `develop` publication before release promotion.
+
+Hosted acceptance completed on 2026-08-03. Candidate
+`3c756831edfb67ea944647869d32c6630fc8d986` (`1.16.1-dev.7`) passed CI run
+`30815166883` in 13 minutes 14 seconds and populated the previously absent
+registry cache in Container run `30815167729`. GHCR accepted
+`buildcache-amd64` as an OCI image manifest at
+`sha256:206781b52f82bd15e9db88b0e700ea8440b15ed3fbdec0faf02d0d597ad8223d`;
+the cold migration completed in 13 minutes 28 seconds and published the
+attested application index
+`sha256:f6afec1b1026f9fd678f2c8571f10359c2a6cc3c64acebec138c5d2fc7a19879`.
+
+A manual fresh-runner rerun of that exact commit, Container run `30816243328`,
+completed in 34 seconds. BuildKit imported the registry manifest in 0.5 seconds,
+reported the cargo-chef cook and every application/runtime build step as
+`CACHED`, spent 0.3 seconds preparing the unchanged cache export, and completed
+the build/publish step in 12 seconds. This exact-graph rerun is the hosted warm
+cache proof; it does not claim that a changed dependency graph avoids its
+required rebuild.
+
+The final `1.16.1-dev.8` candidate integrated Renovate PR 115's Lettre 0.11.23
+lockfile update after 12 focused email-node tests and `cargo audit` passed. Its
+complete local pre-push gate and hosted CI run `30817537738` passed, including
+all 132 Lua examples and required disposable Redis/PostgreSQL suites. Container
+run `30817538258` imported the prior cache manifest, rebuilt the changed
+dependency graph, and replaced it with zstd OCI cache manifest
+`sha256:42c9bf597234b30420ed0308543a6bfa49cdb01ed873f6f6f17b67e2388f4087`.
+It published attested application index
+`sha256:11325f78399470d14044732e38fd42779b1a85708f53191533c8f31f0ca7fd5f`.
+This closes both the hosted registry-compatibility and warm-reuse boundaries.
