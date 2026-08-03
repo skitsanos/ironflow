@@ -132,6 +132,7 @@ Static validation must be supplemented with representative runtime probes.
 | IF-078 | P1 | Resolved | Durable admission | Retried submissions and schedule claim-to-run gaps can duplicate or lose work |
 | IF-079 | P1 | Resolved | Railway deployment | Replica lifecycle has no Railway canary evidence |
 | IF-080 | P1 | Resolved | OpenShift deployment | Restricted-SCC and Route behavior lack live platform evidence |
+| IF-081 | P1 | In progress | Container delivery | Hosted canaries build or deploy mutable images instead of a verified registry digest |
 
 ## P0 — release-blocking safety and durability
 
@@ -3603,3 +3604,30 @@ project itself and unrelated workloads were not deleted. This is live evidence
 for one shared Developer Sandbox cluster, SCC, ingress path, and storage class,
 not proof for other operators, quotas, network policies, node failure modes, or
 long-duration production availability.
+
+### IF-081 — Hosted canaries lack immutable registry delivery
+
+**Status:** In progress (found 2026-08-03).
+
+The Railway acceptance built the repository independently for each service,
+while the OpenShift acceptance uploaded source to a namespace BuildConfig and
+deployed an ImageStream `latest` tag. Both platforms ultimately resolved an
+image digest, but the operator did not select one published artifact and prove
+that exact artifact ran on every replica. Rebuilding the same commit on each
+platform also duplicates a long Rust release build and leaves more room for
+builder or dependency drift.
+
+Required outcome:
+
+- publish a public `linux/amd64` GHCR image for `develop` and `main` using the
+  repository-scoped GitHub token, with a full-commit tag, OCI source/revision
+  labels, provenance, and an SBOM;
+- make the OpenShift canary reject tags and render only an exact
+  `ghcr.io/skitsanos/ironflow@sha256:...` reference;
+- prove the resolved Deployment image and every running container image ID use
+  the selected digest, while retaining restricted-SCC, readiness, shared-state,
+  idempotency, and owner-death behavior;
+- document the same digest-only source boundary for Railway without recreating
+  a paid temporary testbed merely to repeat already-proven lifecycle behavior;
+- remove only the named canary resources and record local, registry, and hosted
+  validation evidence separately.

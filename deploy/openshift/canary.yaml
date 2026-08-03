@@ -1,48 +1,5 @@
-apiVersion: image.openshift.io/v1
-kind: ImageStream
-metadata:
-  name: ironflow-canary
-  labels:
-    app.kubernetes.io/name: ironflow
-    app.kubernetes.io/part-of: ironflow-openshift-canary
-spec:
-  lookupPolicy:
-    local: true
----
-apiVersion: build.openshift.io/v1
-kind: BuildConfig
-metadata:
-  name: ironflow-canary
-  labels:
-    app.kubernetes.io/name: ironflow
-    app.kubernetes.io/part-of: ironflow-openshift-canary
-spec:
-  runPolicy: SerialLatestOnly
-  successfulBuildsHistoryLimit: 1
-  failedBuildsHistoryLimit: 2
-  source:
-    type: Binary
-    binary: {}
-  strategy:
-    type: Docker
-    dockerStrategy:
-      dockerfilePath: Dockerfile
-      buildArgs:
-        - name: FEATURES
-          value: postgres
-  output:
-    to:
-      kind: ImageStreamTag
-      name: ironflow-canary:latest
-  resources:
-    requests:
-      cpu: "1"
-      memory: 2Gi
-    limits:
-      cpu: "3"
-      memory: 8Gi
-  completionDeadlineSeconds: 1800
----
+# Template: render with deploy/openshift/render.ts. The marker below is
+# intentionally not a pullable image and must be replaced by a GHCR digest.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -160,9 +117,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ironflow-canary
-  annotations:
-    image.openshift.io/triggers: >-
-      [{"from":{"kind":"ImageStreamTag","name":"ironflow-canary:latest"},"fieldPath":"spec.template.spec.containers[?(@.name==\"ironflow\")].image"}]
   labels:
     app.kubernetes.io/name: ironflow
     app.kubernetes.io/part-of: ironflow-openshift-canary
@@ -202,8 +156,8 @@ spec:
                     app.kubernetes.io/instance: canary
       containers:
         - name: ironflow
-          image: ironflow-canary:latest
-          imagePullPolicy: Always
+          image: invalid.invalid/ironflow:replace-with-immutable-digest
+          imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 3000

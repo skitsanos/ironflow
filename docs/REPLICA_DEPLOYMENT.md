@@ -96,6 +96,11 @@ platform-specific rollout timing. Validate those with a canary deployment.
   `IRONFLOW_SHUTDOWN_GRACE_SECONDS + 25` seconds; 60 seconds fits the default.
 - Use continuous external monitoring in addition to Railway's deployment-time
   healthcheck.
+- When deploying the prebuilt public GHCR image instead of a repository build,
+  configure the service source with the exact `ghcr.io/skitsanos/ironflow@sha256:...`
+  reference produced by the Container workflow. Do not substitute `develop`,
+  `main`, or `latest`, and do not enable image auto-updates for a digest-pinned
+  canary.
 
 For a canary, first deploy the same revision as two independently addressable
 services sharing the database. That makes cross-process create/read and
@@ -112,13 +117,16 @@ arbitrary UID assigned by OpenShift's restricted SCC. Do not set a fixed
 `runAsUser` solely for IronFlow and do not grant `anyuid`.
 
 [`deploy/openshift/canary.yaml`](../deploy/openshift/canary.yaml) is a
-namespace-scoped acceptance deployment: an internal binary build, disposable
-PostgreSQL PVC, two IronFlow replicas, health probes, edge-TLS Route, and a
-PodDisruptionBudget. It intentionally omits credentials. Create the referenced
-`ironflow-canary-secrets` Secret through the platform secret boundary before
-applying it. See
-[`deploy/openshift/README.md`](../deploy/openshift/README.md) for the build,
-inspection, failure, and exact cleanup procedure.
+namespace-scoped acceptance template: a disposable PostgreSQL PVC, two
+IronFlow replicas, health probes, edge-TLS Route, and a PodDisruptionBudget. It
+intentionally omits credentials and contains a non-pullable image marker. The
+repository Container workflow publishes `linux/amd64` images to GHCR with an
+immutable tag for every commit on `develop` and `main`; deployment renders the
+template with the resulting OCI digest, never a branch tag. Create the
+referenced `ironflow-canary-secrets` Secret through the platform secret
+boundary before applying the rendered manifest. See
+[`deploy/openshift/README.md`](../deploy/openshift/README.md) for digest
+resolution, rendering, inspection, failure, and exact cleanup procedures.
 
 The production pod policy is equivalent to:
 

@@ -2,16 +2,18 @@
 
 This directory contains a namespace-scoped acceptance deployment, not a
 production database topology. It creates resources whose names begin with
-`ironflow-canary` and leaves credentials outside the manifest.
+`ironflow-canary`, leaves credentials outside the manifest, and requires an
+immutable GHCR image reference. Never apply `canary.yaml` directly: its image
+marker is intentionally not pullable.
 
 ## Prepare the namespace and secret
 
 Select a disposable project and confirm that the current identity can create
-builds, deployments, routes, PVCs, secrets, and disruption budgets:
+deployments, routes, PVCs, secrets, and disruption budgets:
 
 ```bash
 oc project <project>
-oc auth can-i create builds.build.openshift.io
+oc auth can-i create deployments.apps
 oc auth can-i create routes.route.openshift.io
 oc auth can-i create persistentvolumeclaims
 ```
@@ -46,31 +48,39 @@ process.stdout.write(JSON.stringify({
 unset IF_CANARY_DB_PASSWORD IF_CANARY_API_KEY
 ```
 
-## Deploy and build
+## Select and deploy an immutable image
 
-Apply the resources, then upload only the files used by the Docker build. This
-avoids sending a local `target/`, `.git/`, samples, or unrelated worktree data
-to the remote builder. OpenShift's ImageStream trigger rolls out the Deployment
-when the build publishes `ironflow-canary:latest`.
+The Container workflow publishes `linux/amd64` images to GHCR for pushes to
+`develop` and `main`. Every build receives an immutable
+`sha-<40-character-commit>` tag and an OCI digest; no mutable branch or latest
+tag is published. Resolve the digest without pulling the image, then render the
+canary template. The renderer rejects tags, other repositories, malformed
+digests, and missing or duplicate template markers.
 
 ```bash
-oc apply -f deploy/openshift/canary.yaml
+commit_sha="$(git rev-parse HEAD)"
+image_tag="ghcr.io/skitsanos/ironflow:sha-${commit_sha}"
+image_digest="$(docker buildx imagetools inspect \
+  "$image_tag" --format '{{.Manifest.Digest}}')"
+image_ref="ghcr.io/skitsanos/ironflow@${image_digest}"
 
-source_dir="$(mktemp -d "${TMPDIR:-/tmp}/ironflow-canary-source.XXXXXX")"
-cp Cargo.toml Cargo.lock Dockerfile "$source_dir"/
-cp -R src "$source_dir"/
+bun run deploy/openshift/render.ts "$image_ref" \
+  | oc apply -f -
 
-oc start-build ironflow-canary \
-  --from-dir="$source_dir" \
-  --follow \
-  --wait
-
-oc rollout status deployment/ironflow-canary --timeout=10m
+oc rollout status deployment/ironflow-canary --timeout=5m
 ```
 
-The first hosted build has a cold Cargo cache and can take more than ten
-minutes. A registry-built release image is preferable for repeat deployments;
-the binary BuildConfig is a self-contained acceptance fallback.
+Confirm that both the declared image and the runtime image ID contain the same
+digest. The first command verifies intent; the second verifies what the runtime
+actually started.
+
+```bash
+oc get deployment ironflow-canary \
+  -o jsonpath='{.spec.template.spec.containers[?(@.name=="ironflow")].image}{"\n"}'
+oc get pods \
+  -l app.kubernetes.io/name=ironflow,app.kubernetes.io/instance=canary \
+  -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.status.containerStatuses[?(@.name=="ironflow")].imageID}{"\n"}{end}'
+```
 
 ## Inspect the admitted workload
 
@@ -109,12 +119,14 @@ Delete only the named canary resources; do not delete the project or unrelated
 workloads:
 
 ```bash
-oc delete -f deploy/openshift/canary.yaml --ignore-not-found
-oc delete secret ironflow-canary-secrets --ignore-not-found
-oc delete builds.build.openshift.io \
-  -l buildconfig=ironflow-canary \
+oc delete \
+  deployment/ironflow-canary \
+  deployment/ironflow-canary-postgres \
+  service/ironflow-canary \
+  service/ironflow-canary-postgres \
+  route.route.openshift.io/ironflow-canary \
+  poddisruptionbudget.policy/ironflow-canary \
+  persistentvolumeclaim/ironflow-canary-postgres \
+  secret/ironflow-canary-secrets \
   --ignore-not-found
 ```
-
-Remove the local temporary source directory separately after verifying its
-resolved path.

@@ -12,6 +12,9 @@ on:
       - "scripts/**"
       - ".cargo/audit.toml"
       - ".github/workflows/ci.yml"
+      - ".github/workflows/container.yml"
+      - "Dockerfile"
+      - ".dockerignore"
   workflow_dispatch:
 
 env:
