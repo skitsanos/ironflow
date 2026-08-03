@@ -61,7 +61,10 @@ digests, and missing or duplicate template markers.
 commit_sha="$(git rev-parse HEAD)"
 image_tag="ghcr.io/skitsanos/ironflow:sha-${commit_sha}"
 image_digest="$(docker buildx imagetools inspect \
-  "$image_tag" --format '{{.Manifest.Digest}}')"
+  "$image_tag" --format '{{json .Manifest}}' \
+  | jq -er '.manifests[] | select(
+      .platform.os == "linux" and .platform.architecture == "amd64"
+    ) | .digest')"
 image_ref="ghcr.io/skitsanos/ironflow@${image_digest}"
 
 bun run deploy/openshift/render.ts "$image_ref" \
@@ -70,9 +73,11 @@ bun run deploy/openshift/render.ts "$image_ref" \
 oc rollout status deployment/ironflow-canary --timeout=5m
 ```
 
-Confirm that both the declared image and the runtime image ID contain the same
-digest. The first command verifies intent; the second verifies what the runtime
-actually started.
+The published OCI index also contains the SBOM and provenance attestation
+manifest, so select its runnable `linux/amd64` child rather than the index
+digest. Confirm that both the declared image and every runtime image ID contain
+that same digest. The first command verifies intent; the second verifies what
+the runtime actually started.
 
 ```bash
 oc get deployment ironflow-canary \

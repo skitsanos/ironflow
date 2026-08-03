@@ -122,9 +122,12 @@ IronFlow replicas, health probes, edge-TLS Route, and a PodDisruptionBudget. It
 intentionally omits credentials and contains a non-pullable image marker. The
 repository Container workflow publishes `linux/amd64` images to GHCR with an
 immutable tag for every commit on `develop` and `main`; deployment renders the
-template with the resulting OCI digest, never a branch tag. Create the
-referenced `ironflow-canary-secrets` Secret through the platform secret
-boundary before applying the rendered manifest. See
+template with the runnable `linux/amd64` manifest digest selected from the
+attested OCI index, never the index itself or a branch tag. That makes the
+declared Deployment digest identical to each container runtime `imageID` while
+the index retains the SBOM and provenance attestations. Create the referenced
+`ironflow-canary-secrets` Secret through the platform secret boundary before
+applying the rendered manifest. See
 [`deploy/openshift/README.md`](../deploy/openshift/README.md) for digest
 resolution, rendering, inspection, failure, and exact cleanup procedures.
 
@@ -169,6 +172,15 @@ forced pod replacement. PostgreSQL-backed create/read and idempotent retry
 worked across two pods; graceful deletion cancelled the owned run, while a
 forced deletion left it for peer reconciliation and it became `stalled` after
 about 110 seconds.
+
+On 2026-08-03, the same sandbox pulled the public GHCR artifact published for
+commit `6694f091cb6fdd30690e5c22ada52b01b0ec756f`. The Deployment and both
+runtime `imageID` values matched the selected `linux/amd64` manifest digest
+`sha256:435a3c3ab154b9ca0454d2eac91275e8708204c18cded7e18a68cf74658f261f`
+exactly. The restricted-SCC, Route, shared-state, and idempotency checks still
+passed, and forced owner death reached `stalled` after 94 seconds. The named
+canary resources were removed afterward; the project and unrelated workloads
+were retained.
 
 That canary proves the tested namespace, SCC, Route, and process lifecycle. It
 does not prove another cluster's operators, quotas, network policies, storage
