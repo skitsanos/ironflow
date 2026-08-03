@@ -139,6 +139,8 @@ Static validation must be supplemented with representative runtime probes.
 | IF-085 | P2 | Resolved | Hosted acceptance | CI consolidation and container caching lack hosted timing evidence |
 | IF-086 | P2 | Resolved | CI performance | Independent checks and storage jobs compile the same Rust graph repeatedly |
 | IF-087 | P2 | Resolved | Container performance | Warm dependency reuse transfers a 755 MB gzip layer |
+| IF-088 | P2 | Resolved | Test reliability | Detached run-admission cleanup uses an undersized hosted-runner deadline |
+| IF-089 | P2 | In progress | Release performance | Tag-scoped Windows caches force both release variants to rebuild dependencies |
 
 ## P0 — release-blocking safety and durability
 
@@ -4002,3 +4004,136 @@ check, and `git diff --check` passed. This is local
 OCI-export and static workflow evidence, not a claim that GHCR has accepted the
 new cache manifest or that a hosted runner has imported it. Those observations
 belong to the next authorized `develop` publication before release promotion.
+
+Hosted acceptance completed on 2026-08-03. Candidate
+`3c756831edfb67ea944647869d32c6630fc8d986` (`1.16.1-dev.7`) passed CI run
+`30815166883` in 13 minutes 14 seconds and populated the previously absent
+registry cache in Container run `30815167729`. GHCR accepted
+`buildcache-amd64` as an OCI image manifest at
+`sha256:206781b52f82bd15e9db88b0e700ea8440b15ed3fbdec0faf02d0d597ad8223d`;
+the cold migration completed in 13 minutes 28 seconds and published the
+attested application index
+`sha256:f6afec1b1026f9fd678f2c8571f10359c2a6cc3c64acebec138c5d2fc7a19879`.
+
+A manual fresh-runner rerun of that exact commit, Container run `30816243328`,
+completed in 34 seconds. BuildKit imported the registry manifest in 0.5 seconds,
+reported the cargo-chef cook and every application/runtime build step as
+`CACHED`, spent 0.3 seconds preparing the unchanged cache export, and completed
+the build/publish step in 12 seconds. This exact-graph rerun is the hosted warm
+cache proof; it does not claim that a changed dependency graph avoids its
+required rebuild.
+
+The final `1.16.1-dev.8` candidate integrated Renovate PR 115's Lettre 0.11.23
+lockfile update after 12 focused email-node tests and `cargo audit` passed. Its
+complete local pre-push gate and hosted CI run `30817537738` passed, including
+all 132 Lua examples and required disposable Redis/PostgreSQL suites. Container
+run `30817538258` imported the prior cache manifest, rebuilt the changed
+dependency graph, and replaced it with zstd OCI cache manifest
+`sha256:42c9bf597234b30420ed0308543a6bfa49cdb01ed873f6f6f17b67e2388f4087`.
+It published attested application index
+`sha256:11325f78399470d14044732e38fd42779b1a85708f53191533c8f31f0ca7fd5f`.
+This closes both the hosted registry-compatibility and warm-reuse boundaries.
+
+### IF-088 — Detached run-admission cleanup has a tight CI deadline
+
+**Status:** Resolved 2026-08-03 (found 2026-08-03).
+
+The stable `1.16.1` merge passed every `main` CI job except the combined
+feature/storage suite. Run `30820621471`, job `91709337732`, failed in
+`a_blocked_parse_makes_a_concurrent_validation_fail_fast` after the durable run
+had already reached `Success`: the test allowed one additional second for the
+detached coordinator to stop its lease heartbeat and release process admission.
+That cleanup is intentionally ordered after terminal status persistence, so a
+loaded hosted runner can observe the terminal record before the supervisor has
+finished even though admission is released correctly.
+
+Required outcome:
+
+- retain the one-second fail-fast checks for contested flow-load and run
+  admission;
+- continue proving that a disconnected request cannot release its run permit
+  before physical completion;
+- bound the post-terminal cleanup wait without treating durable terminal status
+  as synchronous supervisor completion;
+- change no production, public API, node, documentation, or Lua-example
+  contract for a test-only timing correction.
+
+Resolution: only the final post-`Success` permit-restoration observation window
+was increased from one to three seconds, matching the existing durable-status
+wait used by this regression. The one-second contention/refusal deadlines are
+unchanged. This preserves detection of a stranded permit while allowing the
+detached heartbeat supervisor to finish under hosted-runner scheduling load.
+
+Before the change, the exact feature-enabled regression passed five consecutive
+local runs, confirming the hosted failure was timing-sensitive rather than a
+reproducible permit leak. After the change it passed ten consecutive runs with
+`postgres,redis` enabled. `cargo fmt --all -- --check`,
+`python3 -B scripts/check_module_size.py`, and
+`cargo clippy --all-targets -- -D warnings` also passed. Corrective PR 117
+merged as `febc88b9ea0af3fd91480d017260be12dec5dcc7`; full `main` CI run
+`30822724617` then passed in 13 minutes 14 seconds. Its combined feature and
+live-storage job passed in 12 minutes 32 seconds, including the previously
+failing regression against required disposable Redis and PostgreSQL services.
+This closes the hosted boundary; release tagging remains a separate approval.
+
+### IF-089 — Tag-scoped Windows caches force both release variants to rebuild dependencies
+
+**Status:** In progress (found 2026-08-03; implementation complete locally,
+hosted acceptance pending).
+
+The `v1.16.1` release workflow run `30831343650` completed in 21 minutes 6
+seconds and was gated by Windows. The default Windows job took 20 minutes 20
+seconds, including an 18-minute-45-second release build; the full-feature job
+took 18 minutes 14 seconds, including a 17-minute-8-second release build. Both
+`Swatinem/rust-cache` steps reported `No cache found` and then compiled the
+same broad dependency graph independently.
+
+The previous `v1.16.0` tag had populated the corresponding caches one day
+earlier, but those entries belonged to a different tag ref. GitHub's
+[cache access restrictions](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#restrictions-for-accessing-a-cache)
+let tag workflows restore caches from the default branch, not sibling tag
+refs, so changing dependency hashes made every release tag a cold Windows
+build despite the cache action being present.
+
+Required outcome:
+
+- prime the default and `postgres,redis` Windows release dependency graphs on
+  the exact stable `main` commit after it enters the required CI boundary;
+- store both graphs under one default-branch cache key that both parallel
+  Windows tag jobs can restore;
+- keep that tag-side cache use read-only so parallel variants do not race to
+  save the same entry, while retaining a correct cold-build fallback;
+- never reuse a prebuilt IronFlow application binary: each default/full archive
+  must still be compiled and packaged from the tagged source;
+- retain every release target, archive name, feature boundary, checksum, and
+  main-ancestry guard;
+- prove the policy statically and then record cache restoration and job timing
+  from the next hosted `main` plus tag workflow pair.
+
+Implementation: `main` CI now has one Windows-only release-cache primer. It
+builds the default and full release graphs sequentially under
+`release-x86_64-pc-windows-msvc`; `rust-cache` removes the workspace crate
+before saving, so the entry contains reusable dependency artifacts rather than
+an IronFlow binary. Both Windows rows in the release matrix remain parallel,
+use the same key and compiler flags, restore the cache read-only, and compile
+their own exact-tag default or full binary. A missing cache therefore affects
+duration only. Linux and macOS retain independent per-target/per-feature cache
+keys and their existing artifacts.
+
+The CI path filter now includes the release workflow, and repository-policy
+coverage parses both workflows to require the main-only primer, the two build
+commands, absence of application-artifact upload, one shared Windows key, two
+read-only tag variants, and unchanged default/full suffixes. Release guidance
+now requires the exact `main` primer to pass and records cache restoration as a
+performance acceptance gate. No Rust runtime, node, documentation contract, or
+Lua example changed, so node pages and examples do not require edits for this
+workflow-only issue.
+
+Focused local validation passed `bun test
+scripts/tests/repository_policy.test.ts` (9 tests, 77 expectations),
+`actionlint .github/workflows/*.yml`, `bun run scripts/validate_skills.ts` (3
+repository skills), and `git diff --check`. The complete integration gate had
+already passed for the containing `1.16.2-dev.1` post-release batch before this
+workflow-only change; it is not represented as validation of IF-089. IF-089
+remains open until the next exact-commit `main` run primes the cache and the
+following tag run proves both Windows restores and records hosted durations.

@@ -172,7 +172,81 @@ describe("repository integration policy", () => {
       "rust-default",
       "rust-features",
       "test-macos",
+      "windows-release-cache",
     ]);
+  });
+
+  test("main primes one dependency-only cache for both Windows release variants", async () => {
+    const ciSource = await Bun.file(join(repository, ".github/workflows/ci.yml")).text();
+    const releaseSource = await Bun.file(
+      join(repository, ".github/workflows/release.yml"),
+    ).text();
+    const ci = Bun.YAML.parse(ciSource) as {
+      on: { push: { paths: string[] } };
+      jobs: Record<string, {
+        if?: string;
+        "runs-on": string;
+        steps: Array<{ uses?: string; run?: string; with?: Record<string, unknown> }>;
+      }>;
+    };
+    const release = Bun.YAML.parse(releaseSource) as {
+      jobs: Record<string, {
+        env?: Record<string, string>;
+        strategy?: { matrix?: { include?: Array<Record<string, unknown>> } };
+        steps: Array<{ uses?: string; with?: Record<string, unknown> }>;
+      }>;
+    };
+
+    expect(ci.on.push.paths).toContain(".github/workflows/release.yml");
+    const primer = ci.jobs["windows-release-cache"];
+    expect(primer.if).toBe("github.ref == 'refs/heads/main'");
+    expect(primer["runs-on"]).toBe("windows-latest");
+
+    const sharedKey = "release-x86_64-pc-windows-msvc";
+    const primerCache = primer.steps.find((step) => step.uses === "Swatinem/rust-cache@v2");
+    expect(primerCache?.with?.["shared-key"]).toBe(sharedKey);
+    expect(primerCache?.with?.["cache-workspace-crates"]).toBeFalse();
+    expect(primer.steps.some((step) => step.uses === "actions/upload-artifact@v7")).toBeFalse();
+
+    const primerCommands = primer.steps.map((step) => step.run ?? "").join("\n");
+    expect(primerCommands).toContain(
+      "cargo build --release --target x86_64-pc-windows-msvc\n",
+    );
+    expect(primerCommands).toContain(
+      "cargo build --release --target x86_64-pc-windows-msvc --features postgres,redis",
+    );
+
+    const releaseBuild = release.jobs.build;
+    const variants = releaseBuild.strategy?.matrix?.include ?? [];
+    expect(variants).toHaveLength(8);
+    for (const target of [
+      "x86_64-unknown-linux-musl",
+      "x86_64-apple-darwin",
+      "aarch64-apple-darwin",
+      "x86_64-pc-windows-msvc",
+    ]) {
+      expect(
+        variants
+          .filter((entry) => entry.target === target)
+          .map((entry) => entry.artifact_suffix)
+          .sort(),
+      ).toEqual(["", "-full"]);
+    }
+    const windowsVariants = variants.filter(
+      (entry) => entry.target === "x86_64-pc-windows-msvc",
+    );
+    expect(windowsVariants).toHaveLength(2);
+    expect(windowsVariants.every((entry) => entry.cache_key === sharedKey)).toBeTrue();
+    expect(windowsVariants.every((entry) => entry.save_cache === false)).toBeTrue();
+    expect(windowsVariants.every((entry) => entry.rustflags === "-Dwarnings")).toBeTrue();
+    expect(releaseBuild.env?.RUSTFLAGS).toBe("${{ matrix.rustflags }}");
+
+    const releaseCache = releaseBuild.steps.find(
+      (step) => step.uses === "Swatinem/rust-cache@v2",
+    );
+    expect(releaseCache?.with?.["shared-key"]).toBe("${{ matrix.cache_key }}");
+    expect(releaseCache?.with?.["cache-workspace-crates"]).toBeFalse();
+    expect(releaseCache?.with?.["save-if"]).toBe("${{ matrix.save_cache }}");
   });
 
   test("the local integration gate bounds workspace artifact growth", async () => {
