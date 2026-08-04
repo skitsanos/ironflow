@@ -300,8 +300,12 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
   is never a deployment reference. Default Clippy/tests share one Linux job;
   full-feature Clippy and required Redis/PostgreSQL tests share another, so CI
   keeps backend coverage without isolated check or per-backend compilations.
+  On `main`, CI also compiles the default and full Windows release dependency
+  graphs into one dependency-only cache. Tag builds restore that default-branch
+  cache read-only while compiling and packaging both binaries from the tag; a
+  cache miss remains a correct cold build rather than a release failure.
 - [x] Schema-v2 example catalog classifies all 130 Lua flows, records composable service/credential/state/platform requirements, and evaluates every flow against the built-in registry so all 102 node types remain covered without exemptions
-- [x] GitHub Actions Release workflow — builds Linux (musl), macOS (x86_64 + aarch64), Windows on version tags
+- [x] GitHub Actions Release workflow — builds Linux (musl), macOS (x86_64 + aarch64), and Windows on version tags; the parallel Windows variants reuse the exact `main` dependency graph without reusing a prebuilt application binary
 - [x] Shared Lua sandbox module (`src/lua/sandbox.rs`) for consistent VM setup
 
 ### 5.6 Memory Hardening ✅

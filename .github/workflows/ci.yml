@@ -13,6 +13,7 @@ on:
       - ".cargo/audit.toml"
       - ".github/workflows/ci.yml"
       - ".github/workflows/container.yml"
+      - ".github/workflows/release.yml"
       - "Dockerfile"
       - ".dockerignore"
   workflow_dispatch:
@@ -153,6 +154,24 @@ jobs:
         with:
           cache-targets: false
       - run: cargo build --release
+
+  windows-release-cache:
+    name: Prime Windows release dependency cache
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-x86_64-pc-windows-msvc
+          cache-workspace-crates: false
+      - name: Prime default and full release dependencies
+        run: |
+          cargo build --release --target x86_64-pc-windows-msvc
+          cargo build --release --target x86_64-pc-windows-msvc --features postgres,redis
 
   validate-examples:
     name: Validate example flows

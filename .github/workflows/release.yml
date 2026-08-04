@@ -40,34 +40,61 @@ jobs:
             os: ubuntu-latest
             archive: tar.gz
             artifact_suffix: ""
+            cache_key: release-x86_64-unknown-linux-musl-default
+            save_cache: true
+            rustflags: ""
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             archive: tar.gz
             artifact_suffix: "-full"
+            cache_key: release-x86_64-unknown-linux-musl-full
+            save_cache: true
+            rustflags: ""
           - target: x86_64-apple-darwin
             os: macos-latest
             archive: tar.gz
             artifact_suffix: ""
+            cache_key: release-x86_64-apple-darwin-default
+            save_cache: true
+            rustflags: ""
           - target: x86_64-apple-darwin
             os: macos-latest
             archive: tar.gz
             artifact_suffix: "-full"
+            cache_key: release-x86_64-apple-darwin-full
+            save_cache: true
+            rustflags: ""
           - target: aarch64-apple-darwin
             os: macos-latest
             archive: tar.gz
             artifact_suffix: ""
+            cache_key: release-aarch64-apple-darwin-default
+            save_cache: true
+            rustflags: ""
           - target: aarch64-apple-darwin
             os: macos-latest
             archive: tar.gz
             artifact_suffix: "-full"
+            cache_key: release-aarch64-apple-darwin-full
+            save_cache: true
+            rustflags: ""
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             archive: zip
             artifact_suffix: ""
+            cache_key: release-x86_64-pc-windows-msvc
+            save_cache: false
+            rustflags: -Dwarnings
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             archive: zip
             artifact_suffix: "-full"
+            cache_key: release-x86_64-pc-windows-msvc
+            save_cache: false
+            rustflags: -Dwarnings
+
+    env:
+      RUSTFLAGS: ${{ matrix.rustflags }}
 
     steps:
       - uses: actions/checkout@v7
@@ -78,7 +105,9 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.target }}${{ matrix.artifact_suffix }}
+          shared-key: ${{ matrix.cache_key }}
+          cache-workspace-crates: false
+          save-if: ${{ matrix.save_cache }}
 
       - name: Install musl tools (Linux)
         if: matrix.target == 'x86_64-unknown-linux-musl'
