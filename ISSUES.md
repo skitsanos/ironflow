@@ -143,6 +143,8 @@ Static validation must be supplemented with representative runtime probes.
 | IF-089 | P2 | In progress | Release performance | Tag-scoped Windows caches force both release variants to rebuild dependencies |
 | IF-090 | P1 | Resolved | Dependency security | Informational advisories do not fail CI and unused defaults retain unsafe or abandoned crates |
 | IF-091 | P1 | Resolved | PDF/resource safety | PDF extraction reparses input and retains the final dependency advisory |
+| IF-092 | P2 | Resolved | PDF/performance | PDF resource improvements lack matched before/after RSS and timing evidence |
+| IF-093 | P2 | Resolved | PDF/correctness | Non-ASCII CID glyph extraction depends only on ignored local samples |
 
 ## P0 — release-blocking safety and durability
 
@@ -4220,8 +4222,10 @@ text budget, so previously accumulated text plus the next page's decompressed
 content and ToUnicode streams cannot cross
 `IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES`. Cancellation checkpoints bracket each
 opaque page call, and the existing item and final serialized-output checks
-remain authoritative. Text and Markdown behavior, metadata, and the three-page
-fixture remain compatible.
+remain authoritative. Focused text/Markdown content markers, metadata, and the
+three-page fixture remain compatible. IF-092 subsequently recorded matching
+non-whitespace character sequences across three PDFs and the explicit
+best-effort whitespace boundary for positioned glyphs.
 
 Removing `pdf-extract` leaves one `lopdf` version and removes its legacy parser
 chain, including `ttf-parser`, without a replacement dependency. The lockfile
@@ -4242,3 +4246,131 @@ budget. `cargo audit --deny warnings`, `cargo fmt --all -- --check`, the
 446-module size policy, exact strict Clippy, and `git diff --check` also passed.
 No PostgreSQL, Redis, live-service, or full integration gate was run because
 this change does not touch storage and is not an integration-boundary push.
+
+### IF-092 — PDF resource improvements lack matched RSS and timing evidence
+
+**Status:** Resolved on 2026-08-04.
+
+IF-091 removed a duplicate PDF parser and bounded page decompression, but its
+acceptance evidence proves correctness and dependency reduction rather than the
+actual process-memory and execution-time shape. IF-067 provides a safe release
+subprocess harness, although it cannot select only PDF workloads without
+constructing temporary fixture directories or running unrelated extractors.
+
+Required outcome:
+
+- add a validated PDF-only selector to the existing extraction benchmark while
+  preserving its empty-process baseline and content-safe JSONL schema;
+- run the same deterministic compressed-text fixture and representative local
+  PDF samples against the pre-IF-091 and current workers on the same machine;
+- use at least three repetitions at concurrency 1, 2, and 4, report medians and
+  absolute peak-RSS values, and distinguish process peaks from simultaneous
+  host memory;
+- document commands, input checksums, environment, and interpretation without
+  turning machine-specific timing or RSS observations into brittle CI limits.
+
+Implementation: the existing benchmark accepts `--nodes` with a validated,
+deduplicated comma-separated extractor list. Filtering applies equally to the
+committed fixtures and explicit local samples while the empty-process baseline
+always remains. Schema version 2 adds `worker_elapsed_ms`, measured
+monotonically from immediately before node setup/execution through blocking
+runtime drain. This gives sub-centisecond operations meaningful resolution
+without discarding the complete-process `/usr/bin/time` fields. A regression
+keeps the Bun orchestrator and Rust worker schema constants aligned, and the
+benchmark guide documents selection, timing interpretation, and matched-worker
+comparison rules.
+
+Matched calibration used the measurement-identical schema-2 worker with
+production commits `dd501ff` (before IF-091) and `a7419c1` (IF-091), release
+mode, an Apple M4 Pro with 12 logical CPUs and 24 GiB RAM, Bun 1.3.14, and Rust
+1.97.1. Each side produced 84 successful observations: three repetitions of
+the empty baseline plus three checksum-identical PDFs at concurrency 1, 2, and
+4. JSONL remained outside the repository and contained no extracted content or
+raw errors.
+
+Concurrency-1 medians, with the concurrency-4 column showing the conservative
+sum of four independent process peaks, were:
+
+| Input | Raw bytes | Peak RSS before -> current | Worker ms before -> current | Four-process peak sum before -> current |
+|---|---:|---:|---:|---:|
+| `compressed-text.pdf` (`7406ee5d...`) | 8,164 | 13.53 -> 12.22 MiB (-9.7%) | 58.876 -> 1.909 (-96.8%) | 54.69 -> 49.06 MiB |
+| `generated_book.pdf` (`49084cfa...`) | 1,840,506 | 16.70 -> 14.56 MiB (-12.8%) | 0.676 -> 0.575 (-15.0%) | 66.77 -> 58.27 MiB |
+| `sample.pdf` (`85e68c36...`) | 108,505 | 15.88 -> 13.34 MiB (-15.9%) | 2.777 -> 1.565 (-43.7%) | 62.16 -> 53.41 MiB |
+
+The current empty baseline was 9.08 MiB versus 9.80 MiB before IF-091. After
+baseline adjustment, the three concurrency-1 PDF increments fell by roughly
+16%, 21%, and 30%, respectively. Per-process peaks stayed stable as concurrency
+rose; the four-process sums are deliberately conservative and are not claims
+about synchronized host RSS. The sub-millisecond `generated_book.pdf` timing
+delta is especially noise-sensitive, while the repeated 24-page compressed
+fixture provides the strongest CPU evidence.
+
+A content-safe differential probe found identical non-whitespace character
+sequences for all three PDFs. Exact output differed for the compressed fixture
+and `sample.pdf` because `lopdf` joins positioned glyph arrays with different
+whitespace than `pdf-extract`; the Romanian diacritics initially suspected as
+missing were present as separately spaced glyphs. The node documentation now
+states that positioned-PDF whitespace is best-effort rather than a stable byte
+identity. No exact extracted content or local path is retained in benchmark
+results.
+
+Focused validation passed all three release-worker Rust tests and seven Bun
+benchmark parser/selector/schema/checksum tests (18 expectations). The actual
+PDF-only selector produced both 84-record matrices, all successful, and the
+measurement-identical differential probe verified character preservation
+without retaining content. The affected Lua example validates; the current
+release worker rebuilds successfully; `cargo fmt --all -- --check`, the
+446-module size policy, exact all-target Clippy, and `git diff --check` pass.
+No storage service, deployment, or full integration gate was run because this
+opt-in benchmark/tooling change is not an integration-boundary push.
+
+### IF-093 — Non-ASCII CID glyph extraction depends only on local samples
+
+**Status:** Resolved on 2026-08-04.
+
+IF-092 verified that `lopdf` preserved the non-whitespace character sequence in
+the ignored Romanian `data/samples/sample.pdf`, but this evidence cannot run in
+CI or a clean checkout. The committed PDF fixtures use simple Latin fonts and
+do not exercise an Identity-H CID font, a ToUnicode CMap, multi-byte source
+codes, or glyph fragments split across positioned text-showing operations.
+
+Required outcome:
+
+- generate and commit a byte-deterministic, compact PDF with an Identity-H CID
+  font, a ToUnicode CMap, Romanian diacritics, and deliberately fragmented text;
+- pin its size and SHA-256 identity in the benchmark manifest;
+- prove `extract_pdf` preserves the expected non-whitespace Unicode character
+  sequence in both text and Markdown formats without freezing incidental
+  whitespace placement;
+- include it in the documented opt-in extraction corpus and keep examples and
+  public resource contracts unchanged.
+
+Resolution: the deterministic benchmark generator now emits
+`cid-unicode.pdf`, a 1,793-byte, single-page PDF with an Identity-H Type0 font,
+a CIDFontType2 descendant, a ToUnicode CMap, two-byte source codes, and the
+Romanian text `Activă București Țară Știință` split across separate `TJ`
+operations. Its SHA-256 identity
+`2bfe6e8ba3e6792236c9b3c3fe69b36f301ceda8cf789515443019af8cfa1886`
+and size are pinned in the benchmark manifest. Regeneration left all four
+pre-existing fixture files byte-identical.
+
+The PDF fixture builders now live in a focused 155-line submodule while the
+general fixture coordinator remains 177 lines. A runtime regression executes
+the public `extract_pdf` node in both text and Markdown modes, removes only
+whitespace, and requires the complete expected Unicode sequence. It therefore
+detects lost or corrupted multi-byte glyphs without freezing `lopdf`'s
+best-effort whitespace placement. The benchmark guide lists positioned
+CID/ToUnicode glyph fragments as part of the committed corpus; no Lua example
+or public node parameter changed.
+
+Focused validation passed three benchmark-worker Rust tests; three PDF node
+tests including both Unicode output modes; seven Bun benchmark selector,
+schema, and five-fixture checksum tests (20 expectations); byte-for-byte
+fixture regeneration; and a three-record release-mode PDF benchmark smoke run
+covering the baseline plus both committed PDFs under schema 2. The affected Lua
+example validates. Poppler inspection identifies one unencrypted PDF 1.4 page
+and one Identity-H CID TrueType font with a usable Unicode map. The release
+worker build, `cargo fmt --all -- --check`, the
+446-module size policy, exact all-target Clippy, and `git diff --check` pass.
+No storage service, deployment, or full integration gate was run because this
+fixture/tooling regression is not an integration-boundary push.

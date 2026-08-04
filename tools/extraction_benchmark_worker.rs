@@ -12,6 +12,8 @@ use ironflow::nodes::NodeRegistry;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
+const RESULT_SCHEMA_VERSION: u8 = 2;
+
 #[derive(Parser)]
 #[command(about = "Content-safe worker for the opt-in extraction benchmark")]
 struct Args {
@@ -49,6 +51,7 @@ struct WorkerResult {
     limit: Option<String>,
     serialized_output_bytes: u64,
     persisted_bytes: u64,
+    worker_elapsed_ms: f64,
     cancellation_requested_ms: Option<f64>,
     post_cancellation_drain_ms: Option<f64>,
 }
@@ -127,6 +130,7 @@ fn run(
     let drain_started = Instant::now();
     drop(runtime);
     let drain_ms = drain_started.elapsed().as_secs_f64() * 1_000.0;
+    let worker_elapsed_ms = started.elapsed().as_secs_f64() * 1_000.0;
 
     let (status, limit, serialized_output_bytes, cancellation_requested_ms, drain) = match outcome {
         Outcome::Completed(Ok(output)) => ("success", None, serialized_size(&output)?, None, None),
@@ -146,7 +150,7 @@ fn run(
         }
     };
     let result = WorkerResult {
-        schema_version: 1,
+        schema_version: RESULT_SCHEMA_VERSION,
         label,
         node: node_name,
         input_sha256,
@@ -160,6 +164,7 @@ fn run(
             .map(directory_size)
             .transpose()?
             .unwrap_or(0),
+        worker_elapsed_ms,
         cancellation_requested_ms,
         post_cancellation_drain_ms: drain,
     };

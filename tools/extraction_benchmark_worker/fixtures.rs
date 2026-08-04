@@ -2,10 +2,12 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
-use lopdf::{Document, Object, Stream, dictionary};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use zip::write::SimpleFileOptions;
+
+#[path = "fixtures/pdf.rs"]
+mod pdf;
 
 #[derive(Serialize)]
 pub(crate) struct Fixture {
@@ -33,7 +35,12 @@ pub(crate) fn generate(output: &Path) -> Result<Vec<Fixture>> {
         (
             "compressed_pdf_text",
             "extract_pdf",
-            write_compressed_pdf(output)?,
+            pdf::write_compressed(output)?,
+        ),
+        (
+            "cid_unicode_pdf",
+            "extract_pdf",
+            pdf::write_cid_unicode(output)?,
         ),
         (
             "pathological_html",
@@ -125,44 +132,6 @@ fn write_repeated_media_pptx(output: &Path) -> Result<PathBuf> {
     archive.start_file("ppt/media/image.png", zip_options())?;
     archive.write_all(b"deterministic-repeated-media-payload")?;
     archive.finish()?;
-    Ok(path)
-}
-
-fn write_compressed_pdf(output: &Path) -> Result<PathBuf> {
-    let path = output.join("compressed-text.pdf");
-    let mut document = Document::new();
-    let pages_id = document.new_object_id();
-    let font_id = document.add_object(dictionary! {
-        "Type" => "Font", "Subtype" => "Type1", "BaseFont" => "Helvetica"
-    });
-    let resources_id = document.add_object(dictionary! {
-        "Font" => dictionary! { "F1" => font_id }
-    });
-    let mut pages = Vec::new();
-    for page in 0..24 {
-        let text = format!("benchmark page {page} ").repeat(1_500);
-        let mut stream = Stream::new(
-            dictionary! {},
-            format!("BT /F1 10 Tf 10 100 Td ({text}) Tj ET").into_bytes(),
-        );
-        stream.compress()?;
-        let content_id = document.add_object(stream);
-        pages.push(document.add_object(dictionary! {
-            "Type" => "Page", "Parent" => pages_id, "Resources" => resources_id,
-            "Contents" => content_id, "MediaBox" => vec![0.into(), 0.into(), 200.into(), 200.into()]
-        }));
-    }
-    document.objects.insert(
-        pages_id,
-        Object::Dictionary(dictionary! {
-            "Type" => "Pages",
-            "Kids" => pages.iter().copied().map(Object::Reference).collect::<Vec<_>>(),
-            "Count" => pages.len() as u32
-        }),
-    );
-    let catalog = document.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
-    document.trailer.set("Root", catalog);
-    document.save(&path)?;
     Ok(path)
 }
 

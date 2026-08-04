@@ -148,6 +148,10 @@ fn sample_pdf_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/fixtures/ironflow-sample.pdf")
 }
 
+fn cid_unicode_pdf_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("benchmarks/extraction/fixtures/cid-unicode.pdf")
+}
+
 fn sample_vtt_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/fixtures/ironflow-transcript.vtt")
 }
@@ -317,6 +321,33 @@ async fn extract_pdf_missing_file_errors() {
         message.contains("extract_pdf") && message.contains("failed to read"),
         "unexpected error: {message}"
     );
+}
+
+#[tokio::test]
+async fn extract_pdf_preserves_fragmented_cid_unicode_characters() {
+    let node = NodeRegistry::with_builtins().get("extract_pdf").unwrap();
+    for format in ["text", "markdown"] {
+        let output = node
+            .execute(
+                &serde_json::json!({
+                    "path": cid_unicode_pdf_path().to_string_lossy(),
+                    "format": format,
+                    "output_key": "content"
+                }),
+                &Context::new(),
+            )
+            .await
+            .unwrap();
+        let content = output.get("content").unwrap().as_str().unwrap();
+        let compact = content
+            .chars()
+            .filter(|character| !character.is_whitespace())
+            .collect::<String>();
+        assert_eq!(
+            compact, "ActivăBucureștiȚarăȘtiință",
+            "{format}: {content:?}"
+        );
+    }
 }
 
 #[tokio::test]

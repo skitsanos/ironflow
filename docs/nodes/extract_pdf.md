@@ -27,6 +27,12 @@ If `metadata_key` is requested and a present PDF Info entry or supported field
 cannot be resolved as the expected type, extraction fails rather than silently
 returning incomplete metadata.
 
+PDF content streams position glyphs rather than encode semantic words and
+paragraphs. Text and Markdown extraction preserve decoded characters on a
+best-effort basis, but whitespace can be introduced or omitted when positioned
+glyph fragments are joined. Do not treat exact whitespace or byte-for-byte
+output as a stable document-identity representation.
+
 ## Resource and cancellation contract
 
 - The input must be a regular file. `IRONFLOW_MAX_PDF_BYTES` (default
