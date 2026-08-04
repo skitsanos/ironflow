@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 
 import {
+  RESULT_SCHEMA_VERSION,
   nodeForPath,
   parseOptions,
   parseTimeOutput,
@@ -40,6 +41,24 @@ describe("extraction benchmark", () => {
     expect(() => parseOptions(["--concurrency", "3"], "/repo")).toThrow(
       "selected from 1,2,4",
     );
+  });
+
+  test("selects one or more supported extraction nodes", () => {
+    expect(parseOptions(["--nodes", "extract_pdf,extract_xlsx"], "/repo").nodes).toEqual([
+      "extract_pdf",
+      "extract_xlsx",
+    ]);
+    expect(() => parseOptions(["--nodes", "extract_unknown"], "/repo")).toThrow(
+      "unsupported extraction node 'extract_unknown'",
+    );
+  });
+
+  test("keeps the orchestrator and worker result schema aligned", async () => {
+    const worker = await Bun.file(
+      resolve(import.meta.dir, "../../tools/extraction_benchmark_worker.rs"),
+    ).text();
+    expect(RESULT_SCHEMA_VERSION).toBe(2);
+    expect(worker).toContain(`const RESULT_SCHEMA_VERSION: u8 = ${RESULT_SCHEMA_VERSION};`);
   });
 
   test("committed deterministic fixtures match their manifest", async () => {

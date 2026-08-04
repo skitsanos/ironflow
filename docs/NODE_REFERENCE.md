@@ -185,6 +185,10 @@ endpoint, and AWS credential configuration may still come from the environment.
 | [`image_resize`](nodes/image_resize.md) | Resize a single image |
 | [`image_crop`](nodes/image_crop.md) | Crop a single image |
 
+Image source decoding is intentionally limited to BMP, Farbfeld, GIF, HDR,
+ICO, JPEG, PNG, PNM, QOI, TGA, TIFF, and WebP. Image-producing nodes emit only
+PNG or JPEG. AVIF and OpenEXR are not part of the supported node contract.
+
 The seven file parsers (`extract_word`, `extract_pptx`, `extract_pdf`,
 `extract_html`, `extract_vtt`, `extract_srt`, and `extract_xlsx`) require
 regular-file inputs and apply format-specific archive, structure, and result

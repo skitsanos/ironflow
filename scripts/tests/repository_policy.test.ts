@@ -15,6 +15,58 @@ describe("repository integration policy", () => {
     expect(triggers.pull_request).toBeUndefined();
   });
 
+  test("issue registry changes run the Bun policy gate", async () => {
+    const source = await Bun.file(join(repository, ".github/workflows/ci.yml")).text();
+    const workflow = Bun.YAML.parse(source) as {
+      on: { push: { paths: string[] } };
+      jobs: Record<string, { steps: Array<{ uses?: string; run?: string }> }>;
+    };
+    for (const path of ["docs/**", ".agents/**", "AGENTS.md", "ISSUES.md"]) {
+      expect(workflow.on.push.paths).toContain(path);
+    }
+
+    const commands = workflow.jobs["repository-policy"].steps
+      .map((step) => step.run ?? "")
+      .join("\n");
+    expect(
+      workflow.jobs["repository-policy"].steps.some(
+        (step) => step.uses === "oven-sh/setup-bun@v2",
+      ),
+    ).toBeTrue();
+    expect(commands).toContain("bun run scripts/validate_skills.ts");
+    expect(commands).toContain("bun run scripts/issues_registry.ts check");
+    expect(commands).toContain("bun test scripts/tests/*.test.ts");
+
+    const gate = await Bun.file(join(repository, "scripts/integration_gate.sh")).text();
+    expect(gate).toContain("bun run scripts/issues_registry.ts check");
+  });
+
+  test("dependency warnings fail closed and removed dependencies stay absent", async () => {
+    const manifest = await Bun.file(join(repository, "Cargo.toml")).text();
+    const lockfile = await Bun.file(join(repository, "Cargo.lock")).text();
+    const auditConfig = await Bun.file(join(repository, ".cargo/audit.toml")).text();
+    const workflow = await Bun.file(join(repository, ".github/workflows/ci.yml")).text();
+    const gate = await Bun.file(join(repository, "scripts/integration_gate.sh")).text();
+
+    expect(workflow).toContain("cargo audit --deny warnings");
+    expect(gate).toContain("cargo audit --deny warnings");
+    expect(auditConfig).not.toContain('"RUSTSEC-2026-0192"');
+    expect(manifest).toContain('comrak = { version = "0.54", default-features = false }');
+    expect(manifest).toContain('lopdf = { version = "0.44", default-features = false, features = ["chrono"] }');
+    for (const removedPackage of [
+      "bincode",
+      "paste",
+      "pdf-extract",
+      "syntect",
+      "ttf-parser",
+      "yaml-rust",
+    ]) {
+      expect(lockfile).not.toContain(`name = "${removedPackage}"`);
+    }
+    expect(lockfile.match(/name = "lopdf"/g) ?? []).toHaveLength(1);
+    expect(lockfile).toContain('name = "event-listener"\nversion = "5.4.2"');
+  });
+
   test("develop pre-push checks PRs, version, and the integration gate", async () => {
     const source = await Bun.file(join(repository, ".githooks/pre-push")).text();
     expect(source).toContain('remote_ref" == "refs/heads/develop');
@@ -172,7 +224,81 @@ describe("repository integration policy", () => {
       "rust-default",
       "rust-features",
       "test-macos",
+      "windows-release-cache",
     ]);
+  });
+
+  test("main primes one dependency-only cache for both Windows release variants", async () => {
+    const ciSource = await Bun.file(join(repository, ".github/workflows/ci.yml")).text();
+    const releaseSource = await Bun.file(
+      join(repository, ".github/workflows/release.yml"),
+    ).text();
+    const ci = Bun.YAML.parse(ciSource) as {
+      on: { push: { paths: string[] } };
+      jobs: Record<string, {
+        if?: string;
+        "runs-on": string;
+        steps: Array<{ uses?: string; run?: string; with?: Record<string, unknown> }>;
+      }>;
+    };
+    const release = Bun.YAML.parse(releaseSource) as {
+      jobs: Record<string, {
+        env?: Record<string, string>;
+        strategy?: { matrix?: { include?: Array<Record<string, unknown>> } };
+        steps: Array<{ uses?: string; with?: Record<string, unknown> }>;
+      }>;
+    };
+
+    expect(ci.on.push.paths).toContain(".github/workflows/release.yml");
+    const primer = ci.jobs["windows-release-cache"];
+    expect(primer.if).toBe("github.ref == 'refs/heads/main'");
+    expect(primer["runs-on"]).toBe("windows-latest");
+
+    const sharedKey = "release-x86_64-pc-windows-msvc";
+    const primerCache = primer.steps.find((step) => step.uses === "Swatinem/rust-cache@v2");
+    expect(primerCache?.with?.["shared-key"]).toBe(sharedKey);
+    expect(primerCache?.with?.["cache-workspace-crates"]).toBeFalse();
+    expect(primer.steps.some((step) => step.uses === "actions/upload-artifact@v7")).toBeFalse();
+
+    const primerCommands = primer.steps.map((step) => step.run ?? "").join("\n");
+    expect(primerCommands).toContain(
+      "cargo build --release --target x86_64-pc-windows-msvc\n",
+    );
+    expect(primerCommands).toContain(
+      "cargo build --release --target x86_64-pc-windows-msvc --features postgres,redis",
+    );
+
+    const releaseBuild = release.jobs.build;
+    const variants = releaseBuild.strategy?.matrix?.include ?? [];
+    expect(variants).toHaveLength(8);
+    for (const target of [
+      "x86_64-unknown-linux-musl",
+      "x86_64-apple-darwin",
+      "aarch64-apple-darwin",
+      "x86_64-pc-windows-msvc",
+    ]) {
+      expect(
+        variants
+          .filter((entry) => entry.target === target)
+          .map((entry) => entry.artifact_suffix)
+          .sort(),
+      ).toEqual(["", "-full"]);
+    }
+    const windowsVariants = variants.filter(
+      (entry) => entry.target === "x86_64-pc-windows-msvc",
+    );
+    expect(windowsVariants).toHaveLength(2);
+    expect(windowsVariants.every((entry) => entry.cache_key === sharedKey)).toBeTrue();
+    expect(windowsVariants.every((entry) => entry.save_cache === false)).toBeTrue();
+    expect(windowsVariants.every((entry) => entry.rustflags === "-Dwarnings")).toBeTrue();
+    expect(releaseBuild.env?.RUSTFLAGS).toBe("${{ matrix.rustflags }}");
+
+    const releaseCache = releaseBuild.steps.find(
+      (step) => step.uses === "Swatinem/rust-cache@v2",
+    );
+    expect(releaseCache?.with?.["shared-key"]).toBe("${{ matrix.cache_key }}");
+    expect(releaseCache?.with?.["cache-workspace-crates"]).toBeFalse();
+    expect(releaseCache?.with?.["save-if"]).toBe("${{ matrix.save_cache }}");
   });
 
   test("the local integration gate bounds workspace artifact growth", async () => {

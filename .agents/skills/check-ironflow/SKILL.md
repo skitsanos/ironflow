@@ -20,6 +20,8 @@ task.
   `scripts/integration_gate.sh` so local integration matches repository policy.
 - Add example validation when Lua runtime, node registration, docs, or examples
   change.
+- Run `bun run scripts/issues_registry.ts check` when issue pages, issue
+  indexes, repository guidance, or issue-resolution skills change.
 - Add live storage validation when Redis/PostgreSQL behavior, schemas, leases,
   claims, retention, or event stores change.
 
@@ -47,7 +49,7 @@ intentionally removed so repeated versioned gates do not exhaust local disk.
 10. `cargo test --doc`
 11. `cargo check --all-targets --features postgres,redis`
 12. `cargo clippy --all-targets --features postgres,redis -- -D warnings`
-13. `cargo audit`
+13. `cargo audit --deny warnings`
 
 Stop after a failure and report the actionable output. If tests fail, identify
 the failing test and preserve enough output to diagnose it.

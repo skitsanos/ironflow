@@ -9,8 +9,9 @@ description: Implement one tracked IronFlow `IF-NNN` finding end to end across R
 
 1. Inspect `git status`, the current branch, and overlapping diffs. Preserve all
    unrelated changes.
-2. Read the `IF-NNN` summary and full entry in `ISSUES.md`. Confirm its current
-   status, required outcome, and boundaries against the live code.
+2. Read the `IF-NNN` summary in `docs/issues/README.md` and the canonical
+   `docs/issues/IF-NNN.md` page. Confirm its current status, required outcome,
+   and boundaries against the live code.
 3. Trace every affected entry point, storage backend, docs page, and example.
    Treat the ledger as a hypothesis until the current source confirms it.
 4. State the implementation boundary when behavior depends on deployments,
@@ -54,6 +55,8 @@ Only after the required gates pass:
 - mark the summary row and detailed entry resolved with the date;
 - document the cause, implementation, focused coverage, contract boundary, and
   exact validation evidence;
+- regenerate the root and documentation indexes with
+  `bun run scripts/issues_registry.ts generate`, then run the matching `check`;
 - run `git diff --check` and review the complete issue-scoped diff;
 - report files changed and any remaining risks without claiming a commit,
   deployment, or live verification that did not occur;

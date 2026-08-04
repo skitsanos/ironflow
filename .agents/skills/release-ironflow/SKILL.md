@@ -59,12 +59,17 @@ After approval:
 3. Commit and push the release branch only when the user authorized those actions.
 4. Open `release/X.Y.Z` to `main`, wait for approval, and merge according to
    repository policy. The push to `main` runs CI.
-5. Update local `main` with a fast-forward pull. Create an annotated `vX.Y.Z`
+5. Confirm the exact `main` CI run passed its Windows release-cache primer. A
+   later cache miss does not invalidate the binaries, but it does leave release
+   performance acceptance unproven.
+6. Update local `main` with a fast-forward pull. Create an annotated `vX.Y.Z`
    tag only on the verified release commit.
-6. Prove the tag is reachable from `main` and its `Cargo.toml` contains the same
+7. Prove the tag is reachable from `main` and its `Cargo.toml` contains the same
    version. Show this evidence and ask before pushing the tag.
-7. Push the tag, monitor the release workflow, and run publish steps only after
-   separate user authorization.
+8. Push the tag, monitor the release workflow, and run publish steps only after
+   separate user authorization. Confirm both Windows variants restored the
+   shared default-branch dependency cache; each variant still compiles and
+   packages its own binary from the tagged source.
 
 If an unpushed local release step is wrong, use a new corrective edit or ask
 before any destructive recovery. Once a tag is pushed, stop and request

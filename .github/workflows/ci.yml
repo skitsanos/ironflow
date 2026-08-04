@@ -10,9 +10,14 @@ on:
       - "Cargo.lock"
       - "examples/**"
       - "scripts/**"
+      - "docs/**"
+      - ".agents/**"
+      - "AGENTS.md"
+      - "ISSUES.md"
       - ".cargo/audit.toml"
       - ".github/workflows/ci.yml"
       - ".github/workflows/container.yml"
+      - ".github/workflows/release.yml"
       - "Dockerfile"
       - ".dockerignore"
   workflow_dispatch:
@@ -22,6 +27,18 @@ env:
   RUSTFLAGS: -Dwarnings
 
 jobs:
+  repository-policy:
+    name: Repository policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun run scripts/validate_skills.ts
+      - run: bun run scripts/issues_registry.ts check
+      - run: bun test scripts/tests/*.test.ts
+
   module-size:
     name: Module size ratchet
     runs-on: ubuntu-latest
@@ -43,9 +60,10 @@ jobs:
           cache-targets: false
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
-      # Fails on any advisory not in the reviewed ignore list at .cargo/audit.toml.
+      # Fails on every vulnerability or informational warning not in the
+      # reviewed ignore list at .cargo/audit.toml.
       - name: Audit dependencies
-        run: cargo audit
+        run: cargo audit --deny warnings
 
   rust-default:
     name: Clippy and tests (ubuntu-latest)
@@ -153,6 +171,24 @@ jobs:
         with:
           cache-targets: false
       - run: cargo build --release
+
+  windows-release-cache:
+    name: Prime Windows release dependency cache
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-x86_64-pc-windows-msvc
+          cache-workspace-crates: false
+      - name: Prime default and full release dependencies
+        run: |
+          cargo build --release --target x86_64-pc-windows-msvc
+          cargo build --release --target x86_64-pc-windows-msvc --features postgres,redis
 
   validate-examples:
     name: Validate example flows

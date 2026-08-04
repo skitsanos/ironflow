@@ -27,6 +27,14 @@
       "declared_bytes": 8164
     },
     {
+      "label": "cid_unicode_pdf",
+      "node": "extract_pdf",
+      "file": "cid-unicode.pdf",
+      "sha256": "2bfe6e8ba3e6792236c9b3c3fe69b36f301ceda8cf789515443019af8cfa1886",
+      "raw_bytes": 1793,
+      "declared_bytes": 1793
+    },
+    {
       "label": "pathological_html",
       "node": "extract_html",
       "file": "pathological.html",
