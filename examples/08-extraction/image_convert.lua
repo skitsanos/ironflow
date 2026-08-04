@@ -1,4 +1,6 @@
 -- Effects: retains one UUID-scoped JPEG under TMPDIR, TMP, TEMP, or `.`.
+-- Supported inputs: BMP, Farbfeld, GIF, HDR, ICO, JPEG, PNG, PNM, QOI, TGA,
+-- TIFF, and WebP. Image-node outputs are PNG or JPEG.
 local flow = Flow.new("image_convert_demo")
 local temp_root = env("TMPDIR")
 if temp_root == nil or temp_root == "" then temp_root = env("TMP") end

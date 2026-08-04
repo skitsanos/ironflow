@@ -141,6 +141,8 @@ Static validation must be supplemented with representative runtime probes.
 | IF-087 | P2 | Resolved | Container performance | Warm dependency reuse transfers a 755 MB gzip layer |
 | IF-088 | P2 | Resolved | Test reliability | Detached run-admission cleanup uses an undersized hosted-runner deadline |
 | IF-089 | P2 | In progress | Release performance | Tag-scoped Windows caches force both release variants to rebuild dependencies |
+| IF-090 | P1 | Resolved | Dependency security | Informational advisories do not fail CI and unused defaults retain unsafe or abandoned crates |
+| IF-091 | P1 | Resolved | PDF/resource safety | PDF extraction reparses input and retains the final dependency advisory |
 
 ## P0 — release-blocking safety and durability
 
@@ -4137,3 +4139,106 @@ already passed for the containing `1.16.2-dev.1` post-release batch before this
 workflow-only change; it is not represented as validation of IF-089. IF-089
 remains open until the next exact-commit `main` run primes the cache and the
 following tag run proves both Windows restores and records hosted durations.
+
+### IF-090 — Dependency warnings are not enforced as a shrinking budget
+
+**Status:** Resolved on 2026-08-04. The one exception present at completion was
+subsequently removed by IF-091.
+
+`cargo audit` reported five informational advisories but exited successfully.
+The highest-risk warning was `RUSTSEC-2026-0221`: `event-listener 5.4.1`
+unsafely allowed a non-`Send` tag to cross thread boundaries, and both SQLx and
+Redis reached that version. The other warnings were abandoned transitive
+crates retained by broad defaults: `bincode` and `yaml-rust` through Comrak's
+unused CLI/syntax-highlighting features, `paste` through unused AVIF/OpenEXR
+image codecs, and `ttf-parser` through `pdf-extract`'s `lopdf 0.42` pin.
+
+Required outcome:
+
+- move `event-listener` to the patched `5.4.2` release without replacing SQLx
+  or Redis;
+- remove unused dependency features rather than ignoring their advisories;
+- keep the image-node decoder surface explicit and covered by a regression;
+- make every future audit warning fail CI and the integration gate unless its
+  advisory has a narrow, reviewed exception with an upstream removal trigger;
+- preserve Markdown conversion, image nodes, PDF extraction, SQLite,
+  PostgreSQL, and Redis behavior.
+
+Resolution: the lockfile now resolves `event-listener 5.4.2`. Comrak runs as
+the parser library IronFlow actually uses, without its CLI and syntax-highlighter
+defaults. Image decoding explicitly enables BMP, Farbfeld, GIF, HDR, ICO, JPEG,
+PNG, PNM, QOI, TGA, TIFF, and WebP; AVIF encoding and OpenEXR were never part of
+the documented output contract, and removing them plus an unused `lopdf`
+`embed_image` feature removes the `paste` graph. Node documentation and a
+codec-surface regression record this boundary. These changes remove four of
+the five warnings and 70 transitive packages from the lockfile.
+
+At IF-090 completion, `RUSTSEC-2026-0192` remained isolated to
+`pdf-extract 0.12 -> lopdf 0.42 -> ttf-parser 0.25.1` because upstream still
+pinned the older `lopdf`. IF-091 subsequently removed the redundant parser,
+the legacy dependency chain, and this temporary audit exception.
+
+`cargo audit --deny warnings` is now authoritative in CI, the local integration
+gate, repository guidance, and the validation skill. Repository-policy coverage
+fails if that strict command is weakened, the four removed packages return, or
+the patched listener regresses. Validation evidence is recorded with the
+implementing change: `cargo audit --deny warnings`; 10 repository-policy tests
+(87 expectations); validation of all three repository skills; `actionlint`;
+9 focused image tests; the focused Markdown and PDF-extraction tests; default
+and `postgres,redis` all-target checks/strict Clippy; formatting and the
+446-module size policy; and static validation of both affected Lua examples
+all passed. The local tests exercise SQLite plus the combined dependency graph;
+live Redis/PostgreSQL behavior was not changed and was not rerun for this
+dependency-only task.
+
+### IF-091 — PDF extraction duplicates parsers and retains the final advisory
+
+**Status:** Resolved on 2026-08-04.
+
+`extract_pdf` loaded every input into `lopdf 0.44` for page and metadata checks,
+then dropped that document and gave the complete byte buffer to `pdf-extract`
+for a second parse. `pdf-extract 0.12` pinned `lopdf 0.42`, which retained the
+unused `ttf-parser` advisory and a second PDF dependency graph. Its extracted
+text was fully materialized before IronFlow could enforce
+`IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES`.
+
+Required outcome:
+
+- parse each PDF once while preserving text, Markdown, metadata, page limits,
+  regular-file handling, and cancellation behavior;
+- bound per-page decompressed content, font-mapping streams, and aggregate raw
+  text before they can exceed the extraction-output budget;
+- remove `pdf-extract`, the old `lopdf`, `ttf-parser`, and the associated audit
+  exception without adding a replacement dependency;
+- align the node documentation and runnable Lua example with the resource
+  contract and prove the dependency boundary in repository-policy coverage.
+
+Resolution: `extract_pdf` now retains its initial `lopdf 0.44` document and
+releases the input byte buffer after parsing. It extracts one page at a time
+with `extract_text_with_limit`; each call receives only the unspent aggregate
+text budget, so previously accumulated text plus the next page's decompressed
+content and ToUnicode streams cannot cross
+`IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES`. Cancellation checkpoints bracket each
+opaque page call, and the existing item and final serialized-output checks
+remain authoritative. Text and Markdown behavior, metadata, and the three-page
+fixture remain compatible.
+
+Removing `pdf-extract` leaves one `lopdf` version and removes its legacy parser
+chain, including `ttf-parser`, without a replacement dependency. The lockfile
+now contains 545 packages, 16 fewer than the IF-090 candidate, and strict audit
+passes without the `RUSTSEC-2026-0192` exception. Repository-policy coverage
+requires that the removed packages stay absent and that only one `lopdf`
+package is locked. The node page, Lua example, and example catalog now describe
+the bounded, single-parse contract.
+
+Focused validation passed: PDF text/Markdown/metadata and missing-file tests
+(2 tests); PDF resource, page, item, malformed-metadata, regular-file, symlink,
+FIFO, and page-decompression boundaries (1 test); extraction cancellation and
+deadline tests (2 tests); the clean-checkout fixture matrix (2 tests); the
+repository-policy suite (10 tests, 90 expectations); static validation and a
+successful runtime execution of `examples/08-extraction/extract_pdf.lua`; and
+a negative runtime probe that failed on page 1 at a 64-byte decompression
+budget. `cargo audit --deny warnings`, `cargo fmt --all -- --check`, the
+446-module size policy, exact strict Clippy, and `git diff --check` also passed.
+No PostgreSQL, Redis, live-service, or full integration gate was run because
+this change does not touch storage and is not an integration-boundary push.

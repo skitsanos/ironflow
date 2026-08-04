@@ -57,7 +57,7 @@ cargo check --all-targets
 cargo clippy --all-targets -- -D warnings
 cargo test --all-targets
 cargo test --doc
-cargo audit
+cargo audit --deny warnings
 
 echo "[integration] feature-enabled Rust gates"
 cargo check --all-targets --features postgres,redis

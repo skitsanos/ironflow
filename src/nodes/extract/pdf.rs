@@ -69,19 +69,16 @@ fn extract(
         &execution,
     )?;
 
-    // lopdf and pdf_extract are synchronous, opaque parsers. They cannot be
-    // interrupted inside a library call, so each call is bounded by input and
-    // output limits and bracketed by cooperative cancellation checkpoints.
+    // lopdf is a synchronous, opaque parser. It cannot be interrupted inside a
+    // library call, so each call is bounded and bracketed by cancellation
+    // checkpoints.
     budget.checkpoint()?;
-    let document = lopdf::Document::load_mem(&bytes).with_context(|| {
-        format!(
-            "extract_pdf: failed to parse PDF '{}' for page limits",
-            "verified input"
-        )
-    })?;
+    let document = lopdf::Document::load_mem(&bytes)
+        .with_context(|| format!("extract_pdf: failed to parse PDF '{}'", "verified input"))?;
     budget.checkpoint()?;
 
-    let page_count = document.get_pages().len() as u64;
+    let pages = document.get_pages();
+    let page_count = pages.len() as u64;
     if page_count > limits.max_pdf_pages {
         anyhow::bail!(
             "extract_pdf: PDF has {} pages, exceeds IRONFLOW_MAX_PDF_EXTRACT_PAGES ({})",
@@ -95,17 +92,14 @@ fn extract(
         .as_ref()
         .map(|_| extract_pdf_metadata(&document, page_count, &mut budget))
         .transpose()?;
-    // pdf_extract reparses the byte buffer internally. Release lopdf's object
-    // graph first so the two parsed representations are not resident together.
-    drop(document);
+    drop(bytes);
 
-    budget.checkpoint()?;
-    let text = pdf_extract::extract_text_from_mem(&bytes).with_context(|| {
-        format!(
-            "extract_pdf: failed to extract text from '{}'",
-            "verified input"
-        )
-    })?;
+    let text = extract_pdf_text(
+        &document,
+        pages.keys().copied(),
+        limits.max_output_bytes,
+        &budget,
+    )?;
     budget.checkpoint()?;
     inspect_text(&text, &mut budget)?;
 
@@ -123,6 +117,54 @@ fn extract(
     }
     budget.ensure_output(&output)?;
     Ok(output)
+}
+
+fn extract_pdf_text(
+    document: &lopdf::Document,
+    pages: impl IntoIterator<Item = u32>,
+    max_output_bytes: u64,
+    budget: &Budget<'_>,
+) -> Result<String> {
+    let mut text = String::new();
+
+    for page in pages {
+        budget.checkpoint()?;
+        let current_bytes = u64::try_from(text.len()).unwrap_or(u64::MAX);
+        let remaining_bytes = max_output_bytes.checked_sub(current_bytes).ok_or_else(|| {
+            anyhow::anyhow!(
+                "extract_pdf: extracted text exceeds IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES \
+                 ({max_output_bytes})"
+            )
+        })?;
+        let page_limit = usize::try_from(remaining_bytes).unwrap_or(usize::MAX);
+        let page_text = document
+            .extract_text_with_limit(&[page], page_limit)
+            .with_context(|| {
+                format!(
+                    "extract_pdf: failed to extract page {page} within \
+                     IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES ({max_output_bytes})"
+                )
+            })?;
+        budget.checkpoint()?;
+
+        let next_len = text.len().checked_add(page_text.len()).ok_or_else(|| {
+            anyhow::anyhow!(
+                "extract_pdf: extracted text exceeds IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES \
+                 ({max_output_bytes})"
+            )
+        })?;
+        if u64::try_from(next_len).unwrap_or(u64::MAX) > max_output_bytes {
+            anyhow::bail!(
+                "extract_pdf: extracted text exceeds IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES ({})",
+                max_output_bytes
+            );
+        }
+        text.try_reserve_exact(page_text.len())
+            .context("extract_pdf: cannot reserve bounded text output")?;
+        text.push_str(&page_text);
+    }
+
+    Ok(text)
 }
 
 fn extract_pdf_metadata(

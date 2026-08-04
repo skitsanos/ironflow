@@ -44,9 +44,10 @@ jobs:
           cache-targets: false
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
-      # Fails on any advisory not in the reviewed ignore list at .cargo/audit.toml.
+      # Fails on every vulnerability or informational warning not in the
+      # reviewed ignore list at .cargo/audit.toml.
       - name: Audit dependencies
-        run: cargo audit
+        run: cargo audit --deny warnings
 
   rust-default:
     name: Clippy and tests (ubuntu-latest)

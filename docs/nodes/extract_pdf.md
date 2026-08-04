@@ -38,17 +38,19 @@ returning incomplete metadata.
 - `IRONFLOW_MAX_EXTRACT_ITEMS` (default `250000`) is cumulative across PDF
   pages, supported metadata fields that are present, and extracted text lines.
 - `IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES` (default `52428800`, 50 MiB) bounds the
-  complete serialized `NodeOutput`, including content and requested metadata.
-  This is a logical result limit, not a process-RSS limit and not the later
-  `IRONFLOW_MAX_TASK_OUTPUT_BYTES` persistence limit.
+  extracted text before it is appended and the complete serialized
+  `NodeOutput`, including content and requested metadata. The remaining text
+  budget also bounds each page's decompressed content and font-mapping streams.
+  This is not the later `IRONFLOW_MAX_TASK_OUTPUT_BYTES` persistence limit.
 - File reading and post-extraction text/Markdown processing run on a tracked
   blocking worker with cooperative cancellation and deadline checkpoints.
-  `lopdf` document loading and `pdf_extract` text extraction are opaque,
-  synchronous library calls and cannot be interrupted midway; IronFlow checks
-  cancellation immediately before and after each call. The extracted text is
-  materialized before the output limit can inspect it, so that logical result
-  limit does not cap `pdf_extract`'s transient peak allocation. Task and run
-  admission remain occupied until the physical worker stops.
+  IronFlow parses the input once with `lopdf`, releases the original byte
+  buffer, and extracts one page at a time. Document loading and each bounded
+  page extraction are synchronous library calls and cannot be interrupted
+  midway; IronFlow checks cancellation immediately before and after them.
+  Previously extracted text plus the next page's decompressed content cannot
+  exceed the configured extraction-output budget. Task and run admission
+  remain occupied until the physical worker stops.
 
 ## Example
 

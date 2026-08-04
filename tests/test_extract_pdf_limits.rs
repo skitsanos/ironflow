@@ -92,6 +92,7 @@ async fn extract_pdf_enforces_resource_and_regular_file_boundaries() {
     Environment::set(OUTPUT_LIMIT, "64");
     let error = execute(&fixture(), false).await.unwrap_err().to_string();
     assert!(error.contains(OUTPUT_LIMIT), "{error}");
+    assert!(error.contains("page 1"), "{error}");
 
     Environment::set(OUTPUT_LIMIT, "52428800");
     let directory = tempfile::tempdir().unwrap();

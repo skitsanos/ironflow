@@ -281,6 +281,21 @@ async fn extract_pdf_returns_content_and_metadata() {
         .and_then(|v| v.as_u64())
         .unwrap_or(0);
     assert_eq!(pages, 3);
+
+    let markdown = node
+        .execute(
+            &serde_json::json!({
+                "path": path.to_string_lossy(),
+                "format": "markdown",
+                "output_key": "pdf_content"
+            }),
+            &Context::new(),
+        )
+        .await
+        .unwrap();
+    let markdown = markdown.get("pdf_content").unwrap().as_str().unwrap();
+    assert!(markdown.contains("IronFlow Clean-Checkout Fixture"));
+    assert!(!markdown.contains("\n\n\n"));
 }
 
 #[tokio::test]
