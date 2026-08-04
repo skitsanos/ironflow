@@ -47,7 +47,7 @@ intentionally removed so repeated versioned gates do not exhaust local disk.
 10. `cargo test --doc`
 11. `cargo check --all-targets --features postgres,redis`
 12. `cargo clippy --all-targets --features postgres,redis -- -D warnings`
-13. `cargo audit`
+13. `cargo audit --deny warnings`
 
 Stop after a failure and report the actionable output. If tests fail, identify
 the failing test and preserve enough output to diagnose it.

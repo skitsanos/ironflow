@@ -1,6 +1,6 @@
 [package]
 name = "ironflow"
-version = "1.16.2-dev.1"
+version = "1.16.2-dev.2"
 edition = "2024"
 description = "Lightweight workflow engine — Rust core, Lua scripting, single binary"
 license = "MIT"
@@ -40,15 +40,16 @@ hex = "0.4.3"
 axum = "0.8.9"
 tower-http = { version = "0.7.0", features = ["cors", "trace"] }
 base64 = "0.23.0"
-comrak = "0.54"
+comrak = { version = "0.54", default-features = false }
 html2md = "0.2.15"
 ammonia = "4.1.2"
 zip = "8.6.0"
 quick-xml = "0.41.0"
 calamine = { version = "0.36", default-features = false, features = ["dates"] }
-lopdf = { version = "0.44", default-features = false, features = ["chrono", "embed_image"] }
-pdf-extract = "0.12.0"
-image = "0.25.10"
+lopdf = { version = "0.44", default-features = false, features = ["chrono"] }
+image = { version = "0.25.10", default-features = false, features = [
+    "bmp", "ff", "gif", "hdr", "ico", "jpeg", "png", "pnm", "qoi", "tga", "tiff", "webp",
+] }
 pdfium-render = "0.9"
 sqlx = { version = "0.9", features = ["runtime-tokio", "any", "sqlite"] }
 futures-util = "0.3"

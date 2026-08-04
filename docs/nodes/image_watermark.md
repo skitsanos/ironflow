@@ -19,6 +19,9 @@ Artifact inputs are opened and SHA-256 verified inside the tracked blocking
 worker; decoding consumes that same rewound handle rather than a resolved store
 pathname.
 
+Supported source formats are BMP, Farbfeld, GIF, HDR, ICO, JPEG, PNG, PNM,
+QOI, TGA, TIFF, and WebP. Output remains restricted to PNG or JPEG.
+
 ## Context Output
 
 - `<output_key>_path` — output file path

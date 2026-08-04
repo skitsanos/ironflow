@@ -92,7 +92,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 
 ## 08-extraction
 - **extract_word.lua** — Extract Word (.docx) JSON blocks, metadata, and comments
-- **extract_pdf.lua** — Extract text and metadata from PDF files
+- **extract_pdf.lua** — Extract text and metadata from PDF files with bounded, single-parse page processing
 - **extract_pptx.lua** — Extract slides, metadata, comments, and disk-backed media descriptors when present in PowerPoint (.pptx) files
 - **extract_vtt.lua** — Extract text and metadata from WebVTT subtitle files
 - **extract_srt.lua** — Extract text and metadata from SRT subtitle files
@@ -106,12 +106,12 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **image_rotate.lua** — Rotate an image by 90/180/270 degrees
 - **image_flip.lua** — Flip an image horizontally or vertically
 - **image_grayscale.lua** — Convert an image to grayscale
-- **image_convert.lua** — Convert an image between supported formats
+- **image_convert.lua** — Decode the documented image-source formats and emit PNG or JPEG
 - **image_watermark.lua** — Apply a text watermark to an image
 - **extract_html.lua** — Extract text and metadata from HTML
 - **pdf_merge.lua** — Merge verified PDF artifact descriptors sequentially into one bounded output
 - **pdf_split.lua** — Split a PDF into individual pages
-- **image_metadata.lua** — Extract image dimensions, format, and color info
+- **image_metadata.lua** — Extract dimensions, format, and color info from a supported image source
 
 ## 09-cache
 - **cache_memory.lua** — In-memory key-value cache with TTL

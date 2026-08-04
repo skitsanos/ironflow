@@ -14,6 +14,31 @@ fn create_test_image(path: &std::path::Path, width: u32, height: u32) {
     img.save(path).unwrap();
 }
 
+#[test]
+fn configured_input_codecs_match_the_documented_surface() {
+    let enabled = image::ImageFormat::all()
+        .filter(image::ImageFormat::reading_enabled)
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        enabled,
+        vec![
+            image::ImageFormat::Gif,
+            image::ImageFormat::Ico,
+            image::ImageFormat::Jpeg,
+            image::ImageFormat::Png,
+            image::ImageFormat::Bmp,
+            image::ImageFormat::Tiff,
+            image::ImageFormat::Tga,
+            image::ImageFormat::Pnm,
+            image::ImageFormat::Farbfeld,
+            image::ImageFormat::WebP,
+            image::ImageFormat::Qoi,
+            image::ImageFormat::Hdr,
+        ]
+    );
+}
+
 #[tokio::test]
 async fn image_metadata_basic() {
     let dir = tempdir().unwrap();

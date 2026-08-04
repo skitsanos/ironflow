@@ -29,7 +29,7 @@
 - Do not run tests or Clippy merely because a file was saved. During ordinary work, run only the tests and validators relevant to the behavior changed, including negative and cancellation cases where appropriate.
 - Every Rust task still finishes with `cargo fmt --all -- --check`, `python3 -B scripts/check_module_size.py`, and the exact required lint command: `cargo clippy --all-targets -- -D warnings`. Add only focused test targets for the changed code.
 - For `postgres` or `redis` work, add the relevant feature check or focused feature test. Use live storage only when the changed behavior requires it.
-- For docs, examples, hooks, skills, or workflows without Rust changes, run only their relevant validators. Run `cargo test --doc` after public Rust API documentation changes and `cargo audit` after dependency or security-sensitive changes.
+- For docs, examples, hooks, skills, or workflows without Rust changes, run only their relevant validators. Run `cargo test --doc` after public Rust API documentation changes and `cargo audit --deny warnings` after dependency or security-sensitive changes.
 - Validate affected Lua examples after docs/example-only changes. Validate every Lua example only after node registration, Lua runtime, or broad public workflow changes, or at the integration boundary.
 - Run `actionlint .github/workflows/*.yml` after workflow changes when `actionlint` is available.
 - Run `bun run scripts/validate_skills.ts` after changing repository skills. Repository-owned YAML validation must use Bun and must not add a Python YAML dependency.

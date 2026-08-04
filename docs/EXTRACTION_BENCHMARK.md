@@ -13,6 +13,7 @@ must never become an example dependency.
 ```bash
 bun run scripts/extraction_benchmark.ts \
   --samples data/samples \
+  --nodes extract_pdf \
   --repetitions 3 \
   --concurrency 1,2,4 \
   --output benchmarks/results/local.jsonl
@@ -24,11 +25,17 @@ each input in a separate process. Supported extensions are `.docx`, `.pptx`,
 when the release worker is already current. `--cancel-after-ms` controls the
 pathological-HTML cancellation probe and defaults to 2 ms.
 
+Use `--nodes` with a comma-separated list of node names to isolate a format,
+for example `--nodes extract_pdf` or
+`--nodes extract_pdf,extract_xlsx`. Without it, all supported inputs are run.
+The empty process baseline is always included so format-specific results retain
+a comparable runtime-startup reference.
+
 Every concurrency value runs that many copies of the same input together. The
 committed deterministic corpus covers long ZIP filenames, repeated PPTX media,
-compressed PDF text, and pathological HTML. It is intentionally compact; local
-samples provide calibration at realistic sizes. The `baseline/empty` case
-measures process/runtime startup.
+compressed PDF text, positioned CID/ToUnicode glyph fragments, and pathological
+HTML. It is intentionally compact; local samples provide calibration at
+realistic sizes. The `baseline/empty` case measures process/runtime startup.
 
 ## JSONL schema
 
@@ -37,7 +44,7 @@ content and no raw error message.
 
 | Field | Meaning |
 |-------|---------|
-| `schema_version` | Result schema, currently `1` |
+| `schema_version` | Result schema, currently `2` |
 | `measured_at` | UTC observation timestamp |
 | `machine` | OS, architecture, CPU model/count, total memory, Bun/Rust versions, commit/dirty state, worker-binary checksum, and SHA-256 of the hostname |
 | `label` / `node` | Fixture or sample-relative label and selected extractor |
@@ -51,6 +58,7 @@ content and no raw error message.
 | `peak_rss_bytes` | Maximum resident set size, normalized to bytes |
 | `serialized_output_bytes` | JSON bytes counted with a sink writer, without retaining another serialized copy |
 | `persisted_bytes` | Regular artifact bytes created under the worker's isolated artifact root |
+| `worker_elapsed_ms` | Monotonic time from immediately before node setup/execution through blocking-runtime drain; excludes process startup, input hashing, and result serialization |
 | `cancellation_requested_ms` | Worker-relative cancellation request time, when cancellation won |
 | `post_cancellation_drain_ms` | Time from dropped async waiter through blocking-runtime drain |
 | `concurrency` / `repetition` / `slot` | Matrix coordinates |
@@ -68,6 +76,9 @@ text, comments, cells, media content, and provider data are excluded.
   noise; allocator and filesystem caches make peak RSS and wall time variable.
 - Inspect absolute RSS as well as baseline-adjusted RSS. Do not subtract the
   baseline when it would hide a higher absolute peak.
+- Prefer `worker_elapsed_ms` for fast-operation comparisons that fall below
+  `/usr/bin/time`'s displayed wall-time precision. Retain `wall_seconds` to
+  observe complete process startup, input hashing, and result serialization.
 - `batch_peak_rss_sum_bytes` is deliberately conservative because individual
   process peaks may occur at different instants. Use OS/container telemetry for
   exact simultaneous host pressure.
@@ -81,3 +92,9 @@ CI may validate the worker, parser, fixture checksums, and broad safety
 ceilings. It must not fail on narrow wall-time, CPU, or RSS changes. Keep full
 trend runs opt-in and retain their JSONL outside the repository unless a result
 is deliberately selected as review evidence.
+
+When comparing implementation revisions, use the same benchmark-worker source
+on both sides if its measurement schema changed between them. Record the tested
+production commits and worker checksums from each JSONL file. This keeps a
+measurement-only timer or schema change from being mistaken for an extractor
+performance change.

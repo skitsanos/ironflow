@@ -15,6 +15,32 @@ describe("repository integration policy", () => {
     expect(triggers.pull_request).toBeUndefined();
   });
 
+  test("dependency warnings fail closed and removed dependencies stay absent", async () => {
+    const manifest = await Bun.file(join(repository, "Cargo.toml")).text();
+    const lockfile = await Bun.file(join(repository, "Cargo.lock")).text();
+    const auditConfig = await Bun.file(join(repository, ".cargo/audit.toml")).text();
+    const workflow = await Bun.file(join(repository, ".github/workflows/ci.yml")).text();
+    const gate = await Bun.file(join(repository, "scripts/integration_gate.sh")).text();
+
+    expect(workflow).toContain("cargo audit --deny warnings");
+    expect(gate).toContain("cargo audit --deny warnings");
+    expect(auditConfig).not.toContain('"RUSTSEC-2026-0192"');
+    expect(manifest).toContain('comrak = { version = "0.54", default-features = false }');
+    expect(manifest).toContain('lopdf = { version = "0.44", default-features = false, features = ["chrono"] }');
+    for (const removedPackage of [
+      "bincode",
+      "paste",
+      "pdf-extract",
+      "syntect",
+      "ttf-parser",
+      "yaml-rust",
+    ]) {
+      expect(lockfile).not.toContain(`name = "${removedPackage}"`);
+    }
+    expect(lockfile.match(/name = "lopdf"/g) ?? []).toHaveLength(1);
+    expect(lockfile).toContain('name = "event-listener"\nversion = "5.4.2"');
+  });
+
   test("develop pre-push checks PRs, version, and the integration gate", async () => {
     const source = await Bun.file(join(repository, ".githooks/pre-push")).text();
     expect(source).toContain('remote_ref" == "refs/heads/develop');

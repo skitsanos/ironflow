@@ -14,6 +14,9 @@ Artifact inputs are opened and SHA-256 verified inside the tracked blocking
 worker; header inspection consumes that same rewound handle rather than a
 resolved store pathname.
 
+Supported source formats are BMP, Farbfeld, GIF, HDR, ICO, JPEG, PNG, PNM,
+QOI, TGA, TIFF, and WebP. AVIF and OpenEXR are not supported.
+
 ## Context Output
 
 - `<output_key>_width` — image width in pixels

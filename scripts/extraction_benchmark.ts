@@ -12,12 +12,15 @@ export interface TimeMetrics {
   peak_rss_bytes: number;
 }
 
+export const RESULT_SCHEMA_VERSION = 2;
+
 interface Options {
   samples?: string;
   fixtures: string;
   output: string;
   repetitions: number;
   concurrency: number[];
+  nodes: string[];
   cancelAfterMs: number;
   skipBuild: boolean;
 }
@@ -99,6 +102,13 @@ export function parseOptions(args: string[], root = process.cwd()): Options {
   if (concurrency.some((value) => ![1, 2, 4].includes(value))) {
     throw new Error("concurrency values must be selected from 1,2,4");
   }
+  const nodes = (values.get("--nodes") ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const supportedNodes = new Set(Object.values(nodeByExtension));
+  const unsupportedNode = nodes.find((node) => !supportedNodes.has(node));
+  if (unsupportedNode) throw new Error(`unsupported extraction node '${unsupportedNode}'`);
   const timestamp = new Date().toISOString().replaceAll(":", "-");
   return {
     samples: values.has("--samples") ? resolve(root, values.get("--samples")!) : undefined,
@@ -109,6 +119,7 @@ export function parseOptions(args: string[], root = process.cwd()): Options {
     ),
     repetitions,
     concurrency: [...new Set(concurrency)],
+    nodes: [...new Set(nodes)],
     cancelAfterMs: positiveInteger(values.get("--cancel-after-ms") ?? "2", "cancel-after-ms"),
     skipBuild,
   };
@@ -217,13 +228,19 @@ async function main() {
   if (!(await stat(options.fixtures).catch(() => undefined))) {
     throw new Error(`fixture directory does not exist: ${options.fixtures}`);
   }
-  const sources: Source[] = (await collectFiles(options.fixtures)).map((input) => ({
-    input,
-    node: nodeForPath(input)!,
-    label: `fixture/${basename(input)}`,
-  }));
+  const selected = (input: string): boolean => {
+    const node = nodeForPath(input)!;
+    return options.nodes.length === 0 || options.nodes.includes(node);
+  };
+  const sources: Source[] = (await collectFiles(options.fixtures))
+    .filter(selected)
+    .map((input) => ({
+      input,
+      node: nodeForPath(input)!,
+      label: `fixture/${basename(input)}`,
+    }));
   if (options.samples) {
-    for (const input of await collectFiles(options.samples)) {
+    for (const input of (await collectFiles(options.samples)).filter(selected)) {
       sources.push({
         input,
         node: nodeForPath(input)!,
@@ -264,7 +281,7 @@ async function main() {
           for (let slot = 0; slot < records.length; slot++) {
             output.write(
               `${JSON.stringify({
-                schema_version: 1,
+                schema_version: RESULT_SCHEMA_VERSION,
                 measured_at: new Date().toISOString(),
                 machine,
                 repetition,

@@ -1,3 +1,5 @@
+-- Supported inputs: BMP, Farbfeld, GIF, HDR, ICO, JPEG, PNG, PNM, QOI, TGA,
+-- TIFF, and WebP.
 local flow = Flow.new("image_metadata_demo")
 
 flow:step("meta", nodes.image_metadata({
