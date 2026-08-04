@@ -1,5 +1,6 @@
 //! Cancellation-safe lifecycle support for node-owned subprocesses.
 
+#[cfg(unix)]
 use std::sync::Arc;
 #[cfg(unix)]
 use std::sync::atomic::{AtomicI32, Ordering};
