@@ -8,7 +8,7 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 
 | ID | Priority | Status | Area | Summary |
 |---|---:|---|---|---|
-| [IF-089](docs/issues/IF-089.md) | P2 | In progress | Release performance | Tag-scoped Windows caches force both release variants to rebuild dependencies |
+| — | — | — | — | No active findings |
 
 ## Working agreement
 
