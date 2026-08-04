@@ -48,6 +48,7 @@ git diff --check
 python3 -B -m unittest discover -s scripts/tests -p 'test_*.py' -v
 python3 -B scripts/check_module_size.py
 bun run scripts/validate_skills.ts
+bun run scripts/issues_registry.ts check
 bun test scripts/tests/*.test.ts
 python3 -B -m unittest discover -s .codex/hooks/tests -p 'test_*.py' -v
 actionlint .github/workflows/*.yml

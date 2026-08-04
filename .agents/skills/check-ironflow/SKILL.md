@@ -20,6 +20,8 @@ task.
   `scripts/integration_gate.sh` so local integration matches repository policy.
 - Add example validation when Lua runtime, node registration, docs, or examples
   change.
+- Run `bun run scripts/issues_registry.ts check` when issue pages, issue
+  indexes, repository guidance, or issue-resolution skills change.
 - Add live storage validation when Redis/PostgreSQL behavior, schemas, leases,
   claims, retention, or event stores change.
 

@@ -15,6 +15,32 @@ describe("repository integration policy", () => {
     expect(triggers.pull_request).toBeUndefined();
   });
 
+  test("issue registry changes run the Bun policy gate", async () => {
+    const source = await Bun.file(join(repository, ".github/workflows/ci.yml")).text();
+    const workflow = Bun.YAML.parse(source) as {
+      on: { push: { paths: string[] } };
+      jobs: Record<string, { steps: Array<{ uses?: string; run?: string }> }>;
+    };
+    for (const path of ["docs/**", ".agents/**", "AGENTS.md", "ISSUES.md"]) {
+      expect(workflow.on.push.paths).toContain(path);
+    }
+
+    const commands = workflow.jobs["repository-policy"].steps
+      .map((step) => step.run ?? "")
+      .join("\n");
+    expect(
+      workflow.jobs["repository-policy"].steps.some(
+        (step) => step.uses === "oven-sh/setup-bun@v2",
+      ),
+    ).toBeTrue();
+    expect(commands).toContain("bun run scripts/validate_skills.ts");
+    expect(commands).toContain("bun run scripts/issues_registry.ts check");
+    expect(commands).toContain("bun test scripts/tests/*.test.ts");
+
+    const gate = await Bun.file(join(repository, "scripts/integration_gate.sh")).text();
+    expect(gate).toContain("bun run scripts/issues_registry.ts check");
+  });
+
   test("dependency warnings fail closed and removed dependencies stay absent", async () => {
     const manifest = await Bun.file(join(repository, "Cargo.toml")).text();
     const lockfile = await Bun.file(join(repository, "Cargo.lock")).text();

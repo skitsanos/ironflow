@@ -4,7 +4,7 @@
 
 - IronFlow is a Rust workflow engine whose workflow definitions and examples are Lua.
 - Treat `src/`, `docs/`, `examples/`, tests, and the public CLI/API contracts as one product surface.
-- Use root `ISSUES.md` as the engineering ledger. An `IF-NNN` entry is not resolved until its implementation, regressions, documentation, and required validation are complete.
+- Use `docs/issues/README.md` as the engineering registry and `docs/issues/IF-NNN.md` as the canonical finding record. Root `ISSUES.md` is a generated compatibility index. An entry is not resolved until its implementation, regressions, documentation, and required validation are complete.
 - Preserve user-owned and unrelated worktree changes. Inspect `git status` and the relevant diff before editing overlapping files.
 - Work in English. Do not commit, push, tag, publish, merge, or alter releases unless the user explicitly asks.
 
@@ -23,6 +23,7 @@
 - Keep node names, parameters, defaults, environment variables, status codes, limits, and failure behavior consistent across code and documentation.
 - Add or update Lua examples for public behavior. Keep `examples/catalog.json`, `examples/README.md`, fixtures, and checksums consistent when applicable.
 - Classify old plans and investigation notes honestly; do not present historical evidence as the current runtime contract.
+- After changing issue metadata or records, run `bun run scripts/issues_registry.ts generate` and then `bun run scripts/issues_registry.ts check`.
 
 ## Validation
 
@@ -47,7 +48,7 @@
 
 ## Completion and review
 
-- Update the relevant `ISSUES.md` entry with the implemented outcome, contract boundary, and concrete validation evidence before marking it resolved.
+- Update the relevant `docs/issues/IF-NNN.md` page with the implemented outcome, contract boundary, and concrete validation evidence before marking it resolved, then regenerate the indexes.
 - Distinguish focused, default, feature-enabled, live-service, and deployed validation. Do not claim one as evidence for another.
 - After completing a goal or task, propose no more than three prioritized, bounded development goals.
 - In code review, prioritize correctness, security, durability, cancellation, bounded resource use, docs/example parity, and missing regressions over style-only comments.

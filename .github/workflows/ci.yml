@@ -10,6 +10,10 @@ on:
       - "Cargo.lock"
       - "examples/**"
       - "scripts/**"
+      - "docs/**"
+      - ".agents/**"
+      - "AGENTS.md"
+      - "ISSUES.md"
       - ".cargo/audit.toml"
       - ".github/workflows/ci.yml"
       - ".github/workflows/container.yml"
@@ -23,6 +27,18 @@ env:
   RUSTFLAGS: -Dwarnings
 
 jobs:
+  repository-policy:
+    name: Repository policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun run scripts/validate_skills.ts
+      - run: bun run scripts/issues_registry.ts check
+      - run: bun test scripts/tests/*.test.ts
+
   module-size:
     name: Module size ratchet
     runs-on: ubuntu-latest
