@@ -571,7 +571,12 @@ candidate into `main` before the stable tag. Stable versions never land on
 
 ## Roadmap
 
-- Web UI for flow visualization
+The maintained [`Now / Next / Later` roadmap](docs/ROADMAP.md) separates
+committed work from candidates and records IronFlow's enterprise deployment
+boundaries. Current priorities are a bounded production metrics contract,
+followed by a streamed remote artifact lifecycle backend. A read-only Web UI
+for flow and run visualization remains a later candidate rather than an
+implementation commitment.
 
 ## License
 

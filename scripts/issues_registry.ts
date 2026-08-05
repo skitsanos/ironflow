@@ -21,6 +21,7 @@ const repository = join(import.meta.dir, "..");
 const issuesDirectory = join(repository, "docs/issues");
 const registryPath = join(issuesDirectory, "README.md");
 const compatibilityPath = join(repository, "ISSUES.md");
+const roadmapPath = join(repository, "docs/ROADMAP.md");
 const issuePattern = /^IF-\d{3}$/;
 const allowedFields = new Set(["id", "title", "priority", "status", "area", "resolved"]);
 
@@ -153,6 +154,63 @@ Historical audit baselines and cross-issue evidence are retained in
 `;
 }
 
+function roadmapSection(source: string, heading: string): string | undefined {
+  const marker = `## ${heading}\n`;
+  const start = source.indexOf(marker);
+  if (start === -1) return undefined;
+  const bodyStart = start + marker.length;
+  const nextHeading = source.indexOf("\n## ", bodyStart);
+  return source.slice(bodyStart, nextHeading === -1 ? source.length : nextHeading);
+}
+
+export function validateRoadmap(source: string, issues: Issue[]): string[] {
+  const errors: string[] = [];
+  if (!source.startsWith("# IronFlow product roadmap\n")) {
+    errors.push("docs/ROADMAP.md: expected canonical title");
+  }
+
+  const sections = new Map<string, string>();
+  for (const heading of ["Product posture", "Capability maturity", "Now", "Next", "Later"]) {
+    const body = roadmapSection(source, heading);
+    if (body === undefined) errors.push(`docs/ROADMAP.md: missing '## ${heading}' section`);
+    else sections.set(heading, body);
+  }
+
+  const known = new Map(issues.map((issue) => [issue.id, issue]));
+  const seen = new Set<string>();
+  const entryPattern = /^### \[(IF-\d{3})\]\(issues\/(IF-\d{3})\.md\) — .+$/gm;
+
+  for (const horizon of ["Now", "Next"]) {
+    const body = sections.get(horizon);
+    if (body === undefined) continue;
+    const entries = [...body.matchAll(entryPattern)];
+    if (!entries.length && !body.includes("_No committed initiative._")) {
+      errors.push(
+        `docs/ROADMAP.md: '${horizon}' requires an active IF-NNN entry or explicit empty marker`,
+      );
+    }
+    for (const entry of entries) {
+      const [, label, target] = entry;
+      if (label !== target) {
+        errors.push(`docs/ROADMAP.md: roadmap label ${label} targets ${target}`);
+        continue;
+      }
+      if (seen.has(label)) {
+        errors.push(`docs/ROADMAP.md: duplicate committed roadmap entry ${label}`);
+        continue;
+      }
+      seen.add(label);
+      const issue = known.get(label);
+      if (!issue) errors.push(`docs/ROADMAP.md: roadmap entry ${label} has no issue page`);
+      else if (issue.status === "resolved") {
+        errors.push(`docs/ROADMAP.md: resolved issue ${label} cannot remain in ${horizon}`);
+      }
+    }
+  }
+
+  return errors;
+}
+
 export async function loadIssues(): Promise<{ issues: Issue[]; errors: string[] }> {
   const glob = new Bun.Glob("IF-*.md");
   const paths: string[] = [];
@@ -205,6 +263,9 @@ async function run(command: string): Promise<void> {
   }
   if (command !== "check") throw new Error("usage: bun scripts/issues_registry.ts <check|generate>");
 
+  const roadmap = Bun.file(roadmapPath);
+  if (!(await roadmap.exists())) errors.push("docs/ROADMAP.md: file is missing");
+  else errors.push(...validateRoadmap(await roadmap.text(), issues));
   await checkGenerated(registryPath, registry, errors);
   await checkGenerated(compatibilityPath, compatibility, errors);
   if (errors.length) throw new Error(errors.join("\n"));
