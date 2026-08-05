@@ -52,6 +52,10 @@ pub enum Commands {
     Validate {
         /// Path to the .lua flow file
         flow: PathBuf,
+
+        /// Treat Lua handler warnings as validation failures
+        #[arg(long)]
+        strict: bool,
     },
 
     /// List past workflow runs
@@ -157,7 +161,7 @@ pub async fn run_cli() -> Result<()> {
             let store = create_store(&cfg, &store_dir).await?;
             commands::cmd_run(flow, context, verbose, store, max_concurrent_tasks).await
         }
-        Commands::Validate { flow } => commands::cmd_validate(flow),
+        Commands::Validate { flow, strict } => commands::cmd_validate(flow, strict),
         Commands::List {
             status,
             store_dir,

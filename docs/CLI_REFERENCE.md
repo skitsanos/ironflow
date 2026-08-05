@@ -69,13 +69,22 @@ Parse and validate a flow file without executing it. Checks for:
 - DAG cycles
 - Duplicate step names
 - Invalid recovery targets, shared handlers, and recovery-graph cycles
+- Reads of undefined globals inside serialized Lua function handlers
+
+Undefined handler globals are warnings by default, so validation still exits
+successfully while reporting the source line and column. Use `--strict` to
+treat any handler warning as a validation failure. A function handler that
+captures an outer local is always rejected because captured upvalues cannot
+survive bytecode serialization.
 
 | Argument / Flag | Required | Default | Description |
 |-----------------|----------|---------|-------------|
 | `<FLOW>` | yes | — | Path to the `.lua` flow file |
+| `--strict` | no | off | Fail when Lua function-handler warnings are reported |
 
 ```bash
 ironflow validate flow.lua
+ironflow validate flow.lua --strict
 ```
 
 ---
@@ -629,6 +638,13 @@ data: {"error":"Event stream unavailable","code":"event_stream_error","error_id"
 two inline forms are not confined at all, because the caller supplies the
 workflow itself. Validation evaluates the top-level Lua chunk, including
 `env()`, even though it does not execute workflow steps.
+
+The validation request also accepts `"strict": true`. Responses can contain a
+`warnings` array whose entries have `code`, `message`, `line`, and `column`.
+Undefined reads inside serialized Lua function handlers use the
+`undefined_global` code. Warnings leave `valid` unchanged by default; strict
+mode sets `valid` to `false` and adds a summary to `errors`. Captured outer
+locals are serialization errors in both modes.
 
 That is the intended contract for a general-purpose engine — but it means an API
 key that can reach `/flows/run` can run any node, so it can read or write any

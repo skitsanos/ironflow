@@ -22,6 +22,13 @@ When `source` is provided, one of two forms are supported:
 
 When `bytecode_b64` is provided, the base64-encoded Lua bytecode is decoded and loaded as a function. The function is called with the `ctx` table as its sole argument, and its return value becomes the node output.
 
+Inline function handlers must not capture locals from the enclosing flow file;
+IronFlow rejects such handlers because captured upvalues cannot survive
+serialization. Declare constants inside the handler or pass values through
+`ctx`. During validation, reads of undefined globals inside inline functions
+produce source-positioned warnings; `ironflow validate --strict` treats them as
+failures. This lexical warning pass does not inspect string-valued `source`.
+
 ## Sandboxing
 
 The Lua VM starts from an allowlist containing computation-oriented table,
@@ -54,6 +61,9 @@ are unavailable:
 - `uuid4()` -- generate a random UUID string
 - `now_rfc3339()` -- current UTC timestamp in RFC3339 format
 - `now_unix_ms()` -- current Unix timestamp in milliseconds
+
+`Flow` and `nodes` exist only while the flow definition is loaded and are not
+available in the isolated handler VM.
 
 ### Execution limits
 

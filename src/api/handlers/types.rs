@@ -38,6 +38,9 @@ pub struct ValidateFlowRequest {
     /// Path to a .lua flow file.
     #[serde(default)]
     pub file: Option<String>,
+    /// Treat Lua handler warnings as validation failures.
+    #[serde(default)]
+    pub strict: bool,
 }
 
 #[derive(Serialize)]
@@ -47,6 +50,8 @@ pub struct ValidateResponse {
     pub steps: Option<usize>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub errors: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<crate::lua::LuaDiagnostic>,
 }
 
 #[derive(Deserialize)]

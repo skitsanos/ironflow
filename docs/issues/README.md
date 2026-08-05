@@ -6,7 +6,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts generate` and verified with
 `bun run scripts/issues_registry.ts check`.
 
-- Total findings: 94
+- Total findings: 95
 - Active findings: 1
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
@@ -106,3 +106,4 @@ priority, area, and title. The registry is generated with
 | [IF-092](./IF-092.md) | P2 | Resolved | PDF/performance | PDF resource improvements lack matched before/after RSS and timing evidence |
 | [IF-093](./IF-093.md) | P2 | Resolved | PDF/correctness | Non-ASCII CID glyph extraction depends only on ignored local samples |
 | [IF-094](./IF-094.md) | P2 | Resolved | Test reliability | Lease-loss regression still races hosted-runner scheduling |
+| [IF-095](./IF-095.md) | P1 | Resolved | Lua correctness | Validation misses undefined globals and captured locals in Lua handlers |
