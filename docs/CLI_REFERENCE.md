@@ -683,8 +683,11 @@ webhooks:
   hello: hello_world.lua  # shorthand: no request headers reach the flow
   signed-order:
     flow: orders/process.lua
-    forward_headers:
-      - x-webhook-signature
+    signature:
+      type: hmac_sha256
+      header: x-hub-signature-256
+      secret_env: WEBHOOK_SIGNING_SECRET
+      prefix: sha256=
 ```
 
 - Flow paths are resolved relative to `flows_dir`
@@ -700,25 +703,38 @@ webhooks:
 - Webhook name is injected as `ctx._webhook`
 - Request bodies cannot define the reserved `_headers`, `_webhook`, or
   `_flow_dir` context keys
+- A `signature` policy verifies an HMAC-SHA256 hex digest over the exact,
+  bounded request body before JSON parsing, flow loading, or run creation
+- `secret_env` is resolved at server startup and must contain at least 16
+  bytes. Its value and the signature header are never workflow input
+- The signature header must occur exactly once and must not also appear in
+  `forward_headers`. Missing, repeated, malformed, or mismatched signatures
+  return `403` without creating a run
+- `prefix` defaults to `sha256=`; set it explicitly to an empty string only
+  when the sender provides a bare hex digest
 
 ```bash
 curl -X POST http://localhost:3000/webhooks/signed-order \
   -H "X-API-Key: $IRONFLOW_API_KEY" \
-  -H "X-Webhook-Signature: $WEBHOOK_SHARED_SECRET" \
+  -H "X-Hub-Signature-256: $PROVIDER_SIGNATURE" \
   -H "Content-Type: application/json" \
-  -d '{"order_id": "123"}'
+  --data-binary "$EXACT_PROVIDER_BODY"
 ```
 
 The API key authenticates the caller to IronFlow and is consumed by the API
-middleware. The separately configured business signature is available only
-while workflow nodes execute. Workflow code should validate it in place and
-return a boolean/result, never log, return, encode, or otherwise copy the raw
-value. Literal copies are redacted, but deliberately transformed or externally
-transmitted secrets cannot be identified reliably.
+middleware. The separately configured HMAC policy authenticates the exact body
+before workflow execution. `--data-binary` is significant in manual probes:
+changing whitespace or line endings changes the signature.
 
-Webhook bodies are parsed JSON; IronFlow does not expose the original request
-bytes needed by provider schemes that sign an exact raw payload. Verify those
-schemes in an upstream gateway until a raw-body verification contract exists.
+The built-in policy covers body-only HMAC-SHA256 schemes such as GitHub's
+`X-Hub-Signature-256`. It does not parse provider-specific compound headers or
+add timestamp/replay protection. Schemes such as Stripe and Slack include a
+timestamp in their signed message and require a recency check; verify those in
+an upstream gateway until IronFlow exposes a dedicated policy for that scheme.
+
+`forward_headers` remains available for non-authentication business metadata.
+Values forwarded that way are execution-only and redacted, but workflow code
+must not use direct shared-secret equality as a substitute for request signing.
 
 Runs created by older IronFlow versions may already contain request headers.
 Public run output hides legacy `_headers` values when they are still present,

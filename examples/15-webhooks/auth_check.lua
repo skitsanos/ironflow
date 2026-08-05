@@ -1,37 +1,33 @@
--- Webhook that validates an explicitly forwarded business signature.
+-- Webhook protected by fail-closed HMAC-SHA256 ingress verification.
 --
 -- Config (ironflow.yaml):
 --   flows_dir: "examples/15-webhooks"
 --   webhooks:
 --     auth-check:
 --       flow: auth_check.lua
---       forward_headers:
---         - x-webhook-signature
+--       signature:
+--         type: hmac_sha256
+--         header: x-hub-signature-256
+--         secret_env: WEBHOOK_SIGNING_SECRET
+--         prefix: sha256=
 --
 -- Usage:
---   export WEBHOOK_SHARED_SECRET="replace-with-a-long-secret"
---   curl -X POST http://localhost:3000/webhooks/auth-check \
+--   export WEBHOOK_SIGNING_SECRET="replace-with-a-long-random-secret"
+--   body='{"action":"deploy"}'
+--   signature=$(BODY="$body" bun -e '
+--     const h = new Bun.CryptoHasher("sha256", process.env.WEBHOOK_SIGNING_SECRET);
+--     console.log("sha256=" + h.update(process.env.BODY).digest("hex"));
+--   ')
+--   curl --request POST http://localhost:3000/webhooks/auth-check \
 --     -H "X-API-Key: $IRONFLOW_API_KEY" \
---     -H "X-Webhook-Signature: $WEBHOOK_SHARED_SECRET" \
+--     -H "X-Hub-Signature-256: $signature" \
 --     -H "Content-Type: application/json" \
---     -d '{"action": "deploy"}'
+--     --data-binary "$body"
 
 local flow = Flow.new("auth_check")
 
--- Validate the execution-only signature in place. Never return or log it.
-flow:step("validate_auth", function(ctx)
-    local signature = ctx._headers and ctx._headers["x-webhook-signature"] or ""
-    local expected = env("WEBHOOK_SHARED_SECRET")
-    if not expected or expected == "" then
-        error("WEBHOOK_SHARED_SECRET is not configured")
-    end
-    if signature ~= expected then
-        error("Invalid webhook signature")
-    end
-    return { auth_valid = true }
-end)
-
--- Step 2: Process the webhook payload (only runs if auth succeeded)
+-- The flow starts only after IronFlow verifies the exact request bytes. The
+-- signing secret and signature header never enter workflow context.
 flow:step("process", function(ctx)
     local action = ctx.action
     if action == nil then action = "unknown" end
@@ -40,11 +36,11 @@ flow:step("process", function(ctx)
     return {
         result = "Processed action '" .. action .. "'"
             .. " via webhook '" .. webhook .. "'"
-            .. " (authenticated)"
+            .. " (HMAC authenticated)"
     }
-end):depends_on("validate_auth")
+end)
 
--- Step 3: Log the result
+-- Step 2: Log the result
 flow:step("log_result", nodes.log({
     message = "${ctx.result}"
 })):depends_on("process")

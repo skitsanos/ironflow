@@ -1,3 +1,4 @@
+pub(crate) mod authentication;
 pub mod bounded_cache;
 pub mod bounded_read;
 pub mod duration;
