@@ -6,18 +6,30 @@ use super::LuaDiagnostic;
 use super::globals::is_handler_global;
 
 pub(super) fn analyze_handler(source: &str, function: Node<'_>) -> Vec<LuaDiagnostic> {
-    let mut analyzer = ScopeAnalyzer {
-        source,
-        scopes: vec![HashSet::new()],
-        assigned_globals: HashSet::new(),
-        warnings: Vec::new(),
-    };
+    let mut analyzer = new_analyzer(source, "Lua handler environment");
     analyzer.analyze_function(function);
     analyzer.warnings
 }
 
+pub(super) fn analyze_chunk(source: &str, chunk: Node<'_>) -> Vec<LuaDiagnostic> {
+    let mut analyzer = new_analyzer(source, "Lua code source environment");
+    analyzer.analyze_node(chunk);
+    analyzer.warnings
+}
+
+fn new_analyzer<'a>(source: &'a str, environment: &'static str) -> ScopeAnalyzer<'a> {
+    ScopeAnalyzer {
+        source,
+        environment,
+        scopes: vec![HashSet::new()],
+        assigned_globals: HashSet::new(),
+        warnings: Vec::new(),
+    }
+}
+
 struct ScopeAnalyzer<'source> {
     source: &'source str,
+    environment: &'static str,
     scopes: Vec<HashSet<String>>,
     assigned_globals: HashSet<String>,
     warnings: Vec<LuaDiagnostic>,
@@ -253,9 +265,10 @@ impl ScopeAnalyzer<'_> {
         }
         self.warnings.push(LuaDiagnostic {
             code: "undefined_global".to_string(),
-            message: format!("`{name}` is not defined in the Lua handler environment"),
+            message: format!("`{name}` is not defined in the {}", self.environment),
             line: node.start_position().row + 1,
             column: character_column(self.source, node.start_byte()),
+            step: None,
         });
     }
 

@@ -36,14 +36,26 @@ pub(crate) fn cmd_validate(flow_path: PathBuf, strict: bool) -> Result<()> {
     if !validated.warnings.is_empty() {
         println!("Warnings:");
         for warning in &validated.warnings {
-            println!(
-                "  {}:{}:{} [{}] {}",
-                flow_path.display(),
-                warning.line,
-                warning.column,
-                warning.code,
-                warning.message
-            );
+            if let Some(step) = &warning.step {
+                println!(
+                    "  {}:step[{}].source:{}:{} [{}] {}",
+                    flow_path.display(),
+                    step,
+                    warning.line,
+                    warning.column,
+                    warning.code,
+                    warning.message
+                );
+            } else {
+                println!(
+                    "  {}:{}:{} [{}] {}",
+                    flow_path.display(),
+                    warning.line,
+                    warning.column,
+                    warning.code,
+                    warning.message
+                );
+            }
         }
     }
 

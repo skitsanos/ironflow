@@ -11,8 +11,13 @@ use tree_sitter::{Node, Parser};
 pub struct LuaDiagnostic {
     pub code: String,
     pub message: String,
+    /// One-based line within the flow file or embedded code source.
     pub line: usize,
+    /// One-based character column within the diagnostic line.
     pub column: usize,
+    /// Step name when `line` and `column` are relative to embedded code source.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub step: Option<String>,
 }
 
 #[derive(Clone)]
@@ -34,15 +39,7 @@ struct FunctionAnalysis {
 
 impl HandlerDiagnostics {
     pub(crate) fn analyze(source: &str) -> Result<Self> {
-        let mut parser = Parser::new();
-        parser
-            .set_language(&tree_sitter_lua::LANGUAGE.into())
-            .map_err(|error| {
-                anyhow::anyhow!("Failed to initialize Lua source analysis: {error}")
-            })?;
-        let tree = parser
-            .parse(source, None)
-            .ok_or_else(|| anyhow::anyhow!("Lua source analysis did not produce a syntax tree"))?;
+        let tree = parse_lua(source)?;
         if tree.root_node().has_error() {
             return Ok(Self::empty());
         }
@@ -100,6 +97,39 @@ impl HandlerDiagnostics {
     }
 }
 
+pub(crate) fn analyze_code_source(source: &str, step: &str) -> Result<Vec<LuaDiagnostic>> {
+    let tree = parse_lua(source)?;
+    let (analysis_source, tree, expression_prefix) = if tree.root_node().has_error() {
+        let expression_source = format!("return {source}");
+        let expression_tree = parse_lua(&expression_source)?;
+        if expression_tree.root_node().has_error() {
+            return Ok(Vec::new());
+        }
+        (expression_source, expression_tree, "return ".len())
+    } else {
+        (source.to_string(), tree, 0)
+    };
+
+    let mut warnings = scope::analyze_chunk(&analysis_source, tree.root_node());
+    for warning in &mut warnings {
+        warning.step = Some(step.to_string());
+        if warning.line == 1 {
+            warning.column = warning.column.saturating_sub(expression_prefix);
+        }
+    }
+    Ok(warnings)
+}
+
+fn parse_lua(source: &str) -> Result<tree_sitter::Tree> {
+    let mut parser = Parser::new();
+    parser
+        .set_language(&tree_sitter_lua::LANGUAGE.into())
+        .map_err(|error| anyhow::anyhow!("Failed to initialize Lua source analysis: {error}"))?;
+    parser
+        .parse(source, None)
+        .ok_or_else(|| anyhow::anyhow!("Lua source analysis did not produce a syntax tree"))
+}
+
 fn collect_functions(source: &str, node: Node<'_>, functions: &mut Vec<FunctionAnalysis>) {
     if matches!(node.kind(), "function_definition" | "function_declaration") {
         functions.push(FunctionAnalysis {
@@ -140,6 +170,7 @@ return flow
             "`missing_inside` is not defined in the Lua handler environment"
         );
         assert_eq!((warnings[0].line, warnings[0].column), (5, 39));
+        assert_eq!(warnings[0].step, None);
     }
 
     #[test]
@@ -202,5 +233,26 @@ return flow
     fn invalid_syntax_is_left_to_the_lua_parser() {
         let analysis = HandlerDiagnostics::analyze("return function( ???").unwrap();
         assert_eq!(analysis.warnings().unwrap(), Vec::new());
+    }
+
+    #[test]
+    fn code_source_diagnostics_are_step_relative() {
+        let warnings = analyze_code_source(
+            "local header = 'hello'\nreturn string.format('%s %s', header, footer)",
+            "render",
+        )
+        .unwrap();
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].step.as_deref(), Some("render"));
+        assert_eq!((warnings[0].line, warnings[0].column), (2, 39));
+        assert!(warnings[0].message.contains("code source environment"));
+    }
+
+    #[test]
+    fn expression_source_diagnostics_map_to_original_columns() {
+        let warnings = analyze_code_source("missing_value", "expression").unwrap();
+        assert_eq!(warnings.len(), 1);
+        assert_eq!((warnings[0].line, warnings[0].column), (1, 1));
+        assert_eq!(warnings[0].step.as_deref(), Some("expression"));
     }
 }
