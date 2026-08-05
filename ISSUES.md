@@ -9,7 +9,6 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 | ID | Priority | Status | Area | Summary |
 |---|---:|---|---|---|
 | [IF-100](docs/issues/IF-100.md) | P1 | Open | Observability | Production deployments lack a bounded metrics contract |
-| [IF-101](docs/issues/IF-101.md) | P1 | Open | Artifact lifecycle | Artifact storage has no remote multi-host lifecycle backend |
 
 ## Working agreement
 

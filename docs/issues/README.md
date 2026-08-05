@@ -7,7 +7,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts check`.
 
 - Total findings: 101
-- Active findings: 2
+- Active findings: 1
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
 | ID | Priority | Status | Area | Summary |
@@ -112,4 +112,4 @@ priority, area, and title. The registry is generated with
 | [IF-098](./IF-098.md) | P1 | Resolved | API security | Webhook authentication cannot verify signatures over the original body |
 | [IF-099](./IF-099.md) | P2 | Resolved | Product governance | Roadmap has no actionable forward plan and the shipped baseline has drifted |
 | [IF-100](./IF-100.md) | P1 | Open | Observability | Production deployments lack a bounded metrics contract |
-| [IF-101](./IF-101.md) | P1 | Open | Artifact lifecycle | Artifact storage has no remote multi-host lifecycle backend |
+| [IF-101](./IF-101.md) | P1 | Resolved | Artifact lifecycle | Artifact storage has no remote multi-host lifecycle backend |

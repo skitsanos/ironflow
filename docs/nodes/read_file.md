@@ -1,6 +1,6 @@
 # `read_file`
 
-Read a file as text, explicitly encode it as Base64, or stream it into the disk-backed artifact store.
+Read a file as text, explicitly encode it as Base64, or stream it into the configured content-addressed artifact store.
 
 ## Parameters
 
@@ -27,10 +27,12 @@ default), so a file that grows after its metadata check still cannot exceed the
 configured raw-byte ceiling. Text and Base64 modes retain inline output in
 memory; Base64 can temporarily coexist with its raw input and expanded encoded
 string. Artifact mode instead copies in bounded chunks on a tracked worker,
-hashes while copying, and atomically publishes immutable content under
-`IRONFLOW_ARTIFACT_DIR` (default `data/artifacts`). The local store has no
-automatic expiration; operators own retention and must provide a shared mount
-when workflows can recover or resume on another host.
+hashes while copying, and atomically publishes immutable local content under
+`IRONFLOW_ARTIFACT_DIR` (default `data/artifacts`). With
+`IRONFLOW_ARTIFACT_BACKEND=s3`, that verified handle is streamed to the shared
+bucket/prefix and the directory becomes private staging/cache. Operators can
+run the bounded offline `ironflow artifacts prune` command; local deployments
+otherwise require a shared mount when another host must consume the artifact.
 
 ## Examples
 

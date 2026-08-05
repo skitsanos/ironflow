@@ -34,7 +34,7 @@ provided.
 | Workflow execution and Lua validation | Production-ready | Continue focused correctness and sandbox regressions |
 | JSON, SQLite, PostgreSQL, and Redis state/events | Production-ready within documented backend contracts | Redis Cluster and external event brokers are not current commitments |
 | Multi-replica lifecycle | Verified with Docker, Railway, and OpenShift | Deployments must use shared durable state/event stores |
-| Artifact handoff | Integrity-verified local content-addressed store | Multi-host remote storage and lifecycle are tracked by IF-101 |
+| Artifact handoff | Streamed, integrity-verified local or S3-compatible content-addressed store with offline retained-reference pruning | Deployments must share either a durable mount or one authorized object namespace |
 | Operational visibility | Health probes, structured logs, run timing, and SSE | Scrapeable bounded metrics are tracked by IF-100 |
 | Access control | One deployment API key plus network/secret-manager controls | User identity, RBAC, and attributed audit are an explicit deployment boundary |
 | Product UI | CLI and REST API only | A read-only visualization slice remains a later candidate |
@@ -44,17 +44,11 @@ provided.
 ### [IF-100](issues/IF-100.md) — Production observability contract
 
 Add an operator-focused, bounded-cardinality metrics surface for runtime,
-scheduler, admission, lease, and durable-store health. This is the smallest
-next step that materially improves production diagnosis without changing
-workflow semantics.
+scheduler, admission, lease, and durable-store health.
 
 ## Next
 
-### [IF-101](issues/IF-101.md) — Distributed artifact lifecycle
-
-Preserve the existing artifact descriptor contract while adding streamed,
-verified S3-compatible storage and bounded retention for multi-host and
-ephemeral-disk deployments.
+_No committed initiative._
 
 ## Later
 

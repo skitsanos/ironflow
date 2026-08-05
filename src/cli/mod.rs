@@ -94,6 +94,12 @@ pub enum Commands {
     /// List available nodes
     Nodes,
 
+    /// Inspect or prune content-addressed workflow artifacts
+    Artifacts {
+        #[command(subcommand)]
+        command: ArtifactCommands,
+    },
+
     /// Start the REST API server
     Serve {
         /// Host to bind to
@@ -115,6 +121,28 @@ pub enum Commands {
         /// Maximum request body size in bytes (default: 1048576 = 1 MB)
         #[arg(long, default_value = "1048576", env = "MAX_BODY")]
         max_body: usize,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ArtifactCommands {
+    /// Delete old artifacts not referenced by any retained run
+    Prune {
+        /// Only inspect artifacts last modified before this RFC 3339 timestamp
+        #[arg(long)]
+        before: String,
+
+        /// Maximum candidate artifacts to inspect (1-100)
+        #[arg(long, default_value = "100")]
+        limit: usize,
+
+        /// Assert that every IronFlow writer sharing the stores is stopped
+        #[arg(long)]
+        confirm_offline: bool,
+
+        /// State store directory
+        #[arg(long, default_value = "data/runs", env = "IRONFLOW_STORE_DIR")]
+        store_dir: PathBuf,
     },
 }
 
@@ -189,6 +217,22 @@ pub async fn run_cli() -> Result<()> {
             commands::cmd_inspect(run_id, store).await
         }
         Commands::Nodes => commands::cmd_nodes(),
+        Commands::Artifacts { command } => match command {
+            ArtifactCommands::Prune {
+                before,
+                limit,
+                confirm_offline,
+                store_dir,
+            } => {
+                let store_dir = resolution::with_config(
+                    store_dir,
+                    sources.store_dir,
+                    cfg.store_dir.as_deref().map(PathBuf::from),
+                );
+                let store = create_store(&cfg, &store_dir).await?;
+                commands::cmd_artifact_prune(store, before, limit, confirm_offline).await
+            }
+        },
         Commands::Serve {
             host,
             port,

@@ -56,6 +56,20 @@ pub(super) fn remove_failed_publication(path: &Path) {
     let _ = std::fs::remove_file(path);
 }
 
+pub(super) fn remove_published_file(path: &Path) -> Result<bool> {
+    let metadata = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error.into()),
+    };
+    if metadata.file_type().is_symlink() || !metadata.file_type().is_file() {
+        bail!("artifact cache entry is not a regular non-link file");
+    }
+    make_removable_platform(path);
+    std::fs::remove_file(path)?;
+    Ok(true)
+}
+
 pub(super) fn sync_directory(path: &Path) -> Result<()> {
     sync_directory_platform(path)
         .with_context(|| format!("failed to sync artifact directory '{}'", path.display()))

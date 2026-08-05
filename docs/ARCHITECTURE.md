@@ -878,25 +878,39 @@ than an inline Base64 string:
 }
 ```
 
-The local artifact store streams sources to private staging files (mode `0600`
-on Unix and the configured directory's inherited ACL elsewhere) while enforcing
-byte limits, hashing, and checking cancellation. It publishes them
-atomically as immutable `IRONFLOW_ARTIFACT_DIR/sha256/<digest>` files and
-deduplicates equal content. Extraction, image/PDF, and transcription nodes
+The artifact-store facade streams sources to private local staging files (mode
+`0600` on Unix and the configured directory's inherited ACL elsewhere) while
+enforcing byte limits, hashing, and checking cancellation. Local mode publishes
+them atomically as immutable `IRONFLOW_ARTIFACT_DIR/sha256/<digest>` files and
+deduplicates equal content. S3 mode publishes the same local result, then
+streams its verified handle to the configured bucket and
+`<prefix>/sha256/<digest>` key. A remote write is successful only after a HEAD
+probe verifies the digest/size metadata; an interrupted upload returns an error
+without exposing a descriptor, while the local orphan remains eligible for the
+offline retention sweep. Extraction, image/PDF, and transcription nodes
 preserve either the full descriptor or its canonical URI until their tracked
 blocking worker opens the artifact. The worker refuses links and non-regular
 files, hashes the opened handle, compares that digest (and descriptor size when
 present), rewinds it, and passes that same handle to the parser or decoder. The
-store intentionally has no automatic
-eviction because a completed task or recovered run can still reference an
-artifact; retention is an operator concern. Publication is per artifact rather
-than transactional across a node, so a later parser/page failure can leave an
-unreferenced immutable file for the same retention sweep.
+store intentionally has no automatic eviction because a completed task or
+recovered run can still reference an artifact. `ironflow artifacts prune`
+performs explicit offline cleanup: it admits at most 100 old candidates, walks
+retained runs in cursor pages, loads one full run at a time, and deletes only
+digests absent from every context and task input/output. The required
+`--confirm-offline` assertion is the race boundary; every process able to add a
+reference must remain stopped for the scan/delete window. Publication is per
+artifact rather than transactional across a node, so a later parser/page
+failure can leave an unreferenced immutable object for that sweep.
 
 Only the descriptor crosses context, task-history, Redis, or PostgreSQL
-boundaries. The artifact bytes remain local filesystem state, so a multi-host
-deployment must provide a durable shared mount. A future remote backend can
-preserve the descriptor contract without reintroducing binary context values.
+boundaries. In local mode, multi-host deployments must provide a durable shared
+mount. In S3 mode, the object store is authoritative and each replica uses
+`IRONFLOW_ARTIFACT_DIR` as private staging/cache. A cache miss streams the remote
+body into a private temporary file, enforces descriptor/response/configured byte
+ceilings, verifies SHA-256, and publishes locally before reopening the same
+verified handle. Bucket, endpoint, prefix, and credentials remain deployment
+configuration rather than descriptor fields, so every replica must select the
+same namespace.
 Artifact references bound workflow-context and persistence amplification; they
 do not imply zero-copy processing. Consumers can still allocate decoded pixel
 buffers, parser state, or semantic output subject to their node-specific
@@ -912,11 +926,31 @@ that can run arbitrary shell/file operations is not isolated from a store owned
 by the same OS identity. Hostile multi-tenant deployments should use separate
 execution identities and storage ACLs, or a separately authenticated artifact
 service that returns authenticated content streams rather than shared paths.
-IronFlow does not currently ship that remote backend. Such a backend must
-authenticate the caller and descriptor, stream with an explicit byte ceiling,
-verify SHA-256 before releasing the handle to a consumer, and define retention
-independently of workflow run state; merely putting the same mutable directory
-behind a network filesystem would retain the same process-trust problem.
+S3 bucket policy or workload credentials authenticate the remote namespace;
+verified content identity remains independent of that authorization. A shared
+network filesystem retains the local process-trust boundary and is not
+equivalent to a separately authorized object store.
+
+The S3 lifecycle contract is deliberately narrow:
+
+- IronFlow uses the standard AWS credential chain and an optional
+  artifact-specific region/endpoint. Operators should scope the resulting
+  bucket policy to the configured `<prefix>/sha256/*` namespace.
+- Publication is a single-object PUT, never a multipart upload. It retries at
+  most three times against the same content-addressed key, so a lost success
+  response is idempotent. S3-compatible services must make a completed PUT
+  visible to a subsequent HEAD; IronFlow verifies digest and size metadata
+  before returning the descriptor.
+- Failed or cancelled publication never returns a descriptor. S3's atomic PUT
+  contract prevents a partial object from becoming visible, although an
+  ambiguous completed PUT can remain as an unreferenced whole object and is
+  handled by the offline prune command.
+- Downloads enforce the configured ceiling and declared length while
+  streaming, then verify SHA-256 before publishing or repairing the private
+  cache. Cancellation drops the request and removes the private staging file.
+- Pruning deletes one content-addressed object at a time. Object deletion is
+  idempotent, so an interrupted sweep can be rerun; it does not provide a
+  transaction across the candidate batch.
 
 Handle-capable built-in consumers never receive the artifact store pathname.
 For a third-party library that accepts only a path, the store can create a

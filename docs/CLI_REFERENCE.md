@@ -167,6 +167,37 @@ orphaned retained event stream from an interrupted earlier deletion.
 
 ---
 
+### `ironflow artifacts prune`
+
+Delete old artifacts that are absent from every retained run context and task
+input/output. This is an offline maintenance command: stop every IronFlow
+writer sharing the state and artifact stores, then acknowledge that boundary
+with `--confirm-offline`. Without it the command fails before opening either
+store.
+
+| Flag | Required | Default | Description |
+|------|----------|---------|-------------|
+| `--before <RFC3339>` | yes | — | Consider only artifacts last modified before this instant |
+| `--limit <COUNT>` | no | `100` | Candidate batch size, strictly 1–100 |
+| `--confirm-offline` | yes | — | Assert that no process can add a reference during the scan/delete window |
+| `--store-dir <DIR>` | no | `data/runs` | JSON/SQLite state location; normal store configuration and environment overrides still apply |
+
+The command holds at most 100 candidate digests, walks run summaries in
+100-record cursor pages, and loads one full run at a time. Corrupt or unreadable
+run state fails closed before deletion. S3 listing can traverse multiple remote
+pages but retains only the requested candidate batch. The command deletes both
+the remote object and its local cache entry; local mode deletes the local
+object only.
+
+```bash
+ironflow artifacts prune \
+  --before 2026-07-01T00:00:00Z \
+  --limit 100 \
+  --confirm-offline
+```
+
+---
+
 ### `ironflow serve`
 
 Start the REST API server.
@@ -905,7 +936,14 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_MAX_IMAGE_TO_PDF_SOURCES` | `100` | Maximum source entries admitted by one `image_to_pdf` call, checked before parsing entries |
 | `IRONFLOW_MAX_IMAGE_TO_PDF_ENCODED_BYTES` | `104857600` | Maximum cumulative encoded source bytes processed by one `image_to_pdf` call |
 | `IRONFLOW_MAX_IMAGE_TO_PDF_PIXELS` | `50000000` | Maximum cumulative decoded source pixels processed by one `image_to_pdf` call |
-| `IRONFLOW_ARTIFACT_DIR` | `data/artifacts` | Local root for immutable content-addressed workflow artifacts. Files are stored as `sha256/<digest>` and are not automatically expired; use a shared mount when runs can move between hosts. |
+| `IRONFLOW_ARTIFACT_BACKEND` | `local` | Artifact durability backend: `local` or `s3`. Any other value fails before artifact work begins. |
+| `IRONFLOW_ARTIFACT_DIR` | `data/artifacts` | Immutable local store, or private staging/cache when the S3 backend is selected. Files use `sha256/<digest>`. |
+| `IRONFLOW_MAX_ARTIFACT_BYTES` | `52428800` | Positive maximum bytes uploaded to or restored from the S3 artifact backend, enforced against descriptors, response metadata, and streamed bytes. |
+| `IRONFLOW_ARTIFACT_S3_BUCKET` | — | Required bucket when `IRONFLOW_ARTIFACT_BACKEND=s3`. Use standard AWS credential environment variables or workload identity. |
+| `IRONFLOW_ARTIFACT_S3_PREFIX` | `ironflow/artifacts` | Safe 1–512 byte object-key prefix; objects are stored beneath `<prefix>/sha256/<digest>`. |
+| `IRONFLOW_ARTIFACT_S3_REGION` | SDK chain | Optional artifact-specific AWS region override. |
+| `IRONFLOW_ARTIFACT_S3_ENDPOINT_URL` | SDK default | Optional S3-compatible endpoint. Credentials and endpoint values are not placed in artifact descriptors. |
+| `IRONFLOW_ARTIFACT_S3_FORCE_PATH_STYLE` | `false` | Strict `true`/`false` path-style addressing switch for compatible services. |
 | `IRONFLOW_MAX_AUDIO_BYTES` | `25000000` | Maximum size of the audio/video file `transcribe` reads from disk before uploading it to the provider |
 | `IRONFLOW_MAX_CONVERSION_DEPTH` | `64` | Maximum nesting depth when converting values between JSON and Lua, and when admitting a verbose-JSON `transcribe` response before materialization |
 | `IRONFLOW_MAX_CONVERSION_NODES` | `100000` | Maximum total values converted between JSON and Lua in one conversion, also applied before a verbose-JSON `transcribe` response is materialized. A step handler converts the whole accumulated run context, not only the keys it reads, so a large fan-out can reach this in a step that never touched the data |
@@ -948,13 +986,14 @@ SRT/VTT count input lines and parsed cues. The node pages document the exact
 units and additional raw or archive limits.
 
 Binary-producing nodes use `artifact://sha256/<digest>` descriptors to keep
-large byte payloads out of workflow context. The first backend is deliberately
-local and content-addressed: publication is atomic, duplicate content is
-reused, and files persist until an operator removes them. Redis/PostgreSQL run
-state stores only the descriptor, not its file. Multi-host deployments and
-recovered runs therefore require `IRONFLOW_ARTIFACT_DIR` to point at durable
-storage mounted at the same path on every worker. Inline Base64 remains an
-explicit compatibility/provider-boundary mode where a node documents it.
+large byte payloads out of workflow context. Local mode publishes atomically
+under `IRONFLOW_ARTIFACT_DIR`. S3 mode uses that directory only for private
+staging/cache, streams the verified handle to `<prefix>/sha256/<digest>`, and
+restores a missing cache entry with a byte ceiling and SHA-256 verification
+before a consumer receives the rewound handle. The descriptor deliberately
+contains no bucket, endpoint, credential, or mutable object key; every replica
+must use the same backend, bucket, and prefix. Inline Base64 remains an explicit
+compatibility/provider-boundary mode where a node documents it.
 The directory is a trusted process boundary: protect it from mutation by
 workflow and unrelated same-identity processes. Artifact-aware consumers open
 inside their tracked blocking worker, refuse links and non-regular files, hash
@@ -962,8 +1001,8 @@ the opened handle, compare it with the URI/descriptor, rewind it, and pass that
 same handle to the parser. This detects same-size path replacement and avoids a
 path-resolution/open race, but it cannot isolate an already-open inode from a
 hostile process with the same OS identity. Hostile multi-tenant deployments
-need separate execution identities and storage ACLs, or a separately
-authenticated artifact service.
+need separate execution identities and storage ACLs. S3 credentials and bucket
+policy are the remote authentication and namespace boundary.
 
 `IRONFLOW_MAX_XLSX_CELLS` is deliberately kept below `IRONFLOW_MAX_CONVERSION_NODES`: converting an extracted sheet into Lua costs roughly `rows * (cols + 1)` conversion nodes, so a cell ceiling that never fires before the conversion budget does would let oversized workbooks fail deep inside the JSON-to-Lua converter (an error naming a JSON path) instead of at `extract_xlsx` parse time (an error naming the sheet). Raising one of these two limits without the other may simply move where an oversized workbook fails rather than allow it through.
 

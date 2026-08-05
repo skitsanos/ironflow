@@ -310,7 +310,7 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
   graphs into one dependency-only cache. Tag builds restore that default-branch
   cache read-only while compiling and packaging both binaries from the tag; a
   cache miss remains a correct cold build rather than a release failure.
-- [x] Schema-v2 example catalog classifies all 132 Lua flows in this baseline,
+- [x] Schema-v2 example catalog classifies all 134 Lua flows in this baseline,
   records composable service/credential/state/platform requirements, and
   evaluates every flow against the built-in registry so all 102 node types
   remain covered without exemptions
@@ -318,10 +318,11 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
 - [x] Shared Lua sandbox module (`src/lua/sandbox.rs`) for consistent VM setup
 
 ### 5.6 Memory Hardening ✅
-- [x] Immutable local `ArtifactRef` store keeps large binary handoffs out of
-  workflow context; PPTX media, `read_file`, and PDF renderers publish
-  content-addressed files while extractors and image/PDF consumers resolve
-  descriptors without Base64
+- [x] Runtime-selectable local or S3-compatible `ArtifactRef` store keeps large
+  binary handoffs out of workflow context; producers stream through bounded
+  local staging, remote consumers verify SHA-256 before repairing a private
+  cache, and explicit offline pruning retains every artifact referenced by
+  durable workflow state
 - [x] DOCX and PPTX XML parts parse directly from bounded ZIP-entry readers
   with cumulative decoded-byte accounting, incremental UTF-8 validation,
   cancellation checkpoints, and end-of-entry CRC verification

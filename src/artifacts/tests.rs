@@ -7,6 +7,7 @@ use super::{ArtifactRef, LocalArtifactStore};
 use crate::util::execution::run_blocking_step;
 
 mod read_security;
+mod remote;
 
 async fn store_bytes(
     store: LocalArtifactStore,
