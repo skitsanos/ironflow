@@ -300,7 +300,7 @@ remove the entry at 300 lines or fewer. New exceptions and exception-budget
 changes are architecture-policy decisions that require maintainer review.
 IF-034 established 13 reviewed exceptions; IF-052 later approved a temporary
 ceiling of 17 for security-fix growth, and subsequent extraction ratcheted the
-current checked-in ceiling to 14. A new exception must therefore replace an
+current checked-in ceiling to 11. A new exception must therefore replace an
 existing one; files above 400 lines are never exempt. Passing this check does not
 establish good modularity: reviewers must still examine responsibility
 boundaries, cognitive complexity, and whether moving tests or helpers improves

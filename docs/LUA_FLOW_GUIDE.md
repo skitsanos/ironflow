@@ -424,15 +424,19 @@ end)
 The function receives `ctx` (the phase-start workflow context) as its argument
 and returns a table of key-value pairs to publish at the phase barrier. Under
 the hood, the function is compiled to bytecode at parse time and executed as a
-`code` node — so the same sandbox rules apply. `env()` works inside handlers.
+`code` node — so the same sandbox rules apply. Runtime helpers such as `env()`,
+`log()`, `json_parse()`, and `now_unix_ms()` work inside handlers. Loader-only
+globals such as `Flow` and `nodes` do not.
 
-**Important:** Function handlers must be self-contained. Do not capture local variables from the enclosing scope — they will be `nil` at runtime:
+**Important:** Function handlers must be self-contained. Capturing a local from
+the enclosing scope is rejected while loading the flow because the upvalue
+cannot survive bytecode serialization:
 
 ```lua
--- BAD: captured local won't survive bytecode transfer
+-- BAD: flow loading fails because threshold is a captured upvalue
 local threshold = 100
 flow:step("check", function(ctx)
-    return { over = ctx.amount > threshold }  -- threshold is nil!
+    return { over = ctx.amount > threshold }
 end)
 
 -- GOOD: use env() or inline the value
@@ -440,6 +444,13 @@ flow:step("check", function(ctx)
     return { over = ctx.amount > 100 }
 end)
 ```
+
+`ironflow validate` also reports reads of undefined handler globals, which Lua
+would otherwise resolve to `nil` silently. Diagnostics include the source line
+and column and remain warnings unless `--strict` is supplied. This analysis
+applies to function-backed `flow:step`, `flow:step_if`, `nodes.code`, and
+`nodes.foreach` handlers. String-backed `nodes.code` source is not part of this
+lexical pass; ordinary Lua runtime semantics still apply to it.
 
 ## Complete Example
 

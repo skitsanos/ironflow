@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exception_budget": 12,
+  "exception_budget": 11,
   "exceptions": [
     {
       "path": "src/cli/store_factory.rs",
@@ -16,11 +16,6 @@
       "path": "src/engine/recovery.rs",
       "max_lines": 317,
       "rationale": "IF-046/052 review: one execution-plan validator and recovery-DAG builder covering dependency, cycle, on_error, retry-count, timeout, and route validation; split validation from graph construction before adding another planning phase."
-    },
-    {
-      "path": "src/lua/runtime/api.rs",
-      "max_lines": 304,
-      "rationale": "IF-028/035 review: one Lua flow-builder registration surface (handler bytecode is now signed at dump time); nested closure complexity makes the next independent API group a mandatory extraction point."
     },
     {
       "path": "src/nodes/cloud/s3_objects.rs",

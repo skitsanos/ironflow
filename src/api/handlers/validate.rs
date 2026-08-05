@@ -22,6 +22,7 @@ pub async fn validate_flow(
         source,
         source_base64,
         file,
+        strict,
     } = req;
     let source_count = [source.is_some(), source_base64.is_some(), file.is_some()]
         .iter()
@@ -49,14 +50,14 @@ pub async fn validate_flow(
     let flow_result = if let Some(source) = source {
         let registry = state.registry.clone();
         crate::api::supervise_flow_load(flow_load_permit, async move {
-            LuaRuntime::load_flow_from_string_async(&source, &registry).await
+            LuaRuntime::validate_flow_from_string_async(&source, &registry).await
         })
         .await
     } else if let Some(encoded) = source_base64 {
         let source = decode_base64_source(&encoded)?;
         let registry = state.registry.clone();
         crate::api::supervise_flow_load(flow_load_permit, async move {
-            LuaRuntime::load_flow_from_string_async(&source, &registry).await
+            LuaRuntime::validate_flow_from_string_async(&source, &registry).await
         })
         .await
     } else {
@@ -64,7 +65,7 @@ pub async fn validate_flow(
         let registry = state.registry.clone();
         let load_path = path.clone();
         match crate::api::supervise_flow_load(flow_load_permit, async move {
-            LuaRuntime::load_flow_async(&load_path, &registry).await
+            LuaRuntime::validate_flow_async(&load_path, &registry).await
         })
         .await
         {
@@ -76,13 +77,15 @@ pub async fn validate_flow(
                     flow_name: None,
                     steps: None,
                     errors: vec![FLOW_FILE_LOAD_ERROR.to_string()],
+                    warnings: Vec::new(),
                 }));
             }
         }
     };
 
     Ok(Json(match flow_result {
-        Ok(flow) => {
+        Ok(validated) => {
+            let flow = validated.flow;
             let mut errors = flow
                 .steps
                 .iter()
@@ -95,11 +98,18 @@ pub async fn validate_flow(
                 })
                 .collect::<Vec<_>>();
             errors.extend(flow.validate_dag());
+            if strict && !validated.warnings.is_empty() {
+                errors.push(format!(
+                    "Strict validation rejected {} Lua handler warning(s)",
+                    validated.warnings.len()
+                ));
+            }
             ValidateResponse {
                 valid: errors.is_empty(),
                 flow_name: Some(flow.name),
                 steps: Some(flow.steps.len()),
                 errors,
+                warnings: validated.warnings,
             }
         }
         Err(error) => ValidateResponse {
@@ -107,6 +117,7 @@ pub async fn validate_flow(
             flow_name: None,
             steps: None,
             errors: vec![format!("{error:#}")],
+            warnings: Vec::new(),
         },
     }))
 }

@@ -182,7 +182,7 @@ gates for ordinary CI.
 | Command | Description |
 |---------|-------------|
 | `ironflow run <file>` | Execute a workflow |
-| `ironflow validate <file>` | Validate a flow without running |
+| `ironflow validate <file> [--strict]` | Validate a flow without running; strict mode rejects Lua handler warnings |
 | `ironflow nodes` | List all available node types |
 | `ironflow list` | List a bounded page of past workflow runs (`--limit`, `--after`) |
 | `ironflow inspect <run_id>` | Inspect a specific run |
@@ -407,6 +407,11 @@ flow:step("transform", function(ctx)
     return { order_total = total }
 end):depends_on("load_items")
 ```
+
+Handlers are serialized into an isolated Lua VM. Keep their local state inside
+the function or pass values through `ctx`; captured outer locals are rejected.
+Validation reports undefined handler globals as source-positioned warnings,
+and `ironflow validate flow.lua --strict` treats those warnings as failures.
 
 ### Retries and timeouts
 

@@ -137,6 +137,50 @@ fn load_flow_with_function_handler() {
 }
 
 #[test]
+fn validation_reports_undefined_globals_only_inside_serialized_handlers() {
+    let reg = registry();
+    let source = r#"local flow = Flow.new("diagnostics")
+local top_level_value = missing_at_load_time
+flow:step("render", function(ctx)
+    local header = "hello"
+    return { page = string.format("%s %s", header, footer), context = ctx }
+end)
+return flow
+"#;
+
+    let validated = LuaRuntime::validate_flow_from_string(source, &reg).unwrap();
+    assert_eq!(validated.warnings.len(), 1);
+    let warning = &validated.warnings[0];
+    assert_eq!(warning.code, "undefined_global");
+    assert!(warning.message.contains("`footer`"));
+    assert_eq!((warning.line, warning.column), (5, 52));
+}
+
+#[test]
+fn every_function_backed_entry_point_rejects_captured_outer_locals() {
+    let reg = registry();
+    let cases = [
+        r#"flow:step("s", function() return { value = captured } end)"#,
+        r#"flow:step_if("true", "s", function() return { value = captured } end)"#,
+        r#"flow:step("s", nodes.code({ source = function() return { value = captured } end }))"#,
+        r#"flow:step("s", nodes.foreach({ source_key = "items", transform = function() return captured end }))"#,
+    ];
+
+    for step in cases {
+        let source = format!(
+            "local flow = Flow.new('captured')\nlocal captured = 'lost'\n{step}\nreturn flow"
+        );
+        let error = LuaRuntime::load_flow_from_string(&source, &reg).unwrap_err();
+        let message = format!("{error:#}");
+        assert!(
+            message.contains("captures 1 outer local value"),
+            "{message}"
+        );
+        assert!(message.contains("pass values through ctx"), "{message}");
+    }
+}
+
+#[test]
 fn load_flow_multiple_depends() {
     let reg = registry();
     let source = r#"
