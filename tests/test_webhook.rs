@@ -140,3 +140,20 @@ async fn webhook_works_with_no_body() {
 
     assert_eq!(status, StatusCode::OK);
 }
+
+#[tokio::test]
+async fn webhook_rejects_non_json_non_empty_bodies_without_creating_a_run() {
+    let _admission = PROCESS_ADMISSION_LOCK.lock().await;
+    let flows = setup_flow_dir();
+    let app = build_test_app(
+        flows.path().to_path_buf(),
+        HashMap::from([("hello".to_string(), webhook("hello_world.lua", &[]))]),
+    );
+    let request = authenticated_request(Method::POST, "/webhooks/hello", Body::from("plain text"));
+
+    let (status, body) = send_json(&app.router, request).await;
+
+    assert_eq!(status, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    assert_eq!(body["code"], "unsupported_media_type");
+    assert!(app.store.list_runs(None).await.unwrap().is_empty());
+}

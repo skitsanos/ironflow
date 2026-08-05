@@ -287,22 +287,28 @@ When a flow is triggered via `POST /webhooks/{name}`, the engine injects:
 webhooks:
   signed-action:
     flow: signed_action.lua
-    forward_headers:
-      - x-webhook-signature
+    signature:
+      type: hmac_sha256
+      header: x-hub-signature-256
+      secret_env: WEBHOOK_SIGNING_SECRET
+      prefix: sha256=
 ```
 
 ```lua
-flow:step("check_auth", function(ctx)
-    local signature = ctx._headers and ctx._headers["x-webhook-signature"] or ""
-    local expected = env("WEBHOOK_SHARED_SECRET")
-    if not expected or signature ~= expected then
-        error("Unauthorized")
-    end
-    return { signature_valid = true }
+-- This step runs only after the exact request bytes pass ingress verification.
+flow:step("process", function(ctx)
+    return { accepted_action = ctx.action }
 end)
 ```
 
-No request headers are forwarded by default. Platform authentication headers
+The HMAC secret must contain at least 16 bytes and is resolved from the named
+environment variable when the server starts. The signature header and secret
+never enter Lua context, and a rejected request creates no run. This generic
+policy signs only the request body; provider schemes that sign timestamps or
+require replay windows still need a provider-aware upstream verifier.
+
+No request headers are forwarded by default. Separate non-authentication
+business headers can be allowlisted with `forward_headers`. Platform headers
 such as `Authorization` and `X-API-Key`, cookies, and proxy/session credentials
 are never workflow input. Configured header values are execution-only and are
 redacted from literal outputs, errors, child runs, stored context, events, and

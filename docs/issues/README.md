@@ -6,8 +6,8 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts generate` and verified with
 `bun run scripts/issues_registry.ts check`.
 
-- Total findings: 97
-- Active findings: 1
+- Total findings: 98
+- Active findings: 0
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
 | ID | Priority | Status | Area | Summary |
@@ -100,7 +100,7 @@ priority, area, and title. The registry is generated with
 | [IF-086](./IF-086.md) | P2 | Resolved | CI performance | Independent checks and storage jobs compile the same Rust graph repeatedly |
 | [IF-087](./IF-087.md) | P2 | Resolved | Container performance | Warm dependency reuse transfers a 755 MB gzip layer |
 | [IF-088](./IF-088.md) | P2 | Resolved | Test reliability | Detached run-admission cleanup uses an undersized hosted-runner deadline |
-| [IF-089](./IF-089.md) | P2 | In progress | Release performance | Tag-scoped Windows caches force both release variants to rebuild dependencies |
+| [IF-089](./IF-089.md) | P2 | Resolved | Release performance | Tag-scoped Windows caches force both release variants to rebuild dependencies |
 | [IF-090](./IF-090.md) | P1 | Resolved | Dependency security | Informational advisories do not fail CI and unused defaults retain unsafe or abandoned crates |
 | [IF-091](./IF-091.md) | P1 | Resolved | PDF/resource safety | PDF extraction reparses input and retains the final dependency advisory |
 | [IF-092](./IF-092.md) | P2 | Resolved | PDF/performance | PDF resource improvements lack matched before/after RSS and timing evidence |
@@ -109,3 +109,4 @@ priority, area, and title. The registry is generated with
 | [IF-095](./IF-095.md) | P1 | Resolved | Lua correctness | Validation misses undefined globals and captured locals in Lua handlers |
 | [IF-096](./IF-096.md) | P1 | Resolved | Lua correctness | String-backed code silently resolves undefined globals to nil |
 | [IF-097](./IF-097.md) | P2 | Resolved | Test reliability | Default CI contains two timing-dependent test failures |
+| [IF-098](./IF-098.md) | P1 | Resolved | API security | Webhook authentication cannot verify signatures over the original body |

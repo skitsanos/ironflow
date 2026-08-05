@@ -172,7 +172,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 
 ## 15-webhooks
 - **simple_webhook.lua** — Basic webhook that greets the caller by name
-- **auth_check.lua** — Webhook with an explicit execution-only business-signature header
+- **auth_check.lua** — Webhook protected at ingress by an environment-backed HMAC-SHA256 signature
 
 ## 16-s3vector
 - **[s3vector_vector_workflow.lua](16-s3vector/s3vector_vector_workflow.lua)** — Create and inspect a vector bucket/index, upload and query vectors, then tear down all resources.

@@ -851,6 +851,9 @@ Context is a `HashMap<String, serde_json::Value>` that flows through the entire 
 - Keys prefixed with `_` are reserved for engine internals (routes, conditions)
 - Webhook requests persist `_webhook`, while explicitly allowlisted request
   headers enter an execution-only `_headers` overlay
+- Optional webhook HMAC-SHA256 policies authenticate the exact bounded request
+  body before JSON parsing, flow loading, run admission, or persistence; their
+  environment-backed secret and signature header never enter context
 - Execution overlays are merged into each node snapshot, propagated to child
   workflow engines, and removed before initial/final context persistence
 - Literal overlay keys and values are redacted before task output/error, event,

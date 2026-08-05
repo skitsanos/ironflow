@@ -5,9 +5,11 @@ mod idempotency;
 mod lifecycle;
 mod server;
 mod webhook_config;
+mod webhook_signature;
 
 pub use lifecycle::ServiceLifecycle;
 pub use webhook_config::WebhookConfig;
+pub use webhook_signature::WebhookSignatureConfig;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -191,33 +193,23 @@ fn request_has_api_key(headers: &HeaderMap, expected: &str) -> bool {
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "))
-        .is_some_and(|token| constant_time_eq(token.as_bytes(), expected.as_bytes()));
+        .is_some_and(|token| {
+            crate::util::authentication::constant_time_eq(token.as_bytes(), expected.as_bytes())
+        });
 
     let api_key = headers
         .get("x-api-key")
         .and_then(|value| value.to_str().ok())
-        .is_some_and(|token| constant_time_eq(token.as_bytes(), expected.as_bytes()));
+        .is_some_and(|token| {
+            crate::util::authentication::constant_time_eq(token.as_bytes(), expected.as_bytes())
+        });
 
     bearer || api_key
 }
 
-/// Compare two byte strings without short-circuiting on the first differing
-/// byte, so comparison time does not leak how much of a candidate API key
-/// matched. The length check leaks only the key length, not its contents.
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff = 0u8;
-    for (x, y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
-    }
-    std::hint::black_box(diff) == 0
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{constant_time_eq, request_has_api_key};
+    use super::request_has_api_key;
     use axum::http::HeaderMap;
 
     #[tokio::test]
@@ -232,15 +224,6 @@ mod tests {
     async fn bind_listener_accepts_unbracketed_ipv6_loopback() {
         let listener = super::server::bind_listener("::1", 0).await.unwrap();
         assert!(listener.local_addr().unwrap().ip().is_loopback());
-    }
-
-    #[test]
-    fn constant_time_eq_matches_only_identical_bytes() {
-        assert!(constant_time_eq(b"secret-token", b"secret-token"));
-        assert!(!constant_time_eq(b"secret-token", b"secret-toke!"));
-        assert!(!constant_time_eq(b"secret-token", b"secret")); // different length
-        assert!(!constant_time_eq(b"", b"x"));
-        assert!(constant_time_eq(b"", b""));
     }
 
     #[test]

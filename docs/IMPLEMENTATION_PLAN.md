@@ -246,7 +246,7 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
 - [x] Value-source-backed precedence: explicit CLI > existing process
       environment > selected dotenv > config file > built-in default; an
       explicit value equal to a default still wins
-- [x] Webhook routes via config — scalar or structured `webhooks:` entries create `POST /webhooks/{name}` endpoints; request headers are default-denied and explicitly forwarded only through redacted execution overlays
+- [x] Webhook routes via config — scalar or structured `webhooks:` entries create `POST /webhooks/{name}` endpoints; request headers are default-denied, explicitly forwarded only through redacted execution overlays, and optional environment-backed HMAC-SHA256 policies verify the exact request body before run creation
 - [x] Scheduled triggers — `schedules:` block in `ironflow.yaml`, evaluated by a
       30-second tick inside `ironflow serve`. Cross-replica at-most-one claims via
       `StateStore::claim_schedule` (SQL unique index, Redis `SET NX EX`, JSON

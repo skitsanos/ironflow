@@ -160,7 +160,7 @@ pub(crate) async fn prepare(
         &options.host,
     )?;
     let cors = cors_layer(options.cors_origins)?;
-
+    super::webhook_config::validate_runtime_configs(&options.webhooks)?;
     let state = Arc::new(AppState {
         registry: Arc::new(NodeRegistry::with_builtins()),
         store,

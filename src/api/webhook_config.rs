@@ -1,9 +1,11 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use axum::http::{HeaderMap, HeaderName};
 use serde::Deserialize;
 
 use crate::engine::types::Context;
+
+use super::webhook_signature::{SignatureVerificationError, WebhookSignatureConfig};
 
 const EXECUTION_HEADERS_KEY: &str = "_headers";
 const MIN_CONFIDENTIAL_HEADER_BYTES: usize = 8;
@@ -47,6 +49,7 @@ const RESERVED_CREDENTIAL_HEADERS: &[&str] = &[
 pub struct WebhookConfig {
     flow: String,
     forward_headers: Vec<HeaderName>,
+    signature: Option<WebhookSignatureConfig>,
 }
 
 impl WebhookConfig {
@@ -79,7 +82,28 @@ impl WebhookConfig {
         Ok(Self {
             flow,
             forward_headers: normalized,
+            signature: None,
         })
+    }
+
+    /// Attach a fail-closed request-signature policy to this route.
+    ///
+    /// The signature header cannot also be forwarded to workflow context.
+    pub fn with_signature(mut self, signature: WebhookSignatureConfig) -> Result<Self, String> {
+        signature.validate()?;
+        let header = signature.header();
+        if RESERVED_CREDENTIAL_HEADERS.contains(&header) {
+            return Err(format!(
+                "webhook signature header '{header}' is reserved for platform or transport authentication"
+            ));
+        }
+        if self.forward_headers().any(|forwarded| forwarded == header) {
+            return Err(format!(
+                "webhook signature header '{header}' must not also be forwarded to the workflow"
+            ));
+        }
+        self.signature = Some(signature);
+        Ok(self)
     }
 
     pub fn flow(&self) -> &str {
@@ -88,6 +112,27 @@ impl WebhookConfig {
 
     pub fn forward_headers(&self) -> impl Iterator<Item = &str> {
         self.forward_headers.iter().map(HeaderName::as_str)
+    }
+
+    /// Return the route's request-signature policy, if configured.
+    pub fn signature(&self) -> Option<&WebhookSignatureConfig> {
+        self.signature.as_ref()
+    }
+
+    pub(crate) fn validate_runtime(&self) -> Result<(), String> {
+        self.signature
+            .as_ref()
+            .map_or(Ok(()), WebhookSignatureConfig::validate_runtime)
+    }
+
+    pub(crate) fn verify_signature(
+        &self,
+        headers: &HeaderMap,
+        body: &[u8],
+    ) -> Result<(), SignatureVerificationError> {
+        self.signature
+            .as_ref()
+            .map_or(Ok(()), |signature| signature.verify(headers, body))
     }
 
     /// Build the invocation-only context overlay for a request.
@@ -150,6 +195,7 @@ struct RawDetailedWebhookConfig {
     flow: String,
     #[serde(default)]
     forward_headers: Vec<String>,
+    signature: Option<WebhookSignatureConfig>,
 }
 
 impl<'de> Deserialize<'de> for WebhookConfig {
@@ -158,78 +204,34 @@ impl<'de> Deserialize<'de> for WebhookConfig {
         D: serde::Deserializer<'de>,
     {
         let raw = RawWebhookConfig::deserialize(deserializer)?;
-        let (flow, forward_headers) = match raw {
-            RawWebhookConfig::Flow(flow) => (flow, Vec::new()),
+        let (flow, forward_headers, signature) = match raw {
+            RawWebhookConfig::Flow(flow) => (flow, Vec::new(), None),
             RawWebhookConfig::Detailed(RawDetailedWebhookConfig {
                 flow,
                 forward_headers,
-            }) => (flow, forward_headers),
+                signature,
+            }) => (flow, forward_headers, signature),
         };
-        Self::new(flow, forward_headers).map_err(serde::de::Error::custom)
+        let config = Self::new(flow, forward_headers).map_err(serde::de::Error::custom)?;
+        match signature {
+            Some(signature) => config
+                .with_signature(signature)
+                .map_err(serde::de::Error::custom),
+            None => Ok(config),
+        }
     }
+}
+
+pub(crate) fn validate_runtime_configs(
+    configs: &HashMap<String, WebhookConfig>,
+) -> anyhow::Result<()> {
+    for (name, webhook) in configs {
+        webhook.validate_runtime().map_err(|error| {
+            anyhow::anyhow!("invalid webhook signature configuration for '{name}': {error}")
+        })?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
-mod tests {
-    use axum::http::HeaderValue;
-
-    use super::*;
-
-    #[test]
-    fn explicit_headers_are_normalized_and_deduplicated() {
-        let config = WebhookConfig::new(
-            "signed.lua",
-            [
-                "Stripe-Signature".to_string(),
-                "stripe-signature".to_string(),
-            ],
-        )
-        .unwrap();
-
-        assert_eq!(
-            config.forward_headers().collect::<Vec<_>>(),
-            ["stripe-signature"]
-        );
-    }
-
-    #[test]
-    fn platform_credentials_cannot_be_forwarded() {
-        for header in RESERVED_CREDENTIAL_HEADERS {
-            let error = WebhookConfig::new("flow.lua", [header.to_string()]).unwrap_err();
-            assert!(
-                error.contains("reserved"),
-                "unexpected error for {header}: {error}"
-            );
-        }
-    }
-
-    #[test]
-    fn overlay_contains_only_configured_headers() {
-        let config = WebhookConfig::new("signed.lua", ["stripe-signature".to_string()]).unwrap();
-        let mut headers = HeaderMap::new();
-        headers.insert("stripe-signature", HeaderValue::from_static("v1=secret"));
-        headers.insert("authorization", HeaderValue::from_static("Bearer platform"));
-
-        let overlay = config.execution_overlay(&headers).unwrap();
-
-        assert_eq!(
-            overlay[EXECUTION_HEADERS_KEY],
-            serde_json::json!({"stripe-signature": "v1=secret"})
-        );
-    }
-
-    #[test]
-    fn short_confidential_values_are_rejected_before_redaction() {
-        let config = WebhookConfig::new("signed.lua", ["x-signature".to_string()]).unwrap();
-        let mut headers = HeaderMap::new();
-        headers.insert("x-signature", HeaderValue::from_static("a"));
-
-        let error = config.execution_overlay(&headers).unwrap_err();
-
-        assert!(error.contains("at least 8"));
-
-        headers.insert("x-signature", HeaderValue::from_static("a      b"));
-        let error = config.execution_overlay(&headers).unwrap_err();
-        assert!(error.contains("at least 8"));
-    }
-}
+mod tests;

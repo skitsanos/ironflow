@@ -21,6 +21,7 @@ pub struct ErrorResponse {
 #[derive(Debug)]
 pub enum AppError {
     BadRequest(String),
+    UnsupportedMediaType(String),
     NotFound(String),
     EventCursorGone(String),
     Forbidden(String),
@@ -36,6 +37,11 @@ impl IntoResponse for AppError {
             AppError::BadRequest(error) => {
                 public_error(StatusCode::BAD_REQUEST, error, "bad_request")
             }
+            AppError::UnsupportedMediaType(error) => public_error(
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                error,
+                "unsupported_media_type",
+            ),
             AppError::NotFound(error) => public_error(StatusCode::NOT_FOUND, error, "not_found"),
             AppError::EventCursorGone(error) => {
                 public_error(StatusCode::GONE, error, "event_cursor_gone")
