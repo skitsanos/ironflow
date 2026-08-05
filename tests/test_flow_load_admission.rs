@@ -215,7 +215,10 @@ async fn a_blocked_parse_makes_a_concurrent_validation_fail_fast() {
         "slow run parser finished before admission could be observed"
     );
     wait_for_run_refusal(&router).await;
-    let first_run = tokio::time::timeout(std::time::Duration::from_secs(2), first_run)
+    // Refusal is the synchronization signal above. This timeout only detects a
+    // deadlocked request after the deliberately slow parse, so leave enough
+    // headroom for a fully parallel hosted runner.
+    let first_run = tokio::time::timeout(std::time::Duration::from_secs(10), first_run)
         .await
         .expect("slow valid flow did not finish")
         .unwrap()
