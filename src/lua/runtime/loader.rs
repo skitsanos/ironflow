@@ -18,6 +18,7 @@ use crate::util::limits::{
 use super::api::register_flow_api;
 use super::extractor::extract_flow;
 use super::source;
+use super::validation::validate_code_sources;
 
 /// Lua runtime for loading and parsing flow definitions.
 pub struct LuaRuntime;
@@ -165,10 +166,13 @@ impl LuaRuntime {
 
         let flow = extract_flow(&lua, &flow_table)?;
         checkpoint(&execution)?;
-        let warnings = diagnostics
+        let mut warnings = diagnostics
             .map(|analysis| analysis.warnings())
             .transpose()?
             .unwrap_or_default();
+        if collect_diagnostics {
+            warnings.extend(validate_code_sources(&lua, &flow)?);
+        }
         Ok(ValidatedFlow { flow, warnings })
     }
 

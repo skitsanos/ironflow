@@ -69,18 +69,21 @@ Parse and validate a flow file without executing it. Checks for:
 - DAG cycles
 - Duplicate step names
 - Invalid recovery targets, shared handlers, and recovery-graph cycles
-- Reads of undefined globals inside serialized Lua function handlers
+- Invalid syntax in string-valued `code` node source
+- Reads of undefined globals inside Lua function handlers and string-valued
+  `code` node source
 
-Undefined handler globals are warnings by default, so validation still exits
-successfully while reporting the source line and column. Use `--strict` to
-treat any handler warning as a validation failure. A function handler that
-captures an outer local is always rejected because captured upvalues cannot
-survive bytecode serialization.
+Undefined globals are warnings by default, so validation still exits
+successfully while reporting the source line and column. Embedded code-source
+locations use `step[NAME].source:LINE:COLUMN`; their positions are relative to
+the decoded source string. Use `--strict` to treat any Lua warning as a
+validation failure. Invalid embedded syntax and function handlers that capture
+outer locals are always rejected.
 
 | Argument / Flag | Required | Default | Description |
 |-----------------|----------|---------|-------------|
 | `<FLOW>` | yes | — | Path to the `.lua` flow file |
-| `--strict` | no | off | Fail when Lua function-handler warnings are reported |
+| `--strict` | no | off | Fail when Lua handler or embedded code warnings are reported |
 
 ```bash
 ironflow validate flow.lua
@@ -641,10 +644,11 @@ workflow itself. Validation evaluates the top-level Lua chunk, including
 
 The validation request also accepts `"strict": true`. Responses can contain a
 `warnings` array whose entries have `code`, `message`, `line`, and `column`.
-Undefined reads inside serialized Lua function handlers use the
+Embedded code-source diagnostics also include `step`; their line and column are
+relative to that step's decoded `source` string. Undefined reads use the
 `undefined_global` code. Warnings leave `valid` unchanged by default; strict
-mode sets `valid` to `false` and adds a summary to `errors`. Captured outer
-locals are serialization errors in both modes.
+mode sets `valid` to `false` and adds a summary to `errors`. Invalid embedded
+syntax and captured outer locals are errors in both modes.
 
 That is the intended contract for a general-purpose engine — but it means an API
 key that can reach `/flows/run` can run any node, so it can read or write any

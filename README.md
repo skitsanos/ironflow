@@ -410,8 +410,10 @@ end):depends_on("load_items")
 
 Handlers are serialized into an isolated Lua VM. Keep their local state inside
 the function or pass values through `ctx`; captured outer locals are rejected.
-Validation reports undefined handler globals as source-positioned warnings,
-and `ironflow validate flow.lua --strict` treats those warnings as failures.
+Validation reports undefined handler and string-backed `code` globals as
+source-positioned warnings, and `ironflow validate flow.lua --strict` treats
+those warnings as failures. It also compiles string-backed code during
+validation, without executing it, so invalid syntax fails immediately.
 
 ### Retries and timeouts
 

@@ -18,6 +18,11 @@ When `source` is provided, one of two forms are supported:
 - Lua source string, evaluated as an expression/chunk. The last expression's value becomes the node output.
 - Lua function, which is compiled to bytecode and executed with sandboxed context as the script body.
 
+Validation compiles string-valued source without executing it and rejects
+invalid syntax. Undefined global reads produce warnings with the step name and
+line/column positions relative to the decoded source string. Use
+`ironflow validate --strict` to reject those warnings.
+
 ### Function handler (bytecode) mode
 
 When `bytecode_b64` is provided, the base64-encoded Lua bytecode is decoded and loaded as a function. The function is called with the `ctx` table as its sole argument, and its return value becomes the node output.
@@ -27,7 +32,7 @@ IronFlow rejects such handlers because captured upvalues cannot survive
 serialization. Declare constants inside the handler or pass values through
 `ctx`. During validation, reads of undefined globals inside inline functions
 produce source-positioned warnings; `ironflow validate --strict` treats them as
-failures. This lexical warning pass does not inspect string-valued `source`.
+failures.
 
 ## Sandboxing
 

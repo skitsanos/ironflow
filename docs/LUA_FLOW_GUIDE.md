@@ -445,12 +445,14 @@ flow:step("check", function(ctx)
 end)
 ```
 
-`ironflow validate` also reports reads of undefined handler globals, which Lua
-would otherwise resolve to `nil` silently. Diagnostics include the source line
-and column and remain warnings unless `--strict` is supplied. This analysis
-applies to function-backed `flow:step`, `flow:step_if`, `nodes.code`, and
-`nodes.foreach` handlers. String-backed `nodes.code` source is not part of this
-lexical pass; ordinary Lua runtime semantics still apply to it.
+`ironflow validate` also reports reads of undefined globals, which Lua would
+otherwise resolve to `nil` silently. The analysis covers function-backed
+`flow:step`, `flow:step_if`, `nodes.code`, and `nodes.foreach` handlers plus
+string-valued `nodes.code.source`. Function diagnostics use flow-file line and
+column positions. String-source diagnostics identify the step and use positions
+relative to the decoded source string. They remain warnings unless `--strict`
+is supplied. Validation also compiles string-valued code without executing it,
+so invalid syntax is always an error.
 
 ## Complete Example
 
