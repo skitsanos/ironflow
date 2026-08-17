@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM lukemathwalker/cargo-chef:0.1.78-rust-1.97.1-bookworm@sha256:63489cf2f47e819b82f9bcb97787b18a186d4381e4f112432246cf31e179206f AS chef
+FROM lukemathwalker/cargo-chef:0.1.78-rust-1.97.1-slim-bookworm@sha256:e406ad0baa7266cee09ca9f62f30d7ed330bdb25be9f337ff8090e7ae215f7fd AS chef
 
 WORKDIR /app
 

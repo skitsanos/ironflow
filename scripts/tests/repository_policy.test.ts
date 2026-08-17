@@ -111,8 +111,8 @@ describe("repository integration policy", () => {
     ).text();
 
     expect(dockerfile).toContain(
-      "lukemathwalker/cargo-chef:0.1.77-rust-1.97.1-bookworm@sha256:" +
-        "1689f62cfaa6603480356923cb5966544b2dd6ea523e30486bee4f149965d5bc AS chef",
+      "lukemathwalker/cargo-chef:0.1.78-rust-1.97.1-slim-bookworm@sha256:" +
+        "e406ad0baa7266cee09ca9f62f30d7ed330bdb25be9f337ff8090e7ae215f7fd AS chef",
     );
     expect(dockerfile).toContain("cargo chef prepare --recipe-path recipe.json");
     expect(dockerfile).toContain(
