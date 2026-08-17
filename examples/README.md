@@ -55,7 +55,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 
 ## 04-file-operations
 - **read_write_files.lua** — Write, read, list, and delete files
-- **artifact_handoff.lua** — Stream a DOCX to the artifact store and pass its descriptor directly to `extract_word`
+- **artifact_handoff.lua** — Stream a DOCX to the local or S3-backed artifact store and pass its backend-neutral descriptor directly to `extract_word`
 - **binary_file_io.lua** — Contrast explicit Base64 with a disk-backed artifact restore through `write_file`
 - **copy_move_files.lua** — Copy and move files between locations
 - **[s3_put_get_list.lua](04-file-operations/s3_put_get_list.lua)** — List visible buckets, then upload, download, list, and delete one UUID-scoped object
@@ -207,7 +207,8 @@ credentialed, local-state, and platform-specific flow at the same time.
 `22-replica-deployment` is the flow/config fixture for the opt-in Docker
 replica gate. It is not a standalone `ironflow run` example: two `serve`
 processes load it with shared PostgreSQL state and exercise idempotent HTTP,
-scheduled occurrence, graceful shutdown, and owner-death behavior. See
+scheduled occurrence, a streamed S3-compatible artifact handoff between
+isolated replica caches, graceful shutdown, and owner-death behavior. See
 [`docs/REPLICA_DEPLOYMENT.md`](../docs/REPLICA_DEPLOYMENT.md).
 
 Give experiments a disposable state-store directory so IronFlow's run records
@@ -295,7 +296,7 @@ duplicated, unclassified, or inconsistent entries.
 | Server/manual HTTP or scheduler | 5 | No |
 | Composition parent/helper flow | 7 | Exercised as coordinated cases where applicable |
 
-All 132 flows are still parsed by `ironflow validate`. Twelve fixture-backed
+All 134 flows are still parsed by `ironflow validate`. Twelve fixture-backed
 offline flows and the local MCP stdio example also run from a disposable
 working directory as part of:
 

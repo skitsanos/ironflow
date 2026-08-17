@@ -147,6 +147,8 @@
         "examples/15-webhooks/auth_check.lua",
         "examples/15-webhooks/simple_webhook.lua",
         "examples/21-schedules/scheduled_hello.lua",
+        "examples/22-replica-deployment/artifact_consume.lua",
+        "examples/22-replica-deployment/artifact_produce.lua",
         "examples/22-replica-deployment/hold.lua",
         "examples/22-replica-deployment/quick.lua"
       ]

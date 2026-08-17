@@ -30,6 +30,12 @@ impl CommandValueSources {
                 store_dir: command.value_source("store_dir"),
                 ..Self::default()
             },
+            "artifacts" => Self {
+                store_dir: command
+                    .subcommand()
+                    .and_then(|(_, command)| command.value_source("store_dir")),
+                ..Self::default()
+            },
             "serve" => Self {
                 store_dir: command.value_source("store_dir"),
                 host: command.value_source("host"),

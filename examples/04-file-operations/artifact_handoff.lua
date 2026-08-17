@@ -1,6 +1,8 @@
 -- Stream a binary document into the artifact store, then hand only its small
--- descriptor to an extractor. IRONFLOW_ARTIFACT_DIR defaults to data/artifacts.
--- Effects: publishes one immutable artifact; the local store does not auto-prune.
+-- descriptor to an extractor. IRONFLOW_ARTIFACT_BACKEND defaults to local;
+-- setting it to s3 preserves the same descriptor while another replica can
+-- restore the verified bytes through its private IRONFLOW_ARTIFACT_DIR cache.
+-- Effects: publishes one immutable artifact in the configured backend.
 -- The extractor opens and verifies it inside the blocking worker, then parses
 -- that same rewound handle; the store pathname never enters workflow context.
 local flow = Flow.new("artifact_handoff")

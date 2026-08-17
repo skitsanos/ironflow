@@ -35,9 +35,10 @@ file. A canonical artifact URI stored as a context string requires
   atomic replacement, but cannot close a hostile parent-directory swap race;
   protect destination trees from same-identity mutation.
 
-Artifact descriptors remain a local-store capability. All hosts that may run a
-workflow need the same protected `IRONFLOW_ARTIFACT_DIR`, and processes sharing
-that directory must not share an untrusted OS identity.
+Artifact descriptors are backend-neutral. Local mode requires the same
+protected `IRONFLOW_ARTIFACT_DIR` on every possible consumer. S3 mode restores
+missing bytes into each replica's private cache, verifies size and SHA-256, and
+passes only the verified rewound handle to this node.
 
 ## Context output
 

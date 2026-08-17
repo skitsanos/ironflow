@@ -8,7 +8,7 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 
 | ID | Priority | Status | Area | Summary |
 |---|---:|---|---|---|
-| — | — | — | — | No active findings |
+| [IF-100](docs/issues/IF-100.md) | P1 | Open | Observability | Production deployments lack a bounded metrics contract |
 
 ## Working agreement
 

@@ -186,6 +186,7 @@ gates for ordinary CI.
 | `ironflow nodes` | List all available node types |
 | `ironflow list` | List a bounded page of past workflow runs (`--limit`, `--after`) |
 | `ironflow inspect <run_id>` | Inspect a specific run |
+| `ironflow artifacts prune` | Offline bounded cleanup of artifacts not referenced by retained runs |
 | `ironflow serve` | Start the REST API server |
 
 ## API Endpoints
@@ -571,7 +572,12 @@ candidate into `main` before the stable tag. Stable versions never land on
 
 ## Roadmap
 
-- Web UI for flow visualization
+The maintained [`Now / Next / Later` roadmap](docs/ROADMAP.md) separates
+committed work from candidates and records IronFlow's enterprise deployment
+boundaries. The current priority is a bounded production metrics contract; the
+streamed S3-compatible artifact lifecycle is now part of the delivered
+baseline. A read-only Web UI for flow and run visualization remains a later
+candidate rather than an implementation commitment.
 
 ## License
 

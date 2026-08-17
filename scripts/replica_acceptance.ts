@@ -36,6 +36,10 @@ function serviceIsRunning(service: string): boolean {
   return running.split(/\s+/).includes(service);
 }
 
+function composeExec(service: string, ...args: string[]): string {
+  return compose("exec", "--no-TTY", service, ...args);
+}
+
 async function waitFor(
   description: string,
   probe: () => Promise<boolean>,
@@ -154,6 +158,54 @@ async function assertScheduleUniqueness(): Promise<void> {
   }
 }
 
+async function assertArtifactHandoff(): Promise<void> {
+  const producedResponse = await fetch(`${a}/flows/run`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ file: "artifact_produce.lua" }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!producedResponse.ok) {
+    throw new Error(`artifact producer returned ${producedResponse.status}`);
+  }
+  const produced: any = await producedResponse.json();
+  if (produced.status !== "success") {
+    throw new Error(`artifact producer finished as ${produced.status}`);
+  }
+  const producerRun = await runInfo(b, produced.run_id);
+  const artifact = producerRun.ctx?.produced_artifact;
+  if (
+    typeof artifact?.artifact_uri !== "string" ||
+    typeof artifact?.sha256 !== "string" ||
+    typeof artifact?.size_bytes !== "number"
+  ) {
+    throw new Error("producer did not persist an artifact descriptor");
+  }
+
+  const consumedResponse = await fetch(`${b}/flows/run`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      file: "artifact_consume.lua",
+      context: { artifact, output_path: "/tmp/artifact-consumed.txt" },
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!consumedResponse.ok) {
+    throw new Error(`artifact consumer returned ${consumedResponse.status}`);
+  }
+  const consumed: any = await consumedResponse.json();
+  if (consumed.status !== "success") {
+    throw new Error(`artifact consumer finished as ${consumed.status}`);
+  }
+  composeExec(
+    "ironflow-b",
+    "sh",
+    "-c",
+    '[ "$(cat /tmp/artifact-consumed.txt)" = "IronFlow cross-replica artifact acceptance" ]',
+  );
+}
+
 async function main(): Promise<void> {
   compose("down", "--volumes", "--remove-orphans");
   try {
@@ -185,6 +237,9 @@ async function main(): Promise<void> {
     }
     console.log("[replica] cross-replica visibility and idempotency passed");
 
+    await assertArtifactHandoff();
+    console.log("[replica] streamed S3 artifact handoff from A to B passed");
+
     const termKey = "replica-sigterm";
     const termRun = runIdForKey(termKey);
     triggerRunRequest(termKey, "hold.lua");
@@ -212,7 +267,7 @@ async function main(): Promise<void> {
 
     if (!(await ready(b))) throw new Error("surviving replica lost readiness");
     await assertScheduleUniqueness();
-    console.log("Replica acceptance passed: routing, durable visibility, TERM drain, KILL reconciliation, and schedule uniqueness.");
+    console.log("Replica acceptance passed: routing, durable visibility, artifact handoff, TERM drain, KILL reconciliation, and schedule uniqueness.");
   } finally {
     compose("down", "--volumes", "--remove-orphans");
   }
