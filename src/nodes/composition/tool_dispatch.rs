@@ -13,8 +13,6 @@ use crate::nodes::ai::llm_response::normalize_tool_calls;
 use crate::nodes::{Node, NodeRegistry};
 use crate::util::node_config::config_usize_strict;
 
-use super::parallel_subworkflows::ParallelSubworkflowsNode;
-use super::subworkflow::SubworkflowNode;
 use runner::{CallOutcome, dispatch_call};
 
 const DEFAULT_MAX_TOOL_CALLS: usize = 32;
@@ -26,17 +24,7 @@ pub struct ToolDispatchNode {
 
 impl ToolDispatchNode {
     fn child_registry(&self) -> Arc<NodeRegistry> {
-        let mut child = self.base_registry.snapshot();
-        child.register(Arc::new(SubworkflowNode {
-            base_registry: self.base_registry.clone(),
-        }));
-        child.register(Arc::new(ParallelSubworkflowsNode {
-            base_registry: self.base_registry.clone(),
-        }));
-        child.register(Arc::new(ToolDispatchNode {
-            base_registry: self.base_registry.clone(),
-        }));
-        Arc::new(child)
+        super::registry::child_registry(&self.base_registry)
     }
 }
 

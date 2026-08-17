@@ -66,6 +66,12 @@ Every child subworkflow also receives:
 
 The child subworkflow result is selected from `tool_result_value` first, then `tool_result_text`, then the child context with private keys removed.
 
+`tool_dispatch` handles one set of model-requested calls. For another model
+turn, append the assistant tool-call message and `<output_key>_messages` to a
+runtime conversation array, then pass it to `llm` with `messages_key`. For a
+bounded multi-turn agent, place that sequence in a child flow and control it
+with [`repeat_subworkflow`](repeat_subworkflow.md).
+
 ## Example
 
 ```lua

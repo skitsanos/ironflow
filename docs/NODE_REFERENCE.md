@@ -1,6 +1,6 @@
 # IronFlow — Node Reference
 
-Complete reference for all 102 built-in nodes. Click any node name for full documentation with parameters, context output, and Lua examples.
+Complete reference for all 103 built-in nodes. Click any node name for full documentation with parameters, context output, and Lua examples.
 
 For adding or maintaining node implementations, see [Node Contributor Manual](NODE_CONTRIBUTING.md).
 
@@ -224,6 +224,7 @@ output.
 |------|-------------|
 | [`subworkflow`](nodes/subworkflow.md) | Load and execute another `.lua` flow as a reusable module |
 | [`parallel_subworkflows`](nodes/parallel_subworkflows.md) | Execute multiple subworkflows concurrently and collect results |
+| [`repeat_subworkflow`](nodes/repeat_subworkflow.md) | Repeat a child workflow with explicit bounded state until it completes |
 | [`tool_dispatch`](nodes/tool_dispatch.md) | Dispatch LLM tool calls to mapped subworkflow handlers |
 
 ## MCP Nodes

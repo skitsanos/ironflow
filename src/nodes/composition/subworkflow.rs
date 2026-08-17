@@ -38,22 +38,8 @@ pub struct SubworkflowNode {
 }
 
 impl SubworkflowNode {
-    /// Build a full registry for child execution by adding subworkflow +
-    /// parallel_subworkflows support, so nested flows can also compose.
     fn child_registry(&self) -> Arc<NodeRegistry> {
-        let mut child = self.base_registry.snapshot();
-        child.register(Arc::new(SubworkflowNode {
-            base_registry: self.base_registry.clone(),
-        }));
-        child.register(Arc::new(
-            super::parallel_subworkflows::ParallelSubworkflowsNode {
-                base_registry: self.base_registry.clone(),
-            },
-        ));
-        child.register(Arc::new(super::tool_dispatch::ToolDispatchNode {
-            base_registry: self.base_registry.clone(),
-        }));
-        Arc::new(child)
+        super::registry::child_registry(&self.base_registry)
     }
 }
 

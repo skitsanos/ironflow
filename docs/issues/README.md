@@ -6,7 +6,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts generate` and verified with
 `bun run scripts/issues_registry.ts check`.
 
-- Total findings: 101
+- Total findings: 103
 - Active findings: 1
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
@@ -113,3 +113,5 @@ priority, area, and title. The registry is generated with
 | [IF-099](./IF-099.md) | P2 | Resolved | Product governance | Roadmap has no actionable forward plan and the shipped baseline has drifted |
 | [IF-100](./IF-100.md) | P1 | Open | Observability | Production deployments lack a bounded metrics contract |
 | [IF-101](./IF-101.md) | P1 | Resolved | Artifact lifecycle | Artifact storage has no remote multi-host lifecycle backend |
+| [IF-102](./IF-102.md) | P1 | Resolved | Composition | Workflow composition cannot repeat a child flow with bounded carried state |
+| [IF-103](./IF-103.md) | P1 | Resolved | AI/artifacts | Multimodal LLM calls require image bytes in persisted workflow context |

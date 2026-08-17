@@ -10,7 +10,6 @@ use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::{Node, NodeRegistry};
 
 use super::parallel_runner::{ChildRun, run_children};
-use super::subworkflow::SubworkflowNode;
 use crate::util::node_config::config_usize_strict;
 
 /// Hard cap on `max_concurrent` to guard against pathological config values.
@@ -23,20 +22,8 @@ pub struct ParallelSubworkflowsNode {
 }
 
 impl ParallelSubworkflowsNode {
-    /// Build a full registry for child execution by adding subworkflow +
-    /// parallel_subworkflows support.
     fn child_registry(&self) -> Arc<NodeRegistry> {
-        let mut child = self.base_registry.snapshot();
-        child.register(Arc::new(SubworkflowNode {
-            base_registry: self.base_registry.clone(),
-        }));
-        child.register(Arc::new(ParallelSubworkflowsNode {
-            base_registry: self.base_registry.clone(),
-        }));
-        child.register(Arc::new(super::tool_dispatch::ToolDispatchNode {
-            base_registry: self.base_registry.clone(),
-        }));
-        Arc::new(child)
+        super::registry::child_registry(&self.base_registry)
     }
 }
 

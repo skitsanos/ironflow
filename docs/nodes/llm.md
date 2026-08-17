@@ -14,6 +14,7 @@ Run a chat-style request against OpenAI, OpenAI-compatible, Azure, or custom end
 | `prompt` | string | no | — | Direct prompt text for user content |
 | `input_key` | string | no | `"prompt"` | Context key for prompt text when `prompt` is not set |
 | `messages` | array | no | — | Chat-style message objects (`role`, `content`) for chat mode |
+| `messages_key` | string | no | — | Context key containing a runtime chat-message array. Mutually exclusive with `messages`. |
 | `system_prompt` | string | no | — | System message used when building chat `messages` automatically |
 | `system` | string | no | — | Alias for `system_prompt` |
 | `temperature` | number | no | — | Sampling temperature |
@@ -24,6 +25,8 @@ Run a chat-style request against OpenAI, OpenAI-compatible, Azure, or custom end
 | `output_key` | string | no | `"llm"` | Prefix for output context keys |
 | `timeout` | number | no | `30` | Request timeout in seconds |
 | `max_response_bytes` | number/string | no | `IRONFLOW_LLM_MAX_RESPONSE_BYTES` / `26214400` | Maximum provider response body size before failing. |
+| `max_image_input_bytes` | number/string | no | `IRONFLOW_LLM_MAX_IMAGE_INPUT_BYTES` / `52428800` | Maximum cumulative raw bytes across image-artifact blocks. May only lower the process limit. |
+| `max_image_artifacts` | number/string | no | `IRONFLOW_LLM_MAX_IMAGE_ARTIFACTS` / `32` | Maximum image-artifact blocks in one request. May only lower the process limit. |
 | `azure_endpoint` | string | conditional | `AZURE_OPENAI_ENDPOINT` | Azure endpoint URL |
 | `azure_api_version` | string | no | `AZURE_OPENAI_API_VERSION` | Azure API version |
 | `azure_chat_deployment` | string | conditional | `AZURE_OPENAI_CHAT_DEPLOYMENT` | Azure deployment for chat mode |
@@ -51,6 +54,8 @@ Run a chat-style request against OpenAI, OpenAI-compatible, Azure, or custom end
 | `azure_responses_deployment` | `AZURE_OPENAI_RESPONSES_DEPLOYMENT` | azure |
 | `api_key` | `AZURE_OPENAI_API_KEY` | azure |
 | `max_response_bytes` | `IRONFLOW_LLM_MAX_RESPONSE_BYTES` | all providers |
+| `max_image_input_bytes` | `IRONFLOW_LLM_MAX_IMAGE_INPUT_BYTES` | all chat providers |
+| `max_image_artifacts` | `IRONFLOW_LLM_MAX_IMAGE_ARTIFACTS` | all chat providers |
 
 ## Context Output
 
@@ -69,6 +74,67 @@ Run a chat-style request against OpenAI, OpenAI-compatible, Azure, or custom end
   `{ id, index, type, name, arguments, raw_arguments, raw_call }`
 
 Provider response bodies are streamed with a hard byte cap before JSON parsing. Set `IRONFLOW_LLM_MAX_RESPONSE_BYTES=0` to disable the global cap, or use per-node `max_response_bytes` for a specific trusted workflow.
+
+## Runtime Messages and Image Artifacts
+
+Use `messages_key` when a prior step builds or extends a conversation array.
+The selected context value must be an array. Unlike inline `messages`, values
+loaded through `messages_key` are used verbatim rather than interpolated, so
+provider tool-call IDs and generated text are preserved exactly.
+
+Chat message content arrays may contain an IronFlow-only `image_artifact`
+block. It must specify exactly one source:
+
+- `source_key`: a context key containing an artifact descriptor or
+  `artifact://sha256/...` URI;
+- `artifact`: an artifact descriptor or URI directly embedded in the runtime
+  message.
+
+```lua
+flow:step("read_page", nodes.read_file({
+    path = "/workspace/page-1.png",
+    encoding = "artifact",
+    mime_type = "image/png",
+    output_key = "page"
+}))
+
+flow:step("analyze", nodes.llm({
+    provider = "custom",
+    mode = "chat",
+    model = "gemini-3.7-flash",
+    base_url = "https://generativelanguage.googleapis.com/v1beta/openai",
+    auth_type = "bearer",
+    api_key = env("GEMINI_API_KEY"),
+    messages = {
+        {
+            role = "user",
+            content = {
+                { type = "text", text = "Read this page." },
+                {
+                    type = "image_artifact",
+                    source_key = "page_artifact",
+                    detail = "high"
+                }
+            }
+        }
+    }
+})):depends_on("read_page")
+```
+
+IronFlow opens the artifact through the configured integrity-verifying store,
+sniffs its actual format, and creates the provider `image_url` data URL only in
+the ephemeral HTTP request body. The stored workflow context and node output
+retain only the artifact descriptor. Supported formats are PNG, JPEG, WebP,
+and GIF. Optional `mime_type` must agree with both descriptor metadata and
+detected bytes; optional `detail` is `auto`, `low`, or `high`. Local filesystem
+paths are not accepted.
+
+Raw bytes are bounded cumulatively before Base64 expansion by
+`IRONFLOW_LLM_MAX_IMAGE_INPUT_BYTES` and image count by
+`IRONFLOW_LLM_MAX_IMAGE_ARTIFACTS`. Per-node values can tighten but not raise
+those process limits. Artifact blocks are chat-only; Responses mode is
+unchanged. The selected provider must support OpenAI-compatible `image_url`
+content blocks.
 
 ## Examples
 
@@ -115,7 +181,7 @@ flow:step("responses", nodes.llm({
 flow:step("chat", nodes.llm({
     provider = "custom",
     mode = "chat",
-    model = "gemini-3-flash-preview",
+    model = "gemini-3.7-flash",
     prompt = "Hello",
     base_url = "https://generativelanguage.googleapis.com/v1beta/openai",
     auth_type = "bearer",
@@ -242,7 +308,7 @@ flow:step("ask", nodes.llm({
 -- }
 ```
 
-`llm` exposes tool-calling details as `{output_key}_tool_calls`, `{output_key}_tool_calls_normalized`, `{output_key}_tool_call_needed`, and `{output_key}_tool_call_names`. Use [`tool_dispatch`](tool_dispatch.md) to execute returned tool calls through mapped subworkflows.
+`llm` exposes tool-calling details as `{output_key}_tool_calls`, `{output_key}_tool_calls_normalized`, `{output_key}_tool_call_needed`, and `{output_key}_tool_call_names`. Use [`tool_dispatch`](tool_dispatch.md) to execute returned tool calls through mapped subworkflows, then `messages_key` for the next model turn. Bound multi-turn loops with [`repeat_subworkflow`](repeat_subworkflow.md).
 
 `llm` also merges `extra` into the request body as-is for providers that do not yet expose all fields in this table.
 

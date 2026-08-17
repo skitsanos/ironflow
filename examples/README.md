@@ -126,6 +126,8 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **fire_and_forget.lua** — Launch a subworkflow without waiting (async)
 - **on_error_example.lua** — Planned `on_error` recovery with a handler dependency
 - **parallel_subworkflows.lua** — Run multiple subworkflows concurrently and collect results
+- **repeat_subworkflow.lua** — Repeat a child flow with explicit carried state and a finite iteration bound
+- **repeat_counter_subworkflow.lua** — Reusable counter child used by the repeat example
 - **greet.lua** — Simple reusable helper flow used by the subworkflow examples
 
 ## 12-arangodb
@@ -154,7 +156,8 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **pdf_gemini_rag_schema.lua** — Convert an image-first PDF into generic page blocks and RAG chunks with Gemini `json_schema`
 - **pdf_gemini_reconstruct_schema.lua** — Reconstruct the first page of the synthetic PDF with Gemini using extracted text plus a rendered page image
 - **pptx_gemini_reconstruct.lua** — Reconstruct the first PPTX slides as text using Gemini with structured extraction plus a rendered preview image
-- **pptx_gemini_reconstruct_schema.lua** — Reconstruct the full sample PPTX deck with Gemini `json_schema` batches
+- **pptx_gemini_reconstruct_schema.lua** — Reconstruct the full sample PPTX deck with runtime Gemini `json_schema` batch fan-out
+- **pptx_gemini_reconstruct_batch.lua** — Reusable credentialed child flow for one PPTX reconstruction batch
 - **pipeline_foreach_embed.lua** — Multi-page PDF embeddings with chunk -> foreach -> embed
 - **chunk_fixed.lua** — Fixed-size text chunking with delimiter boundaries
 - **chunk_split.lua** — Delimiter-based text splitting
@@ -292,11 +295,11 @@ duplicated, unclassified, or inconsistent entries.
 | Offline | 40 | Fixture-backed deterministic subset |
 | Offline with outputs/processes | 24 | Fixture-backed local-output cases and MCP stdio use isolated paths; others require isolated outputs |
 | Public/local network | 9 | No |
-| Credentialed external service | 47 | No |
+| Credentialed external service | 48 | No |
 | Server/manual HTTP or scheduler | 5 | No |
-| Composition parent/helper flow | 7 | Exercised as coordinated cases where applicable |
+| Composition parent/helper flow | 9 | Exercised as coordinated cases where applicable |
 
-All 134 flows are still parsed by `ironflow validate`. Twelve fixture-backed
+All 137 flows are still parsed by `ironflow validate`. Twelve fixture-backed
 offline flows and the local MCP stdio example also run from a disposable
 working directory as part of:
 

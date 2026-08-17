@@ -84,7 +84,7 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 
 ## Features
 
-- **102 built-in nodes** — HTTP (GET/POST/PUT/DELETE), file I/O, ZIP utilities (`zip_create`, `zip_list`, `zip_extract`), S3 operations, shell commands, JSON/CSV/XML/YAML transforms, foreach iteration, key-value caching (memory + file), conditional routing, schema validation, hashing, templating, Markdown conversion, HTML sanitization, document extraction (Word/PDF/PPTX/HTML/VTT/SRT/Excel), PDF merge/split, database queries (SQLite via sqlx, ArangoDB via HTTP), AI text embeddings/chunking (`ai_*`) and chat/completions (`llm`) across providers, audio/video transcription (`transcribe`) via OpenAI, OpenAI-compatible, or Azure, an MCP 2025-11-25 client over persistent stdio and Streamable HTTP (`mcp_client`), notification integrations (`send_email`, `slack_notification`), data extraction helpers (`json_extract_path`, `if_body_contains`, `if_http_status`), delays, inline code execution, subworkflow composition, LLM tool dispatch (`tool_dispatch`), presigned S3 URL support, base64 encoding/decoding, date formatting, image helpers (`pdf_to_image`, `pdf_thumbnail`, `image_to_pdf`, `image_resize`, `image_crop`, `image_rotate`, `image_flip`, `image_grayscale`, `image_metadata`, `image_convert`, `image_watermark`, `pdf_metadata`).
+- **103 built-in nodes** — HTTP (GET/POST/PUT/DELETE), file I/O, ZIP utilities (`zip_create`, `zip_list`, `zip_extract`), S3 operations, shell commands, JSON/CSV/XML/YAML transforms, foreach iteration, key-value caching (memory + file), conditional routing, schema validation, hashing, templating, Markdown conversion, HTML sanitization, document extraction (Word/PDF/PPTX/HTML/VTT/SRT/Excel), PDF merge/split, database queries (SQLite via sqlx, ArangoDB via HTTP), AI text embeddings/chunking (`ai_*`) and chat/completions (`llm`) across providers, audio/video transcription (`transcribe`) via OpenAI, OpenAI-compatible, or Azure, an MCP 2025-11-25 client over persistent stdio and Streamable HTTP (`mcp_client`), notification integrations (`send_email`, `slack_notification`), data extraction helpers (`json_extract_path`, `if_body_contains`, `if_http_status`), delays, inline code execution, bounded repeated subworkflow composition, LLM tool dispatch (`tool_dispatch`), presigned S3 URL support, base64 encoding/decoding, date formatting, image helpers (`pdf_to_image`, `pdf_thumbnail`, `image_to_pdf`, `image_resize`, `image_crop`, `image_rotate`, `image_flip`, `image_grayscale`, `image_metadata`, `image_convert`, `image_watermark`, `pdf_metadata`).
 - **Function handlers** — pass Lua functions directly as step handlers, no boilerplate needed
 - **Conditional step shorthand** — `step_if(condition, name, handler)` for concise branching
 - **DAG-based scheduling** — steps run in parallel unless dependencies are declared
@@ -99,7 +99,7 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 - **CLI** — run, validate, inspect, and list workflows from the terminal
 - **Planned error recovery** — `on_error` schedules a dedicated recovery step
   inside the validated DAG, with normal dependencies, retries, and timeouts
-- **Subworkflow composition** — call other `.lua` flows as reusable modules with input/output mapping, or run multiple flows in parallel with `parallel_subworkflows`
+- **Subworkflow composition** — call reusable `.lua` flows once, fan out runtime work with `parallel_subworkflows`, or iterate explicit state with bounded `repeat_subworkflow`
 - **Sandboxed execution** — Lua scripts run without `os`, `io`, or `debug` access
 
 ## Quick Start
@@ -478,7 +478,7 @@ flow:step("standard_flow", nodes.log({
 | **Cache** | `cache_set`, `cache_get` |
 | **Notification** | `send_email`, `slack_notification` |
 | **Database** | `db_query`, `db_exec`, `arangodb_aql` |
-| **Composition** | `subworkflow`, `parallel_subworkflows`, `tool_dispatch`, `code` |
+| **Composition** | `subworkflow`, `parallel_subworkflows`, `repeat_subworkflow`, `tool_dispatch`, `code` |
 | **XML** | `xml_parse`, `xml_stringify` |
 | **YAML** | `yaml_parse`, `yaml_stringify` |
 | **HTML** | `html_sanitize` |

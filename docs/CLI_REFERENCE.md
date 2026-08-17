@@ -927,6 +927,8 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_DB_MAX_ROWS` | `1000` | Max rows returned by `db_query`; `0` disables |
 | `IRONFLOW_DB_MAX_RESULT_BYTES` | `10485760` | Max serialized JSON result size for `db_query`; `0` disables |
 | `IRONFLOW_LLM_MAX_RESPONSE_BYTES` | `26214400` | Max LLM provider response body size; `0` disables |
+| `IRONFLOW_LLM_MAX_IMAGE_INPUT_BYTES` | `52428800` | Maximum cumulative raw image-artifact bytes resolved for one LLM request |
+| `IRONFLOW_LLM_MAX_IMAGE_ARTIFACTS` | `32` | Maximum image-artifact blocks resolved for one LLM request |
 | `IRONFLOW_MAX_TRANSCRIBE_RESPONSE_BYTES` | `26214400` | Maximum transcription-provider response body. Checked while streaming even when `Content-Length` is absent or wrong; zero/invalid values retain the safe default. |
 | `IRONFLOW_MAX_HTTP_BODY_BYTES` | `52428800` | Maximum HTTP node response-body size |
 | `IRONFLOW_MAX_FILE_BYTES` | `52428800` | Maximum `read_file` payload and final `write_file` size (including an existing file in append mode), streamed `s3_get_object` response body, HTML/SRT/VTT extraction input, and raw DOCX/PPTX archive size |
@@ -970,6 +972,7 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_MAX_XLSX_CELLS` | `33000` | Maximum total cells across every sheet one `extract_xlsx` call extracts |
 | `IRONFLOW_MAX_XLSX_OUTPUT_BYTES` | `52428800` | Maximum cumulative decoded/result bytes for one `extract_xlsx` call and maximum compressed/uncompressed size of one workbook part; repeated shared-string references are charged per use |
 | `IRONFLOW_MAX_DETACHED_SUBWORKFLOWS` | `64` | Process-wide limit for detached `subworkflow` executions |
+| `IRONFLOW_MAX_REPEAT_ITERATIONS` | `128` | Maximum `repeat_subworkflow` iterations requested by one node; valid range is 1–1024 |
 | `IRONFLOW_MCP_SESSION_CACHE_SIZE` | `1024` | Maximum live MCP session handles; least-recently-used overflow sessions are closed |
 | `IRONFLOW_MCP_SESSION_TTL_SECS` | `3600` | Idle TTL for live MCP sessions; expired sessions are closed when another session is inserted or leased |
 | `IRONFLOW_OAUTH_CACHE_SIZE` | `128` | Maximum cached OAuth client token tuples |

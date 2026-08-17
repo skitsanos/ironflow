@@ -110,7 +110,7 @@ The core engine, minimal node set, and CLI. Goal: execute a simple multi-step fl
 
 ## Phase 2: Nodes ✅
 
-102 built-in nodes across HTTP, shell, file, S3, MCP, data transforms, conditionals, caching, database, AI, notifications, composition, S3 vector, XML, YAML, HTML sanitization, date/time, encoding, and utility categories. Each node is a Rust struct implementing the `Node` trait.
+103 built-in nodes across HTTP, shell, file, S3, MCP, data transforms, conditionals, caching, database, AI, notifications, composition, S3 vector, XML, YAML, HTML sanitization, date/time, encoding, and utility categories. Each node is a Rust struct implementing the `Node` trait.
 
 See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters, context output, and Lua examples.
 
@@ -237,6 +237,7 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
 - [x] `subworkflow` — Load and execute another `.lua` flow as a reusable module
 - [x] Context mapping (input_keys, output_keys) for clean interfaces between flows
 - [x] `parallel_subworkflows` — Concurrent subworkflow execution with per-flow input mapping, error handling modes (`fail_fast` / `ignore`), and ordered result collection
+- [x] `repeat_subworkflow` — Sequential bounded child execution with explicit state carry, completion contract, delay/backoff, and parent cancellation/deadline ownership
 
 ---
 
@@ -310,9 +311,9 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
   graphs into one dependency-only cache. Tag builds restore that default-branch
   cache read-only while compiling and packaging both binaries from the tag; a
   cache miss remains a correct cold build rather than a release failure.
-- [x] Schema-v2 example catalog classifies all 134 Lua flows in this baseline,
+- [x] Schema-v2 example catalog classifies all 137 Lua flows in this baseline,
   records composable service/credential/state/platform requirements, and
-  evaluates every flow against the built-in registry so all 102 node types
+  evaluates every flow against the built-in registry so all 103 node types
   remain covered without exemptions
 - [x] GitHub Actions Release workflow — builds Linux (musl), macOS (x86_64 + aarch64), and Windows on version tags; the parallel Windows variants reuse the exact `main` dependency graph without reusing a prebuilt application binary
 - [x] Shared Lua sandbox module (`src/lua/sandbox.rs`) for consistent VM setup
