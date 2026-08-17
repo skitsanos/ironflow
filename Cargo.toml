@@ -1,6 +1,6 @@
 [package]
 name = "ironflow"
-version = "1.16.2-dev.6"
+version = "1.17.0-dev.1"
 edition = "2024"
 description = "Lightweight workflow engine — Rust core, Lua scripting, single binary"
 license = "MIT"
