@@ -26,9 +26,12 @@ pub(crate) async fn cmd_serve(
     let scheduler_max_concurrent_tasks = options.max_concurrent_tasks;
     let server = crate::api::prepare(store.clone(), event_store.clone(), options)
         .await?
-        .start_run_lifecycle(store.clone())
+        .start_run_lifecycle()
         .await?;
     let lifecycle = server.lifecycle();
+    let store = server.store();
+    let event_store = server.event_store();
+    let metrics = server.metrics();
 
     // Spawned here rather than inside `api::serve` so schedules stay off
     // `ServeOptions` and the REST surface keeps one responsibility.
@@ -39,6 +42,7 @@ pub(crate) async fn cmd_serve(
         scheduler_flows_dir,
         scheduler_max_concurrent_tasks,
         lifecycle,
+        metrics,
     );
 
     match scheduler {

@@ -94,6 +94,7 @@ async fn deadline_preempts_hanging_task_and_finalizer_writes() {
         ExecutionOverlay::default(),
         "owner".to_string(),
         Some(std::time::Duration::from_millis(5)),
+        None,
     )
     .with_finalization_timeout(std::time::Duration::from_millis(20));
     let handle = coordinator.spawn();

@@ -66,6 +66,7 @@ async fn forwarded_signature_stays_execution_only_across_subworkflow_recovery() 
         webhooks: HashMap::from([("signed".to_string(), webhook)]),
         allow_adhoc_flows: true,
         lifecycle: ironflow::api::ServiceLifecycle::default(),
+        metrics: None,
     });
     let app = Router::new()
         .route(

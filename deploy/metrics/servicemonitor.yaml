@@ -1,0 +1,25 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ironflow
+  namespace: ironflow
+  labels:
+    release: prometheus
+    app.kubernetes.io/name: ironflow
+spec:
+  namespaceSelector:
+    matchNames:
+      - ironflow
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ironflow
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      authorization:
+        type: Bearer
+        credentials:
+          name: ironflow-metrics-auth
+          key: api-key

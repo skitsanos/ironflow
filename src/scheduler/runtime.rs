@@ -87,6 +87,7 @@ pub fn spawn(
         flows_dir,
         max_concurrent_tasks,
         crate::api::ServiceLifecycle::default(),
+        None,
     )
 }
 
@@ -97,6 +98,7 @@ pub(crate) fn spawn_with_lifecycle(
     flows_dir: Option<PathBuf>,
     max_concurrent_tasks: Option<usize>,
     lifecycle: crate::api::ServiceLifecycle,
+    metrics: Option<Arc<crate::metrics::Metrics>>,
 ) -> Option<SchedulerTask> {
     if schedules.is_empty() {
         return None;
@@ -118,8 +120,10 @@ pub(crate) fn spawn_with_lifecycle(
         flows_dir,
         max_concurrent_tasks,
         lifecycle.clone(),
+        metrics.clone(),
     ));
-    let mut scheduler = Scheduler::new(schedules, store, executor, Utc::now());
+    let mut scheduler =
+        Scheduler::new(schedules, store, executor, Utc::now()).with_metrics(metrics);
     let (shutdown, mut shutdown_requested) = oneshot::channel();
     let task_lifecycle = lifecycle.clone();
     let handle = tokio::spawn(async move {

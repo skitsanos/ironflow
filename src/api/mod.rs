@@ -45,6 +45,9 @@ pub struct AppState {
     /// Process lifecycle used to reject new execution while draining and to
     /// track accepted runs through graceful shutdown.
     pub lifecycle: ServiceLifecycle,
+    /// Process-local operator metrics. `None` keeps the metrics surface and
+    /// all recording overhead disabled.
+    pub metrics: Option<Arc<crate::metrics::Metrics>>,
 }
 
 pub(crate) use admission::{
@@ -67,6 +70,8 @@ pub struct ServeOptions {
     pub cors_origins: Option<Vec<String>>,
     pub api_key: Option<String>,
     pub allow_unauthenticated_api: bool,
+    /// Expose the authenticated, process-local `GET /metrics` endpoint.
+    pub metrics_enabled: bool,
 }
 
 #[derive(Clone)]
@@ -90,9 +95,9 @@ pub async fn serve(
     event_store: Arc<dyn EventStore>,
     options: ServeOptions,
 ) -> Result<()> {
-    prepare(store.clone(), event_store, options)
+    prepare(store, event_store, options)
         .await?
-        .start_run_lifecycle(store)
+        .start_run_lifecycle()
         .await?
         .serve()
         .await

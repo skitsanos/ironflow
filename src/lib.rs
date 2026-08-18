@@ -3,6 +3,7 @@ pub mod artifacts;
 pub mod cli;
 pub mod engine;
 pub mod lua;
+pub mod metrics;
 pub mod nodes;
 pub mod scheduler;
 pub mod storage;

@@ -99,6 +99,10 @@ impl RunCoordinator {
             ));
         }
 
+        if let Some(observation) = &self.run_observation {
+            observation.finish_status(&status);
+        }
+
         let public_reason = match status {
             RunStatus::Cancelled => Some("workflow execution was cancelled"),
             RunStatus::Stalled => {

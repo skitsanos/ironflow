@@ -157,6 +157,7 @@ async fn forwarded_header_never_crosses_state_or_event_boundaries() {
         webhooks: HashMap::from([("signed".to_string(), webhook)]),
         allow_adhoc_flows: true,
         lifecycle: ironflow::api::ServiceLifecycle::default(),
+        metrics: None,
     });
     let app = Router::new()
         .route(

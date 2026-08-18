@@ -24,6 +24,8 @@ pub struct IronFlowConfig {
     pub api_key: Option<String>,
     /// Explicitly allow serving HTTP API endpoints without an API key.
     pub allow_unauthenticated_api: Option<bool>,
+    /// Expose the process-local Prometheus-compatible metrics endpoint.
+    pub metrics_enabled: Option<bool>,
     /// Allowed CORS origins for the API server.
     /// Use ["*"] only when intentionally allowing browser access from any origin.
     pub cors_origins: Option<Vec<String>>,

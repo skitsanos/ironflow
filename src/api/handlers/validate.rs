@@ -45,28 +45,34 @@ pub async fn validate_flow(
         .as_deref()
         .map(|file| resolve_flow_path(file, &state))
         .transpose()?;
-    let flow_load_permit = crate::api::acquire_flow_load_permit()?;
+    let flow_load_permit = crate::api::acquire_flow_load_permit(state.metrics.as_deref())?;
 
     let flow_result = if let Some(source) = source {
         let registry = state.registry.clone();
-        crate::api::supervise_flow_load(flow_load_permit, async move {
-            LuaRuntime::validate_flow_from_string_async(&source, &registry).await
-        })
+        crate::api::supervise_flow_load(
+            flow_load_permit,
+            async move { LuaRuntime::validate_flow_from_string_async(&source, &registry).await },
+            state.metrics.clone(),
+        )
         .await
     } else if let Some(encoded) = source_base64 {
         let source = decode_base64_source(&encoded)?;
         let registry = state.registry.clone();
-        crate::api::supervise_flow_load(flow_load_permit, async move {
-            LuaRuntime::validate_flow_from_string_async(&source, &registry).await
-        })
+        crate::api::supervise_flow_load(
+            flow_load_permit,
+            async move { LuaRuntime::validate_flow_from_string_async(&source, &registry).await },
+            state.metrics.clone(),
+        )
         .await
     } else {
         let path = resolved_file.expect("source validation guarantees one resolved file");
         let registry = state.registry.clone();
         let load_path = path.clone();
-        match crate::api::supervise_flow_load(flow_load_permit, async move {
-            LuaRuntime::validate_flow_async(&load_path, &registry).await
-        })
+        match crate::api::supervise_flow_load(
+            flow_load_permit,
+            async move { LuaRuntime::validate_flow_async(&load_path, &registry).await },
+            state.metrics.clone(),
+        )
         .await
         {
             Ok(flow) => Ok(flow),

@@ -20,13 +20,14 @@ pub(crate) struct PreparedServer {
     app: Router,
     bound_addr: std::net::SocketAddr,
     lifecycle: super::ServiceLifecycle,
+    store: Arc<dyn StateStore>,
+    event_store: Arc<dyn EventStore>,
+    metrics: Option<Arc<crate::metrics::Metrics>>,
 }
 
 impl PreparedServer {
-    pub(crate) async fn start_run_lifecycle(
-        self,
-        store: Arc<dyn StateStore>,
-    ) -> Result<RunningServer> {
+    pub(crate) async fn start_run_lifecycle(self) -> Result<RunningServer> {
+        let store = self.store.clone();
         let reconciliation = crate::storage::reconcile_nonterminal_runs(store.as_ref());
         match bounded_startup_reconciliation(reconciliation, crate::storage::RUN_LEASE_REFRESH)
             .await?
@@ -72,6 +73,18 @@ pub(crate) struct RunningServer {
 impl RunningServer {
     pub(crate) fn lifecycle(&self) -> super::ServiceLifecycle {
         self.prepared.lifecycle.clone()
+    }
+
+    pub(crate) fn store(&self) -> Arc<dyn StateStore> {
+        self.prepared.store.clone()
+    }
+
+    pub(crate) fn event_store(&self) -> Arc<dyn EventStore> {
+        self.prepared.event_store.clone()
+    }
+
+    pub(crate) fn metrics(&self) -> Option<Arc<crate::metrics::Metrics>> {
+        self.prepared.metrics.clone()
     }
 
     pub(crate) async fn serve(self) -> Result<()> {
@@ -151,6 +164,18 @@ pub(crate) async fn prepare(
     let max_concurrent_tasks =
         crate::util::runtime_config::max_concurrent_tasks(options.max_concurrent_tasks)?;
 
+    let metrics = options
+        .metrics_enabled
+        .then(|| Arc::new(crate::metrics::Metrics::new()));
+    let store = match &metrics {
+        Some(metrics) => crate::metrics::observe_state_store(store, metrics.clone()),
+        None => store,
+    };
+    let event_store = match &metrics {
+        Some(metrics) => crate::metrics::observe_event_store(event_store, metrics.clone()),
+        None => event_store,
+    };
+
     let listener = bind_listener(&options.host, options.port).await?;
     let bound_addr = listener.local_addr()?;
     let auth = build_api_auth(
@@ -171,9 +196,10 @@ pub(crate) async fn prepare(
         webhooks: options.webhooks,
         allow_adhoc_flows: options.allow_adhoc_flows,
         lifecycle: super::ServiceLifecycle::default(),
+        metrics,
     });
 
-    let protected_routes = Router::new()
+    let mut protected_routes = Router::new()
         .route("/flows/run", post(handlers::run_flow))
         .route("/flows/validate", post(handlers::validate_flow))
         .route("/runs", get(handlers::list_runs))
@@ -182,6 +208,9 @@ pub(crate) async fn prepare(
         .route("/runs/{id}", delete(handlers::delete_run))
         .route("/nodes", get(handlers::list_nodes))
         .route("/webhooks/{name}", post(handlers::run_webhook));
+    if options.metrics_enabled {
+        protected_routes = protected_routes.route("/metrics", get(handlers::metrics));
+    }
     let protected_routes = if let Some(auth) = auth {
         protected_routes.layer(middleware::from_fn_with_state(auth, require_api_key))
     } else {
@@ -203,6 +232,9 @@ pub(crate) async fn prepare(
         app,
         bound_addr,
         lifecycle: state.lifecycle.clone(),
+        store: state.store.clone(),
+        event_store: state.event_store.clone(),
+        metrics: state.metrics.clone(),
     })
 }
 
@@ -225,76 +257,4 @@ pub(super) async fn bind_listener(host: &str, port: u16) -> Result<tokio::net::T
 }
 
 #[cfg(test)]
-mod tests {
-    use std::collections::HashMap;
-    use std::path::Path;
-    use std::sync::Arc;
-
-    use crate::api::ServeOptions;
-    use crate::storage::event_store::MemoryEventStore;
-    use crate::storage::json_store::JsonStateStore;
-    use crate::storage::{RunLease, StateStore};
-    use crate::util::listing::ListingPolicy;
-
-    #[test]
-    fn restricted_file_execution_requires_a_confinement_root() {
-        let error = super::validate_execution_policy(false, None).unwrap_err();
-        assert!(error.to_string().contains("flows_dir"));
-        super::validate_execution_policy(false, Some(Path::new("flows"))).unwrap();
-        super::validate_execution_policy(true, None).unwrap();
-    }
-
-    #[tokio::test]
-    async fn common_server_lifecycle_reconciles_expired_owners() {
-        let directory = tempfile::tempdir().unwrap();
-        let store = Arc::new(JsonStateStore::new(directory.path()));
-        store
-            .init_run_owned(
-                "expired",
-                "flow",
-                &HashMap::new(),
-                &RunLease::at(
-                    "dead-owner",
-                    chrono::Utc::now() - chrono::Duration::seconds(1),
-                ),
-            )
-            .await
-            .unwrap();
-        let options = ServeOptions {
-            host: "127.0.0.1".to_string(),
-            port: 0,
-            flows_dir: None,
-            max_body: 1024,
-            max_concurrent_tasks: Some(1),
-            listing_policy: ListingPolicy::default(),
-            webhooks: HashMap::new(),
-            allow_adhoc_flows: true,
-            cors_origins: None,
-            api_key: None,
-            allow_unauthenticated_api: false,
-        };
-
-        let prepared = super::prepare(store.clone(), Arc::new(MemoryEventStore::new()), options)
-            .await
-            .unwrap();
-        let running = prepared.start_run_lifecycle(store.clone()).await.unwrap();
-        assert_eq!(
-            store.get_run_info("expired").await.unwrap().status,
-            crate::engine::types::RunStatus::Stalled
-        );
-        drop(running);
-    }
-
-    #[tokio::test]
-    async fn hanging_startup_reconciliation_fails_within_its_budget() {
-        let reconciliation = std::future::pending::<crate::storage::StorageResult<usize>>();
-        let error = super::bounded_startup_reconciliation(
-            reconciliation,
-            std::time::Duration::from_millis(5),
-        )
-        .await
-        .unwrap_err();
-
-        assert!(error.to_string().contains("timed out"));
-    }
-}
+mod tests;

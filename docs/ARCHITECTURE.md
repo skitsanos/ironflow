@@ -785,12 +785,17 @@ Built with `axum`. Endpoints:
 - `GET /health` — Backwards-compatible liveness alias
 - `GET /health/live` — Process liveness without storage I/O
 - `GET /health/ready` — Execution admission plus bounded state/event-store probes
+- `GET /metrics` — Opt-in, API-authenticated OpenMetrics for process-local
+  runtime, scheduler, lease, admission, and storage behavior
 
 Features:
 - Exactly one source field required per request (mutual exclusion enforced)
 - Base64 flow source support (`source_base64`) for escaping-free submission
 - Configurable request body size limit (default 1 MB, `--max-body` flag)
 - API key authentication for non-loopback servers via `IRONFLOW_API_KEY`
+- Bounded operator metrics via `IRONFLOW_METRICS_ENABLED` / `metrics_enabled`;
+  fixed vocabularies prohibit caller-controlled labels, and recording remains
+  outside correctness-critical state transitions
 - Configurable CORS support via `IRONFLOW_CORS_ORIGINS` / `cors_origins`
 - Request tracing via `tower-http`
 - Typed storage-error mapping with generic, correlated internal-error responses

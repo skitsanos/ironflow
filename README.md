@@ -204,6 +204,12 @@ gates for ordinary CI.
 | `GET` | `/health` | Backwards-compatible liveness check |
 | `GET` | `/health/live` | Process liveness |
 | `GET` | `/health/ready` | Admission and durable-store readiness |
+| `GET` | `/metrics` | Opt-in authenticated operator metrics (`IRONFLOW_METRICS_ENABLED=true`) |
+
+The metrics endpoint exports a fixed-cardinality, process-local OpenMetrics
+contract for run/task outcomes and durations, active work, admission,
+scheduling, leases, and storage failures. It follows the API authentication
+boundary and is absent when disabled. See [Operator metrics](docs/METRICS.md).
 
 Flows can also run on a schedule. A `schedules:` block in `ironflow.yaml`
 declares bounded standard five-field cron triggers that `ironflow serve`
@@ -574,10 +580,10 @@ candidate into `main` before the stable tag. Stable versions never land on
 
 The maintained [`Now / Next / Later` roadmap](docs/ROADMAP.md) separates
 committed work from candidates and records IronFlow's enterprise deployment
-boundaries. The current priority is a bounded production metrics contract; the
-streamed S3-compatible artifact lifecycle is now part of the delivered
-baseline. A read-only Web UI for flow and run visualization remains a later
-candidate rather than an implementation commitment.
+boundaries. Bounded operator metrics and the streamed S3-compatible artifact
+lifecycle are part of the delivered baseline. A read-only Web UI for flow and
+run visualization remains a later candidate rather than an implementation
+commitment.
 
 ## License
 

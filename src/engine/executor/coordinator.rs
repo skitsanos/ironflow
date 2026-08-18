@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
@@ -15,6 +14,7 @@ use crate::storage::event_store::EventStore;
 use crate::util::execution::{CooperativeWorkerSet, with_run_worker_set};
 
 use super::overlay::ExecutionOverlay;
+use super::panic_payload::panic_message;
 use super::signal::{ExecutionOutcome, ExecutionSignal, request_cancellation, stop_requested};
 
 const FINALIZATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
@@ -119,9 +119,10 @@ pub(super) struct RunCoordinator {
     pub(super) execution_overlay: ExecutionOverlay,
     pub(super) lease_owner: String,
     pub(super) run_deadline: Option<std::time::Duration>,
+    pub(super) metrics: Option<Arc<crate::metrics::Metrics>>,
+    pub(super) run_observation: Option<Arc<crate::metrics::RunObservation>>,
     finalization_timeout: std::time::Duration,
-    heartbeat_refresh: std::time::Duration,
-    heartbeat_timeout: std::time::Duration,
+    heartbeat_timing: super::lease::HeartbeatTiming,
 }
 
 impl RunCoordinator {
@@ -138,7 +139,9 @@ impl RunCoordinator {
         execution_overlay: ExecutionOverlay,
         lease_owner: String,
         run_deadline: Option<std::time::Duration>,
+        metrics: Option<Arc<crate::metrics::Metrics>>,
     ) -> Self {
+        let run_observation = metrics.as_ref().map(|metrics| metrics.run_observation());
         Self {
             registry,
             store,
@@ -151,9 +154,13 @@ impl RunCoordinator {
             execution_overlay,
             lease_owner,
             run_deadline,
+            metrics,
+            run_observation,
             finalization_timeout: FINALIZATION_TIMEOUT,
-            heartbeat_refresh: crate::storage::RUN_LEASE_REFRESH,
-            heartbeat_timeout: crate::storage::RUN_LEASE_REFRESH,
+            heartbeat_timing: super::lease::HeartbeatTiming::new(
+                crate::storage::RUN_LEASE_REFRESH,
+                crate::storage::RUN_LEASE_REFRESH,
+            ),
         }
     }
 
@@ -169,8 +176,7 @@ impl RunCoordinator {
         refresh: std::time::Duration,
         timeout: std::time::Duration,
     ) -> Self {
-        self.heartbeat_refresh = refresh;
-        self.heartbeat_timeout = timeout;
+        self.heartbeat_timing = super::lease::HeartbeatTiming::new(refresh, timeout);
         self
     }
 
@@ -203,10 +209,13 @@ impl RunCoordinator {
                 self.lease_owner.clone(),
                 lease_cancel,
                 lease_stopped,
-                self.heartbeat_refresh,
-                self.heartbeat_timeout,
+                self.heartbeat_timing,
+                self.metrics.clone(),
             ));
             let result = self.supervise(cancel_rx).await;
+            if let Some(observation) = &self.run_observation {
+                observation.finish_stalled();
+            }
             let _ = lease_stop.send(());
             if tokio::time::timeout(super::lease::STATE_OPERATION_TIMEOUT, &mut heartbeat)
                 .await
@@ -282,16 +291,6 @@ impl RunCoordinator {
                 ))
             }
         }
-    }
-}
-
-fn panic_message(payload: &(dyn Any + Send)) -> String {
-    if let Some(message) = payload.downcast_ref::<&str>() {
-        (*message).to_string()
-    } else if let Some(message) = payload.downcast_ref::<String>() {
-        message.clone()
-    } else {
-        "non-string panic payload".to_string()
     }
 }
 

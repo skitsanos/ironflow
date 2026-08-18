@@ -402,6 +402,31 @@ fn invalid_auth_boolean_does_not_fall_back_to_yaml() {
     );
 }
 
+#[test]
+fn invalid_metrics_boolean_does_not_fall_back_to_yaml() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(temp.path().join("ironflow.yaml"), "metrics_enabled: true\n").unwrap();
+    fs::write(
+        temp.path().join(".env"),
+        "IRONFLOW_METRICS_ENABLED=on\n\
+         IRONFLOW_STORE=unreachable-test-backend\n",
+    )
+    .unwrap();
+
+    let output = isolated_command(temp.path()).arg("serve").output().unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("IRONFLOW_METRICS_ENABLED must be either 'true' or 'false'"),
+        "invalid higher-priority value was not rejected: {stderr}"
+    );
+    assert!(
+        !stderr.contains("Unknown state store backend"),
+        "store initialization ran before pure metrics validation: {stderr}"
+    );
+}
+
 #[cfg(feature = "redis")]
 #[test]
 fn invalid_redis_ttl_does_not_fall_back_or_attempt_to_connect() {
