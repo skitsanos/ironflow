@@ -6,13 +6,15 @@ import { join } from "node:path";
 const repository = join(import.meta.dir, "../..");
 
 describe("repository integration policy", () => {
-  test("CI runs automatically only for pushes to main and develop", async () => {
+  test("CI runs automatically for pushes and pull requests to main and develop", async () => {
     const source = await Bun.file(join(repository, ".github/workflows/ci.yml")).text();
     const workflow = Bun.YAML.parse(source) as Record<string, unknown>;
     const triggers = workflow.on as Record<string, unknown>;
     const push = triggers.push as Record<string, unknown>;
+    const pullRequest = triggers.pull_request as Record<string, unknown>;
     expect(push.branches).toEqual(["main", "develop"]);
-    expect(triggers.pull_request).toBeUndefined();
+    expect(pullRequest.branches).toEqual(["main", "develop"]);
+    expect(pullRequest.paths).toEqual(push.paths);
   });
 
   test("issue registry changes run the Bun policy gate", async () => {

@@ -20,6 +20,25 @@ on:
       - ".github/workflows/release.yml"
       - "Dockerfile"
       - ".dockerignore"
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "examples/**"
+      - "scripts/**"
+      - "docs/**"
+      - ".agents/**"
+      - "AGENTS.md"
+      - "ISSUES.md"
+      - ".cargo/audit.toml"
+      - ".github/workflows/ci.yml"
+      - ".github/workflows/container.yml"
+      - ".github/workflows/release.yml"
+      - "Dockerfile"
+      - ".dockerignore"
   workflow_dispatch:
 
 env:
