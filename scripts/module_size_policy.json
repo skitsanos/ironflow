@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exception_budget": 12,
+  "exception_budget": 11,
   "exceptions": [
     {
       "path": "src/cli/store_factory.rs",
@@ -9,18 +9,13 @@
     },
     {
       "path": "src/engine/executor/task_runner.rs",
-      "max_lines": 327,
-      "rationale": "IF-028/062 review: one task lifecycle spanning retries, deadlines, cancellation, lease-fenced persistence, and output publication; split before adding another lifecycle phase."
+      "max_lines": 303,
+      "rationale": "IF-028/062/100 review: one task lifecycle spanning retries, deadlines, cancellation, lease-fenced persistence, and output publication; run-scoped dependency wiring was extracted before metrics instrumentation. Split before adding another lifecycle phase."
     },
     {
       "path": "src/engine/recovery.rs",
       "max_lines": 317,
       "rationale": "IF-046/052 review: one execution-plan validator and recovery-DAG builder covering dependency, cycle, on_error, retry-count, timeout, and route validation; split validation from graph construction before adding another planning phase."
-    },
-    {
-      "path": "src/lua/runtime/api.rs",
-      "max_lines": 304,
-      "rationale": "IF-028/035 review: one Lua flow-builder registration surface (handler bytecode is now signed at dump time); nested closure complexity makes the next independent API group a mandatory extraction point."
     },
     {
       "path": "src/nodes/cloud/s3_objects.rs",

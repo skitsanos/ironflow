@@ -81,19 +81,10 @@ impl NodeRegistry {
         s3vector::register_all(&mut registry);
         transform::register_all(&mut registry);
 
-        // Snapshot the base registry (all nodes except subworkflow) and give
-        // it to SubworkflowNode. It adds itself back at execution time so
-        // child engines can also run subworkflows (nested execution).
+        // Registry-backed composition nodes receive a base snapshot and add
+        // the complete composition set to every nested child engine.
         let base = Arc::new(registry.snapshot());
-        registry.register(Arc::new(composition::SubworkflowNode {
-            base_registry: base.clone(),
-        }));
-        registry.register(Arc::new(composition::ParallelSubworkflowsNode {
-            base_registry: base.clone(),
-        }));
-        registry.register(Arc::new(composition::ToolDispatchNode {
-            base_registry: base,
-        }));
+        composition::register_nested(&mut registry, base);
 
         registry
     }

@@ -6,7 +6,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts generate` and verified with
 `bun run scripts/issues_registry.ts check`.
 
-- Total findings: 93
+- Total findings: 103
 - Active findings: 0
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
@@ -105,3 +105,13 @@ priority, area, and title. The registry is generated with
 | [IF-091](./IF-091.md) | P1 | Resolved | PDF/resource safety | PDF extraction reparses input and retains the final dependency advisory |
 | [IF-092](./IF-092.md) | P2 | Resolved | PDF/performance | PDF resource improvements lack matched before/after RSS and timing evidence |
 | [IF-093](./IF-093.md) | P2 | Resolved | PDF/correctness | Non-ASCII CID glyph extraction depends only on ignored local samples |
+| [IF-094](./IF-094.md) | P2 | Resolved | Test reliability | Lease-loss regression still races hosted-runner scheduling |
+| [IF-095](./IF-095.md) | P1 | Resolved | Lua correctness | Validation misses undefined globals and captured locals in Lua handlers |
+| [IF-096](./IF-096.md) | P1 | Resolved | Lua correctness | String-backed code silently resolves undefined globals to nil |
+| [IF-097](./IF-097.md) | P2 | Resolved | Test reliability | Default CI contains two timing-dependent test failures |
+| [IF-098](./IF-098.md) | P1 | Resolved | API security | Webhook authentication cannot verify signatures over the original body |
+| [IF-099](./IF-099.md) | P2 | Resolved | Product governance | Roadmap has no actionable forward plan and the shipped baseline has drifted |
+| [IF-100](./IF-100.md) | P1 | Resolved | Observability | Production deployments lack a bounded metrics contract |
+| [IF-101](./IF-101.md) | P1 | Resolved | Artifact lifecycle | Artifact storage has no remote multi-host lifecycle backend |
+| [IF-102](./IF-102.md) | P1 | Resolved | Composition | Workflow composition cannot repeat a child flow with bounded carried state |
+| [IF-103](./IF-103.md) | P1 | Resolved | AI/artifacts | Multimodal LLM calls require image bytes in persisted workflow context |

@@ -17,6 +17,14 @@ replica mode selects JSON, SQLite, or in-memory events. PostgreSQL and Redis are
 the supported shared backends. Do not mount a JSON/SQLite directory into
 multiple containers and treat it as a distributed database.
 
+Artifact-producing deployments must also choose one cross-replica contract.
+Either mount the same durable `IRONFLOW_ARTIFACT_DIR` on every replica, or set
+`IRONFLOW_ARTIFACT_BACKEND=s3` with one shared bucket/prefix and workload
+credentials. S3 mode keeps only private bounded staging/cache on each replica;
+the content-addressed remote object is authoritative, so another replica can
+restore and verify it without sharing a filesystem. Keep the local cache on a
+writable volume or `/tmp` in restricted/read-only-root containers.
+
 ## Failure semantics
 
 An executing process owns its run through a fenced durable lease. A live owner
@@ -51,6 +59,13 @@ becomes `Stalled`.
 | `GET /health/live` | Process is alive; does not probe storage |
 | `GET /health/ready` | Process accepts execution and both configured stores answer a bounded probe |
 | `GET /health` | Backwards-compatible liveness alias |
+| `GET /metrics` | Optional process-local OpenMetrics; registered only when enabled and protected like the API |
+
+Enable metrics on every replica with `IRONFLOW_METRICS_ENABLED=true` and scrape
+each pod directly. Counters and histograms reset when that process restarts, so
+a load-balanced scrape does not represent the deployment. The Prometheus
+Operator templates and alert examples are documented in
+[Operator metrics](METRICS.md).
 
 SIGTERM and SIGINT close readiness and scheduler/API execution admission first.
 HTTP listener shutdown then begins while already accepted runs retain their
@@ -63,9 +78,10 @@ seconds. Configure the platform termination window above that total.
 
 The opt-in gate builds the production image, starts PostgreSQL, two restricted
 IronFlow containers, and an nginx round-robin proxy. It verifies simultaneous
-cold start, cross-replica state, idempotent retry, schedule uniqueness, SIGTERM
-draining, real SIGKILL lease reconciliation, arbitrary UID execution, and a
-read-only root filesystem.
+cold start, cross-replica state, idempotent retry, a producer-on-A and
+consumer-on-B streamed artifact handoff through disposable MinIO, schedule
+uniqueness, SIGTERM draining, real SIGKILL lease reconciliation, arbitrary UID
+execution, and a read-only root filesystem.
 
 ```bash
 IRONFLOW_RUN_REPLICA_ACCEPTANCE=1 bun run scripts/replica_acceptance.ts

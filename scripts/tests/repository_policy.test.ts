@@ -6,13 +6,15 @@ import { join } from "node:path";
 const repository = join(import.meta.dir, "../..");
 
 describe("repository integration policy", () => {
-  test("CI runs automatically only for pushes to main and develop", async () => {
+  test("CI runs automatically for pushes and pull requests to main and develop", async () => {
     const source = await Bun.file(join(repository, ".github/workflows/ci.yml")).text();
     const workflow = Bun.YAML.parse(source) as Record<string, unknown>;
     const triggers = workflow.on as Record<string, unknown>;
     const push = triggers.push as Record<string, unknown>;
+    const pullRequest = triggers.pull_request as Record<string, unknown>;
     expect(push.branches).toEqual(["main", "develop"]);
-    expect(triggers.pull_request).toBeUndefined();
+    expect(pullRequest.branches).toEqual(["main", "develop"]);
+    expect(pullRequest.paths).toEqual(push.paths);
   });
 
   test("issue registry changes run the Bun policy gate", async () => {
@@ -111,8 +113,8 @@ describe("repository integration policy", () => {
     ).text();
 
     expect(dockerfile).toContain(
-      "lukemathwalker/cargo-chef:0.1.77-rust-1.97.1-bookworm@sha256:" +
-        "1689f62cfaa6603480356923cb5966544b2dd6ea523e30486bee4f149965d5bc AS chef",
+      "lukemathwalker/cargo-chef:0.1.78-rust-1.97.1-slim-bookworm@sha256:" +
+        "e406ad0baa7266cee09ca9f62f30d7ed330bdb25be9f337ff8090e7ae215f7fd AS chef",
     );
     expect(dockerfile).toContain("cargo chef prepare --recipe-path recipe.json");
     expect(dockerfile).toContain(

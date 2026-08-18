@@ -5,7 +5,7 @@ use std::path::Path;
 use anyhow::{Result, bail};
 
 use super::filesystem::{self, TempArtifact};
-use super::{ArtifactRef, LocalArtifactStore};
+use super::{ArtifactRef, ArtifactStore};
 use crate::util::execution::ExecutionControl;
 
 const COPY_CHUNK_BYTES: usize = 16 * 1024;
@@ -22,7 +22,7 @@ impl VerifiedPathLease {
     }
 }
 
-impl LocalArtifactStore {
+impl ArtifactStore {
     /// Copy a verified descriptor into a private, read-only temporary path for
     /// a third-party API that cannot accept an open handle.
     ///
@@ -41,7 +41,7 @@ impl LocalArtifactStore {
         if artifact.size_bytes > max_bytes {
             bail!("artifact exceeds the {max_bytes} byte lease limit");
         }
-        let mut temporary = self.create_temporary()?;
+        let mut temporary = self.local().create_temporary()?;
         copy_bounded(
             &mut source,
             temporary.file_mut(),

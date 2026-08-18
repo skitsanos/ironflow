@@ -161,13 +161,15 @@ flow:step("render_pages", nodes.shell_command({
 
 flow:step("read_page_1", nodes.read_file({
     path = "${ctx.render_pages_stdout}/page-1.png",
-    encoding = "base64",
+    encoding = "artifact",
+    mime_type = "image/png",
     output_key = "page_1"
 })):depends_on("render_pages")
 
 flow:step("read_page_2", nodes.read_file({
     path = "${ctx.render_pages_stdout}/page-2.png",
-    encoding = "base64",
+    encoding = "artifact",
+    mime_type = "image/png",
     output_key = "page_2"
 })):depends_on("render_pages")
 
@@ -189,7 +191,7 @@ end):depends_on("extract_pdf", "read_page_1", "read_page_2")
 flow:step("analyze", nodes.llm({
     provider = "custom",
     mode = "chat",
-    model = "gemini-3.5-flash",
+    model = "gemini-3.7-flash",
     base_url = "https://generativelanguage.googleapis.com/v1beta/openai",
     auth_type = "bearer",
     api_key = env("GEMINI_API_KEY"),
@@ -233,16 +235,14 @@ ${ctx.reconstruction_payload}
 ]]
                 },
                 {
-                    type = "image_url",
-                    image_url = {
-                        url = "data:image/png;base64,${ctx.page_1_content}"
-                    }
+                    type = "image_artifact",
+                    source_key = "page_1_artifact",
+                    detail = "high"
                 },
                 {
-                    type = "image_url",
-                    image_url = {
-                        url = "data:image/png;base64,${ctx.page_2_content}"
-                    }
+                    type = "image_artifact",
+                    source_key = "page_2_artifact",
+                    detail = "high"
                 }
             }
         }

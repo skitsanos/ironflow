@@ -21,6 +21,7 @@ fn app() -> Router {
         webhooks: std::collections::HashMap::new(),
         allow_adhoc_flows: true,
         lifecycle: ironflow::api::ServiceLifecycle::default(),
+        metrics: None,
     });
 
     Router::new()

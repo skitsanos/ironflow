@@ -55,7 +55,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 
 ## 04-file-operations
 - **read_write_files.lua** — Write, read, list, and delete files
-- **artifact_handoff.lua** — Stream a DOCX to the artifact store and pass its descriptor directly to `extract_word`
+- **artifact_handoff.lua** — Stream a DOCX to the local or S3-backed artifact store and pass its backend-neutral descriptor directly to `extract_word`
 - **binary_file_io.lua** — Contrast explicit Base64 with a disk-backed artifact restore through `write_file`
 - **copy_move_files.lua** — Copy and move files between locations
 - **[s3_put_get_list.lua](04-file-operations/s3_put_get_list.lua)** — List visible buckets, then upload, download, list, and delete one UUID-scoped object
@@ -126,6 +126,8 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **fire_and_forget.lua** — Launch a subworkflow without waiting (async)
 - **on_error_example.lua** — Planned `on_error` recovery with a handler dependency
 - **parallel_subworkflows.lua** — Run multiple subworkflows concurrently and collect results
+- **repeat_subworkflow.lua** — Repeat a child flow with explicit carried state and a finite iteration bound
+- **repeat_counter_subworkflow.lua** — Reusable counter child used by the repeat example
 - **greet.lua** — Simple reusable helper flow used by the subworkflow examples
 
 ## 12-arangodb
@@ -154,7 +156,8 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **pdf_gemini_rag_schema.lua** — Convert an image-first PDF into generic page blocks and RAG chunks with Gemini `json_schema`
 - **pdf_gemini_reconstruct_schema.lua** — Reconstruct the first page of the synthetic PDF with Gemini using extracted text plus a rendered page image
 - **pptx_gemini_reconstruct.lua** — Reconstruct the first PPTX slides as text using Gemini with structured extraction plus a rendered preview image
-- **pptx_gemini_reconstruct_schema.lua** — Reconstruct the full sample PPTX deck with Gemini `json_schema` batches
+- **pptx_gemini_reconstruct_schema.lua** — Reconstruct the full sample PPTX deck with runtime Gemini `json_schema` batch fan-out
+- **pptx_gemini_reconstruct_batch.lua** — Reusable credentialed child flow for one PPTX reconstruction batch
 - **pipeline_foreach_embed.lua** — Multi-page PDF embeddings with chunk -> foreach -> embed
 - **chunk_fixed.lua** — Fixed-size text chunking with delimiter boundaries
 - **chunk_split.lua** — Delimiter-based text splitting
@@ -172,7 +175,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 
 ## 15-webhooks
 - **simple_webhook.lua** — Basic webhook that greets the caller by name
-- **auth_check.lua** — Webhook with an explicit execution-only business-signature header
+- **auth_check.lua** — Webhook protected at ingress by an environment-backed HMAC-SHA256 signature
 
 ## 16-s3vector
 - **[s3vector_vector_workflow.lua](16-s3vector/s3vector_vector_workflow.lua)** — Create and inspect a vector bucket/index, upload and query vectors, then tear down all resources.
@@ -207,7 +210,8 @@ credentialed, local-state, and platform-specific flow at the same time.
 `22-replica-deployment` is the flow/config fixture for the opt-in Docker
 replica gate. It is not a standalone `ironflow run` example: two `serve`
 processes load it with shared PostgreSQL state and exercise idempotent HTTP,
-scheduled occurrence, graceful shutdown, and owner-death behavior. See
+scheduled occurrence, a streamed S3-compatible artifact handoff between
+isolated replica caches, graceful shutdown, and owner-death behavior. See
 [`docs/REPLICA_DEPLOYMENT.md`](../docs/REPLICA_DEPLOYMENT.md).
 
 Give experiments a disposable state-store directory so IronFlow's run records
@@ -291,11 +295,11 @@ duplicated, unclassified, or inconsistent entries.
 | Offline | 40 | Fixture-backed deterministic subset |
 | Offline with outputs/processes | 24 | Fixture-backed local-output cases and MCP stdio use isolated paths; others require isolated outputs |
 | Public/local network | 9 | No |
-| Credentialed external service | 47 | No |
+| Credentialed external service | 48 | No |
 | Server/manual HTTP or scheduler | 5 | No |
-| Composition parent/helper flow | 7 | Exercised as coordinated cases where applicable |
+| Composition parent/helper flow | 9 | Exercised as coordinated cases where applicable |
 
-All 132 flows are still parsed by `ironflow validate`. Twelve fixture-backed
+All 137 flows are still parsed by `ironflow validate`. Twelve fixture-backed
 offline flows and the local MCP stdio example also run from a disposable
 working directory as part of:
 

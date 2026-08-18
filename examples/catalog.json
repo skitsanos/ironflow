@@ -124,6 +124,7 @@
         "examples/13-ai/pdf_gemini_reconstruct_schema.lua",
         "examples/13-ai/pipeline_foreach_embed.lua",
         "examples/13-ai/pptx_gemini_reconstruct.lua",
+        "examples/13-ai/pptx_gemini_reconstruct_batch.lua",
         "examples/13-ai/pptx_gemini_reconstruct_schema.lua",
         "examples/13-ai/semantic_chunks_embed.lua",
         "examples/13-ai/transcribe_index.lua",
@@ -147,6 +148,8 @@
         "examples/15-webhooks/auth_check.lua",
         "examples/15-webhooks/simple_webhook.lua",
         "examples/21-schedules/scheduled_hello.lua",
+        "examples/22-replica-deployment/artifact_consume.lua",
+        "examples/22-replica-deployment/artifact_produce.lua",
         "examples/22-replica-deployment/hold.lua",
         "examples/22-replica-deployment/quick.lua"
       ]
@@ -158,6 +161,8 @@
         "examples/11-subworkflow/fire_and_forget.lua",
         "examples/11-subworkflow/greet.lua",
         "examples/11-subworkflow/parallel_subworkflows.lua",
+        "examples/11-subworkflow/repeat_counter_subworkflow.lua",
+        "examples/11-subworkflow/repeat_subworkflow.lua",
         "examples/13-ai/tool_time_subworkflow.lua",
         "examples/13-ai/tool_unknown_subworkflow.lua",
         "examples/13-ai/tool_weather_subworkflow.lua"
@@ -208,6 +213,7 @@
         "examples/13-ai/pdf_gemini_reconstruct_schema.lua",
         "examples/13-ai/pipeline_foreach_embed.lua",
         "examples/13-ai/pptx_gemini_reconstruct.lua",
+        "examples/13-ai/pptx_gemini_reconstruct_batch.lua",
         "examples/13-ai/pptx_gemini_reconstruct_schema.lua",
         "examples/13-ai/semantic_chunks_embed.lua",
         "examples/13-ai/transcribe_index.lua",
@@ -261,6 +267,7 @@
         "examples/13-ai/pdf_gemini_reconstruct_schema.lua",
         "examples/13-ai/pipeline_foreach_embed.lua",
         "examples/13-ai/pptx_gemini_reconstruct.lua",
+        "examples/13-ai/pptx_gemini_reconstruct_batch.lua",
         "examples/13-ai/pptx_gemini_reconstruct_schema.lua",
         "examples/13-ai/semantic_chunks_embed.lua",
         "examples/13-ai/transcribe_index.lua",

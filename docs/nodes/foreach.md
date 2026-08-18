@@ -15,6 +15,13 @@ Iterate over an array, execute a Lua function per item, and collect results.
 > The `ctx` table, `env()`, JSON helpers, base64 helpers, logging helpers, UUID, and timestamp helpers are available as globals inside the transform.
 > The Lua environment is sandboxed: `os`, `io`, `debug`, `loadfile`, and `dofile` are removed.
 
+Transforms must be self-contained: captured locals from the enclosing flow are
+rejected because upvalues cannot survive serialization. Declare constants in
+the transform or read them from `ctx`. Validation reports undefined global
+reads with line and column information; use `ironflow validate --strict` to
+treat those warnings as failures. `Flow` and `nodes` are loader-only globals
+and are unavailable inside the transform VM.
+
 ## Execution Limits
 
 Each `foreach` transform runs inside the Lua execution budgets configured by `IRONFLOW_LUA_MAX_INSTRUCTIONS`, `IRONFLOW_LUA_MAX_SECONDS`, `IRONFLOW_LUA_MAX_MEMORY_BYTES`, `IRONFLOW_LUA_HOOK_INTERVAL`, and `IRONFLOW_LUA_GC_AFTER_EXECUTION`.

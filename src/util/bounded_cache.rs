@@ -71,10 +71,13 @@ where
     /// Insert a value. Drops expired entries first, then evicts the
     /// least-recently-used entry if still at capacity.
     pub fn insert(&self, key: K, value: V, ttl_secs: Option<u64>) {
+        self.insert_at(key, value, ttl_secs, now_secs());
+    }
+
+    fn insert_at(&self, key: K, value: V, ttl_secs: Option<u64>, now: u64) {
         let Ok(mut inner) = self.inner.lock() else {
             return;
         };
-        let now = now_secs();
 
         inner.map.retain(|_, e| !e.is_expired(now));
 
@@ -104,10 +107,13 @@ where
 
     /// Fetch a value. Returns `None` and removes the entry if it has expired.
     pub fn get(&self, key: &K) -> Option<V> {
+        self.get_at(key, now_secs())
+    }
+
+    fn get_at(&self, key: &K, now: u64) -> Option<V> {
         let Ok(mut inner) = self.inner.lock() else {
             return None;
         };
-        let now = now_secs();
 
         let expired = matches!(inner.map.get(key), Some(e) if e.is_expired(now));
         if expired {
@@ -139,11 +145,14 @@ where
 
     /// Remove all expired entries. Returns the number removed.
     pub fn sweep_expired(&self) -> usize {
+        self.sweep_expired_at(now_secs())
+    }
+
+    fn sweep_expired_at(&self, now: u64) -> usize {
         let Ok(mut inner) = self.inner.lock() else {
             return 0;
         };
         let before = inner.map.len();
-        let now = now_secs();
         inner.map.retain(|_, e| !e.is_expired(now));
         before - inner.map.len()
     }
@@ -201,25 +210,22 @@ mod tests {
     #[test]
     fn ttl_expiry_on_get() {
         let c: BoundedCache<String, i32> = BoundedCache::new(4);
-        c.insert("a".into(), 1, Some(0)); // expires immediately (now >= now+0)
-        std::thread::sleep(std::time::Duration::from_millis(1100));
-        assert_eq!(c.get(&"a".into()), None);
+        c.insert_at("a".into(), 1, Some(1), 100);
+        assert_eq!(c.get_at(&"a".into(), 100), Some(1));
+        assert_eq!(c.get_at(&"a".into(), 101), None);
         assert_eq!(c.len(), 0, "expired entry should be removed on get");
     }
 
     #[test]
     fn sweep_expired_reclaims_without_read() {
         let c: BoundedCache<String, i32> = BoundedCache::new(10);
-        // ttl=1 so entries survive the implicit sweep inside `c` but expire
-        // before the explicit `sweep_expired()` call below.
-        c.insert("a".into(), 1, Some(1));
-        c.insert("b".into(), 2, Some(1));
-        c.insert("c".into(), 3, None);
-        std::thread::sleep(std::time::Duration::from_millis(1500));
-        let removed = c.sweep_expired();
+        c.insert_at("a".into(), 1, Some(1), 100);
+        c.insert_at("b".into(), 2, Some(1), 100);
+        c.insert_at("c".into(), 3, None, 100);
+        let removed = c.sweep_expired_at(101);
         assert_eq!(removed, 2);
         assert_eq!(c.len(), 1);
-        assert_eq!(c.get(&"c".into()), Some(3));
+        assert_eq!(c.get_at(&"c".into(), 101), Some(3));
     }
 
     #[test]

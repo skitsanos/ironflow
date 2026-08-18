@@ -11,7 +11,7 @@ use crate::util::execution::ExecutionControl;
 use super::ArtifactRef;
 use super::bounded_writer::BoundedArtifactWriter;
 use super::filesystem::{self, TempArtifact};
-use super::integrity::{hash_reader, verify_existing};
+use super::integrity::hash_reader;
 use super::reference::digest_from_uri;
 
 pub const DEFAULT_ARTIFACT_DIR: &str = "data/artifacts";
@@ -20,14 +20,14 @@ const COPY_CHUNK_BYTES: usize = 16 * 1024;
 
 /// A local, content-addressed store for immutable workflow artifacts.
 #[derive(Clone, Debug)]
-pub struct LocalArtifactStore {
+pub(super) struct LocalArtifactStore {
     root: PathBuf,
     digest_directory: PathBuf,
 }
 
 impl LocalArtifactStore {
     /// Create or validate a store rooted at `root`.
-    pub fn new(root: impl Into<PathBuf>) -> Result<Self> {
+    pub(super) fn new(root: impl Into<PathBuf>) -> Result<Self> {
         let configured_root = root.into();
         if configured_root.as_os_str().is_empty() {
             bail!("artifact directory cannot be empty");
@@ -47,20 +47,26 @@ impl LocalArtifactStore {
         })
     }
 
-    /// Use `IRONFLOW_ARTIFACT_DIR`, or `data/artifacts` when it is unset.
-    pub fn from_env() -> Result<Self> {
-        let root = std::env::var_os("IRONFLOW_ARTIFACT_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from(DEFAULT_ARTIFACT_DIR));
-        Self::new(root)
-    }
-
-    pub fn root(&self) -> &Path {
+    pub(super) fn root(&self) -> &Path {
         &self.root
     }
 
+    pub(super) fn digest_directory(&self) -> &Path {
+        &self.digest_directory
+    }
+
+    pub(super) fn delete_digest(&self, digest: &str) -> Result<()> {
+        let path = self.digest_directory.join(digest);
+        if filesystem::remove_published_file(&path)
+            .with_context(|| format!("failed to delete artifact cache entry '{digest}'"))?
+        {
+            filesystem::sync_directory(&self.digest_directory)?;
+        }
+        Ok(())
+    }
+
     /// Stream a reader into the store without retaining its payload in memory.
-    pub fn put_reader<R: Read>(
+    pub(super) fn put_reader<R: Read>(
         &self,
         mut reader: R,
         max_bytes: u64,
@@ -107,12 +113,19 @@ impl LocalArtifactStore {
         filesystem::harden_staging_file(temporary.file())?;
         let digest = hex::encode(hasher.finalize());
         let destination = self.digest_directory.join(&digest);
-        self.publish(temporary, &destination, &digest, size, execution)?;
+        super::publication::publish(
+            temporary,
+            &destination,
+            &digest,
+            size,
+            &self.digest_directory,
+            execution,
+        )?;
         ArtifactRef::from_digest(digest, size, mime_type)
     }
 
     /// Stream a regular file into the store without following a final symlink.
-    pub fn put_path(
+    pub(super) fn put_path(
         &self,
         source: &Path,
         max_bytes: u64,
@@ -165,7 +178,14 @@ impl LocalArtifactStore {
         let digest = hash_reader(temporary.file_mut(), size, execution)?;
         filesystem::harden_staging_file(temporary.file())?;
         let destination = self.digest_directory.join(&digest);
-        self.publish(temporary, &destination, &digest, size, execution)?;
+        super::publication::publish(
+            temporary,
+            &destination,
+            &digest,
+            size,
+            &self.digest_directory,
+            execution,
+        )?;
         ArtifactRef::from_digest(digest, size, mime_type)
     }
 
@@ -173,7 +193,7 @@ impl LocalArtifactStore {
     ///
     /// Consumers must use [`Self::open_uri`] so the verified handle, rather
     /// than this mutable pathname, is passed to the parser.
-    pub fn resolve_uri(&self, uri: &str) -> Result<PathBuf> {
+    pub(super) fn resolve_uri(&self, uri: &str) -> Result<PathBuf> {
         let digest = digest_from_uri(uri)?;
         let path = self.digest_directory.join(digest);
         let file = crate::util::bounded_read::open_regular_file(&path, "artifact")?;
@@ -185,7 +205,7 @@ impl LocalArtifactStore {
     ///
     /// This does not authenticate bytes at the returned mutable pathname.
     /// Consumers must use [`Self::open`] or [`Self::verified_path_lease`].
-    pub fn resolve(&self, artifact: &ArtifactRef) -> Result<PathBuf> {
+    pub(super) fn resolve(&self, artifact: &ArtifactRef) -> Result<PathBuf> {
         artifact.validate()?;
         let path = self.resolve_uri(&artifact.artifact_uri)?;
         let actual = std::fs::metadata(&path)?.len();
@@ -200,14 +220,18 @@ impl LocalArtifactStore {
 
     /// Open and cryptographically verify a descriptor, returning the same
     /// rewound handle that was hashed.
-    pub fn open(&self, artifact: &ArtifactRef, execution: &ExecutionControl) -> Result<File> {
+    pub(super) fn open(
+        &self,
+        artifact: &ArtifactRef,
+        execution: &ExecutionControl,
+    ) -> Result<File> {
         artifact.validate()?;
         self.open_digest(&artifact.sha256, Some(artifact.size_bytes), execution)
     }
 
     /// Open and verify a canonical artifact URI, returning the same rewound
     /// handle that was hashed.
-    pub fn open_uri(&self, uri: &str, execution: &ExecutionControl) -> Result<File> {
+    pub(super) fn open_uri(&self, uri: &str, execution: &ExecutionControl) -> Result<File> {
         let digest = digest_from_uri(uri)?;
         self.open_digest(digest, None, execution)
     }
@@ -256,35 +280,5 @@ impl LocalArtifactStore {
             }
         }
         bail!("failed to allocate a unique artifact temporary file")
-    }
-
-    fn publish(
-        &self,
-        temporary: TempArtifact,
-        destination: &Path,
-        digest: &str,
-        size: u64,
-        execution: &ExecutionControl,
-    ) -> Result<()> {
-        execution.checkpoint()?;
-        match std::fs::hard_link(temporary.path(), destination) {
-            Ok(()) => {
-                temporary.remove()?;
-                if let Err(error) = filesystem::harden_published_path(destination) {
-                    // The destination was created by this call and has not
-                    // escaped as a successful descriptor. Best-effort removal
-                    // avoids leaving a writable content-addressed entry.
-                    filesystem::remove_failed_publication(destination);
-                    return Err(error);
-                }
-                filesystem::sync_directory(&self.digest_directory)
-            }
-            Err(error) if filesystem::is_already_exists(&error) => {
-                verify_existing(destination, digest, size, execution)?;
-                temporary.remove()
-            }
-            Err(error) => Err(error)
-                .with_context(|| format!("failed to publish artifact '{}'", destination.display())),
-        }
     }
 }

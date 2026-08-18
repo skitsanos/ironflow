@@ -8,11 +8,26 @@ use crate::util::node_config::{config_f64, config_u64};
 use super::config::{LlmMode, interpolate_json_value};
 
 pub(crate) fn resolve_messages(config: &Value, ctx: &Context) -> Result<Option<Vec<Value>>> {
-    let Some(messages) = config.get("messages") else {
-        return Ok(None);
+    let inline = config.get("messages");
+    let messages_key = match config.get("messages_key") {
+        None => None,
+        Some(Value::String(value)) if !value.is_empty() => Some(interpolate_ctx(value, ctx)),
+        Some(_) => anyhow::bail!("llm: 'messages_key' must be a non-empty string"),
     };
-    let Value::Array(messages) = interpolate_json_value(messages, ctx) else {
-        anyhow::bail!("llm: 'messages' must be an array");
+    if inline.is_some() && messages_key.is_some() {
+        anyhow::bail!("llm: provide either 'messages' or 'messages_key', not both");
+    }
+    let messages = match (inline, messages_key) {
+        (Some(messages), None) => interpolate_json_value(messages, ctx),
+        (None, Some(key)) => ctx
+            .get(&key)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("llm: messages_key '{key}' not found in context"))?,
+        (None, None) => return Ok(None),
+        (Some(_), Some(_)) => unreachable!("mutual exclusion checked above"),
+    };
+    let Value::Array(messages) = messages else {
+        anyhow::bail!("llm: messages must be an array");
     };
 
     Ok((!messages.is_empty()).then_some(messages))
@@ -34,7 +49,7 @@ pub(crate) fn resolve_prompt(config: &Value, ctx: &Context) -> Result<String> {
             });
     }
 
-    anyhow::bail!("llm: either 'prompt', 'input_key', or 'messages' is required")
+    anyhow::bail!("llm: either 'prompt', 'input_key', 'messages', or 'messages_key' is required")
 }
 
 pub(crate) struct LlmBodyInput<'a> {

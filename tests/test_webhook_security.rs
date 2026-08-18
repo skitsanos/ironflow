@@ -13,8 +13,29 @@ mod webhook_support;
 
 use webhook_support::{
     PLATFORM_API_KEY, PROCESS_ADMISSION_LOCK, authenticated_json_request, authenticated_request,
-    build_test_app, send_json, setup_flow_dir, webhook, write_flow,
+    build_test_app, send_json, setup_flow_dir, signed_webhook, webhook, write_flow,
 };
+
+const SIGNED_WEBHOOK_SECRET_ENV: &str = "IRONFLOW_TEST_IF098_WEBHOOK_SECRET";
+const SIGNED_WEBHOOK_SECRET: &str = "test-webhook-secret-12345";
+
+struct TestEnvironment;
+
+impl TestEnvironment {
+    fn signed_webhook_secret() -> Self {
+        // SAFETY: all tests in this binary that mutate this dedicated variable
+        // hold PROCESS_ADMISSION_LOCK, and no production thread reads it.
+        unsafe { std::env::set_var(SIGNED_WEBHOOK_SECRET_ENV, SIGNED_WEBHOOK_SECRET) };
+        Self
+    }
+}
+
+impl Drop for TestEnvironment {
+    fn drop(&mut self) {
+        // SAFETY: see signed_webhook_secret; the same test retains the lock.
+        unsafe { std::env::remove_var(SIGNED_WEBHOOK_SECRET_ENV) };
+    }
+}
 
 #[tokio::test]
 async fn webhook_denies_unconfigured_headers_by_default() {
@@ -218,6 +239,94 @@ async fn webhook_rejects_ambiguous_or_invalid_forwarded_headers_before_starting_
     let (status, body) = send_json(&app.router, non_text).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert!(body["error"].as_str().unwrap().contains("visible text"));
+
+    assert!(app.store.list_runs(None).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn signed_webhook_verifies_the_exact_body_before_starting_a_run() {
+    let _admission = PROCESS_ADMISSION_LOCK.lock().await;
+    let _environment = TestEnvironment::signed_webhook_secret();
+    let flows = setup_flow_dir();
+    let app = build_test_app(
+        flows.path().to_path_buf(),
+        HashMap::from([(
+            "signed".to_string(),
+            signed_webhook(
+                "hello_world.lua",
+                "x-hub-signature-256",
+                SIGNED_WEBHOOK_SECRET_ENV,
+            ),
+        )]),
+    );
+
+    let mut valid = authenticated_json_request("/webhooks/signed", r#"{"action":"deploy"}"#);
+    valid.headers_mut().insert(
+        HeaderName::from_static("x-hub-signature-256"),
+        HeaderValue::from_static(
+            "sha256=bb617af3f83122938a1e422865cb0b03f545f56cc5e7b8fb545ef2ee91417bf9",
+        ),
+    );
+    let (status, body) = send_json(&app.router, valid).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["run_id"].is_string());
+
+    let mut changed_bytes =
+        authenticated_json_request("/webhooks/signed", "{\n  \"action\": \"deploy\"\n}");
+    changed_bytes.headers_mut().insert(
+        HeaderName::from_static("x-hub-signature-256"),
+        HeaderValue::from_static(
+            "sha256=bb617af3f83122938a1e422865cb0b03f545f56cc5e7b8fb545ef2ee91417bf9",
+        ),
+    );
+    let (status, body) = send_json(&app.router, changed_bytes).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(body["error"], "invalid webhook signature");
+
+    assert_eq!(app.store.list_runs(None).await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn signed_webhook_rejects_missing_duplicate_and_malformed_signatures() {
+    let _admission = PROCESS_ADMISSION_LOCK.lock().await;
+    let _environment = TestEnvironment::signed_webhook_secret();
+    let flows = setup_flow_dir();
+    let app = build_test_app(
+        flows.path().to_path_buf(),
+        HashMap::from([(
+            "signed".to_string(),
+            signed_webhook(
+                "hello_world.lua",
+                "x-hub-signature-256",
+                SIGNED_WEBHOOK_SECRET_ENV,
+            ),
+        )]),
+    );
+
+    let missing = authenticated_json_request("/webhooks/signed", "{}");
+    let (status, _) = send_json(&app.router, missing).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    let mut malformed = authenticated_json_request("/webhooks/signed", "{}");
+    malformed.headers_mut().insert(
+        HeaderName::from_static("x-hub-signature-256"),
+        HeaderValue::from_static("sha256=not-hex"),
+    );
+    let (status, _) = send_json(&app.router, malformed).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    let mut duplicate = authenticated_json_request("/webhooks/signed", "{}");
+    for value in [
+        "sha256=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sha256=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    ] {
+        duplicate.headers_mut().append(
+            HeaderName::from_static("x-hub-signature-256"),
+            HeaderValue::from_str(value).unwrap(),
+        );
+    }
+    let (status, _) = send_json(&app.router, duplicate).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
 
     assert!(app.store.list_runs(None).await.unwrap().is_empty());
 }

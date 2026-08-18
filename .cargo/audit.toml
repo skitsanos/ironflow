@@ -16,4 +16,8 @@ ignore = [
     "RUSTSEC-2026-0098",
     "RUSTSEC-2026-0099",
     "RUSTSEC-2026-0104",
+    # lru 0.16.4 panic-safety unsoundness in LruCache::pop(). Pulled in only by
+    # aws-sdk-s3 1.141.0 via its pinned lru 0.16 line. Remove once the AWS SDK
+    # accepts a fixed lru release.
+    "RUSTSEC-2026-0253",
 ]

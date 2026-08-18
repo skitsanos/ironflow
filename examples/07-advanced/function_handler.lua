@@ -1,5 +1,8 @@
 -- Function Handlers: Pass Lua functions directly as step handlers
 -- No need for nodes.code() — just pass a function(ctx)
+-- Handlers are serialized, so keep constants/local state inside the handler
+-- or pass values through ctx. `ironflow validate --strict` also catches reads
+-- of undefined handler globals before execution.
 local flow = Flow.new("function_handler_demo")
 
 -- Step 1: Set up some data using a function handler
@@ -39,3 +42,5 @@ return flow
 
 -- Run with:
 --   ironflow run examples/07-advanced/function_handler.lua
+-- Validate handler globals strictly with:
+--   ironflow validate examples/07-advanced/function_handler.lua --strict

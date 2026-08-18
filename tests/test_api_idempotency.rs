@@ -23,6 +23,7 @@ fn app(store: Arc<JsonStateStore>) -> Router {
         webhooks: std::collections::HashMap::new(),
         allow_adhoc_flows: true,
         lifecycle: ServiceLifecycle::default(),
+        metrics: None,
     });
     Router::new()
         .route("/flows/run", post(ironflow::api::handlers::run_flow))

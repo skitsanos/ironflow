@@ -351,9 +351,6 @@ async fn cache_get_memory_expired_entry_is_reclaimed() {
         .await
         .expect("cache_set succeeds");
 
-    // Sleep past the second boundary to guarantee expiry
-    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
-
     let get_config = serde_json::json!({"key": key, "backend": "memory"});
     let output = get_node
         .execute(&get_config, &empty_ctx())
@@ -428,23 +425,4 @@ fn bounded_cache_lru_evicts_oldest_unused() {
     cache.insert("d".into(), 4, None);
     assert_eq!(cache.get(&"c".into()), None);
     assert_eq!(cache.get(&"d".into()), Some(4));
-}
-
-#[test]
-fn bounded_cache_sweep_reclaims_expired_without_read() {
-    use ironflow::util::bounded_cache::BoundedCache;
-
-    let cache: BoundedCache<String, u64> = BoundedCache::new(16);
-    // ttl=1 keeps entries alive long enough to survive the implicit sweep
-    // that runs inside the third `insert` below.
-    cache.insert("short_1".into(), 1, Some(1));
-    cache.insert("short_2".into(), 2, Some(1));
-    cache.insert("forever".into(), 3, None);
-
-    std::thread::sleep(std::time::Duration::from_millis(1500));
-
-    let removed = cache.sweep_expired();
-    assert_eq!(removed, 2);
-    assert_eq!(cache.len(), 1);
-    assert_eq!(cache.get(&"forever".into()), Some(3));
 }

@@ -69,13 +69,25 @@ Parse and validate a flow file without executing it. Checks for:
 - DAG cycles
 - Duplicate step names
 - Invalid recovery targets, shared handlers, and recovery-graph cycles
+- Invalid syntax in string-valued `code` node source
+- Reads of undefined globals inside Lua function handlers and string-valued
+  `code` node source
+
+Undefined globals are warnings by default, so validation still exits
+successfully while reporting the source line and column. Embedded code-source
+locations use `step[NAME].source:LINE:COLUMN`; their positions are relative to
+the decoded source string. Use `--strict` to treat any Lua warning as a
+validation failure. Invalid embedded syntax and function handlers that capture
+outer locals are always rejected.
 
 | Argument / Flag | Required | Default | Description |
 |-----------------|----------|---------|-------------|
 | `<FLOW>` | yes | — | Path to the `.lua` flow file |
+| `--strict` | no | off | Fail when Lua handler or embedded code warnings are reported |
 
 ```bash
 ironflow validate flow.lua
+ironflow validate flow.lua --strict
 ```
 
 ---
@@ -155,6 +167,37 @@ orphaned retained event stream from an interrupted earlier deletion.
 
 ---
 
+### `ironflow artifacts prune`
+
+Delete old artifacts that are absent from every retained run context and task
+input/output. This is an offline maintenance command: stop every IronFlow
+writer sharing the state and artifact stores, then acknowledge that boundary
+with `--confirm-offline`. Without it the command fails before opening either
+store.
+
+| Flag | Required | Default | Description |
+|------|----------|---------|-------------|
+| `--before <RFC3339>` | yes | — | Consider only artifacts last modified before this instant |
+| `--limit <COUNT>` | no | `100` | Candidate batch size, strictly 1–100 |
+| `--confirm-offline` | yes | — | Assert that no process can add a reference during the scan/delete window |
+| `--store-dir <DIR>` | no | `data/runs` | JSON/SQLite state location; normal store configuration and environment overrides still apply |
+
+The command holds at most 100 candidate digests, walks run summaries in
+100-record cursor pages, and loads one full run at a time. Corrupt or unreadable
+run state fails closed before deletion. S3 listing can traverse multiple remote
+pages but retains only the requested candidate batch. The command deletes both
+the remote object and its local cache entry; local mode deletes the local
+object only.
+
+```bash
+ironflow artifacts prune \
+  --before 2026-07-01T00:00:00Z \
+  --limit 100 \
+  --confirm-offline
+```
+
+---
+
 ### `ironflow serve`
 
 Start the REST API server.
@@ -185,6 +228,12 @@ IRONFLOW_API_KEY="change-me" ironflow serve
 both configured stores answer a two-second probe. `/health` remains a liveness
 alias. SIGTERM/SIGINT closes readiness, stops scheduling and new run admission,
 then drains accepted work according to `IRONFLOW_SHUTDOWN_GRACE_SECONDS`.
+
+Set `IRONFLOW_METRICS_ENABLED=true` or `metrics_enabled: true` to register
+`GET /metrics`. The OpenMetrics response uses the same API authentication
+boundary and is process-local; the route returns `404` when disabled. See
+[Operator metrics](METRICS.md) for the complete label, reset, scrape, and alert
+contract.
 
 `POST /flows/run` accepts an optional `Idempotency-Key`. It is limited to 128
 portable ASCII characters (`A-Z`, `a-z`, `0-9`, `-`, `_`, `.`, `:`). The key is
@@ -433,6 +482,21 @@ curl http://localhost:3000/runs \
 
 To intentionally run without API authentication, set `IRONFLOW_ALLOW_UNAUTHENTICATED_API=true` or `allow_unauthenticated_api: true` in config. A server whose resolved bind address is loopback (for example `127.0.0.1`, `localhost`, or `::1`) is allowed without a key for local development.
 
+#### Operator Metrics
+
+Metrics are disabled by default. Enable and scrape them with the same API key:
+
+```bash
+IRONFLOW_METRICS_ENABLED=true IRONFLOW_API_KEY="change-me" ironflow serve
+
+curl --fail http://localhost:3000/metrics \
+  -H "Authorization: Bearer change-me"
+```
+
+The endpoint is intended for Prometheus-compatible collectors and returns
+OpenMetrics text. It exports no run IDs, flow/schedule names, URLs, errors,
+context values, or secrets as labels. See [Operator metrics](METRICS.md).
+
 #### API Error Responses
 
 Application errors use a JSON object with a human-readable `error` and a
@@ -630,6 +694,14 @@ two inline forms are not confined at all, because the caller supplies the
 workflow itself. Validation evaluates the top-level Lua chunk, including
 `env()`, even though it does not execute workflow steps.
 
+The validation request also accepts `"strict": true`. Responses can contain a
+`warnings` array whose entries have `code`, `message`, `line`, and `column`.
+Embedded code-source diagnostics also include `step`; their line and column are
+relative to that step's decoded `source` string. Undefined reads use the
+`undefined_global` code. Warnings leave `valid` unchanged by default; strict
+mode sets `valid` to `false` and adds a summary to `errors`. Invalid embedded
+syntax and captured outer locals are errors in both modes.
+
 That is the intended contract for a general-purpose engine — but it means an API
 key that can reach `/flows/run` can run any node, so it can read or write any
 path the server process can and execute shell commands. If your deployment
@@ -663,8 +735,11 @@ webhooks:
   hello: hello_world.lua  # shorthand: no request headers reach the flow
   signed-order:
     flow: orders/process.lua
-    forward_headers:
-      - x-webhook-signature
+    signature:
+      type: hmac_sha256
+      header: x-hub-signature-256
+      secret_env: WEBHOOK_SIGNING_SECRET
+      prefix: sha256=
 ```
 
 - Flow paths are resolved relative to `flows_dir`
@@ -680,25 +755,38 @@ webhooks:
 - Webhook name is injected as `ctx._webhook`
 - Request bodies cannot define the reserved `_headers`, `_webhook`, or
   `_flow_dir` context keys
+- A `signature` policy verifies an HMAC-SHA256 hex digest over the exact,
+  bounded request body before JSON parsing, flow loading, or run creation
+- `secret_env` is resolved at server startup and must contain at least 16
+  bytes. Its value and the signature header are never workflow input
+- The signature header must occur exactly once and must not also appear in
+  `forward_headers`. Missing, repeated, malformed, or mismatched signatures
+  return `403` without creating a run
+- `prefix` defaults to `sha256=`; set it explicitly to an empty string only
+  when the sender provides a bare hex digest
 
 ```bash
 curl -X POST http://localhost:3000/webhooks/signed-order \
   -H "X-API-Key: $IRONFLOW_API_KEY" \
-  -H "X-Webhook-Signature: $WEBHOOK_SHARED_SECRET" \
+  -H "X-Hub-Signature-256: $PROVIDER_SIGNATURE" \
   -H "Content-Type: application/json" \
-  -d '{"order_id": "123"}'
+  --data-binary "$EXACT_PROVIDER_BODY"
 ```
 
 The API key authenticates the caller to IronFlow and is consumed by the API
-middleware. The separately configured business signature is available only
-while workflow nodes execute. Workflow code should validate it in place and
-return a boolean/result, never log, return, encode, or otherwise copy the raw
-value. Literal copies are redacted, but deliberately transformed or externally
-transmitted secrets cannot be identified reliably.
+middleware. The separately configured HMAC policy authenticates the exact body
+before workflow execution. `--data-binary` is significant in manual probes:
+changing whitespace or line endings changes the signature.
 
-Webhook bodies are parsed JSON; IronFlow does not expose the original request
-bytes needed by provider schemes that sign an exact raw payload. Verify those
-schemes in an upstream gateway until a raw-body verification contract exists.
+The built-in policy covers body-only HMAC-SHA256 schemes such as GitHub's
+`X-Hub-Signature-256`. It does not parse provider-specific compound headers or
+add timestamp/replay protection. Schemes such as Stripe and Slack include a
+timestamp in their signed message and require a recency check; verify those in
+an upstream gateway until IronFlow exposes a dedicated policy for that scheme.
+
+`forward_headers` remains available for non-authentication business metadata.
+Values forwarded that way are execution-only and redacted, but workflow code
+must not use direct shared-secret equality as a substitute for request signing.
 
 Runs created by older IronFlow versions may already contain request headers.
 Public run output hides legacy `_headers` values when they are still present,
@@ -829,6 +917,7 @@ configuration-file fields. `IRONFLOW_STORE_DIR` applies to `run`, `list`,
 | `MAX_BODY` | `1048576` | Max request body size (bytes) |
 | `IRONFLOW_API_KEY` | — | API key required for non-loopback API servers |
 | `IRONFLOW_ALLOW_UNAUTHENTICATED_API` | `false` | Explicitly allow unauthenticated API access |
+| `IRONFLOW_METRICS_ENABLED` | `false` | Register process-local `GET /metrics`; accepts only `true` or `false` and follows API authentication |
 | `IRONFLOW_ALLOW_ADHOC_FLOWS` | `true` | Allow `POST /flows/run` and `POST /flows/validate` to evaluate flow source sent in the request body. `false` requires `flows_dir` and restricts both endpoints to files under it. Overrides `allow_adhoc_flows` in config. |
 | `IRONFLOW_CORS_ORIGINS` | — | Comma-separated allowed browser origins; use `*` to allow any origin |
 
@@ -860,6 +949,8 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_DB_MAX_ROWS` | `1000` | Max rows returned by `db_query`; `0` disables |
 | `IRONFLOW_DB_MAX_RESULT_BYTES` | `10485760` | Max serialized JSON result size for `db_query`; `0` disables |
 | `IRONFLOW_LLM_MAX_RESPONSE_BYTES` | `26214400` | Max LLM provider response body size; `0` disables |
+| `IRONFLOW_LLM_MAX_IMAGE_INPUT_BYTES` | `52428800` | Maximum cumulative raw image-artifact bytes resolved for one LLM request |
+| `IRONFLOW_LLM_MAX_IMAGE_ARTIFACTS` | `32` | Maximum image-artifact blocks resolved for one LLM request |
 | `IRONFLOW_MAX_TRANSCRIBE_RESPONSE_BYTES` | `26214400` | Maximum transcription-provider response body. Checked while streaming even when `Content-Length` is absent or wrong; zero/invalid values retain the safe default. |
 | `IRONFLOW_MAX_HTTP_BODY_BYTES` | `52428800` | Maximum HTTP node response-body size |
 | `IRONFLOW_MAX_FILE_BYTES` | `52428800` | Maximum `read_file` payload and final `write_file` size (including an existing file in append mode), streamed `s3_get_object` response body, HTML/SRT/VTT extraction input, and raw DOCX/PPTX archive size |
@@ -869,7 +960,14 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_MAX_IMAGE_TO_PDF_SOURCES` | `100` | Maximum source entries admitted by one `image_to_pdf` call, checked before parsing entries |
 | `IRONFLOW_MAX_IMAGE_TO_PDF_ENCODED_BYTES` | `104857600` | Maximum cumulative encoded source bytes processed by one `image_to_pdf` call |
 | `IRONFLOW_MAX_IMAGE_TO_PDF_PIXELS` | `50000000` | Maximum cumulative decoded source pixels processed by one `image_to_pdf` call |
-| `IRONFLOW_ARTIFACT_DIR` | `data/artifacts` | Local root for immutable content-addressed workflow artifacts. Files are stored as `sha256/<digest>` and are not automatically expired; use a shared mount when runs can move between hosts. |
+| `IRONFLOW_ARTIFACT_BACKEND` | `local` | Artifact durability backend: `local` or `s3`. Any other value fails before artifact work begins. |
+| `IRONFLOW_ARTIFACT_DIR` | `data/artifacts` | Immutable local store, or private staging/cache when the S3 backend is selected. Files use `sha256/<digest>`. |
+| `IRONFLOW_MAX_ARTIFACT_BYTES` | `52428800` | Positive maximum bytes uploaded to or restored from the S3 artifact backend, enforced against descriptors, response metadata, and streamed bytes. |
+| `IRONFLOW_ARTIFACT_S3_BUCKET` | — | Required bucket when `IRONFLOW_ARTIFACT_BACKEND=s3`. Use standard AWS credential environment variables or workload identity. |
+| `IRONFLOW_ARTIFACT_S3_PREFIX` | `ironflow/artifacts` | Safe 1–512 byte object-key prefix; objects are stored beneath `<prefix>/sha256/<digest>`. |
+| `IRONFLOW_ARTIFACT_S3_REGION` | SDK chain | Optional artifact-specific AWS region override. |
+| `IRONFLOW_ARTIFACT_S3_ENDPOINT_URL` | SDK default | Optional S3-compatible endpoint. Credentials and endpoint values are not placed in artifact descriptors. |
+| `IRONFLOW_ARTIFACT_S3_FORCE_PATH_STYLE` | `false` | Strict `true`/`false` path-style addressing switch for compatible services. |
 | `IRONFLOW_MAX_AUDIO_BYTES` | `25000000` | Maximum size of the audio/video file `transcribe` reads from disk before uploading it to the provider |
 | `IRONFLOW_MAX_CONVERSION_DEPTH` | `64` | Maximum nesting depth when converting values between JSON and Lua, and when admitting a verbose-JSON `transcribe` response before materialization |
 | `IRONFLOW_MAX_CONVERSION_NODES` | `100000` | Maximum total values converted between JSON and Lua in one conversion, also applied before a verbose-JSON `transcribe` response is materialized. A step handler converts the whole accumulated run context, not only the keys it reads, so a large fan-out can reach this in a step that never touched the data |
@@ -896,6 +994,7 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_MAX_XLSX_CELLS` | `33000` | Maximum total cells across every sheet one `extract_xlsx` call extracts |
 | `IRONFLOW_MAX_XLSX_OUTPUT_BYTES` | `52428800` | Maximum cumulative decoded/result bytes for one `extract_xlsx` call and maximum compressed/uncompressed size of one workbook part; repeated shared-string references are charged per use |
 | `IRONFLOW_MAX_DETACHED_SUBWORKFLOWS` | `64` | Process-wide limit for detached `subworkflow` executions |
+| `IRONFLOW_MAX_REPEAT_ITERATIONS` | `128` | Maximum `repeat_subworkflow` iterations requested by one node; valid range is 1–1024 |
 | `IRONFLOW_MCP_SESSION_CACHE_SIZE` | `1024` | Maximum live MCP session handles; least-recently-used overflow sessions are closed |
 | `IRONFLOW_MCP_SESSION_TTL_SECS` | `3600` | Idle TTL for live MCP sessions; expired sessions are closed when another session is inserted or leased |
 | `IRONFLOW_OAUTH_CACHE_SIZE` | `128` | Maximum cached OAuth client token tuples |
@@ -912,13 +1011,14 @@ SRT/VTT count input lines and parsed cues. The node pages document the exact
 units and additional raw or archive limits.
 
 Binary-producing nodes use `artifact://sha256/<digest>` descriptors to keep
-large byte payloads out of workflow context. The first backend is deliberately
-local and content-addressed: publication is atomic, duplicate content is
-reused, and files persist until an operator removes them. Redis/PostgreSQL run
-state stores only the descriptor, not its file. Multi-host deployments and
-recovered runs therefore require `IRONFLOW_ARTIFACT_DIR` to point at durable
-storage mounted at the same path on every worker. Inline Base64 remains an
-explicit compatibility/provider-boundary mode where a node documents it.
+large byte payloads out of workflow context. Local mode publishes atomically
+under `IRONFLOW_ARTIFACT_DIR`. S3 mode uses that directory only for private
+staging/cache, streams the verified handle to `<prefix>/sha256/<digest>`, and
+restores a missing cache entry with a byte ceiling and SHA-256 verification
+before a consumer receives the rewound handle. The descriptor deliberately
+contains no bucket, endpoint, credential, or mutable object key; every replica
+must use the same backend, bucket, and prefix. Inline Base64 remains an explicit
+compatibility/provider-boundary mode where a node documents it.
 The directory is a trusted process boundary: protect it from mutation by
 workflow and unrelated same-identity processes. Artifact-aware consumers open
 inside their tracked blocking worker, refuse links and non-regular files, hash
@@ -926,8 +1026,8 @@ the opened handle, compare it with the URI/descriptor, rewind it, and pass that
 same handle to the parser. This detects same-size path replacement and avoids a
 path-resolution/open race, but it cannot isolate an already-open inode from a
 hostile process with the same OS identity. Hostile multi-tenant deployments
-need separate execution identities and storage ACLs, or a separately
-authenticated artifact service.
+need separate execution identities and storage ACLs. S3 credentials and bucket
+policy are the remote authentication and namespace boundary.
 
 `IRONFLOW_MAX_XLSX_CELLS` is deliberately kept below `IRONFLOW_MAX_CONVERSION_NODES`: converting an extracted sheet into Lua costs roughly `rows * (cols + 1)` conversion nodes, so a cell ceiling that never fires before the conversion budget does would let oversized workbooks fail deep inside the JSON-to-Lua converter (an error naming a JSON path) instead of at `extract_xlsx` parse time (an error naming the sheet). Raising one of these two limits without the other may simply move where an oversized workbook fails rather than allow it through.
 

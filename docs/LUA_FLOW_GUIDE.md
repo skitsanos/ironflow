@@ -287,22 +287,28 @@ When a flow is triggered via `POST /webhooks/{name}`, the engine injects:
 webhooks:
   signed-action:
     flow: signed_action.lua
-    forward_headers:
-      - x-webhook-signature
+    signature:
+      type: hmac_sha256
+      header: x-hub-signature-256
+      secret_env: WEBHOOK_SIGNING_SECRET
+      prefix: sha256=
 ```
 
 ```lua
-flow:step("check_auth", function(ctx)
-    local signature = ctx._headers and ctx._headers["x-webhook-signature"] or ""
-    local expected = env("WEBHOOK_SHARED_SECRET")
-    if not expected or signature ~= expected then
-        error("Unauthorized")
-    end
-    return { signature_valid = true }
+-- This step runs only after the exact request bytes pass ingress verification.
+flow:step("process", function(ctx)
+    return { accepted_action = ctx.action }
 end)
 ```
 
-No request headers are forwarded by default. Platform authentication headers
+The HMAC secret must contain at least 16 bytes and is resolved from the named
+environment variable when the server starts. The signature header and secret
+never enter Lua context, and a rejected request creates no run. This generic
+policy signs only the request body; provider schemes that sign timestamps or
+require replay windows still need a provider-aware upstream verifier.
+
+No request headers are forwarded by default. Separate non-authentication
+business headers can be allowlisted with `forward_headers`. Platform headers
 such as `Authorization` and `X-API-Key`, cookies, and proxy/session credentials
 are never workflow input. Configured header values are execution-only and are
 redacted from literal outputs, errors, child runs, stored context, events, and
@@ -379,7 +385,7 @@ flow:step("handle_pro", nodes.log({
 
 ## Available Nodes
 
-See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list of 102 built-in nodes and their configuration options.
+See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list of 103 built-in nodes and their configuration options.
 
 ## Inline Lua Code
 
@@ -424,15 +430,19 @@ end)
 The function receives `ctx` (the phase-start workflow context) as its argument
 and returns a table of key-value pairs to publish at the phase barrier. Under
 the hood, the function is compiled to bytecode at parse time and executed as a
-`code` node — so the same sandbox rules apply. `env()` works inside handlers.
+`code` node — so the same sandbox rules apply. Runtime helpers such as `env()`,
+`log()`, `json_parse()`, and `now_unix_ms()` work inside handlers. Loader-only
+globals such as `Flow` and `nodes` do not.
 
-**Important:** Function handlers must be self-contained. Do not capture local variables from the enclosing scope — they will be `nil` at runtime:
+**Important:** Function handlers must be self-contained. Capturing a local from
+the enclosing scope is rejected while loading the flow because the upvalue
+cannot survive bytecode serialization:
 
 ```lua
--- BAD: captured local won't survive bytecode transfer
+-- BAD: flow loading fails because threshold is a captured upvalue
 local threshold = 100
 flow:step("check", function(ctx)
-    return { over = ctx.amount > threshold }  -- threshold is nil!
+    return { over = ctx.amount > threshold }
 end)
 
 -- GOOD: use env() or inline the value
@@ -440,6 +450,15 @@ flow:step("check", function(ctx)
     return { over = ctx.amount > 100 }
 end)
 ```
+
+`ironflow validate` also reports reads of undefined globals, which Lua would
+otherwise resolve to `nil` silently. The analysis covers function-backed
+`flow:step`, `flow:step_if`, `nodes.code`, and `nodes.foreach` handlers plus
+string-valued `nodes.code.source`. Function diagnostics use flow-file line and
+column positions. String-source diagnostics identify the step and use positions
+relative to the decoded source string. They remain warnings unless `--strict`
+is supplied. Validation also compiles string-valued code without executing it,
+so invalid syntax is always an error.
 
 ## Complete Example
 

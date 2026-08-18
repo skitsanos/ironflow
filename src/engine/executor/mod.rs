@@ -7,10 +7,12 @@ mod finalizer;
 mod lease;
 mod output;
 mod overlay;
+mod panic_payload;
 mod phase_output;
 mod scheduler;
 mod signal;
 mod task_runner;
+mod task_runtime;
 mod workflow;
 
 pub(crate) use coordinator::RunCancellation;

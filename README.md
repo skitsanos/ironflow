@@ -84,7 +84,7 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 
 ## Features
 
-- **102 built-in nodes** — HTTP (GET/POST/PUT/DELETE), file I/O, ZIP utilities (`zip_create`, `zip_list`, `zip_extract`), S3 operations, shell commands, JSON/CSV/XML/YAML transforms, foreach iteration, key-value caching (memory + file), conditional routing, schema validation, hashing, templating, Markdown conversion, HTML sanitization, document extraction (Word/PDF/PPTX/HTML/VTT/SRT/Excel), PDF merge/split, database queries (SQLite via sqlx, ArangoDB via HTTP), AI text embeddings/chunking (`ai_*`) and chat/completions (`llm`) across providers, audio/video transcription (`transcribe`) via OpenAI, OpenAI-compatible, or Azure, an MCP 2025-11-25 client over persistent stdio and Streamable HTTP (`mcp_client`), notification integrations (`send_email`, `slack_notification`), data extraction helpers (`json_extract_path`, `if_body_contains`, `if_http_status`), delays, inline code execution, subworkflow composition, LLM tool dispatch (`tool_dispatch`), presigned S3 URL support, base64 encoding/decoding, date formatting, image helpers (`pdf_to_image`, `pdf_thumbnail`, `image_to_pdf`, `image_resize`, `image_crop`, `image_rotate`, `image_flip`, `image_grayscale`, `image_metadata`, `image_convert`, `image_watermark`, `pdf_metadata`).
+- **103 built-in nodes** — HTTP (GET/POST/PUT/DELETE), file I/O, ZIP utilities (`zip_create`, `zip_list`, `zip_extract`), S3 operations, shell commands, JSON/CSV/XML/YAML transforms, foreach iteration, key-value caching (memory + file), conditional routing, schema validation, hashing, templating, Markdown conversion, HTML sanitization, document extraction (Word/PDF/PPTX/HTML/VTT/SRT/Excel), PDF merge/split, database queries (SQLite via sqlx, ArangoDB via HTTP), AI text embeddings/chunking (`ai_*`) and chat/completions (`llm`) across providers, audio/video transcription (`transcribe`) via OpenAI, OpenAI-compatible, or Azure, an MCP 2025-11-25 client over persistent stdio and Streamable HTTP (`mcp_client`), notification integrations (`send_email`, `slack_notification`), data extraction helpers (`json_extract_path`, `if_body_contains`, `if_http_status`), delays, inline code execution, bounded repeated subworkflow composition, LLM tool dispatch (`tool_dispatch`), presigned S3 URL support, base64 encoding/decoding, date formatting, image helpers (`pdf_to_image`, `pdf_thumbnail`, `image_to_pdf`, `image_resize`, `image_crop`, `image_rotate`, `image_flip`, `image_grayscale`, `image_metadata`, `image_convert`, `image_watermark`, `pdf_metadata`).
 - **Function handlers** — pass Lua functions directly as step handlers, no boilerplate needed
 - **Conditional step shorthand** — `step_if(condition, name, handler)` for concise branching
 - **DAG-based scheduling** — steps run in parallel unless dependencies are declared
@@ -99,7 +99,7 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 - **CLI** — run, validate, inspect, and list workflows from the terminal
 - **Planned error recovery** — `on_error` schedules a dedicated recovery step
   inside the validated DAG, with normal dependencies, retries, and timeouts
-- **Subworkflow composition** — call other `.lua` flows as reusable modules with input/output mapping, or run multiple flows in parallel with `parallel_subworkflows`
+- **Subworkflow composition** — call reusable `.lua` flows once, fan out runtime work with `parallel_subworkflows`, or iterate explicit state with bounded `repeat_subworkflow`
 - **Sandboxed execution** — Lua scripts run without `os`, `io`, or `debug` access
 
 ## Quick Start
@@ -182,10 +182,11 @@ gates for ordinary CI.
 | Command | Description |
 |---------|-------------|
 | `ironflow run <file>` | Execute a workflow |
-| `ironflow validate <file>` | Validate a flow without running |
+| `ironflow validate <file> [--strict]` | Validate a flow without running; strict mode rejects Lua handler warnings |
 | `ironflow nodes` | List all available node types |
 | `ironflow list` | List a bounded page of past workflow runs (`--limit`, `--after`) |
 | `ironflow inspect <run_id>` | Inspect a specific run |
+| `ironflow artifacts prune` | Offline bounded cleanup of artifacts not referenced by retained runs |
 | `ironflow serve` | Start the REST API server |
 
 ## API Endpoints
@@ -203,6 +204,12 @@ gates for ordinary CI.
 | `GET` | `/health` | Backwards-compatible liveness check |
 | `GET` | `/health/live` | Process liveness |
 | `GET` | `/health/ready` | Admission and durable-store readiness |
+| `GET` | `/metrics` | Opt-in authenticated operator metrics (`IRONFLOW_METRICS_ENABLED=true`) |
+
+The metrics endpoint exports a fixed-cardinality, process-local OpenMetrics
+contract for run/task outcomes and durations, active work, admission,
+scheduling, leases, and storage failures. It follows the API authentication
+boundary and is absent when disabled. See [Operator metrics](docs/METRICS.md).
 
 Flows can also run on a schedule. A `schedules:` block in `ironflow.yaml`
 declares bounded standard five-field cron triggers that `ironflow serve`
@@ -408,6 +415,13 @@ flow:step("transform", function(ctx)
 end):depends_on("load_items")
 ```
 
+Handlers are serialized into an isolated Lua VM. Keep their local state inside
+the function or pass values through `ctx`; captured outer locals are rejected.
+Validation reports undefined handler and string-backed `code` globals as
+source-positioned warnings, and `ironflow validate flow.lua --strict` treats
+those warnings as failures. It also compiles string-backed code during
+validation, without executing it, so invalid syntax fails immediately.
+
 ### Retries and timeouts
 
 ```lua
@@ -470,7 +484,7 @@ flow:step("standard_flow", nodes.log({
 | **Cache** | `cache_set`, `cache_get` |
 | **Notification** | `send_email`, `slack_notification` |
 | **Database** | `db_query`, `db_exec`, `arangodb_aql` |
-| **Composition** | `subworkflow`, `parallel_subworkflows`, `tool_dispatch`, `code` |
+| **Composition** | `subworkflow`, `parallel_subworkflows`, `repeat_subworkflow`, `tool_dispatch`, `code` |
 | **XML** | `xml_parse`, `xml_stringify` |
 | **YAML** | `yaml_parse`, `yaml_stringify` |
 | **HTML** | `html_sanitize` |
@@ -564,7 +578,12 @@ candidate into `main` before the stable tag. Stable versions never land on
 
 ## Roadmap
 
-- Web UI for flow visualization
+The maintained [`Now / Next / Later` roadmap](docs/ROADMAP.md) separates
+committed work from candidates and records IronFlow's enterprise deployment
+boundaries. Bounded operator metrics and the streamed S3-compatible artifact
+lifecycle are part of the delivered baseline. A read-only Web UI for flow and
+run visualization remains a later candidate rather than an implementation
+commitment.
 
 ## License
 

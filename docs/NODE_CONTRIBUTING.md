@@ -197,7 +197,7 @@ Update:
 
 2) `src/nodes/mod.rs::with_builtins()` calls each category's `register_all(&mut registry)` directly. If you added a new category, add its `register_all` call there.
 
-3) If the node is special for subflow execution (child registry behavior), update `src/nodes/composition/subworkflow.rs` only if needed.
+3) Composition nodes that launch children must use `src/nodes/composition/registry.rs` so every supported composition node is available recursively.
 
 ## 9) Lua API exposure
 
@@ -300,7 +300,7 @@ remove the entry at 300 lines or fewer. New exceptions and exception-budget
 changes are architecture-policy decisions that require maintainer review.
 IF-034 established 13 reviewed exceptions; IF-052 later approved a temporary
 ceiling of 17 for security-fix growth, and subsequent extraction ratcheted the
-current checked-in ceiling to 14. A new exception must therefore replace an
+current checked-in ceiling to 11. A new exception must therefore replace an
 existing one; files above 400 lines are never exempt. Passing this check does not
 establish good modularity: reviewers must still examine responsibility
 boundaries, cognitive complexity, and whether moving tests or helpers improves

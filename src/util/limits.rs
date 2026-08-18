@@ -22,6 +22,12 @@ const DEFAULT_HTTP_BODY_BYTES: u64 = 50 * 1024 * 1024;
 /// Default cap for LLM provider response bodies (25 MB).
 const DEFAULT_LLM_RESPONSE_BYTES: u64 = 25 * 1024 * 1024;
 
+/// Default cumulative raw image-artifact bytes admitted to one LLM request.
+const DEFAULT_LLM_IMAGE_INPUT_BYTES: u64 = 50 * 1024 * 1024;
+
+/// Default number of image-artifact blocks admitted to one LLM request.
+const DEFAULT_LLM_IMAGE_ARTIFACTS: u64 = 32;
+
 /// Default cap for `read_file` / `write_file` payload size (50 MB).
 const DEFAULT_FILE_BYTES: u64 = 50 * 1024 * 1024;
 
@@ -121,6 +127,22 @@ pub fn max_llm_response_bytes() -> Option<u64> {
         "IRONFLOW_LLM_MAX_RESPONSE_BYTES",
         DEFAULT_LLM_RESPONSE_BYTES,
     )
+}
+
+pub fn max_llm_image_input_bytes() -> u64 {
+    env_u64(
+        "IRONFLOW_LLM_MAX_IMAGE_INPUT_BYTES",
+        DEFAULT_LLM_IMAGE_INPUT_BYTES,
+    )
+}
+
+pub fn max_llm_image_artifacts() -> usize {
+    env_u64(
+        "IRONFLOW_LLM_MAX_IMAGE_ARTIFACTS",
+        DEFAULT_LLM_IMAGE_ARTIFACTS,
+    )
+    .try_into()
+    .unwrap_or(usize::MAX)
 }
 
 pub fn max_file_bytes() -> u64 {

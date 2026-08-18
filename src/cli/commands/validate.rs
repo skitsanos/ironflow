@@ -5,15 +5,16 @@ use anyhow::{Context as _, Result};
 use crate::lua::LuaRuntime;
 use crate::nodes::NodeRegistry;
 
-pub(crate) fn cmd_validate(flow_path: PathBuf) -> Result<()> {
+pub(crate) fn cmd_validate(flow_path: PathBuf, strict: bool) -> Result<()> {
     let registry = NodeRegistry::with_builtins();
 
     let flow_str = flow_path
         .to_str()
         .ok_or_else(|| anyhow::anyhow!("Invalid flow path"))?;
 
-    let flow = LuaRuntime::load_flow(flow_str, &registry)
+    let validated = LuaRuntime::validate_flow(flow_str, &registry)
         .with_context(|| format!("Failed to load flow: {}", flow_path.display()))?;
+    let flow = validated.flow;
 
     println!("Flow: {}", flow.name);
     println!("Steps: {}", flow.steps.len());
@@ -32,7 +33,34 @@ pub(crate) fn cmd_validate(flow_path: PathBuf) -> Result<()> {
     // Validate DAG (dependencies + cycle detection)
     errors.extend(flow.validate_dag());
 
-    if errors.is_empty() {
+    if !validated.warnings.is_empty() {
+        println!("Warnings:");
+        for warning in &validated.warnings {
+            if let Some(step) = &warning.step {
+                println!(
+                    "  {}:step[{}].source:{}:{} [{}] {}",
+                    flow_path.display(),
+                    step,
+                    warning.line,
+                    warning.column,
+                    warning.code,
+                    warning.message
+                );
+            } else {
+                println!(
+                    "  {}:{}:{} [{}] {}",
+                    flow_path.display(),
+                    warning.line,
+                    warning.column,
+                    warning.code,
+                    warning.message
+                );
+            }
+        }
+    }
+
+    let strict_failure = strict && !validated.warnings.is_empty();
+    if errors.is_empty() && !strict_failure {
         println!("Validation: OK");
 
         println!("\nExecution order:");
@@ -49,7 +77,17 @@ pub(crate) fn cmd_validate(flow_path: PathBuf) -> Result<()> {
         for err in &errors {
             println!("  - {}", err);
         }
-        anyhow::bail!("{} validation error(s) found", errors.len());
+        if strict_failure {
+            println!(
+                "  - strict validation rejected {} warning(s)",
+                validated.warnings.len()
+            );
+        }
+        anyhow::bail!(
+            "{} validation error(s) and {} strict warning(s) found",
+            errors.len(),
+            usize::from(strict_failure) * validated.warnings.len()
+        );
     }
 
     Ok(())

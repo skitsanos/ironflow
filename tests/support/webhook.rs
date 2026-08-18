@@ -9,7 +9,7 @@ use axum::http::{Method, Request, StatusCode};
 use axum::middleware;
 use axum::routing::{get, post};
 use http_body_util::BodyExt as _;
-use ironflow::api::{ApiAuth, AppState, WebhookConfig};
+use ironflow::api::{ApiAuth, AppState, WebhookConfig, WebhookSignatureConfig};
 use ironflow::nodes::NodeRegistry;
 use ironflow::storage::event_store::MemoryEventStore;
 use ironflow::storage::json_store::JsonStateStore;
@@ -38,6 +38,14 @@ pub fn webhook(flow: &str, forward_headers: &[&str]) -> WebhookConfig {
     .unwrap()
 }
 
+#[allow(dead_code)] // Only the signed-webhook security crate uses this helper.
+pub fn signed_webhook(flow: &str, header: &str, secret_env: &str) -> WebhookConfig {
+    WebhookConfig::new(flow, [])
+        .unwrap()
+        .with_signature(WebhookSignatureConfig::hmac_sha256(header, secret_env, "sha256=").unwrap())
+        .unwrap()
+}
+
 /// Build protected webhook/run-detail routes with the production API-key
 /// middleware ordering.
 pub fn build_test_app(flows_dir: PathBuf, webhooks: HashMap<String, WebhookConfig>) -> TestApp {
@@ -56,6 +64,7 @@ pub fn build_test_app(flows_dir: PathBuf, webhooks: HashMap<String, WebhookConfi
         webhooks,
         allow_adhoc_flows: true,
         lifecycle: ironflow::api::ServiceLifecycle::default(),
+        metrics: None,
     });
 
     let protected = Router::new()

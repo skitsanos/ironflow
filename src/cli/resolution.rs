@@ -30,6 +30,12 @@ impl CommandValueSources {
                 store_dir: command.value_source("store_dir"),
                 ..Self::default()
             },
+            "artifacts" => Self {
+                store_dir: command
+                    .subcommand()
+                    .and_then(|(_, command)| command.value_source("store_dir")),
+                ..Self::default()
+            },
             "serve" => Self {
                 store_dir: command.value_source("store_dir"),
                 host: command.value_source("host"),
@@ -102,6 +108,7 @@ pub(super) struct ServerConfig {
     pub max_concurrent_tasks: Option<usize>,
     pub api_key: Option<String>,
     pub allow_unauthenticated_api: bool,
+    pub metrics_enabled: bool,
     pub allow_adhoc_flows: bool,
     pub cors_origins: Option<Vec<String>>,
     pub replica_mode: bool,
@@ -129,6 +136,12 @@ impl ServerConfig {
                 "either 'true' or 'false'",
             )?
             .or(config.allow_unauthenticated_api)
+            .unwrap_or(false),
+            metrics_enabled: environment_value(
+                "IRONFLOW_METRICS_ENABLED",
+                "either 'true' or 'false'",
+            )?
+            .or(config.metrics_enabled)
             .unwrap_or(false),
             // Strict parsing, like every other environment toggle (IF-018): an
             // unrecognized value must fail loudly rather than silently resolve

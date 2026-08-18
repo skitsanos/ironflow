@@ -5,6 +5,7 @@ use tracing::{debug, error, info, trace, warn};
 use uuid::Uuid;
 
 use crate::engine::types::FlowDefinition;
+use crate::lua::analysis::{HandlerDiagnostics, LuaDiagnostic};
 use crate::lua::conversion::{lua_to_log_string, register_json_globals};
 use crate::lua::sandbox::new_sandboxed_lua;
 use crate::nodes::NodeRegistry;
@@ -17,14 +18,21 @@ use crate::util::limits::{
 use super::api::register_flow_api;
 use super::extractor::extract_flow;
 use super::source;
+use super::validation::validate_code_sources;
 
 /// Lua runtime for loading and parsing flow definitions.
 pub struct LuaRuntime;
 
+#[derive(Debug)]
+pub struct ValidatedFlow {
+    pub flow: FlowDefinition,
+    pub warnings: Vec<LuaDiagnostic>,
+}
+
 impl LuaRuntime {
     /// Load a flow definition from a Lua file.
     pub fn load_flow(path: &str, registry: &NodeRegistry) -> Result<FlowDefinition> {
-        Self::load_flow_controlled(path, registry, None)
+        Self::load_flow_controlled(path, registry, None, false).map(|loaded| loaded.flow)
     }
 
     /// Load a flow file off the async runtime worker while observing the
@@ -33,7 +41,23 @@ impl LuaRuntime {
         let path = path.to_owned();
         let registry = registry.snapshot();
         run_blocking_step(move |execution| {
-            Self::load_flow_controlled(&path, &registry, Some(execution))
+            Self::load_flow_controlled(&path, &registry, Some(execution), false)
+                .map(|loaded| loaded.flow)
+        })
+        .await
+    }
+
+    /// Load a flow file and collect non-fatal handler diagnostics.
+    pub fn validate_flow(path: &str, registry: &NodeRegistry) -> Result<ValidatedFlow> {
+        Self::load_flow_controlled(path, registry, None, true)
+    }
+
+    /// Validate a flow file off the async runtime worker.
+    pub async fn validate_flow_async(path: &str, registry: &NodeRegistry) -> Result<ValidatedFlow> {
+        let path = path.to_owned();
+        let registry = registry.snapshot();
+        run_blocking_step(move |execution| {
+            Self::load_flow_controlled(&path, &registry, Some(execution), true)
         })
         .await
     }
@@ -42,41 +66,18 @@ impl LuaRuntime {
         path: &str,
         registry: &NodeRegistry,
         execution: Option<ExecutionControl>,
-    ) -> Result<FlowDefinition> {
+        collect_diagnostics: bool,
+    ) -> Result<ValidatedFlow> {
         checkpoint(&execution)?;
         let source = source::read_file(path, max_flow_source_bytes(), execution.as_ref())?;
         checkpoint(&execution)?;
-
-        let lua = new_sandboxed_lua()?;
-        let limits = LuaExecutionLimits::from_env();
-        apply_limits(&lua, limits, execution.clone())?;
-
-        // Sandbox: remove dangerous modules
-        Self::setup_sandbox(&lua)?;
-        checkpoint(&execution)?;
-
-        // Register the Flow class and nodes table
-        register_flow_api(&lua, registry)?;
-        checkpoint(&execution)?;
-
-        let flow_table: LuaTable = lua
-            .load(&source)
-            .set_name(path)
-            .eval()
-            .map_err(|e| anyhow::anyhow!("Failed to evaluate flow file '{}': {}", path, e))?;
-        checkpoint(&execution)?;
-        collect_lua_garbage(&lua, limits)?;
-        checkpoint(&execution)?;
-
-        // Extract the flow definition from the returned table
-        let flow = extract_flow(&lua, &flow_table)?;
-        checkpoint(&execution)?;
-        Ok(flow)
+        Self::load_source(&source, path, registry, execution, collect_diagnostics)
     }
 
     /// Load a flow definition from a Lua string.
     pub fn load_flow_from_string(source: &str, registry: &NodeRegistry) -> Result<FlowDefinition> {
-        Self::load_flow_from_string_controlled(source, registry, None)
+        Self::load_flow_from_string_controlled(source, registry, None, false)
+            .map(|loaded| loaded.flow)
     }
 
     /// Load an inline flow off the async runtime worker while observing the
@@ -89,7 +90,30 @@ impl LuaRuntime {
         let source = source.to_owned();
         let registry = registry.snapshot();
         run_blocking_step(move |execution| {
-            Self::load_flow_from_string_controlled(&source, &registry, Some(execution))
+            Self::load_flow_from_string_controlled(&source, &registry, Some(execution), false)
+                .map(|loaded| loaded.flow)
+        })
+        .await
+    }
+
+    /// Load inline flow source and collect non-fatal handler diagnostics.
+    pub fn validate_flow_from_string(
+        source: &str,
+        registry: &NodeRegistry,
+    ) -> Result<ValidatedFlow> {
+        Self::load_flow_from_string_controlled(source, registry, None, true)
+    }
+
+    /// Validate inline flow source off the async runtime worker.
+    pub async fn validate_flow_from_string_async(
+        source: &str,
+        registry: &NodeRegistry,
+    ) -> Result<ValidatedFlow> {
+        source::validate(source, max_flow_source_bytes())?;
+        let source = source.to_owned();
+        let registry = registry.snapshot();
+        run_blocking_step(move |execution| {
+            Self::load_flow_from_string_controlled(&source, &registry, Some(execution), true)
         })
         .await
     }
@@ -98,31 +122,58 @@ impl LuaRuntime {
         source: &str,
         registry: &NodeRegistry,
         execution: Option<ExecutionControl>,
-    ) -> Result<FlowDefinition> {
+        collect_diagnostics: bool,
+    ) -> Result<ValidatedFlow> {
         checkpoint(&execution)?;
         source::validate(source, max_flow_source_bytes())?;
         checkpoint(&execution)?;
 
+        Self::load_source(source, "<inline>", registry, execution, collect_diagnostics)
+    }
+
+    fn load_source(
+        source: &str,
+        source_name: &str,
+        registry: &NodeRegistry,
+        execution: Option<ExecutionControl>,
+        collect_diagnostics: bool,
+    ) -> Result<ValidatedFlow> {
+        let diagnostics = collect_diagnostics
+            .then(|| HandlerDiagnostics::analyze(source))
+            .transpose()?;
         let lua = new_sandboxed_lua()?;
         let limits = LuaExecutionLimits::from_env();
         apply_limits(&lua, limits, execution.clone())?;
         Self::setup_sandbox(&lua)?;
         checkpoint(&execution)?;
-        register_flow_api(&lua, registry)?;
+        register_flow_api(&lua, registry, diagnostics.clone())?;
         checkpoint(&execution)?;
 
-        let flow_table: LuaTable = lua
-            .load(source)
-            .set_name("<inline>")
-            .eval()
-            .map_err(|e| anyhow::anyhow!("Failed to evaluate flow source: {}", e))?;
+        let flow_table: LuaTable =
+            lua.load(source)
+                .set_name(source_name)
+                .eval()
+                .map_err(|error| {
+                    if source_name == "<inline>" {
+                        anyhow::anyhow!("Failed to evaluate flow source: {error}")
+                    } else {
+                        anyhow::anyhow!("Failed to evaluate flow file '{source_name}': {error}")
+                    }
+                })?;
         checkpoint(&execution)?;
         collect_lua_garbage(&lua, limits)?;
         checkpoint(&execution)?;
 
         let flow = extract_flow(&lua, &flow_table)?;
         checkpoint(&execution)?;
-        Ok(flow)
+        let mut warnings = diagnostics
+            .map(|analysis| analysis.warnings())
+            .transpose()?
+            .unwrap_or_default();
+        if collect_diagnostics {
+            warnings.extend(validate_code_sources(&lua, &flow)?);
+        }
+        Ok(ValidatedFlow { flow, warnings })
     }
 
     fn setup_sandbox(lua: &Lua) -> Result<()> {

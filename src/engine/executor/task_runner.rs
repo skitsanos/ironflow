@@ -6,9 +6,6 @@ use tracing::{info, warn};
 
 use crate::engine::events::{RunEvent, RunEventType};
 use crate::engine::types::{Context, StepDefinition, TaskState, TaskStatus};
-use crate::nodes::NodeRegistry;
-use crate::storage::StateStore;
-use crate::storage::event_store::EventStore;
 use crate::util::duration::nonnegative_duration;
 use crate::util::execution::with_execution_deadline;
 
@@ -16,7 +13,7 @@ use super::context::{task_duration_ms, task_input_context};
 use super::deadline::StepDeadline;
 use super::engine::WorkflowEngine;
 use super::output::{prepare_failure_output, prepare_output, split_failure_output};
-use super::overlay::ExecutionOverlay;
+use super::task_runtime::TaskRuntime;
 
 /// A task can fail because the workflow/node rejected its input, or because
 /// the executor could not durably record progress. Only the first category is
@@ -28,42 +25,6 @@ pub(super) enum TaskRunError {
         output: Option<Arc<Context>>,
     },
     Infrastructure(anyhow::Error),
-}
-
-pub(super) struct TaskRuntime<'a> {
-    registry: &'a NodeRegistry,
-    store: &'a Arc<dyn StateStore>,
-    events: Option<&'a Arc<dyn EventStore>>,
-    run_id: &'a str,
-    phase_ctx: &'a Arc<Context>,
-    execution_overlay: &'a ExecutionOverlay,
-    lease_owner: &'a str,
-}
-
-impl<'a> TaskRuntime<'a> {
-    pub(super) fn new(
-        registry: &'a NodeRegistry,
-        store: &'a Arc<dyn StateStore>,
-        events: Option<&'a Arc<dyn EventStore>>,
-        run_id: &'a str,
-        phase_ctx: &'a Arc<Context>,
-        execution_overlay: &'a ExecutionOverlay,
-        lease_owner: &'a str,
-    ) -> Self {
-        Self {
-            registry,
-            store,
-            events,
-            run_id,
-            phase_ctx,
-            execution_overlay,
-            lease_owner,
-        }
-    }
-
-    async fn persist_task(&self, task: &TaskState) -> crate::storage::StorageResult<()> {
-        super::lease::persist_task(self.store.as_ref(), self.run_id, task, self.lease_owner).await
-    }
 }
 
 impl TaskRunError {
@@ -93,6 +54,9 @@ impl WorkflowEngine {
         step: &StepDefinition,
         input_overlay: Option<&Context>,
     ) -> Result<Arc<Context>, TaskRunError> {
+        let _active_work = runtime
+            .metrics
+            .map(|metrics| metrics.active_work(crate::metrics::ActiveWorkKind::Task));
         let node = runtime.registry.get(&step.node_type).ok_or_else(|| {
             TaskRunError::workflow(anyhow::anyhow!("Unknown node type: {}", step.node_type))
         })?;
@@ -141,6 +105,7 @@ impl WorkflowEngine {
                 input_overlay,
             );
 
+            let attempt_observation = runtime.metrics.map(|metrics| metrics.task_attempt());
             let execution = runtime.execution_overlay.scope(with_execution_deadline(
                 deadline.instant(),
                 node.execute(&step.config, &current_ctx),
@@ -155,6 +120,9 @@ impl WorkflowEngine {
             };
             match result {
                 Ok(output) => {
+                    if let Some(observation) = attempt_observation {
+                        observation.finish(crate::metrics::TaskOutcome::Success);
+                    }
                     // Only explicit node output is published. An input
                     // overlay therefore stays local unless the node returns
                     // one of its values. Overlay values and keys are redacted
@@ -195,6 +163,14 @@ impl WorkflowEngine {
                     return Ok(Arc::new(context));
                 }
                 Err(mut e) => {
+                    if let Some(observation) = attempt_observation {
+                        let outcome = if deadline_expired {
+                            crate::metrics::TaskOutcome::TimedOut
+                        } else {
+                            crate::metrics::TaskOutcome::Failed
+                        };
+                        observation.finish(outcome);
+                    }
                     let mut failure_output = if deadline_expired {
                         None
                     } else {

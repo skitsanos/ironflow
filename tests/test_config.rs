@@ -20,6 +20,7 @@ max_body: 2097152
 max_concurrent_tasks: 8
 api_key: "from-config"
 allow_unauthenticated_api: true
+metrics_enabled: true
 cors_origins:
   - "https://app.example.com"
   - "https://admin.example.com"
@@ -47,6 +48,7 @@ cors_origins:
     assert_eq!(cfg.max_concurrent_tasks, Some(8));
     assert_eq!(cfg.api_key.as_deref(), Some("from-config"));
     assert_eq!(cfg.allow_unauthenticated_api, Some(true));
+    assert_eq!(cfg.metrics_enabled, Some(true));
     assert_eq!(
         cfg.cors_origins,
         Some(vec![
@@ -81,6 +83,7 @@ port: 9090
     assert!(cfg.max_concurrent_tasks.is_none());
     assert!(cfg.api_key.is_none());
     assert!(cfg.allow_unauthenticated_api.is_none());
+    assert!(cfg.metrics_enabled.is_none());
     assert!(cfg.cors_origins.is_none());
 }
 
@@ -119,6 +122,7 @@ fn missing_auto_detect_returns_defaults() {
     assert!(cfg.max_concurrent_tasks.is_none());
     assert!(cfg.api_key.is_none());
     assert!(cfg.allow_unauthenticated_api.is_none());
+    assert!(cfg.metrics_enabled.is_none());
     assert!(cfg.cors_origins.is_none());
     drop(dir);
     drop(original_dir);

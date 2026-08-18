@@ -1,4 +1,10 @@
-# IronFlow Implementation Plan
+# IronFlow delivered implementation baseline
+
+This is the historical implementation baseline delivered through
+`1.16.2-dev.4` on 2026-08-05. It records completed behavior and is not the
+forward backlog. Current priorities and explicit product boundaries live in
+the [`ROADMAP.md`](ROADMAP.md); executable findings and validation evidence live
+in the [`issues/README.md`](issues/README.md) registry.
 
 ## Phase 1: Foundation ✅
 
@@ -104,7 +110,7 @@ The core engine, minimal node set, and CLI. Goal: execute a simple multi-step fl
 
 ## Phase 2: Nodes ✅
 
-102 built-in nodes across HTTP, shell, file, S3, MCP, data transforms, conditionals, caching, database, AI, notifications, composition, S3 vector, XML, YAML, HTML sanitization, date/time, encoding, and utility categories. Each node is a Rust struct implementing the `Node` trait.
+103 built-in nodes across HTTP, shell, file, S3, MCP, data transforms, conditionals, caching, database, AI, notifications, composition, S3 vector, XML, YAML, HTML sanitization, date/time, encoding, and utility categories. Each node is a Rust struct implementing the `Node` trait.
 
 See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters, context output, and Lua examples.
 
@@ -231,6 +237,7 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
 - [x] `subworkflow` — Load and execute another `.lua` flow as a reusable module
 - [x] Context mapping (input_keys, output_keys) for clean interfaces between flows
 - [x] `parallel_subworkflows` — Concurrent subworkflow execution with per-flow input mapping, error handling modes (`fail_fast` / `ignore`), and ordered result collection
+- [x] `repeat_subworkflow` — Sequential bounded child execution with explicit state carry, completion contract, delay/backoff, and parent cancellation/deadline ownership
 
 ---
 
@@ -246,7 +253,7 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
 - [x] Value-source-backed precedence: explicit CLI > existing process
       environment > selected dotenv > config file > built-in default; an
       explicit value equal to a default still wins
-- [x] Webhook routes via config — scalar or structured `webhooks:` entries create `POST /webhooks/{name}` endpoints; request headers are default-denied and explicitly forwarded only through redacted execution overlays
+- [x] Webhook routes via config — scalar or structured `webhooks:` entries create `POST /webhooks/{name}` endpoints; request headers are default-denied, explicitly forwarded only through redacted execution overlays, and optional environment-backed HMAC-SHA256 policies verify the exact request body before run creation
 - [x] Scheduled triggers — `schedules:` block in `ironflow.yaml`, evaluated by a
       30-second tick inside `ironflow serve`. Cross-replica at-most-one claims via
       `StateStore::claim_schedule` (SQL unique index, Redis `SET NX EX`, JSON
@@ -304,15 +311,19 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
   graphs into one dependency-only cache. Tag builds restore that default-branch
   cache read-only while compiling and packaging both binaries from the tag; a
   cache miss remains a correct cold build rather than a release failure.
-- [x] Schema-v2 example catalog classifies all 130 Lua flows, records composable service/credential/state/platform requirements, and evaluates every flow against the built-in registry so all 102 node types remain covered without exemptions
+- [x] Schema-v2 example catalog classifies all 137 Lua flows in this baseline,
+  records composable service/credential/state/platform requirements, and
+  evaluates every flow against the built-in registry so all 103 node types
+  remain covered without exemptions
 - [x] GitHub Actions Release workflow — builds Linux (musl), macOS (x86_64 + aarch64), and Windows on version tags; the parallel Windows variants reuse the exact `main` dependency graph without reusing a prebuilt application binary
 - [x] Shared Lua sandbox module (`src/lua/sandbox.rs`) for consistent VM setup
 
 ### 5.6 Memory Hardening ✅
-- [x] Immutable local `ArtifactRef` store keeps large binary handoffs out of
-  workflow context; PPTX media, `read_file`, and PDF renderers publish
-  content-addressed files while extractors and image/PDF consumers resolve
-  descriptors without Base64
+- [x] Runtime-selectable local or S3-compatible `ArtifactRef` store keeps large
+  binary handoffs out of workflow context; producers stream through bounded
+  local staging, remote consumers verify SHA-256 before repairing a private
+  cache, and explicit offline pruning retains every artifact referenced by
+  durable workflow state
 - [x] DOCX and PPTX XML parts parse directly from bounded ZIP-entry readers
   with cumulative decoded-byte accounting, incremental UTF-8 validation,
   cancellation checkpoints, and end-of-entry CRC verification

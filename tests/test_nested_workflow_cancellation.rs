@@ -3,10 +3,15 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
-use ironflow::engine::types::Context;
+use ironflow::engine::executor::WorkflowEngine;
+use ironflow::engine::types::{Context, RunStatus, TaskStatus};
+use ironflow::lua::runtime::LuaRuntime;
 use ironflow::nodes::NodeRegistry;
+use ironflow::storage::StateStore;
+use ironflow::storage::null_store::NullStateStore;
 
 fn context_with_flow_dir(path: &Path) -> Context {
     HashMap::from([(
@@ -119,6 +124,69 @@ async fn cancelling_parallel_subworkflows_stops_every_child_run() {
     execution.abort();
     assert!(execution.await.unwrap_err().is_cancelled());
     assert_terminated(&[first_pid, second_pid]).await;
+}
+
+#[tokio::test]
+async fn cancelling_repeat_subworkflow_stops_active_child_run() {
+    let dir = tempfile::tempdir().unwrap();
+    let pid_path = dir.path().join("repeat.pid");
+    write_blocking_flow(&dir.path().join("child.lua"), "repeat-child", &pid_path);
+
+    let node = NodeRegistry::with_builtins()
+        .get("repeat_subworkflow")
+        .unwrap();
+    let config = serde_json::json!({ "flow": "child.lua", "max_iterations": 2 });
+    let ctx = context_with_flow_dir(dir.path());
+    let execution = tokio::spawn(async move { node.execute(&config, &ctx).await });
+
+    let pid = read_pid(&pid_path).await;
+    assert!(process_is_alive(pid));
+    execution.abort();
+    assert!(execution.await.unwrap_err().is_cancelled());
+    assert_terminated(&[pid]).await;
+}
+
+#[tokio::test]
+async fn repeat_subworkflow_obeys_parent_step_deadline() {
+    let dir = tempfile::tempdir().unwrap();
+    let pid_path = dir.path().join("repeat-deadline.pid");
+    write_blocking_flow(&dir.path().join("child.lua"), "repeat-child", &pid_path);
+    fs::write(
+        dir.path().join("parent.lua"),
+        r#"
+        local flow = Flow.new("repeat-parent")
+        flow:step("repeat", nodes.repeat_subworkflow({
+            flow = "child.lua",
+            max_iterations = 2
+        })):timeout(0.2)
+        return flow
+        "#,
+    )
+    .unwrap();
+
+    let registry = Arc::new(NodeRegistry::with_builtins());
+    let flow =
+        LuaRuntime::load_flow(dir.path().join("parent.lua").to_str().unwrap(), &registry).unwrap();
+    let store = Arc::new(NullStateStore::new());
+    let engine = WorkflowEngine::new(registry, store.clone(), None);
+    let handle = engine
+        .start(&flow, context_with_flow_dir(dir.path()))
+        .await
+        .unwrap();
+    let run_id = handle.id().to_string();
+
+    let pid = read_pid(&pid_path).await;
+    assert!(process_is_alive(pid));
+    handle.wait().await.unwrap();
+    assert_terminated(&[pid]).await;
+
+    let info = store.get_run_info(&run_id).await.unwrap();
+    assert_eq!(info.status, RunStatus::Failed);
+    assert_eq!(info.tasks["repeat"].status, TaskStatus::Failed);
+    assert_eq!(
+        info.tasks["repeat"].error.as_deref(),
+        Some("Task 'repeat' timed out after 0.2s total")
+    );
 }
 
 #[tokio::test]
