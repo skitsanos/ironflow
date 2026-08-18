@@ -46,7 +46,8 @@ flow:step("render_preview", nodes.shell_command({
 
 flow:step("read_preview", nodes.read_file({
     path = "${ctx.preview_render_stdout}/ironflow-sample.pptx.png",
-    encoding = "base64",
+    encoding = "artifact",
+    mime_type = "image/png",
     output_key = "slide_preview"
 })):depends_on("render_preview")
 
@@ -91,7 +92,7 @@ end):depends_on("extract_deck")
 flow:step("reconstruct", nodes.llm({
     provider = "custom",
     mode = "chat",
-    model = "gemini-3.5-flash",
+    model = "gemini-3.7-flash",
     base_url = "https://generativelanguage.googleapis.com/v1beta/openai",
     auth_type = "bearer",
     api_key = env("GEMINI_API_KEY"),
@@ -138,10 +139,9 @@ ${ctx.reconstruction_payload}
 ]]
                 },
                 {
-                    type = "image_url",
-                    image_url = {
-                        url = "data:image/png;base64,${ctx.slide_preview_content}"
-                    }
+                    type = "image_artifact",
+                    source_key = "slide_preview_artifact",
+                    detail = "high"
                 }
             }
         }

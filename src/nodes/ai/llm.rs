@@ -83,6 +83,17 @@ impl Node for LlmNode {
             .or_else(limits::max_llm_response_bytes);
 
         let messages = resolve_messages(config, ctx)?;
+        if matches!(mode, LlmMode::Responses) && messages.is_some() {
+            anyhow::bail!("llm: 'messages' and 'messages_key' are supported only in chat mode");
+        }
+        let (messages, artifact_inputs) = match messages {
+            Some(messages) => {
+                let (messages, artifact_inputs) =
+                    super::llm_message_artifacts::resolve(messages, config, ctx).await?;
+                (Some(messages), artifact_inputs)
+            }
+            None => (None, false),
+        };
         let prompt = if messages.is_none() {
             resolve_prompt(config, ctx)?
         } else {
@@ -137,6 +148,11 @@ impl Node for LlmNode {
 
         let status = response.status();
         let response_text = read_capped_response_body(response, max_response_bytes).await?;
+        let response_text = if artifact_inputs {
+            super::llm_message_artifacts::redact_data_urls(&response_text)
+        } else {
+            response_text
+        };
 
         if !status.is_success() {
             anyhow::bail!(

@@ -2,9 +2,9 @@
 PDF + Gemini JSON-schema reconstruction demo.
 
 Flow:
-1. Extract text and metadata from a one-page PDF.
-2. Render the PDF page to PNG with Poppler (`pdftoppm`) through `shell_command`.
-3. Send both the extracted text and rendered page image to Gemini.
+1. Extract text and metadata from the PDF fixture.
+2. Render its first page to PNG with Poppler (`pdftoppm`) through `shell_command`.
+3. Send both the extracted text and rendered first-page image to Gemini.
 4. Ask Gemini to return structured JSON matching a schema.
 5. Write JSON, text, and the rendered page PNG to a unique output directory.
 
@@ -124,7 +124,8 @@ flow:step("render_page", nodes.shell_command({
 
 flow:step("read_rendered_page", nodes.read_file({
     path = OUTPUT_DIR .. "/page-1.png",
-    encoding = "base64",
+    encoding = "artifact",
+    mime_type = "image/png",
     output_key = "rendered_page_file"
 })):depends_on("render_page")
 
@@ -139,16 +140,13 @@ flow:step("prepare_payload", function(ctx)
         }
     }
 
-    return {
-        rendered_page_image_base64 = ctx.rendered_page_file_content or "",
-        reconstruction_payload = json_stringify(payload)
-    }
+    return { reconstruction_payload = json_stringify(payload) }
 end):depends_on("extract_pdf", "read_rendered_page")
 
 flow:step("reconstruct", nodes.llm({
     provider = "custom",
     mode = "chat",
-    model = "gemini-3.5-flash",
+    model = "gemini-3.7-flash",
     base_url = "https://generativelanguage.googleapis.com/v1beta/openai",
     auth_type = "bearer",
     api_key = env("GEMINI_API_KEY"),
@@ -163,7 +161,7 @@ flow:step("reconstruct", nodes.llm({
                 {
                     type = "text",
                     text = [[
-Reconstruct this one-page PDF into coherent text-only content.
+Reconstruct the rendered first page of this PDF into coherent text-only content.
 
 Use both inputs:
 1. The extracted PDF Markdown and metadata.
@@ -185,10 +183,9 @@ ${ctx.reconstruction_payload}
 ]]
                 },
                 {
-                    type = "image_url",
-                    image_url = {
-                        url = "data:image/png;base64,${ctx.rendered_page_image_base64}"
-                    }
+                    type = "image_artifact",
+                    source_key = "rendered_page_file_artifact",
+                    detail = "high"
                 }
             }
         }

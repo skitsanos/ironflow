@@ -197,7 +197,7 @@ Update:
 
 2) `src/nodes/mod.rs::with_builtins()` calls each category's `register_all(&mut registry)` directly. If you added a new category, add its `register_all` call there.
 
-3) If the node is special for subflow execution (child registry behavior), update `src/nodes/composition/subworkflow.rs` only if needed.
+3) Composition nodes that launch children must use `src/nodes/composition/registry.rs` so every supported composition node is available recursively.
 
 ## 9) Lua API exposure
 
