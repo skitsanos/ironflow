@@ -21,6 +21,7 @@ pub struct WorkflowEngine {
     pub(super) store: Arc<dyn StateStore>,
     pub(super) events: Option<Arc<dyn EventStore>>,
     pub(super) max_concurrent_tasks: Option<usize>,
+    pub(super) metrics: Option<Arc<crate::metrics::Metrics>>,
 }
 
 impl WorkflowEngine {
@@ -34,6 +35,7 @@ impl WorkflowEngine {
             store,
             events: None,
             max_concurrent_tasks,
+            metrics: None,
         }
     }
 
@@ -48,7 +50,13 @@ impl WorkflowEngine {
             store,
             events: Some(events),
             max_concurrent_tasks,
+            metrics: None,
         }
+    }
+
+    pub(crate) fn with_metrics(mut self, metrics: Option<Arc<crate::metrics::Metrics>>) -> Self {
+        self.metrics = metrics;
+        self
     }
 
     /// Start a supervised workflow run and return its durable handle.
@@ -151,6 +159,7 @@ impl WorkflowEngine {
             execution_overlay,
             lease.owner().to_string(),
             run_deadline,
+            self.metrics.clone(),
         );
 
         Ok(Some(coordinator.spawn()))

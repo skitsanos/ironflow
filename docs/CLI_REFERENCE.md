@@ -229,6 +229,12 @@ both configured stores answer a two-second probe. `/health` remains a liveness
 alias. SIGTERM/SIGINT closes readiness, stops scheduling and new run admission,
 then drains accepted work according to `IRONFLOW_SHUTDOWN_GRACE_SECONDS`.
 
+Set `IRONFLOW_METRICS_ENABLED=true` or `metrics_enabled: true` to register
+`GET /metrics`. The OpenMetrics response uses the same API authentication
+boundary and is process-local; the route returns `404` when disabled. See
+[Operator metrics](METRICS.md) for the complete label, reset, scrape, and alert
+contract.
+
 `POST /flows/run` accepts an optional `Idempotency-Key`. It is limited to 128
 portable ASCII characters (`A-Z`, `a-z`, `0-9`, `-`, `_`, `.`, `:`). The key is
 hashed rather than stored; its deterministic run ID and request fingerprint are
@@ -475,6 +481,21 @@ curl http://localhost:3000/runs \
 ```
 
 To intentionally run without API authentication, set `IRONFLOW_ALLOW_UNAUTHENTICATED_API=true` or `allow_unauthenticated_api: true` in config. A server whose resolved bind address is loopback (for example `127.0.0.1`, `localhost`, or `::1`) is allowed without a key for local development.
+
+#### Operator Metrics
+
+Metrics are disabled by default. Enable and scrape them with the same API key:
+
+```bash
+IRONFLOW_METRICS_ENABLED=true IRONFLOW_API_KEY="change-me" ironflow serve
+
+curl --fail http://localhost:3000/metrics \
+  -H "Authorization: Bearer change-me"
+```
+
+The endpoint is intended for Prometheus-compatible collectors and returns
+OpenMetrics text. It exports no run IDs, flow/schedule names, URLs, errors,
+context values, or secrets as labels. See [Operator metrics](METRICS.md).
 
 #### API Error Responses
 
@@ -896,6 +917,7 @@ configuration-file fields. `IRONFLOW_STORE_DIR` applies to `run`, `list`,
 | `MAX_BODY` | `1048576` | Max request body size (bytes) |
 | `IRONFLOW_API_KEY` | — | API key required for non-loopback API servers |
 | `IRONFLOW_ALLOW_UNAUTHENTICATED_API` | `false` | Explicitly allow unauthenticated API access |
+| `IRONFLOW_METRICS_ENABLED` | `false` | Register process-local `GET /metrics`; accepts only `true` or `false` and follows API authentication |
 | `IRONFLOW_ALLOW_ADHOC_FLOWS` | `true` | Allow `POST /flows/run` and `POST /flows/validate` to evaluate flow source sent in the request body. `false` requires `flows_dir` and restricts both endpoints to files under it. Overrides `allow_adhoc_flows` in config. |
 | `IRONFLOW_CORS_ORIGINS` | — | Comma-separated allowed browser origins; use `*` to allow any origin |
 

@@ -59,6 +59,13 @@ becomes `Stalled`.
 | `GET /health/live` | Process is alive; does not probe storage |
 | `GET /health/ready` | Process accepts execution and both configured stores answer a bounded probe |
 | `GET /health` | Backwards-compatible liveness alias |
+| `GET /metrics` | Optional process-local OpenMetrics; registered only when enabled and protected like the API |
+
+Enable metrics on every replica with `IRONFLOW_METRICS_ENABLED=true` and scrape
+each pod directly. Counters and histograms reset when that process restarts, so
+a load-balanced scrape does not represent the deployment. The Prometheus
+Operator templates and alert examples are documented in
+[Operator metrics](METRICS.md).
 
 SIGTERM and SIGINT close readiness and scheduler/API execution admission first.
 HTTP listener shutdown then begins while already accepted runs retain their

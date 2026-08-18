@@ -9,8 +9,8 @@
     },
     {
       "path": "src/engine/executor/task_runner.rs",
-      "max_lines": 327,
-      "rationale": "IF-028/062 review: one task lifecycle spanning retries, deadlines, cancellation, lease-fenced persistence, and output publication; split before adding another lifecycle phase."
+      "max_lines": 303,
+      "rationale": "IF-028/062/100 review: one task lifecycle spanning retries, deadlines, cancellation, lease-fenced persistence, and output publication; run-scoped dependency wiring was extracted before metrics instrumentation. Split before adding another lifecycle phase."
     },
     {
       "path": "src/engine/recovery.rs",

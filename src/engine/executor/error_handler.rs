@@ -9,7 +9,8 @@ use crate::engine::types::{Context, StepDefinition};
 use super::coordinator::RunCoordinator;
 use super::engine::WorkflowEngine;
 use super::phase_output::StepCompletion;
-use super::task_runner::{TaskRunError, TaskRuntime};
+use super::task_runner::TaskRunError;
+use super::task_runtime::TaskRuntime;
 
 /// A controlled node failure that may be resolved by one recovery step.
 #[derive(Debug)]
@@ -149,6 +150,7 @@ impl RunCoordinator {
             &phase_ctx,
             &self.execution_overlay,
             &self.lease_owner,
+            self.metrics.as_ref(),
         );
         match WorkflowEngine::run_task(&runtime, &step, input_overlay.as_ref()).await {
             Ok(output) => {

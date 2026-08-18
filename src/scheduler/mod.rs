@@ -2,6 +2,7 @@
 
 mod catchup;
 pub mod config;
+mod context;
 mod cron;
 mod evaluation;
 pub mod execution;
@@ -105,6 +106,7 @@ pub struct Scheduler {
     /// Local wall-clock time each schedule was last evaluated through.
     evaluated_through: HashMap<String, NaiveDateTime>,
     evaluation_timeout: Duration,
+    metrics: Option<Arc<crate::metrics::Metrics>>,
 }
 
 impl Scheduler {
@@ -131,7 +133,13 @@ impl Scheduler {
             executor,
             evaluated_through,
             evaluation_timeout: SCHEDULE_EVALUATION_TIMEOUT,
+            metrics: None,
         }
+    }
+
+    pub(crate) fn with_metrics(mut self, metrics: Option<Arc<crate::metrics::Metrics>>) -> Self {
+        self.metrics = metrics;
+        self
     }
 
     /// Override the per-schedule evaluation budget for embedded runtimes and

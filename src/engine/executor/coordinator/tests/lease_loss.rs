@@ -179,6 +179,7 @@ async fn lost_lease_stops_as_infrastructure_and_is_durably_stalled() {
         ExecutionOverlay::default(),
         owner.to_string(),
         None,
+        None,
     )
     .with_heartbeat_timing(
         std::time::Duration::from_millis(1),

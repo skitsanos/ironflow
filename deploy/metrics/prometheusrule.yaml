@@ -1,0 +1,50 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: ironflow
+  namespace: ironflow
+  labels:
+    release: prometheus
+    app.kubernetes.io/name: ironflow
+spec:
+  groups:
+    - name: ironflow.runtime
+      rules:
+        - alert: IronFlowRunFailureRatioHigh
+          expr: |
+            sum(rate(ironflow_runs_total{outcome=~"failed|stalled"}[10m]))
+            /
+            clamp_min(sum(rate(ironflow_runs_total[10m])), 0.001)
+            > 0.10
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: IronFlow run failure ratio is above 10 percent
+            description: Failed or stalled runs have exceeded 10 percent for 15 minutes.
+        - alert: IronFlowAdmissionAtCapacity
+          expr: |
+            sum(rate(ironflow_admission_decisions_total{decision="at_capacity"}[5m])) > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: IronFlow is rejecting work at its admission limit
+            description: At least one IronFlow admission resource has remained saturated.
+        - alert: IronFlowLeaseProblem
+          expr: |
+            sum(increase(ironflow_lease_events_total{outcome=~"lost|timed_out|error|reconciliation_failed"}[10m])) > 0
+          labels:
+            severity: critical
+          annotations:
+            summary: IronFlow observed a workflow ownership lease problem
+            description: A run lease was lost, timed out, failed, or could not be reconciled.
+        - alert: IronFlowStorageFailure
+          expr: |
+            sum by (store, error_kind) (increase(ironflow_storage_failures_total[5m])) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: IronFlow storage operations are failing
+            description: The {{ $labels.store }} store is returning {{ $labels.error_kind }} errors.

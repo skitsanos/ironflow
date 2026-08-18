@@ -66,15 +66,17 @@ pub async fn run_webhook(
     // Reserve run capacity before evaluating the flow. The parser has its own
     // small process-wide ceiling because each Lua VM has a substantial memory
     // budget even when the eventual run is refused.
-    let run_permit = crate::api::acquire_run_permit(&state.lifecycle)?;
-    let flow_load_permit = crate::api::acquire_flow_load_permit()?;
+    let run_permit = crate::api::acquire_run_permit(&state.lifecycle, state.metrics.as_deref())?;
+    let flow_load_permit = crate::api::acquire_flow_load_permit(state.metrics.as_deref())?;
     // Parse off the async runtime so a pathological flow cannot pin a worker
     // thread and stall the whole server (IF-038).
     let registry = state.registry.clone();
     let load_path = path.clone();
-    let flow = crate::api::supervise_flow_load(flow_load_permit, async move {
-        LuaRuntime::load_flow_async(&load_path, &registry).await
-    })
+    let flow = crate::api::supervise_flow_load(
+        flow_load_permit,
+        async move { LuaRuntime::load_flow_async(&load_path, &registry).await },
+        state.metrics.clone(),
+    )
     .await
     .map_err(|e| flow_file_load_error(&path, &e))?;
 
@@ -95,7 +97,8 @@ pub async fn run_webhook(
         state.store.clone(),
         state.event_store.clone(),
         state.max_concurrent_tasks,
-    );
+    )
+    .with_metrics(state.metrics.clone());
     let handle = engine
         .start_with_overlay(&flow, initial_ctx, execution_overlay)
         .await?;

@@ -268,6 +268,7 @@ pub async fn run_cli() -> Result<()> {
                 cors_origins: server_config.cors_origins,
                 api_key: server_config.api_key,
                 allow_unauthenticated_api: server_config.allow_unauthenticated_api,
+                metrics_enabled: server_config.metrics_enabled,
             };
             let store = create_store(&cfg, &store_dir).await?;
             let event_store = create_event_store(&cfg, &store_dir).await?;

@@ -7,22 +7,17 @@ use async_trait::async_trait;
 
 use crate::api::handlers::resolve_flow_path_in;
 use crate::engine::WorkflowEngine;
-use crate::engine::types::{Context, RunStatus};
+use crate::engine::types::RunStatus;
 use crate::lua::LuaRuntime;
 use crate::nodes::NodeRegistry;
 use crate::storage::event_store::EventStore;
 use crate::storage::{PageSize, RunCursor, RunListQuery, StateStore};
 use crate::util::sensitive_url::redact_sensitive_text;
 
-use super::ScheduleExecutor;
-use super::ScheduleRun;
 use super::config::ScheduleConfig;
+use super::{ScheduleExecutor, ScheduleRun};
 
-/// Context key naming the schedule that triggered a run.
-///
-/// Underscore-prefixed, so it stays private when a child result is namespaced
-/// (IF-057).
-pub const SCHEDULE_CONTEXT_KEY: &str = "_schedule";
+pub use super::context::SCHEDULE_CONTEXT_KEY;
 
 /// Most non-terminal runs the overlap check will inspect.
 ///
@@ -39,6 +34,7 @@ pub struct FlowExecutor {
     flows_dir: Option<PathBuf>,
     max_concurrent_tasks: Option<usize>,
     lifecycle: crate::api::ServiceLifecycle,
+    metrics: Option<Arc<crate::metrics::Metrics>>,
 }
 
 impl FlowExecutor {
@@ -56,6 +52,7 @@ impl FlowExecutor {
             flows_dir,
             max_concurrent_tasks,
             crate::api::ServiceLifecycle::default(),
+            None,
         )
     }
 
@@ -66,6 +63,7 @@ impl FlowExecutor {
         flows_dir: Option<PathBuf>,
         max_concurrent_tasks: Option<usize>,
         lifecycle: crate::api::ServiceLifecycle,
+        metrics: Option<Arc<crate::metrics::Metrics>>,
     ) -> Self {
         Self {
             registry,
@@ -74,32 +72,8 @@ impl FlowExecutor {
             flows_dir,
             max_concurrent_tasks,
             lifecycle,
+            metrics,
         }
-    }
-
-    fn initial_context(
-        &self,
-        schedule_name: &str,
-        instant_key: &str,
-        schedule: &ScheduleConfig,
-        path: &str,
-    ) -> Context {
-        let mut ctx = schedule.context().clone();
-        ctx.insert(
-            SCHEDULE_CONTEXT_KEY.to_string(),
-            serde_json::Value::String(schedule_name.to_string()),
-        );
-        ctx.insert(
-            super::identity::SCHEDULE_INSTANT_CONTEXT_KEY.to_string(),
-            serde_json::Value::String(instant_key.to_string()),
-        );
-        if let Some(dir) = std::path::Path::new(path).parent() {
-            ctx.insert(
-                "_flow_dir".to_string(),
-                serde_json::Value::String(dir.to_string_lossy().to_string()),
-            );
-        }
-        ctx
     }
 
     /// Embedded one-shot execution helper retained independently of cron
@@ -206,7 +180,7 @@ impl ScheduleExecutor for FlowExecutor {
     fn has_capacity(&self) -> bool {
         // The permit is dropped immediately; this is a probe, not a
         // reservation. `run` acquires the permit it actually holds.
-        crate::api::acquire_run_permit(&self.lifecycle).is_ok()
+        crate::api::acquire_run_permit(&self.lifecycle, None).is_ok()
     }
 
     async fn run(
@@ -222,9 +196,9 @@ impl ScheduleExecutor for FlowExecutor {
         // not dropped when this function returns. Reserve it before the Lua VM
         // is created so a run rejected for capacity cannot still consume parse
         // CPU and memory.
-        let run_permit = crate::api::acquire_run_permit(&self.lifecycle)
+        let run_permit = crate::api::acquire_run_permit(&self.lifecycle, self.metrics.as_deref())
             .map_err(|_| "server is at maximum concurrent run capacity".to_string())?;
-        let flow_load_permit = crate::api::acquire_flow_load_permit()
+        let flow_load_permit = crate::api::acquire_flow_load_permit(self.metrics.as_deref())
             .map_err(|_| "server is at maximum concurrent flow-loading capacity".to_string())?;
 
         // Parse off the async runtime so a pathological flow cannot pin a
@@ -234,9 +208,11 @@ impl ScheduleExecutor for FlowExecutor {
         // before it becomes a string that gets logged.
         let registry = self.registry.clone();
         let load_path = path.clone();
-        let flow = crate::api::supervise_flow_load(flow_load_permit, async move {
-            LuaRuntime::load_flow_async(&load_path, &registry).await
-        })
+        let flow = crate::api::supervise_flow_load(
+            flow_load_permit,
+            async move { LuaRuntime::load_flow_async(&load_path, &registry).await },
+            self.metrics.clone(),
+        )
         .await
         .map_err(|error| {
             format!(
@@ -245,14 +221,16 @@ impl ScheduleExecutor for FlowExecutor {
             )
         })?;
 
-        let initial_ctx = self.initial_context(schedule_name, instant_key, schedule, &path);
+        let initial_ctx =
+            super::context::initial_context(schedule_name, instant_key, schedule, &path);
 
         let engine = WorkflowEngine::new_with_events(
             self.registry.clone(),
             self.store.clone(),
             self.event_store.clone(),
             self.max_concurrent_tasks,
-        );
+        )
+        .with_metrics(self.metrics.clone());
 
         // Start and return once the run exists, without awaiting it to
         // completion. The tick loop awaits `evaluate`, which awaits `decide`,

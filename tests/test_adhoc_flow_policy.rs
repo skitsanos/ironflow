@@ -39,6 +39,7 @@ fn app(
         webhooks: std::collections::HashMap::new(),
         allow_adhoc_flows,
         lifecycle: ironflow::api::ServiceLifecycle::default(),
+        metrics: None,
     });
     let router = Router::new()
         .route("/flows/run", post(ironflow::api::handlers::run_flow))

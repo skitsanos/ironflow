@@ -78,24 +78,28 @@ pub async fn run_flow(
     // Run admission covers the whole expensive lifecycle, including Lua flow
     // evaluation. Acquiring after parsing let rejected requests each allocate
     // a separate bounded-but-large VM before receiving 503.
-    let run_permit = crate::api::acquire_run_permit(&state.lifecycle)?;
-    let flow_load_permit = crate::api::acquire_flow_load_permit()?;
+    let run_permit = crate::api::acquire_run_permit(&state.lifecycle, state.metrics.as_deref())?;
+    let flow_load_permit = crate::api::acquire_flow_load_permit(state.metrics.as_deref())?;
 
     // Parse off the async runtime so a pathological flow cannot pin a worker
     // thread and stall the whole server (IF-038).
     let flow = if let Some(source) = source {
         let registry = state.registry.clone();
-        crate::api::supervise_flow_load(flow_load_permit, async move {
-            LuaRuntime::load_flow_from_string_async(&source, &registry).await
-        })
+        crate::api::supervise_flow_load(
+            flow_load_permit,
+            async move { LuaRuntime::load_flow_from_string_async(&source, &registry).await },
+            state.metrics.clone(),
+        )
         .await
         .map_err(|e| AppError::BadRequest(format!("Failed to parse flow: {:#}", e)))?
     } else if let Some(b64) = source_base64 {
         let source = decode_base64_source(&b64)?;
         let registry = state.registry.clone();
-        crate::api::supervise_flow_load(flow_load_permit, async move {
-            LuaRuntime::load_flow_from_string_async(&source, &registry).await
-        })
+        crate::api::supervise_flow_load(
+            flow_load_permit,
+            async move { LuaRuntime::load_flow_from_string_async(&source, &registry).await },
+            state.metrics.clone(),
+        )
         .await
         .map_err(|e| AppError::BadRequest(format!("Failed to parse flow: {:#}", e)))?
     } else {
@@ -105,9 +109,11 @@ pub async fn run_flow(
             .to_string();
         let registry = state.registry.clone();
         let load_path = path.clone();
-        crate::api::supervise_flow_load(flow_load_permit, async move {
-            LuaRuntime::load_flow_async(&load_path, &registry).await
-        })
+        crate::api::supervise_flow_load(
+            flow_load_permit,
+            async move { LuaRuntime::load_flow_async(&load_path, &registry).await },
+            state.metrics.clone(),
+        )
         .await
         .map_err(|e| flow_file_load_error(&path, &e))?
     };
@@ -138,7 +144,8 @@ pub async fn run_flow(
         state.store.clone(),
         state.event_store.clone(),
         state.max_concurrent_tasks,
-    );
+    )
+    .with_metrics(state.metrics.clone());
     let handle = match &identity {
         Some(identity) => match engine
             .start_with_run_id(&flow, initial_ctx, identity.run_id.clone())

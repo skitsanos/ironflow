@@ -34,6 +34,14 @@ impl Scheduler {
             decisions.extend(evaluation.decisions);
         }
 
+        if let Some(metrics) = &self.metrics {
+            for decision in &decisions {
+                metrics.scheduler(crate::metrics::SchedulerOutcome::from_outcome(
+                    &decision.outcome,
+                ));
+            }
+        }
+
         decisions
     }
 
