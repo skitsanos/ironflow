@@ -18,13 +18,21 @@ pub(super) fn cues_as_json(
             (cue.text.len() as u64).saturating_add(96),
             "subtitle cue output",
         )?;
-        values.push(serde_json::json!({
+        let mut value = serde_json::json!({
             "start_ms": cue.start_ms,
             "end_ms": cue.end_ms,
             "start": format_timestamp(cue.start_ms),
             "end": format_timestamp(cue.end_ms),
             "text": cue.text,
-        }));
+        });
+        // Only present when the cue named a speaker, so consumers can tell a
+        // labelled transcript from an unlabelled one rather than seeing an
+        // empty string for both.
+        if let Some(speaker) = &cue.speaker {
+            budget.charge_output(speaker.len() as u64, "subtitle cue speaker")?;
+            value["speaker"] = serde_json::Value::String(speaker.clone());
+        }
+        values.push(value);
     }
     Ok(values)
 }

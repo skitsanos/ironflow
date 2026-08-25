@@ -108,6 +108,10 @@ pub(super) struct SubtitleCue {
     pub(super) start_ms: u64,
     pub(super) end_ms: u64,
     pub(super) text: String,
+    /// Speaker from a WebVTT voice span (`<v Alice>`), when the cue carries one.
+    /// `None` for SRT and for WebVTT without voice spans, so unlabelled captions
+    /// behave exactly as before.
+    pub(super) speaker: Option<String>,
 }
 
 fn parse_subtitle_cues(
@@ -149,10 +153,16 @@ fn parse_subtitle_cues(
             continue;
         };
         let mut text = String::new();
+        let mut speaker: Option<String> = None;
         for (_, candidate) in lines.by_ref() {
             budget.charge_item("subtitle input lines")?;
             if candidate.trim().is_empty() {
                 break;
+            }
+            // Read the voice span before the tags are stripped; a cue is
+            // attributed to the first speaker it names.
+            if is_vtt && speaker.is_none() {
+                speaker = extract_voice_name(candidate);
             }
             let cleaned = remove_annotation_tags(candidate, budget)?;
             if !text.is_empty() {
@@ -167,6 +177,7 @@ fn parse_subtitle_cues(
                 start_ms,
                 end_ms,
                 text,
+                speaker,
             });
         }
     }
@@ -227,6 +238,37 @@ fn parse_timestamp_ms(value: &str) -> Option<u64> {
         .checked_add(milliseconds)
 }
 
+/// Extract the speaker from a WebVTT voice span.
+///
+/// Handles `<v Alice>`, `<v.loud Alice>` and `<v.first.loud Alice Smith>`; the
+/// class list is attached to `v` with dots and the remainder is the speaker.
+/// Returns `None` for any other tag, so `<i>`, `<b>` and friends are ignored,
+/// and for a voice span carrying only classes and no name.
+fn extract_voice_name(value: &str) -> Option<String> {
+    let start = value.find("<v")?;
+    let rest = &value[start + 2..];
+    // `<video>` must not be mistaken for a voice span: the tag name ends here.
+    let boundary = rest.chars().next()?;
+    if !boundary.is_whitespace() && boundary != '.' && boundary != '>' {
+        return None;
+    }
+    let end = rest.find('>')?;
+    let annotation = &rest[..end];
+    let name = if annotation.starts_with('.') {
+        match annotation.find(char::is_whitespace) {
+            Some(index) => annotation[index..].trim(),
+            None => "",
+        }
+    } else {
+        annotation.trim()
+    };
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_string())
+    }
+}
+
 fn remove_annotation_tags(value: &str, budget: &Budget<'_>) -> Result<String> {
     let mut output = String::new();
     let mut in_tag = false;
@@ -242,4 +284,79 @@ fn remove_annotation_tags(value: &str, budget: &Budget<'_>) -> Result<String> {
         }
     }
     Ok(output)
+}
+
+#[cfg(test)]
+mod voice_span_tests {
+    use super::*;
+
+    // run_blocking_step needs 'static, so the fixture is moved in rather than
+    // borrowed.
+    async fn parse(contents: &'static str, is_vtt: bool) -> Vec<SubtitleCue> {
+        crate::util::execution::run_blocking_step(move |execution| {
+            let limits = Limits {
+                max_output_bytes: 1_000_000,
+                max_items: 10_000,
+                max_zip_entries: 10,
+                max_zip_bytes: 10,
+                max_pdf_pages: 10,
+            };
+            let mut budget = Budget::new("test", limits, &execution);
+            parse_subtitle_cues(contents, is_vtt, "extract_vtt", &mut budget)
+        })
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn voice_span_names_the_speaker_and_leaves_the_text_clean() {
+        let cues = parse(
+            "WEBVTT\n\n1\n00:00:00.000 --> 00:00:02.000\n<v Alice>Hello there</v>\n",
+            true,
+        )
+        .await;
+        assert_eq!(cues.len(), 1);
+        assert_eq!(cues[0].speaker.as_deref(), Some("Alice"));
+        assert_eq!(cues[0].text, "Hello there");
+    }
+
+    #[tokio::test]
+    async fn classes_are_not_part_of_the_speaker_name() {
+        let cues = parse(
+            "WEBVTT\n\n1\n00:00:00.000 --> 00:00:02.000\n<v.first.loud Bob Smith>Hi</v>\n",
+            true,
+        )
+        .await;
+        assert_eq!(cues[0].speaker.as_deref(), Some("Bob Smith"));
+    }
+
+    #[tokio::test]
+    async fn captions_without_a_voice_span_stay_unlabelled() {
+        // The unlabelled path has to keep working: a caption-only transcript
+        // still parses, with no speaker rather than an empty one.
+        let cues = parse(
+            "WEBVTT\n\n1\n00:00:00.000 --> 00:00:02.000\nJust a caption\n",
+            true,
+        )
+        .await;
+        assert_eq!(cues.len(), 1);
+        assert_eq!(cues[0].speaker, None);
+        assert_eq!(cues[0].text, "Just a caption");
+    }
+
+    #[tokio::test]
+    async fn other_markup_is_not_mistaken_for_a_voice_span() {
+        let cues = parse(
+            "WEBVTT\n\n1\n00:00:00.000 --> 00:00:02.000\n<i>emphasis</i> and <video> too\n",
+            true,
+        )
+        .await;
+        assert_eq!(cues[0].speaker, None);
+    }
+
+    #[tokio::test]
+    async fn srt_never_reports_a_speaker() {
+        let cues = parse("1\n00:00:00,000 --> 00:00:02,000\n<v Alice>Hello\n", false).await;
+        assert_eq!(cues[0].speaker, None);
+    }
 }
