@@ -194,7 +194,9 @@ async fn read_records(
         .catalog_io
         .base_range_records
         .fetch_add(count, AtomicOrdering::Relaxed);
-    data.chunks_exact(RECORD_BYTES)
+    data.as_chunks::<RECORD_BYTES>()
+        .0
+        .iter()
         .map(|record| format::decode_record(record).map_err(|_| PageError::Rebuild))
         .collect()
 }

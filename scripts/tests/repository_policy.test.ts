@@ -26,6 +26,7 @@ describe("repository integration policy", () => {
     for (const path of ["docs/**", ".agents/**", "AGENTS.md", "ISSUES.md"]) {
       expect(workflow.on.push.paths).toContain(path);
     }
+    expect(workflow.on.push.paths).toContain("rust-toolchain.toml");
 
     const commands = workflow.jobs["repository-policy"].steps
       .map((step) => step.run ?? "")
@@ -113,8 +114,8 @@ describe("repository integration policy", () => {
     ).text();
 
     expect(dockerfile).toContain(
-      "lukemathwalker/cargo-chef:0.1.78-rust-1.97.1-slim-bookworm@sha256:" +
-        "e406ad0baa7266cee09ca9f62f30d7ed330bdb25be9f337ff8090e7ae215f7fd AS chef",
+      "lukemathwalker/cargo-chef:0.1.78-rust-1.98.0-slim-bookworm@sha256:" +
+        "114101b5c218940bc2381db703dd3529473db554992bf10fc94a7ba2ac35baf8 AS chef",
     );
     expect(dockerfile).toContain("cargo chef prepare --recipe-path recipe.json");
     expect(dockerfile).toContain(
@@ -137,6 +138,23 @@ describe("repository integration policy", () => {
         "compression-level=15,force-compression=true",
     );
     expect(workflowSource).not.toContain("cache-to: type=gha");
+  });
+
+  test("active Rust toolchain pins stay aligned", async () => {
+    const toolchainSource = await Bun.file(join(repository, "rust-toolchain.toml")).text();
+    const toolchain = Bun.TOML.parse(toolchainSource) as { toolchain: { channel: string } };
+    const version = toolchain.toolchain.channel;
+    const ci = await Bun.file(join(repository, ".github/workflows/ci.yml")).text();
+    const release = await Bun.file(join(repository, ".github/workflows/release.yml")).text();
+    const dockerfile = await Bun.file(join(repository, "Dockerfile")).text();
+
+    expect(version).toMatch(/^\d+\.\d+\.\d+$/);
+    for (const source of [ci, release]) {
+      const pins = source.match(/dtolnay\/rust-toolchain@\d+\.\d+\.\d+/g) ?? [];
+      expect(pins.length).toBeGreaterThan(0);
+      expect(new Set(pins)).toEqual(new Set([`dtolnay/rust-toolchain@${version}`]));
+    }
+    expect(dockerfile).toContain(`-rust-${version}-slim-bookworm@sha256:`);
   });
 
   test("example validation reuses only the Linux release build", async () => {
