@@ -395,6 +395,37 @@ async fn extract_vtt_text_and_metadata() {
 }
 
 #[tokio::test]
+async fn extract_vtt_exposes_voice_span_speakers() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("speakers.vtt");
+    fs::write(
+        &path,
+        "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\n<v Alice>Hello</v>\n\n\
+         00:00:01.000 --> 00:00:02.000\nUnlabelled\n",
+    )
+    .unwrap();
+    let node = NodeRegistry::with_builtins().get("extract_vtt").unwrap();
+
+    let output = node
+        .execute(
+            &serde_json::json!({ "path": path.to_string_lossy() }),
+            &Context::new(),
+        )
+        .await
+        .unwrap();
+
+    let cues = output
+        .get("cues")
+        .and_then(|value| value.as_array())
+        .unwrap();
+    assert_eq!(
+        cues[0].get("speaker").and_then(|value| value.as_str()),
+        Some("Alice")
+    );
+    assert!(cues[1].get("speaker").is_none());
+}
+
+#[tokio::test]
 async fn extract_vtt_markdown() {
     let path = sample_vtt_path();
     let node = NodeRegistry::with_builtins().get("extract_vtt").unwrap();
