@@ -326,12 +326,26 @@ describe("repository integration policy", () => {
     const cleanup = "cargo clean --package ironflow";
     const prune = 'echo "[integration] pruning stale IronFlow artifacts"';
     const firstRustGate = "cargo fmt --all -- --check";
+    const defaultCleanup = 'echo "[integration] reclaiming default Rust artifacts"';
+    const audit = "cargo audit --deny warnings";
+    const integrationCleanup =
+      'echo "[integration] reclaiming pre-integration Rust artifacts"';
+    const featureTests =
+      "cargo test --all-targets --features postgres,redis -- --test-threads=1";
 
     expect(gate).toContain(cleanup);
     expect(gate).not.toMatch(/cargo clean(?:\s*(?:\n|$)|\s+--workspace)/);
     expect(gate).toContain("export CARGO_INCREMENTAL=0");
     expect(gate).toContain("trap cleanup EXIT");
     expect(gate.indexOf(prune)).toBeLessThan(gate.indexOf(firstRustGate));
+    expect(gate.indexOf(audit)).toBeLessThan(gate.indexOf(defaultCleanup));
+    expect(gate.indexOf(defaultCleanup)).toBeLessThan(
+      gate.indexOf('echo "[integration] feature-enabled Rust gates"'),
+    );
+    expect(gate.indexOf("Validated $example_count Lua examples.")).toBeLessThan(
+      gate.indexOf(integrationCleanup),
+    );
+    expect(gate.indexOf(integrationCleanup)).toBeLessThan(gate.indexOf(featureTests));
     expect(gate).toContain('echo "[integration] removing gate-owned IronFlow artifacts"');
   });
 
