@@ -5,7 +5,7 @@ use anyhow::{Context as _, Result};
 use serde::de::{MapAccess, Visitor};
 use serde::{Deserialize, Deserializer};
 
-use crate::api::WebhookConfig;
+use crate::api::{StaticFilesConfig, WebhookConfig};
 use crate::scheduler::config::ScheduleConfig;
 
 /// Configuration loaded from `ironflow.yaml`.
@@ -26,6 +26,9 @@ pub struct IronFlowConfig {
     pub allow_unauthenticated_api: Option<bool>,
     /// Expose the process-local Prometheus-compatible metrics endpoint.
     pub metrics_enabled: Option<bool>,
+    /// Optional public static-file hosting configuration.
+    #[serde(rename = "static")]
+    pub static_files: Option<StaticFilesConfig>,
     /// Allowed CORS origins for the API server.
     /// Use ["*"] only when intentionally allowing browser access from any origin.
     pub cors_origins: Option<Vec<String>>,

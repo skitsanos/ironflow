@@ -1,0 +1,9 @@
+host: "127.0.0.1"
+port: 3101
+
+static:
+  directory: "examples/23-static-website/public"
+  index: "index.html"
+  spa_fallback: false
+  precompressed: false
+  cache_control: "no-cache"

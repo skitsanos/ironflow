@@ -4,10 +4,12 @@ pub mod handlers;
 mod idempotency;
 mod lifecycle;
 mod server;
+mod static_files;
 mod webhook_config;
 mod webhook_signature;
 
 pub use lifecycle::ServiceLifecycle;
+pub use static_files::StaticFilesConfig;
 pub use webhook_config::WebhookConfig;
 pub use webhook_signature::WebhookSignatureConfig;
 
@@ -72,6 +74,8 @@ pub struct ServeOptions {
     pub allow_unauthenticated_api: bool,
     /// Expose the authenticated, process-local `GET /metrics` endpoint.
     pub metrics_enabled: bool,
+    /// Optional public static-file root and browser fallback policy.
+    pub static_files: Option<StaticFilesConfig>,
 }
 
 #[derive(Clone)]

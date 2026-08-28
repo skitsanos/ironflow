@@ -14,7 +14,7 @@ pub(super) fn interpolate_json_value(
 
 /// True for IP addresses that belong to the local host or a private/internal
 /// network, used by the opt-in SSRF guard.
-fn ip_is_internal(ip: IpAddr) -> bool {
+pub(super) fn ip_is_internal(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(v4) => {
             v4.is_private() || v4.is_loopback() || v4.is_link_local() || v4.is_unspecified()
@@ -39,7 +39,8 @@ fn ip_is_internal(ip: IpAddr) -> bool {
 /// True if a URL's host targets the local host or a private network. Literal
 /// IP addresses (including the cloud-metadata link-local range) and
 /// `localhost` are recognized; hostnames that resolve to internal addresses via
-/// DNS are not (that requires connection-level control and is out of scope).
+/// DNS are handled later by the private-network transport, which validates and
+/// pins every resolved address before connecting.
 pub(super) fn url_targets_internal_network(url: &url::Url) -> bool {
     match url.host() {
         Some(url::Host::Domain(domain)) => {

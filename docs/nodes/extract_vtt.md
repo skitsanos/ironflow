@@ -29,6 +29,7 @@ Extract text and metadata from a WebVTT subtitle file.
   - `start` — formatted start timestamp
   - `end` — formatted end timestamp
   - `text` — cue text
+  - `speaker` — speaker name from the first WebVTT voice span, when present; omitted for unlabelled cues
 - `<metadata_key>` (when set) — object with:
   - `type` — `"vtt"`
   - `cue_count` — number of parsed subtitle cues

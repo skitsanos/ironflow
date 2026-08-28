@@ -8,6 +8,7 @@ use axum::middleware;
 use axum::routing::{delete, get, post};
 use tower_http::trace::TraceLayer;
 
+use super::static_files::StaticFiles;
 use super::{AppState, ServeOptions, build_api_auth, cors_layer, handlers, require_api_key};
 use crate::nodes::NodeRegistry;
 use crate::storage::StateStore;
@@ -163,6 +164,10 @@ pub(crate) async fn prepare(
     let _ = crate::util::runtime_config::shutdown_grace()?;
     let max_concurrent_tasks =
         crate::util::runtime_config::max_concurrent_tasks(options.max_concurrent_tasks)?;
+    let static_files = match options.static_files.clone() {
+        Some(config) => Some(Arc::new(StaticFiles::prepare(config).await?)),
+        None => None,
+    };
 
     let metrics = options
         .metrics_enabled
@@ -217,11 +222,18 @@ pub(crate) async fn prepare(
         protected_routes
     };
 
-    let app = Router::new()
+    let mut app = Router::new()
         .route("/health", get(handlers::health))
         .route("/health/live", get(handlers::liveness))
         .route("/health/ready", get(handlers::readiness))
-        .merge(protected_routes)
+        .merge(protected_routes);
+    if let Some(static_files) = static_files {
+        app = app.fallback(move |request| {
+            let static_files = static_files.clone();
+            async move { static_files.serve(request).await }
+        });
+    }
+    let app = app
         .layer(DefaultBodyLimit::max(options.max_body))
         .layer(TraceLayer::new_for_http())
         .layer(cors)

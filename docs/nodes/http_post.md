@@ -8,9 +8,12 @@ HTTP POST request convenience wrapper.
 |--------------|--------|----------|-----------|------------------------------------------------------------------------------------------------------|
 | `url`        | string | yes      | --        | Request URL. Supports context interpolation via `${ctx.key}`.                                        |
 | `headers`    | object | no       | `{}`      | Key-value map of request headers. Header values support `${ctx.key}` interpolation.                  |
-| `body_type`  | string | no       | `"json"`  | Body encoding. Supported values: `json`, `form`, `text`. |
-| `body`       | any    | no       | --        | Request body payload. |
-| `timeout`    | number | no       | `30`      | Request timeout in seconds (supports fractional values).                                             |
+| `body_type`  | string | no       | `"json"`  | Body encoding: `json`, `form`, `text`, `artifact`, or `multipart`. |
+| `body`       | any    | no       | --        | Inline payload, or an artifact descriptor/URI for artifact mode. |
+| `body_key`   | string | no       | --        | Context key containing an artifact descriptor/URI. |
+| `parts`      | array  | no       | --        | Multipart text/artifact parts. |
+| `response_mode` | string | no    | `"inline"` | `inline` returns parsed JSON/text; `artifact` streams the response to the artifact store. |
+| `timeout`    | number | no       | `30`      | Total deadline in seconds for one request attempt, including redirects and response transfer. |
 | `auth`       | object | no       | --        | Authentication configuration. See [Auth](#auth) below.                                               |
 | `output_key` | string | no       | `"http"`  | Prefix for context output keys.                                                                      |
 | `fail_on_status` | boolean | no | `true` | When `true`, non-2xx responses return an error after any configured status retries. When `false`, non-2xx responses are returned as normal output. |
@@ -22,10 +25,12 @@ HTTP POST request convenience wrapper.
 | `max_retry_after` | number | no | `60` | Maximum status retry delay in seconds; minimum `0.01` when retries are enabled. |
 | `max_redirects` | integer | no | `10` | Maximum redirects to follow; `0` disables redirects and `100` is the hard ceiling. |
 | `allow_cross_origin_redirects` | boolean | no | `false` | Allow redirects that change scheme, host, or port. Even when enabled, cross-origin redirects are refused when `auth`, credentials embedded in URL userinfo, caller-configured `headers`, or a request `body` is present, because arbitrary credentials cannot be stripped safely. Generated `Referer` headers are disabled. |
-| `block_private_network` | boolean | no | `false` | Refuse initial and redirect targets that are literal private, loopback, link-local, metadata, or IPv4-mapped IPv6 private addresses. DNS-resolved private addresses are not detected. |
+| `proxy_mode` | string | no | `"auto"` | `auto` uses the system proxy unless private-network blocking is enabled; `system` always uses it; `direct` bypasses it. |
+| `block_private_network` | boolean | no | `false` | Refuse internal initial/redirect targets after validating and pinning every DNS answer. Incompatible with `proxy_mode = "system"`. |
 
 For `body_type = "form"`, `body` must be an object and is sent as `application/x-www-form-urlencoded`.
 For `body_type = "text"`, `body` is sent as plain text.
+Artifact and multipart input contracts match [`http_request`](http_request.md), including artifact-only sources and the HTTP byte limit.
 
 Retry counts, redirect counts, booleans, and delay values are parsed strictly:
 a present but invalid value is an error rather than being treated as an omitted
@@ -46,14 +51,16 @@ The `auth` object supports three authentication types, determined by `auth.type`
 On a successful response (HTTP 2xx), or on a non-2xx response when `fail_on_status = false`, the following keys are written to the context:
 
 - `{output_key}_status` -- HTTP status code as a number (e.g., `201`).
-- `{output_key}_data` -- Response body parsed as JSON. Falls back to a plain string if JSON parsing fails.
 - `{output_key}_headers` -- Response headers as a key-value object.
 - `{output_key}_success` -- Boolean `true` for HTTP 2xx, `false` otherwise.
 - `{output_key}_attempts` -- Number of HTTP attempts, including the first request and any status retries.
 
-By default, non-success responses (non-2xx) return an error after the response is read. Set `fail_on_status = false` when the flow should inspect provider error responses, such as `401`, `402`, `429`, or `5xx` bodies and headers.
+Inline mode returns `{output_key}_data` as parsed JSON or text. Artifact mode
+returns `{output_key}_artifact` instead and preserves binary bytes without UTF-8 conversion.
 
-With the default `output_key` of `"http"`, the keys are: `http_status`, `http_data`, `http_headers`, `http_success`, `http_attempts`.
+By default, non-success responses (non-2xx) return an error without materializing the final body. Set `fail_on_status = false` when the flow should inspect provider error responses, such as `401`, `402`, `429`, or `5xx` bodies and headers.
+
+With the default `output_key` of `"http"`, artifact mode replaces `http_data` with `http_artifact`.
 
 ## Example
 

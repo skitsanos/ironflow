@@ -738,6 +738,8 @@ Built with `clap`. Commands:
   `--after`, and `--format` (table/json); no unbounded mode is exposed
 - `ironflow inspect <run_id>` — Show run details as JSON
 - `ironflow nodes` — List available node types
+- `ironflow artifacts prune --before <RFC3339> --confirm-offline` — Delete old
+  unreferenced artifacts during explicitly confirmed offline maintenance
 - `ironflow serve` — Start REST API server with `--host`, `--port`, `--flows-dir`, `--max-body`
 
 Global flags:
@@ -787,6 +789,8 @@ Built with `axum`. Endpoints:
 - `GET /health/ready` — Execution admission plus bounded state/event-store probes
 - `GET /metrics` — Opt-in, API-authenticated OpenMetrics for process-local
   runtime, scheduler, lease, admission, and storage behavior
+- `GET|HEAD /...` — Optional public static-file fallback when a `static:`
+  configuration section is present
 
 Features:
 - Exactly one source field required per request (mutual exclusion enforced)
@@ -798,6 +802,14 @@ Features:
   outside correctness-critical state transitions
 - Configurable CORS support via `IRONFLOW_CORS_ORIGINS` / `cors_origins`
 - Request tracing via `tower-http`
+- Optional `tower-http` file streaming with MIME detection, ranges, ETags,
+  last-modified validators, and adjacent Brotli/Gzip negotiation. The root and
+  index are validated before bind; request targets and compressed sidecars are
+  canonicalized beneath the root before the file service opens them.
+- Static routing is an outer fallback rather than an API route. Explicit API
+  routes retain method and authentication behavior, reserved API prefixes are
+  denied by the fallback, and SPA fallback is limited to extensionless
+  `GET`/`HEAD` requests that explicitly accept HTML.
 - Typed storage-error mapping with generic, correlated internal-error responses
 - Lua instruction, wall-clock, memory, and GC controls via `IRONFLOW_LUA_*` limits
 
@@ -920,6 +932,18 @@ Artifact references bound workflow-context and persistence amplification; they
 do not imply zero-copy processing. Consumers can still allocate decoded pixel
 buffers, parser state, or semantic output subject to their node-specific
 limits.
+
+Outbound HTTP participates in the same artifact boundary. Raw and multipart
+uploads accept only artifact descriptors or canonical URIs, verify and reopen a
+handle for every redirect or status retry, and stream it without placing bytes
+in context. Artifact response mode pumps the accepted response through a
+bounded async-to-blocking channel into the configured store; failed, oversized,
+or cancelled transfers do not publish a descriptor. HTTP clients are shared
+with reqwest redirects disabled. IronFlow applies redirect policy itself so
+method/body replay and cross-origin credential fences remain explicit. When
+private-network blocking is enabled, transport bypasses system proxies, rejects
+the complete DNS answer if any address is internal, and passes only that
+validated set to the connector.
 
 The local backend still treats its configured directory as a trusted process
 boundary. Verified reads prevent same-size path replacement and pathname

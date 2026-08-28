@@ -24,6 +24,12 @@ metrics_enabled: true
 cors_origins:
   - "https://app.example.com"
   - "https://admin.example.com"
+static:
+  directory: "public/site"
+  index: "shell.html"
+  spa_fallback: true
+  precompressed: false
+  cache_control: "public, max-age=300"
 "#;
 
     let mut f = NamedTempFile::new().unwrap();
@@ -56,6 +62,15 @@ cors_origins:
             "https://admin.example.com".to_string()
         ])
     );
+    let static_files = cfg.static_files.unwrap();
+    assert_eq!(static_files.directory, std::path::Path::new("public/site"));
+    assert_eq!(static_files.index, "shell.html");
+    assert!(static_files.spa_fallback);
+    assert!(!static_files.precompressed);
+    assert_eq!(
+        static_files.cache_control.as_deref(),
+        Some("public, max-age=300")
+    );
 }
 
 #[test]
@@ -85,6 +100,7 @@ port: 9090
     assert!(cfg.allow_unauthenticated_api.is_none());
     assert!(cfg.metrics_enabled.is_none());
     assert!(cfg.cors_origins.is_none());
+    assert!(cfg.static_files.is_none());
 }
 
 #[test]
@@ -124,8 +140,30 @@ fn missing_auto_detect_returns_defaults() {
     assert!(cfg.allow_unauthenticated_api.is_none());
     assert!(cfg.metrics_enabled.is_none());
     assert!(cfg.cors_origins.is_none());
+    assert!(cfg.static_files.is_none());
     drop(dir);
     drop(original_dir);
+}
+
+#[test]
+fn static_config_defaults_and_rejects_unknown_fields() {
+    let mut valid = NamedTempFile::new().unwrap();
+    valid.write_all(b"static: {}\n").unwrap();
+    let static_files = IronFlowConfig::load(Some(valid.path()))
+        .unwrap()
+        .static_files
+        .unwrap();
+    assert_eq!(static_files.directory, std::path::Path::new("public"));
+    assert_eq!(static_files.index, "index.html");
+    assert!(!static_files.spa_fallback);
+    assert!(static_files.precompressed);
+    assert!(static_files.cache_control.is_none());
+
+    let mut invalid = NamedTempFile::new().unwrap();
+    invalid
+        .write_all(b"static:\n  directory: public\n  fallback: true\n")
+        .unwrap();
+    assert!(IronFlowConfig::load(Some(invalid.path())).is_err());
 }
 
 #[test]

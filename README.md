@@ -67,7 +67,7 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 │  DAG resolution · Parallel execution · Retry/timeout     │
 │  Context propagation · Conditional routing · State store │
 ├─────────────────────────────────────────────────────────┤
-│                   102 Built-in Nodes                       │
+│                   103 Built-in Nodes                       │
 │  HTTP · Files · Shell · Transforms · Conditionals · ...  │
 │  All implemented in pure Rust for performance & safety   │
 └─────────────────────────────────────────────────────────┘
@@ -95,7 +95,13 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 - **Context interpolation** — documented node parameters support explicit context paths such as `${ctx.user.name}`, `${ctx.items[0].name}`, and `${ctx["key.with.dots"]}`
 - **Lua globals** — `env()`, `uuid4()`, `now_rfc3339()`, `now_unix_ms()`, `json_parse()`, `json_stringify()`, `log()`, `base64_encode()`, `base64_decode()`
 - **Schema validation** — JSON Schema validation to fail fast on bad input
+- **Artifact-native HTTP** — stream verified binary uploads, multipart payloads,
+  and binary responses without Base64 or lossy UTF-8 conversion, with explicit
+  proxy selection and DNS-aware private-network enforcement
 - **REST API** — run and manage flows over HTTP (Axum-based)
+- **Optional static frontend** — serve a configured public directory from the
+  same origin as the API, with streamed files, cache validators, ranges, and a
+  guarded opt-in SPA fallback
 - **CLI** — run, validate, inspect, and list workflows from the terminal
 - **Planned error recovery** — `on_error` schedules a dedicated recovery step
   inside the validated DAG, with normal dependencies, retries, and timeouts
@@ -205,11 +211,18 @@ gates for ordinary CI.
 | `GET` | `/health/live` | Process liveness |
 | `GET` | `/health/ready` | Admission and durable-store readiness |
 | `GET` | `/metrics` | Opt-in authenticated operator metrics (`IRONFLOW_METRICS_ENABLED=true`) |
+| `GET`, `HEAD` | `/`, `/{static-path}` | Optional public static frontend configured through `ironflow.yaml` |
 
 The metrics endpoint exports a fixed-cardinality, process-local OpenMetrics
 contract for run/task outcomes and durations, active work, admission,
 scheduling, leases, and storage failures. It follows the API authentication
 boundary and is absent when disabled. See [Operator metrics](docs/METRICS.md).
+
+Static hosting remains disabled unless an explicit `static:` section is present
+in `ironflow.yaml`. The API routes above always take precedence, and static
+resources are intentionally outside the API-key boundary. See
+[Static frontend hosting](docs/CLI_REFERENCE.md#static-frontend-hosting) for the
+configuration, confinement, caching, and SPA fallback contract.
 
 Flows can also run on a schedule. A `schedules:` block in `ironflow.yaml`
 declares bounded standard five-field cron triggers that `ironflow serve`
@@ -509,7 +522,7 @@ Progressive examples from basic to advanced:
 | [02-data-transforms](examples/02-data-transforms/) | JSON parse/stringify, filtering, batching, deduplication |
 | [03-control-flow](examples/03-control-flow/) | If/else routing, switch/case routing, step_if shorthand |
 | [04-file-operations](examples/04-file-operations/) | Read, write, copy, move, delete, list |
-| [05-http](examples/05-http/) | API calls, authentication, OpenAI integration |
+| [05-http](examples/05-http/) | API calls, authentication, artifact transfer, OpenAI integration |
 | [06-shell](examples/06-shell/) | Shell commands with args, env vars, timeouts, and explicit exit-status policy |
 | [07-advanced](examples/07-advanced/) | Hashing, schema validation, full data pipelines, function handlers, base64 encoding |
 | [08-extraction](examples/08-extraction/) | Word/PDF/PPTX/HTML/VTT/SRT/Excel extraction, metadata, PDF-to-image rendering, image resize/crop, PDF merge/split, image metadata |

@@ -9,6 +9,9 @@ use super::super::resource::{Budget, Limits, read_string};
 use super::output::{collect_metadata, cues_as_json, format_output};
 use crate::util::file_source::get_file_source;
 
+#[cfg(test)]
+mod tests;
+
 pub(super) async fn extract(
     config: &serde_json::Value,
     ctx: &Context,
@@ -108,6 +111,10 @@ pub(super) struct SubtitleCue {
     pub(super) start_ms: u64,
     pub(super) end_ms: u64,
     pub(super) text: String,
+    /// Speaker from a WebVTT voice span (`<v Alice>`), when the cue carries one.
+    /// `None` for SRT and for WebVTT without voice spans, so unlabelled captions
+    /// behave exactly as before.
+    pub(super) speaker: Option<String>,
 }
 
 fn parse_subtitle_cues(
@@ -149,10 +156,16 @@ fn parse_subtitle_cues(
             continue;
         };
         let mut text = String::new();
+        let mut speaker: Option<String> = None;
         for (_, candidate) in lines.by_ref() {
             budget.charge_item("subtitle input lines")?;
             if candidate.trim().is_empty() {
                 break;
+            }
+            // Read the voice span before the tags are stripped; a cue is
+            // attributed to the first speaker it names.
+            if is_vtt && speaker.is_none() {
+                speaker = extract_voice_name(candidate);
             }
             let cleaned = remove_annotation_tags(candidate, budget)?;
             if !text.is_empty() {
@@ -167,6 +180,7 @@ fn parse_subtitle_cues(
                 start_ms,
                 end_ms,
                 text,
+                speaker,
             });
         }
     }
@@ -225,6 +239,37 @@ fn parse_timestamp_ms(value: &str) -> Option<u64> {
         .checked_add(seconds)?
         .checked_mul(1000)?
         .checked_add(milliseconds)
+}
+
+/// Extract the speaker from a WebVTT voice span.
+///
+/// Handles `<v Alice>`, `<v.loud Alice>` and `<v.first.loud Alice Smith>`; the
+/// class list is attached to `v` with dots and the remainder is the speaker.
+/// Returns `None` for any other tag, so `<i>`, `<b>` and friends are ignored,
+/// and for a voice span carrying only classes and no name.
+fn extract_voice_name(value: &str) -> Option<String> {
+    let start = value.find("<v")?;
+    let rest = &value[start + 2..];
+    // `<video>` must not be mistaken for a voice span: the tag name ends here.
+    let boundary = rest.chars().next()?;
+    if !boundary.is_whitespace() && boundary != '.' && boundary != '>' {
+        return None;
+    }
+    let end = rest.find('>')?;
+    let annotation = &rest[..end];
+    let name = if annotation.starts_with('.') {
+        match annotation.find(char::is_whitespace) {
+            Some(index) => annotation[index..].trim(),
+            None => "",
+        }
+    } else {
+        annotation.trim()
+    };
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_string())
+    }
 }
 
 fn remove_annotation_tags(value: &str, budget: &Budget<'_>) -> Result<String> {

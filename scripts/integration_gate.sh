@@ -60,6 +60,9 @@ cargo test --all-targets
 cargo test --doc
 cargo audit --deny warnings
 
+echo "[integration] reclaiming default Rust artifacts"
+clean_workspace_artifacts
+
 echo "[integration] feature-enabled Rust gates"
 cargo check --all-targets --features postgres,redis
 cargo clippy --all-targets --features postgres,redis -- -D warnings
@@ -80,6 +83,9 @@ if (( example_failures > 0 )); then
   exit 1
 fi
 echo "Validated $example_count Lua examples."
+
+echo "[integration] reclaiming pre-integration Rust artifacts"
+clean_workspace_artifacts
 
 container_suffix="$$"
 redis_container="ironflow-integration-redis-$container_suffix"

@@ -1,6 +1,6 @@
 --[[
-HTTP + S3 example: generate a presigned PUT URL, upload a local file through it,
-and verify the upload through S3 get_object.
+HTTP + S3 example: generate a presigned PUT URL, stream a local artifact through
+it, and verify the upload through S3 get_object.
 
 Requirements:
 - AWS credentials and region configuration.
@@ -12,7 +12,7 @@ Effects:
 
 Flow:
 1. Write a local file with demo text.
-2. Read local file content into context.
+2. Stream the local file into the artifact store.
 3. Generate a presigned PUT URL for a UUID-scoped object key.
 4. Upload the file content with an HTTP PUT to the signed URL.
 5. Confirm upload by reading the object via `s3_get_object`.
@@ -38,10 +38,12 @@ flow:step("write_source", nodes.write_file({
 }))
 
 --[[
-Step 2: Read the file content into context for upload.
+Step 2: Store the file as a verified artifact for upload.
 ]]
 flow:step("read_source", nodes.read_file({
     path = source_path,
+    encoding = "artifact",
+    mime_type = "text/plain",
     output_key = "payload"
 })):depends_on("write_source")
 
@@ -58,13 +60,13 @@ flow:step("generate_url", nodes.s3_presign_url({
 })):depends_on("read_source")
 
 --[[
-Step 4: Upload content through the presigned URL using HTTP PUT.
+Step 4: Stream the artifact through the presigned URL using HTTP PUT.
 ]]
 flow:step("http_upload", nodes.http_put({
     url = "${ctx.signed_url}",
     headers = { ["Content-Type"] = "text/plain" },
-    body = "${ctx.payload_content}",
-    body_type = "text",
+    body_type = "artifact",
+    body_key = "payload_artifact",
     output_key = "upload"
 })):depends_on("generate_url")
 

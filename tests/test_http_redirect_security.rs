@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use axum::Router;
 use axum::body::Bytes;
 use axum::extract::State;
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{HeaderMap, Method, StatusCode, header};
 use axum::response::IntoResponse;
 use axum::routing::{any, get};
 use ironflow::engine::types::Context;
@@ -53,17 +53,25 @@ async fn spawn_same_port_scheme_redirect() -> TestServer {
 struct Capture {
     hits: AtomicUsize,
     referer: Mutex<Option<String>>,
+    method: Mutex<Option<Method>>,
+    content_type: Mutex<Option<String>>,
     body: Mutex<Vec<u8>>,
 }
 
 async fn target(
     State(capture): State<Arc<Capture>>,
+    method: Method,
     headers: HeaderMap,
     body: Bytes,
 ) -> &'static str {
     capture.hits.fetch_add(1, Ordering::SeqCst);
+    *capture.method.lock().unwrap() = Some(method);
     *capture.referer.lock().unwrap() = headers
         .get(header::REFERER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+    *capture.content_type.lock().unwrap() = headers
+        .get(header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
         .map(str::to_string);
     *capture.body.lock().unwrap() = body.to_vec();
@@ -78,6 +86,17 @@ async fn temporary_redirect(State(location): State<String>) -> impl IntoResponse
     (
         StatusCode::TEMPORARY_REDIRECT,
         [(header::LOCATION, location)],
+    )
+}
+
+async fn relative_found_redirect() -> impl IntoResponse {
+    (StatusCode::FOUND, [(header::LOCATION, "/capture")])
+}
+
+async fn relative_temporary_redirect() -> impl IntoResponse {
+    (
+        StatusCode::TEMPORARY_REDIRECT,
+        [(header::LOCATION, "/capture")],
     )
 }
 
@@ -242,4 +261,90 @@ async fn request_body_cannot_cross_an_origin_even_with_opt_in() {
     );
     assert_eq!(capture.hits.load(Ordering::SeqCst), 0);
     assert!(capture.body.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn found_redirect_converts_post_to_bodyless_get() {
+    let capture = Arc::new(Capture::default());
+    let server = spawn(
+        Router::new()
+            .route("/start", any(relative_found_redirect))
+            .route("/capture", any(target))
+            .with_state(capture.clone()),
+    )
+    .await;
+
+    execute_node(
+        "http_post",
+        serde_json::json!({
+            "url": format!("{}/start", server.url),
+            "proxy_mode": "direct",
+            "max_redirects": 1,
+            "body": {"secret": "same-origin"}
+        }),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(*capture.method.lock().unwrap(), Some(Method::GET));
+    assert!(capture.body.lock().unwrap().is_empty());
+    assert_eq!(*capture.content_type.lock().unwrap(), None);
+}
+
+#[tokio::test]
+async fn temporary_redirect_replays_post_body_on_same_origin() {
+    let capture = Arc::new(Capture::default());
+    let server = spawn(
+        Router::new()
+            .route("/start", any(relative_temporary_redirect))
+            .route("/capture", any(target))
+            .with_state(capture.clone()),
+    )
+    .await;
+
+    execute_node(
+        "http_post",
+        serde_json::json!({
+            "url": format!("{}/start", server.url),
+            "proxy_mode": "direct",
+            "max_redirects": 1,
+            "body": {"message": "replay"}
+        }),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(*capture.method.lock().unwrap(), Some(Method::POST));
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&capture.body.lock().unwrap()).unwrap(),
+        serde_json::json!({"message": "replay"})
+    );
+    assert_eq!(
+        capture.content_type.lock().unwrap().as_deref(),
+        Some("application/json")
+    );
+}
+
+#[tokio::test]
+async fn zero_redirect_limit_returns_the_redirect_response() {
+    let capture = Arc::new(Capture::default());
+    let server = spawn(
+        Router::new()
+            .route("/start", any(relative_found_redirect))
+            .route("/capture", any(target))
+            .with_state(capture.clone()),
+    )
+    .await;
+
+    let output = execute(serde_json::json!({
+        "url": format!("{}/start", server.url),
+        "proxy_mode": "direct",
+        "max_redirects": 0,
+        "fail_on_status": false
+    }))
+    .await
+    .unwrap();
+
+    assert_eq!(output["http_status"], 302);
+    assert_eq!(capture.hits.load(Ordering::SeqCst), 0);
 }

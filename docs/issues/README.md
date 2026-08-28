@@ -6,7 +6,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts generate` and verified with
 `bun run scripts/issues_registry.ts check`.
 
-- Total findings: 103
+- Total findings: 105
 - Active findings: 0
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
@@ -115,3 +115,5 @@ priority, area, and title. The registry is generated with
 | [IF-101](./IF-101.md) | P1 | Resolved | Artifact lifecycle | Artifact storage has no remote multi-host lifecycle backend |
 | [IF-102](./IF-102.md) | P1 | Resolved | Composition | Workflow composition cannot repeat a child flow with bounded carried state |
 | [IF-103](./IF-103.md) | P1 | Resolved | AI/artifacts | Multimodal LLM calls require image bytes in persisted workflow context |
+| [IF-104](./IF-104.md) | P1 | Resolved | HTTP/artifacts/security | HTTP transport cannot safely carry artifact-native binary workflows |
+| [IF-105](./IF-105.md) | P2 | Resolved | API/static hosting | Serve cannot host an optional same-origin static frontend |
