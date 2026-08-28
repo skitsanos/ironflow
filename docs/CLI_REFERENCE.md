@@ -235,6 +235,57 @@ boundary and is process-local; the route returns `404` when disabled. See
 [Operator metrics](METRICS.md) for the complete label, reset, scrape, and alert
 contract.
 
+#### Static frontend hosting
+
+Static hosting is configuration-only and disabled when `static` is absent. To
+serve a frontend from the same origin as the API:
+
+```yaml
+static:
+  directory: ./public
+  index: index.html
+  spa_fallback: false
+  precompressed: true
+  cache_control: "public, max-age=300"
+```
+
+| Field | Default | Contract |
+|-------|---------|----------|
+| `directory` | `public` | Public root, resolved relative to the process working directory unless absolute |
+| `index` | `index.html` | Portable 1–255 byte file name using ASCII letters, digits, `.`, `_`, or `-`; `.` and `..` are invalid |
+| `spa_fallback` | `false` | Return the root index for an eligible missing browser navigation route |
+| `precompressed` | `true` | Negotiate adjacent `.br` and `.gz` sidecars when the uncompressed file also exists |
+| `cache_control` | omitted | Optional non-empty 1–1024 byte valid `Cache-Control` header for successful and `304` static responses |
+
+Once configured, the directory and root index must already exist and be
+readable regular filesystem entries; invalid configuration fails before the
+server binds. The root and root index cannot be symlinks. Request targets,
+directory indexes, and compressed sidecars are checked against the canonical
+root before they are opened. Traversal, encoded separators, backslashes,
+special files, malformed percent encoding, directory listings, and symlink
+escapes return `404`.
+
+Static files are public and accept only `GET` and `HEAD`. API authentication is
+unchanged: `/flows`, `/runs`, `/nodes`, `/webhooks`, `/health`, and `/metrics`
+remain reserved and cannot be shadowed by files or SPA routes. The SPA fallback
+requires an extensionless missing path plus an explicit nonzero `text/html` or
+`application/xhtml+xml` `Accept` range. It never converts missing JavaScript,
+CSS, image, or other extension-bearing assets into `200 index.html` responses.
+
+For the release container, mount the directory read-only and use an absolute
+path because the binary itself lives under `/usr/local/bin` while the working
+directory is `/data`:
+
+```yaml
+static:
+  directory: /data/public
+```
+
+The file service streams responses and supports MIME detection, `HEAD`, byte
+ranges, ETags, last-modified validators, and precompressed assets. It is suited
+to embedded dashboards and small frontends; dynamic compression and CDN-scale
+delivery remain ingress concerns.
+
 `POST /flows/run` accepts an optional `Idempotency-Key`. It is limited to 128
 portable ASCII characters (`A-Z`, `a-z`, `0-9`, `-`, `_`, `.`, `:`). The key is
 hashed rather than stored; its deterministic run ID and request fingerprint are
@@ -952,7 +1003,7 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_LLM_MAX_IMAGE_INPUT_BYTES` | `52428800` | Maximum cumulative raw image-artifact bytes resolved for one LLM request |
 | `IRONFLOW_LLM_MAX_IMAGE_ARTIFACTS` | `32` | Maximum image-artifact blocks resolved for one LLM request |
 | `IRONFLOW_MAX_TRANSCRIBE_RESPONSE_BYTES` | `26214400` | Maximum transcription-provider response body. Checked while streaming even when `Content-Length` is absent or wrong; zero/invalid values retain the safe default. |
-| `IRONFLOW_MAX_HTTP_BODY_BYTES` | `52428800` | Maximum HTTP node response-body size |
+| `IRONFLOW_MAX_HTTP_BODY_BYTES` | `52428800` | Maximum HTTP node response body, raw artifact upload, or complete multipart request size. Enforced before transfer when declared and while streaming; multipart admission includes conservative generated-framing allowance. |
 | `IRONFLOW_MAX_FILE_BYTES` | `52428800` | Maximum `read_file` payload and final `write_file` size (including an existing file in append mode), streamed `s3_get_object` response body, HTML/SRT/VTT extraction input, and raw DOCX/PPTX archive size |
 | `IRONFLOW_MAX_IMAGE_ENCODED_BYTES` | `52428800` | Maximum encoded bytes for one image path, artifact, or decoded Base64 source, checked before image pixel allocation |
 | `IRONFLOW_MAX_IMAGE_PIXELS` | `25000000` | Maximum decoded pixels in one source image or generated image transform |

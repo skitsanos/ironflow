@@ -35,6 +35,16 @@ store_backend: "json"     # IRONFLOW_STORE: json, sqlite, postgres, or redis
 # cors_origins:                    # IRONFLOW_CORS_ORIGINS (comma-separated)
 #   - "https://app.example.com"
 
+# Optional same-origin public frontend. Presence enables static hosting;
+# relative directories resolve from the process working directory. The root
+# index must exist before `ironflow serve` starts.
+# static:
+#   directory: "public"
+#   index: "index.html"
+#   spa_fallback: false
+#   precompressed: true
+#   cache_control: "public, max-age=300"
+
 # Webhooks — scalar entries forward no request headers. Structured entries can
 # opt confidential business-signature headers into the execution-only
 # ctx._headers overlay. Platform auth/cookie/session headers remain reserved.

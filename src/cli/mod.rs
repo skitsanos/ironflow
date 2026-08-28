@@ -269,6 +269,7 @@ pub async fn run_cli() -> Result<()> {
                 api_key: server_config.api_key,
                 allow_unauthenticated_api: server_config.allow_unauthenticated_api,
                 metrics_enabled: server_config.metrics_enabled,
+                static_files: cfg.static_files.clone(),
             };
             let store = create_store(&cfg, &store_dir).await?;
             let event_store = create_event_store(&cfg, &store_dir).await?;

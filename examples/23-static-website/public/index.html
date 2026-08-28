@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>IronFlow Service Status</title>
+    <link rel="stylesheet" href="/assets/styles.css">
+    <script defer src="/assets/app.js"></script>
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/">IronFlow</a>
+      <span class="environment">Local service</span>
+    </header>
+
+    <main>
+      <section class="status-panel" aria-labelledby="status-title">
+        <p class="eyebrow">Runtime</p>
+        <h1 id="status-title">Service status</h1>
+        <div class="status-row">
+          <span id="status-indicator" class="status-indicator" aria-hidden="true"></span>
+          <strong id="status-label">Checking</strong>
+        </div>
+        <pre id="status-details" aria-live="polite">Contacting /health...</pre>
+        <button id="refresh-status" type="button">Refresh</button>
+      </section>
+    </main>
+  </body>
+</html>

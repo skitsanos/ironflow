@@ -7,7 +7,7 @@ use axum::http::{Request, StatusCode, header};
 use http_body_util::BodyExt;
 use tower::ServiceExt;
 
-use crate::api::ServeOptions;
+use crate::api::{ServeOptions, StaticFilesConfig};
 use crate::storage::event_store::MemoryEventStore;
 use crate::storage::json_store::JsonStateStore;
 use crate::storage::{RunLease, StateStore};
@@ -27,6 +27,7 @@ fn serve_options(metrics_enabled: bool, api_key: Option<&str>) -> ServeOptions {
         api_key: api_key.map(str::to_string),
         allow_unauthenticated_api: false,
         metrics_enabled,
+        static_files: None,
     }
 }
 
@@ -137,4 +138,156 @@ async fn metrics_route_uses_api_auth_and_openmetrics_content_type() {
     assert!(body.contains("ironflow_runs_total"));
     assert!(body.ends_with("# EOF\n"));
     assert!(!body.contains(api_key));
+}
+
+#[tokio::test]
+async fn root_remains_not_found_when_static_hosting_is_disabled() {
+    let prepared = super::prepare(
+        Arc::new(crate::storage::null_store::NullStateStore::new()),
+        Arc::new(MemoryEventStore::new()),
+        serve_options(false, None),
+    )
+    .await
+    .unwrap();
+
+    let response = prepared
+        .app
+        .oneshot(Request::get("/").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn static_fallback_is_public_but_cannot_shadow_api_routes() {
+    let directory = tempfile::tempdir().unwrap();
+    for (name, content) in [
+        ("index.html", "application shell"),
+        ("asset.txt", "public asset"),
+        ("nodes", "shadowed nodes"),
+        ("health", "shadowed health"),
+        ("metrics", "shadowed metrics"),
+    ] {
+        std::fs::write(directory.path().join(name), content).unwrap();
+    }
+    let mut options = serve_options(false, Some("api-secret"));
+    options.static_files = Some(StaticFilesConfig {
+        directory: directory.path().to_path_buf(),
+        spa_fallback: true,
+        ..StaticFilesConfig::default()
+    });
+    let prepared = super::prepare(
+        Arc::new(crate::storage::null_store::NullStateStore::new()),
+        Arc::new(MemoryEventStore::new()),
+        options,
+    )
+    .await
+    .unwrap();
+
+    let asset = prepared
+        .app
+        .clone()
+        .oneshot(Request::get("/asset.txt").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(asset.status(), StatusCode::OK);
+    assert_eq!(
+        asset
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .as_ref(),
+        b"public asset"
+    );
+
+    let nodes = prepared
+        .app
+        .clone()
+        .oneshot(Request::get("/nodes").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(nodes.status(), StatusCode::UNAUTHORIZED);
+
+    let health = prepared
+        .app
+        .clone()
+        .oneshot(Request::get("/health").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(health.status(), StatusCode::OK);
+    assert_ne!(
+        health
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .as_ref(),
+        b"shadowed health"
+    );
+
+    for path in ["/metrics", "/flows/unmapped"] {
+        let response = prepared
+            .app
+            .clone()
+            .oneshot(
+                Request::get(path)
+                    .header(header::ACCEPT, "text/html")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
+    }
+
+    let webhook = prepared
+        .app
+        .clone()
+        .oneshot(
+            Request::get("/webhooks/unmapped")
+                .header(header::ACCEPT, "text/html")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(webhook.status(), StatusCode::UNAUTHORIZED);
+    let authorized_webhook = prepared
+        .app
+        .clone()
+        .oneshot(
+            Request::get("/webhooks/unmapped")
+                .header(header::AUTHORIZATION, "Bearer api-secret")
+                .header(header::ACCEPT, "text/html")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(authorized_webhook.status(), StatusCode::METHOD_NOT_ALLOWED);
+
+    let navigation = prepared
+        .app
+        .oneshot(
+            Request::get("/dashboard")
+                .header(header::ACCEPT, "text/html")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(navigation.status(), StatusCode::OK);
+    assert_eq!(
+        navigation
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes()
+            .as_ref(),
+        b"application shell"
+    );
 }

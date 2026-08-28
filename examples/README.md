@@ -75,7 +75,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **openai_responses.lua** — OpenAI Responses API (`gpt-5-nano`)
 - **openai_with_extract.lua** — Chat Completions + function handler to extract the reply
 - **http_methods.lua** — Generic http_request, http_put, and http_delete
-- **s3_presigned_upload.lua** — Generate a presigned PUT URL, upload a local file via HTTP, and verify with S3
+- **s3_presigned_upload.lua** — Stream a local artifact through a presigned HTTP PUT and verify it with S3
 
 ## 06-shell
 - **run_commands.lua** — Execute shell commands with args, env vars, timeout, and inspectable non-zero exits
@@ -204,6 +204,10 @@ credentialed, local-state, and platform-specific flow at the same time.
 
 ## 21-schedules
 - **scheduled_hello.lua** — Deterministic offline flow used by the adjacent `ironflow.yaml` to demonstrate a minutely `serve` schedule; the JSON backend retains atomic claim files while cleaning schedule-specific index buckets in bounded background-on-claim passes. Run `cargo run -- -C examples/21-schedules/ironflow.yaml serve` from the repository root and stop it with Ctrl-C
+
+## 23-static-website
+- **ironflow.yaml** — Runs `ironflow serve` with a public static root on `127.0.0.1:3101`
+- **public/** — Small HTML, CSS, and JavaScript frontend that loads the public `/health` endpoint from the same origin
 
 ## Running Examples
 

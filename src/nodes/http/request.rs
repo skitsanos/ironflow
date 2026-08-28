@@ -1,6 +1,9 @@
+mod body;
 mod builder;
+mod dns;
 mod nodes;
 mod response;
+mod transport;
 
 use anyhow::Result;
 
@@ -10,11 +13,12 @@ use crate::util::duration::{nonnegative_duration, positive_duration};
 use crate::util::node_config::{
     config_bool_or, config_f64_or, config_u64_strict, config_usize_strict,
 };
-use crate::util::sensitive_url::{SecretEndpoint, redact_sensitive_text};
+use crate::util::sensitive_url::SecretEndpoint;
 
-use builder::build_request;
+use body::RequestBody;
 pub use nodes::{HttpDeleteNode, HttpGetNode, HttpPostNode, HttpPutNode, HttpRequestNode};
-use response::response_to_output;
+use response::{ResponseMetadata, ResponseMode, response_to_output};
+use transport::{ProxyMode, RedirectPolicy, send_with_redirects, shared_client};
 
 /// Status retries are nested inside a step attempt, so leaving this count
 /// unbounded can multiply the workflow retry ceiling into an effectively
@@ -38,6 +42,7 @@ pub(super) async fn do_http_request(
         .and_then(|value| value.as_str())
         .ok_or_else(|| anyhow::anyhow!("HTTP node requires 'url' parameter"))?;
     let url = interpolate_ctx(raw_url, ctx);
+    let request_body = RequestBody::resolve(config, ctx)?;
 
     let timeout_s = config_f64_or(config, "timeout", ctx, 30.0)?;
     let timeout = positive_duration(timeout_s, "HTTP timeout")?;
@@ -45,6 +50,7 @@ pub(super) async fn do_http_request(
         .get("output_key")
         .and_then(|value| value.as_str())
         .unwrap_or("http");
+    let response_mode = ResponseMode::parse(config)?;
     let fail_on_status = config_bool_or(config, "fail_on_status", ctx, true)?;
     let retry_statuses = parse_retry_statuses(config, ctx)?;
     let status_retries = parse_status_retries(config, ctx)?;
@@ -68,100 +74,67 @@ pub(super) async fn do_http_request(
     }
     let allow_cross_origin_redirects =
         config_bool_or(config, "allow_cross_origin_redirects", ctx, false)?;
-    let carries_redirect_sensitive_data = carries_redirect_sensitive_data(config, &url);
+    let carries_redirect_sensitive_data =
+        carries_redirect_sensitive_data(config, &url, request_body.has_payload());
     // This is a security control: a typo must fail closed rather than silently
     // turning private-network protection off.
     let block_private = config_bool_or(config, "block_private_network", ctx, false)?;
 
-    if block_private
-        && let Ok(parsed) = url::Url::parse(&url)
-        && crate::nodes::http::helpers::url_targets_internal_network(&parsed)
-    {
-        anyhow::bail!(
-            "HTTP request to {} blocked: target is a private network address (block_private_network is enabled)",
-            SecretEndpoint::new(&url)
-        );
-    }
-
-    let redirect_policy = if max_redirects == 0 {
-        reqwest::redirect::Policy::none()
-    } else {
-        reqwest::redirect::Policy::custom(move |attempt| {
-            // Reqwest includes the initial URL in `previous`, so `>` permits
-            // exactly `max_redirects` hops while still bounding the chain.
-            if attempt.previous().len() > max_redirects {
-                attempt.error("too many redirects")
-            } else if block_private
-                && crate::nodes::http::helpers::url_targets_internal_network(attempt.url())
-            {
-                attempt.error("redirect to a private network address is blocked")
-            } else if redirect_changes_origin(&attempt) && carries_redirect_sensitive_data {
-                // Reqwest strips a small fixed set (such as Authorization),
-                // but forwards arbitrary headers including X-API-Key. It also
-                // cannot identify secrets in user-named headers, and URL
-                // userinfo becomes an Authorization header only while reqwest
-                // builds the request. Do not let an opt-in cross-origin policy
-                // override this hard fence.
-                attempt.error(
-                    "cross-origin redirect refused because the request carries configured auth, headers, or a body, including URL credentials",
-                )
-            } else if redirect_changes_origin(&attempt) && !allow_cross_origin_redirects {
-                attempt.error(
-                    "cross-origin redirects are disabled; set allow_cross_origin_redirects=true for requests without configured auth, headers, or a body",
-                )
-            } else {
-                attempt.follow()
-            }
-        })
+    let client = shared_client(ProxyMode::parse(config)?, block_private)?;
+    let redirect_policy = RedirectPolicy {
+        max_redirects,
+        allow_cross_origin: allow_cross_origin_redirects,
+        block_private,
+        carries_sensitive_data: carries_redirect_sensitive_data,
     };
-
-    let client = reqwest::Client::builder()
-        .timeout(timeout)
-        // Reqwest's generated cross-origin Referer retains the original query
-        // string. URLs commonly carry signed tokens, so never synthesize one.
-        .referer(false)
-        .redirect(redirect_policy)
-        .build()
-        .map_err(|error| {
-            anyhow::anyhow!(
-                "Failed to build HTTP client: {}",
-                redact_sensitive_text(&error.to_string())
-            )
-        })?;
-    let request_template = build_request(&client, method, &url, config, ctx)?
-        .try_clone()
-        .ok_or_else(|| anyhow::anyhow!("HTTP request body is not retryable"))?;
 
     let mut attempt = 0_u64;
     loop {
-        let response = request_template
-            .try_clone()
-            .ok_or_else(|| anyhow::anyhow!("HTTP request body is not retryable"))?
-            .send()
-            .await
-            .map_err(|error| {
-                // Reqwest's Display text stops at "error following redirect";
-                // preserve the custom policy's safe reason from the source
-                // chain so operators can distinguish a security refusal from a
-                // transport failure. The whole chain still passes through the
-                // URL/credential scrubber before it leaves the node.
-                let detail = format!("{:#}", anyhow::Error::new(error));
-                anyhow::anyhow!(
-                    "HTTP {} request to {} failed: {}",
+        let request_attempt = async {
+            let response = send_with_redirects(
+                &client,
+                method,
+                &url,
+                config,
+                ctx,
+                &request_body,
+                &redirect_policy,
+            )
+            .await?;
+            let metadata = ResponseMetadata::from_response(&response);
+            let should_retry = attempt < status_retries
+                && retry_statuses.contains(&metadata.status)
+                && !metadata.success;
+            if should_retry {
+                return Ok(RequestAttempt::Retry(metadata.retry_after_secs));
+            }
+            if fail_on_status && !metadata.success {
+                anyhow::bail!(
+                    "HTTP {} {} returned status {}",
                     method,
                     SecretEndpoint::new(&url),
-                    redact_sensitive_text(&detail)
+                    metadata.status
+                );
+            }
+            let output = response_to_output(response, output_key, response_mode, metadata).await?;
+            Ok(RequestAttempt::Complete(output))
+        };
+        let result = tokio::time::timeout(timeout, request_attempt)
+            .await
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "HTTP {} request to {} timed out after {} seconds",
+                    method,
+                    SecretEndpoint::new(&url),
+                    timeout.as_secs_f64()
                 )
-            })?;
-        let result = response_to_output(response, output_key).await?;
-        let should_retry =
-            attempt < status_retries && retry_statuses.contains(&result.status) && !result.success;
+            })??;
 
-        if should_retry {
+        if let RequestAttempt::Retry(retry_after_secs) = result {
             let exponential_backoff =
                 || retry_backoff_s * 2_f64.powi(i32::try_from(attempt).unwrap_or(30));
             let delay_s = if respect_retry_after {
-                result.retry_after_secs.unwrap_or_else(exponential_backoff)
+                retry_after_secs.unwrap_or_else(exponential_backoff)
             } else {
                 exponential_backoff()
             }
@@ -174,33 +147,27 @@ pub(super) async fn do_http_request(
             continue;
         }
 
-        let mut output = result.output;
+        let RequestAttempt::Complete(mut output) = result else {
+            unreachable!("retry attempts continue before output handling")
+        };
         output.insert(
             format!("{}_attempts", output_key),
             serde_json::Value::Number((attempt + 1).into()),
         );
-        if fail_on_status && !result.success {
-            anyhow::bail!(
-                "HTTP {} {} returned status {}",
-                method,
-                SecretEndpoint::new(&url),
-                result.status
-            );
-        }
         return Ok(output);
     }
 }
 
-fn redirect_changes_origin(attempt: &reqwest::redirect::Attempt<'_>) -> bool {
-    let Some(previous) = attempt.previous().last() else {
-        return true;
-    };
-    previous.scheme() != attempt.url().scheme()
-        || previous.host() != attempt.url().host()
-        || previous.port_or_known_default() != attempt.url().port_or_known_default()
+enum RequestAttempt {
+    Retry(Option<f64>),
+    Complete(NodeOutput),
 }
 
-fn carries_redirect_sensitive_data(config: &serde_json::Value, request_url: &str) -> bool {
+fn carries_redirect_sensitive_data(
+    config: &serde_json::Value,
+    request_url: &str,
+    has_body: bool,
+) -> bool {
     let has_auth = config
         .get("auth")
         .and_then(serde_json::Value::as_object)
@@ -211,7 +178,7 @@ fn carries_redirect_sensitive_data(config: &serde_json::Value, request_url: &str
         .is_some_and(|headers| headers.values().any(serde_json::Value::is_string));
     let has_url_credentials = url::Url::parse(request_url)
         .is_ok_and(|url| !url.username().is_empty() || url.password().is_some());
-    has_auth || has_headers || has_url_credentials || config.get("body").is_some()
+    has_auth || has_headers || has_url_credentials || has_body
 }
 
 fn parse_status_retries(config: &serde_json::Value, ctx: &Context) -> Result<u64> {

@@ -3,14 +3,17 @@ use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 
 use crate::engine::types::Context;
 use crate::lua::interpolate::interpolate_ctx;
-use crate::nodes::http::helpers::{body_value_to_text, build_form_body, interpolate_json_value};
 
-pub(super) fn build_request(
+use super::body::RequestBody;
+
+pub(super) async fn build_request(
     client: &reqwest::Client,
     method: &str,
     url: &str,
     config: &serde_json::Value,
     ctx: &Context,
+    body: &RequestBody,
+    include_body: bool,
 ) -> Result<reqwest::RequestBuilder> {
     let request = match method.to_uppercase().as_str() {
         "GET" => client.get(url),
@@ -20,15 +23,27 @@ pub(super) fn build_request(
         "PATCH" => client.patch(url),
         _ => anyhow::bail!("Unsupported HTTP method: {}", method),
     };
-    let (request, has_content_type) = apply_headers(request, config, ctx)?;
+    let (request, has_content_type) = apply_headers(
+        request,
+        config,
+        ctx,
+        include_body,
+        include_body && body.manages_framing(),
+    )?;
     let request = apply_auth(request, config, ctx);
-    apply_body(request, config, ctx, has_content_type)
+    if include_body {
+        body.apply(request, has_content_type).await
+    } else {
+        Ok(request)
+    }
 }
 
 fn apply_headers(
     mut request: reqwest::RequestBuilder,
     config: &serde_json::Value,
     ctx: &Context,
+    include_body: bool,
+    managed_framing: bool,
 ) -> Result<(reqwest::RequestBuilder, bool)> {
     let Some(headers) = config.get("headers").and_then(|value| value.as_object()) else {
         return Ok((request, false));
@@ -36,6 +51,21 @@ fn apply_headers(
     let mut header_map = HeaderMap::new();
     let mut has_content_type = false;
     for (name, value) in headers {
+        let normalized = name.to_ascii_lowercase();
+        if managed_framing && matches!(normalized.as_str(), "content-length" | "transfer-encoding")
+        {
+            anyhow::bail!(
+                "HTTP artifact and multipart bodies manage Content-Length and Transfer-Encoding; remove the configured '{name}' header"
+            );
+        }
+        if !include_body
+            && matches!(
+                normalized.as_str(),
+                "content-length" | "content-type" | "transfer-encoding"
+            )
+        {
+            continue;
+        }
         if let Some(value) = value.as_str() {
             header_map.insert(
                 HeaderName::from_bytes(name.as_bytes())?,
@@ -86,40 +116,4 @@ fn apply_auth(
         _ => {}
     }
     request
-}
-
-fn apply_body(
-    mut request: reqwest::RequestBuilder,
-    config: &serde_json::Value,
-    ctx: &Context,
-    has_content_type: bool,
-) -> Result<reqwest::RequestBuilder> {
-    let Some(body) = config.get("body") else {
-        return Ok(request);
-    };
-    let body = interpolate_json_value(body, ctx);
-    match config
-        .get("body_type")
-        .and_then(|value| value.as_str())
-        .unwrap_or("json")
-    {
-        "json" => request = request.json(&body),
-        "form" => {
-            if !has_content_type {
-                request = request.header("Content-Type", "application/x-www-form-urlencoded");
-            }
-            request = request.body(build_form_body(&body)?);
-        }
-        "text" => {
-            if !has_content_type {
-                request = request.header("Content-Type", "text/plain; charset=utf-8");
-            }
-            request = request.body(body_value_to_text(&body));
-        }
-        other => anyhow::bail!(
-            "Unsupported body_type '{}'. Expected one of: json, form, text",
-            other
-        ),
-    }
-    Ok(request)
 }

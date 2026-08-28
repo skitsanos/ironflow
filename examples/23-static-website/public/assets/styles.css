@@ -1,0 +1,132 @@
+:root {
+  color-scheme: light;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #f4f5f7;
+  color: #15171a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+}
+
+.site-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 64px;
+  padding: 0 24px;
+  border-bottom: 1px solid #d8dce2;
+  background: #ffffff;
+}
+
+.brand {
+  color: #15171a;
+  font-size: 20px;
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.environment {
+  color: #59616d;
+  font-size: 14px;
+}
+
+main {
+  width: min(720px, calc(100% - 32px));
+  margin: 64px auto;
+}
+
+.status-panel {
+  border-left: 4px solid #2563eb;
+  padding: 8px 0 8px 28px;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  color: #59616d;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: 0 0 28px;
+  font-size: 52px;
+  font-weight: 760;
+  line-height: 1.05;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 28px;
+}
+
+.status-indicator {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #d97706;
+}
+
+.status-indicator[data-state="healthy"] {
+  background: #16803c;
+}
+
+.status-indicator[data-state="error"] {
+  background: #c42b31;
+}
+
+pre {
+  min-height: 96px;
+  margin: 20px 0;
+  overflow-x: auto;
+  color: #343a43;
+  font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  white-space: pre-wrap;
+}
+
+button {
+  min-height: 40px;
+  border: 1px solid #15171a;
+  border-radius: 4px;
+  padding: 0 16px;
+  background: #15171a;
+  color: #ffffff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 650;
+}
+
+button:hover {
+  background: #343a43;
+}
+
+button:focus-visible {
+  outline: 3px solid #93b4ff;
+  outline-offset: 3px;
+}
+
+@media (max-width: 520px) {
+  .site-header {
+    padding: 0 16px;
+  }
+
+  main {
+    margin-top: 40px;
+  }
+
+  .status-panel {
+    padding-left: 20px;
+  }
+
+  h1 {
+    font-size: 38px;
+  }
+}
