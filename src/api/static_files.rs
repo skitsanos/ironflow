@@ -239,6 +239,15 @@ fn method_not_allowed() -> Response {
 }
 
 fn static_io_error(error: std::io::Error) -> Response {
+    // try_call exposes errors that the service's infallible call maps to 404.
+    if matches!(
+        error.kind(),
+        std::io::ErrorKind::NotFound
+            | std::io::ErrorKind::PermissionDenied
+            | std::io::ErrorKind::NotADirectory
+    ) {
+        return not_found();
+    }
     tracing::error!(error = %error, "static file service failed");
     Response::builder()
         .status(StatusCode::INTERNAL_SERVER_ERROR)
