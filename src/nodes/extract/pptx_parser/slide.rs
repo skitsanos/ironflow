@@ -51,15 +51,15 @@ pub(super) fn parse_pptx_slide<R: BufRead>(
                 saw_element = true;
                 budget.charge_item("PPTX slide XML events")?;
                 start_element(&event, &mut state, budget)?;
-                end_element(event.name().as_ref(), &mut state, budget)?;
+                end_element(event.name().as_ref().as_bytes(), &mut state, budget)?;
             }
             Ok(Event::Text(event)) if state.in_text => {
                 budget.charge_item("PPTX slide XML events")?;
                 budget.charge_output(event.len() as u64, "PPTX retained slide text")?;
-                let text = String::from_utf8_lossy(event.as_ref());
-                state.current_text.push_str(&text);
+                let text = event.as_ref();
+                state.current_text.push_str(text);
                 if state.in_cell {
-                    state.current_cell_text.push_str(&text);
+                    state.current_cell_text.push_str(text);
                 }
             }
             Ok(Event::End(event)) => {
@@ -67,7 +67,7 @@ pub(super) fn parse_pptx_slide<R: BufRead>(
                 depth = depth.checked_sub(1).ok_or_else(|| {
                     anyhow::anyhow!("extract_pptx: invalid unmatched closing element in slide")
                 })?;
-                end_element(event.name().as_ref(), &mut state, budget)?;
+                end_element(event.name().as_ref().as_bytes(), &mut state, budget)?;
             }
             Ok(Event::Eof) => break,
             Ok(_) => budget.charge_item("PPTX slide XML events")?,
@@ -82,7 +82,7 @@ pub(super) fn parse_pptx_slide<R: BufRead>(
 }
 
 fn start_element(event: &BytesStart<'_>, state: &mut State, budget: &mut Budget<'_>) -> Result<()> {
-    match local_name(event.name().as_ref()) {
+    match local_name(event.name().as_ref().as_bytes()) {
         b"sp" => {
             state.placeholder = None;
             state.current_paragraphs.clear();
@@ -218,12 +218,12 @@ fn collect_string_attribute(
 ) -> Result<()> {
     for attribute in event.attributes() {
         let attribute = attribute.context("extract_pptx: invalid slide attribute")?;
-        if attribute.key.as_ref() == key {
+        if attribute.key.as_ref().as_bytes() == key {
             budget.charge_output(
                 attribute.value.len() as u64,
                 "PPTX retained slide attributes",
             )?;
-            *target = Some(String::from_utf8_lossy(&attribute.value).to_string());
+            *target = Some(attribute.value.into_owned());
         }
     }
     Ok(())
@@ -236,12 +236,12 @@ fn collect_embed_id(
 ) -> Result<()> {
     for attribute in event.attributes() {
         let attribute = attribute.context("extract_pptx: invalid image attribute")?;
-        if local_name(attribute.key.as_ref()) == b"embed" {
+        if local_name(attribute.key.as_ref().as_bytes()) == b"embed" {
             budget.charge_output(
                 attribute.value.len() as u64,
                 "PPTX retained image relationship IDs",
             )?;
-            state.picture_embed_id = Some(String::from_utf8_lossy(&attribute.value).to_string());
+            state.picture_embed_id = Some(attribute.value.into_owned());
         }
     }
     Ok(())
@@ -250,9 +250,10 @@ fn collect_embed_id(
 fn collect_list_level(event: &BytesStart<'_>, state: &mut State) -> Result<()> {
     for attribute in event.attributes() {
         let attribute = attribute.context("extract_pptx: invalid paragraph attribute")?;
-        if attribute.key.as_ref() == b"lvl" {
+        if attribute.key.as_ref().as_bytes() == b"lvl" {
             state.current_list_level = Some(
-                String::from_utf8_lossy(&attribute.value)
+                attribute
+                    .value
                     .parse::<u32>()
                     .context("extract_pptx: paragraph list level must be an unsigned integer")?,
             );

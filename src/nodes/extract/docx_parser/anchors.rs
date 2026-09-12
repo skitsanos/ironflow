@@ -28,15 +28,15 @@ impl<'set, 'id> AnchorCollector<'set, 'id> {
         let is_empty = matches!(event, Event::Empty(_));
         match event {
             Event::Start(event) | Event::Empty(event) => match event.name().as_ref() {
-                b"w:commentRangeStart" => self.update_ranges(event, true, budget)?,
-                b"w:commentRangeEnd" => self.update_ranges(event, false, budget)?,
-                b"w:t" => self.in_text = !is_empty,
+                "w:commentRangeStart" => self.update_ranges(event, true, budget)?,
+                "w:commentRangeEnd" => self.update_ranges(event, false, budget)?,
+                "w:t" => self.in_text = !is_empty,
                 _ => {}
             },
             Event::Text(event) if self.in_text && !self.open.is_empty() => {
                 self.append_text(event.as_ref(), budget)?;
             }
-            Event::End(event) if event.name().as_ref() == b"w:t" => self.in_text = false,
+            Event::End(event) if event.name().as_ref() == "w:t" => self.in_text = false,
             Event::Eof if !self.open.is_empty() => {
                 anyhow::bail!(
                     "extract_word: {} unclosed comment range(s) in word/document.xml",
@@ -52,8 +52,7 @@ impl<'set, 'id> AnchorCollector<'set, 'id> {
         self.anchors
     }
 
-    fn append_text(&mut self, raw: &[u8], budget: &mut Budget<'_>) -> Result<()> {
-        let text = String::from_utf8_lossy(raw);
+    fn append_text(&mut self, text: &str, budget: &mut Budget<'_>) -> Result<()> {
         let open_count = u64::try_from(self.open.len()).unwrap_or(u64::MAX);
         budget.charge_items(open_count, "DOCX comment anchor fan-out")?;
         let matched = self
@@ -87,7 +86,7 @@ impl<'set, 'id> AnchorCollector<'set, 'id> {
             if !anchor.is_empty() {
                 anchor.push(' ');
             }
-            anchor.push_str(&text);
+            anchor.push_str(text);
         }
         Ok(())
     }

@@ -60,7 +60,7 @@ fn parse_authors<R: BufRead>(xml: R, budget: &mut Budget<'_>) -> Result<HashMap<
                 saw_element = true;
                 depth = depth.saturating_add(1);
                 budget.charge_item("PPTX comment-author XML events")?;
-                if local_name(event.name().as_ref()) == b"cmAuthor"
+                if local_name(event.name().as_ref().as_bytes()) == b"cmAuthor"
                     && let Some((id, author)) = parse_author(&event)?
                 {
                     budget.charge_item("PPTX comment authors")?;
@@ -70,7 +70,7 @@ fn parse_authors<R: BufRead>(xml: R, budget: &mut Budget<'_>) -> Result<HashMap<
             Ok(Event::Empty(event)) => {
                 saw_element = true;
                 budget.charge_item("PPTX comment-author XML events")?;
-                if local_name(event.name().as_ref()) == b"cmAuthor"
+                if local_name(event.name().as_ref().as_bytes()) == b"cmAuthor"
                     && let Some((id, author)) = parse_author(&event)?
                 {
                     budget.charge_item("PPTX comment authors")?;
@@ -103,8 +103,8 @@ fn parse_author(event: &BytesStart<'_>) -> Result<Option<(String, Author)>> {
     let mut initials = None;
     for attribute in event.attributes() {
         let attribute = attribute.context("extract_pptx: invalid comment-author attribute")?;
-        let value = String::from_utf8_lossy(&attribute.value).to_string();
-        match attribute.key.as_ref() {
+        let value = attribute.value.into_owned();
+        match attribute.key.as_ref().as_bytes() {
             b"id" => id = Some(value),
             b"name" => name = Some(value),
             b"initials" => initials = Some(value),
@@ -152,7 +152,7 @@ fn parse_comments<R: BufRead>(
                 saw_element = true;
                 depth = depth.saturating_add(1);
                 budget.charge_item("PPTX comment XML events")?;
-                match local_name(event.name().as_ref()) {
+                match local_name(event.name().as_ref().as_bytes()) {
                     b"cm" => {
                         if current.is_some() {
                             anyhow::bail!("extract_pptx: nested comments are not supported");
@@ -166,7 +166,7 @@ fn parse_comments<R: BufRead>(
             Ok(Event::Empty(event)) => {
                 saw_element = true;
                 budget.charge_item("PPTX comment XML events")?;
-                if local_name(event.name().as_ref()) == b"cm" {
+                if local_name(event.name().as_ref().as_bytes()) == b"cm" {
                     let comment = parse_comment(&event, slide_index, authors, budget)?;
                     budget.charge_item("PPTX comments")?;
                     comments.push(comment);
@@ -176,9 +176,7 @@ fn parse_comments<R: BufRead>(
                 budget.charge_item("PPTX comment XML events")?;
                 if let Some(comment) = current.as_mut() {
                     budget.charge_output(event.len() as u64, "PPTX retained comment text")?;
-                    comment
-                        .text
-                        .push_str(&String::from_utf8_lossy(event.as_ref()));
+                    comment.text.push_str(event.as_ref());
                 }
             }
             Ok(Event::End(event)) => {
@@ -186,7 +184,7 @@ fn parse_comments<R: BufRead>(
                 depth = depth.checked_sub(1).ok_or_else(|| {
                     anyhow::anyhow!("extract_pptx: unmatched closing element in comments")
                 })?;
-                match local_name(event.name().as_ref()) {
+                match local_name(event.name().as_ref().as_bytes()) {
                     b"text" => in_text = false,
                     b"cm" => {
                         if let Some(comment) = current.take() {
@@ -221,8 +219,8 @@ fn parse_comment(
     };
     for attribute in event.attributes() {
         let attribute = attribute.context("extract_pptx: invalid comment attribute")?;
-        let value = String::from_utf8_lossy(&attribute.value).to_string();
-        match attribute.key.as_ref() {
+        let value = attribute.value.into_owned();
+        match attribute.key.as_ref().as_bytes() {
             b"authorId" => {
                 if let Some((name, initials)) = authors.get(&value) {
                     if let Some(name) = name {

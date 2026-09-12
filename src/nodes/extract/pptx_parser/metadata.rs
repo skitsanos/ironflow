@@ -42,7 +42,7 @@ fn parse_core_properties<R: BufRead>(
                 saw_element = true;
                 depth = depth.saturating_add(1);
                 budget.charge_item("PPTX metadata XML events")?;
-                current = metadata_key(event.name().as_ref());
+                current = metadata_key(event.name().as_ref().as_bytes());
             }
             Ok(Event::Empty(_)) => {
                 saw_element = true;
@@ -51,7 +51,7 @@ fn parse_core_properties<R: BufRead>(
             Ok(Event::Text(event)) => {
                 budget.charge_item("PPTX metadata XML events")?;
                 if let Some(key) = current {
-                    let value = String::from_utf8_lossy(event.as_ref()).trim().to_string();
+                    let value = event.as_ref().trim().to_string();
                     if !value.is_empty() {
                         budget.charge_item("PPTX metadata fields")?;
                         budget

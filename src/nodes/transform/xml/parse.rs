@@ -91,10 +91,7 @@ fn parse_xml_to_json(xml: &str) -> Result<serde_json::Value> {
                 add_element(&mut stack, &mut root, name, value);
             }
             Ok(Event::Text(text)) => {
-                let text = text
-                    .xml_content(XmlVersion::Implicit1_0)
-                    .map_err(|error| anyhow::anyhow!("XML text decode error: {}", error))?
-                    .to_string();
+                let text = text.xml_content(XmlVersion::Implicit1_0).to_string();
                 if !text.is_empty()
                     && let Some((_, map)) = stack.last_mut()
                 {
@@ -121,7 +118,7 @@ fn parse_xml_to_json(xml: &str) -> Result<serde_json::Value> {
 }
 
 fn element_name(element: &quick_xml::events::BytesStart<'_>) -> String {
-    String::from_utf8_lossy(element.name().as_ref()).to_string()
+    element.name().as_ref().to_string()
 }
 
 fn attributes(
@@ -132,8 +129,8 @@ fn attributes(
         .flatten()
         .map(|attribute| {
             (
-                format!("@{}", String::from_utf8_lossy(attribute.key.as_ref())),
-                serde_json::Value::String(String::from_utf8_lossy(&attribute.value).to_string()),
+                format!("@{}", attribute.key.as_ref()),
+                serde_json::Value::String(attribute.value.into_owned()),
             )
         })
         .collect()

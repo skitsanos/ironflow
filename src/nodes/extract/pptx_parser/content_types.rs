@@ -90,7 +90,7 @@ fn collect_definition(
     budget: &mut Budget<'_>,
 ) -> Result<()> {
     let event_name = event.name();
-    let local_name = local_name(event_name.as_ref());
+    let local_name = local_name(event_name.as_ref().as_bytes());
     if local_name != b"Default" && local_name != b"Override" {
         return Ok(());
     }
@@ -122,14 +122,14 @@ fn decode_attributes(
     let mut attributes = HashMap::new();
     for attribute in event.attributes() {
         let attribute = attribute.context("extract_pptx: invalid content-type attribute")?;
-        let key = match (element, attribute.key.as_ref()) {
+        let key = match (element, attribute.key.as_ref().as_bytes()) {
             (b"Default", b"Extension") => "Extension",
             (b"Override", b"PartName") => "PartName",
             (_, b"ContentType") => "ContentType",
             _ => continue,
         };
         let value = attribute
-            .decoded_and_normalized_value(xml_version, event.decoder())
+            .normalized_value(xml_version)
             .context("extract_pptx: invalid content-type attribute value")?;
         if key == "ContentType" {
             crate::artifacts::validate_mime_type(Some(value.as_ref())).map_err(|error| {
