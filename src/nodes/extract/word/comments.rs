@@ -78,7 +78,7 @@ fn parse_comments<R: BufRead>(xml: R, budget: &mut Budget<'_>) -> Result<Vec<Doc
         let is_empty = matches!(&event, Event::Empty(_));
         match event {
             Event::Start(ref event) | Event::Empty(ref event) => {
-                let name = String::from_utf8_lossy(event.name().as_ref()).to_string();
+                let name = event.name().as_ref().to_string();
                 if name == "w:comment" {
                     if current.is_some() {
                         anyhow::bail!(
@@ -103,13 +103,11 @@ fn parse_comments<R: BufRead>(xml: R, budget: &mut Budget<'_>) -> Result<Vec<Doc
                         comment.text.push(' ');
                     }
                     budget.charge_output(event.len() as u64, "DOCX comment text")?;
-                    comment
-                        .text
-                        .push_str(&String::from_utf8_lossy(event.as_ref()));
+                    comment.text.push_str(event.as_ref());
                 }
             }
             Event::End(ref event) => {
-                let name = String::from_utf8_lossy(event.name().as_ref()).to_string();
+                let name = event.name().as_ref().to_string();
                 if name == "w:t" {
                     in_text = false;
                 } else if name == "w:comment" {

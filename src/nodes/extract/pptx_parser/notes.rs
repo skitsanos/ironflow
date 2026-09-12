@@ -19,7 +19,7 @@ pub(super) fn parse_pptx_notes<R: BufRead>(xml: R, budget: &mut Budget<'_>) -> R
                 saw_element = true;
                 depth = depth.saturating_add(1);
                 budget.charge_item("PPTX notes XML events")?;
-                in_text = local_name(event.name().as_ref()) == b"t";
+                in_text = local_name(event.name().as_ref().as_bytes()) == b"t";
             }
             Ok(Event::Empty(_)) => {
                 saw_element = true;
@@ -28,7 +28,7 @@ pub(super) fn parse_pptx_notes<R: BufRead>(xml: R, budget: &mut Budget<'_>) -> R
             Ok(Event::Text(event)) if in_text => {
                 budget.charge_item("PPTX notes XML events")?;
                 budget.charge_output(event.len() as u64 + 1, "PPTX retained notes")?;
-                text.push_str(&String::from_utf8_lossy(event.as_ref()));
+                text.push_str(event.as_ref());
                 text.push('\n');
             }
             Ok(Event::End(_)) => {

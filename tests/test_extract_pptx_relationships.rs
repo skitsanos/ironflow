@@ -116,6 +116,48 @@ async fn pptx_decodes_strict_image_target_and_prefers_package_mime_override() {
 }
 
 #[tokio::test]
+async fn pptx_normalizes_versioned_prefixed_relationships_and_content_types() {
+    let _lock = ENV_LOCK.lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let artifact_dir = directory.path().join("artifacts");
+    let _environment = ArtifactEnvironment::set(&artifact_dir);
+    for version in ["1.0", "1.1"] {
+        let separator = if version == "1.0" { "\u{85}" } else { " " };
+        let media_name = format!("ppt/media/caf\u{e9} & image{separator}.blob");
+        let path = directory.path().join(format!("normalized-{version}.pptx"));
+        let relationships = format!(
+            "<?xml version=\"{version}\"?><r:Relationships xmlns:r=\"urn:test\">\
+             <r:Relationship Id=\"rId&#49;\" Type=\"{STRICT_IMAGE_RELATIONSHIP}\" \
+             Target=\"../media/caf&#xE9;\t&amp;\r\nimage\u{85}.blob\"/>\
+             </r:Relationships>"
+        );
+        let content_types = format!(
+            "<?xml version=\"{version}\"?><c:Types xmlns:c=\"urn:test\">\
+             <c:Default Extension=\"blob\" ContentType=\"image/jpeg\"/>\
+             <c:Override PartName=\"/ppt/media/caf&#233;\t&amp;\r\nimage\u{85}.blob\" \
+             ContentType=\"image/pn&#103;\"/></c:Types>"
+        );
+        write_pptx(
+            &path,
+            &relationships,
+            &[
+                ("[Content_Types].xml", content_types.as_bytes()),
+                (&media_name, b"normalized-media"),
+            ],
+        );
+        let output = extract(&path).await.unwrap();
+        let image = &output["content"]["slides"][0]["elements"][0];
+        assert_eq!(image["embedded_path"], media_name, "XML {version}");
+        assert_eq!(image["artifact"]["mime_type"], "image/png", "XML {version}");
+        let digest = image["artifact"]["sha256"].as_str().unwrap();
+        assert_eq!(
+            std::fs::read(artifact_dir.join("sha256").join(digest)).unwrap(),
+            b"normalized-media"
+        );
+    }
+}
+
+#[tokio::test]
 async fn pptx_rejects_duplicate_relationship_ids_before_publication() {
     let _lock = ENV_LOCK.lock().await;
     let directory = tempfile::tempdir().unwrap();

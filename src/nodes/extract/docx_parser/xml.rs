@@ -59,7 +59,7 @@ impl XmlDocument {
                 );
             }
             Event::Text(text)
-                if self.depth == 0 && text.iter().any(|byte| !byte.is_ascii_whitespace()) =>
+                if self.depth == 0 && text.bytes().any(|byte| !byte.is_ascii_whitespace()) =>
             {
                 anyhow::bail!(
                     "extract_word: invalid {}: text is not allowed outside the root element",
@@ -109,7 +109,11 @@ pub(in crate::nodes::extract) fn visit_attributes(
         let attribute = attribute.map_err(|error| {
             anyhow::anyhow!("extract_word: invalid attribute in {part}: {error}")
         })?;
-        visit(attribute.key.as_ref(), attribute.value.as_ref(), budget)?;
+        visit(
+            attribute.key.as_ref().as_bytes(),
+            attribute.value.as_bytes(),
+            budget,
+        )?;
     }
     Ok(())
 }

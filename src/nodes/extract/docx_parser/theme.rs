@@ -28,7 +28,7 @@ pub(in crate::nodes::extract) fn parse_theme_colors<R: BufRead>(
         document.observe(&event, budget)?;
         match event {
             Event::Start(ref event) | Event::Empty(ref event) => {
-                let raw = String::from_utf8_lossy(event.name().as_ref()).to_string();
+                let raw = event.name().as_ref().to_string();
                 let local = raw.rsplit(':').next().unwrap_or(&raw);
                 if local == "clrScheme" {
                     in_scheme = true;
@@ -60,7 +60,7 @@ pub(in crate::nodes::extract) fn parse_theme_colors<R: BufRead>(
                 }
             }
             Event::End(ref event) => {
-                let raw = String::from_utf8_lossy(event.name().as_ref()).to_string();
+                let raw = event.name().as_ref().to_string();
                 let local = raw.rsplit(':').next().unwrap_or(&raw);
                 if local == "clrScheme" {
                     in_scheme = false;
