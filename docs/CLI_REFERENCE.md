@@ -302,6 +302,11 @@ The `serve` command (and all other commands) can load settings from `ironflow.ya
 ironflow -C /path/to/ironflow.yaml serve
 ```
 
+YAML anchors and `<<` merge keys are expanded, with explicit settings overriding
+merged settings. Unquoted leading-zero integers are decimal (`port: 0123` means
+port 123); quote a value when it must remain a string. Configuration loading and
+`yaml_parse` use the same YAML parsing defaults.
+
 #### Storage Backend
 
 IronFlow supports these state storage backends:

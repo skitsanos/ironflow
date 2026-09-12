@@ -81,7 +81,7 @@ fn signature_header_cannot_be_forwarded_or_use_platform_credentials() {
 
 #[test]
 fn detailed_config_parses_signature_policy() {
-    let config: WebhookConfig = noyalib::compat::serde_yaml::from_str(
+    let config: WebhookConfig = noyalib::from_str(
         r#"
 flow: signed.lua
 signature:
