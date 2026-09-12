@@ -16,6 +16,14 @@ Parse a YAML string into a JSON object.
 
 - `<output_key>` (default `yaml_data`) — the parsed JSON value.
 
+## Parsing Semantics
+
+Anchors and `<<` merge keys are expanded; explicit keys override merged values.
+Unquoted leading-zero integers are decimal (`0123` becomes `123`), while quoted
+values remain strings. YAML 1.1 binary spellings such as `0b11` remain strings.
+These rules apply to both `input` and `source_key`. The parser retains its nesting
+and alias-expansion limits; recursive aliases and excessive expansion fail.
+
 ## Example
 
 ```lua

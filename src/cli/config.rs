@@ -160,7 +160,8 @@ impl IronFlowConfig {
         let contents = std::fs::read_to_string(&file_path)
             .with_context(|| format!("Failed to read config file: {}", file_path.display()))?;
 
-        let config: IronFlowConfig = noyalib::compat::serde_yaml::from_str(&contents)
+        // The serde_yaml compatibility shim no longer uses IronFlow's YAML defaults.
+        let config: IronFlowConfig = noyalib::from_str(&contents)
             .with_context(|| format!("Failed to parse config file: {}", file_path.display()))?;
 
         Ok(config)
@@ -182,7 +183,7 @@ mod tests {
             yaml.push_str(&schedule_entry(&format!("schedule_{index}")));
         }
 
-        let error = noyalib::compat::serde_yaml::from_str::<IronFlowConfig>(&yaml)
+        let error = noyalib::from_str::<IronFlowConfig>(&yaml)
             .unwrap_err()
             .to_string();
         assert!(error.contains("entry limit"), "{error}");
@@ -192,7 +193,7 @@ mod tests {
     fn schedule_names_are_rejected_during_deserialization() {
         let name = "n".repeat(crate::scheduler::config::MAX_SCHEDULE_NAME_BYTES + 1);
         let yaml = format!("schedules:\n{}", schedule_entry(&name));
-        let error = noyalib::compat::serde_yaml::from_str::<IronFlowConfig>(&yaml)
+        let error = noyalib::from_str::<IronFlowConfig>(&yaml)
             .unwrap_err()
             .to_string();
         assert!(
@@ -203,7 +204,7 @@ mod tests {
 
     #[test]
     fn a_bounded_schedule_map_deserializes() {
-        let config = noyalib::compat::serde_yaml::from_str::<IronFlowConfig>(
+        let config = noyalib::from_str::<IronFlowConfig>(
             "schedules:\n  nightly:\n    flow: f.lua\n    cron: \"0 2 * * *\"\n",
         )
         .unwrap();
