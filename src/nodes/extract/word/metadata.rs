@@ -47,14 +47,14 @@ fn parse_core_properties<R: BufRead>(
         document.observe(&event, budget)?;
         match event {
             Event::Start(ref event) => {
-                let name = String::from_utf8_lossy(event.name().as_ref()).to_string();
+                let name = event.name().as_ref().to_string();
                 if KNOWN_TAGS.contains(&name.as_str()) {
                     current_tag = name;
                     in_metadata = true;
                 }
             }
             Event::Text(ref event) if in_metadata => {
-                let text = String::from_utf8_lossy(event.as_ref()).trim().to_string();
+                let text = event.as_ref().trim().to_string();
                 if !text.is_empty() {
                     budget.charge_output(text.len() as u64, "DOCX metadata value")?;
                     metadata.insert(key_for_tag(&current_tag).to_string(), text);

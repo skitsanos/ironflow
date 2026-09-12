@@ -79,7 +79,7 @@ fn collect_relationship(
     relationships: &mut HashMap<String, String>,
     budget: &mut Budget<'_>,
 ) -> Result<()> {
-    if local_name(event.name().as_ref()) != b"Relationship" {
+    if local_name(event.name().as_ref().as_bytes()) != b"Relationship" {
         return Ok(());
     }
 
@@ -132,16 +132,16 @@ fn parse_relationship(event: &BytesStart<'_>, xml_version: XmlVersion) -> Result
     for attribute in event.attributes() {
         let attribute = attribute.context("extract_pptx: invalid relationship attribute")?;
         if !matches!(
-            attribute.key.as_ref(),
+            attribute.key.as_ref().as_bytes(),
             b"Id" | b"Target" | b"Type" | b"TargetMode"
         ) {
             continue;
         }
         let value = attribute
-            .decoded_and_normalized_value(xml_version, event.decoder())
+            .normalized_value(xml_version)
             .context("extract_pptx: invalid relationship attribute value")?
             .into_owned();
-        match attribute.key.as_ref() {
+        match attribute.key.as_ref().as_bytes() {
             b"Id" => id = Some(value),
             b"Target" => target = Some(value),
             b"Type" => relationship_type = Some(value),

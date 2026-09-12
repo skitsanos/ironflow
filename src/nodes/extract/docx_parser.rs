@@ -100,7 +100,7 @@ pub(super) fn parse_docx_blocks<R: BufRead>(
         }
         match event {
             Event::Start(ref event) | Event::Empty(ref event) => {
-                let name = String::from_utf8_lossy(event.name().as_ref()).to_string();
+                let name = event.name().as_ref().to_string();
                 match name.as_str() {
                     "w:tbl" => table_stack.push(DocxTable::default()),
                     "w:tr" if !table_stack.is_empty() => {
@@ -190,12 +190,10 @@ pub(super) fn parse_docx_blocks<R: BufRead>(
             }
             Event::Text(ref event) if in_run => {
                 budget.charge_output(event.len() as u64, "DOCX extracted text")?;
-                current_run
-                    .text
-                    .push_str(&String::from_utf8_lossy(event.as_ref()));
+                current_run.text.push_str(event.as_ref());
             }
             Event::End(ref event) => {
-                let name = String::from_utf8_lossy(event.name().as_ref()).to_string();
+                let name = event.name().as_ref().to_string();
                 match name.as_str() {
                     "w:p" => {
                         in_paragraph = false;

@@ -29,7 +29,7 @@ pub(in crate::nodes::extract) fn parse_numbering_defs<R: BufRead>(
         document.observe(&event, budget)?;
         match event {
             Event::Start(ref event) | Event::Empty(ref event) => {
-                let name = String::from_utf8_lossy(event.name().as_ref()).to_string();
+                let name = event.name().as_ref().to_string();
                 match name.as_str() {
                     "w:abstractNum" => {
                         current_abstract_id = attribute_value(
@@ -63,7 +63,7 @@ pub(in crate::nodes::extract) fn parse_numbering_defs<R: BufRead>(
                 }
             }
             Event::End(ref event) => {
-                let name = String::from_utf8_lossy(event.name().as_ref()).to_string();
+                let name = event.name().as_ref().to_string();
                 if name == "w:abstractNum" {
                     current_abstract_id = None;
                 } else if name == "w:num" {
