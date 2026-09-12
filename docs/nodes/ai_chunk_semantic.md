@@ -21,6 +21,13 @@ Split text into semantic chunks using embedding similarity to detect topic bound
 
 Same as [`ai_embed`](ai_embed.md) — `api_key`, `base_url`, `ollama_host`, `token_url`, `client_id`, `client_secret`, `scope` with identical environment variable fallbacks.
 
+## HTTP Transport
+
+Embedding and OAuth-token requests follow redirects only within the original
+scheme, host, and effective port, with at most 10 hops. Cross-origin redirects
+fail before replaying credentials or source text; automatic `Referer` is disabled.
+Configure the final provider endpoint explicitly when its origin changes.
+
 ## Context Output
 
 | Key | Type | Description |

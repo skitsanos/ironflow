@@ -265,6 +265,12 @@ root before they are opened. Traversal, encoded separators, backslashes,
 special files, malformed percent encoding, directory listings, and symlink
 escapes return `404`.
 
+Compressed sidecars never make an absent original file available. Orphan
+`.br`/`.gz` links that escape the root are rejected too, and the SPA root index
+and its sidecars are checked again when serving a fallback. Keep the public
+tree operator-controlled and read-only while serving: these pathname checks
+do not provide atomic isolation against a concurrent filesystem writer.
+
 Static files are public and accept only `GET` and `HEAD`. API authentication is
 unchanged: `/flows`, `/runs`, `/nodes`, `/webhooks`, `/health`, and `/metrics`
 remain reserved and cannot be shadowed by files or SPA routes. The SPA fallback

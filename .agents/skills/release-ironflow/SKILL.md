@@ -20,6 +20,9 @@ publishing, or closing remote PRs. Never force-push or delete a remote tag.
 4. List every open PR targeting `develop` and summarize mergeability, review
    state, and CI. All must be merged, closed, or integrated and closed before a
    `develop` push. Ask before changing remote state.
+5. Read active canonical issues and recent review findings before declaring the
+   candidate ready. Green CI does not resolve known confidentiality, availability,
+   or silent-corruption defects; surface those release risks explicitly.
 
 ## 2. Integrate dependency work
 

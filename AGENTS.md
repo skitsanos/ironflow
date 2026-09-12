@@ -44,7 +44,7 @@
 - The integration gate disables Cargo incremental output and package-cleans only IronFlow workspace artifacts before and after the run. It preserves downloaded dependencies but intentionally removes local IronFlow binaries and linked test executables so repeated versioned gates cannot accumulate tens of gigabytes.
 - Before every push to `develop`, inspect all open pull requests targeting `develop`. Merge them, close them, or integrate their work and close them before proceeding. The pre-push hook fails closed when any remain open.
 - `develop` versions use `X.Y.Z-dev.N`. Before every push to `develop`, bump to a version newer than remote `develop` with `bun run scripts/development_version.ts bump <major|minor|patch|next>` and commit both `Cargo.toml` and `Cargo.lock`.
-- A `develop` push requires a clean worktree and runs the full integration gate through `.githooks/pre-push`. CI runs its full suite only for pushes to `develop` and `main`; the tag-triggered release workflow remains separate.
+- A `develop` push requires a clean worktree and runs the full integration gate through `.githooks/pre-push`. CI runs for relevant pushes and pull requests to `develop` and `main`, plus manual dispatch; the tag-triggered release workflow remains separate.
 - For release promotion, create `release/X.Y.Z` from the verified `develop` candidate, run `bun run scripts/development_version.ts finalize` on that release branch, run the integration gate, merge the release branch into `main`, require green `main` CI, and tag the verified `main` commit. Never put a stable version on `develop`.
 
 ## Completion and review
@@ -53,3 +53,5 @@
 - Distinguish focused, default, feature-enabled, live-service, and deployed validation. Do not claim one as evidence for another.
 - After completing a goal or task, propose no more than three prioritized, bounded development goals.
 - In code review, prioritize correctness, security, durability, cancellation, bounded resource use, docs/example parity, and missing regressions over style-only comments.
+- Preserve each review finding's original trigger and evidence boundary in its canonical issue page. Distinguish pre-fix baseline gates from post-fix regression results; a prior green suite never closes a newly demonstrated defect.
+- Repository Codex hooks are guardrails, not a filesystem sandbox. Test supported hook payloads and protected path aliases; do not claim shell/read coverage or actual app invocation from hook-script tests alone.

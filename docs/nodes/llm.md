@@ -57,6 +57,20 @@ Run a chat-style request against OpenAI, OpenAI-compatible, Azure, or custom end
 | `max_image_input_bytes` | `IRONFLOW_LLM_MAX_IMAGE_INPUT_BYTES` | all chat providers |
 | `max_image_artifacts` | `IRONFLOW_LLM_MAX_IMAGE_ARTIFACTS` | all chat providers |
 
+## Transport and Errors
+
+Redirects are allowed only within the original scheme, host, and effective
+port, with at most 10 hops. Cross-origin redirects fail before credentials or
+request content are replayed. Automatic `Referer` headers are disabled. Configure
+the final endpoint explicitly when migrating to a different provider origin.
+
+Request errors hide endpoint userinfo, path, and query. Provider errors retain
+the provider and HTTP status but redact the exact authentication header values
+sent, including environment-only keys, Bearer credentials, short keys, and
+their JSON-escaped forms, before entering logs or durable history. This applies
+to error diagnostics, not arbitrary successful model content; do not put secrets
+in prompts or ordinary persisted context.
+
 ## Context Output
 
 - `{output_key}_text` — extracted model response text

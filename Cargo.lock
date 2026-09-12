@@ -2407,7 +2407,7 @@ checksum = "791930b43c0d5973160d90a8f3894509f2b273430f5c5c73b668636d0287c5c0"
 
 [[package]]
 name = "ironflow"
-version = "1.18.1-dev.1"
+version = "1.18.1-dev.2"
 dependencies = [
  "ammonia",
  "anyhow",

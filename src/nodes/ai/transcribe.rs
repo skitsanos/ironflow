@@ -86,9 +86,8 @@ impl Node for TranscribeNode {
         })
         .await?;
 
-        let client = reqwest::Client::builder()
+        let client = crate::util::provider_http::client_builder()
             .timeout(timeout)
-            .redirect(provider::same_origin_redirect_policy())
             .build()
             .map_err(|error| {
                 anyhow::anyhow!("transcribe: failed to build HTTP client: {}", error)

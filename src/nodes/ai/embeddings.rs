@@ -87,7 +87,7 @@ impl Node for AiEmbedNode {
             return Ok(build_output(output_key, Vec::new(), ""));
         }
 
-        let client = reqwest::Client::builder()
+        let client = crate::util::provider_http::client_builder()
             .timeout(positive_duration(timeout_s, "ai_embed timeout")?)
             .build()?;
         let (embeddings, model) = provider::embed_for_config(&client, config, ctx, &texts).await?;

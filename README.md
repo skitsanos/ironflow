@@ -563,6 +563,14 @@ Enable the repository hooks once per checkout:
 git config --local core.hooksPath .githooks
 ```
 
+Agent workflows live in `.agents/skills`; `docs/issues/IF-NNN.md` pages are the
+canonical issue records, while the root and documentation indexes are generated.
+The pre-commit hook checks registry consistency when these surfaces change.
+Project Codex hooks load session context and guard `apply_patch` targets,
+including symlink-resolved protected paths. They do not intercept arbitrary
+shell writes or reads and are not a filesystem sandbox. Their canonical payload
+and alias handling follow the [Codex hook contract](https://learn.chatgpt.com/docs/hooks#pretooluse).
+
 Before a `develop` push, the pre-push hook fails closed unless the worktree is
 clean, no open pull request targets `develop`, remote `develop` is integrated,
 and the committed version is a new `X.Y.Z-dev.N`. It then runs the full local
@@ -574,8 +582,10 @@ bun run scripts/development_version.ts bump minor  # 1.15.0 -> 1.16.0-dev.1
 bun run scripts/development_version.ts bump next   # 1.16.0-dev.1 -> dev.2
 ```
 
-CI runs the full suite on pushes to `develop` and `main`, with optional manual
-dispatch. Its Linux release build is passed directly to Lua example validation;
+CI runs for relevant pushes and pull requests to `develop` and `main`, with
+optional manual dispatch. Hook-only changes also trigger repository-policy
+tests, including the Codex hook suite and shell syntax checks. Its Linux
+release build is passed directly to Lua example validation;
 the example job does not wait for macOS or compile a second release binary.
 Default Clippy/tests and combined PostgreSQL/Redis feature checks each share a
 single Linux workspace, avoiding isolated check and per-backend compilations.

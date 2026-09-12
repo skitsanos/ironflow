@@ -36,6 +36,14 @@ Send an email via the Resend API or SMTP.
 | `smtp_password` | string | no | env `SMTP_PASSWORD` | SMTP authentication password. |
 | `smtp_tls` | string | no | `"starttls"` | TLS mode: `"starttls"` (default), `"tls"` (implicit), or `"none"`. |
 
+## HTTP Transport
+
+Resend API requests follow redirects only within the original scheme, host,
+and effective port, with at most 10 hops. Cross-origin redirects fail before
+replaying email content; automatic `Referer` is disabled. Configure the final
+API endpoint explicitly when its origin changes. This policy does not change
+the SMTP provider.
+
 ## Context Output
 
 - `{output_key}_status` — HTTP status code (Resend) or SMTP response code.

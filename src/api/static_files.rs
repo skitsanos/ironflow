@@ -101,7 +101,12 @@ impl StaticFiles {
             && decoded.is_extensionless()
             && accepts_html(&request);
         let fallback_request = use_spa_fallback.then(|| request_parts(&request));
-        let mut response = self.call_directory(request).await;
+        // ServeDir may open a compressed sidecar even when its original is absent.
+        let mut response = if missing_navigation_target {
+            not_found()
+        } else {
+            self.call_directory(request).await
+        };
         if response.status() == StatusCode::NOT_FOUND
             && let Some((method, uri, headers)) = fallback_request
         {
@@ -125,6 +130,16 @@ impl StaticFiles {
     }
 
     async fn call_index(&self, request: Request) -> Response {
+        if path::inspect(
+            &self.root,
+            std::path::Path::new(&self.index),
+            self.precompressed,
+        )
+        .await
+            != TargetKind::File
+        {
+            return not_found();
+        }
         let mut service = self.index_file.clone();
         match service.try_call(request).await {
             Ok(response) => response.map(Body::new),

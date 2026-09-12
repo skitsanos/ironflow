@@ -45,7 +45,21 @@ _No committed initiative._
 
 ## Next
 
-_No committed initiative._
+### [IF-112](issues/IF-112.md) — PDF page isolation
+
+Remove unselected content from split output, coupled with inherited page
+attributes in [IF-114](issues/IF-114.md) so selected pages retain their rendering
+contract.
+
+### [IF-110](issues/IF-110.md) — Image and PDF allocation admission
+
+Budget resampling intermediates, then bound PDF object-stream decompression
+before materialization in [IF-111](issues/IF-111.md), using small fixtures.
+
+### [IF-109](issues/IF-109.md) — SQLite numeric fidelity
+
+Preserve runtime numeric types in expressions and aggregates instead of
+returning null.
 
 ## Later
 

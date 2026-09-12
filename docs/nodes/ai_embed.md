@@ -42,6 +42,13 @@ Generate text embeddings via OpenAI, Ollama, or OAuth-authenticated providers.
 | `scope` | `OAUTH_SCOPE` | oauth |
 | `base_url` | `OAUTH_BASE_URL` | oauth |
 
+## HTTP Transport
+
+Embedding and OAuth-token requests follow redirects only within the original
+scheme, host, and effective port, with at most 10 hops. Cross-origin redirects
+fail before replaying credentials or text; automatic `Referer` is disabled.
+Configure the final provider endpoint explicitly when its origin changes.
+
 ## Context Output
 
 | Key | Type | Description |

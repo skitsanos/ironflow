@@ -38,6 +38,13 @@ Supports two authentication methods:
 
 If both are provided, JWT takes precedence.
 
+## HTTP Transport
+
+Cursor API requests follow redirects only within the original scheme, host,
+and effective port, with at most 10 hops. Cross-origin redirects fail before
+replaying query data; automatic `Referer` is disabled. Configure the final
+database endpoint explicitly when its origin changes.
+
 ## Context Output
 
 | Key | Type | Description |

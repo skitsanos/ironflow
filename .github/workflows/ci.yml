@@ -13,6 +13,8 @@ on:
       - "scripts/**"
       - "docs/**"
       - ".agents/**"
+      - ".codex/**"
+      - ".githooks/**"
       - "AGENTS.md"
       - "ISSUES.md"
       - ".cargo/audit.toml"
@@ -33,6 +35,8 @@ on:
       - "scripts/**"
       - "docs/**"
       - ".agents/**"
+      - ".codex/**"
+      - ".githooks/**"
       - "AGENTS.md"
       - "ISSUES.md"
       - ".cargo/audit.toml"
@@ -59,6 +63,12 @@ jobs:
       - run: bun run scripts/validate_skills.ts
       - run: bun run scripts/issues_registry.ts check
       - run: bun test scripts/tests/*.test.ts
+      - name: Test repository hooks
+        run: python3 -B -m unittest discover -s .codex/hooks/tests -p 'test_*.py' -v
+      - name: Check pre-commit syntax
+        run: sh -n .githooks/pre-commit
+      - name: Check integration hook syntax
+        run: bash -n .githooks/pre-push scripts/integration_gate.sh
 
   module-size:
     name: Module size ratchet

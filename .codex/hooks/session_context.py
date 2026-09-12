@@ -30,7 +30,10 @@ def main() -> int:
     except (json.JSONDecodeError, TypeError):
         payload = {}
 
-    cwd = Path(payload.get("cwd") or Path.cwd())
+    if not isinstance(payload, dict):
+        payload = {}
+    supplied_cwd = payload.get("cwd")
+    cwd = Path(supplied_cwd) if isinstance(supplied_cwd, str) and supplied_cwd else Path.cwd()
     root = git_output(cwd, "rev-parse", "--show-toplevel")
     if root is None:
         return 0
@@ -41,7 +44,10 @@ def main() -> int:
     context = (
         f"IronFlow session context: branch {branch}; {changed} changed or untracked paths. "
         "Read the repository AGENTS.md before editing, preserve existing worktree changes, "
-        "use ISSUES.md as the IF issue ledger, and use repo-local skills from .agents/skills."
+        "use docs/issues/README.md and individual IF-NNN pages as the canonical ledger "
+        "(ISSUES.md is generated), and use repo-local skills from .agents/skills. "
+        "Record fresh regression evidence before resolving findings; a previous green "
+        "baseline does not validate a new fix. Local edits do not authorize publication."
     )
     print(
         json.dumps(

@@ -45,6 +45,9 @@ IronFlow can replay the request, preventing the API key or uploaded media from
 being forwarded to another origin. Same-origin redirect chains are limited to
 10 hops.
 
+Automatic `Referer` headers are disabled, including on same-origin redirects,
+so the original endpoint's path and query are not copied into that header.
+
 ## Formats
 
 | `format` | Provider `response_format` sent | Output value |

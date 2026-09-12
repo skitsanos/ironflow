@@ -2,6 +2,12 @@
 
 These cross-issue snapshots and resource baselines were preserved from the original engineering ledger. They are historical evidence, not the current runtime contract.
 
+## Fresh audit 2026-09-12 (IF-106 through IF-132)
+
+The [review snapshot and finding map](./AUDIT_2026-09-12.md) preserve the
+candidate, evidence boundaries, and 27 findings from the fresh project review.
+Consult individual issue frontmatter for current remediation status.
+
 ## Fresh audit 2026-07-24 (IF-035+)
 
 Second deep Rust/Lua/documentation audit on `develop` at v1.12.0, independent of

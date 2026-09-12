@@ -6,8 +6,8 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts generate` and verified with
 `bun run scripts/issues_registry.ts check`.
 
-- Total findings: 105
-- Active findings: 0
+- Total findings: 132
+- Active findings: 24
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
 | ID | Priority | Status | Area | Summary |
@@ -117,3 +117,30 @@ priority, area, and title. The registry is generated with
 | [IF-103](./IF-103.md) | P1 | Resolved | AI/artifacts | Multimodal LLM calls require image bytes in persisted workflow context |
 | [IF-104](./IF-104.md) | P1 | Resolved | HTTP/artifacts/security | HTTP transport cannot safely carry artifact-native binary workflows |
 | [IF-105](./IF-105.md) | P2 | Resolved | API/static hosting | Serve cannot host an optional same-origin static frontend |
+| [IF-106](./IF-106.md) | P1 | Resolved | API/static security | Static compressed sidecars can escape the public root |
+| [IF-107](./IF-107.md) | P1 | Resolved | Provider transport security | Provider redirects can replay credentials and private payloads to another origin |
+| [IF-108](./IF-108.md) | P1 | Resolved | AI/credential security | LLM provider errors copy environment-only credentials into durable history |
+| [IF-109](./IF-109.md) | P1 | Open | Database correctness | SQLite numeric expressions silently become null |
+| [IF-110](./IF-110.md) | P1 | Open | Image/resource safety | Image resize omits a potentially dominant intermediate allocation |
+| [IF-111](./IF-111.md) | P1 | Open | PDF/resource safety | Initial PDF loading leaves object-stream decompression uncapped |
+| [IF-112](./IF-112.md) | P1 | Open | PDF/confidentiality | A one-page PDF split retains unselected pages' objects |
+| [IF-113](./IF-113.md) | P2 | Open | XML/OOXML fidelity | XML and OOXML extraction lose entities, CDATA, and split text |
+| [IF-114](./IF-114.md) | P2 | Open | PDF/page fidelity | PDF split/merge discard inherited page attributes |
+| [IF-115](./IF-115.md) | P2 | Open | PPTX/page fidelity | PPTX extraction uses filenames instead of presentation order and membership |
+| [IF-116](./IF-116.md) | P2 | Open | Engine/composition | Persistence truncation corrupts live child-workflow results |
+| [IF-117](./IF-117.md) | P2 | Open | Composition/tool security | Missing nested tool-input paths fall back to the entire root object |
+| [IF-118](./IF-118.md) | P2 | Open | Composition/correctness | Child context overwrites authoritative parallel-result metadata |
+| [IF-119](./IF-119.md) | P2 | Open | Composition/correctness | Dynamic fan-out reinterprets literal string items as context keys |
+| [IF-120](./IF-120.md) | P2 | Open | Lua/validation | Validation rejects a valid callback reused on two steps |
+| [IF-121](./IF-121.md) | P2 | Open | Redis/atomicity | Redis lease-aware mutations partially commit before type errors |
+| [IF-122](./IF-122.md) | P2 | Open | SQL/concurrency | SQL's unowned context merge loses concurrent successful updates |
+| [IF-123](./IF-123.md) | P2 | Open | CLI/replica safety | Replica mode trusts backend labels instead of actual SQL dialects |
+| [IF-124](./IF-124.md) | P2 | Open | MCP/framing | MCP stdio drops partially consumed frames on select cancellation |
+| [IF-125](./IF-125.md) | P2 | Open | Schema/runtime safety | External JSON Schema references panic inside async node execution |
+| [IF-126](./IF-126.md) | P2 | Open | Cache/identity | File-cache sanitization aliases distinct logical keys |
+| [IF-127](./IF-127.md) | P2 | Open | ArangoDB/pagination | Arango cursor IDs are discarded |
+| [IF-128](./IF-128.md) | P2 | Open | AI/chunking | Semantic chunking selects minima of a distance signal |
+| [IF-129](./IF-129.md) | P2 | Open | Notification/resource safety | Notification response bodies bypass HTTP body admission limits |
+| [IF-130](./IF-130.md) | P2 | Open | ZIP/admission | ZIP duplicate handling and entry limits occur after deduplicating metadata |
+| [IF-131](./IF-131.md) | P2 | Open | S3/copy correctness | S3 copy source keys are not URL-encoded |
+| [IF-132](./IF-132.md) | P2 | Open | Artifact/cancellation | A continuously progressing artifact download delays cancellation until EOF |

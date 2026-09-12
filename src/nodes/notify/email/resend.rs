@@ -17,7 +17,7 @@ pub(super) async fn send(config: &serde_json::Value, ctx: &Context) -> Result<No
         .and_then(|value| value.as_str())
         .unwrap_or("https://api.resend.com/emails");
 
-    let client = reqwest::Client::builder()
+    let client = crate::util::provider_http::client_builder()
         .timeout(params.timeout)
         .build()
         .map_err(|error| {

@@ -90,7 +90,7 @@ impl Node for ArangoDbAqlNode {
         }
 
         // Build HTTP client and request
-        let client = reqwest::Client::builder()
+        let client = crate::util::provider_http::client_builder()
             .timeout(positive_duration(timeout_s, "arangodb_aql timeout")?)
             .build()
             .map_err(|error| {

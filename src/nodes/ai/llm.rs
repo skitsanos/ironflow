@@ -7,6 +7,8 @@ use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
 use crate::util::duration::positive_duration;
 use crate::util::limits;
+use crate::util::redaction::SecretRedactor;
+use crate::util::sensitive_url::{SecretEndpoint, redact_sensitive_text};
 
 use super::embeddings::resolve_param;
 use super::llm_providers::{
@@ -39,7 +41,7 @@ async fn read_capped_response_body(
     while let Some(chunk) = stream
         .try_next()
         .await
-        .map_err(|e| anyhow::anyhow!("llm: failed to read response body: {}", e))?
+        .map_err(|e| anyhow::anyhow!("llm: failed to read response body: {}", e.without_url()))?
     {
         if let Some(max_bytes) = max_bytes
             && body.len() as u64 + chunk.len() as u64 > max_bytes
@@ -121,7 +123,20 @@ impl Node for LlmNode {
             None
         };
         let model = resolve_model(config, mode, azure_deployment.as_deref());
-        let (url, headers, provider_name) = resolve_provider_config(config, ctx, mode)?;
+        let (url, mut headers, provider_name) = resolve_provider_config(config, ctx, mode)?;
+        // These headers contain resolved auth, including keys supplied only by the environment.
+        let credentials = headers
+            .values_mut()
+            .map(|value| {
+                value.set_sensitive(true);
+                Value::String(String::from_utf8_lossy(value.as_bytes()).into_owned())
+            })
+            .collect();
+        let redactor = SecretRedactor::from_overlay(&Context::from([(
+            "_provider_credentials".to_string(),
+            Value::Array(credentials),
+        )]));
+        let redact_error = |text: &str| redact_sensitive_text(&redactor.redact_text(text));
         let request_input = LlmBodyInput {
             mode,
             model: &model,
@@ -134,7 +149,7 @@ impl Node for LlmNode {
         };
         let body = build_body(&request_input)?;
 
-        let client = reqwest::Client::builder()
+        let client = crate::util::provider_http::client_builder()
             .timeout(positive_duration(timeout_s, "llm timeout")?)
             .build()?;
 
@@ -144,10 +159,21 @@ impl Node for LlmNode {
             .json(&body)
             .send()
             .await
-            .map_err(|e| anyhow::anyhow!("llm: request failed: {}", e))?;
+            .map_err(|error| {
+                anyhow::anyhow!(
+                    "{}",
+                    redact_error(&format!(
+                        "llm: request failed for {}: {}",
+                        SecretEndpoint::new(&url),
+                        error.without_url()
+                    ))
+                )
+            })?;
 
         let status = response.status();
-        let response_text = read_capped_response_body(response, max_response_bytes).await?;
+        let response_text = read_capped_response_body(response, max_response_bytes)
+            .await
+            .map_err(|error| anyhow::anyhow!("{}", redact_error(&error.to_string())))?;
         let response_text = if artifact_inputs {
             super::llm_message_artifacts::redact_data_urls(&response_text)
         } else {
@@ -156,10 +182,14 @@ impl Node for LlmNode {
 
         if !status.is_success() {
             anyhow::bail!(
-                "llm: request to {} returned {}: {}",
-                provider_name,
-                url,
-                response_text
+                "{}",
+                redact_error(&format!(
+                    "llm: request to {} at {} returned {}: {}",
+                    provider_name,
+                    SecretEndpoint::new(&url),
+                    status,
+                    response_text
+                ))
             );
         }
 

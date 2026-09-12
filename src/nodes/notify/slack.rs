@@ -73,7 +73,7 @@ impl Node for SlackNotificationNode {
             );
         }
 
-        let client = reqwest::Client::builder()
+        let client = crate::util::provider_http::client_builder()
             .timeout(timeout)
             .build()
             .map_err(|error| {

@@ -1,5 +1,5 @@
 {
-  "description": "IronFlow repository context and protected-path safeguards.",
+  "description": "IronFlow session context and apply_patch protected-path safeguards; not a shell, read-access, or complete filesystem security boundary.",
   "hooks": {
     "SessionStart": [
       {

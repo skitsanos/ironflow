@@ -19,6 +19,14 @@ Either `text`/`message` or `payload.text` is required.
 
 If `payload` is provided, all string values are context-interpolated (`${ctx.key}`).
 
+## HTTP Transport
+
+Webhook redirects follow only the original scheme, host, and effective port,
+with at most 10 hops. Cross-origin redirects fail before replaying notification
+content. Automatic `Referer` is disabled so the token-bearing webhook path is
+not copied into that header. Configure a new webhook URL explicitly when its
+origin changes.
+
 ## Context Output
 
 - `{output_key}_status` — HTTP status code.
