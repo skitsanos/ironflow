@@ -40,6 +40,7 @@
 ## Integration and release boundaries
 
 - Run the whole repository suite only when merging branches, immediately before pushing `develop`, preparing a release, or when the user explicitly requests it. Use `scripts/integration_gate.sh` for the local full gate.
+- Track the newest stable Rust release with reproducible exact pins. A toolchain update is incomplete until `rust-toolchain.toml`, every CI/release `dtolnay/rust-toolchain` reference, the cargo-chef Docker tag and digest, and policy expectations agree; do not replace these with floating `stable` or `nightly` release-build inputs.
 - The integration gate disables Cargo incremental output and package-cleans only IronFlow workspace artifacts before and after the run. It preserves downloaded dependencies but intentionally removes local IronFlow binaries and linked test executables so repeated versioned gates cannot accumulate tens of gigabytes.
 - Before every push to `develop`, inspect all open pull requests targeting `develop`. Merge them, close them, or integrate their work and close them before proceeding. The pre-push hook fails closed when any remain open.
 - `develop` versions use `X.Y.Z-dev.N`. Before every push to `develop`, bump to a version newer than remote `develop` with `bun run scripts/development_version.ts bump <major|minor|patch|next>` and commit both `Cargo.toml` and `Cargo.lock`.
