@@ -12,3 +12,4 @@ pub(crate) mod provider_http;
 pub(crate) mod redaction;
 pub mod runtime_config;
 pub mod sensitive_url;
+pub(crate) mod zip_preflight;

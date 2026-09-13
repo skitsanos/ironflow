@@ -1011,6 +1011,14 @@ running under the same OS identity from mutating the leased inode.
   traversal, parsing, compression, and copying use tracked blocking workers;
   they checkpoint between filesystem/archive entries and copied chunks so run
   and task admission remains held until physical work stops.
+- `zip_list`, `zip_extract`, and OOXML readers share a raw ZIP/ZIP64 scanner
+  before library metadata construction. It bounds raw counts, validates central
+  headers, and rejects duplicate raw names. ZIP list/extract use the independent
+  `IRONFLOW_MAX_ZIP_METADATA_BYTES` budget (8 MiB, per-node override supported)
+  for names, extra fields, comments, and ZIP64 end-record extensions. XLSX keeps
+  its dedicated archive-metadata budget and OOXML retains its raw input caps.
+  ZIP extraction validates decoded destination collisions and filesystem safety
+  after this admission but before destination mutation.
 - Shell commands and persistent MCP stdio servers enable direct-child
   `kill_on_drop` on every platform. On Unix they also lead a process group.
   Closing an MCP session first closes stdin and gives the server time to exit;

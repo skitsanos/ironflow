@@ -1,5 +1,6 @@
 -- Demonstrates file archival workflow: create -> list -> extract -> cleanup
 -- Platform: requires `mkdir` on PATH.
+-- List/extract admit raw entries and metadata before ZIP library construction.
 -- Effects: retains UUID-scoped source and extracted directories under TMPDIR,
 -- TMP, TEMP, or `.` for inspection; removes the intermediate ZIP on success.
 local flow = Flow.new("zip_workflow")
@@ -41,6 +42,7 @@ flow:step("list_zip", nodes.zip_list({
     path = zip_path,
     output_key = "zip_members",
     max_entries = 16,
+    max_metadata_bytes = 1024,
     max_total_uncompressed_bytes = 1024
 })):depends_on("create_zip")
 
@@ -50,6 +52,7 @@ flow:step("extract_zip", nodes.zip_extract({
     output_key = "extracted_items",
     overwrite = false,
     max_entries = 16,
+    max_metadata_bytes = 1024,
     max_depth = 4,
     max_total_uncompressed_bytes = 1024
 })):depends_on("list_zip")

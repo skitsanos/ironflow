@@ -179,6 +179,10 @@ pub fn max_zip_entries() -> u64 {
     env_u64("IRONFLOW_MAX_ZIP_ENTRIES", DEFAULT_MAX_ZIP_ENTRIES)
 }
 
+pub(crate) fn max_zip_metadata_bytes() -> u64 {
+    env_u64("IRONFLOW_MAX_ZIP_METADATA_BYTES", 8 * 1024 * 1024)
+}
+
 pub fn max_zip_uncompressed_bytes() -> u64 {
     env_u64(
         "IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES",

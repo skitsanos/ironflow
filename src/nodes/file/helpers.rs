@@ -15,6 +15,7 @@ pub(super) struct ZipLimits {
     pub(super) max_entries: usize,
     pub(super) max_depth: usize,
     pub(super) max_total_uncompressed_bytes: u64,
+    pub(super) max_metadata_bytes: u64,
 }
 
 pub(super) fn optional_usize(
@@ -53,6 +54,8 @@ pub(super) fn zip_limits(config: &serde_json::Value, ctx: &Context) -> ZipLimits
             .unwrap_or_else(|| crate::util::limits::max_directory_depth() as usize),
         max_total_uncompressed_bytes: optional_u64(config, "max_total_uncompressed_bytes", ctx)
             .unwrap_or_else(crate::util::limits::max_zip_uncompressed_bytes),
+        max_metadata_bytes: optional_u64(config, "max_metadata_bytes", ctx)
+            .unwrap_or_else(crate::util::limits::max_zip_metadata_bytes),
     }
 }
 

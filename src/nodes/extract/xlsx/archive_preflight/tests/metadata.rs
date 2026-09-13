@@ -20,11 +20,14 @@ fn cumulative_names_extra_fields_and_comments_have_an_xlsx_ceiling() {
             .unwrap();
         writer.start_file("n".repeat(1_024), options).unwrap();
         writer.write_all(b"x").unwrap();
+        writer
+            .set_raw_comment(b"archive comment".to_vec().into_boxed_slice())
+            .unwrap();
         writer.finish().unwrap();
     }
     let bytes = cursor.into_inner();
     let central = central_offset(&bytes);
-    let metadata_bytes = (header_len(&bytes, central) - 46) as u64;
+    let metadata_bytes = (header_len(&bytes, central) - 46 + b"archive comment".len()) as u64;
 
     check_xlsx_bytes(bytes.clone(), 1, bytes.len() as u64, metadata_bytes).unwrap();
     let error = check_xlsx_bytes(bytes, 1, u64::MAX, metadata_bytes - 1)

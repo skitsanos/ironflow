@@ -20,7 +20,7 @@ const DEFAULT_MAX_XLSX_CELLS: u64 = 33_000;
 /// references: one string stored once may be copied into thousands of cells.
 const DEFAULT_MAX_XLSX_OUTPUT_BYTES: u64 = 50 * 1024 * 1024;
 
-/// Default cumulative ZIP file-name, extra-field, and file-comment budget.
+/// Default cumulative ZIP names, extra fields, comments, and end-extension budget.
 ///
 /// Calamine and `zip` retain multiple decoded/path-normalized copies of this
 /// metadata. Keep its independent ceiling materially below the 512 MiB

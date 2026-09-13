@@ -45,10 +45,10 @@ _No committed initiative._
 
 ## Next
 
-### [IF-130](issues/IF-130.md) — ZIP metadata admission
+### [IF-131](issues/IF-131.md) — S3 copy-source encoding
 
-Validate raw entry counts, duplicate destinations, and central-directory byte
-budgets before archive parsing can deduplicate or materialize metadata.
+Encode source bucket/key values according to the CopyObject contract, preserving
+literal percent sequences and testing captured requests with reserved characters.
 
 ## Later
 

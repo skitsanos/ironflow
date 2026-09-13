@@ -21,7 +21,6 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 | [IF-126](docs/issues/IF-126.md) | P2 | Open | Cache/identity | File-cache sanitization aliases distinct logical keys |
 | [IF-127](docs/issues/IF-127.md) | P2 | Open | ArangoDB/pagination | Arango cursor IDs are discarded |
 | [IF-128](docs/issues/IF-128.md) | P2 | Open | AI/chunking | Semantic chunking selects minima of a distance signal |
-| [IF-130](docs/issues/IF-130.md) | P2 | Open | ZIP/admission | ZIP duplicate handling and entry limits occur after deduplicating metadata |
 | [IF-131](docs/issues/IF-131.md) | P2 | Open | S3/copy correctness | S3 copy source keys are not URL-encoded |
 
 ## Working agreement
