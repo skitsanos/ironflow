@@ -7,8 +7,8 @@ use anyhow::{Context as AnyhowContext, Result};
 use async_trait::async_trait;
 use serde_json::{Map, Value};
 
-use crate::engine::executor::{ExecutionOverlay, WorkflowEngine};
-use crate::engine::types::{Context, FlowDefinition, NodeOutput, RunInfo, RunStatus};
+use crate::engine::executor::{ChildRunResult, ExecutionOverlay, WorkflowEngine};
+use crate::engine::types::{Context, FlowDefinition, NodeOutput, RunStatus};
 use crate::lua::runtime::LuaRuntime;
 use crate::nodes::{Node, NodeRegistry};
 use crate::storage::StateStore;
@@ -117,18 +117,17 @@ async fn run_iteration(
     context: Context,
     registry: Arc<NodeRegistry>,
     overlay: ExecutionOverlay,
-) -> Result<RunInfo> {
+) -> Result<ChildRunResult> {
     let store: Arc<dyn StateStore> = Arc::new(NullStateStore::new());
-    let engine = WorkflowEngine::new(registry, store.clone(), None);
-    let run_id = engine
-        .start_with_execution_overlay(flow, context, overlay)
-        .await?
-        .wait_cancel_on_drop()
-        .await?;
-    Ok(store.get_run_info(&run_id).await?)
+    let engine = WorkflowEngine::new(registry, store, None);
+    engine.execute_child(flow, context, overlay).await
 }
 
-fn ensure_child_succeeded(flow: &FlowDefinition, iteration: usize, run: &RunInfo) -> Result<()> {
+fn ensure_child_succeeded(
+    flow: &FlowDefinition,
+    iteration: usize,
+    run: &ChildRunResult,
+) -> Result<()> {
     if matches!(run.status, RunStatus::Success) {
         return Ok(());
     }
@@ -156,7 +155,7 @@ fn success_output(
     settings: &RepeatConfig,
     iterations: usize,
     final_state: Value,
-    run: RunInfo,
+    run: ChildRunResult,
 ) -> NodeOutput {
     let public: Map<String, Value> = run
         .ctx

@@ -124,6 +124,8 @@ credentialed, local-state, and platform-specific flow at the same time.
 ## 11-subworkflow
 - **basic_subworkflow.lua** — Call a subworkflow and use its output
 - **fire_and_forget.lua** — Launch a subworkflow without waiting (async)
+- **live_child_results.lua** — Verify a full 3 MiB child result in a downstream step while CLI inspection remains truncated
+- **large_result_child.lua** — Reusable payload-producing child for the live result example
 - **on_error_example.lua** — Planned `on_error` recovery with a handler dependency
 - **parallel_subworkflows.lua** — Run multiple subworkflows concurrently and collect results
 - **repeat_subworkflow.lua** — Repeat a child flow with explicit carried state and a finite iteration bound

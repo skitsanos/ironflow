@@ -45,10 +45,10 @@ _No committed initiative._
 
 ## Next
 
-### [IF-116](issues/IF-116.md) — Preserve live child-workflow results
+### [IF-118](issues/IF-118.md) — Protect parallel-result metadata
 
-Separate live child-result transport from inspection-only persisted snapshot
-truncation, covering subworkflow, repeat, and parallel composition.
+Prevent child-controlled context from overwriting authoritative success and
+flow identity, with regressions for successful and failed child collisions.
 
 ## Later
 

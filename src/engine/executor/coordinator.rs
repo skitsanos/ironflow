@@ -1,7 +1,7 @@
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
-use anyhow::{Context as _, Result};
+use anyhow::Result;
 use futures_util::FutureExt as _;
 use tokio::sync::{RwLock, oneshot, watch};
 use tracing::error;
@@ -13,99 +13,12 @@ use crate::storage::StateStore;
 use crate::storage::event_store::EventStore;
 use crate::util::execution::{CooperativeWorkerSet, with_run_worker_set};
 
+use super::handle::{ChildRunResult, RunHandle};
 use super::overlay::ExecutionOverlay;
 use super::panic_payload::panic_message;
 use super::signal::{ExecutionOutcome, ExecutionSignal, request_cancellation, stop_requested};
 
 const FINALIZATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
-
-/// Handle for a supervised workflow execution.
-///
-/// Dropping this value detaches from the run without cancelling it. This keeps
-/// HTTP disconnects and cancelled waiters from stranding durable state.
-pub struct RunHandle {
-    run_id: String,
-    cancel: watch::Sender<ExecutionSignal>,
-    completion: oneshot::Receiver<Result<()>>,
-}
-
-/// Cloneable cancellation authority retained by the service lifecycle while a
-/// run is active. It cannot await or otherwise consume the public run handle.
-#[derive(Clone)]
-pub(crate) struct RunCancellation {
-    signal: watch::Sender<ExecutionSignal>,
-}
-
-impl RunCancellation {
-    pub(crate) fn request(&self) {
-        request_cancellation(&self.signal);
-    }
-}
-
-struct CancelRunOnDrop {
-    cancel: Option<watch::Sender<ExecutionSignal>>,
-}
-
-impl CancelRunOnDrop {
-    fn new(cancel: watch::Sender<ExecutionSignal>) -> Self {
-        Self {
-            cancel: Some(cancel),
-        }
-    }
-
-    fn disarm(&mut self) {
-        self.cancel = None;
-    }
-}
-
-impl Drop for CancelRunOnDrop {
-    fn drop(&mut self) {
-        if let Some(cancel) = self.cancel.take() {
-            request_cancellation(&cancel);
-        }
-    }
-}
-
-impl RunHandle {
-    pub fn id(&self) -> &str {
-        &self.run_id
-    }
-
-    pub(crate) fn cancellation(&self) -> RunCancellation {
-        RunCancellation {
-            signal: self.cancel.clone(),
-        }
-    }
-
-    pub async fn wait(self) -> Result<String> {
-        self.finish(false).await
-    }
-
-    /// Wait for an internally-owned child run, cancelling it if the awaiting
-    /// parent future is dropped. Public `wait` deliberately retains detach
-    /// semantics; structured workflow composition uses this stricter variant.
-    pub(crate) async fn wait_cancel_on_drop(self) -> Result<String> {
-        let mut cancel_on_drop = CancelRunOnDrop::new(self.cancel.clone());
-        let result = self.finish(false).await;
-        cancel_on_drop.disarm();
-        result
-    }
-
-    pub async fn cancel(self) -> Result<String> {
-        self.finish(true).await
-    }
-
-    async fn finish(self, cancel: bool) -> Result<String> {
-        if cancel {
-            request_cancellation(&self.cancel);
-        }
-
-        self.completion.await.with_context(|| {
-            format!("Run coordinator for '{}' stopped unexpectedly", self.run_id)
-        })??;
-        Ok(self.run_id)
-    }
-}
 
 pub(super) struct RunCoordinator {
     pub(super) registry: Arc<NodeRegistry>,
@@ -121,6 +34,7 @@ pub(super) struct RunCoordinator {
     pub(super) run_deadline: Option<std::time::Duration>,
     pub(super) metrics: Option<Arc<crate::metrics::Metrics>>,
     pub(super) run_observation: Option<Arc<crate::metrics::RunObservation>>,
+    pub(super) retain_child_result: bool,
     finalization_timeout: std::time::Duration,
     heartbeat_timing: super::lease::HeartbeatTiming,
 }
@@ -156,12 +70,18 @@ impl RunCoordinator {
             run_deadline,
             metrics,
             run_observation,
+            retain_child_result: false,
             finalization_timeout: FINALIZATION_TIMEOUT,
             heartbeat_timing: super::lease::HeartbeatTiming::new(
                 crate::storage::RUN_LEASE_REFRESH,
                 crate::storage::RUN_LEASE_REFRESH,
             ),
         }
+    }
+
+    pub(super) fn with_child_result(mut self, enabled: bool) -> Self {
+        self.retain_child_result = enabled;
+        self
     }
 
     #[cfg(test)]
@@ -231,14 +151,13 @@ impl RunCoordinator {
             let _ = completion_tx.send(result);
         });
 
-        RunHandle {
-            run_id,
-            cancel,
-            completion,
-        }
+        RunHandle::new(run_id, cancel, completion)
     }
 
-    async fn supervise(&self, mut cancel: watch::Receiver<ExecutionSignal>) -> Result<()> {
+    async fn supervise(
+        &self,
+        mut cancel: watch::Receiver<ExecutionSignal>,
+    ) -> Result<Option<ChildRunResult>> {
         // Run execution against a cloned receiver so this supervisor retains
         // an independent cancellation waiter. Dropping the complete `run`
         // future is essential: a storage/node future that ignores cooperative

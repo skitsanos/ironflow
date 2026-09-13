@@ -98,7 +98,17 @@ workflow's own context/history is unchanged.
 
 The child subworkflow result is selected from `tool_result_value` first, then
 `tool_result_text`, then the child context without top-level `_`-prefixed keys.
-Nested fields are not recursively redacted.
+This top-level private-key filter does not remove nested `_`-prefixed fields.
+Execution-overlay redaction still applies.
+
+Selection uses full, redacted live child values after finalization. The
+`IRONFLOW_MAX_TASK_OUTPUT_BYTES` inspection cap does not truncate results,
+the by-ID collection, or tool message content passed to later steps. Persisted
+CLI/API inspection may still show truncation markers. This in-process handoff
+does not add durable result recovery or bypass Lua memory/conversion limits,
+parent cancellation/timeouts, or provider request limits. Result collections
+and messages consume memory; prefer compact results or artifact references for
+large payloads.
 
 `tool_dispatch` handles one set of model-requested calls. For another model
 turn, append the assistant tool-call message and `<output_key>_messages` to a

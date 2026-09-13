@@ -8,8 +8,8 @@ use serde_json::{Map, Value};
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 
-use crate::engine::executor::{ExecutionOverlay, WorkflowEngine};
-use crate::engine::types::{Context, RunInfo, RunStatus};
+use crate::engine::executor::{ChildRunResult, ExecutionOverlay, WorkflowEngine};
+use crate::engine::types::{Context, RunStatus};
 use crate::lua::runtime::LuaRuntime;
 use crate::nodes::NodeRegistry;
 use crate::storage::StateStore;
@@ -28,7 +28,7 @@ pub(super) struct ParallelRunOutput {
     pub(super) errors: Vec<String>,
 }
 
-type ChildResult = Result<(String, RunInfo)>;
+type ChildResult = Result<(String, ChildRunResult)>;
 type ChildTaskOutput = (usize, ChildResult);
 
 pub(super) async fn run_children(
@@ -68,13 +68,10 @@ async fn run_child(
     let flow = LuaRuntime::load_flow_async(&child.flow_path, &registry).await?;
     let flow_name = flow.name.clone();
     let store: Arc<dyn StateStore> = Arc::new(NullStateStore::new());
-    let engine = WorkflowEngine::new(registry, store.clone(), None);
-    let run_id = engine
-        .start_with_execution_overlay(&flow, child.context, child.execution_overlay)
-        .await?
-        .wait_cancel_on_drop()
+    let engine = WorkflowEngine::new(registry, store, None);
+    let run_info = engine
+        .execute_child(&flow, child.context, child.execution_overlay)
         .await?;
-    let run_info = store.get_run_info(&run_id).await?;
     Ok((flow_name, run_info))
 }
 
@@ -127,7 +124,7 @@ fn success_entry(
     flow_config: &Value,
     index: usize,
     name: String,
-    run_info: RunInfo,
+    run_info: ChildRunResult,
 ) -> Result<(Value, Option<String>)> {
     let succeeded = matches!(run_info.status, RunStatus::Success);
     let mut entry = Map::new();
@@ -142,15 +139,14 @@ fn success_entry(
         // item in the fan-out and can exhaust the JSON-to-Lua node budget.
         let public: Map<String, Value> = run_info
             .ctx
-            .iter()
+            .into_iter()
             .filter(|(key, _)| !key.starts_with('_'))
-            .map(|(key, value)| (key.clone(), value.clone()))
             .collect();
         entry.insert(output_key.to_string(), Value::Object(public));
     } else {
-        for (key, value) in &run_info.ctx {
+        for (key, value) in run_info.ctx {
             if !key.starts_with('_') {
-                entry.insert(key.clone(), value.clone());
+                entry.insert(key, value);
             }
         }
     }

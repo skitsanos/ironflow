@@ -57,13 +57,10 @@ pub(super) async fn dispatch_call(
     let flow = LuaRuntime::load_flow_async(&flow_path, child_registry).await?;
     let flow_name = flow.name.clone();
     let store: Arc<dyn crate::storage::StateStore> = Arc::new(NullStateStore::new());
-    let engine = WorkflowEngine::new(child_registry.clone(), store.clone(), None);
-    let run_id = engine
-        .start_with_execution_overlay(&flow, child_ctx, overlay.clone())
-        .await?
-        .wait_cancel_on_drop()
+    let engine = WorkflowEngine::new(child_registry.clone(), store, None);
+    let run_info = engine
+        .execute_child(&flow, child_ctx, overlay.clone())
         .await?;
-    let run_info = store.get_run_info(&run_id).await?;
     let succeeded = matches!(run_info.status, RunStatus::Success);
     let result = result_from_context(&run_info.ctx);
     let content = result_content(&result);

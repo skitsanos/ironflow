@@ -212,6 +212,15 @@ values must coexist. If a phase is cancelled or stalls before its barrier,
 none of that phase's buffered output enters final run context, although
 already-terminal bounded task history remains available.
 
+Final inspection context uses the same cap per value. Waiting subworkflows,
+parallel children, repeated children, and tool handlers pass full, redacted
+results to the live parent instead of reading those inspection snapshots.
+Large child values and carried repeat state therefore stay intact for later
+steps, subject to the usual Lua memory/conversion and execution limits. See
+[`live_child_results.lua`](../examples/11-subworkflow/live_child_results.lua)
+for an offline example whose parent verifies all bytes while CLI inspection
+shows a marker.
+
 ### Context variable interpolation
 
 Node parameter documentation identifies the string fields that resolve context

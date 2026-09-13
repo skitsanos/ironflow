@@ -45,6 +45,16 @@ Each result entry contains:
 | `error` | string | Error message (only present on failure) |
 | *context keys* | any | Child flow output (merged directly or under per-flow `output_key`) |
 
+Both static and dynamic fan-out collect full, redacted live child results with
+top-level `_`-prefixed keys removed. `IRONFLOW_MAX_TASK_OUTPUT_BYTES` bounds
+persisted task/final inspection snapshots, not the values delivered to parent
+steps. The existing `on_error` policy is unchanged: ignoring a failure does not
+discard values committed before that failure.
+
+This is an in-process handoff, not durable result recovery. Existing child
+execution limits and parent cancellation/timeouts still apply. Large results
+remain in memory while collected; prefer artifact references for bulky payloads.
+
 ## Example
 
 ```lua

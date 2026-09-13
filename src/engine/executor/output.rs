@@ -37,6 +37,29 @@ pub(super) fn into_owned_context(context: Arc<Context>) -> Context {
     Arc::try_unwrap(context).unwrap_or_else(|shared| shared.as_ref().clone())
 }
 
+pub(super) fn prepare_final_context(
+    context: Arc<Context>,
+    overlay: &ExecutionOverlay,
+    retain_live: bool,
+) -> (Context, Option<Context>) {
+    let context = overlay.redact_context_owned(into_owned_context(context));
+    if !retain_live {
+        return (bound_context(context), None);
+    }
+    let limit = task_output_limit();
+    // Clone only values admitted to inspection, never the oversized live values.
+    let snapshot = context
+        .iter()
+        .map(|(key, value)| {
+            (
+                key.clone(),
+                context_truncation(value, limit).unwrap_or_else(|| value.clone()),
+            )
+        })
+        .collect();
+    (snapshot, Some(context))
+}
+
 pub(super) fn prepare_output(output: Context, overlay: &ExecutionOverlay) -> PreparedOutput {
     let context = overlay.redact_context_owned(output);
     let task_value = bounded_task_value(&context);
@@ -65,22 +88,17 @@ pub(super) fn bound_context(context: Context) -> Context {
     let limit = task_output_limit();
     context
         .into_iter()
-        .map(|(key, value)| {
-            if serialized_size_up_to(&value, limit) == SizeBound::Exceeded {
-                (
-                    key,
-                    serde_json::json!({
-                        "_truncated": true,
-                        "_minimum_bytes": limit.saturating_add(1),
-                        "_limit_bytes": limit,
-                        "_note": "Value exceeded IRONFLOW_MAX_TASK_OUTPUT_BYTES and was truncated in the persisted final context.",
-                    }),
-                )
-            } else {
-                (key, value)
-            }
-        })
+        .map(|(key, value)| (key, context_truncation(&value, limit).unwrap_or(value)))
         .collect()
+}
+
+fn context_truncation(value: &Value, limit: usize) -> Option<Value> {
+    (serialized_size_up_to(value, limit) == SizeBound::Exceeded).then(|| serde_json::json!({
+        "_truncated": true,
+        "_minimum_bytes": limit.saturating_add(1),
+        "_limit_bytes": limit,
+        "_note": "Value exceeded IRONFLOW_MAX_TASK_OUTPUT_BYTES and was truncated in the persisted final context.",
+    }))
 }
 
 fn bounded_task_value(output: &Context) -> Value {
@@ -110,6 +128,32 @@ fn task_output_limit() -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn live_final_result_moves_large_values_without_copying_them_into_history() {
+        let text = "x".repeat(3 * 1024 * 1024);
+        let pointer = text.as_ptr();
+        let context = Arc::new(Context::from([
+            ("large".into(), Value::String(text)),
+            ("small".into(), Value::from(7)),
+        ]));
+        let (snapshot, live) = prepare_final_context(context, &ExecutionOverlay::default(), true);
+        let live = live.unwrap();
+        assert_eq!(live["large"].as_str().unwrap().as_ptr(), pointer);
+        assert_eq!(snapshot["large"]["_truncated"], true);
+        assert_eq!(snapshot["small"], live["small"]);
+    }
+
+    #[test]
+    fn public_final_snapshot_does_not_retain_live_values() {
+        let context = Arc::new(Context::from([(
+            "large".into(),
+            Value::String("x".repeat(3 * 1024 * 1024)),
+        )]));
+        let (snapshot, live) = prepare_final_context(context, &ExecutionOverlay::default(), false);
+        assert!(live.is_none());
+        assert_eq!(snapshot["large"]["_truncated"], true);
+    }
 
     #[test]
     fn bound_context_truncates_only_oversized_values() {

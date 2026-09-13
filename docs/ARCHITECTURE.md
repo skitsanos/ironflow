@@ -860,6 +860,16 @@ Context is a `HashMap<String, serde_json::Value>` that flows through the entire 
   infrastructure failure before a phase barrier discards that phase's buffered
   shared-context publication while retaining already-persisted bounded task
   history.
+- Final persisted context applies that same cap per value. Waiting composition
+  (`subworkflow`, `parallel_subworkflows`, `repeat_subworkflow`, `tool_dispatch`)
+  instead receives an opt-in, invocation-local completion result containing the
+  full redacted context and final status after worker drain and finalization.
+  History truncation cannot change child output or carried repeat state. The
+  existing Lua memory/conversion limits still apply; this handoff is neither a
+  global context-memory cap nor durable recovery storage.
+- Public run handles retain their run-ID-only wait/cancel API and detach-on-drop
+  behavior, without retaining a live completion payload. Internal child waiters
+  request cancellation when their parent future is dropped.
 - Output-size admission uses an aborting counting serializer. A truncation
   marker reports `_minimum_bytes = limit + 1`, not an exact original size,
   because counting stops as soon as the configured limit is crossed.

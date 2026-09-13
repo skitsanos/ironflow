@@ -161,6 +161,8 @@
         "examples/11-subworkflow/basic_subworkflow.lua",
         "examples/11-subworkflow/fire_and_forget.lua",
         "examples/11-subworkflow/greet.lua",
+        "examples/11-subworkflow/large_result_child.lua",
+        "examples/11-subworkflow/live_child_results.lua",
         "examples/11-subworkflow/parallel_subworkflows.lua",
         "examples/11-subworkflow/repeat_counter_subworkflow.lua",
         "examples/11-subworkflow/repeat_subworkflow.lua",

@@ -7,12 +7,16 @@ use crate::engine::types::{RunStatus, TaskState, TaskStatus};
 
 use super::coordinator::RunCoordinator;
 use super::engine::WorkflowEngine;
+use super::handle::ChildRunResult;
 use super::signal::ExecutionOutcome;
 
 const TERMINAL_STATUS_ATTEMPTS: usize = 3;
 
 impl RunCoordinator {
-    pub(super) async fn finalize(&self, outcome: ExecutionOutcome) -> Result<()> {
+    pub(super) async fn finalize(
+        &self,
+        outcome: ExecutionOutcome,
+    ) -> Result<Option<ChildRunResult>> {
         let mut status = match &outcome {
             ExecutionOutcome::Completed(status) => status.clone(),
             ExecutionOutcome::Cancelled => RunStatus::Cancelled,
@@ -29,9 +33,11 @@ impl RunCoordinator {
             let mut shared = self.ctx.write().await;
             std::mem::take(&mut *shared)
         };
-        let final_ctx = super::output::into_owned_context(final_ctx);
-        let durable_final_ctx =
-            super::output::bound_context(self.execution_overlay.redact_context_owned(final_ctx));
+        let (durable_final_ctx, live_ctx) = super::output::prepare_final_context(
+            final_ctx,
+            &self.execution_overlay,
+            self.retain_child_result,
+        );
         match super::lease::persist_context(
             self.store.as_ref(),
             &self.run_id,
@@ -130,7 +136,11 @@ impl RunCoordinator {
                 errors.join("; ")
             ))
         } else {
-            Ok(())
+            Ok(live_ctx.map(|ctx| ChildRunResult {
+                flow_name: self.flow.name.clone(),
+                status,
+                ctx,
+            }))
         }
     }
 

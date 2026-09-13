@@ -8,7 +8,6 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 
 | ID | Priority | Status | Area | Summary |
 |---|---:|---|---|---|
-| [IF-116](docs/issues/IF-116.md) | P2 | Open | Engine/composition | Persistence truncation corrupts live child-workflow results |
 | [IF-118](docs/issues/IF-118.md) | P2 | Open | Composition/correctness | Child context overwrites authoritative parallel-result metadata |
 | [IF-119](docs/issues/IF-119.md) | P2 | Open | Composition/correctness | Dynamic fan-out reinterprets literal string items as context keys |
 | [IF-120](docs/issues/IF-120.md) | P2 | Open | Lua/validation | Validation rejects a valid callback reused on two steps |
