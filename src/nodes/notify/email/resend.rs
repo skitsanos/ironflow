@@ -49,13 +49,15 @@ pub(super) async fn send(config: &serde_json::Value, ctx: &Context) -> Result<No
 
     let status = response.status().as_u16();
     let success = response.status().is_success();
-    let body = response.text().await.map_err(|error| {
-        anyhow::anyhow!(
-            "Failed to read Resend response from {}: {}",
-            SecretEndpoint::new(api_url),
-            redact_sensitive_text(&error.to_string())
-        )
-    })?;
+    let body = crate::util::provider_http::notification_response_text(response)
+        .await
+        .map_err(|error| {
+            anyhow::anyhow!(
+                "Failed to read Resend response from {}: {}",
+                SecretEndpoint::new(api_url),
+                redact_sensitive_text(&error.to_string())
+            )
+        })?;
     let data = serde_json::from_str(&body).unwrap_or(serde_json::Value::String(body.clone()));
 
     let mut output = NodeOutput::new();

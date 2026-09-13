@@ -171,9 +171,9 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **transcribe_index.lua** — Transcribe audio to VTT, extract cues, chunk with preserved timecodes, and embed the chunk text
 
 ## 14-notifications
-- **send_email_resend.lua** — Send an email via Resend API
+- **send_email_resend.lua** — Send an email via Resend API with bounded responses; optional `RESEND_API_URL` example override for local fixtures
 - **send_email_smtp.lua** — Send an email via SMTP
-- **slack_notification.lua** — Send a Slack message via incoming webhook
+- **slack_notification.lua** — Send a Slack message via incoming webhook with bounded responses; `SLACK_WEBHOOK` can point to a local fixture
 
 ## 15-webhooks
 - **simple_webhook.lua** — Basic webhook that greets the caller by name

@@ -45,10 +45,10 @@ _No committed initiative._
 
 ## Next
 
-### [IF-129](issues/IF-129.md) — Notification response limits
+### [IF-132](issues/IF-132.md) — Artifact download cancellation
 
-Apply bounded HTTP response reads to Slack and Resend, preserving provider
-failure and cancellation behavior without accepting truncated success output.
+Check cancellation while download chunks keep arriving, and verify prompt
+staging cleanup with admission retained until physical work stops.
 
 ## Later
 
