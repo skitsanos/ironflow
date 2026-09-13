@@ -59,7 +59,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **binary_file_io.lua** — Contrast explicit Base64 with a disk-backed artifact restore through `write_file`
 - **copy_move_files.lua** — Copy and move files between locations
 - **[s3_put_get_list.lua](04-file-operations/s3_put_get_list.lua)** — List visible buckets, then upload, download, list, and delete one UUID-scoped object
-- **s3_copy.lua** — Copy objects inside S3 and verify object list
+- **s3_copy.lua** — Copy a literal space/percent key in S3, verify downloaded content and object listing, then clean up
 - **s3_presign_url.lua** — Upload a demo object and generate a presigned S3 URL
 - **zip_workflow.lua** — Create a ZIP archive, list and extract with raw entry/metadata budgets, and log results
 

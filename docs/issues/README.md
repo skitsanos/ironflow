@@ -7,7 +7,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts check`.
 
 - Total findings: 132
-- Active findings: 14
+- Active findings: 13
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
 | ID | Priority | Status | Area | Summary |
@@ -142,5 +142,5 @@ priority, area, and title. The registry is generated with
 | [IF-128](./IF-128.md) | P2 | Open | AI/chunking | Semantic chunking selects minima of a distance signal |
 | [IF-129](./IF-129.md) | P2 | Resolved | Notification/resource safety | Notification response bodies bypass HTTP body admission limits |
 | [IF-130](./IF-130.md) | P2 | Resolved | ZIP/admission | ZIP duplicate handling and entry limits occur after deduplicating metadata |
-| [IF-131](./IF-131.md) | P2 | Open | S3/copy correctness | S3 copy source keys are not URL-encoded |
+| [IF-131](./IF-131.md) | P2 | Resolved | S3/copy correctness | S3 copy source keys are not URL-encoded |
 | [IF-132](./IF-132.md) | P2 | Resolved | Artifact/cancellation | A continuously progressing artifact download delays cancellation until EOF |

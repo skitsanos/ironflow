@@ -2,10 +2,24 @@ use anyhow::Result;
 use aws_sdk_s3::Client;
 use aws_sdk_s3::config::Region;
 use base64::Engine;
+use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 
 use crate::engine::types::Context;
 use crate::lua::interpolate::interpolate_ctx;
 use crate::util::node_config::config_u64;
+
+const COPY_SOURCE_PATH: &AsciiSet = &NON_ALPHANUMERIC
+    .remove(b'-')
+    .remove(b'.')
+    .remove(b'_')
+    .remove(b'~')
+    .remove(b'/');
+
+pub(super) fn encode_copy_source(bucket: &str, key: &str) -> String {
+    // The SDK sends CopySource as a header verbatim. Encode literal keys once,
+    // retaining path separators but not treating percent sequences as escapes.
+    utf8_percent_encode(&format!("{bucket}/{key}"), COPY_SOURCE_PATH).to_string()
+}
 
 pub(super) fn resolve_required(
     config: &serde_json::Value,

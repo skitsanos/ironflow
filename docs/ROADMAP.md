@@ -45,10 +45,10 @@ _No committed initiative._
 
 ## Next
 
-### [IF-131](issues/IF-131.md) — S3 copy-source encoding
+### [IF-126](issues/IF-126.md) — File-cache key identity
 
-Encode source bucket/key values according to the CopyObject contract, preserving
-literal percent sequences and testing captured requests with reserved characters.
+Keep distinct logical keys isolated in persistent cache storage, verify identity
+on reads, and define safe miss or migration behavior for legacy sanitized names.
 
 ## Later
 
