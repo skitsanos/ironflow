@@ -119,7 +119,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **cache_context_keys.lua** — Use context interpolation consistently in `cache_set` and `cache_get` keys
 
 ## 10-database
-- **sqlite_crud.lua** — SQLite CRUD operations using `db_exec` and `db_query`
+- **sqlite_crud.lua** — SQLite CRUD and numeric aggregate assertions using `db_exec` and `db_query`
 
 ## 11-subworkflow
 - **basic_subworkflow.lua** — Call a subworkflow and use its output
@@ -148,6 +148,8 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **llm_openai_response_format.lua** — OpenAI `response_format` demo (`json_object` + `json_schema`)
 - **llm_openai_tool_web_search.lua** — OpenAI Responses API internal web search tool demo
 - **llm_openai_tool_subworkflow_dispatch.lua** — Dispatch `nodes.llm` tool calls to subworkflow handlers with `tool_dispatch`
+- **tool_dispatch_input_projection.lua** — Offline nested tool-input selection with assertions that missing fields become JSON null without exposing private siblings
+- **tool_input_projection_subworkflow.lua** — Handler for the offline tool-input selection example
 - **tool_weather_subworkflow.lua** — Reusable weather lookup subworkflow used by tool dispatch example
 - **tool_time_subworkflow.lua** — Reusable current-time subworkflow used by tool dispatch example
 - **tool_unknown_subworkflow.lua** — Handles unknown tool calls for fallback/error demonstration

@@ -45,10 +45,10 @@ _No committed initiative._
 
 ## Next
 
-### [IF-109](issues/IF-109.md) — SQLite numeric fidelity
+### [IF-125](issues/IF-125.md) — JSON Schema reference safety
 
-Preserve runtime numeric types in expressions and aggregates instead of
-returning null.
+Define external-reference handling so schema validation returns normal errors
+instead of panicking or stalling async workflow execution.
 
 ## Later
 

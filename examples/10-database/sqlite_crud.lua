@@ -3,6 +3,7 @@
 --
 -- Demonstrates db_exec and db_query nodes with a file-based SQLite database.
 -- Each step connects to the same file, so the data persists between steps.
+-- Aggregate numbers retain their runtime types in workflow context.
 -- Effects:
 -- - Creates and removes one UUID-scoped SQLite file under TMPDIR, TMP, TEMP,
 --   or `.`. A failed run may leave that uniquely named database for inspection.
@@ -43,9 +44,23 @@ flow:step("query_all", nodes.db_query({
     output_key = "users"
 })):depends_on("insert_alice"):depends_on("insert_bob")
 
-flow:step("done", nodes.log({
-    message = "Found ${ctx.users_count} users"
+flow:step("query_statistics", nodes.db_query({
+    connection = db,
+    query = "SELECT COUNT(*) AS count, SUM(id) AS total_id, AVG(id) AS average_id FROM users",
+    output_key = "statistics"
 })):depends_on("query_all")
+
+flow:step("check_statistics", function(ctx)
+    local stats = ctx.statistics[1]
+    assert(stats.count == 2, "COUNT must remain numeric")
+    assert(stats.total_id == 3, "SUM must remain numeric")
+    assert(stats.average_id == 1.5, "AVG must remain numeric")
+    return { statistics_verified = true }
+end):depends_on("query_statistics")
+
+flow:step("done", nodes.log({
+    message = "Found ${ctx.users_count} users; aggregate values verified"
+})):depends_on("check_statistics")
 
 flow:step("cleanup", nodes.delete_file({
     path = database_path

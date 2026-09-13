@@ -8,11 +8,9 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 
 | ID | Priority | Status | Area | Summary |
 |---|---:|---|---|---|
-| [IF-109](docs/issues/IF-109.md) | P1 | Open | Database correctness | SQLite numeric expressions silently become null |
 | [IF-113](docs/issues/IF-113.md) | P2 | Open | XML/OOXML fidelity | XML and OOXML extraction lose entities, CDATA, and split text |
 | [IF-115](docs/issues/IF-115.md) | P2 | Open | PPTX/page fidelity | PPTX extraction uses filenames instead of presentation order and membership |
 | [IF-116](docs/issues/IF-116.md) | P2 | Open | Engine/composition | Persistence truncation corrupts live child-workflow results |
-| [IF-117](docs/issues/IF-117.md) | P2 | Open | Composition/tool security | Missing nested tool-input paths fall back to the entire root object |
 | [IF-118](docs/issues/IF-118.md) | P2 | Open | Composition/correctness | Child context overwrites authoritative parallel-result metadata |
 | [IF-119](docs/issues/IF-119.md) | P2 | Open | Composition/correctness | Dynamic fan-out reinterprets literal string items as context keys |
 | [IF-120](docs/issues/IF-120.md) | P2 | Open | Lua/validation | Validation rejects a valid callback reused on two steps |

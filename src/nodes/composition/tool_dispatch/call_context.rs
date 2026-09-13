@@ -79,19 +79,22 @@ fn resolve_string(value: &str, parent_ctx: &Context, call: &Value) -> Value {
 fn resolve_context_path(ctx: &Context, path: &str) -> Value {
     let mut parts = path.splitn(2, '.');
     let key = parts.next().unwrap_or_default();
+    if key.is_empty() {
+        return Value::Null;
+    }
     let Some(root) = ctx.get(key) else {
         return Value::Null;
     };
-    parts
-        .next()
-        .and_then(|rest| resolve_path(root, rest))
-        .cloned()
-        .unwrap_or_else(|| root.clone())
+    match parts.next() {
+        None => root.clone(),
+        // Only an explicit root reference may select the entire object.
+        Some(rest) => resolve_path(root, rest).cloned().unwrap_or(Value::Null),
+    }
 }
 
 fn resolve_path<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
     if path.is_empty() {
-        return Some(value);
+        return None;
     }
     let mut current = value;
     for part in path.split('.') {
@@ -106,3 +109,6 @@ fn resolve_path<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
     }
     Some(current)
 }
+
+#[cfg(test)]
+mod tests;
