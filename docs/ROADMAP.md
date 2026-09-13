@@ -45,10 +45,10 @@ _No committed initiative._
 
 ## Next
 
-### [IF-125](issues/IF-125.md) — JSON Schema reference safety
+### [IF-129](issues/IF-129.md) — Notification response limits
 
-Define external-reference handling so schema validation returns normal errors
-instead of panicking or stalling async workflow execution.
+Apply bounded HTTP response reads to Slack and Resend, preserving provider
+failure and cancellation behavior without accepting truncated success output.
 
 ## Later
 

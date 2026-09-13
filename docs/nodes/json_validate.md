@@ -7,13 +7,20 @@ Validate JSON from context against a JSON Schema.
 | Parameter    | Type   | Required | Default | Description                                                                    |
 |--------------|--------|----------|---------|--------------------------------------------------------------------------------|
 | `source_key` | string | Yes      | --      | Context key containing either a JSON string, or a value already decoded as JSON |
-| `schema`     | object | No*      | --      | A JSON Schema object to validate the data against                              |
-| `schema_key` | string | No*      | --      | Context key containing a JSON Schema object or JSON Schema string              |
+| `schema`     | object/boolean | No* | -- | A JSON Schema to validate the data against |
+| `schema_key` | string | No* | -- | Context key containing a decoded JSON Schema or JSON Schema string |
 
 *Provide exactly one of `schema` or `schema_key`.
 
 If the value is a string, `json_validate` first parses it as JSON, then validates the result.  
 If the value is already a JSON object/array/etc., it is validated directly.
+
+## Schema References
+
+Validation is offline-only. References bundled in the supplied schema work;
+references requiring network or file retrieval fail normally without fetching.
+See [JSON Schema validation](../JSON_SCHEMA_VALIDATION.md) for bundled-reference
+examples, error behavior, and cancellation boundaries.
 
 ## Context Output
 

@@ -82,8 +82,8 @@ credentialed, local-state, and platform-specific flow at the same time.
 
 ## 07-advanced
 - **hashing.lua** — SHA-256 and MD5 hash computation
-- **schema_validation.lua** — JSON Schema validation with error handling
-- **json_validate.lua** — Validate raw JSON strings using a schema
+- **schema_validation.lua** — Offline JSON Schema validation with a bundled customer definition
+- **json_validate.lua** — Validate raw JSON strings using a bundled schema reference
 - **data_pipeline.lua** — Full pipeline: filter → transform → dedup → hash → batch
 - **code_node_extract.lua** — Inline Lua code node to extract fields from API responses
 - **function_handler.lua** — Pass Lua functions directly as step handlers

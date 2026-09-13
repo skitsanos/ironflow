@@ -18,7 +18,6 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 | [IF-122](docs/issues/IF-122.md) | P2 | Open | SQL/concurrency | SQL's unowned context merge loses concurrent successful updates |
 | [IF-123](docs/issues/IF-123.md) | P2 | Open | CLI/replica safety | Replica mode trusts backend labels instead of actual SQL dialects |
 | [IF-124](docs/issues/IF-124.md) | P2 | Open | MCP/framing | MCP stdio drops partially consumed frames on select cancellation |
-| [IF-125](docs/issues/IF-125.md) | P2 | Open | Schema/runtime safety | External JSON Schema references panic inside async node execution |
 | [IF-126](docs/issues/IF-126.md) | P2 | Open | Cache/identity | File-cache sanitization aliases distinct logical keys |
 | [IF-127](docs/issues/IF-127.md) | P2 | Open | ArangoDB/pagination | Arango cursor IDs are discarded |
 | [IF-128](docs/issues/IF-128.md) | P2 | Open | AI/chunking | Semantic chunking selects minima of a distance signal |

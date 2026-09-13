@@ -7,7 +7,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts check`.
 
 - Total findings: 132
-- Active findings: 18
+- Active findings: 17
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
 | ID | Priority | Status | Area | Summary |
@@ -136,7 +136,7 @@ priority, area, and title. The registry is generated with
 | [IF-122](./IF-122.md) | P2 | Open | SQL/concurrency | SQL's unowned context merge loses concurrent successful updates |
 | [IF-123](./IF-123.md) | P2 | Open | CLI/replica safety | Replica mode trusts backend labels instead of actual SQL dialects |
 | [IF-124](./IF-124.md) | P2 | Open | MCP/framing | MCP stdio drops partially consumed frames on select cancellation |
-| [IF-125](./IF-125.md) | P2 | Open | Schema/runtime safety | External JSON Schema references panic inside async node execution |
+| [IF-125](./IF-125.md) | P2 | Resolved | Schema/runtime safety | External JSON Schema references panic inside async node execution |
 | [IF-126](./IF-126.md) | P2 | Open | Cache/identity | File-cache sanitization aliases distinct logical keys |
 | [IF-127](./IF-127.md) | P2 | Open | ArangoDB/pagination | Arango cursor IDs are discarded |
 | [IF-128](./IF-128.md) | P2 | Open | AI/chunking | Semantic chunking selects minima of a distance signal |

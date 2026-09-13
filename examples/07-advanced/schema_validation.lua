@@ -1,4 +1,4 @@
--- Demonstrates JSON Schema validation
+-- Demonstrates offline JSON Schema validation with a bundled customer schema.
 local flow = Flow.new("schema_validation")
 
 flow:step("prepare_input", nodes.code({
@@ -22,11 +22,8 @@ flow:step("prepare_input", nodes.code({
 flow:step("validate", nodes.validate_schema({
     source_key = "order",
     schema = {
-        type = "object",
-        required = { "id", "amount", "customer" },
-        properties = {
-            id = { type = "string" },
-            amount = { type = "number", minimum = 0 },
+        ["$schema"] = "https://json-schema.org/draft/2020-12/schema",
+        ["$defs"] = {
             customer = {
                 type = "object",
                 required = { "name", "email" },
@@ -34,8 +31,15 @@ flow:step("validate", nodes.validate_schema({
                     name = { type = "string" },
                     email = { type = "string" }
                 }
-            }
-        }
+            },
+        },
+        type = "object",
+        required = { "id", "amount", "customer" },
+        properties = {
+            id = { type = "string" },
+            amount = { type = "number", minimum = 0 },
+            customer = { ["$ref"] = "#/$defs/customer" },
+        },
     }
 })):depends_on("prepare_input")
 
