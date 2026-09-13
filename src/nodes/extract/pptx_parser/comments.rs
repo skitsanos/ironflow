@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 use quick_xml::events::{BytesStart, Event};
 
 use super::PptxComment;
+use super::graph::Presentation;
 use crate::nodes::extract::ooxml::Archive;
 use crate::nodes::extract::resource::Budget;
 use crate::util::execution::ExecutionControl;
@@ -14,22 +15,20 @@ type Author = (Option<String>, Option<String>);
 
 pub(in crate::nodes::extract) fn extract_pptx_comments(
     archive: &mut Archive,
+    presentation: &Presentation,
     budget: &mut Budget<'_>,
     execution: &ExecutionControl,
 ) -> Result<Vec<PptxComment>> {
-    let authors = read_authors(archive, budget, execution)?;
-    let mut parts = archive
-        .entry_names("ppt/comments/comment", ".xml", execution)?
-        .into_iter()
-        .map(|name| comment_part(name, budget))
-        .collect::<Result<Vec<_>>>()?;
-    parts.sort_by_key(|(index, _)| *index);
+    let authors = read_authors(archive, presentation.authors.as_deref(), budget, execution)?;
 
     let mut comments = Vec::new();
-    for (slide_index, name) in parts {
+    for slide in &presentation.slides {
         budget.checkpoint()?;
-        let parsed = archive.with_required_xml(&name, execution, |reader| {
-            parse_comments(reader, slide_index, &authors, budget)
+        let Some(name) = &slide.comments else {
+            continue;
+        };
+        let parsed = archive.with_required_xml(name, execution, |reader| {
+            parse_comments(reader, slide.index, &authors, budget)
         })?;
         comments.extend(parsed);
     }
@@ -38,13 +37,15 @@ pub(in crate::nodes::extract) fn extract_pptx_comments(
 
 fn read_authors(
     archive: &mut Archive,
+    name: Option<&str>,
     budget: &mut Budget<'_>,
     execution: &ExecutionControl,
 ) -> Result<HashMap<String, Author>> {
-    Ok(archive
-        .with_optional_xml("ppt/commentAuthors.xml", execution, |reader| {
-            parse_authors(reader, budget)
-        })?
+    Ok(name
+        .map(|name| {
+            archive.with_required_xml(name, execution, |reader| parse_authors(reader, budget))
+        })
+        .transpose()?
         .unwrap_or_default())
 }
 
@@ -131,21 +132,6 @@ fn parse_author(
         return Ok(None);
     };
     Ok(Some((id, (name, initials))))
-}
-
-fn comment_part(name: String, budget: &mut Budget<'_>) -> Result<(u32, String)> {
-    budget.charge_item("PPTX comment archive parts")?;
-    let suffix = name
-        .strip_prefix("ppt/comments/comment")
-        .and_then(|value| value.strip_suffix(".xml"))
-        .ok_or_else(|| anyhow::anyhow!("extract_pptx: invalid comment archive part: {name}"))?;
-    let index = suffix
-        .parse::<u32>()
-        .with_context(|| format!("extract_pptx: invalid comment slide number: {name}"))?;
-    if index == 0 {
-        anyhow::bail!("extract_pptx: comment slide numbers must start at one: {name}");
-    }
-    Ok((index, name))
 }
 
 fn parse_comments<R: BufRead>(

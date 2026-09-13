@@ -7,7 +7,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts check`.
 
 - Total findings: 132
-- Active findings: 11
+- Active findings: 10
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
 | ID | Priority | Status | Area | Summary |
@@ -126,7 +126,7 @@ priority, area, and title. The registry is generated with
 | [IF-112](./IF-112.md) | P1 | Resolved | PDF/confidentiality | A one-page PDF split retains unselected pages' objects |
 | [IF-113](./IF-113.md) | P2 | Resolved | XML/OOXML fidelity | XML and OOXML extraction lose entities, CDATA, and split text |
 | [IF-114](./IF-114.md) | P2 | Resolved | PDF/page fidelity | PDF split/merge discard inherited page attributes |
-| [IF-115](./IF-115.md) | P2 | Open | PPTX/page fidelity | PPTX extraction uses filenames instead of presentation order and membership |
+| [IF-115](./IF-115.md) | P2 | Resolved | PPTX/page fidelity | PPTX extraction uses filenames instead of presentation order and membership |
 | [IF-116](./IF-116.md) | P2 | Open | Engine/composition | Persistence truncation corrupts live child-workflow results |
 | [IF-117](./IF-117.md) | P2 | Resolved | Composition/tool security | Missing nested tool-input paths fall back to the entire root object |
 | [IF-118](./IF-118.md) | P2 | Open | Composition/correctness | Child context overwrites authoritative parallel-result metadata |

@@ -5,6 +5,9 @@ use ironflow::engine::types::Context;
 use ironflow::nodes::NodeRegistry;
 use serde_json::{Value, json};
 
+#[path = "pptx_standard.rs"]
+mod pptx_standard;
+
 pub const ENCODED: &str = "A&amp;B &#xE9; C<![CDATA[D]]>E";
 pub const DECODED: &str = "A&B \u{e9} CDE";
 
@@ -16,6 +19,12 @@ pub fn package(path: &Path, entries: &[(&str, &str)]) {
         zip.write_all(xml.as_bytes()).unwrap();
     }
     zip.finish().unwrap();
+    if entries
+        .iter()
+        .any(|(name, _)| name.starts_with("ppt/slides/"))
+    {
+        pptx_standard::complete(path);
+    }
 }
 
 pub async fn extract(node: &str, path: &Path, format: &str) -> anyhow::Result<Context> {

@@ -45,10 +45,10 @@ _No committed initiative._
 
 ## Next
 
-### [IF-115](issues/IF-115.md) — PPTX presentation order and membership
+### [IF-116](issues/IF-116.md) — Preserve live child-workflow results
 
-Read the presentation slide list and relationships so extraction follows the
-deck's actual order, excludes orphan slide parts, and resolves associated notes.
+Separate live child-result transport from inspection-only persisted snapshot
+truncation, covering subworkflow, repeat, and parallel composition.
 
 ## Later
 

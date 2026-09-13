@@ -108,6 +108,31 @@ fn write_long_metadata_docx(output: &Path) -> Result<PathBuf> {
 fn write_repeated_media_pptx(output: &Path) -> Result<PathBuf> {
     let path = output.join("repeated-media.pptx");
     let mut archive = zip::ZipWriter::new(std::fs::File::create(&path)?);
+    let rel_namespace = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+    archive.start_file("ppt/presentation.xml", zip_options())?;
+    write!(
+        archive,
+        "<p:presentation xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\" xmlns:r=\"{rel_namespace}\"><p:sldIdLst>"
+    )?;
+    for index in 1..=48 {
+        write!(
+            archive,
+            "<p:sldId id=\"{}\" r:id=\"s{index}\"/>",
+            255 + index
+        )?;
+    }
+    archive.write_all(b"</p:sldIdLst></p:presentation>")?;
+    archive.start_file("ppt/_rels/presentation.xml.rels", zip_options())?;
+    archive.write_all(
+        b"<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">",
+    )?;
+    for index in 1..=48 {
+        write!(
+            archive,
+            "<Relationship Id=\"s{index}\" Type=\"{rel_namespace}/slide\" Target=\"slides/slide{index}.xml\"/>"
+        )?;
+    }
+    archive.write_all(b"</Relationships>")?;
     let relationship_type =
         "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image";
     for index in 1..=48 {

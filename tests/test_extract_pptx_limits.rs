@@ -4,6 +4,9 @@ use std::path::{Path, PathBuf};
 use ironflow::engine::types::{Context, NodeOutput};
 use ironflow::nodes::NodeRegistry;
 
+#[path = "support/pptx_standard.rs"]
+mod pptx_standard;
+
 const ITEM_LIMIT: &str = "IRONFLOW_MAX_EXTRACT_ITEMS";
 const OUTPUT_LIMIT: &str = "IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES";
 const ZIP_BYTE_LIMIT: &str = "IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES";
@@ -52,6 +55,7 @@ fn write_pptx(path: &Path, parts: &[(&str, &[u8])]) {
         archive.write_all(bytes).unwrap();
     }
     archive.finish().unwrap();
+    pptx_standard::complete(path);
 }
 
 fn compact_slide(text: &str) -> String {
@@ -125,7 +129,12 @@ async fn extract_pptx_enforces_resource_archive_and_config_boundaries() {
         .await
         .unwrap_err()
         .to_string();
-    assert!(error.contains(OUTPUT_LIMIT), "{error}");
+    // The authoritative manifest reaches the per-part limit before slide output.
+    assert!(
+        error.contains("decoded archive part 'ppt/presentation.xml'")
+            && error.contains("extraction limit (100 bytes)"),
+        "{error}"
+    );
     Environment::set(OUTPUT_LIMIT, "1048576");
 
     reject_invalid_packages(directory.path(), &slide).await;
@@ -219,7 +228,10 @@ async fn reject_invalid_packages(directory: &Path, slide: &str) {
         .await
         .unwrap_err()
         .to_string();
-    assert!(error.contains("contains no slide parts"), "{error}");
+    assert!(
+        error.contains("required archive part is missing: ppt/presentation.xml"),
+        "{error}"
+    );
 
     let invalid_notes = directory.join("invalid-notes.pptx");
     write_pptx(

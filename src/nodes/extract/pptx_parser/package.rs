@@ -1,10 +1,11 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use anyhow::{Context, Result};
 
 use super::content_types::{ContentTypes, parse_content_types};
+use super::graph::{Presentation, SlidePart, resolve_target};
 use super::notes::parse_pptx_notes;
-use super::relationships::{normalize_pptx_path, parse_pptx_rels};
+use super::relationships::Kind;
 use super::slide::parse_pptx_slide;
 use super::{PptxElement, PptxSlide};
 use crate::artifacts::{ArtifactRef, LocalArtifactStore};
@@ -14,21 +15,11 @@ use crate::util::execution::ExecutionControl;
 
 pub(in crate::nodes::extract) fn extract_pptx_slides(
     archive: &mut Archive,
+    presentation: &Presentation,
     artifact_store: Option<&LocalArtifactStore>,
     budget: &mut Budget<'_>,
     execution: &ExecutionControl,
 ) -> Result<Vec<PptxSlide>> {
-    let mut slide_parts = archive
-        .entry_names("ppt/slides/slide", ".xml", execution)?
-        .into_iter()
-        .map(|name| slide_part(name, budget))
-        .collect::<Result<Vec<_>>>()?;
-    if slide_parts.is_empty() {
-        anyhow::bail!("extract_pptx: presentation contains no slide parts");
-    }
-    slide_parts.sort_by_key(|(index, _)| *index);
-    reject_duplicate_indices(&slide_parts)?;
-
     let content_types = if artifact_store.is_some() {
         archive
             .with_optional_xml("[Content_Types].xml", execution, |reader| {
@@ -47,24 +38,19 @@ pub(in crate::nodes::extract) fn extract_pptx_slides(
         artifacts: &mut artifacts,
     };
     slides
-        .try_reserve_exact(slide_parts.len())
+        .try_reserve_exact(presentation.slides.len())
         .context("extract_pptx: cannot reserve memory for the configured number of slides")?;
-    for (slide_index, name) in slide_parts {
+    for slide in &presentation.slides {
         budget.checkpoint()?;
         budget.charge_item("PPTX slides")?;
-        let (title, mut elements) = archive
-            .with_required_xml(&name, execution, |reader| parse_pptx_slide(reader, budget))?;
-        resolve_images(
-            archive,
-            slide_index,
-            &mut elements,
-            &mut media,
-            budget,
-            execution,
-        )?;
-        let speaker_notes = read_notes(archive, slide_index, budget, execution)?;
+        let (title, mut elements) =
+            archive.with_required_xml(&slide.part, execution, |reader| {
+                parse_pptx_slide(reader, budget)
+            })?;
+        resolve_images(archive, slide, &mut elements, &mut media, budget, execution)?;
+        let speaker_notes = read_notes(archive, slide.notes.as_deref(), budget, execution)?;
         slides.push(PptxSlide {
-            slide_index,
+            slide_index: slide.index,
             title,
             elements,
             speaker_notes,
@@ -72,32 +58,6 @@ pub(in crate::nodes::extract) fn extract_pptx_slides(
         });
     }
     Ok(slides)
-}
-
-fn slide_part(name: String, budget: &mut Budget<'_>) -> Result<(u32, String)> {
-    budget.checkpoint()?;
-    budget.charge_item("PPTX slide archive parts")?;
-    let suffix = name
-        .strip_prefix("ppt/slides/slide")
-        .and_then(|value| value.strip_suffix(".xml"))
-        .ok_or_else(|| anyhow::anyhow!("extract_pptx: invalid slide archive part: {name}"))?;
-    let index = suffix
-        .parse::<u32>()
-        .with_context(|| format!("extract_pptx: invalid slide number in archive part: {name}"))?;
-    if index == 0 {
-        anyhow::bail!("extract_pptx: slide numbers must start at one: {name}");
-    }
-    Ok((index, name))
-}
-
-fn reject_duplicate_indices(parts: &[(u32, String)]) -> Result<()> {
-    let mut indices = HashSet::with_capacity(parts.len());
-    for (index, name) in parts {
-        if !indices.insert(*index) {
-            anyhow::bail!("extract_pptx: duplicate logical slide index {index}: {name}");
-        }
-    }
-    Ok(())
 }
 
 struct MediaState<'a> {
@@ -108,19 +68,12 @@ struct MediaState<'a> {
 
 fn resolve_images(
     archive: &mut Archive,
-    slide_index: u32,
+    slide: &SlidePart,
     elements: &mut [PptxElement],
     media: &mut MediaState<'_>,
     budget: &mut Budget<'_>,
     execution: &ExecutionControl,
 ) -> Result<()> {
-    let rels_name = format!("ppt/slides/_rels/slide{slide_index}.xml.rels");
-    let relationships = archive
-        .with_optional_xml(&rels_name, execution, |reader| {
-            parse_pptx_rels(reader, budget)
-        })?
-        .unwrap_or_default();
-
     for element in elements {
         budget.checkpoint()?;
         let PptxElement::Image {
@@ -133,13 +86,14 @@ fn resolve_images(
             continue;
         };
         budget.charge_item("PPTX image elements")?;
-        let Some(target) = embed_id
+        let Some(relationship) = embed_id
             .as_ref()
-            .and_then(|embed_id| relationships.get(embed_id))
+            .and_then(|embed_id| slide.relationships.get(embed_id))
+            .filter(|relationship| relationship.kind == Kind::Image && !relationship.external)
         else {
             continue;
         };
-        let resolved = normalize_pptx_path("ppt/slides/", target)?;
+        let resolved = resolve_target(&slide.part, &relationship.target, budget)?;
         budget.charge_output(resolved.len() as u64, "PPTX retained image paths")?;
         *embedded_path = Some(resolved.clone());
 
@@ -172,15 +126,15 @@ fn resolve_images(
 
 fn read_notes(
     archive: &mut Archive,
-    slide_index: u32,
+    notes_name: Option<&str>,
     budget: &mut Budget<'_>,
     execution: &ExecutionControl,
 ) -> Result<Option<String>> {
-    let notes_name = format!("ppt/notesSlides/notesSlide{slide_index}.xml");
-    archive
-        .with_optional_xml(&notes_name, execution, |reader| {
-            parse_pptx_notes(reader, budget)
+    notes_name
+        .map(|name| {
+            archive.with_required_xml(name, execution, |reader| parse_pptx_notes(reader, budget))
         })
+        .transpose()
         .map(|notes| notes.filter(|value| !value.trim().is_empty()))
 }
 

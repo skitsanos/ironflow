@@ -1,12 +1,19 @@
 mod comments;
 mod content_types;
+mod graph;
 mod metadata;
 mod notes;
 mod package;
+mod part_paths;
+mod presentation;
 mod relationships;
 mod slide;
 
+#[cfg(test)]
+mod parser_tests;
+
 pub(super) use comments::extract_pptx_comments;
+pub(super) use graph::load_presentation;
 pub(super) use metadata::extract_pptx_metadata;
 pub(super) use package::extract_pptx_slides;
 

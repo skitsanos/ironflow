@@ -3,6 +3,9 @@ use std::io::Write;
 use ironflow::engine::types::{Context, NodeOutput};
 use ironflow::nodes::NodeRegistry;
 
+#[path = "support/pptx_standard.rs"]
+mod pptx_standard;
+
 static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 const TRANSITIONAL_IMAGE_RELATIONSHIP: &str =
@@ -53,6 +56,7 @@ fn write_pptx(path: &std::path::Path, relationships: &str, parts: &[(&str, &[u8]
         archive.write_all(contents).unwrap();
     }
     archive.finish().unwrap();
+    pptx_standard::complete(path);
 }
 
 async fn extract(path: &std::path::Path) -> anyhow::Result<NodeOutput> {
@@ -126,7 +130,7 @@ async fn pptx_normalizes_versioned_prefixed_relationships_and_content_types() {
         let media_name = format!("ppt/media/caf\u{e9} & image{separator}.blob");
         let path = directory.path().join(format!("normalized-{version}.pptx"));
         let relationships = format!(
-            "<?xml version=\"{version}\"?><r:Relationships xmlns:r=\"urn:test\">\
+            "<?xml version=\"{version}\"?><r:Relationships xmlns:r=\"http://schemas.openxmlformats.org/package/2006/relationships\">\
              <r:Relationship Id=\"rId&#49;\" Type=\"{STRICT_IMAGE_RELATIONSHIP}\" \
              Target=\"../media/caf&#xE9;\t&amp;\r\nimage\u{85}.blob\"/>\
              </r:Relationships>"

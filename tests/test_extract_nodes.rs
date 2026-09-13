@@ -5,6 +5,9 @@ use std::path::{Path, PathBuf};
 use ironflow::engine::types::Context;
 use ironflow::nodes::NodeRegistry;
 
+#[path = "support/pptx_standard.rs"]
+mod pptx_standard;
+
 static ARTIFACT_ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 struct ArtifactEnvironment(Option<std::ffi::OsString>);
@@ -112,6 +115,7 @@ fn make_pptx(
         zw.write_all(a.as_bytes()).unwrap();
     }
     zw.finish().unwrap();
+    pptx_standard::complete(&path);
     path
 }
 
@@ -137,6 +141,7 @@ fn make_pptx_with_image(
     zw.start_file(image_path_in_zip, opts).unwrap();
     zw.write_all(image_bytes).unwrap();
     zw.finish().unwrap();
+    pptx_standard::complete(&path);
     path
 }
 
