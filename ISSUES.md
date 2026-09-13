@@ -11,9 +11,7 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 | [IF-109](docs/issues/IF-109.md) | P1 | Open | Database correctness | SQLite numeric expressions silently become null |
 | [IF-110](docs/issues/IF-110.md) | P1 | Open | Image/resource safety | Image resize omits a potentially dominant intermediate allocation |
 | [IF-111](docs/issues/IF-111.md) | P1 | Open | PDF/resource safety | Initial PDF loading leaves object-stream decompression uncapped |
-| [IF-112](docs/issues/IF-112.md) | P1 | Open | PDF/confidentiality | A one-page PDF split retains unselected pages' objects |
 | [IF-113](docs/issues/IF-113.md) | P2 | Open | XML/OOXML fidelity | XML and OOXML extraction lose entities, CDATA, and split text |
-| [IF-114](docs/issues/IF-114.md) | P2 | Open | PDF/page fidelity | PDF split/merge discard inherited page attributes |
 | [IF-115](docs/issues/IF-115.md) | P2 | Open | PPTX/page fidelity | PPTX extraction uses filenames instead of presentation order and membership |
 | [IF-116](docs/issues/IF-116.md) | P2 | Open | Engine/composition | Persistence truncation corrupts live child-workflow results |
 | [IF-117](docs/issues/IF-117.md) | P2 | Open | Composition/tool security | Missing nested tool-input paths fall back to the entire root object |

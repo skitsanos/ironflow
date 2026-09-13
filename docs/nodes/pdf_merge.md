@@ -30,6 +30,17 @@ once, so pages sharing fonts, images, or resources do not clone those objects
 per page. Artifact inputs use the same verified file handle used for identity
 checking.
 
+Before replacing page parents, the node materializes the nearest inherited
+`Resources`, `MediaBox`, `CropBox`, and `Rotate` values. Explicit page values
+take precedence; null values are treated as absent. Inherited indirect resources
+remain shared and count toward the retained-object limit. Broken or cyclic
+parent chains fail without replacing an existing output file.
+
+Links between retained pages and annotation backlinks are remapped. Source
+catalog/page-tree references are disconnected rather than copying the old tree.
+This is a page-oriented merge, not preservation of document-level outlines,
+signatures, catalog features, or a general content-redaction operation.
+
 The result is written to a sibling staged file, flushed and synchronized, then
 atomically committed. Parse, limit, save, and cancellation failures remove the
 partial staging file and preserve an existing destination. The output refuses

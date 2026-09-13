@@ -1,5 +1,6 @@
 -- Effects: publishes one immutable source artifact and retains one UUID-scoped
 -- merged PDF under TMPDIR, TMP, TEMP, or `.`.
+-- Page inheritance is preserved; this does not merge document-level catalogs.
 local flow = Flow.new("pdf_merge_example")
 local temp_root = env("TMPDIR")
 if temp_root == nil or temp_root == "" then temp_root = env("TMP") end
