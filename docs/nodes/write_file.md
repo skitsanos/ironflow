@@ -40,6 +40,14 @@ protected `IRONFLOW_ARTIFACT_DIR` on every possible consumer. S3 mode restores
 missing bytes into each replica's private cache, verifies size and SHA-256, and
 passes only the verified rewound handle to this node.
 
+Remote restores observe step deadlines and run cancellation between received
+chunks, not only when the response stalls. Cancellation discards the download's
+private staging file before the tracked worker releases admission. The
+destination stays unchanged, and no `write_file_success` is returned. Idle body
+waits also poll cancellation every 100 ms; this is a cooperative check interval,
+not a hard latency guarantee for filesystem operations. See the
+[artifact lifecycle](../ARCHITECTURE.md#binary-artifacts) for the shared contract.
+
 ## Context output
 
 - `write_file_path` — resolved destination path.

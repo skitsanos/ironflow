@@ -23,7 +23,6 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 | [IF-128](docs/issues/IF-128.md) | P2 | Open | AI/chunking | Semantic chunking selects minima of a distance signal |
 | [IF-130](docs/issues/IF-130.md) | P2 | Open | ZIP/admission | ZIP duplicate handling and entry limits occur after deduplicating metadata |
 | [IF-131](docs/issues/IF-131.md) | P2 | Open | S3/copy correctness | S3 copy source keys are not URL-encoded |
-| [IF-132](docs/issues/IF-132.md) | P2 | Open | Artifact/cancellation | A continuously progressing artifact download delays cancellation until EOF |
 
 ## Working agreement
 

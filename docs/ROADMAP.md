@@ -45,10 +45,10 @@ _No committed initiative._
 
 ## Next
 
-### [IF-132](issues/IF-132.md) — Artifact download cancellation
+### [IF-130](issues/IF-130.md) — ZIP metadata admission
 
-Check cancellation while download chunks keep arriving, and verify prompt
-staging cleanup with admission retained until physical work stops.
+Validate raw entry counts, duplicate destinations, and central-directory byte
+budgets before archive parsing can deduplicate or materialize metadata.
 
 ## Later
 

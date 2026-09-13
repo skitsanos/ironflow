@@ -8,6 +8,7 @@ use crate::util::execution::run_blocking_step;
 
 mod read_security;
 mod remote;
+mod remote_download;
 
 async fn store_bytes(
     store: LocalArtifactStore,

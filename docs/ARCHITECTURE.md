@@ -976,7 +976,13 @@ The S3 lifecycle contract is deliberately narrow:
   handled by the offline prune command.
 - Downloads enforce the configured ceiling and declared length while
   streaming, then verify SHA-256 before publishing or repairing the private
-  cache. Cancellation drops the request and removes the private staging file.
+  cache. Cancellation/deadlines are checked before each body wait and after
+  every received chunk or EOF, as well as every 100 ms while awaiting a body
+  chunk. A steadily progressing response cannot postpone cancellation until
+  EOF. Cancellation drops the request and removes the private staging file;
+  task/run admission remains held until the tracked worker physically exits.
+  Checks are cooperative, not hard real-time guarantees: an in-progress
+  synchronous write/hash/sync operation must return before its next checkpoint.
 - Pruning deletes one content-addressed object at a time. Object deletion is
   idempotent, so an interrupted sweep can be rerun; it does not provide a
   transaction across the candidate batch.

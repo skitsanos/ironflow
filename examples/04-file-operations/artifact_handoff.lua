@@ -5,6 +5,8 @@
 -- Effects: publishes one immutable artifact in the configured backend.
 -- The extractor opens and verifies it inside the blocking worker, then parses
 -- that same rewound handle; the store pathname never enters workflow context.
+-- Remote restore observes cancellation between chunks and removes private
+-- staging before releasing the tracked worker; it does not wait for remote EOF.
 local flow = Flow.new("artifact_handoff")
 
 flow:step("store_document", nodes.read_file({
