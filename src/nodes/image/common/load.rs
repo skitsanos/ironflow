@@ -26,15 +26,30 @@ pub(crate) fn load_image(
     limits: ImageDecodeLimits,
     execution: &ExecutionControl,
 ) -> Result<LoadedImage> {
+    load_image_with_admission(input, limits, execution, |_, _, _, _| Ok(()))
+}
+
+pub(crate) fn load_image_with_admission(
+    input: ImageInput,
+    limits: ImageDecodeLimits,
+    execution: &ExecutionControl,
+    admit: impl FnOnce(u32, u32, image::ColorType, u64) -> Result<()>,
+) -> Result<LoadedImage> {
     execution.checkpoint()?;
     let image = match input {
         ImageInput::File(source) => {
             let (reader, label) = open_image_reader(&source, limits, execution)?;
-            decode_reader(reader, &label, limits, execution)?
+            decode_reader(reader, &label, limits, execution, admit)?
         }
         ImageInput::Base64(data) => {
             let bytes = decode_image_base64(data, limits.max_encoded_bytes)?;
-            decode_image_bytes(&bytes, "base64 image", limits, execution)?
+            decode_reader(
+                ImageReader::new(std::io::Cursor::new(bytes)),
+                "base64 image",
+                limits,
+                execution,
+                admit,
+            )?
         }
     };
     execution.checkpoint()?;
@@ -115,7 +130,7 @@ pub(crate) fn decode_image_bytes(
     execution: &ExecutionControl,
 ) -> Result<DynamicImage> {
     let reader = ImageReader::new(std::io::Cursor::new(bytes));
-    decode_reader(reader, label, limits, execution)
+    decode_reader(reader, label, limits, execution, |_, _, _, _| Ok(()))
 }
 
 fn decode_reader<R>(
@@ -123,6 +138,7 @@ fn decode_reader<R>(
     label: &str,
     limits: ImageDecodeLimits,
     execution: &ExecutionControl,
+    admit: impl FnOnce(u32, u32, image::ColorType, u64) -> Result<()>,
 ) -> Result<DynamicImage>
 where
     R: BufRead + Seek,
@@ -135,7 +151,8 @@ where
     let decoder = reader
         .into_decoder()
         .map_err(|error| anyhow::anyhow!("invalid image data for '{label}': {error}"))?;
-    inspect_decoder(&decoder, label, limits)?;
+    let (width, height, color, total_bytes, _) = inspect_decoder(&decoder, label, limits)?;
+    admit(width, height, color, total_bytes)?;
     execution.checkpoint()?;
     let image = DynamicImage::from_decoder(decoder)
         .map_err(|error| anyhow::anyhow!("invalid image data for '{label}': {error}"))?;

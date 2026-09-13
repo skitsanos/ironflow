@@ -20,6 +20,8 @@ published PDF.
 |----------------------|---------|----------|
 | `IRONFLOW_MAX_PDF_MERGE_FILES` | `100` | Source entries admitted before collection |
 | `IRONFLOW_MAX_PDF_BYTES` | `104857600` | Bytes in each source PDF |
+| `IRONFLOW_MAX_PDF_DECOMPRESSED_STREAM_BYTES` | `67108864` | Decoded bytes per object/cross-reference stream in each source |
+| `IRONFLOW_MAX_PDF_OBJECTS` | `250000` | Loaded objects per source, checked after parsing |
 | `IRONFLOW_MAX_PDF_MERGE_BYTES` | `536870912` | Cumulative input bytes and staged output bytes |
 | `IRONFLOW_MAX_PDF_MERGE_PAGES` | `2000` | Cumulative pages |
 | `IRONFLOW_MAX_PDF_MERGE_OBJECTS` | `250000` | Retained output graph objects |
@@ -29,6 +31,11 @@ each source, the union of objects reachable from all selected pages is remapped
 once, so pages sharing fonts, images, or resources do not clone those objects
 per page. Artifact inputs use the same verified file handle used for identity
 checking.
+
+Every source passes the [shared PDF loading policy](../PDF_LOADING.md), including
+strict parsing and bounded recovery checks, before graph collection. The loaded
+object limit includes objects not needed in the merged graph; the retained-output
+object limit remains separate. Neither is a hard parser memory ceiling.
 
 Before replacing page parents, the node materializes the nearest inherited
 `Resources`, `MediaBox`, `CropBox`, and `Rotate` values. Explicit page values

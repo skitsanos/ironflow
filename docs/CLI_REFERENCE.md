@@ -1018,7 +1018,7 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_MAX_FILE_BYTES` | `52428800` | Maximum `read_file` payload and final `write_file` size (including an existing file in append mode), streamed `s3_get_object` response body, HTML/SRT/VTT extraction input, and raw DOCX/PPTX archive size |
 | `IRONFLOW_MAX_IMAGE_ENCODED_BYTES` | `52428800` | Maximum encoded bytes for one image path, artifact, or decoded Base64 source, checked before image pixel allocation |
 | `IRONFLOW_MAX_IMAGE_PIXELS` | `25000000` | Maximum decoded pixels in one source image or generated image transform |
-| `IRONFLOW_MAX_IMAGE_DECODE_ALLOCATION_BYTES` | `134217728` | Maximum decoder-managed allocation and admitted image working-buffer estimate; transforms check retained source plus known output buffers, while `image_to_pdf` also includes encoded, conversion, and compression buffers for non-JPEG sources |
+| `IRONFLOW_MAX_IMAGE_DECODE_ALLOCATION_BYTES` | `134217728` | Maximum decoder-managed allocation and admitted image working-buffer estimate, not a process-memory cap. Transforms check retained source plus known output buffers; `image_resize` also budgets the RGBA-float intermediate and filter scratch before pixel decoding/resizing. `image_to_pdf` includes encoded, conversion, and compression buffers for non-JPEG sources |
 | `IRONFLOW_MAX_IMAGE_TO_PDF_SOURCES` | `100` | Maximum source entries admitted by one `image_to_pdf` call, checked before parsing entries |
 | `IRONFLOW_MAX_IMAGE_TO_PDF_ENCODED_BYTES` | `104857600` | Maximum cumulative encoded source bytes processed by one `image_to_pdf` call |
 | `IRONFLOW_MAX_IMAGE_TO_PDF_PIXELS` | `50000000` | Maximum cumulative decoded source pixels processed by one `image_to_pdf` call |
@@ -1040,6 +1040,8 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_MAX_ZIP_ENTRIES` | `10000` | Maximum entries processed by archive nodes and OOXML extractors (`extract_word`, `extract_pptx`, `extract_xlsx`); `zip_create` counts every visited child file and directory |
 | `IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES` | `536870912` | Maximum total uncompressed bytes processed by archive nodes. For DOCX/PPTX it caps cumulative declared package bytes and cumulative actual bytes of parts read; for `extract_xlsx` it also caps the raw workbook before ZIP metadata allocation |
 | `IRONFLOW_MAX_PDF_BYTES` | `104857600` | Maximum size of each PDF accepted by rendering, metadata, splitting, merging, and `extract_pdf`; capped readers reject post-open growth where the parser API permits |
+| `IRONFLOW_MAX_PDF_DECOMPRESSED_STREAM_BYTES` | `67108864` | Per object/cross-reference stream decoded-byte limit for `extract_pdf`, `pdf_metadata`, `pdf_split`, and `pdf_merge`; strict loading and bounded recovery checks reject oversized streams. Not a cumulative memory cap; see [PDF loading](PDF_LOADING.md) |
+| `IRONFLOW_MAX_PDF_OBJECTS` | `250000` | Per-source loaded document objects for those four nodes, checked after parsing and before downstream work; not a preallocation guard or the merged-output object limit |
 | `IRONFLOW_MAX_PDF_MERGE_FILES` | `100` | Maximum number of sources admitted by one `pdf_merge` call before source descriptors are collected |
 | `IRONFLOW_MAX_PDF_MERGE_BYTES` | `536870912` | Maximum cumulative PDF input bytes and maximum staged merged output bytes for one `pdf_merge` call |
 | `IRONFLOW_MAX_PDF_MERGE_PAGES` | `2000` | Maximum cumulative pages admitted by one `pdf_merge` call |

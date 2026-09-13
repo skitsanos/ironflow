@@ -1,6 +1,8 @@
 use super::env_u64;
 
 const DEFAULT_MAX_PDF_BYTES: u64 = 100 * 1024 * 1024;
+const DEFAULT_MAX_PDF_DECOMPRESSED_STREAM_BYTES: u64 = 64 * 1024 * 1024;
+const DEFAULT_MAX_PDF_OBJECTS: u64 = 250_000;
 const DEFAULT_MAX_PDF_EXTRACT_PAGES: u64 = 1_000;
 const DEFAULT_MAX_PDF_RENDER_PAGES: u64 = 25;
 const DEFAULT_MAX_PDF_SPLIT_PAGES: u64 = 1_000;
@@ -13,6 +15,17 @@ const DEFAULT_MAX_PDF_MERGE_OBJECTS: u64 = 250_000;
 
 pub fn max_pdf_bytes() -> u64 {
     env_u64("IRONFLOW_MAX_PDF_BYTES", DEFAULT_MAX_PDF_BYTES)
+}
+
+pub fn max_pdf_decompressed_stream_bytes() -> u64 {
+    env_u64(
+        "IRONFLOW_MAX_PDF_DECOMPRESSED_STREAM_BYTES",
+        DEFAULT_MAX_PDF_DECOMPRESSED_STREAM_BYTES,
+    )
+}
+
+pub fn max_pdf_objects() -> u64 {
+    env_u64("IRONFLOW_MAX_PDF_OBJECTS", DEFAULT_MAX_PDF_OBJECTS)
 }
 
 pub fn max_pdf_extract_pages() -> u64 {

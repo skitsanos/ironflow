@@ -26,6 +26,12 @@ document and one selected page's reachable cloned object graph while producing
 that page, so the source byte cap is not an exact RSS ceiling. A later failure
 does not roll back page files already written to `output_dir`.
 
+Before writing any pages, [shared PDF loading](../PDF_LOADING.md) enforces
+`IRONFLOW_MAX_PDF_DECOMPRESSED_STREAM_BYTES` (64 MiB) per object/cross-reference
+stream and rejects more than `IRONFLOW_MAX_PDF_OBJECTS` (250000) loaded objects
+after parsing. Strict parsing and bounded recovery checks prevent oversized
+streams from silently producing partial documents.
+
 ## Page isolation and fidelity
 
 Each output contains one selected page and its reachable dependencies, without

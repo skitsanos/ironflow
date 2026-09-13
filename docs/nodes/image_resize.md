@@ -17,6 +17,10 @@ Resize a single image file.
 > If both `path` and `source_key` are provided, execution fails.
 > Artifact inputs are opened and SHA-256 verified inside the tracked blocking worker; decoding consumes that same rewound handle rather than a resolved store pathname.
 
+With one dimension, the other is computed to preserve aspect ratio (rounded to
+the nearest pixel, minimum 1). With both dimensions, the image is resized to
+that exact size using Lanczos3, which may change its aspect ratio.
+
 Supported source formats are BMP, Farbfeld, GIF, HDR, ICO, JPEG, PNG, PNM,
 QOI, TGA, TIFF, and WebP. Output remains restricted to PNG or JPEG.
 
@@ -51,7 +55,25 @@ return flow
 The encoded source, decoded dimensions/pixels, decoder allocation, and computed
 output dimensions are checked against `IRONFLOW_MAX_IMAGE_ENCODED_BYTES` (50
 MiB), `IRONFLOW_MAX_IMAGE_PIXELS` (25 million), and
-`IRONFLOW_MAX_IMAGE_DECODE_ALLOCATION_BYTES` (128 MiB) before resize allocation;
-the allocation check includes the retained source and computed output buffer.
+`IRONFLOW_MAX_IMAGE_DECODE_ALLOCATION_BYTES` (128 MiB). Resize admission runs
+after header inspection but before pixel decoding, then is rechecked against
+the decoded image before resampling. It applies equally to paths, verified
+artifacts, and Base64 inputs.
+
+The working-buffer estimate includes the retained source, the output in its
+original pixel type, the `source_width * target_height * 16` byte RGBA-float
+intermediate, and conservative filter-weight scratch space (including vector
+growth/reallocation). The two sampling passes are budgeted by their peak, not
+their sum. Same-size requests copy the source without a float intermediate.
+All size arithmetic is checked; overflow or an unaddressable buffer is rejected.
+
+For example, a 100x1 RGB image resized to 1x100 needs a 160,000-byte intermediate
+even though its source and output are only 300 bytes each. A 1 KiB allocation
+limit rejects it before decoding pixels or creating/overwriting the output.
+
+This is an admission estimate for known image buffers, not a hard process-memory
+ceiling. Header/codec internals, encoding scratch, encoded/Base64 input and
+workflow context, allocator overhead, and concurrent tasks can require additional
+memory; decoder-managed limits and encoded-input limits remain separate checks.
 Decode, resize, and encode run on a tracked blocking worker; cancellation is
-observed between opaque codec and transform operations.
+observed between opaque codec and transform operations, not within them.

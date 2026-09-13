@@ -2,6 +2,8 @@ local flow = Flow.new("extract_pdf_demo")
 
 -- Extract text from a PDF document. IronFlow parses the file once and applies
 -- the configured extraction-output budget while processing each page.
+-- Initial loading also bounds object/xref stream decoding and loaded objects;
+-- see IRONFLOW_MAX_PDF_DECOMPRESSED_STREAM_BYTES and IRONFLOW_MAX_PDF_OBJECTS.
 flow:step("extract_text", nodes.extract_pdf({
     path = "${ctx._flow_dir}/../fixtures/ironflow-sample.pdf",
     format = "text",

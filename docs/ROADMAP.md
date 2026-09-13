@@ -45,11 +45,6 @@ _No committed initiative._
 
 ## Next
 
-### [IF-110](issues/IF-110.md) — Image and PDF allocation admission
-
-Budget resampling intermediates, then bound PDF object-stream decompression
-before materialization in [IF-111](issues/IF-111.md), using small fixtures.
-
 ### [IF-109](issues/IF-109.md) — SQLite numeric fidelity
 
 Preserve runtime numeric types in expressions and aggregates instead of
