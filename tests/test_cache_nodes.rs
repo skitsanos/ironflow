@@ -9,6 +9,9 @@ use ironflow::nodes::NodeRegistry;
 static CACHE_ENV_LOCK: LazyLock<tokio::sync::Mutex<()>> =
     LazyLock::new(|| tokio::sync::Mutex::new(()));
 
+#[path = "support/cache.rs"]
+mod fixture;
+
 // --- Helpers ---
 
 fn empty_ctx() -> Context {
@@ -172,7 +175,7 @@ async fn cache_set_file_backend() {
     );
 
     // Verify the file was actually created
-    let cache_file = tmp.path().join("file_test_key.json");
+    let cache_file = fixture::entry_path(tmp.path(), "file_test_key");
     assert!(cache_file.exists(), "cache file should exist on disk");
 }
 
@@ -264,7 +267,7 @@ async fn cache_set_file_interpolates_context_key() {
         &serde_json::json!("llm:abc123")
     );
     assert!(
-        tmp.path().join("llm_abc123.json").exists(),
+        fixture::entry_path(tmp.path(), "llm:abc123").exists(),
         "cache file should use the interpolated key"
     );
 
@@ -321,7 +324,7 @@ async fn cache_file_backend_uses_env_default_directory() {
         &serde_json::json!({"from": "env"})
     );
     assert_eq!(output.get("cache_hit").unwrap(), &serde_json::json!(true));
-    assert!(tmp.path().join("env_default_file_cache.json").exists());
+    assert!(fixture::entry_path(tmp.path(), "env_default_file_cache").exists());
 
     match previous {
         Some(value) => unsafe { std::env::set_var("IRONFLOW_CACHE_DIR", value) },

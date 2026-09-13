@@ -45,10 +45,10 @@ _No committed initiative._
 
 ## Next
 
-### [IF-126](issues/IF-126.md) — File-cache key identity
+### [IF-113](issues/IF-113.md) — XML and Office-document text fidelity
 
-Keep distinct logical keys isolated in persistent cache storage, verify identity
-on reads, and define safe miss or migration behavior for legacy sanitized names.
+Preserve entities, CDATA, split text, and decoded attributes across XML and
+affected Office-document extractors without bypassing byte and depth budgets.
 
 ## Later
 

@@ -2,10 +2,12 @@ use std::sync::LazyLock;
 
 use anyhow::Result;
 use async_trait::async_trait;
+use sha2::{Digest, Sha256};
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
 use crate::util::bounded_cache::BoundedCache;
+use crate::util::execution::run_tracked_blocking_step;
 use crate::util::node_config::config_u64_strict;
 
 /// A cached entry with value and optional expiry (unix timestamp in seconds).
@@ -13,6 +15,9 @@ use crate::util::node_config::config_u64_strict;
 /// `BoundedCache` and never hit serde.
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 struct CacheEntry {
+    #[serde(default)]
+    schema_version: u32,
+    key: Option<String>,
     value: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     expires_at: Option<u64>,
@@ -49,6 +54,7 @@ static MEMORY_CACHE: LazyLock<BoundedCache<String, serde_json::Value>> =
     LazyLock::new(|| BoundedCache::new(memory_cache_capacity()));
 
 const DEFAULT_CACHE_DIR: &str = ".ironflow_cache";
+const FILE_CACHE_VERSION: u32 = 1;
 
 fn cache_dir_from_config(config: &serde_json::Value) -> String {
     config
@@ -115,9 +121,20 @@ impl Node for CacheSetNode {
                         })
                     })
                     .transpose()?;
-                let entry = CacheEntry { value, expires_at };
+                let entry = CacheEntry {
+                    schema_version: FILE_CACHE_VERSION,
+                    key: Some(key.clone()),
+                    value,
+                    expires_at,
+                };
                 let cache_dir = cache_dir_from_config(config);
-                write_file_entry(&cache_dir, &key, &entry)?;
+                let file_key = key.clone();
+                run_tracked_blocking_step(move |execution| {
+                    execution.checkpoint()?;
+                    write_file_entry(&cache_dir, &file_key, &entry)?;
+                    execution.checkpoint()
+                })
+                .await?;
             }
             other => anyhow::bail!(
                 "cache_set: unsupported backend '{}'. Must be 'memory' or 'file'.",
@@ -175,7 +192,13 @@ impl Node for CacheGetNode {
             "memory" => MEMORY_CACHE.get(&key),
             "file" => {
                 let cache_dir = cache_dir_from_config(config);
-                read_file_entry(&cache_dir, &key)?.map(|e| e.value)
+                run_tracked_blocking_step(move |execution| {
+                    execution.checkpoint()?;
+                    let entry = read_file_entry(&cache_dir, &key)?;
+                    execution.checkpoint()?;
+                    Ok(entry.map(|e| e.value))
+                })
+                .await?
             }
             other => anyhow::bail!(
                 "cache_get: unsupported backend '{}'. Must be 'memory' or 'file'.",
@@ -201,22 +224,16 @@ impl Node for CacheGetNode {
 // ── File backend helpers ────────────────────────────────────
 
 fn cache_file_path(cache_dir: &str, key: &str) -> std::path::PathBuf {
-    // Sanitize key: replace non-alphanumeric chars with underscores to avoid path issues
-    let safe_key: String = key
-        .chars()
-        .map(|c| {
-            if c.is_alphanumeric() || c == '-' || c == '_' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    std::path::Path::new(cache_dir).join(format!("{}.json", safe_key))
+    let digest = hex::encode(Sha256::digest(key.as_bytes()));
+    // A separate namespace prevents legacy sanitized filenames from aliasing
+    // the digest layout. Legacy records cannot prove which key wrote them.
+    std::path::Path::new(cache_dir)
+        .join(format!("v{FILE_CACHE_VERSION}"))
+        .join(format!("{digest}.json"))
 }
 
 fn write_file_entry(cache_dir: &str, key: &str, entry: &CacheEntry) -> Result<()> {
-    std::fs::create_dir_all(cache_dir)
+    std::fs::create_dir_all(std::path::Path::new(cache_dir).join(format!("v{FILE_CACHE_VERSION}")))
         .map_err(|e| anyhow::anyhow!("Failed to create cache dir '{}': {}", cache_dir, e))?;
 
     let path = cache_file_path(cache_dir, key);
@@ -238,6 +255,10 @@ fn read_file_entry(cache_dir: &str, key: &str) -> Result<Option<CacheEntry>> {
 
     let entry: CacheEntry = serde_json::from_str(&data)
         .map_err(|e| anyhow::anyhow!("Corrupt cache file '{}': {}", path.display(), e))?;
+
+    if entry.schema_version != FILE_CACHE_VERSION || entry.key.as_deref() != Some(key) {
+        return Ok(None);
+    }
 
     if entry.is_expired() {
         // Clean up expired file

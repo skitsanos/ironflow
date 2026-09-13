@@ -115,7 +115,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 
 ## 09-cache
 - **cache_memory.lua** — In-memory key-value cache with TTL
-- **cache_file.lua** — File-based persistent cache with TTL
+- **cache_file.lua** — File-based cache with TTL and verified separation of punctuation-bearing keys
 - **cache_context_keys.lua** — Use context interpolation consistently in `cache_set` and `cache_get` keys
 
 ## 10-database

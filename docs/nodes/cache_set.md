@@ -21,6 +21,21 @@ Store a value in the cache (memory or file-based) with optional TTL.
 
 `cache_set` and `cache_get` apply the same interpolation rules to `key`, so wrappers can compute a key once from context and use the same expression for both write and read. For example, `llm:${ctx.prompt_hash}` writes and reads the concrete key `llm:<hash>`.
 
+## File Storage
+
+The file backend writes `<cache_dir>/v1/<sha256>.json`, using SHA-256 of the
+interpolated key's exact UTF-8 bytes. Each record stores `schema_version: 1`,
+the original `key`, `value`, and optional `expires_at`; reads verify identity
+before accepting the value. For example, `report:a/b` and `report:a?b` occupy
+different files instead of replacing each other. Rewriting the same logical key
+replaces its cached value.
+
+Legacy root-level sanitized filenames are left untouched. They are not migrated
+or used as a fallback; workflows repopulate the new namespace on a miss. See
+[file identity, upgrades, and filesystem boundaries](cache_get.md#file-identity-and-upgrades).
+The memory backend and configuration defaults are unchanged. Omitting `ttl`
+keeps an entry indefinitely; `ttl = 0` expires it immediately.
+
 ## Example
 
 ### Memory backend

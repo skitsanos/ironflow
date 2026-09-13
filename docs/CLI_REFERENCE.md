@@ -1007,7 +1007,7 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_LUA_HOOK_INTERVAL` | `10000` | Instruction interval for budget checks |
 | `IRONFLOW_LUA_GC_AFTER_EXECUTION` | `true` | Run a Lua garbage-collection cycle after flow parsing/code execution |
 | `IRONFLOW_CACHE_MAX_ENTRIES` | `10000` | Max entries retained by the process-global `cache_set` / `cache_get` memory backend |
-| `IRONFLOW_CACHE_DIR` | `.ironflow_cache` | Default directory for the `cache_set` / `cache_get` file backend when `cache_dir` is not set |
+| `IRONFLOW_CACHE_DIR` | `.ironflow_cache` | Default root for the `cache_set` / `cache_get` file backend when `cache_dir` is not set; entries use `v1/<sha256-key>.json` with exact stored-key verification. Legacy sanitized files are untouched cache misses; see [cache upgrades](nodes/cache_get.md#file-identity-and-upgrades) |
 | `IRONFLOW_DB_MAX_ROWS` | `1000` | Max rows returned by `db_query`; `0` disables |
 | `IRONFLOW_DB_MAX_RESULT_BYTES` | `10485760` | Max serialized JSON result size for `db_query`; `0` disables |
 | `IRONFLOW_LLM_MAX_RESPONSE_BYTES` | `26214400` | Max LLM provider response body size; `0` disables |
