@@ -7,7 +7,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts check`.
 
 - Total findings: 132
-- Active findings: 12
+- Active findings: 11
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
 | ID | Priority | Status | Area | Summary |
@@ -124,7 +124,7 @@ priority, area, and title. The registry is generated with
 | [IF-110](./IF-110.md) | P1 | Resolved | Image/resource safety | Image resize omits a potentially dominant intermediate allocation |
 | [IF-111](./IF-111.md) | P1 | Resolved | PDF/resource safety | Initial PDF loading leaves object-stream decompression uncapped |
 | [IF-112](./IF-112.md) | P1 | Resolved | PDF/confidentiality | A one-page PDF split retains unselected pages' objects |
-| [IF-113](./IF-113.md) | P2 | Open | XML/OOXML fidelity | XML and OOXML extraction lose entities, CDATA, and split text |
+| [IF-113](./IF-113.md) | P2 | Resolved | XML/OOXML fidelity | XML and OOXML extraction lose entities, CDATA, and split text |
 | [IF-114](./IF-114.md) | P2 | Resolved | PDF/page fidelity | PDF split/merge discard inherited page attributes |
 | [IF-115](./IF-115.md) | P2 | Open | PPTX/page fidelity | PPTX extraction uses filenames instead of presentation order and membership |
 | [IF-116](./IF-116.md) | P2 | Open | Engine/composition | Persistence truncation corrupts live child-workflow results |

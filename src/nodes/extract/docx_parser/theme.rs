@@ -25,7 +25,7 @@ pub(in crate::nodes::extract) fn parse_theme_colors<R: BufRead>(
         let event = reader.read_event_into(&mut buf).map_err(|error| {
             anyhow::anyhow!("extract_word: invalid word/theme/theme1.xml: {error}")
         })?;
-        document.observe(&event, budget)?;
+        let event = document.decode(event, budget)?;
         match event {
             Event::Start(ref event) | Event::Empty(ref event) => {
                 let raw = event.name().as_ref().to_string();
@@ -46,6 +46,7 @@ pub(in crate::nodes::extract) fn parse_theme_colors<R: BufRead>(
                         visit_attributes(
                             event,
                             "word/theme/theme1.xml",
+                            document.version(),
                             budget,
                             |key, value, _| {
                                 if key != attr_name {

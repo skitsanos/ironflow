@@ -7,6 +7,7 @@ use quick_xml::events::Event;
 use crate::nodes::extract::ooxml::Archive;
 use crate::nodes::extract::resource::Budget;
 use crate::util::execution::ExecutionControl;
+use crate::util::xml::Decoder;
 
 pub(in crate::nodes::extract) fn extract_pptx_metadata(
     archive: &mut Archive,
@@ -29,15 +30,23 @@ fn parse_core_properties<R: BufRead>(
     xml: R,
     budget: &mut Budget<'_>,
 ) -> Result<BTreeMap<String, serde_json::Value>> {
-    let mut metadata = BTreeMap::new();
+    let mut metadata = BTreeMap::<String, String>::new();
     let mut reader = quick_xml::Reader::from_reader(xml);
+    let mut decoder = Decoder::default();
     let mut buffer = Vec::new();
     let mut current = None;
     let mut saw_element = false;
     let mut depth = 0_u64;
     loop {
         budget.checkpoint()?;
-        match reader.read_event_into(&mut buffer) {
+        match reader
+            .read_event_into(&mut buffer)
+            .map_err(anyhow::Error::from)
+            .and_then(|event| {
+                decoder.decode(event, |bytes| {
+                    budget.charge_output(bytes, "PPTX decoded metadata text")
+                })
+            }) {
             Ok(Event::Start(event)) => {
                 saw_element = true;
                 depth = depth.saturating_add(1);
@@ -51,13 +60,13 @@ fn parse_core_properties<R: BufRead>(
             Ok(Event::Text(event)) => {
                 budget.charge_item("PPTX metadata XML events")?;
                 if let Some(key) = current {
-                    let value = event.as_ref().trim().to_string();
-                    if !value.is_empty() {
+                    if !metadata.contains_key(key) {
                         budget.charge_item("PPTX metadata fields")?;
-                        budget
-                            .charge_output(value.len() as u64, "PPTX retained metadata values")?;
-                        metadata.insert(key.to_string(), serde_json::Value::String(value));
                     }
+                    metadata
+                        .entry(key.to_string())
+                        .or_default()
+                        .push_str(event.as_ref());
                 }
             }
             Ok(Event::End(_)) => {
@@ -76,7 +85,13 @@ fn parse_core_properties<R: BufRead>(
     if !saw_element || depth != 0 {
         anyhow::bail!("extract_pptx: incomplete XML in docProps/core.xml");
     }
-    Ok(metadata)
+    Ok(metadata
+        .into_iter()
+        .filter_map(|(key, text)| {
+            let text = text.trim();
+            (!text.is_empty()).then(|| (key, serde_json::Value::String(text.to_owned())))
+        })
+        .collect())
 }
 
 fn metadata_key(name: &[u8]) -> Option<&'static str> {

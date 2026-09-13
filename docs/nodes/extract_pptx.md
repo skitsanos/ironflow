@@ -2,6 +2,21 @@
 
 Extract slides, speaker notes, and comments from a PowerPoint (`.pptx`) deck.
 
+## Text Fidelity
+
+Slide text, table cells, speaker notes, metadata and comments decode built-in XML
+entities and numeric references once and preserve literal CDATA. Adjacent events
+and runs do not introduce spaces or newlines; speaker-note paragraphs are
+separated by newlines. Metadata outer whitespace is trimmed after accumulation.
+Picture descriptions, embed IDs, list levels and comment attributes use the
+part's declared XML-version normalization (1.0 by default).
+
+Unknown/invalid text references and DTDs return errors; no custom or external
+entities are expanded. Decoding and retained attribute values are admitted
+before allocation against existing output budgets. Table-text copies, generated
+separators and comment fan-out are charged. ZIP byte/entry, XML event/item,
+deadline, and final serialized-output checks are unchanged.
+
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |

@@ -5,6 +5,7 @@ use quick_xml::events::{BytesStart, Event};
 
 use super::{PptxElement, PptxTextPara};
 use crate::nodes::extract::resource::Budget;
+use crate::util::xml::{Decoder, attribute_value};
 
 #[derive(Default)]
 struct State {
@@ -33,6 +34,7 @@ pub(super) fn parse_pptx_slide<R: BufRead>(
     budget: &mut Budget<'_>,
 ) -> Result<(Option<String>, Vec<PptxElement>)> {
     let mut reader = quick_xml::Reader::from_reader(xml);
+    let mut decoder = Decoder::default();
     let mut buffer = Vec::new();
     let mut state = State::default();
     let mut depth = 0_u64;
@@ -40,25 +42,32 @@ pub(super) fn parse_pptx_slide<R: BufRead>(
 
     loop {
         budget.checkpoint()?;
-        match reader.read_event_into(&mut buffer) {
+        match reader
+            .read_event_into(&mut buffer)
+            .map_err(anyhow::Error::from)
+            .and_then(|event| {
+                decoder.decode(event, |bytes| {
+                    budget.charge_output(bytes, "PPTX decoded slide text")
+                })
+            }) {
             Ok(Event::Start(event)) => {
                 saw_element = true;
                 depth = depth.saturating_add(1);
                 budget.charge_item("PPTX slide XML events")?;
-                start_element(&event, &mut state, budget)?;
+                start_element(&event, &mut state, decoder.version, budget)?;
             }
             Ok(Event::Empty(event)) => {
                 saw_element = true;
                 budget.charge_item("PPTX slide XML events")?;
-                start_element(&event, &mut state, budget)?;
+                start_element(&event, &mut state, decoder.version, budget)?;
                 end_element(event.name().as_ref().as_bytes(), &mut state, budget)?;
             }
             Ok(Event::Text(event)) if state.in_text => {
                 budget.charge_item("PPTX slide XML events")?;
-                budget.charge_output(event.len() as u64, "PPTX retained slide text")?;
                 let text = event.as_ref();
                 state.current_text.push_str(text);
                 if state.in_cell {
+                    budget.charge_output(text.len() as u64, "PPTX duplicated cell text")?;
                     state.current_cell_text.push_str(text);
                 }
             }
@@ -81,13 +90,18 @@ pub(super) fn parse_pptx_slide<R: BufRead>(
     Ok((state.title, state.elements))
 }
 
-fn start_element(event: &BytesStart<'_>, state: &mut State, budget: &mut Budget<'_>) -> Result<()> {
+fn start_element(
+    event: &BytesStart<'_>,
+    state: &mut State,
+    version: quick_xml::XmlVersion,
+    budget: &mut Budget<'_>,
+) -> Result<()> {
     match local_name(event.name().as_ref().as_bytes()) {
         b"sp" => {
             state.placeholder = None;
             state.current_paragraphs.clear();
         }
-        b"ph" => collect_string_attribute(event, b"type", &mut state.placeholder, budget)?,
+        b"ph" => collect_string_attribute(event, b"type", &mut state.placeholder, version, budget)?,
         b"txBody" => state.in_text_body = true,
         b"p" if state.in_text_body => {
             state.in_paragraph = true;
@@ -96,7 +110,7 @@ fn start_element(event: &BytesStart<'_>, state: &mut State, budget: &mut Budget<
         }
         b"r" if state.in_paragraph => state.in_run = true,
         b"t" if state.in_run => state.in_text = true,
-        b"pPr" if state.in_paragraph => collect_list_level(event, state)?,
+        b"pPr" if state.in_paragraph => collect_list_level(event, state, version, budget)?,
         b"tbl" => {
             state.in_table = true;
             state.table_rows.clear();
@@ -112,9 +126,9 @@ fn start_element(event: &BytesStart<'_>, state: &mut State, budget: &mut Budget<
             state.picture_embed_id = None;
         }
         b"cNvPr" if state.in_picture => {
-            collect_string_attribute(event, b"descr", &mut state.picture_alt, budget)?;
+            collect_string_attribute(event, b"descr", &mut state.picture_alt, version, budget)?;
         }
-        b"blip" if state.in_picture => collect_embed_id(event, state, budget)?,
+        b"blip" if state.in_picture => collect_embed_id(event, state, version, budget)?,
         _ => {}
     }
     Ok(())
@@ -214,16 +228,18 @@ fn collect_string_attribute(
     event: &BytesStart<'_>,
     key: &[u8],
     target: &mut Option<String>,
+    version: quick_xml::XmlVersion,
     budget: &mut Budget<'_>,
 ) -> Result<()> {
     for attribute in event.attributes() {
         let attribute = attribute.context("extract_pptx: invalid slide attribute")?;
         if attribute.key.as_ref().as_bytes() == key {
-            budget.charge_output(
-                attribute.value.len() as u64,
-                "PPTX retained slide attributes",
-            )?;
-            *target = Some(attribute.value.into_owned());
+            *target = Some(
+                attribute_value(&attribute, version, |bytes| {
+                    budget.charge_output(bytes, "PPTX retained slide attributes")
+                })?
+                .into_owned(),
+            );
         }
     }
     Ok(())
@@ -232,30 +248,38 @@ fn collect_string_attribute(
 fn collect_embed_id(
     event: &BytesStart<'_>,
     state: &mut State,
+    version: quick_xml::XmlVersion,
     budget: &mut Budget<'_>,
 ) -> Result<()> {
     for attribute in event.attributes() {
         let attribute = attribute.context("extract_pptx: invalid image attribute")?;
         if local_name(attribute.key.as_ref().as_bytes()) == b"embed" {
-            budget.charge_output(
-                attribute.value.len() as u64,
-                "PPTX retained image relationship IDs",
-            )?;
-            state.picture_embed_id = Some(attribute.value.into_owned());
+            state.picture_embed_id = Some(
+                attribute_value(&attribute, version, |bytes| {
+                    budget.charge_output(bytes, "PPTX retained image relationship IDs")
+                })?
+                .into_owned(),
+            );
         }
     }
     Ok(())
 }
 
-fn collect_list_level(event: &BytesStart<'_>, state: &mut State) -> Result<()> {
+fn collect_list_level(
+    event: &BytesStart<'_>,
+    state: &mut State,
+    version: quick_xml::XmlVersion,
+    budget: &mut Budget<'_>,
+) -> Result<()> {
     for attribute in event.attributes() {
         let attribute = attribute.context("extract_pptx: invalid paragraph attribute")?;
         if attribute.key.as_ref().as_bytes() == b"lvl" {
             state.current_list_level = Some(
-                attribute
-                    .value
-                    .parse::<u32>()
-                    .context("extract_pptx: paragraph list level must be an unsigned integer")?,
+                attribute_value(&attribute, version, |bytes| {
+                    budget.charge_output(bytes, "PPTX list level decoding")
+                })?
+                .parse::<u32>()
+                .context("extract_pptx: paragraph list level must be an unsigned integer")?,
             );
         }
     }

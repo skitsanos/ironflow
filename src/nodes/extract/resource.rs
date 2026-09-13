@@ -138,9 +138,14 @@ impl<'a> Budget<'a> {
     }
 
     pub(super) fn charge_output(&mut self, bytes: u64, what: &str) -> Result<()> {
-        self.checkpoint()?;
+        self.admit_output(bytes, what)?;
         self.projected_output_bytes = self.projected_output_bytes.saturating_add(bytes);
-        if self.projected_output_bytes > self.max_output_bytes {
+        Ok(())
+    }
+
+    pub(super) fn admit_output(&self, bytes: u64, what: &str) -> Result<()> {
+        self.checkpoint()?;
+        if self.projected_output_bytes.saturating_add(bytes) > self.max_output_bytes {
             anyhow::bail!(
                 "{}: {} exceeds IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES ({})",
                 self.operation,

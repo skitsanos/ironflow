@@ -23,13 +23,18 @@ impl<'set, 'id> AnchorCollector<'set, 'id> {
         }
     }
 
-    pub(super) fn observe(&mut self, event: &Event<'_>, budget: &mut Budget<'_>) -> Result<()> {
+    pub(super) fn observe(
+        &mut self,
+        event: &Event<'_>,
+        version: quick_xml::XmlVersion,
+        budget: &mut Budget<'_>,
+    ) -> Result<()> {
         budget.charge_item("DOCX document comment-range events")?;
         let is_empty = matches!(event, Event::Empty(_));
         match event {
             Event::Start(event) | Event::Empty(event) => match event.name().as_ref() {
-                "w:commentRangeStart" => self.update_ranges(event, true, budget)?,
-                "w:commentRangeEnd" => self.update_ranges(event, false, budget)?,
+                "w:commentRangeStart" => self.update_ranges(event, true, version, budget)?,
+                "w:commentRangeEnd" => self.update_ranges(event, false, version, budget)?,
                 "w:t" => self.in_text = !is_empty,
                 _ => {}
             },
@@ -37,6 +42,9 @@ impl<'set, 'id> AnchorCollector<'set, 'id> {
                 self.append_text(event.as_ref(), budget)?;
             }
             Event::End(event) if event.name().as_ref() == "w:t" => self.in_text = false,
+            Event::End(event) if event.name().as_ref() == "w:p" => {
+                self.append_text("\n", budget)?
+            }
             Event::Eof if !self.open.is_empty() => {
                 anyhow::bail!(
                     "extract_word: {} unclosed comment range(s) in word/document.xml",
@@ -60,21 +68,8 @@ impl<'set, 'id> AnchorCollector<'set, 'id> {
             .iter()
             .filter(|id| self.comment_ids.contains(id.as_str()))
             .count() as u64;
-        let separators = self
-            .open
-            .iter()
-            .filter(|id| {
-                self.comment_ids.contains(id.as_str())
-                    && self
-                        .anchors
-                        .get(id.as_str())
-                        .is_some_and(|text| !text.is_empty())
-            })
-            .count() as u64;
         budget.charge_output(
-            (text.len() as u64)
-                .saturating_mul(matched)
-                .saturating_add(separators),
+            (text.len() as u64).saturating_mul(matched),
             "DOCX anchored comment text",
         )?;
         for id in self
@@ -83,9 +78,6 @@ impl<'set, 'id> AnchorCollector<'set, 'id> {
             .filter(|id| self.comment_ids.contains(id.as_str()))
         {
             let anchor = self.anchors.entry(id.clone()).or_default();
-            if !anchor.is_empty() {
-                anchor.push(' ');
-            }
             anchor.push_str(text);
         }
         Ok(())
@@ -95,22 +87,29 @@ impl<'set, 'id> AnchorCollector<'set, 'id> {
         &mut self,
         event: &BytesStart<'_>,
         insert: bool,
+        version: quick_xml::XmlVersion,
         budget: &mut Budget<'_>,
     ) -> Result<()> {
-        visit_attributes(event, "word/document.xml", budget, |key, value, budget| {
-            if key != b"w:id" {
-                return Ok(());
-            }
-            if insert {
-                budget.charge_item("DOCX open comment ranges")?;
-            }
-            let id = String::from_utf8_lossy(value).to_string();
-            if insert {
-                self.open.insert(id);
-            } else if !self.open.remove(&id) {
-                anyhow::bail!("extract_word: comment range {id} ended before it was opened");
-            }
-            Ok(())
-        })
+        visit_attributes(
+            event,
+            "word/document.xml",
+            version,
+            budget,
+            |key, value, budget| {
+                if key != b"w:id" {
+                    return Ok(());
+                }
+                if insert {
+                    budget.charge_item("DOCX open comment ranges")?;
+                }
+                let id = String::from_utf8_lossy(value).to_string();
+                if insert {
+                    self.open.insert(id);
+                } else if !self.open.remove(&id) {
+                    anyhow::bail!("extract_word: comment range {id} ended before it was opened");
+                }
+                Ok(())
+            },
+        )
     }
 }

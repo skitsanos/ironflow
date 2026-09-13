@@ -45,10 +45,10 @@ _No committed initiative._
 
 ## Next
 
-### [IF-113](issues/IF-113.md) — XML and Office-document text fidelity
+### [IF-115](issues/IF-115.md) — PPTX presentation order and membership
 
-Preserve entities, CDATA, split text, and decoded attributes across XML and
-affected Office-document extractors without bypassing byte and depth budgets.
+Read the presentation slide list and relationships so extraction follows the
+deck's actual order, excludes orphan slide parts, and resolves associated notes.
 
 ## Later
 

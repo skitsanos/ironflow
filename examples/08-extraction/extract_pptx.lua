@@ -1,6 +1,8 @@
 local flow = Flow.new("extract_pptx_demo")
 
 -- Extract a PowerPoint deck as structured JSON with metadata and comments.
+-- Slide text, notes, metadata and comments retain XML references and CDATA.
+-- Notes separate paragraphs rather than individual XML text fragments.
 -- Embedded media, when present, is streamed to IRONFLOW_ARTIFACT_DIR and
 -- represented by a small artifact descriptor; binary bytes never enter the
 -- workflow context. Only internal OOXML image relationships are published;

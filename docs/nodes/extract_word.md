@@ -2,6 +2,23 @@
 
 Extract text, metadata, or a structured representation from a Word (.docx) document.
 
+## Text Fidelity
+
+Text extraction decodes built-in XML entities and numeric character references
+once and preserves literal CDATA, including in metadata, comments, and comment
+anchors. Adjacent text events and runs are concatenated without invented spaces;
+comment paragraphs are separated by newlines. Body text is read from `w:t`,
+not XML indentation inside a run. XML attributes, including IDs, styles and
+author names, are normalized using the part's declared XML version (1.0 by
+default). Metadata outer whitespace is trimmed after text accumulation.
+
+Unknown/invalid references and DTDs are errors, not silently dropped content.
+No custom or external entity expansion is performed. Decoded text is admitted
+against the existing extraction-output budget before allocation/retention;
+temporary attribute normalization is checked against available output capacity.
+ZIP byte/entry, XML event/item, deadline, and final serialized-output checks
+remain in force. There are no new configuration options.
+
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |

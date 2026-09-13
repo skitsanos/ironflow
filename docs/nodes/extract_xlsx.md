@@ -2,6 +2,13 @@
 
 Extract typed rows from an Excel (`.xlsx`) workbook, one sheet or every sheet.
 
+## Text Fidelity
+
+Inline and shared-string cells preserve built-in/numeric XML references and
+literal CDATA through Calamine's existing string decoder. Shared-string
+preflight and the XLSX cell/output budgets remain in force; no new decoder or
+configuration option is introduced for XLSX.
+
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |

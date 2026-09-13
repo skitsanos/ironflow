@@ -26,7 +26,7 @@ pub(in crate::nodes::extract) fn parse_numbering_defs<R: BufRead>(
         let event = reader.read_event_into(&mut buf).map_err(|error| {
             anyhow::anyhow!("extract_word: invalid word/numbering.xml: {error}")
         })?;
-        document.observe(&event, budget)?;
+        let event = document.decode(event, budget)?;
         match event {
             Event::Start(ref event) | Event::Empty(ref event) => {
                 let name = event.name().as_ref().to_string();
@@ -36,25 +36,43 @@ pub(in crate::nodes::extract) fn parse_numbering_defs<R: BufRead>(
                             event,
                             b"w:abstractNumId",
                             "word/numbering.xml",
+                            document.version(),
                             budget,
                         )?;
                     }
                     "w:numFmt" => {
                         if let (Some(id), Some(value)) = (
                             &current_abstract_id,
-                            attribute_value(event, b"w:val", "word/numbering.xml", budget)?,
+                            attribute_value(
+                                event,
+                                b"w:val",
+                                "word/numbering.xml",
+                                document.version(),
+                                budget,
+                            )?,
                         ) {
                             abstract_defs.insert(id.clone(), value != "bullet" && value != "none");
                         }
                     }
                     "w:num" => {
-                        current_num_id =
-                            attribute_value(event, b"w:numId", "word/numbering.xml", budget)?;
+                        current_num_id = attribute_value(
+                            event,
+                            b"w:numId",
+                            "word/numbering.xml",
+                            document.version(),
+                            budget,
+                        )?;
                     }
                     "w:abstractNumId" => {
                         if let (Some(num_id), Some(abstract_id)) = (
                             &current_num_id,
-                            attribute_value(event, b"w:val", "word/numbering.xml", budget)?,
+                            attribute_value(
+                                event,
+                                b"w:val",
+                                "word/numbering.xml",
+                                document.version(),
+                                budget,
+                            )?,
                         ) {
                             num_to_abstract.insert(num_id.clone(), abstract_id);
                         }

@@ -193,7 +193,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **mcp_streamable_http.lua** — MCP 2025-11-25 Streamable HTTP session with optional bearer authentication, tool listing/call, and explicit close.
 
 ## 18-xml-yaml
-- **xml_parse.lua** — Parse XML into JSON and log the result
+- **xml_parse.lua** — Parse XML into JSON and verify entity, CDATA, and attribute fidelity
 - **xml_stringify.lua** — Convert JSON-like data into XML
 - **yaml_parse.lua** — Parse YAML into JSON and log the result
 - **yaml_stringify.lua** — Convert JSON-like data into YAML

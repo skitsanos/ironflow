@@ -74,7 +74,7 @@ fn parse_comments<R: BufRead>(xml: R, budget: &mut Budget<'_>) -> Result<Vec<Doc
         let event = reader
             .read_event_into(&mut buf)
             .map_err(|error| anyhow::anyhow!("extract_word: invalid word/comments.xml: {error}"))?;
-        document.observe(&event, budget)?;
+        let event = document.decode(event, budget)?;
         let is_empty = matches!(&event, Event::Empty(_));
         match event {
             Event::Start(ref event) | Event::Empty(ref event) => {
@@ -85,7 +85,7 @@ fn parse_comments<R: BufRead>(xml: R, budget: &mut Budget<'_>) -> Result<Vec<Doc
                             "extract_word: nested comments are invalid in word/comments.xml"
                         );
                     }
-                    let comment = parse_comment(event, budget)?;
+                    let comment = parse_comment(event, document.version(), budget)?;
                     if is_empty {
                         budget.charge_item("DOCX comments")?;
                         comments.push(comment);
@@ -98,11 +98,6 @@ fn parse_comments<R: BufRead>(xml: R, budget: &mut Budget<'_>) -> Result<Vec<Doc
             }
             Event::Text(ref event) if in_text => {
                 if let Some(comment) = current.as_mut() {
-                    if !comment.text.is_empty() {
-                        budget.charge_output(1, "DOCX comment text")?;
-                        comment.text.push(' ');
-                    }
-                    budget.charge_output(event.len() as u64, "DOCX comment text")?;
                     comment.text.push_str(event.as_ref());
                 }
             }
@@ -110,11 +105,17 @@ fn parse_comments<R: BufRead>(xml: R, budget: &mut Budget<'_>) -> Result<Vec<Doc
                 let name = event.name().as_ref().to_string();
                 if name == "w:t" {
                     in_text = false;
+                } else if name == "w:p" {
+                    if let Some(comment) = current.as_mut() {
+                        budget.charge_output(1, "DOCX comment paragraph separator")?;
+                        comment.text.push('\n');
+                    }
                 } else if name == "w:comment" {
-                    let Some(comment) = current.take() else {
+                    let Some(mut comment) = current.take() else {
                         anyhow::bail!("extract_word: unmatched comment end in word/comments.xml");
                     };
                     budget.charge_item("DOCX comments")?;
+                    comment.text = comment.text.trim().to_owned();
                     comments.push(comment);
                 }
             }
@@ -128,32 +129,39 @@ fn parse_comments<R: BufRead>(xml: R, budget: &mut Budget<'_>) -> Result<Vec<Doc
 
 fn parse_comment(
     event: &quick_xml::events::BytesStart<'_>,
+    version: quick_xml::XmlVersion,
     budget: &mut Budget<'_>,
 ) -> Result<DocxComment> {
     let mut comment = DocxComment::default();
-    visit_attributes(event, "word/comments.xml", budget, |key, raw, budget| {
-        let value = String::from_utf8_lossy(raw).to_string();
-        match key {
-            b"w:id" => {
-                budget.charge_output(value.len() as u64, "DOCX comment id")?;
-                comment.id = value;
+    visit_attributes(
+        event,
+        "word/comments.xml",
+        version,
+        budget,
+        |key, raw, budget| {
+            let value = String::from_utf8_lossy(raw).to_string();
+            match key {
+                b"w:id" => {
+                    budget.charge_output(value.len() as u64, "DOCX comment id")?;
+                    comment.id = value;
+                }
+                b"w:author" => {
+                    budget.charge_output(value.len() as u64, "DOCX comment author")?;
+                    comment.author = Some(value);
+                }
+                b"w:initials" => {
+                    budget.charge_output(value.len() as u64, "DOCX comment initials")?;
+                    comment.initials = Some(value);
+                }
+                b"w:date" => {
+                    budget.charge_output(value.len() as u64, "DOCX comment date")?;
+                    comment.date = Some(value);
+                }
+                _ => {}
             }
-            b"w:author" => {
-                budget.charge_output(value.len() as u64, "DOCX comment author")?;
-                comment.author = Some(value);
-            }
-            b"w:initials" => {
-                budget.charge_output(value.len() as u64, "DOCX comment initials")?;
-                comment.initials = Some(value);
-            }
-            b"w:date" => {
-                budget.charge_output(value.len() as u64, "DOCX comment date")?;
-                comment.date = Some(value);
-            }
-            _ => {}
-        }
-        Ok(())
-    })?;
+            Ok(())
+        },
+    )?;
     Ok(comment)
 }
 
