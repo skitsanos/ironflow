@@ -6,8 +6,8 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts generate` and verified with
 `bun run scripts/issues_registry.ts check`.
 
-- Total findings: 132
-- Active findings: 0
+- Total findings: 138
+- Active findings: 6
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
 | ID | Priority | Status | Area | Summary |
@@ -144,3 +144,9 @@ priority, area, and title. The registry is generated with
 | [IF-130](./IF-130.md) | P2 | Resolved | ZIP/admission | ZIP duplicate handling and entry limits occur after deduplicating metadata |
 | [IF-131](./IF-131.md) | P2 | Resolved | S3/copy correctness | S3 copy source keys are not URL-encoded |
 | [IF-132](./IF-132.md) | P2 | Resolved | Artifact/cancellation | A continuously progressing artifact download delays cancellation until EOF |
+| [IF-133](./IF-133.md) | P2 | Open | Documents/HTML extraction | `extract_html` markdown mode leaks head, style and script content |
+| [IF-134](./IF-134.md) | P3 | Open | Files/write_file | File-writing nodes disagree about symlinked destination roots |
+| [IF-135](./IF-135.md) | P2 | Open | Workflow composition | A failed sub-workflow reports only its status, not the failing task's error |
+| [IF-136](./IF-136.md) | P2 | Open | Lua runtime/conversion | Step handlers convert the entire run context under the JSON-to-Lua budget |
+| [IF-137](./IF-137.md) | P1 | Open | Storage/Postgres | Postgres and Redis stores cannot connect over TLS: sqlx has no TLS feature |
+| [IF-138](./IF-138.md) | P3 | Open | Database/ArangoDB | `arangodb_aql` bind variables from context are always strings |
