@@ -9,6 +9,9 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -Dwarnings
 
+permissions:
+  contents: read
+
 jobs:
   # Verify the tag was pushed on the main branch
   guard:
@@ -28,15 +31,15 @@ jobs:
           fi
 
   build:
-    name: Build ${{ matrix.target }}${{ matrix.suffix }}
+    name: Build ${{ matrix.platform.target }}${{ matrix.suffix }}
     needs: guard
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.platform.os }}
     strategy:
       matrix:
         # Each target is built twice: default features and the "-full"
         # variant with postgres and redis storage backends.
         suffix: ["", "-full"]
-        include:
+        platform:
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
           - target: x86_64-apple-darwin
@@ -51,34 +54,34 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@1.98.1
         with:
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.platform.target }}
 
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: release-${{ matrix.target }}${{ matrix.suffix }}
+          shared-key: release-${{ matrix.platform.target }}${{ matrix.suffix }}
           cache-workspace-crates: false
 
       - name: Install musl tools (Linux)
-        if: matrix.target == 'x86_64-unknown-linux-musl'
+        if: matrix.platform.target == 'x86_64-unknown-linux-musl'
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
       - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }} ${{ matrix.suffix == '-full' && '--features postgres,redis' || '' }}
+        run: cargo build --locked --release --target ${{ matrix.platform.target }} ${{ matrix.suffix == '-full' && '--features postgres,redis' || '' }}
 
       - name: Package (unix)
         if: runner.os != 'Windows'
-        run: tar czf ironflow-${{ github.ref_name }}-${{ matrix.target }}${{ matrix.suffix }}.tar.gz -C target/${{ matrix.target }}/release ironflow
+        run: tar czf ironflow-${{ github.ref_name }}-${{ matrix.platform.target }}${{ matrix.suffix }}.tar.gz -C target/${{ matrix.platform.target }}/release ironflow
 
       - name: Package (windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Compress-Archive -Path "target/${{ matrix.target }}/release/ironflow.exe" -DestinationPath "ironflow-${{ github.ref_name }}-${{ matrix.target }}${{ matrix.suffix }}.zip"
+        run: Compress-Archive -Path "target/${{ matrix.platform.target }}/release/ironflow.exe" -DestinationPath "ironflow-${{ github.ref_name }}-${{ matrix.platform.target }}${{ matrix.suffix }}.zip"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: ironflow-${{ matrix.target }}${{ matrix.suffix }}
-          path: ironflow-${{ github.ref_name }}-${{ matrix.target }}${{ matrix.suffix }}.*
+          name: ironflow-${{ matrix.platform.target }}${{ matrix.suffix }}
+          path: ironflow-${{ github.ref_name }}-${{ matrix.platform.target }}${{ matrix.suffix }}.*
           if-no-files-found: error
 
   release:

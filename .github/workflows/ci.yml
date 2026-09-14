@@ -20,7 +20,7 @@ on:
 # Superseded pull-request runs are cancelled; pushes to main and develop
 # always run to completion so their caches and artifacts stay intact.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
