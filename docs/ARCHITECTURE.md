@@ -870,6 +870,20 @@ Features:
 10. Context returned to caller
 ```
 
+## Semantic Chunking
+
+The `ai_chunk_semantic` providers feed a shared sentence-boundary pipeline.
+It averages adjacent embedding cosine distances, smooths the curve, and selects
+positive interior distance peaks, not distance minima. Relative percentile
+filtering favors stronger peaks; increasing `threshold` admits weaker candidates
+before left-to-right `min_distance` filtering. Flat signals do not create splits.
+
+Split spacing is measured in sentence-index gaps. It is not a hard minimum or
+maximum chunk-size budget; downstream fixed-size chunking is a separate operation.
+See [`ai_chunk_semantic`](nodes/ai_chunk_semantic.md) for tuning and edge cases.
+Deterministic orthogonal-embedding tests prove signal polarity and sentence
+preservation, not retrieval quality for arbitrary documents or embedding models.
+
 ## Context Model
 
 Context is a `HashMap<String, serde_json::Value>` that flows through the entire workflow:

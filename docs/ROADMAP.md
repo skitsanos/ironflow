@@ -45,10 +45,7 @@ _No committed initiative._
 
 ## Next
 
-### [IF-128](issues/IF-128.md) — Correct semantic chunk boundaries
-
-Select topic transitions with the correct cosine-distance polarity, preserving
-chunk-size constraints and verifying known boundaries with synthetic embeddings.
+_No committed initiative._
 
 ## Later
 

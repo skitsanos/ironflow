@@ -1,4 +1,4 @@
-pub(crate) fn windowed_cross_similarity(
+pub(crate) fn windowed_cosine_distance(
     embeddings: &[f64],
     count: usize,
     dimension: usize,
@@ -51,14 +51,26 @@ pub(crate) fn windowed_cross_similarity(
 
 #[cfg(test)]
 mod tests {
-    use super::windowed_cross_similarity;
+    use super::windowed_cosine_distance;
 
     #[test]
     fn identical_vectors_have_zero_distance() {
         let embeddings = [1.0, 0.0, 1.0, 0.0];
         assert_eq!(
-            windowed_cross_similarity(&embeddings, 2, 2, 3),
+            windowed_cosine_distance(&embeddings, 2, 2, 3),
             Some(vec![0.0])
+        );
+    }
+
+    #[test]
+    fn orthogonal_vectors_have_larger_distance_than_identical_vectors() {
+        assert_eq!(
+            windowed_cosine_distance(&[1.0, 0.0, 0.0, 1.0], 2, 2, 3),
+            Some(vec![1.0])
+        );
+        assert_eq!(
+            windowed_cosine_distance(&[1.0, 0.0, -1.0, 0.0], 2, 2, 3),
+            Some(vec![2.0])
         );
     }
 }

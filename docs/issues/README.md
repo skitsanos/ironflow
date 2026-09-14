@@ -7,7 +7,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts check`.
 
 - Total findings: 132
-- Active findings: 1
+- Active findings: 0
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
 | ID | Priority | Status | Area | Summary |
@@ -139,7 +139,7 @@ priority, area, and title. The registry is generated with
 | [IF-125](./IF-125.md) | P2 | Resolved | Schema/runtime safety | External JSON Schema references panic inside async node execution |
 | [IF-126](./IF-126.md) | P2 | Resolved | Cache/identity | File-cache sanitization aliases distinct logical keys |
 | [IF-127](./IF-127.md) | P2 | Resolved | ArangoDB/pagination | Arango cursor IDs are discarded |
-| [IF-128](./IF-128.md) | P2 | Open | AI/chunking | Semantic chunking selects minima of a distance signal |
+| [IF-128](./IF-128.md) | P2 | Resolved | AI/chunking | Semantic chunking selects minima of a distance signal |
 | [IF-129](./IF-129.md) | P2 | Resolved | Notification/resource safety | Notification response bodies bypass HTTP body admission limits |
 | [IF-130](./IF-130.md) | P2 | Resolved | ZIP/admission | ZIP duplicate handling and entry limits occur after deduplicating metadata |
 | [IF-131](./IF-131.md) | P2 | Resolved | S3/copy correctness | S3 copy source keys are not URL-encoded |

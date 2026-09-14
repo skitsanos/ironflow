@@ -1,4 +1,4 @@
--- Semantic text chunking using embedding similarity
+-- Semantic text chunking using peaks in embedding cosine distance
 -- Requires OPENAI_API_KEY in .env
 -- Document source: examples/fixtures/ironflow-sample.pdf (resolved from this flow)
 
@@ -15,7 +15,7 @@ flow:step("chunk", nodes.ai_chunk_semantic({
     output_key = "topics",
     provider = "openai",
     model = "text-embedding-3-small",
-    threshold = 0.5
+    threshold = 0.5 -- Higher values admit weaker distance peaks, not a cosine cutoff.
 })):depends_on("load_document")
 
 flow:step("log_result", nodes.log({

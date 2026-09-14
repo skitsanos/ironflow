@@ -1,6 +1,6 @@
 use super::savgol::savgol_filter;
 
-pub(crate) fn find_local_minima_interpolated(
+pub(crate) fn find_local_maxima(
     data: &[f64],
     window_size: usize,
     polynomial_order: usize,
@@ -14,11 +14,31 @@ pub(crate) fn find_local_minima_interpolated(
     let second_derivative = savgol_filter(data, window_size, polynomial_order, 2)?;
     let mut indices = Vec::new();
     let mut values = Vec::new();
-    for index in 0..data.len() {
-        if first_derivative[index].abs() < tolerance && second_derivative[index] > 0.0 {
+    const EPSILON: f64 = 1e-12;
+    let mut start = 0;
+    while start < data.len() {
+        let mut end = start;
+        while end + 1 < data.len() && (data[end + 1] - data[start]).abs() <= EPSILON {
+            end += 1;
+        }
+        // Select the center of a genuine peak, not every low-slope sample or
+        // floating-point curvature noise on a flat signal. Exclude endpoints.
+        let index = start + (end - start) / 2;
+        let is_peak = start > 0
+            && end + 1 < data.len()
+            && data[start] > data[start - 1] + EPSILON
+            && data[end] > data[end + 1] + EPSILON;
+        if is_peak
+            && data[index] > EPSILON
+            && first_derivative[index].abs() < tolerance
+            && second_derivative[start..=end]
+                .iter()
+                .any(|value| *value < -EPSILON)
+        {
             indices.push(index);
             values.push(data[index]);
         }
+        start = end + 1;
     }
     Some((indices, values))
 }
@@ -38,7 +58,8 @@ pub(crate) fn filter_split_indices(
         return (Vec::new(), Vec::new());
     }
 
-    let threshold_value = percentile(values, threshold);
+    // Keep the strongest distances; higher threshold continues to admit more.
+    let threshold_value = percentile(values, 1.0 - threshold);
     let mut result_indices = Vec::new();
     let mut result_values = Vec::new();
     let mut last_index = None;
@@ -46,7 +67,7 @@ pub(crate) fn filter_split_indices(
         let has_distance = last_index
             .map(|last: usize| index >= last.saturating_add(min_distance))
             .unwrap_or(true);
-        if value <= threshold_value && has_distance {
+        if value >= threshold_value && has_distance {
             result_indices.push(index);
             result_values.push(value);
             last_index = Some(index);
@@ -85,13 +106,81 @@ mod tests {
     #[test]
     fn filtering_applies_percentile_and_minimum_distance() {
         let (indices, values) = filter_split_indices(&[1, 2, 4], &[0.1, 0.4, 0.2], 0.5, 2);
-        assert_eq!(indices, vec![1, 4]);
-        assert_eq!(values, vec![0.1, 0.2]);
+        assert_eq!(indices, vec![2, 4]);
+        assert_eq!(values, vec![0.4, 0.2]);
+    }
+
+    #[test]
+    fn increasing_threshold_admits_weaker_distance_peaks_not_stronger_valleys() {
+        let indices = [1, 3, 5];
+        let values = [0.1, 0.8, 0.3];
+        assert_eq!(filter_split_indices(&indices, &values, 0.0, 0).0, vec![3]);
+        assert_eq!(
+            filter_split_indices(&indices, &values, 0.5, 0).0,
+            vec![3, 5]
+        );
+        assert_eq!(
+            filter_split_indices(&indices, &values, 1.0, 0).0,
+            vec![1, 3, 5]
+        );
     }
 
     #[test]
     fn clamping_returns_an_odd_window_within_data() {
         assert_eq!(clamp_odd_window(10, 8), 7);
         assert_eq!(clamp_odd_window(3, 2), 2);
+    }
+
+    #[test]
+    fn selects_a_positive_peak_instead_of_a_valley_or_an_endpoint() {
+        let (indices, values) = find_local_maxima(&[0.0, 0.2, 0.4, 0.2, 0.0], 5, 2, 0.1).unwrap();
+        assert_eq!(indices, vec![2]);
+        assert_eq!(values, vec![0.4]);
+        assert!(
+            find_local_maxima(&[0.4, 0.2, 0.0, 0.2, 0.4], 5, 2, 0.1)
+                .unwrap()
+                .0
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn a_flat_topped_peak_has_one_center_boundary() {
+        for width in [3, 4, 9] {
+            let mut data = vec![0.0, 0.2];
+            data.extend(vec![0.4; width]);
+            data.extend([0.2, 0.0]);
+            assert_eq!(
+                find_local_maxima(&data, 5, 2, 0.1).unwrap().0,
+                vec![2 + (width - 1) / 2]
+            );
+        }
+    }
+
+    #[test]
+    fn flat_and_numerically_flat_distances_do_not_create_peaks() {
+        for data in [
+            vec![0.0; 11],
+            vec![1.0; 11],
+            vec![0.0, 1e-14, 2e-14, 1e-14, 0.0],
+        ] {
+            assert!(find_local_maxima(&data, 5, 2, 0.1).unwrap().0.is_empty());
+        }
+        assert!(find_local_maxima(&[], 5, 2, 0.1).unwrap().0.is_empty());
+    }
+
+    #[test]
+    fn filtering_keeps_ties_and_preserves_saturating_spacing() {
+        let indices = [1, 3, 5];
+        let values = [0.8, 0.8, 0.1];
+        assert_eq!(
+            filter_split_indices(&indices, &values, 0.0, 2).0,
+            vec![1, 3]
+        );
+        assert_eq!(
+            filter_split_indices(&indices, &values, 1.0, usize::MAX).0,
+            vec![1]
+        );
+        assert!(filter_split_indices(&[], &[], 0.5, 2).0.is_empty());
     }
 }
