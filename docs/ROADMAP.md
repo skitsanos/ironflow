@@ -45,10 +45,10 @@ _No committed initiative._
 
 ## Next
 
-### [IF-127](issues/IF-127.md) — Preserve ArangoDB cursor access
+### [IF-128](issues/IF-128.md) — Correct semantic chunk boundaries
 
-Make paginated query results resumable and explicitly closeable, or consume
-pages within documented bounds, with continuation and cleanup regressions.
+Select topic transitions with the correct cosine-distance polarity, preserving
+chunk-size constraints and verifying known boundaries with synthetic embeddings.
 
 ## Later
 

@@ -8,7 +8,6 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 
 | ID | Priority | Status | Area | Summary |
 |---|---:|---|---|---|
-| [IF-127](docs/issues/IF-127.md) | P2 | Open | ArangoDB/pagination | Arango cursor IDs are discarded |
 | [IF-128](docs/issues/IF-128.md) | P2 | Open | AI/chunking | Semantic chunking selects minima of a distance signal |
 
 ## Working agreement

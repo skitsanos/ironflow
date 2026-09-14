@@ -138,6 +138,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **greet.lua** — Simple reusable helper flow used by the subworkflow examples
 
 ## 12-arangodb
+- **aql_pagination.lua** — Read three batches from a five-row AQL query, preserve cursor identity, and explicitly close the cursor
 - **aql_query.lua** — Simple AQL query with environment-based credentials
 - **aql_with_bind_vars.lua** — AQL query with bind variables for parameterized queries
 
@@ -312,7 +313,7 @@ duplicated, unclassified, or inconsistent entries.
 | Server/manual HTTP or scheduler | 5 | No |
 | Composition parent/helper flow | 9 | Exercised as coordinated cases where applicable |
 
-All 137 flows are still parsed by `ironflow validate`. Twelve fixture-backed
+All 138 flows are still parsed by `ironflow validate`. Twelve fixture-backed
 offline flows and the local MCP stdio example also run from a disposable
 working directory as part of:
 

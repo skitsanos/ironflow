@@ -1,31 +1,14 @@
-use anyhow::Result;
+mod client;
+mod config;
+
+use anyhow::{Result, bail};
 use async_trait::async_trait;
+use serde_json::{Value, json};
 
 use crate::engine::types::{Context, NodeOutput};
-use crate::lua::interpolate::{interpolate_ctx, interpolate_value};
 use crate::nodes::Node;
-use crate::util::duration::positive_duration;
-use crate::util::node_config::{config_f64_or, config_u64};
-use crate::util::sensitive_url::{SecretEndpoint, redact_sensitive_text};
-
-/// Recursively interpolate context templates in all JSON string values.
-fn interpolate_json_value(value: &serde_json::Value, ctx: &Context) -> serde_json::Value {
-    interpolate_value(value, ctx)
-}
-
-/// Resolve a config string parameter, falling back to an environment variable.
-fn resolve_param(
-    config: &serde_json::Value,
-    key: &str,
-    env_key: &str,
-    ctx: &Context,
-) -> Option<String> {
-    config
-        .get(key)
-        .and_then(|v| v.as_str())
-        .map(|s| interpolate_ctx(s, ctx))
-        .or_else(|| std::env::var(env_key).ok())
-}
+use client::{CursorClient, check_response};
+use config::{Action, Operation, response_cursor};
 
 pub struct ArangoDbAqlNode;
 
@@ -36,154 +19,67 @@ impl Node for ArangoDbAqlNode {
     }
 
     fn description(&self) -> &str {
-        "Execute an AQL query against ArangoDB via the Cursor API"
+        "Query, continue, or close an ArangoDB AQL cursor"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
-        // Connection parameters (config overrides env)
-        let url = resolve_param(config, "url", "ARANGODB_URL", ctx).ok_or_else(|| {
-            anyhow::anyhow!("arangodb_aql requires 'url' or ARANGODB_URL env var")
-        })?;
-
-        let database =
-            resolve_param(config, "database", "ARANGODB_DATABASE", ctx).ok_or_else(|| {
-                anyhow::anyhow!("arangodb_aql requires 'database' or ARANGODB_DATABASE env var")
-            })?;
-
-        let query = config
-            .get("query")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("arangodb_aql requires 'query' parameter"))?;
-
-        // Interpolating runtime values into the AQL text is an injection vector;
-        // values must be supplied through `bindVars` (@var placeholders).
-        if query.contains("${ctx") {
-            anyhow::bail!(
-                "arangodb_aql: the query must not interpolate context values with \
-                 '${{ctx...}}' (AQL injection risk). Supply runtime values via \
-                 'bindVars' with @var placeholders instead."
-            );
-        }
-        let query = interpolate_ctx(query, ctx);
-
-        let output_key = config
-            .get("output_key")
-            .and_then(|v| v.as_str())
-            .unwrap_or("aql");
-
-        let timeout_s = config_f64_or(config, "timeout", ctx, 30.0)?;
-
-        // Build the cursor API URL
-        let base_url = url.trim_end_matches('/');
-        let cursor_url = format!("{}/_db/{}/_api/cursor", base_url, database);
-
-        // Build the request body
-        let mut body = serde_json::json!({ "query": query });
-
-        if let Some(bind_vars) = config.get("bindVars") {
-            let interpolated = interpolate_json_value(bind_vars, ctx);
-            body["bindVars"] = interpolated;
-        }
-
-        if let Some(batch_size) = config_u64(config, "batchSize", ctx) {
-            body["batchSize"] = serde_json::json!(batch_size);
-        }
-
-        // Build HTTP client and request
-        let client = crate::util::provider_http::client_builder()
-            .timeout(positive_duration(timeout_s, "arangodb_aql timeout")?)
-            .build()
-            .map_err(|error| {
-                anyhow::anyhow!(
-                    "Failed to build ArangoDB client: {}",
-                    redact_sensitive_text(&error.to_string())
-                )
-            })?;
-
-        let mut request = client.post(&cursor_url);
-
-        // Authentication: token (JWT Bearer) or username/password (Basic)
-        let token = resolve_param(config, "token", "ARANGODB_TOKEN", ctx);
-        let username = resolve_param(config, "username", "ARANGODB_USERNAME", ctx);
-        let password = resolve_param(config, "password", "ARANGODB_PASSWORD", ctx);
-
-        if let Some(token) = token {
-            request = request.bearer_auth(token);
-        } else if let Some(username) = username {
-            request = request.basic_auth(username, password);
-        }
-
-        // Execute
-        let response = request.json(&body).send().await.map_err(|error| {
-            anyhow::anyhow!(
-                "ArangoDB request to {} failed: {}",
-                SecretEndpoint::new(&cursor_url),
-                redact_sensitive_text(&error.to_string())
-            )
-        })?;
-
-        let status = response.status();
-        let response_body: serde_json::Value = response.json().await.map_err(|error| {
-            anyhow::anyhow!(
-                "Failed to parse ArangoDB response from {}: {}",
-                SecretEndpoint::new(&cursor_url),
-                redact_sensitive_text(&error.to_string())
-            )
-        })?;
-
-        if !status.is_success() {
-            let error_msg = response_body
-                .get("errorMessage")
-                .and_then(|v| v.as_str())
-                .unwrap_or("Unknown error");
-            let error_num = response_body
-                .get("errorNum")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0);
-            anyhow::bail!(
-                "ArangoDB error {}: {} (HTTP {})",
-                error_num,
-                redact_sensitive_text(error_msg),
-                status
-            );
-        }
-
-        // Extract results
-        let result = response_body
-            .get("result")
-            .cloned()
-            .unwrap_or(serde_json::Value::Array(vec![]));
-
-        let count = match &result {
-            serde_json::Value::Array(arr) => arr.len(),
-            _ => 0,
+    async fn execute(&self, config: &Value, ctx: &Context) -> Result<NodeOutput> {
+        let operation = Operation::parse(config, ctx)?;
+        let client = CursorClient::new(config, ctx)?;
+        let mut cleanup = client.cleanup(operation.cursor_id.as_deref());
+        let (status, body) = client.execute(&operation).await?;
+        let cursor = if operation.action == Action::Close {
+            None
+        } else {
+            let cursor = response_cursor(&body)?;
+            if let Some(existing) = operation.cursor_id.as_deref() {
+                if cursor.is_some_and(|id| id != existing) {
+                    bail!("ArangoDB response changed cursor identity");
+                }
+            } else if let Some(cursor) = cursor {
+                // Arm cleanup before validating the rest of the provider response.
+                cleanup = client.cleanup(Some(cursor));
+            }
+            cursor
         };
+        check_response(status, &body, operation.action == Action::Close)?;
 
-        let has_more = response_body
-            .get("hasMore")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-
+        let closed = operation.action == Action::Close;
+        let (rows, has_more) = if closed {
+            (Vec::new(), false)
+        } else {
+            let rows = body
+                .get("result")
+                .and_then(Value::as_array)
+                .ok_or_else(|| anyhow::anyhow!("ArangoDB response requires a result array"))?;
+            let has_more = body
+                .get("hasMore")
+                .and_then(Value::as_bool)
+                .ok_or_else(|| anyhow::anyhow!("ArangoDB response requires boolean hasMore"))?;
+            if has_more && cursor.is_none() {
+                bail!("ArangoDB response hasMore=true requires a cursor id");
+            }
+            (rows.clone(), has_more)
+        };
+        let prefix = config
+            .get("output_key")
+            .and_then(Value::as_str)
+            .unwrap_or("aql");
         let mut output = NodeOutput::new();
-        output.insert(format!("{}_result", output_key), result);
-        output.insert(format!("{}_count", output_key), serde_json::json!(count));
+        output.insert(format!("{prefix}_count"), json!(rows.len()));
+        output.insert(format!("{prefix}_result"), Value::Array(rows));
+        output.insert(format!("{prefix}_has_more"), json!(has_more));
+        output.insert(format!("{prefix}_cursor_id"), json!(cursor));
+        output.insert(format!("{prefix}_closed"), json!(closed));
         output.insert(
-            format!("{}_has_more", output_key),
-            serde_json::Value::Bool(has_more),
+            format!("{prefix}_stats"),
+            if closed {
+                Value::Null
+            } else {
+                body.pointer("/extra/stats").cloned().unwrap_or(Value::Null)
+            },
         );
-
-        // Include stats if available
-        if let Some(extra) = response_body.get("extra")
-            && let Some(stats) = extra.get("stats")
-        {
-            output.insert(format!("{}_stats", output_key), stats.clone());
-        }
-
-        output.insert(
-            format!("{}_success", output_key),
-            serde_json::Value::Bool(true),
-        );
-
+        output.insert(format!("{prefix}_success"), json!(true));
+        cleanup.disarm();
         Ok(output)
     }
 }

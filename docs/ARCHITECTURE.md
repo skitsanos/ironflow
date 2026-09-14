@@ -1074,6 +1074,12 @@ running under the same OS identity from mutating the leased inode.
 - MCP initialization returns a process-local opaque handle. A capacity-bound,
   idle-expiring registry owns both stdio and Streamable HTTP sessions; explicit
   `close` remains the normal lifecycle endpoint.
+- ArangoDB AQL nodes return one batch and any server cursor ID. Explicit `next`
+  and `close` actions share authenticated, same-origin HTTP transport and bounded
+  response admission. A successful batch leaves cursor ownership with the
+  workflow; failures and cancellation attempt a three-second DELETE for a known
+  ID. This cleanup is not durable, cannot undo AQL writes, and relies on server
+  TTL when the ID is unknown, the network fails, or the runtime exits.
 - The MCP stdio worker owns incomplete frame bytes outside its cancellable read
   future. Sending a server-request reply can interrupt that read without losing
   the prefix. Each retry uses the remaining cumulative frame budget; EOF with

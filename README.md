@@ -531,7 +531,7 @@ Progressive examples from basic to advanced:
 | [09-cache](examples/09-cache/) | In-memory and file-based key-value caching with TTL |
 | [10-database](examples/10-database/) | SQLite CRUD operations with db_query and db_exec |
 | [11-subworkflow](examples/11-subworkflow/) | Subworkflow composition, fire-and-forget, on_error handling |
-| [12-arangodb](examples/12-arangodb/) | ArangoDB AQL queries with bind variables and env-based credentials |
+| [12-arangodb](examples/12-arangodb/) | ArangoDB AQL queries, cursor continuation/close, bind variables, and env-based credentials |
 | [13-ai](examples/13-ai/) | Text embeddings (OpenAI, Ollama, OAuth), text chunking (fixed, split, merge, semantic) |
 | [14-notifications](examples/14-notifications/) | Email via Resend or SMTP, Slack webhooks |
 | [15-webhooks](examples/15-webhooks/) | Config-driven webhook routes with default-deny, execution-only signature headers |
