@@ -423,6 +423,14 @@ When `IRONFLOW_EVENT_STORE=sqlite` and no URL is configured, IronFlow creates `i
 Run state and run events are configured separately, so a deployment can store run records in one backend and stream event replay from another. Redis event storage is available behind `--features redis` and uses `REDIS_URL`, `REDIS_PREFIX`, and optional `REDIS_TTL`.
 Redis state mutations use revision-token compare-and-swap, while event payload/cursor publication is one idempotent Lua operation. These guarantees apply per operation; state and event writes are not a single transaction. The current multi-key layout supports standalone Redis, not Redis Cluster.
 
+Redis lease updates and run deletion validate script key types and numeric
+arguments before writing. Script-level type, alias, or TTL failures are
+reported as storage corruption without partially updating the run,
+catalog, lease, or key expiry. Stale catalog cleanup follows the same preflight
+rule. Valid live-owner deletion still returns a conflict, and ordinary
+retention and lease fencing behavior are unchanged. These checks do not add
+general rollback for Redis server failures.
+
 The Redis event compatibility path requires Redis 6.2 or newer for `LMOVE` and
 uses a fixed internal policy; there is no configuration knob. An eligible
 legacy family is atomically moved first into deterministic exact-run

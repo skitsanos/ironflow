@@ -1,8 +1,11 @@
-if KEYS[1] == KEYS[2] then
-    return redis.error_reply('IRONFLOW_STATE_KEY_ALIAS')
-end
 if #KEYS ~= 2 and #KEYS ~= 10 and #KEYS ~= 11 then
     return redis.error_reply('IRONFLOW_INVALID_CATALOG_KEYS')
+end
+if #ARGV ~= 1 then return redis.error_reply('IRONFLOW_INVALID_SWEEP_ARGUMENTS') end
+local seen = {}
+for _, key in ipairs(KEYS) do
+    if seen[key] then return redis.error_reply('IRONFLOW_STATE_KEY_ALIAS') end
+    seen[key] = true
 end
 
 local index_type = redis.call('TYPE', KEYS[2]).ok
@@ -11,6 +14,12 @@ if index_type ~= 'none' and index_type ~= 'set' then
 end
 local catalog_enabled = #KEYS == 10 or #KEYS == 11
 local lease_index_enabled = #KEYS == 11
+if lease_index_enabled then
+    local lease_index_type = redis.call('TYPE', KEYS[11]).ok
+    if lease_index_type ~= 'none' and lease_index_type ~= 'zset' then
+        return redis.error_reply('IRONFLOW_INVALID_RUN_LEASE_KEY_TYPE')
+    end
+end
 if catalog_enabled then
     local members_type = redis.call('TYPE', KEYS[3]).ok
     if members_type ~= 'none' and members_type ~= 'hash' then

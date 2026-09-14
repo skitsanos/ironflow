@@ -320,6 +320,14 @@ Implementations:
   larger of configured retention and the remaining lease plus a 90-second
   reaper safety margin; with no configured retention it stays persistent.
   Terminalization releases the lease and restores ordinary retention.
+  Lease-fenced status/task/context writes, renewal, reconciliation, and run
+  deletion preflight the types of their script keys and reject key aliases or
+  malformed numeric arguments before mutation, including stale-entry cleanup.
+  A detected type/argument error leaves the run projection, revision, catalog,
+  lease deadline, and absolute key expiries unchanged. Lease deadline arithmetic
+  is bounded to Lua's exact integer range; retention keeps the existing
+  `1..=99,999,999,999` second limit. This is preflight for deterministic errors,
+  not rollback of arbitrary Redis server, memory, or ACL failures.
   Production state deployments should use
   Redis `maxmemory-policy noeviction`; independent eviction of primary catalog
   keys is outside the storage durability contract. Expired hash entries are

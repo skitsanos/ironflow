@@ -45,10 +45,10 @@ _No committed initiative._
 
 ## Next
 
-### [IF-121](issues/IF-121.md) — Preflight Redis lease mutations
+### [IF-122](issues/IF-122.md) — Preserve concurrent SQL context updates
 
-Reject invalid key types and arguments before lease status, renewal, or
-deletion writes can partially change durable state.
+Make unowned context merges atomic so successful disjoint updates survive
+concurrency and stale writes cannot cross deletion and recreation.
 
 ## Later
 
