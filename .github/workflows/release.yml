@@ -5,11 +5,9 @@ on:
     tags:
       - "v*"
 
-permissions:
-  contents: write
-
 env:
   CARGO_TERM_COLOR: always
+  RUSTFLAGS: -Dwarnings
 
 jobs:
   # Verify the tag was pushed on the main branch
@@ -30,71 +28,23 @@ jobs:
           fi
 
   build:
-    name: Build ${{ matrix.target }}${{ matrix.artifact_suffix }}
+    name: Build ${{ matrix.target }}${{ matrix.suffix }}
     needs: guard
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
+        # Each target is built twice: default features and the "-full"
+        # variant with postgres and redis storage backends.
+        suffix: ["", "-full"]
         include:
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
-            archive: tar.gz
-            artifact_suffix: ""
-            cache_key: release-x86_64-unknown-linux-musl-default
-            save_cache: true
-            rustflags: ""
-          - target: x86_64-unknown-linux-musl
-            os: ubuntu-latest
-            archive: tar.gz
-            artifact_suffix: "-full"
-            cache_key: release-x86_64-unknown-linux-musl-full
-            save_cache: true
-            rustflags: ""
           - target: x86_64-apple-darwin
             os: macos-latest
-            archive: tar.gz
-            artifact_suffix: ""
-            cache_key: release-x86_64-apple-darwin-default
-            save_cache: true
-            rustflags: ""
-          - target: x86_64-apple-darwin
-            os: macos-latest
-            archive: tar.gz
-            artifact_suffix: "-full"
-            cache_key: release-x86_64-apple-darwin-full
-            save_cache: true
-            rustflags: ""
           - target: aarch64-apple-darwin
             os: macos-latest
-            archive: tar.gz
-            artifact_suffix: ""
-            cache_key: release-aarch64-apple-darwin-default
-            save_cache: true
-            rustflags: ""
-          - target: aarch64-apple-darwin
-            os: macos-latest
-            archive: tar.gz
-            artifact_suffix: "-full"
-            cache_key: release-aarch64-apple-darwin-full
-            save_cache: true
-            rustflags: ""
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-            archive: zip
-            artifact_suffix: ""
-            cache_key: release-x86_64-pc-windows-msvc
-            save_cache: false
-            rustflags: -Dwarnings
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-            archive: zip
-            artifact_suffix: "-full"
-            cache_key: release-x86_64-pc-windows-msvc
-            save_cache: false
-            rustflags: -Dwarnings
-
-    env:
-      RUSTFLAGS: ${{ matrix.rustflags }}
 
     steps:
       - uses: actions/checkout@v7
@@ -105,49 +55,39 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ${{ matrix.cache_key }}
+          shared-key: release-${{ matrix.target }}${{ matrix.suffix }}
           cache-workspace-crates: false
-          save-if: ${{ matrix.save_cache }}
 
       - name: Install musl tools (Linux)
         if: matrix.target == 'x86_64-unknown-linux-musl'
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
-      - name: Build default release binary
-        if: matrix.artifact_suffix == ''
-        run: cargo build --release --target ${{ matrix.target }}
-
-      - name: Build full release binary
-        if: matrix.artifact_suffix == '-full'
-        run: cargo build --release --target ${{ matrix.target }} --features postgres,redis
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }} ${{ matrix.suffix == '-full' && '--features postgres,redis' || '' }}
 
       - name: Package (unix)
-        if: matrix.archive == 'tar.gz'
-        shell: bash
-        run: |
-          cd target/${{ matrix.target }}/release
-          tar czf ../../../ironflow-${{ github.ref_name }}-${{ matrix.target }}${{ matrix.artifact_suffix }}.tar.gz ironflow
-          cd ../../..
+        if: runner.os != 'Windows'
+        run: tar czf ironflow-${{ github.ref_name }}-${{ matrix.target }}${{ matrix.suffix }}.tar.gz -C target/${{ matrix.target }}/release ironflow
 
       - name: Package (windows)
-        if: matrix.archive == 'zip'
+        if: runner.os == 'Windows'
         shell: pwsh
-        run: |
-          Compress-Archive -Path "target/${{ matrix.target }}/release/ironflow.exe" -DestinationPath "ironflow-${{ github.ref_name }}-${{ matrix.target }}${{ matrix.artifact_suffix }}.zip"
+        run: Compress-Archive -Path "target/${{ matrix.target }}/release/ironflow.exe" -DestinationPath "ironflow-${{ github.ref_name }}-${{ matrix.target }}${{ matrix.suffix }}.zip"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: ironflow-${{ matrix.target }}${{ matrix.artifact_suffix }}
-          path: ironflow-${{ github.ref_name }}-${{ matrix.target }}${{ matrix.artifact_suffix }}.*
+          name: ironflow-${{ matrix.target }}${{ matrix.suffix }}
+          path: ironflow-${{ github.ref_name }}-${{ matrix.target }}${{ matrix.suffix }}.*
+          if-no-files-found: error
 
   release:
     name: Create GitHub Release
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v7
-
       - name: Download all artifacts
         uses: actions/download-artifact@v8
         with:

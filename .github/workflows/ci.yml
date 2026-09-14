@@ -3,56 +3,32 @@ name: CI
 on:
   push:
     branches: [main, develop]
-    paths:
-      - "src/**"
-      - "tests/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "rust-toolchain.toml"
-      - "examples/**"
-      - "scripts/**"
-      - "docs/**"
-      - ".agents/**"
-      - ".codex/**"
-      - ".githooks/**"
-      - "AGENTS.md"
-      - "ISSUES.md"
-      - ".cargo/audit.toml"
-      - ".github/workflows/ci.yml"
-      - ".github/workflows/container.yml"
-      - ".github/workflows/release.yml"
-      - "Dockerfile"
-      - ".dockerignore"
+    paths-ignore:
+      - "README.md"
+      - "LICENSE*"
+      - ".claude/**"
+      - ".gitignore"
   pull_request:
     branches: [main, develop]
-    paths:
-      - "src/**"
-      - "tests/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "rust-toolchain.toml"
-      - "examples/**"
-      - "scripts/**"
-      - "docs/**"
-      - ".agents/**"
-      - ".codex/**"
-      - ".githooks/**"
-      - "AGENTS.md"
-      - "ISSUES.md"
-      - ".cargo/audit.toml"
-      - ".github/workflows/ci.yml"
-      - ".github/workflows/container.yml"
-      - ".github/workflows/release.yml"
-      - "Dockerfile"
-      - ".dockerignore"
+    paths-ignore:
+      - "README.md"
+      - "LICENSE*"
+      - ".claude/**"
+      - ".gitignore"
   workflow_dispatch:
+
+# Superseded pull-request runs are cancelled; pushes to main and develop
+# always run to completion so their caches and artifacts stay intact.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -Dwarnings
 
 jobs:
-  repository-policy:
+  policy:
     name: Repository policy
     runs-on: ubuntu-latest
     steps:
@@ -63,22 +39,18 @@ jobs:
       - run: bun run scripts/validate_skills.ts
       - run: bun run scripts/issues_registry.ts check
       - run: bun test scripts/tests/*.test.ts
-      - name: Test repository hooks
-        run: python3 -B -m unittest discover -s .codex/hooks/tests -p 'test_*.py' -v
-      - name: Check pre-commit syntax
-        run: sh -n .githooks/pre-commit
-      - name: Check integration hook syntax
-        run: bash -n .githooks/pre-push scripts/integration_gate.sh
-
-  module-size:
-    name: Module size ratchet
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - name: Test module-size checker
-        run: python3 -B -m unittest discover -s scripts/tests -p 'test_*.py' -v
+      - name: Test repository hooks and module-size checker
+        run: |
+          python3 -B -m unittest discover -s .codex/hooks/tests -p 'test_*.py' -v
+          python3 -B -m unittest discover -s scripts/tests -p 'test_*.py' -v
       - name: Enforce production module-size policy
         run: python3 -B scripts/check_module_size.py
+      - name: Check hook and gate script syntax
+        run: |
+          sh -n .githooks/pre-commit
+          bash -n .githooks/pre-push scripts/integration_gate.sh
+      - name: Lint workflows
+        uses: raven-actions/actionlint@v2
 
   audit:
     name: Security audit
@@ -95,6 +67,16 @@ jobs:
       # reviewed ignore list at .cargo/audit.toml.
       - name: Audit dependencies
         run: cargo audit --deny warnings
+
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@1.98.1
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
 
   rust-default:
     name: Clippy and tests (ubuntu-latest)
@@ -113,21 +95,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-targets: false
-      - name: Runner resources before validation
-        run: |
-          df -h .
-          free -h
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test --all-targets
       - run: cargo test --doc
-      - name: Runner resources after validation
-        if: always()
-        run: |
-          df -h .
-          if [[ -d target ]]; then
-            du -sh target
-          fi
-          free -h
 
   rust-features:
     name: Full feature checks and storage tests
@@ -172,30 +142,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-targets: false
-      - name: Runner resources before validation
-        run: |
-          df -h .
-          free -h
       - run: cargo clippy --all-targets --features postgres,redis -- -D warnings
       - run: cargo test --all-targets --features postgres,redis -- --test-threads=1
-      - name: Runner resources after validation
-        if: always()
-        run: |
-          df -h .
-          if [[ -d target ]]; then
-            du -sh target
-          fi
-          free -h
-
-  fmt:
-    name: Format
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.98.1
-        with:
-          components: rustfmt
-      - run: cargo fmt --all -- --check
 
   test-macos:
     name: Test (macos-latest)
@@ -225,35 +173,6 @@ jobs:
           path: target/release/ironflow
           if-no-files-found: error
           retention-days: 1
-
-  build-macos:
-    name: Build (macos-latest)
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.98.1
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-targets: false
-      - run: cargo build --release
-
-  windows-release-cache:
-    name: Prime Windows release dependency cache
-    if: github.ref == 'refs/heads/main'
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.98.1
-        with:
-          targets: x86_64-pc-windows-msvc
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: release-x86_64-pc-windows-msvc
-          cache-workspace-crates: false
-      - name: Prime default and full release dependencies
-        run: |
-          cargo build --release --target x86_64-pc-windows-msvc
-          cargo build --release --target x86_64-pc-windows-msvc --features postgres,redis
 
   validate-examples:
     name: Validate example flows
