@@ -7,7 +7,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts check`.
 
 - Total findings: 132
-- Active findings: 3
+- Active findings: 2
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
 | ID | Priority | Status | Area | Summary |
@@ -135,7 +135,7 @@ priority, area, and title. The registry is generated with
 | [IF-121](./IF-121.md) | P2 | Resolved | Redis/atomicity | Redis lease-aware mutations partially commit before type errors |
 | [IF-122](./IF-122.md) | P2 | Resolved | SQL/concurrency | SQL's unowned context merge loses concurrent successful updates |
 | [IF-123](./IF-123.md) | P2 | Resolved | CLI/replica safety | Replica mode trusts backend labels instead of actual SQL dialects |
-| [IF-124](./IF-124.md) | P2 | Open | MCP/framing | MCP stdio drops partially consumed frames on select cancellation |
+| [IF-124](./IF-124.md) | P2 | Resolved | MCP/framing | MCP stdio drops partially consumed frames on select cancellation |
 | [IF-125](./IF-125.md) | P2 | Resolved | Schema/runtime safety | External JSON Schema references panic inside async node execution |
 | [IF-126](./IF-126.md) | P2 | Resolved | Cache/identity | File-cache sanitization aliases distinct logical keys |
 | [IF-127](./IF-127.md) | P2 | Open | ArangoDB/pagination | Arango cursor IDs are discarded |

@@ -50,6 +50,36 @@ def rpc_error(request_id, code, message):
     }
 
 
+def emit_operation_response(response, args):
+    if args.mode == "fragmented-ping":
+        wire = (json.dumps(response, separators=(",", ":")) + "\n").encode()
+        split = len(wire) // 2
+        ping = b'{"jsonrpc":"2.0","id":"server-ping","method":"ping"}\n'
+        # Send the ping and response prefix together; the suffix waits for its reply.
+        sys.stdout.buffer.write(ping + wire[:split])
+        sys.stdout.buffer.flush()
+        trace(args.trace, event="fragment_prefix")
+        while line := sys.stdin.readline():
+            message = json.loads(line)
+            if message.get("id") == "server-ping" and "result" in message:
+                trace(args.trace, event="ping_reply")
+                sys.stdout.buffer.write(wire[split:])
+                sys.stdout.buffer.flush()
+                trace(args.trace, event="fragment_suffix")
+                return
+        return
+    if args.mode in ("partial-eof", "partial-hang"):
+        sys.stdout.write('{"jsonrpc":"2.0","id":')
+        sys.stdout.flush()
+        trace(args.trace, event="fragment_prefix")
+        if args.mode == "partial-eof":
+            raise SystemExit(0)
+        else:
+            time.sleep(args.delay)
+        return
+    emit(response)
+
+
 def initialize_response(request, mode):
     request_id = request.get("id")
     if mode == "wrong-id":
@@ -104,6 +134,9 @@ def parse_args():
             "unsupported-version",
             "result-and-error",
             "interleaved",
+            "fragmented-ping",
+            "partial-eof",
+            "partial-hang",
             "slow-call",
         ],
         default="normal",
@@ -165,7 +198,7 @@ def main():
                     }
                 )
                 emit({"jsonrpc": "2.0", "id": "server-ping", "method": "ping"})
-            emit(
+            emit_operation_response(
                 {
                     "jsonrpc": "2.0",
                     "id": (
@@ -174,7 +207,8 @@ def main():
                         else request.get("id")
                     ),
                     "result": {"tools": TOOLS},
-                }
+                },
+                args,
             )
         elif method == "tools/call":
             if not ready:
@@ -182,7 +216,7 @@ def main():
                 continue
             if args.mode == "slow-call":
                 time.sleep(args.delay)
-            emit(call_tool_response(request))
+            emit_operation_response(call_tool_response(request), args)
         elif method == "notifications/cancelled":
             continue
         elif method is None and request.get("id") == "server-ping":

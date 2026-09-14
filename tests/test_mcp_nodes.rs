@@ -5,6 +5,9 @@ use ironflow::engine::types::Context;
 use ironflow::nodes::NodeRegistry;
 use serde_json::{Value, json};
 
+#[path = "support/mcp_stdio_fragments.rs"]
+mod fragments;
+
 fn empty_context() -> Context {
     HashMap::new()
 }

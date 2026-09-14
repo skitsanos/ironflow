@@ -66,6 +66,12 @@ MCP `tools` capability.
   lifecycle. JSON-RPC frames are newline-delimited, strictly correlated, and
   bounded by `IRONFLOW_MAX_SHELL_OUTPUT_BYTES` in each direction. Server stderr
   remains attached as logging and is not interpreted as a protocol response.
+- Partial stdio frames remain buffered while IronFlow writes outgoing messages,
+  including replies to server pings. The input size limit applies to the whole
+  accumulated frame, including its newline delimiter, not each read fragment.
+  Writing an outgoing message does not itself cancel the MCP operation or
+  invalidate its session. EOF before the delimiter or an input error fails the
+  transport and invalidates the affected operation's session.
 - A Streamable HTTP session retains its negotiated version, transport-managed
   headers, and server-issued session ID internally. Request responses may be
   `application/json` or `text/event-stream` as defined by MCP 2025-11-25.
@@ -124,7 +130,7 @@ local flow = Flow.new("mcp_stdio_demo")
 flow:step("initialize", nodes.mcp_client({
     transport = "stdio",
     command = "python3",
-    args = { "examples/17-mcp/mcp_stdio_mock.py" },
+    args = { "examples/17-mcp/mcp_stdio_mock.py", "--mode", "fragmented-ping" },
     action = "initialize",
     output_key = "mcp_init"
 }))

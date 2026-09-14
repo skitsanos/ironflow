@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exception_budget": 10,
+  "exception_budget": 9,
   "exceptions": [
     {
       "path": "src/engine/executor/task_runner.rs",
@@ -16,11 +16,6 @@
       "path": "src/nodes/cloud/s3_objects.rs",
       "max_lines": 321,
       "rationale": "IF-028/036 review: four closely related S3 object operations share one client and payload contract, plus a content-length size pre-flight on get_object; split when a fifth operation or new helper responsibility appears."
-    },
-    {
-      "path": "src/nodes/mcp/stdio.rs",
-      "max_lines": 335,
-      "rationale": "IF-028 review: one framed JSON-RPC stdio transport, worker, and shutdown lifecycle; extract before adding another transport protocol concern."
     },
     {
       "path": "src/storage/event_store/redis/legacy.rs",

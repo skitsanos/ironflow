@@ -1074,6 +1074,11 @@ running under the same OS identity from mutating the leased inode.
 - MCP initialization returns a process-local opaque handle. A capacity-bound,
   idle-expiring registry owns both stdio and Streamable HTTP sessions; explicit
   `close` remains the normal lifecycle endpoint.
+- The MCP stdio worker owns incomplete frame bytes outside its cancellable read
+  future. Sending a server-request reply can interrupt that read without losing
+  the prefix. Each retry uses the remaining cumulative frame budget; EOF with
+  incomplete bytes is an error, not clean transport completion. Actual operation
+  cancellation still invalidates the session and cleans up its process.
 
 The deadline is an execution budget: task-state/event persistence required to
 record the result is not forcibly interrupted by it. Cancellation cannot undo

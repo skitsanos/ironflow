@@ -196,7 +196,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **s3vector_rag_query_evaluator.lua** — Compare baseline vs LLM-expanded retrieval on S3 vectors with relevance metrics.
 
 ## 17-mcp
-- **mcp_stdio.lua** — Reuses one persistent MCP stdio server for atomic initialization, tool listing, a tool call, and explicit close.
+- **mcp_stdio.lua** — Reuses one persistent MCP stdio server for atomic initialization, tool listing, a tool call, and explicit close, including fragmented responses interleaved with server ping replies.
 - **mcp_streamable_http.lua** — MCP 2025-11-25 Streamable HTTP session with optional bearer authentication, tool listing/call, and explicit close.
 
 ## 18-xml-yaml

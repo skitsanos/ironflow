@@ -1,8 +1,8 @@
 --[[
 This example demonstrates a complete MCP client flow over stdio transport:
 1) Start and atomically initialize one persistent MCP server process.
-2) List available tools.
-3) Call one tool and extract the returned text.
+2) List available tools while replying to a server ping mid-response.
+3) Call one tool and reassemble its fragmented response text.
 4) Close the session explicitly.
 
 Requirements:
@@ -18,7 +18,7 @@ flow:step("initialize", nodes.mcp_client({
     command = "python3",
     cwd = "${ctx._flow_dir}",
     args = {
-        "mcp_stdio_mock.py"
+        "mcp_stdio_mock.py", "--mode", "fragmented-ping"
     },
     action = "initialize",
     output_key = "mcp_init"

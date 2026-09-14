@@ -45,10 +45,10 @@ _No committed initiative._
 
 ## Next
 
-### [IF-124](issues/IF-124.md) — Preserve partial MCP stdio frames
+### [IF-127](issues/IF-127.md) — Preserve ArangoDB cursor access
 
-Keep partially read response bytes across outgoing-reply interleavings and
-cancellation, with deterministic fragmented-frame and process-cleanup coverage.
+Make paginated query results resumable and explicitly closeable, or consume
+pages within documented bounds, with continuation and cleanup regressions.
 
 ## Later
 
