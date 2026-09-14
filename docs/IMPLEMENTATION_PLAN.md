@@ -296,8 +296,8 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
 ### 5.5 Infrastructure ✅
 - [x] GitHub Actions CI (module-size ratchet, audit, default/full-feature
   Clippy and tests, fmt, Linux/macOS builds, validate examples) — runs on pushes
-  to `develop` and `main` (plus explicit manual dispatch), with path filters
-  that skip docs-only changes while checker and policy changes remain in scope.
+  and pull requests to `develop` and `main` (plus explicit manual dispatch),
+  with path filters covering code, documentation, examples, and repository policy.
   Routine work uses focused local checks; `.githooks/pre-push` runs the full
   integration gate before `develop`.
   Linux example validation reuses the release-build artifact without waiting
@@ -307,6 +307,10 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
   is never a deployment reference. Default Clippy/tests share one Linux job;
   full-feature Clippy and required Redis/PostgreSQL tests share another, so CI
   keeps backend coverage without isolated check or per-backend compilations.
+  Both Linux validation jobs disable incremental output, bound Cargo build
+  concurrency to two, and retain only line-table debug information to reduce
+  runner disk and linker pressure without changing test coverage or release
+  profiles. Resource diagnostics run before validation and after success or failure.
   On `main`, CI also compiles the default and full Windows release dependency
   graphs into one dependency-only cache. Tag builds restore that default-branch
   cache read-only while compiling and packaging both binaries from the tag; a

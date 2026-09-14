@@ -591,6 +591,15 @@ release build is passed directly to Lua example validation;
 the example job does not wait for macOS or compile a second release binary.
 Default Clippy/tests and combined PostgreSQL/Redis feature checks each share a
 single Linux workspace, avoiding isolated check and per-backend compilations.
+These two Linux validation jobs disable incremental compilation, limit Cargo
+to two concurrent build jobs, and use `line-tables-only` debug information for
+both development and test profiles. This reduces linked test artifact size
+while retaining file/line backtraces, debug assertions, overflow checks, and
+all existing test and lint commands. Disk and memory snapshots bracket
+validation, with final diagnostics also attempted after failure. These
+job-local settings do not change normal local development, macOS validation,
+or release builds. See [Cargo profiles](https://doc.rust-lang.org/cargo/reference/profiles.html)
+for the debug-information settings.
 Container publication uses a version- and digest-pinned Rust/cargo-chef builder
 so source and package-version changes retain the dependency layer, backed by a
 dedicated zstd-compressed GHCR BuildKit cache manifest. The mutable

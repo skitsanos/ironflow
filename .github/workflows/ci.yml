@@ -99,6 +99,12 @@ jobs:
   rust-default:
     name: Clippy and tests (ubuntu-latest)
     runs-on: ubuntu-latest
+    # Keep linked test artifacts within hosted-runner disk and memory limits.
+    env:
+      CARGO_INCREMENTAL: "0"
+      CARGO_BUILD_JOBS: "2"
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      CARGO_PROFILE_TEST_DEBUG: line-tables-only
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.98.1
@@ -107,9 +113,21 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-targets: false
+      - name: Runner resources before validation
+        run: |
+          df -h .
+          free -h
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test --all-targets
       - run: cargo test --doc
+      - name: Runner resources after validation
+        if: always()
+        run: |
+          df -h .
+          if [[ -d target ]]; then
+            du -sh target
+          fi
+          free -h
 
   rust-features:
     name: Full feature checks and storage tests
@@ -138,6 +156,10 @@ jobs:
           --health-timeout 3s
           --health-retries 20
     env:
+      CARGO_INCREMENTAL: "0"
+      CARGO_BUILD_JOBS: "2"
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      CARGO_PROFILE_TEST_DEBUG: line-tables-only
       IRONFLOW_REDIS_TEST_URL: redis://127.0.0.1:6379
       IRONFLOW_REDIS_TEST_REQUIRED: "1"
       DATABASE_URL: postgres://postgres:ironflow-${{ github.run_id }}-${{ github.run_attempt }}@127.0.0.1:5432/ironflow_test
@@ -150,8 +172,20 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-targets: false
+      - name: Runner resources before validation
+        run: |
+          df -h .
+          free -h
       - run: cargo clippy --all-targets --features postgres,redis -- -D warnings
       - run: cargo test --all-targets --features postgres,redis -- --test-threads=1
+      - name: Runner resources after validation
+        if: always()
+        run: |
+          df -h .
+          if [[ -d target ]]; then
+            du -sh target
+          fi
+          free -h
 
   fmt:
     name: Format
