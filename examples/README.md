@@ -87,6 +87,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **data_pipeline.lua** — Full pipeline: filter → transform → dedup → hash → batch
 - **code_node_extract.lua** — Inline Lua code node to extract fields from API responses
 - **function_handler.lua** — Pass Lua functions directly as step handlers
+- **reused_callbacks.lua** — Reuse one self-contained callback across steps, conditional steps, code nodes, and foreach transforms
 - **markdown_conversion.lua** — Markdown ↔ HTML conversion with GFM support
 - **base64_encode_decode.lua** — Base64 encode and decode round-trip
 

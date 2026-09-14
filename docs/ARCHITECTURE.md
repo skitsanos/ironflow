@@ -151,6 +151,10 @@ Nodes are registered in a `NodeRegistry` and exposed to Lua as callable factory 
 - Sandbox restricts access — `os`, `io`, `debug`, `loadfile`, `dofile` are removed
 - `env(key)` function exposed for reading environment variables
 - Function handlers — Lua functions passed directly as step handlers are compiled to bytecode and executed as `code` nodes
+- Validation associates serialized callbacks with an unambiguous source line
+  range. The association is reusable across registrations; diagnostics are
+  deduplicated at their source positions. Indistinguishable ranges fail
+  validation rather than being assigned by registration order.
 - `code`, `foreach`, and step-owned nested-flow parsing execute on Tokio's
   blocking pool rather than runtime workers. Their instruction hook observes
   both resource limits and the executor's step deadline/drop-cancellation

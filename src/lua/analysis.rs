@@ -33,7 +33,7 @@ struct AnalysisState {
 struct FunctionAnalysis {
     start_line: usize,
     end_line: usize,
-    claimed: bool,
+    recorded: bool,
     warnings: Vec<LuaDiagnostic>,
 }
 
@@ -68,14 +68,24 @@ impl HandlerDiagnostics {
             .state
             .lock()
             .map_err(|_| anyhow::anyhow!("Lua handler analysis lock was poisoned"))?;
-        let Some(index) = state.functions.iter().position(|candidate| {
-            !candidate.claimed && candidate.start_line == line && candidate.end_line == end_line
-        }) else {
+        let mut candidates = state.functions.iter().enumerate().filter(|(_, candidate)| {
+            candidate.start_line == line && candidate.end_line == end_line
+        });
+        let Some((index, _)) = candidates.next() else {
             anyhow::bail!(
                 "Could not map serialized Lua handler at lines {line}-{end_line} to its source"
             );
         };
-        state.functions[index].claimed = true;
+        // Lua reports line ranges, not columns or source registration order.
+        if candidates.next().is_some() {
+            anyhow::bail!(
+                "Ambiguous serialized Lua handler at lines {line}-{end_line}: multiple source functions share this range; define them on distinct lines"
+            );
+        }
+        if state.functions[index].recorded {
+            return Ok(());
+        }
+        state.functions[index].recorded = true;
         let diagnostics = state.functions[index].warnings.clone();
         for diagnostic in diagnostics {
             if !state.warnings.contains(&diagnostic) {
@@ -135,7 +145,7 @@ fn collect_functions(source: &str, node: Node<'_>, functions: &mut Vec<FunctionA
         functions.push(FunctionAnalysis {
             start_line: node.start_position().row + 1,
             end_line: node.end_position().row + 1,
-            claimed: false,
+            recorded: false,
             warnings: scope::analyze_handler(source, node),
         });
     }
@@ -151,7 +161,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn records_only_undefined_reads_inside_claimed_handlers() {
+    fn records_only_undefined_reads_inside_registered_handlers_once() {
         let source = r#"
 local flow = Flow.new("lint")
 local outside = missing_outside
@@ -163,6 +173,8 @@ return flow
 "#;
         let analysis = HandlerDiagnostics::analyze(source).unwrap();
         analysis.record_handler(4, 7).unwrap();
+        analysis.record_handler(4, 7).unwrap();
+        analysis.clone().record_handler(4, 7).unwrap();
         let warnings = analysis.warnings().unwrap();
         assert_eq!(warnings.len(), 1);
         assert_eq!(
@@ -233,6 +245,36 @@ return flow
     fn invalid_syntax_is_left_to_the_lua_parser() {
         let analysis = HandlerDiagnostics::analyze("return function( ???").unwrap();
         assert_eq!(analysis.warnings().unwrap(), Vec::new());
+    }
+
+    #[test]
+    fn unmatched_ranges_still_fail_without_recording_warnings() {
+        let analysis =
+            HandlerDiagnostics::analyze("local f = function() return missing end").unwrap();
+        let error = analysis.record_handler(2, 3).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("Could not map serialized Lua handler at lines 2-3")
+        );
+        assert!(analysis.warnings().unwrap().is_empty());
+    }
+
+    #[test]
+    fn ambiguous_nested_ranges_fail_without_recording_warnings() {
+        let analysis = HandlerDiagnostics::analyze(
+            "local f = function() return function() return missing end end",
+        )
+        .unwrap();
+        for _ in 0..2 {
+            let error = analysis.record_handler(1, 1).unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("Ambiguous serialized Lua handler")
+            );
+            assert!(analysis.warnings().unwrap().is_empty());
+        }
     }
 
     #[test]

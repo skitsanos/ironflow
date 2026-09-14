@@ -25,6 +25,7 @@
         "examples/07-advanced/hashing.lua",
         "examples/07-advanced/json_validate.lua",
         "examples/07-advanced/markdown_conversion.lua",
+        "examples/07-advanced/reused_callbacks.lua",
         "examples/07-advanced/schema_validation.lua",
         "examples/08-extraction/extract_pdf.lua",
         "examples/08-extraction/extract_srt.lua",

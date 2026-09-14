@@ -45,10 +45,10 @@ _No committed initiative._
 
 ## Next
 
-### [IF-120](issues/IF-120.md) — Allow reused Lua callbacks
+### [IF-121](issues/IF-121.md) — Preflight Redis lease mutations
 
-Preserve source association when one callback is registered on multiple steps,
-while retaining validation diagnostics for invalid handlers.
+Reject invalid key types and arguments before lease status, renewal, or
+deletion writes can partially change durable state.
 
 ## Later
 

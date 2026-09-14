@@ -71,6 +71,9 @@ fn app() -> (Router, tempfile::TempDir) {
 }
 
 async fn validate_api(source: &str, strict: bool) -> serde_json::Value {
+    // These cases test diagnostics, not contention for the process-wide parse limit.
+    static VALIDATION_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _guard = VALIDATION_LOCK.lock().await;
     let (router, _directory) = app();
     let response = router
         .oneshot(
@@ -128,6 +131,60 @@ async fn api_strict_mode_fails_when_handler_warnings_exist() {
             .unwrap()
             .contains("Strict validation rejected 1")
     );
+}
+
+#[tokio::test]
+async fn api_accepts_reused_callbacks_in_normal_and_strict_modes() {
+    let source = include_str!("../examples/07-advanced/reused_callbacks.lua");
+    for strict in [false, true] {
+        let body = validate_api(source, strict).await;
+        assert_eq!(body["valid"], true, "{body}");
+        assert!(
+            body.get("warnings")
+                .is_none_or(|value| value.as_array().unwrap().is_empty()),
+            "{body}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn api_preserves_reused_callback_warning_locations_and_strictness() {
+    let source = "local flow = Flow.new('warnings')\nlocal function shared()\n    return missing_shared\nend\nflow:step('one', shared)\nflow:step('two', shared)\nreturn flow";
+    for strict in [false, true] {
+        let body = validate_api(source, strict).await;
+        assert_eq!(body["valid"], !strict, "{body}");
+        let warnings = body["warnings"].as_array().unwrap();
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0]["code"], "undefined_global");
+        assert_eq!(warnings[0]["line"], 3);
+        assert_eq!(warnings[0]["column"], 12);
+    }
+}
+
+#[tokio::test]
+async fn api_rejects_ambiguous_handler_ranges_and_captured_locals() {
+    for (definition, expected) in [
+        (
+            "local captured = 42\nlocal function shared() return captured end",
+            "captures 1 outer local value",
+        ),
+        (
+            "local unused = function() return missing end; local shared = function() return {} end",
+            "Ambiguous serialized Lua handler",
+        ),
+    ] {
+        let source = format!(
+            "local flow = Flow.new('invalid')\n{definition}\nflow:step('one', shared)\nflow:step('two', shared)\nreturn flow"
+        );
+        for strict in [false, true] {
+            let body = validate_api(&source, strict).await;
+            assert_eq!(body["valid"], false, "{body}");
+            assert!(
+                body["errors"][0].as_str().unwrap().contains(expected),
+                "{body}"
+            );
+        }
+    }
 }
 
 #[test]

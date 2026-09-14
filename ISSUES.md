@@ -8,7 +8,6 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 
 | ID | Priority | Status | Area | Summary |
 |---|---:|---|---|---|
-| [IF-120](docs/issues/IF-120.md) | P2 | Open | Lua/validation | Validation rejects a valid callback reused on two steps |
 | [IF-121](docs/issues/IF-121.md) | P2 | Open | Redis/atomicity | Redis lease-aware mutations partially commit before type errors |
 | [IF-122](docs/issues/IF-122.md) | P2 | Open | SQL/concurrency | SQL's unowned context merge loses concurrent successful updates |
 | [IF-123](docs/issues/IF-123.md) | P2 | Open | CLI/replica safety | Replica mode trusts backend labels instead of actual SQL dialects |

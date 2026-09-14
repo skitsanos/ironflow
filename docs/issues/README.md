@@ -7,7 +7,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts check`.
 
 - Total findings: 132
-- Active findings: 7
+- Active findings: 6
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
 | ID | Priority | Status | Area | Summary |
@@ -131,7 +131,7 @@ priority, area, and title. The registry is generated with
 | [IF-117](./IF-117.md) | P2 | Resolved | Composition/tool security | Missing nested tool-input paths fall back to the entire root object |
 | [IF-118](./IF-118.md) | P2 | Resolved | Composition/correctness | Child context overwrites authoritative parallel-result metadata |
 | [IF-119](./IF-119.md) | P2 | Resolved | Composition/correctness | Dynamic fan-out reinterprets literal string items as context keys |
-| [IF-120](./IF-120.md) | P2 | Open | Lua/validation | Validation rejects a valid callback reused on two steps |
+| [IF-120](./IF-120.md) | P2 | Resolved | Lua/validation | Validation rejects a valid callback reused on two steps |
 | [IF-121](./IF-121.md) | P2 | Open | Redis/atomicity | Redis lease-aware mutations partially commit before type errors |
 | [IF-122](./IF-122.md) | P2 | Open | SQL/concurrency | SQL's unowned context merge loses concurrent successful updates |
 | [IF-123](./IF-123.md) | P2 | Open | CLI/replica safety | Replica mode trusts backend labels instead of actual SQL dialects |

@@ -80,6 +80,12 @@ the decoded source string. Use `--strict` to treat any Lua warning as a
 validation failure. Invalid embedded syntax and function handlers that capture
 outer locals are always rejected.
 
+Self-contained callbacks may be registered repeatedly; each source warning is
+reported once. Distinct functions with identical start/end line ranges are
+ambiguous to source analysis and fail validation in both modes. Define them
+on distinct lines. Reusing a callback is separate from sharing one recovery
+step across multiple `on_error()` sources, which remains invalid.
+
 | Argument / Flag | Required | Default | Description |
 |-----------------|----------|---------|-------------|
 | `<FLOW>` | yes | — | Path to the `.lua` flow file |
@@ -762,7 +768,9 @@ Embedded code-source diagnostics also include `step`; their line and column are
 relative to that step's decoded `source` string. Undefined reads use the
 `undefined_global` code. Warnings leave `valid` unchanged by default; strict
 mode sets `valid` to `false` and adds a summary to `errors`. Invalid embedded
-syntax and captured outer locals are errors in both modes.
+syntax, captured outer locals, and ambiguous function source ranges are errors
+in both modes. Reused callbacks are supported and their source warnings are
+deduplicated, with the same behavior as CLI validation.
 
 That is the intended contract for a general-purpose engine — but it means an API
 key that can reach `/flows/run` can run any node, so it can read or write any
