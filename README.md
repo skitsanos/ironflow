@@ -239,7 +239,9 @@ per cleanup pass; Redis uses per-claim TTL. See
 [Schedules](docs/CLI_REFERENCE.md#schedules).
 
 Active-active deployments must set `IRONFLOW_REPLICA_MODE=true` and use
-PostgreSQL or Redis for both state and events. SIGTERM closes readiness and new
+PostgreSQL or Redis for both state and events. SQL URL schemes must match their
+selected backends; startup rejects SQLite URLs labeled as PostgreSQL before
+opening either store. SIGTERM closes readiness and new
 execution admission before a bounded drain. See the
 [replica deployment contract](docs/REPLICA_DEPLOYMENT.md) and its opt-in
 two-process Docker fault gate.

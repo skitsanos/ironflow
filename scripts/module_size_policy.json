@@ -1,12 +1,7 @@
 {
   "version": 1,
-  "exception_budget": 11,
+  "exception_budget": 10,
   "exceptions": [
-    {
-      "path": "src/cli/store_factory.rs",
-      "max_lines": 330,
-      "rationale": "IF-028 review: one feature-gated store-construction boundary plus inline configuration tests; split when another backend concern is added."
-    },
     {
       "path": "src/engine/executor/task_runner.rs",
       "max_lines": 303,

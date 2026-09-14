@@ -328,6 +328,17 @@ IronFlow supports these state storage backends:
 - **postgres** — SQL storage in Postgres (requires a `-full` release binary or building with `--features postgres`)
 - **redis** — Redis-backed storage (requires a `-full` release binary or building with `--features redis`)
 
+For SQL state and event stores, the resolved URL scheme must match the selected
+backend: `sqlite:` for `sqlite`, or `postgres://` / `postgresql://` for `postgres`.
+PostgreSQL requires an explicit URL; SQLite still defaults to local files when
+its URL is omitted. An empty, unsupported, or mismatched scheme is rejected
+without echoing the URL, and an invalid environment override never falls back
+to YAML. Every state-store CLI command checks before connecting. `serve`
+preflights both selected SQL URLs before opening either store, in standalone
+and replica mode. SQL URL settings are ignored when their corresponding backend
+is not SQL. See [Replica deployment](REPLICA_DEPLOYMENT.md) for the shared-store
+operator contract.
+
 The JSON backend accepts only the canonical run IDs above, confines record and
 summary names to `store_dir`, and rejects a store root or run-related entry that
 is a symbolic link instead of following it. Each main record and summary

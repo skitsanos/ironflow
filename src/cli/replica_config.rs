@@ -2,18 +2,22 @@ use anyhow::Result;
 
 use super::IronFlowConfig;
 use super::resolution::environment_string;
+use super::sql_config::{SqlStoreKind, configured_url};
 
 pub(crate) fn validate(cfg: &IronFlowConfig, replica_mode: bool) -> Result<()> {
-    if !replica_mode {
-        return Ok(());
-    }
     let state = environment_string("IRONFLOW_STORE")?
         .or_else(|| cfg.store_backend.clone())
         .unwrap_or_else(|| "json".to_string());
     let events = environment_string("IRONFLOW_EVENT_STORE")?
         .or_else(|| cfg.event_store.clone())
         .unwrap_or_else(|| "memory".to_string());
-    validate_backends(&state, &events)
+    if replica_mode {
+        validate_backends(&state, &events)?;
+    }
+    // Validate both selected SQL URLs before either store can connect or create files.
+    configured_url(cfg, &state, SqlStoreKind::State)?;
+    configured_url(cfg, &events, SqlStoreKind::Event)?;
+    Ok(())
 }
 
 fn validate_backends(state: &str, events: &str) -> Result<()> {

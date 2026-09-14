@@ -4,6 +4,8 @@ flows_dir: /data/flows
 allow_adhoc_flows: false
 allow_unauthenticated_api: true
 replica_mode: true
+# Set IRONFLOW_STORE=postgres and IRONFLOW_EVENT_STORE=postgres in the deployment.
+# Both SQL URL settings must use postgres:// or postgresql://, never sqlite:.
 
 schedules:
   replica_minute:

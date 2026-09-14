@@ -45,11 +45,10 @@ _No committed initiative._
 
 ## Next
 
-### [IF-123](issues/IF-123.md) — Validate replica SQL backend dialects
+### [IF-124](issues/IF-124.md) — Preserve partial MCP stdio frames
 
-Validate resolved state and event URL dialects before connecting or admitting
-replica mode, rejecting SQLite URLs disguised as PostgreSQL without exposing
-credentials in errors.
+Keep partially read response bytes across outgoing-reply interleavings and
+cancellation, with deterministic fragmented-frame and process-cleanup coverage.
 
 ## Later
 

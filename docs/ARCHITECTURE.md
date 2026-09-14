@@ -747,7 +747,15 @@ cannot hold an orchestrator termination forever.
 
 `IRONFLOW_REPLICA_MODE=true` is an operator assertion checked before stores are
 opened. It accepts only PostgreSQL/Redis state plus PostgreSQL/Redis events;
-JSON, SQLite, and memory are process/local-host backends. The detailed failure
+JSON, SQLite, and memory are process/local-host backends. The shared CLI SQL
+resolver checks the selected backend against `SqlDialect::from_url` after
+environment/YAML precedence. PostgreSQL requires `postgres://` or
+`postgresql://`, and SQLite requires `sqlite:` or its omitted-URL default.
+`serve` preflights both selected SQL URLs without filesystem or connection
+side effects even outside replica mode; the individual factories also validate
+before connecting. Mismatch diagnostics identify settings, not raw URLs.
+This verifies dialects, not whether separate processes target the same service.
+The detailed failure
 and platform boundary is in [Replica deployment](REPLICA_DEPLOYMENT.md).
 
 ### 6. CLI (`cli/`)

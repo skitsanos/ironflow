@@ -32,13 +32,13 @@ pub struct IronFlowConfig {
     /// Allowed CORS origins for the API server.
     /// Use ["*"] only when intentionally allowing browser access from any origin.
     pub cors_origins: Option<Vec<String>>,
-    /// Storage backend: "json" (default) or "redis"
+    /// State backend: "json" (default), "sqlite", "postgres", or "redis".
     pub store_backend: Option<String>,
-    /// SQL state store URL for `sqlite` / `postgres`.
+    /// SQL state store URL; its scheme must match `store_backend`.
     pub store_url: Option<String>,
     /// Event backend: "memory" (default), "sqlite", "postgres", or "redis".
     pub event_store: Option<String>,
-    /// SQL event store URL for `sqlite` / `postgres`.
+    /// SQL event store URL; its scheme must match `event_store`.
     pub event_store_url: Option<String>,
     /// Maximum event payloads and deletion fences retained across all runs by
     /// the in-memory event store.

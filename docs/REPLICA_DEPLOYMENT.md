@@ -13,9 +13,21 @@ Supply `IRONFLOW_STORE_URL` and `IRONFLOW_EVENT_STORE_URL` through the platform
 secret manager; YAML values are literal and do not expand environment syntax.
 
 `IRONFLOW_REPLICA_MODE=true` is the environment equivalent. Startup fails when
-replica mode selects JSON, SQLite, or in-memory events. PostgreSQL and Redis are
-the supported shared backends. Do not mount a JSON/SQLite directory into
+replica mode selects JSON, SQLite, or in-memory events. Selecting `postgres`
+also requires the corresponding state/event URL to start with `postgres://`
+or `postgresql://`; a SQLite URL under a PostgreSQL label is rejected. Startup
+preflights both selected SQL URLs before either store connects or creates local
+database files. Environment values override YAML, including an invalid or empty
+value, which fails instead of falling back. Errors identify the setting without
+echoing its URL. PostgreSQL and Redis are the supported shared backends.
+Do not mount a JSON/SQLite directory into
 multiple containers and treat it as a distributed database.
+
+The URL check verifies the selected dialect, not deployment topology. Operators
+must still point every replica at the intended shared services and table/key
+namespaces; two unrelated PostgreSQL databases cannot be detected from their
+URL schemes. Ordinary standalone SQLite remains supported with `sqlite:` URLs
+or its default local paths.
 
 Artifact-producing deployments must also choose one cross-replica contract.
 Either mount the same durable `IRONFLOW_ARTIFACT_DIR` on every replica, or set

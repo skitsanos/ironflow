@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use anyhow::{Context as _, Result};
+use anyhow::Result;
 use tracing::info;
 
 use crate::storage::StateStore;
@@ -19,6 +19,7 @@ use crate::util::sensitive_url::Connection;
 use super::IronFlowConfig;
 use super::resolution::environment_string;
 use super::resolution::environment_value;
+use super::sql_config::{SqlStoreKind, resolve_url};
 
 fn ensure_postgres_feature(store_kind: &str) -> Result<()> {
     #[cfg(feature = "postgres")]
@@ -61,7 +62,7 @@ async fn create_store_for_backend(
             Ok(Arc::new(JsonStateStore::new(store_dir)))
         }
         "sqlite" => {
-            let url = resolve_sql_store_url(cfg, store_dir, "sqlite")?;
+            let url = resolve_url(cfg, store_dir, "sqlite", SqlStoreKind::State)?;
             let table_prefix = resolve_sql_table_prefix(cfg)?;
             info!("Using SQLite state store at {}", Connection::new(&url));
             Ok(Arc::new(
@@ -70,7 +71,7 @@ async fn create_store_for_backend(
         }
         "postgres" => {
             ensure_postgres_feature("state store")?;
-            let url = resolve_sql_store_url(cfg, store_dir, "postgres")?;
+            let url = resolve_url(cfg, store_dir, "postgres", SqlStoreKind::State)?;
             let table_prefix = resolve_sql_table_prefix(cfg)?;
             info!("Using Postgres state store");
             Ok(Arc::new(
@@ -138,7 +139,7 @@ async fn create_event_store_for_backend(
             Ok(Arc::new(store))
         }
         "sqlite" => {
-            let url = resolve_sql_event_store_url(cfg, store_dir, "sqlite")?;
+            let url = resolve_url(cfg, store_dir, "sqlite", SqlStoreKind::Event)?;
             let table_prefix = resolve_sql_table_prefix(cfg)?;
             info!("Using SQLite event store at {}", Connection::new(&url));
             Ok(Arc::new(
@@ -147,7 +148,7 @@ async fn create_event_store_for_backend(
         }
         "postgres" => {
             ensure_postgres_feature("event store")?;
-            let url = resolve_sql_event_store_url(cfg, store_dir, "postgres")?;
+            let url = resolve_url(cfg, store_dir, "postgres", SqlStoreKind::Event)?;
             let table_prefix = resolve_sql_table_prefix(cfg)?;
             info!("Using Postgres event store");
             Ok(Arc::new(
@@ -185,56 +186,6 @@ async fn create_event_store_for_backend(
 
 pub(super) fn resolve_sql_table_prefix(cfg: &IronFlowConfig) -> Result<Option<String>> {
     Ok(environment_string("IRONFLOW_SQL_TABLE_PREFIX")?.or_else(|| cfg.sql_table_prefix.clone()))
-}
-
-pub(super) fn resolve_sql_store_url(
-    cfg: &IronFlowConfig,
-    store_dir: &Path,
-    backend: &str,
-) -> Result<String> {
-    if let Some(url) = environment_string("IRONFLOW_STORE_URL")?.or_else(|| cfg.store_url.clone()) {
-        return Ok(url);
-    }
-
-    match backend {
-        "sqlite" => {
-            std::fs::create_dir_all(store_dir)
-                .with_context(|| format!("Failed to create store dir: {}", store_dir.display()))?;
-            let path = store_dir.join("ironflow.sqlite");
-            Ok(format!("sqlite://{}?mode=rwc", path.to_string_lossy()))
-        }
-        "postgres" => {
-            anyhow::bail!("Postgres state store requires IRONFLOW_STORE_URL or store_url in config")
-        }
-        _ => anyhow::bail!("Unsupported SQL state store backend '{}'", backend),
-    }
-}
-
-pub(super) fn resolve_sql_event_store_url(
-    cfg: &IronFlowConfig,
-    store_dir: &Path,
-    backend: &str,
-) -> Result<String> {
-    if let Some(url) =
-        environment_string("IRONFLOW_EVENT_STORE_URL")?.or_else(|| cfg.event_store_url.clone())
-    {
-        return Ok(url);
-    }
-
-    match backend {
-        "sqlite" => {
-            std::fs::create_dir_all(store_dir)
-                .with_context(|| format!("Failed to create store dir: {}", store_dir.display()))?;
-            let path = store_dir.join("ironflow-events.sqlite");
-            Ok(format!("sqlite://{}?mode=rwc", path.to_string_lossy()))
-        }
-        "postgres" => {
-            anyhow::bail!(
-                "Postgres event store requires IRONFLOW_EVENT_STORE_URL or event_store_url in config"
-            )
-        }
-        _ => anyhow::bail!("Unsupported SQL event store backend '{}'", backend),
-    }
 }
 
 #[cfg(test)]
