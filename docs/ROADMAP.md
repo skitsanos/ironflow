@@ -45,10 +45,10 @@ _No committed initiative._
 
 ## Next
 
-### [IF-118](issues/IF-118.md) — Protect parallel-result metadata
+### [IF-119](issues/IF-119.md) — Preserve literal fan-out inputs
 
-Prevent child-controlled context from overwriting authoritative success and
-flow identity, with regressions for successful and failed child collisions.
+Transport dynamic source items separately from input mappings so strings that
+match parent context keys retain their original values.
 
 ## Later
 

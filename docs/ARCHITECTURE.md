@@ -870,6 +870,10 @@ Context is a `HashMap<String, serde_json::Value>` that flows through the entire 
 - Public run handles retain their run-ID-only wait/cancel API and detach-on-drop
   behavior, without retaining a live completion payload. Internal child waiters
   request cancellation when their parent future is dropped.
+- Parallel child result entries reserve top-level `success`, `flow`, and
+  `error` for execution metadata. Flattened child context cannot replace them;
+  non-reserved child namespaces preserve same-named domain fields. Reserved
+  child namespace names fail node admission before any child starts.
 - Output-size admission uses an aborting counting serializer. A truncation
   marker reports `_minimum_bytes = limit + 1`, not an exact original size,
   because counting stops as soon as the configured limit is crossed.

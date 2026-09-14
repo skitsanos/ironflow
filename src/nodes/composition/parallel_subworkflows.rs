@@ -9,7 +9,7 @@ use crate::engine::executor::ExecutionOverlay;
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::{Node, NodeRegistry};
 
-use super::parallel_runner::{ChildRun, run_children};
+use super::parallel_runner::{ChildRun, run_children, validate_child_output_key};
 use crate::util::node_config::config_usize_strict;
 
 /// Hard cap on `max_concurrent` to guard against pathological config values.
@@ -60,6 +60,7 @@ fn build_dynamic_flow_entries(config: &Value, ctx: &Context) -> Result<Vec<Value
         .and_then(|v| v.as_str())
         .unwrap_or("index");
     let child_output_key = config.get("child_output_key").and_then(|v| v.as_str());
+    validate_child_output_key(child_output_key)?;
 
     let base_input = config.get("input").and_then(|v| v.as_object());
     let mut entries = Vec::with_capacity(source.len());
@@ -97,6 +98,9 @@ fn resolve_flow_entries(config: &Value, ctx: &Context) -> Result<Vec<Value>> {
             return Err(anyhow::anyhow!(
                 "parallel_subworkflows: 'flows' array must not be empty"
             ));
+        }
+        for entry in flows {
+            validate_child_output_key(entry.get("output_key").and_then(Value::as_str))?;
         }
         return Ok(flows.clone());
     }

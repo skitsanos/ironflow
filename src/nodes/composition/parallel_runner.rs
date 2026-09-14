@@ -16,6 +16,19 @@ use crate::storage::StateStore;
 use crate::storage::null_store::NullStateStore;
 use crate::util::execution::{current_execution_deadline, with_execution_deadline};
 
+const RESULT_METADATA_KEYS: [&str; 3] = ["success", "flow", "error"];
+
+pub(super) fn validate_child_output_key(key: Option<&str>) -> Result<()> {
+    if let Some(key) = key
+        && RESULT_METADATA_KEYS.contains(&key)
+    {
+        anyhow::bail!(
+            "parallel_subworkflows: child output namespace '{key}' is reserved for result metadata; choose a different output key"
+        );
+    }
+    Ok(())
+}
+
 pub(super) struct ChildRun {
     pub(super) index: usize,
     pub(super) flow_path: String,
@@ -128,8 +141,6 @@ fn success_entry(
 ) -> Result<(Value, Option<String>)> {
     let succeeded = matches!(run_info.status, RunStatus::Success);
     let mut entry = Map::new();
-    entry.insert("success".to_string(), Value::Bool(succeeded));
-    entry.insert("flow".to_string(), Value::String(name.clone()));
 
     if let Some(output_key) = flow_config.get("output_key").and_then(Value::as_str) {
         // `_`-prefixed keys are private to the child on both branches. Without
@@ -145,11 +156,14 @@ fn success_entry(
         entry.insert(output_key.to_string(), Value::Object(public));
     } else {
         for (key, value) in run_info.ctx {
-            if !key.starts_with('_') {
+            if !key.starts_with('_') && !RESULT_METADATA_KEYS.contains(&key.as_str()) {
                 entry.insert(key, value);
             }
         }
     }
+
+    entry.insert("success".to_string(), Value::Bool(succeeded));
+    entry.insert("flow".to_string(), Value::String(name.clone()));
 
     let error = (!succeeded).then(|| {
         format!(

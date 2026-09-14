@@ -128,6 +128,8 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **large_result_child.lua** — Reusable payload-producing child for the live result example
 - **on_error_example.lua** — Planned `on_error` recovery with a handler dependency
 - **parallel_subworkflows.lua** — Run multiple subworkflows concurrently and collect results
+- **parallel_result_metadata.lua** — Verify authoritative status for static/dynamic children whose output uses metadata field names
+- **metadata_child.lua** — Reusable successful/failing child for the parallel metadata example
 - **repeat_subworkflow.lua** — Repeat a child flow with explicit carried state and a finite iteration bound
 - **repeat_counter_subworkflow.lua** — Reusable counter child used by the repeat example
 - **greet.lua** — Simple reusable helper flow used by the subworkflow examples

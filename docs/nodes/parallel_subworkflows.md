@@ -12,7 +12,7 @@ Execute multiple subworkflows concurrently and collect their results.
 | `input` | object | no | — | In dynamic mode, base input mapping applied to every child run. |
 | `item_key` | string | no | `"item"` | Dynamic mode child context key that receives the current source item. |
 | `index_key` | string | no | `"index"` | Dynamic mode child context key that receives the 1-based source item index. |
-| `child_output_key` | string | no | — | Dynamic mode namespace for each child context inside its result entry. |
+| `child_output_key` | string | no | — | Dynamic mode namespace for each child context inside its result entry; cannot be `success`, `flow`, or `error`. |
 | `output_key` | string | no | `"parallel_results"` | Key for the results array in context |
 | `on_error` | string | no | `"fail_fast"` | Error handling: `"fail_fast"` (fail on any error) or `"ignore"` (collect all results) |
 | `max_concurrent` | number | no | CPU count | Maximum child workflows executing at the same time. Hard-capped at `1024`. |
@@ -25,7 +25,7 @@ Each entry in the `flows` array:
 |-----------|------|----------|-------------|
 | `flow` | string | yes | Path to the `.lua` flow file (relative to `_flow_dir`) |
 | `input` | object | no | Context mapping — keys are child context keys, values are parent context keys or literals. String values are treated as a parent context key when present, otherwise kept as string literals. |
-| `output_key` | string | no | Namespace the child's output under this key in the result entry |
+| `output_key` | string | no | Namespace the child's output under this key in the result entry; cannot be `success`, `flow`, or `error`. |
 
 ## Context Output
 
@@ -41,9 +41,30 @@ Each result entry contains:
 | Key | Type | Description |
 |-----|------|-------------|
 | `success` | boolean | Whether the subworkflow succeeded |
-| `flow` | string | The flow name |
+| `flow` | string | The loaded child flow's declared name, or its configured path when loading/execution cannot return a finalized child result |
 | `error` | string | Error message (only present on failure) |
-| *context keys* | any | Child flow output (merged directly or under per-flow `output_key`) |
+| *context keys* | any | Public child context, excluding reserved metadata keys when flattened, or under per-flow `output_key` |
+
+`success`, `flow`, and `error` are reserved at the top level of each result
+entry. They describe the actual child execution, never values published or
+inherited by the child. Successful entries have no top-level `error` field;
+failed entries have the engine's failure description. Aggregate counts and
+flags follow those same execution outcomes.
+
+Without a child namespace, same-named child fields are omitted from the result.
+To retain them, use a non-reserved per-flow `output_key` (static mode) or
+`child_output_key` (dynamic mode), such as `"child"`. Then `result.success`
+remains authoritative while `result.child.success`, `result.child.flow`, and
+`result.child.error` retain their domain values. Nested fields are not filtered
+by these metadata names; the existing private-key and redaction rules still
+apply.
+
+Reserved namespace names are configuration errors, rejected at node execution
+before any child loads or starts, including an empty dynamic source. They are
+not suppressed by `on_error = "ignore"`. The node-level `output_key` names the
+results array in the parent context and is not subject to this restriction.
+Existing workflows using a reserved child namespace must rename it; workflows
+needing flattened domain fields with these names must opt into namespacing.
 
 Both static and dynamic fan-out collect full, redacted live child results with
 top-level `_`-prefixed keys removed. `IRONFLOW_MAX_TASK_OUTPUT_BYTES` bounds
@@ -56,6 +77,11 @@ execution limits and parent cancellation/timeouts still apply. Large results
 remain in memory while collected; prefer artifact references for bulky payloads.
 
 ## Example
+
+The offline [`parallel_result_metadata.lua`](../../examples/11-subworkflow/parallel_result_metadata.lua)
+example and its [`metadata_child.lua`](../../examples/11-subworkflow/metadata_child.lua)
+helper verify successful and failed static/dynamic children with colliding
+domain fields, including namespaced preservation.
 
 ```lua
 local flow = Flow.new("parallel_workers")
