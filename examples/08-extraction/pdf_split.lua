@@ -1,5 +1,8 @@
 -- Effects: retains one UUID-scoped directory of PDF pages under TMPDIR, TMP,
 -- TEMP, or `.`.
+-- Selected pages retain inherited resources, boxes, and rotation without
+-- importing other pages. Shared resources are not content-redacted.
+-- Input loading also enforces the shared PDF stream/object ceilings.
 local flow = Flow.new("pdf_split_example")
 local temp_root = env("TMPDIR")
 if temp_root == nil or temp_root == "" then temp_root = env("TMP") end

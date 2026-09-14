@@ -18,6 +18,7 @@ use super::pptx_format::{
 };
 use super::pptx_parser::{
     PptxComment, extract_pptx_comments, extract_pptx_metadata, extract_pptx_slides,
+    load_presentation,
 };
 use super::resource::{Budget, Limits};
 
@@ -101,13 +102,15 @@ fn extract(request: Request, limits: Limits, execution: ExecutionControl) -> Res
     let artifact_store = (request.media_mode == MediaMode::Artifact)
         .then(LocalArtifactStore::from_env)
         .transpose()?;
+    let presentation = load_presentation(&mut archive, &mut budget, &execution)?;
     let mut slides = extract_pptx_slides(
         &mut archive,
+        &presentation,
         artifact_store.as_ref(),
         &mut budget,
         &execution,
     )?;
-    let comments = extract_pptx_comments(&mut archive, &mut budget, &execution)?;
+    let comments = extract_pptx_comments(&mut archive, &presentation, &mut budget, &execution)?;
 
     // Preserve the flat comments contract without cloning the complete slide
     // graph. Comments themselves move into their matching slide afterwards.

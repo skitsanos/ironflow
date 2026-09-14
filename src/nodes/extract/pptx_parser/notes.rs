@@ -4,9 +4,11 @@ use anyhow::Result;
 use quick_xml::events::Event;
 
 use crate::nodes::extract::resource::Budget;
+use crate::util::xml::Decoder;
 
 pub(super) fn parse_pptx_notes<R: BufRead>(xml: R, budget: &mut Budget<'_>) -> Result<String> {
     let mut reader = quick_xml::Reader::from_reader(xml);
+    let mut decoder = Decoder::default();
     let mut buffer = Vec::new();
     let mut text = String::new();
     let mut in_text = false;
@@ -14,12 +16,19 @@ pub(super) fn parse_pptx_notes<R: BufRead>(xml: R, budget: &mut Budget<'_>) -> R
     let mut depth = 0_u64;
     loop {
         budget.checkpoint()?;
-        match reader.read_event_into(&mut buffer) {
+        match reader
+            .read_event_into(&mut buffer)
+            .map_err(anyhow::Error::from)
+            .and_then(|event| {
+                decoder.decode(event, |bytes| {
+                    budget.charge_output(bytes, "PPTX decoded notes text")
+                })
+            }) {
             Ok(Event::Start(event)) => {
                 saw_element = true;
                 depth = depth.saturating_add(1);
                 budget.charge_item("PPTX notes XML events")?;
-                in_text = local_name(event.name().as_ref()) == b"t";
+                in_text = local_name(event.name().as_ref().as_bytes()) == b"t";
             }
             Ok(Event::Empty(_)) => {
                 saw_element = true;
@@ -27,11 +36,13 @@ pub(super) fn parse_pptx_notes<R: BufRead>(xml: R, budget: &mut Budget<'_>) -> R
             }
             Ok(Event::Text(event)) if in_text => {
                 budget.charge_item("PPTX notes XML events")?;
-                budget.charge_output(event.len() as u64 + 1, "PPTX retained notes")?;
-                text.push_str(&String::from_utf8_lossy(event.as_ref()));
-                text.push('\n');
+                text.push_str(event.as_ref());
             }
-            Ok(Event::End(_)) => {
+            Ok(Event::End(event)) => {
+                if local_name(event.name().as_ref().as_bytes()) == b"p" {
+                    budget.charge_output(1, "PPTX notes paragraph separator")?;
+                    text.push('\n');
+                }
                 budget.charge_item("PPTX notes XML events")?;
                 depth = depth.checked_sub(1).ok_or_else(|| {
                     anyhow::anyhow!("extract_pptx: unmatched closing element in speaker notes")

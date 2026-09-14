@@ -134,27 +134,14 @@ impl Archive {
         Ok(Some(artifact))
     }
 
-    pub(super) fn entry_names(
-        &mut self,
-        prefix: &str,
-        suffix: &str,
-        execution: &ExecutionControl,
-    ) -> Result<Vec<String>> {
-        let mut names = Vec::new();
-        for index in 0..self.inner.len() {
-            execution.checkpoint()?;
-            let entry = self.inner.by_index(index).map_err(|error| {
-                anyhow::anyhow!(
-                    "{}: cannot inspect archive entry {index}: {error}",
-                    self.operation
-                )
-            })?;
-            let name = entry.name();
-            if name.starts_with(prefix) && name.ends_with(suffix) {
-                names.push(name.to_string());
-            }
-        }
-        Ok(names)
+    pub(super) fn require_part(&self, name: &str, execution: &ExecutionControl) -> Result<()> {
+        execution.checkpoint()?;
+        anyhow::ensure!(
+            self.inner.index_for_name(name).is_some(),
+            "{}: required archive part is missing: {name}",
+            self.operation
+        );
+        Ok(())
     }
 }
 

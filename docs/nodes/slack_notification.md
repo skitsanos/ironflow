@@ -19,6 +19,28 @@ Either `text`/`message` or `payload.text` is required.
 
 If `payload` is provided, all string values are context-interpolated (`${ctx.key}`).
 
+## HTTP Transport
+
+Webhook redirects follow only the original scheme, host, and effective port,
+with at most 10 hops. Cross-origin redirects fail before replaying notification
+content. Automatic `Referer` is disabled so the token-bearing webhook path is
+not copied into that header. Configure a new webhook URL explicitly when its
+origin changes.
+
+Success and error response bodies share the HTTP limit
+`IRONFLOW_MAX_HTTP_BODY_BYTES` (default `52428800`, 50 MiB). An oversized
+`Content-Length` is rejected before reading the body; actual bytes are checked
+before each chunk is retained, including responses without a declared length.
+Exceeding the cap, a body-read failure, timeout, or run cancellation fails or
+cancels the step without publishing partial notification output. The cap applies
+to received body bytes before text decoding, not total process memory or decoded
+JSON size. Charset/BOM decoding and JSON-or-text output behavior are unchanged.
+
+Non-2xx responses within the cap still fail with their status and redacted body
+detail. A size error takes precedence over provider body parsing when the cap is
+exceeded. A failed response read does not prove the message was not delivered;
+retrying a notification can send it again.
+
 ## Context Output
 
 - `{output_key}_status` — HTTP status code.
@@ -26,6 +48,9 @@ If `payload` is provided, all string values are context-interpolated (`${ctx.key
 - `{output_key}_success` — `true` on HTTP 2xx success.
 
 ## Example
+
+The runnable [Slack example](../../examples/14-notifications/slack_notification.lua)
+uses `SLACK_WEBHOOK`, which can point to a local HTTP fixture for offline testing.
 
 ```lua
 local flow = Flow.new("slack_notification")

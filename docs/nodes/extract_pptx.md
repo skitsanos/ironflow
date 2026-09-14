@@ -2,6 +2,51 @@
 
 Extract slides, speaker notes, and comments from a PowerPoint (`.pptx`) deck.
 
+## Presentation Order
+
+`ppt/presentation.xml` and `ppt/_rels/presentation.xml.rels` are required. The
+presentation's slide list determines membership and order in every output
+format. `slide_index` is the one-based position in that list, not a part filename
+suffix or the presentation's internal slide ID. Hidden slides that remain in the
+list are included. Orphan slide, note, and comment parts are not extracted.
+
+Slide parts may be renamed or stored in other package directories. Notes and
+legacy comments are followed through each slide's actual relationship part;
+comment authors are followed through the presentation's `commentAuthors`
+relationship. Image relationships are also relative to the actual slide part.
+An absent notes/comments relationship means no associated content, even if a
+similarly numbered file exists in the ZIP.
+
+Missing/empty manifests, duplicate slide IDs, relationship IDs or normalized
+slide targets, missing referenced parts, wrong slide relationship types, and
+external slide/notes/comments/authors targets are errors. Multiple notes,
+comments, or author-list relationships on their respective source are rejected
+as ambiguous. There is no filename-based fallback. Slide, note, comment, and
+author-list references are checked before slide media is published; later
+content or output errors still do not roll back already published artifacts.
+
+Presentation and slide-reference namespaces accept transitional and strict OOXML
+URIs with arbitrary prefixes. Relationship XML accepts the OPC namespace and
+legacy unqualified elements, but not foreign namespaces. Presentation nesting is
+capped at 128 elements. This is structural extraction, not slide rendering or a
+complete OOXML schema validator; visual reading order within a slide and modern
+comments are outside this contract.
+
+## Text Fidelity
+
+Slide text, table cells, speaker notes, metadata and comments decode built-in XML
+entities and numeric references once and preserve literal CDATA. Adjacent events
+and runs do not introduce spaces or newlines; speaker-note paragraphs are
+separated by newlines. Metadata outer whitespace is trimmed after accumulation.
+Picture descriptions, embed IDs, list levels and comment attributes use the
+part's declared XML-version normalization (1.0 by default).
+
+Unknown/invalid text references and DTDs return errors; no custom or external
+entities are expanded. Decoding and retained attribute values are admitted
+before allocation against existing output budgets. Table-text copies, generated
+separators and comment fan-out are charged. ZIP byte/entry, XML event/item,
+deadline, and final serialized-output checks are unchanged.
+
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
@@ -11,7 +56,7 @@ Extract slides, speaker notes, and comments from a PowerPoint (`.pptx`) deck.
 | `format` | string | no | `"text"` | Output format: `"text"` (flattened slide text), `"markdown"` (one section per slide), or `"json"` (structured IR). |
 | `output_key` | string | no | `"content"` | Context key where the extracted output is stored. For `text`/`markdown` the value is a string; for `json` it is an object. |
 | `metadata_key` | string | no | — | If set, deck metadata (slide count + Dublin Core fields) is stored under this context key. |
-| `comments_key` | string | no | — | If set, slide comments (from `ppt/comments/comment*.xml` plus author lookup in `ppt/commentAuthors.xml`) are stored under this context key as a flat array. Comments are also attached per-slide in the JSON output. |
+| `comments_key` | string | no | — | If set, relationship-linked legacy slide comments and their author lookup are stored under this context key as a flat array in presentation order. Comments are also attached per-slide in the JSON output. |
 | `media_mode` | string | no | `"none"` | Embedded-media handling: `"none"` keeps relationship metadata only; `"artifact"` streams each resolved image to the disk-backed artifact store and adds an `artifact` descriptor. Artifact mode requires `format = "json"`. |
 | `include_image_bytes` | boolean | no | `false` | Deprecated compatibility input. `false` is accepted; `true` is rejected with a migration error because extraction no longer materializes inline Base64 media. |
 
@@ -89,9 +134,13 @@ The slide's `title` is taken from the placeholder with `type="title"` or `type="
 
 ### Comments
 
-The node currently parses **legacy** comments (`ppt/comments/comment*.xml`, indexed by slide number) and the matching `ppt/commentAuthors.xml`. PowerPoint's newer "modern comments" format (`ppt/modernComments/`) is not yet supported.
+The node currently parses **legacy** comments through `comments` relationships
+and authors through the presentation's `commentAuthors` relationship. Conventional
+part names such as `ppt/comments/comment3.xml` and `ppt/commentAuthors.xml` are
+not required. PowerPoint's newer "modern comments" format is not yet supported.
 
-`slide_index` on each comment is derived from the comment file's numeric suffix (`comment3.xml` → slide 3).
+`slide_index` on each comment is the referring slide's one-based presentation
+position, in both the flat comments array and the per-slide JSON output.
 
 ## Resource and cancellation contract
 
@@ -104,19 +153,21 @@ The node currently parses **legacy** comments (`ppt/comments/comment*.xml`, inde
   `IRONFLOW_MAX_ZIP_ENTRIES` (default `10000`). IronFlow then rejects duplicate
   part names, symlink or special-file parts, and a cumulative declared
   uncompressed size above `IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES` (default
-  `536870912`, 512 MiB).
+  `536870912`, 512 MiB). These archive-wide admission checks include orphan parts,
+  even though their XML and media are not read during extraction.
 - XML parts are parsed directly from bounded ZIP-entry readers; IronFlow does
   not first materialize a complete part as a byte vector or string. Each part
   is capped by the smaller of the remaining cumulative ZIP budget and the
   extraction-output budget, and actual decoded bytes accumulate across every
-  part read. All read, UTF-8, and XML parse errors in present slide, notes,
-  relationship, comment, author, and core-properties parts propagate.
-  Genuinely missing optional parts remain absent or empty; errors and limit
+  part read. All read, UTF-8, and XML parse errors in the manifest and consumed
+  slide, notes, relationship, comment, author, and core-properties parts propagate.
+  Unlinked notes/comments/authors and missing optional metadata remain absent or
+  empty; linked notes/comments/authors must exist. Errors and limit
   breaches never become partial output. `quick_xml` still buffers its current
   event, so one unusually large text or CDATA token can require memory
   proportional to that token, but not to the complete XML part.
-- `IRONFLOW_MAX_EXTRACT_ITEMS` (default `250000`) is shared across slide and
-  comment archive parts, slide/relationship/content-type XML events,
+- `IRONFLOW_MAX_EXTRACT_ITEMS` (default `250000`) is shared across presentation
+  membership, presentation/slide/relationship/content-type XML events,
   content-type definitions, slides, elements, paragraphs, table rows and cells,
   relationships, comments and authors, metadata fields, and embedded media
   occurrences. Content-type work occurs only when artifact media is requested.
@@ -136,13 +187,19 @@ The node currently parses **legacy** comments (`ppt/comments/comment*.xml`, inde
   reuse one descriptor and one stored file. Relationship attributes are XML
   decoded before use, duplicate relationship IDs are rejected, and only the
   transitional or strict OOXML `image` relationship type is eligible for
-  `embedded_path` or artifact publication. Other relationship types and
-  external targets are ignored and never opened or fetched. A recognized
-  internal image relationship whose media part is missing is an error.
+  `embedded_path` or artifact publication. For image elements, non-image
+  relationships and external targets are ignored and never opened or fetched.
+  In artifact mode, a referenced internal image whose media part is missing is
+  an error; metadata-only mode does not open the image bytes.
   Relationship elements must contain non-empty `Id`, `Type`, and `Target`
   attributes; an unknown `TargetMode` is rejected instead of being treated as
-  internal. Internal image targets must be relative package-part paths without
-  URI schemes, queries, fragments, empty segments, or terminal dot segments.
+  internal. Internal targets resolve relative to their actual source part; a
+  single leading `/` denotes the package root, never the host filesystem.
+  Paths cannot escape the package root or contain URI schemes, backslashes,
+  ASCII control characters, queries, fragments, empty segments, or terminal
+  dot segments. Case, Unicode, and percent-looking sequences are preserved;
+  targets are not URL-decoded before ZIP member lookup. Relationship fields,
+  slide identities, and normalized retained paths share the output budget.
 - In artifact mode, the descriptor MIME type comes from the matching
   `[Content_Types].xml` override or extension default when one is declared;
   both lookups follow the package's ASCII case-insensitive matching rules and

@@ -106,36 +106,36 @@ fn inspect<R: Read>(
         checkpoint(execution)?;
         buffer.clear();
         match xml.read_event_into(&mut buffer) {
-            Ok(Event::Start(event)) if !saw_sst && event.local_name().as_ref() == b"sst" => {
+            Ok(Event::Start(event)) if !saw_sst && event.local_name().as_ref() == "sst" => {
                 saw_sst = true;
                 if let Some(count) = unique_count(&event)? {
                     check_string_count(count, max_strings, "declared uniqueCount")?;
                 }
             }
             Ok(Event::Start(event))
-                if saw_sst && !ended_sst && event.local_name().as_ref() == b"si" =>
+                if saw_sst && !ended_sst && event.local_name().as_ref() == "si" =>
             {
                 string_count = string_count.saturating_add(1);
                 check_string_count(string_count, max_strings, "actual shared-string count")?;
                 si_depth = si_depth.saturating_add(1);
             }
-            Ok(Event::End(event)) if si_depth > 0 && event.local_name().as_ref() == b"si" => {
+            Ok(Event::End(event)) if si_depth > 0 && event.local_name().as_ref() == "si" => {
                 si_depth -= 1;
             }
-            Ok(Event::End(event)) if saw_sst && event.local_name().as_ref() == b"sst" => {
+            Ok(Event::End(event)) if saw_sst && event.local_name().as_ref() == "sst" => {
                 ended_sst = true;
             }
             Ok(Event::Text(text)) if si_depth > 0 => {
                 charge_decoded(
                     &mut decoded_bytes,
-                    text.xml10_content()?.len() as u64,
+                    text.xml10_content().len() as u64,
                     max_bytes,
                 )?;
             }
             Ok(Event::CData(text)) if si_depth > 0 => {
                 charge_decoded(
                     &mut decoded_bytes,
-                    text.xml10_content()?.len() as u64,
+                    text.xml10_content().len() as u64,
                     max_bytes,
                 )?;
             }
@@ -165,14 +165,12 @@ fn unique_count(event: &BytesStart<'_>) -> Result<Option<u64>> {
         let attribute = attribute.map_err(|error| {
             anyhow::anyhow!("extract_xlsx: invalid sharedStrings.xml attribute: {error}")
         })?;
-        if attribute.key.as_ref() == b"uniqueCount" {
-            let value = std::str::from_utf8(attribute.value.as_ref())?
-                .parse::<u64>()
-                .map_err(|_| {
-                    anyhow::anyhow!(
-                        "extract_xlsx: sharedStrings.xml uniqueCount must be an unsigned integer"
-                    )
-                })?;
+        if attribute.key.as_ref() == "uniqueCount" {
+            let value = attribute.value.parse::<u64>().map_err(|_| {
+                anyhow::anyhow!(
+                    "extract_xlsx: sharedStrings.xml uniqueCount must be an unsigned integer"
+                )
+            })?;
             return Ok(Some(value));
         }
     }
@@ -204,8 +202,7 @@ fn reference_output_bytes(reference: &BytesRef<'_>) -> Result<u64> {
     if let Some(character) = reference.resolve_char_ref()? {
         return Ok(character.len_utf8() as u64);
     }
-    let name = reference.decode()?;
-    Ok(match name.as_ref() {
+    Ok(match reference.as_ref() {
         "lt" | "gt" | "amp" | "apos" | "quot" => 1,
         // Calamine rejects unknown entities. Counting their literal width is
         // conservative until it does so and prevents the preflight itself

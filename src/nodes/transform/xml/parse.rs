@@ -1,11 +1,13 @@
 use anyhow::Result;
 use async_trait::async_trait;
+use quick_xml::Reader;
 use quick_xml::events::Event;
-use quick_xml::{Reader, XmlVersion};
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
+use crate::util::execution::run_tracked_blocking_step;
+use crate::util::xml::{Decoder, attribute_value};
 
 pub struct XmlParseNode;
 
@@ -25,7 +27,9 @@ impl Node for XmlParseNode {
             .and_then(|v| v.as_str())
             .unwrap_or("xml_data");
         let input = get_input(config, ctx)?;
-        let parsed = parse_xml_to_json(&input)?;
+        let parsed =
+            run_tracked_blocking_step(move |execution| parse_xml_to_json(&input, &execution))
+                .await?;
 
         let mut output = NodeOutput::new();
         output.insert(output_key.to_string(), parsed);
@@ -63,26 +67,51 @@ fn get_input(config: &serde_json::Value, ctx: &Context) -> Result<String> {
 /// Matches the YAML parser's own nesting limit for a uniform contract.
 const MAX_XML_NESTING_DEPTH: usize = 128;
 
-fn parse_xml_to_json(xml: &str) -> Result<serde_json::Value> {
+fn parse_xml_to_json(
+    xml: &str,
+    execution: &crate::util::execution::ExecutionControl,
+) -> Result<serde_json::Value> {
     let mut reader = Reader::from_str(xml);
-    reader.config_mut().trim_text(true);
+    let mut decoder = Decoder::default();
+    let mut remaining = xml.len() as u64;
+    let mut charge = |bytes: u64| -> Result<()> {
+        execution.checkpoint()?;
+        remaining = remaining
+            .checked_sub(bytes)
+            .ok_or_else(|| anyhow::anyhow!("XML decoded content exceeds input byte budget"))?;
+        Ok(())
+    };
     let mut stack: Vec<(String, serde_json::Map<String, serde_json::Value>)> = Vec::new();
     let mut root = None;
 
     loop {
-        match reader.read_event() {
-            Ok(Event::Start(element)) => {
+        execution.checkpoint()?;
+        let event = decoder.decode(
+            reader
+                .read_event()
+                .map_err(|error| anyhow::anyhow!("XML parse error: {error}"))?,
+            &mut charge,
+        )?;
+        match event {
+            Event::Start(element) => {
                 if stack.len() >= MAX_XML_NESTING_DEPTH {
                     anyhow::bail!(
                         "XML nesting depth exceeds the limit of {}",
                         MAX_XML_NESTING_DEPTH
                     );
                 }
-                stack.push((element_name(&element), attributes(&element)));
+                stack.push((
+                    element_name(&element),
+                    attributes(&element, decoder.version, &mut charge)?,
+                ));
             }
-            Ok(Event::Empty(element)) => {
+            Event::Empty(element) => {
+                anyhow::ensure!(
+                    stack.len() < MAX_XML_NESTING_DEPTH,
+                    "XML nesting depth exceeds the limit of {MAX_XML_NESTING_DEPTH}"
+                );
                 let name = element_name(&element);
-                let map = attributes(&element);
+                let map = attributes(&element, decoder.version, &mut charge)?;
                 let value = if map.is_empty() {
                     serde_json::Value::Null
                 } else {
@@ -90,24 +119,30 @@ fn parse_xml_to_json(xml: &str) -> Result<serde_json::Value> {
                 };
                 add_element(&mut stack, &mut root, name, value);
             }
-            Ok(Event::Text(text)) => {
-                let text = text
-                    .xml_content(XmlVersion::Implicit1_0)
-                    .map_err(|error| anyhow::anyhow!("XML text decode error: {}", error))?
-                    .to_string();
-                if !text.is_empty()
-                    && let Some((_, map)) = stack.last_mut()
-                {
-                    map.insert("#text".to_string(), serde_json::Value::String(text));
+            Event::Text(text) => {
+                if let Some((_, map)) = stack.last_mut() {
+                    let value = map
+                        .entry("#text")
+                        .or_insert_with(|| serde_json::Value::String(String::new()));
+                    if let serde_json::Value::String(value) = value {
+                        value.push_str(text.as_ref());
+                    }
+                } else if !text.trim().is_empty() {
+                    anyhow::bail!("XML text outside the root element");
                 }
             }
-            Ok(Event::End(_)) => {
+            Event::End(_) => {
                 if let Some((name, map)) = stack.pop() {
                     add_element(&mut stack, &mut root, name, simplify_element(map));
                 }
             }
-            Ok(Event::Eof) => break,
-            Err(error) => anyhow::bail!("XML parse error: {}", error),
+            Event::Eof => {
+                anyhow::ensure!(
+                    stack.is_empty(),
+                    "XML document ended with unclosed elements"
+                );
+                break;
+            }
             _ => {}
         }
     }
@@ -121,20 +156,24 @@ fn parse_xml_to_json(xml: &str) -> Result<serde_json::Value> {
 }
 
 fn element_name(element: &quick_xml::events::BytesStart<'_>) -> String {
-    String::from_utf8_lossy(element.name().as_ref()).to_string()
+    element.name().as_ref().to_string()
 }
 
 fn attributes(
     element: &quick_xml::events::BytesStart<'_>,
-) -> serde_json::Map<String, serde_json::Value> {
+    version: quick_xml::XmlVersion,
+    mut charge: impl FnMut(u64) -> Result<()>,
+) -> Result<serde_json::Map<String, serde_json::Value>> {
     element
         .attributes()
-        .flatten()
         .map(|attribute| {
-            (
-                format!("@{}", String::from_utf8_lossy(attribute.key.as_ref())),
-                serde_json::Value::String(String::from_utf8_lossy(&attribute.value).to_string()),
-            )
+            let attribute = attribute?;
+            Ok((
+                format!("@{}", attribute.key.as_ref()),
+                serde_json::Value::String(
+                    attribute_value(&attribute, version, &mut charge)?.into_owned(),
+                ),
+            ))
         })
         .collect()
 }
@@ -152,7 +191,13 @@ fn add_element(
     }
 }
 
-fn simplify_element(map: serde_json::Map<String, serde_json::Value>) -> serde_json::Value {
+fn simplify_element(mut map: serde_json::Map<String, serde_json::Value>) -> serde_json::Value {
+    if let Some(serde_json::Value::String(text)) = map.get_mut("#text") {
+        *text = text.trim().to_owned();
+        if text.is_empty() {
+            map.remove("#text");
+        }
+    }
     if map.len() == 1
         && let Some(text) = map.get("#text")
     {

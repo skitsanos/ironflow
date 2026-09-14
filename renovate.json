@@ -3,6 +3,22 @@
   "extends": [
     "config:recommended"
   ],
-  "baseBranches": ["develop"],
-  "dependencyDashboard": false
+  "baseBranchPatterns": ["develop"],
+  "dependencyDashboard": false,
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.github/workflows/.*\\.ya?ml$/"],
+      "matchStrings": ["dtolnay/rust-toolchain@(?<currentValue>\\d+\\.\\d+\\.\\d+)"],
+      "depNameTemplate": "rust",
+      "datasourceTemplate": "rust-version"
+    }
+  ],
+  "packageRules": [
+    {
+      "matchDatasources": ["rust-version"],
+      "matchPackageNames": ["rust"],
+      "groupName": "Rust toolchain"
+    }
+  ]
 }

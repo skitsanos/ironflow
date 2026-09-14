@@ -73,7 +73,7 @@ impl Node for SlackNotificationNode {
             );
         }
 
-        let client = reqwest::Client::builder()
+        let client = crate::util::provider_http::client_builder()
             .timeout(timeout)
             .build()
             .map_err(|error| {
@@ -97,13 +97,15 @@ impl Node for SlackNotificationNode {
 
         let status = response.status().as_u16();
         let success = response.status().is_success();
-        let body = response.text().await.map_err(|error| {
-            anyhow::anyhow!(
-                "Failed to read Slack response from {}: {}",
-                SecretEndpoint::new(&webhook_url),
-                redact_sensitive_text(&error.to_string())
-            )
-        })?;
+        let body = crate::util::provider_http::notification_response_text(response)
+            .await
+            .map_err(|error| {
+                anyhow::anyhow!(
+                    "Failed to read Slack response from {}: {}",
+                    SecretEndpoint::new(&webhook_url),
+                    redact_sensitive_text(&error.to_string())
+                )
+            })?;
         let data = serde_json::from_str(&body).unwrap_or(serde_json::Value::String(body.clone()));
 
         let mut output = NodeOutput::new();

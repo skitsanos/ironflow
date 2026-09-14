@@ -59,9 +59,9 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **binary_file_io.lua** — Contrast explicit Base64 with a disk-backed artifact restore through `write_file`
 - **copy_move_files.lua** — Copy and move files between locations
 - **[s3_put_get_list.lua](04-file-operations/s3_put_get_list.lua)** — List visible buckets, then upload, download, list, and delete one UUID-scoped object
-- **s3_copy.lua** — Copy objects inside S3 and verify object list
+- **s3_copy.lua** — Copy a literal space/percent key in S3, verify downloaded content and object listing, then clean up
 - **s3_presign_url.lua** — Upload a demo object and generate a presigned S3 URL
-- **zip_workflow.lua** — Create a ZIP archive, list entries, extract, and log results
+- **zip_workflow.lua** — Create a ZIP archive, list and extract with raw entry/metadata budgets, and log results
 
 ## 05-http
 - **api_call.lua** — Simple GET request with response handling
@@ -82,18 +82,19 @@ credentialed, local-state, and platform-specific flow at the same time.
 
 ## 07-advanced
 - **hashing.lua** — SHA-256 and MD5 hash computation
-- **schema_validation.lua** — JSON Schema validation with error handling
-- **json_validate.lua** — Validate raw JSON strings using a schema
+- **schema_validation.lua** — Offline JSON Schema validation with a bundled customer definition
+- **json_validate.lua** — Validate raw JSON strings using a bundled schema reference
 - **data_pipeline.lua** — Full pipeline: filter → transform → dedup → hash → batch
 - **code_node_extract.lua** — Inline Lua code node to extract fields from API responses
 - **function_handler.lua** — Pass Lua functions directly as step handlers
+- **reused_callbacks.lua** — Reuse one self-contained callback across steps, conditional steps, code nodes, and foreach transforms
 - **markdown_conversion.lua** — Markdown ↔ HTML conversion with GFM support
 - **base64_encode_decode.lua** — Base64 encode and decode round-trip
 
 ## 08-extraction
 - **extract_word.lua** — Extract Word (.docx) JSON blocks, metadata, and comments
 - **extract_pdf.lua** — Extract text and metadata from PDF files with bounded, single-parse page processing
-- **extract_pptx.lua** — Extract slides, metadata, comments, and disk-backed media descriptors when present in PowerPoint (.pptx) files
+- **extract_pptx.lua** — Extract slides in presentation order with relationship-linked notes, comments, metadata, and disk-backed media descriptors; verify slide and comment indices
 - **extract_vtt.lua** — Extract text and metadata from WebVTT subtitle files
 - **extract_srt.lua** — Extract text and metadata from SRT subtitle files
 - **xlsx_workbook.lua** — Extract every sheet of an Excel (.xlsx) workbook and count rows per sheet via `foreach`
@@ -115,22 +116,29 @@ credentialed, local-state, and platform-specific flow at the same time.
 
 ## 09-cache
 - **cache_memory.lua** — In-memory key-value cache with TTL
-- **cache_file.lua** — File-based persistent cache with TTL
+- **cache_file.lua** — File-based cache with TTL and verified separation of punctuation-bearing keys
 - **cache_context_keys.lua** — Use context interpolation consistently in `cache_set` and `cache_get` keys
 
 ## 10-database
-- **sqlite_crud.lua** — SQLite CRUD operations using `db_exec` and `db_query`
+- **sqlite_crud.lua** — SQLite CRUD and numeric aggregate assertions using `db_exec` and `db_query`
 
 ## 11-subworkflow
 - **basic_subworkflow.lua** — Call a subworkflow and use its output
 - **fire_and_forget.lua** — Launch a subworkflow without waiting (async)
+- **live_child_results.lua** — Verify a full 3 MiB child result in a downstream step while CLI inspection remains truncated
+- **large_result_child.lua** — Reusable payload-producing child for the live result example
 - **on_error_example.lua** — Planned `on_error` recovery with a handler dependency
 - **parallel_subworkflows.lua** — Run multiple subworkflows concurrently and collect results
+- **parallel_literal_inputs.lua** — Preserve literal source items while explicit input mappings still select parent values
+- **literal_item_child.lua** — Reusable item/index echo child for the literal-input example
+- **parallel_result_metadata.lua** — Verify authoritative status for static/dynamic children whose output uses metadata field names
+- **metadata_child.lua** — Reusable successful/failing child for the parallel metadata example
 - **repeat_subworkflow.lua** — Repeat a child flow with explicit carried state and a finite iteration bound
 - **repeat_counter_subworkflow.lua** — Reusable counter child used by the repeat example
 - **greet.lua** — Simple reusable helper flow used by the subworkflow examples
 
 ## 12-arangodb
+- **aql_pagination.lua** — Read three batches from a five-row AQL query, preserve cursor identity, and explicitly close the cursor
 - **aql_query.lua** — Simple AQL query with environment-based credentials
 - **aql_with_bind_vars.lua** — AQL query with bind variables for parameterized queries
 
@@ -148,6 +156,8 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **llm_openai_response_format.lua** — OpenAI `response_format` demo (`json_object` + `json_schema`)
 - **llm_openai_tool_web_search.lua** — OpenAI Responses API internal web search tool demo
 - **llm_openai_tool_subworkflow_dispatch.lua** — Dispatch `nodes.llm` tool calls to subworkflow handlers with `tool_dispatch`
+- **tool_dispatch_input_projection.lua** — Offline nested tool-input selection with assertions that missing fields become JSON null without exposing private siblings
+- **tool_input_projection_subworkflow.lua** — Handler for the offline tool-input selection example
 - **tool_weather_subworkflow.lua** — Reusable weather lookup subworkflow used by tool dispatch example
 - **tool_time_subworkflow.lua** — Reusable current-time subworkflow used by tool dispatch example
 - **tool_unknown_subworkflow.lua** — Handles unknown tool calls for fallback/error demonstration
@@ -164,14 +174,15 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **chunk_merge.lua** — Merge small chunks into token-budget groups
 - **chunk_embed_openai_word.lua** — Word document → chunk → foreach → OpenAI embeddings
 - **embed_openai_from_ctx.lua** — Context-driven document path for OpenAI embeddings
-- **chunk_semantic.lua** — Semantic chunking using embedding similarity
+- **chunk_semantic.lua** — Semantic chunking using embedding cosine-distance peaks
 - **semantic_chunks_embed.lua** — Semantic chunking then foreach + embeddings
+- **semantic_topic_boundary.lua** — Inline two-topic text with inspectable semantic chunks; no document fixture required
 - **transcribe_index.lua** — Transcribe audio to VTT, extract cues, chunk with preserved timecodes, and embed the chunk text
 
 ## 14-notifications
-- **send_email_resend.lua** — Send an email via Resend API
+- **send_email_resend.lua** — Send an email via Resend API with bounded responses; optional `RESEND_API_URL` example override for local fixtures
 - **send_email_smtp.lua** — Send an email via SMTP
-- **slack_notification.lua** — Send a Slack message via incoming webhook
+- **slack_notification.lua** — Send a Slack message via incoming webhook with bounded responses; `SLACK_WEBHOOK` can point to a local fixture
 
 ## 15-webhooks
 - **simple_webhook.lua** — Basic webhook that greets the caller by name
@@ -187,11 +198,11 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **s3vector_rag_query_evaluator.lua** — Compare baseline vs LLM-expanded retrieval on S3 vectors with relevance metrics.
 
 ## 17-mcp
-- **mcp_stdio.lua** — Reuses one persistent MCP stdio server for atomic initialization, tool listing, a tool call, and explicit close.
+- **mcp_stdio.lua** — Reuses one persistent MCP stdio server for atomic initialization, tool listing, a tool call, and explicit close, including fragmented responses interleaved with server ping replies.
 - **mcp_streamable_http.lua** — MCP 2025-11-25 Streamable HTTP session with optional bearer authentication, tool listing/call, and explicit close.
 
 ## 18-xml-yaml
-- **xml_parse.lua** — Parse XML into JSON and log the result
+- **xml_parse.lua** — Parse XML into JSON and verify entity, CDATA, and attribute fidelity
 - **xml_stringify.lua** — Convert JSON-like data into XML
 - **yaml_parse.lua** — Parse YAML into JSON and log the result
 - **yaml_stringify.lua** — Convert JSON-like data into YAML
@@ -296,14 +307,14 @@ duplicated, unclassified, or inconsistent entries.
 
 | Category | Count | Default CI execution |
 | --- | ---: | --- |
-| Offline | 40 | Fixture-backed deterministic subset |
+| Offline | 42 | Fixture-backed deterministic subset |
 | Offline with outputs/processes | 24 | Fixture-backed local-output cases and MCP stdio use isolated paths; others require isolated outputs |
 | Public/local network | 9 | No |
-| Credentialed external service | 48 | No |
-| Server/manual HTTP or scheduler | 5 | No |
-| Composition parent/helper flow | 9 | Exercised as coordinated cases where applicable |
+| Credentialed external service | 50 | No |
+| Server/manual HTTP or scheduler | 7 | No |
+| Composition parent/helper flow | 16 | Exercised as coordinated cases where applicable |
 
-All 137 flows are still parsed by `ironflow validate`. Twelve fixture-backed
+All 148 flows are still parsed by `ironflow validate`. Twelve fixture-backed
 offline flows and the local MCP stdio example also run from a disposable
 working directory as part of:
 

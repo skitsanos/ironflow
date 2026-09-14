@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
+import tempfile
 import tomllib
 import unittest
 from pathlib import Path
@@ -46,7 +48,7 @@ class ProtectPathsTests(unittest.TestCase):
                 self.assert_blocked(path)
 
     def test_blocks_private_key_extensions(self) -> None:
-        for path in ("server.pem", "certs/private.key", "bundle.p12", "bundle.pfx"):
+        for path in ("server.pem", "certs/private.key", "bundle.p12", "bundle.pfx", "id_rsa", ".ssh/id_ed25519"):
             with self.subTest(path=path):
                 self.assert_blocked(path)
 
@@ -64,6 +66,44 @@ class ProtectPathsTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "")
 
+    def test_checks_move_destinations(self) -> None:
+        payload = patch_payload("src/ordinary.rs")
+        payload["tool_input"] = {"command": "*** Begin Patch\n*** Update File: src/ordinary.rs\n*** Move to: .env\n*** End Patch\n"}
+        result = run_hook(PROTECT_PATHS, payload)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_malformed_patch_payload_is_denied_without_echoing_content(self) -> None:
+        for tool_input in (None, [], "private payload", {}, {"command": "private payload"}):
+            with self.subTest(tool_input=tool_input):
+                result = run_hook(PROTECT_PATHS, {"tool_name": "apply_patch", "tool_input": tool_input})
+                self.assertEqual(result.returncode, 0, result.stderr)
+                output = json.loads(result.stdout)
+                self.assertEqual(output["hookSpecificOutput"]["permissionDecision"], "deny")
+                self.assertNotIn("private payload", result.stdout + result.stderr)
+
+    @unittest.skipUnless(hasattr(os, "symlink"), "symlinks are unavailable")
+    def test_resolves_protected_targets_without_reading_their_contents(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            try:
+                (root / "alias").symlink_to(root / ".env")
+                (root / "credentials").symlink_to(root / "secrets", target_is_directory=True)
+            except OSError as error:
+                self.skipTest(f"symlink creation is unavailable: {error}")
+            for path in ("alias", "credentials/token.txt"):
+                payload = patch_payload(path)
+                payload["cwd"] = temporary
+                result = run_hook(PROTECT_PATHS, payload)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_accepts_absolute_and_relative_source_paths(self) -> None:
+        for path in (str(REPOSITORY / "src/main.rs"), "src/../src/main.rs"):
+            result = run_hook(PROTECT_PATHS, patch_payload(path))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, "")
+
 
 class SessionContextTests(unittest.TestCase):
     def test_reports_secret_safe_repository_context(self) -> None:
@@ -73,6 +113,8 @@ class SessionContextTests(unittest.TestCase):
         hook = output["hookSpecificOutput"]
         self.assertEqual(hook["hookEventName"], "SessionStart")
         self.assertIn("IronFlow session context", hook["additionalContext"])
+        self.assertIn("docs/issues/README.md", hook["additionalContext"])
+        self.assertIn("generated", hook["additionalContext"])
         self.assertNotIn(".env", hook["additionalContext"])
 
 

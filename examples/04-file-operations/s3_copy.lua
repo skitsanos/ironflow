@@ -1,9 +1,10 @@
 --[[
-S3 example: copy an object and verify results via listing.
+S3 example: copy a literal space/percent key and verify contents and listing.
 
 Requirements:
 - AWS credentials and region configuration.
-- S3_BUCKET naming a disposable bucket where objects may be created/deleted.
+- S3_BUCKET naming a disposable bucket where objects may be created, read,
+  listed, and deleted.
 
 Effects:
 - Uses a UUID-scoped remote prefix. Successful runs delete both objects;
@@ -12,13 +13,15 @@ Effects:
 Flow:
 1. Upload source content to a unique example prefix.
 2. Copy it to a second key under that prefix.
-3. List objects under the same prefix.
-4. Delete both source and copy objects.
+3. Download the copy and verify its contents.
+4. List objects under the same prefix.
+5. Delete both source and copy objects.
 ]]
 
 local flow = Flow.new("s3_copy")
 local prefix = "ironflow/examples/s3-copy/" .. uuid4() .. "/"
-local source_key = prefix .. "original.txt"
+-- Keys stay literal; the copy node encodes the header, including the '%' byte.
+local source_key = prefix .. "original %2F.txt"
 local copy_key = prefix .. "copy.txt"
 
 --[[
@@ -43,16 +46,31 @@ flow:step("copy", nodes.s3_copy_object({
 })):depends_on("upload_source")
 
 --[[
-Step 3: List results.
+Step 3: Download and verify the exact content at the destination key.
+]]
+flow:step("download_copy", nodes.s3_get_object({
+    bucket = env("S3_BUCKET"),
+    key = copy_key,
+    encoding = "text",
+    output_key = "downloaded"
+})):depends_on("copy")
+
+flow:step("verify_copy", function(ctx)
+    assert(ctx.downloaded_content == "Original content for copy flow", "Copied content mismatch")
+    return { copy_verified = true }
+end):depends_on("download_copy")
+
+--[[
+Step 4: List results.
 ]]
 flow:step("list", nodes.s3_list_objects({
     bucket = env("S3_BUCKET"),
     prefix = prefix,
     output_key = "demo_objects"
-})):depends_on("copy")
+})):depends_on("verify_copy")
 
 --[[
-Step 4: Delete both objects so the demo leaves no artifacts.
+Step 5: Delete both objects so the demo leaves no artifacts.
 ]]
 flow:step("delete_source", nodes.s3_delete_object({
     bucket = env("S3_BUCKET"),
@@ -67,7 +85,7 @@ flow:step("delete_copy", nodes.s3_delete_object({
 })):depends_on("delete_source")
 
 --[[
-Step 5: Log completed state.
+Step 6: Log completed state.
 ]]
 flow:step("log", nodes.log({
     message = "Copy demo complete. Prefix " .. prefix .. " contained ${ctx.demo_objects_count} object(s) before cleanup"

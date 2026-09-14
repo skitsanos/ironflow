@@ -145,13 +145,10 @@ impl Node for SubworkflowNode {
         let store: Arc<dyn crate::storage::StateStore> = Arc::new(NullStateStore::new());
 
         if wait {
-            let engine = WorkflowEngine::new(child_registry, store.clone(), None);
-            let run_id = engine
-                .start_with_execution_overlay(&flow, sub_ctx, execution_overlay)
-                .await?
-                .wait_cancel_on_drop()
+            let engine = WorkflowEngine::new(child_registry, store, None);
+            let run_info = engine
+                .execute_child(&flow, sub_ctx, execution_overlay)
                 .await?;
-            let run_info = store.get_run_info(&run_id).await?;
 
             let child_succeeded = matches!(run_info.status, RunStatus::Success);
 
@@ -182,9 +179,8 @@ impl Node for SubworkflowNode {
                 // the un-namespaced branch below and parallel_runner.
                 let public: serde_json::Map<String, serde_json::Value> = run_info
                     .ctx
-                    .iter()
+                    .into_iter()
                     .filter(|(k, _)| !k.starts_with('_'))
-                    .map(|(k, v)| (k.clone(), v.clone()))
                     .collect();
                 output.insert(key.clone(), serde_json::Value::Object(public));
                 output.insert(
@@ -202,9 +198,9 @@ impl Node for SubworkflowNode {
                 }
             } else {
                 // Merge subworkflow output directly into parent context
-                for (k, v) in run_info.ctx.iter() {
+                for (k, v) in run_info.ctx {
                     if !k.starts_with('_') {
-                        output.insert(k.to_string(), v.clone());
+                        output.insert(k, v);
                     }
                 }
             }

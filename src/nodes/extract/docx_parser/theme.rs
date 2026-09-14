@@ -25,10 +25,10 @@ pub(in crate::nodes::extract) fn parse_theme_colors<R: BufRead>(
         let event = reader.read_event_into(&mut buf).map_err(|error| {
             anyhow::anyhow!("extract_word: invalid word/theme/theme1.xml: {error}")
         })?;
-        document.observe(&event, budget)?;
+        let event = document.decode(event, budget)?;
         match event {
             Event::Start(ref event) | Event::Empty(ref event) => {
-                let raw = String::from_utf8_lossy(event.name().as_ref()).to_string();
+                let raw = event.name().as_ref().to_string();
                 let local = raw.rsplit(':').next().unwrap_or(&raw);
                 if local == "clrScheme" {
                     in_scheme = true;
@@ -46,6 +46,7 @@ pub(in crate::nodes::extract) fn parse_theme_colors<R: BufRead>(
                         visit_attributes(
                             event,
                             "word/theme/theme1.xml",
+                            document.version(),
                             budget,
                             |key, value, _| {
                                 if key != attr_name {
@@ -60,7 +61,7 @@ pub(in crate::nodes::extract) fn parse_theme_colors<R: BufRead>(
                 }
             }
             Event::End(ref event) => {
-                let raw = String::from_utf8_lossy(event.name().as_ref()).to_string();
+                let raw = event.name().as_ref().to_string();
                 let local = raw.rsplit(':').next().unwrap_or(&raw);
                 if local == "clrScheme" {
                     in_scheme = false;

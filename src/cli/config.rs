@@ -32,13 +32,13 @@ pub struct IronFlowConfig {
     /// Allowed CORS origins for the API server.
     /// Use ["*"] only when intentionally allowing browser access from any origin.
     pub cors_origins: Option<Vec<String>>,
-    /// Storage backend: "json" (default) or "redis"
+    /// State backend: "json" (default), "sqlite", "postgres", or "redis".
     pub store_backend: Option<String>,
-    /// SQL state store URL for `sqlite` / `postgres`.
+    /// SQL state store URL; its scheme must match `store_backend`.
     pub store_url: Option<String>,
     /// Event backend: "memory" (default), "sqlite", "postgres", or "redis".
     pub event_store: Option<String>,
-    /// SQL event store URL for `sqlite` / `postgres`.
+    /// SQL event store URL; its scheme must match `event_store`.
     pub event_store_url: Option<String>,
     /// Maximum event payloads and deletion fences retained across all runs by
     /// the in-memory event store.
@@ -160,7 +160,8 @@ impl IronFlowConfig {
         let contents = std::fs::read_to_string(&file_path)
             .with_context(|| format!("Failed to read config file: {}", file_path.display()))?;
 
-        let config: IronFlowConfig = noyalib::compat::serde_yaml::from_str(&contents)
+        // The serde_yaml compatibility shim no longer uses IronFlow's YAML defaults.
+        let config: IronFlowConfig = noyalib::from_str(&contents)
             .with_context(|| format!("Failed to parse config file: {}", file_path.display()))?;
 
         Ok(config)
@@ -182,7 +183,7 @@ mod tests {
             yaml.push_str(&schedule_entry(&format!("schedule_{index}")));
         }
 
-        let error = noyalib::compat::serde_yaml::from_str::<IronFlowConfig>(&yaml)
+        let error = noyalib::from_str::<IronFlowConfig>(&yaml)
             .unwrap_err()
             .to_string();
         assert!(error.contains("entry limit"), "{error}");
@@ -192,7 +193,7 @@ mod tests {
     fn schedule_names_are_rejected_during_deserialization() {
         let name = "n".repeat(crate::scheduler::config::MAX_SCHEDULE_NAME_BYTES + 1);
         let yaml = format!("schedules:\n{}", schedule_entry(&name));
-        let error = noyalib::compat::serde_yaml::from_str::<IronFlowConfig>(&yaml)
+        let error = noyalib::from_str::<IronFlowConfig>(&yaml)
             .unwrap_err()
             .to_string();
         assert!(
@@ -203,7 +204,7 @@ mod tests {
 
     #[test]
     fn a_bounded_schedule_map_deserializes() {
-        let config = noyalib::compat::serde_yaml::from_str::<IronFlowConfig>(
+        let config = noyalib::from_str::<IronFlowConfig>(
             "schedules:\n  nightly:\n    flow: f.lua\n    cron: \"0 2 * * *\"\n",
         )
         .unwrap();

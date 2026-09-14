@@ -1,7 +1,8 @@
 mod merge;
 mod objects;
+mod page_graph;
 mod split;
 
 pub(crate) use merge::PdfMergeNode;
-pub(crate) use objects::{collect_objects_recursive, extract_references, remap_references};
+pub(crate) use objects::{extract_references, remap_references};
 pub(crate) use split::PdfSplitNode;

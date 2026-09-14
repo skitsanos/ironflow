@@ -151,6 +151,10 @@ Nodes are registered in a `NodeRegistry` and exposed to Lua as callable factory 
 - Sandbox restricts access — `os`, `io`, `debug`, `loadfile`, `dofile` are removed
 - `env(key)` function exposed for reading environment variables
 - Function handlers — Lua functions passed directly as step handlers are compiled to bytecode and executed as `code` nodes
+- Validation associates serialized callbacks with an unambiguous source line
+  range. The association is reusable across registrations; diagnostics are
+  deduplicated at their source positions. Indistinguishable ranges fail
+  validation rather than being assigned by registration order.
 - `code`, `foreach`, and step-owned nested-flow parsing execute on Tokio's
   blocking pool rather than runtime workers. Their instruction hook observes
   both resource limits and the executor's step deadline/drop-cancellation
@@ -287,7 +291,16 @@ Implementations:
   task cannot be inserted after its parent run disappears. A single run
   deletion removes its tasks and run row in one transaction; `prune_before`
   locks eligible runs and deletes every selected run/task set in one
-  transaction, so any failure rolls the whole prune back.
+  transaction, so any failure rolls the whole prune back. Context merges take
+  the same run lock before reading and hold it through the merged write and
+  commit. Successful disjoint updates survive across store instances; duplicate
+  keys use the last serialized writer's value (a shallow merge, including JSON
+  null). The owned path retains its live-lease check and acquires locks in
+  lease-then-run order. A context snapshot cannot cross deletion/recreation:
+  an absent run returns `NotFound`, while a first locked read after recreation
+  can legitimately merge into the new run. Unowned calls do not carry an owner
+  or incarnation token. These guarantees require all concurrent writers to
+  use the updated implementation; they do not make older binaries safe writers.
 - **RedisStateStore** — Redis-backed (optional, `redis` feature flag). Uses a
   Redis Hash per run plus native global and per-status Sorted Set indexes.
   Sorted Set members encode the normalized microsecond timestamp and run ID,
@@ -316,6 +329,14 @@ Implementations:
   larger of configured retention and the remaining lease plus a 90-second
   reaper safety margin; with no configured retention it stays persistent.
   Terminalization releases the lease and restores ordinary retention.
+  Lease-fenced status/task/context writes, renewal, reconciliation, and run
+  deletion preflight the types of their script keys and reject key aliases or
+  malformed numeric arguments before mutation, including stale-entry cleanup.
+  A detected type/argument error leaves the run projection, revision, catalog,
+  lease deadline, and absolute key expiries unchanged. Lease deadline arithmetic
+  is bounded to Lua's exact integer range; retention keeps the existing
+  `1..=99,999,999,999` second limit. This is preflight for deterministic errors,
+  not rollback of arbitrary Redis server, memory, or ACL failures.
   Production state deployments should use
   Redis `maxmemory-policy noeviction`; independent eviction of primary catalog
   keys is outside the storage durability contract. Expired hash entries are
@@ -726,7 +747,15 @@ cannot hold an orchestrator termination forever.
 
 `IRONFLOW_REPLICA_MODE=true` is an operator assertion checked before stores are
 opened. It accepts only PostgreSQL/Redis state plus PostgreSQL/Redis events;
-JSON, SQLite, and memory are process/local-host backends. The detailed failure
+JSON, SQLite, and memory are process/local-host backends. The shared CLI SQL
+resolver checks the selected backend against `SqlDialect::from_url` after
+environment/YAML precedence. PostgreSQL requires `postgres://` or
+`postgresql://`, and SQLite requires `sqlite:` or its omitted-URL default.
+`serve` preflights both selected SQL URLs without filesystem or connection
+side effects even outside replica mode; the individual factories also validate
+before connecting. Mismatch diagnostics identify settings, not raw URLs.
+This verifies dialects, not whether separate processes target the same service.
+The detailed failure
 and platform boundary is in [Replica deployment](REPLICA_DEPLOYMENT.md).
 
 ### 6. CLI (`cli/`)
@@ -841,6 +870,20 @@ Features:
 10. Context returned to caller
 ```
 
+## Semantic Chunking
+
+The `ai_chunk_semantic` providers feed a shared sentence-boundary pipeline.
+It averages adjacent embedding cosine distances, smooths the curve, and selects
+positive interior distance peaks, not distance minima. Relative percentile
+filtering favors stronger peaks; increasing `threshold` admits weaker candidates
+before left-to-right `min_distance` filtering. Flat signals do not create splits.
+
+Split spacing is measured in sentence-index gaps. It is not a hard minimum or
+maximum chunk-size budget; downstream fixed-size chunking is a separate operation.
+See [`ai_chunk_semantic`](nodes/ai_chunk_semantic.md) for tuning and edge cases.
+Deterministic orthogonal-embedding tests prove signal polarity and sentence
+preservation, not retrieval quality for arbitrary documents or embedding models.
+
 ## Context Model
 
 Context is a `HashMap<String, serde_json::Value>` that flows through the entire workflow:
@@ -860,6 +903,24 @@ Context is a `HashMap<String, serde_json::Value>` that flows through the entire 
   infrastructure failure before a phase barrier discards that phase's buffered
   shared-context publication while retaining already-persisted bounded task
   history.
+- Final persisted context applies that same cap per value. Waiting composition
+  (`subworkflow`, `parallel_subworkflows`, `repeat_subworkflow`, `tool_dispatch`)
+  instead receives an opt-in, invocation-local completion result containing the
+  full redacted context and final status after worker drain and finalization.
+  History truncation cannot change child output or carried repeat state. The
+  existing Lua memory/conversion limits still apply; this handoff is neither a
+  global context-memory cap nor durable recovery storage.
+- Public run handles retain their run-ID-only wait/cancel API and detach-on-drop
+  behavior, without retaining a live completion payload. Internal child waiters
+  request cancellation when their parent future is dropped.
+- Parallel child result entries reserve top-level `success`, `flow`, and
+  `error` for execution metadata. Flattened child context cannot replace them;
+  non-reserved child namespaces preserve same-named domain fields. Reserved
+  child namespace names fail node admission before any child starts.
+- Dynamic parallel fan-out carries source items and one-based indexes as typed
+  literal inputs, separate from authored JSON mappings. Only mapping strings
+  select parent context keys; literal items never undergo reference lookup.
+  Injection precedes the existing engine-key and execution-overlay safeguards.
 - Output-size admission uses an aborting counting serializer. A truncation
   marker reports `_minimum_bytes = limit + 1`, not an exact original size,
   because counting stops as soon as the configured limit is crossed.
@@ -976,7 +1037,13 @@ The S3 lifecycle contract is deliberately narrow:
   handled by the offline prune command.
 - Downloads enforce the configured ceiling and declared length while
   streaming, then verify SHA-256 before publishing or repairing the private
-  cache. Cancellation drops the request and removes the private staging file.
+  cache. Cancellation/deadlines are checked before each body wait and after
+  every received chunk or EOF, as well as every 100 ms while awaiting a body
+  chunk. A steadily progressing response cannot postpone cancellation until
+  EOF. Cancellation drops the request and removes the private staging file;
+  task/run admission remains held until the tracked worker physically exits.
+  Checks are cooperative, not hard real-time guarantees: an in-progress
+  synchronous write/hash/sync operation must return before its next checkpoint.
 - Pruning deletes one content-addressed object at a time. Object deletion is
   idempotent, so an interrupted sweep can be rerun; it does not provide a
   transaction across the candidate batch.
@@ -1005,6 +1072,14 @@ running under the same OS identity from mutating the leased inode.
   traversal, parsing, compression, and copying use tracked blocking workers;
   they checkpoint between filesystem/archive entries and copied chunks so run
   and task admission remains held until physical work stops.
+- `zip_list`, `zip_extract`, and OOXML readers share a raw ZIP/ZIP64 scanner
+  before library metadata construction. It bounds raw counts, validates central
+  headers, and rejects duplicate raw names. ZIP list/extract use the independent
+  `IRONFLOW_MAX_ZIP_METADATA_BYTES` budget (8 MiB, per-node override supported)
+  for names, extra fields, comments, and ZIP64 end-record extensions. XLSX keeps
+  its dedicated archive-metadata budget and OOXML retains its raw input caps.
+  ZIP extraction validates decoded destination collisions and filesystem safety
+  after this admission but before destination mutation.
 - Shell commands and persistent MCP stdio servers enable direct-child
   `kill_on_drop` on every platform. On Unix they also lead a process group.
   Closing an MCP session first closes stdin and gives the server time to exit;
@@ -1013,6 +1088,17 @@ running under the same OS identity from mutating the leased inode.
 - MCP initialization returns a process-local opaque handle. A capacity-bound,
   idle-expiring registry owns both stdio and Streamable HTTP sessions; explicit
   `close` remains the normal lifecycle endpoint.
+- ArangoDB AQL nodes return one batch and any server cursor ID. Explicit `next`
+  and `close` actions share authenticated, same-origin HTTP transport and bounded
+  response admission. A successful batch leaves cursor ownership with the
+  workflow; failures and cancellation attempt a three-second DELETE for a known
+  ID. This cleanup is not durable, cannot undo AQL writes, and relies on server
+  TTL when the ID is unknown, the network fails, or the runtime exits.
+- The MCP stdio worker owns incomplete frame bytes outside its cancellable read
+  future. Sending a server-request reply can interrupt that read without losing
+  the prefix. Each retry uses the remaining cumulative frame budget; EOF with
+  incomplete bytes is an error, not clean transport completion. Actual operation
+  cancellation still invalidates the session and cleans up its process.
 
 The deadline is an execution budget: task-state/event persistence required to
 record the result is not forcibly interrupted by it. Cancellation cannot undo

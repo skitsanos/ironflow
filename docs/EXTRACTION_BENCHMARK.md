@@ -37,6 +37,11 @@ compressed PDF text, positioned CID/ToUnicode glyph fragments, and pathological
 HTML. It is intentionally compact; local samples provide calibration at
 realistic sizes. The `baseline/empty` case measures process/runtime startup.
 
+The repeated-media PPTX contains 48 explicitly listed slides, eight references
+per slide, and one shared media part. IF-115 added its presentation manifest and
+relationships; the fixture checksum changed. Compare performance only against
+runs using the same updated fixture, not the historical manifest-free package.
+
 ## JSONL schema
 
 Each line is one subprocess observation. It contains no extracted document

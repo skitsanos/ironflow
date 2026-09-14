@@ -4,6 +4,7 @@ mod deadline;
 mod engine;
 mod error_handler;
 mod finalizer;
+mod handle;
 mod lease;
 mod output;
 mod overlay;
@@ -15,7 +16,7 @@ mod task_runner;
 mod task_runtime;
 mod workflow;
 
-pub(crate) use coordinator::RunCancellation;
-pub use coordinator::RunHandle;
 pub use engine::WorkflowEngine;
+pub use handle::RunHandle;
+pub(crate) use handle::{ChildRunResult, RunCancellation};
 pub(crate) use overlay::ExecutionOverlay;

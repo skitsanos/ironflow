@@ -3,20 +3,39 @@ use async_trait::async_trait;
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::{Node, NodeFailure};
+use crate::util::execution::run_tracked_blocking_step;
 
-fn validate_against_schema(
-    data: &serde_json::Value,
-    schema: &serde_json::Value,
+async fn validate_against_schema(
+    data: serde_json::Value,
+    schema: serde_json::Value,
 ) -> Result<(bool, Vec<String>)> {
-    let validator = jsonschema::validator_for(schema)
-        .map_err(|e| anyhow::anyhow!("Invalid JSON schema: {}", e))?;
+    run_tracked_blocking_step(move |control| {
+        tracing::trace!(target: "ironflow::schema::validation", "compiling offline schema");
+        control.checkpoint()?;
+        let validator = jsonschema::options().offline().build(&schema).map_err(|error| {
+            // Reference diagnostics may contain credentials from the URI. Do
+            // not retain the original error as a source for durable reporting.
+            if matches!(error.kind(), jsonschema::error::ValidationErrorKind::Referencing(_)) {
+                anyhow::anyhow!(
+                    "Invalid JSON schema: unresolved schema reference. External schema retrieval is disabled; \
+                     bundle referenced schemas in the supplied document."
+                )
+            } else {
+                anyhow::anyhow!("Invalid JSON schema: {error}")
+            }
+        })?;
+        control.checkpoint()?;
 
-    let errors: Vec<String> = validator
-        .iter_errors(data)
-        .map(|e| format!("{} at {}", e, e.instance_path()))
-        .collect();
+        let mut errors = Vec::new();
+        for error in validator.iter_errors(&data) {
+            control.checkpoint()?;
+            errors.push(format!("{} at {}", error, error.instance_path()));
+        }
+        control.checkpoint()?;
 
-    Ok((errors.is_empty(), errors))
+        Ok((errors.is_empty(), errors))
+    })
+    .await
 }
 
 fn build_validation_output(success: bool, errors: Vec<String>) -> NodeOutput {
@@ -107,7 +126,7 @@ impl Node for ValidateSchemaNode {
             .get(source_key)
             .ok_or_else(|| anyhow::anyhow!("Key '{}' not found in context", source_key))?;
 
-        let (success, errors) = validate_against_schema(data, &schema)?;
+        let (success, errors) = validate_against_schema(data.clone(), schema).await?;
         finish_validation(build_validation_output(success, errors))
     }
 }
@@ -143,7 +162,7 @@ impl Node for JsonValidateNode {
             raw.clone()
         };
 
-        let (success, errors) = validate_against_schema(&data, &schema)?;
+        let (success, errors) = validate_against_schema(data, schema).await?;
         finish_validation(build_validation_output(success, errors))
     }
 }

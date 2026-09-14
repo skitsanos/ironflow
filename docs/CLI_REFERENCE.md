@@ -80,6 +80,12 @@ the decoded source string. Use `--strict` to treat any Lua warning as a
 validation failure. Invalid embedded syntax and function handlers that capture
 outer locals are always rejected.
 
+Self-contained callbacks may be registered repeatedly; each source warning is
+reported once. Distinct functions with identical start/end line ranges are
+ambiguous to source analysis and fail validation in both modes. Define them
+on distinct lines. Reusing a callback is separate from sharing one recovery
+step across multiple `on_error()` sources, which remains invalid.
+
 | Argument / Flag | Required | Default | Description |
 |-----------------|----------|---------|-------------|
 | `<FLOW>` | yes | — | Path to the `.lua` flow file |
@@ -265,6 +271,12 @@ root before they are opened. Traversal, encoded separators, backslashes,
 special files, malformed percent encoding, directory listings, and symlink
 escapes return `404`.
 
+Compressed sidecars never make an absent original file available. Orphan
+`.br`/`.gz` links that escape the root are rejected too, and the SPA root index
+and its sidecars are checked again when serving a fallback. Keep the public
+tree operator-controlled and read-only while serving: these pathname checks
+do not provide atomic isolation against a concurrent filesystem writer.
+
 Static files are public and accept only `GET` and `HEAD`. API authentication is
 unchanged: `/flows`, `/runs`, `/nodes`, `/webhooks`, `/health`, and `/metrics`
 remain reserved and cannot be shadowed by files or SPA routes. The SPA fallback
@@ -302,6 +314,11 @@ The `serve` command (and all other commands) can load settings from `ironflow.ya
 ironflow -C /path/to/ironflow.yaml serve
 ```
 
+YAML anchors and `<<` merge keys are expanded, with explicit settings overriding
+merged settings. Unquoted leading-zero integers are decimal (`port: 0123` means
+port 123); quote a value when it must remain a string. Configuration loading and
+`yaml_parse` use the same YAML parsing defaults.
+
 #### Storage Backend
 
 IronFlow supports these state storage backends:
@@ -310,6 +327,17 @@ IronFlow supports these state storage backends:
 - **sqlite** — SQL storage in a local SQLite database
 - **postgres** — SQL storage in Postgres (requires a `-full` release binary or building with `--features postgres`)
 - **redis** — Redis-backed storage (requires a `-full` release binary or building with `--features redis`)
+
+For SQL state and event stores, the resolved URL scheme must match the selected
+backend: `sqlite:` for `sqlite`, or `postgres://` / `postgresql://` for `postgres`.
+PostgreSQL requires an explicit URL; SQLite still defaults to local files when
+its URL is omitted. An empty, unsupported, or mismatched scheme is rejected
+without echoing the URL, and an invalid environment override never falls back
+to YAML. Every state-store CLI command checks before connecting. `serve`
+preflights both selected SQL URLs before opening either store, in standalone
+and replica mode. SQL URL settings are ignored when their corresponding backend
+is not SQL. See [Replica deployment](REPLICA_DEPLOYMENT.md) for the shared-store
+operator contract.
 
 The JSON backend accepts only the canonical run IDs above, confines record and
 summary names to `store_dir`, and rejects a store root or run-related entry that
@@ -406,6 +434,14 @@ When `IRONFLOW_EVENT_STORE=sqlite` and no URL is configured, IronFlow creates `i
 Run state and run events are configured separately, so a deployment can store run records in one backend and stream event replay from another. Redis event storage is available behind `--features redis` and uses `REDIS_URL`, `REDIS_PREFIX`, and optional `REDIS_TTL`.
 Redis state mutations use revision-token compare-and-swap, while event payload/cursor publication is one idempotent Lua operation. These guarantees apply per operation; state and event writes are not a single transaction. The current multi-key layout supports standalone Redis, not Redis Cluster.
 
+Redis lease updates and run deletion validate script key types and numeric
+arguments before writing. Script-level type, alias, or TTL failures are
+reported as storage corruption without partially updating the run,
+catalog, lease, or key expiry. Stale catalog cleanup follows the same preflight
+rule. Valid live-owner deletion still returns a conflict, and ordinary
+retention and lease fencing behavior are unchanged. These checks do not add
+general rollback for Redis server failures.
+
 The Redis event compatibility path requires Redis 6.2 or newer for `LMOVE` and
 uses a fixed internal policy; there is no configuration knob. An eligible
 legacy family is atomically moved first into deterministic exact-run
@@ -462,6 +498,14 @@ rebuild.
 SQL run deletion and SQL pruning wrap their run/task changes in transactions;
 task upserts take the same per-run lock as deletion/pruning, and an error rolls
 the complete operation back.
+SQL context merges also lock the run before reading and commit the read/merge/write
+as one transaction. Concurrent successful disjoint updates are retained; duplicate
+keys replace the previous value without recursively merging nested objects.
+Lease-fenced writers keep their ownership checks and share this run lock. A merge
+cannot carry a stored context snapshot across run deletion/recreation, although an
+unowned call that first reads the replacement run can update that run. Upgrade all
+concurrent SQL writers before relying on these guarantees; no schema migration or
+new setting is required.
 
 SQL event identity is `(run_id, id)`. Upgrading a table whose primary key is
 the earlier global `(id)` form is a locked, guarded migration and requires a
@@ -751,7 +795,9 @@ Embedded code-source diagnostics also include `step`; their line and column are
 relative to that step's decoded `source` string. Undefined reads use the
 `undefined_global` code. Warnings leave `valid` unchanged by default; strict
 mode sets `valid` to `false` and adds a summary to `errors`. Invalid embedded
-syntax and captured outer locals are errors in both modes.
+syntax, captured outer locals, and ambiguous function source ranges are errors
+in both modes. Reused callbacks are supported and their source warnings are
+deduplicated, with the same behavior as CLI validation.
 
 That is the intended contract for a general-purpose engine — but it means an API
 key that can reach `/flows/run` can run any node, so it can read or write any
@@ -996,18 +1042,18 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_LUA_HOOK_INTERVAL` | `10000` | Instruction interval for budget checks |
 | `IRONFLOW_LUA_GC_AFTER_EXECUTION` | `true` | Run a Lua garbage-collection cycle after flow parsing/code execution |
 | `IRONFLOW_CACHE_MAX_ENTRIES` | `10000` | Max entries retained by the process-global `cache_set` / `cache_get` memory backend |
-| `IRONFLOW_CACHE_DIR` | `.ironflow_cache` | Default directory for the `cache_set` / `cache_get` file backend when `cache_dir` is not set |
+| `IRONFLOW_CACHE_DIR` | `.ironflow_cache` | Default root for the `cache_set` / `cache_get` file backend when `cache_dir` is not set; entries use `v1/<sha256-key>.json` with exact stored-key verification. Legacy sanitized files are untouched cache misses; see [cache upgrades](nodes/cache_get.md#file-identity-and-upgrades) |
 | `IRONFLOW_DB_MAX_ROWS` | `1000` | Max rows returned by `db_query`; `0` disables |
 | `IRONFLOW_DB_MAX_RESULT_BYTES` | `10485760` | Max serialized JSON result size for `db_query`; `0` disables |
 | `IRONFLOW_LLM_MAX_RESPONSE_BYTES` | `26214400` | Max LLM provider response body size; `0` disables |
 | `IRONFLOW_LLM_MAX_IMAGE_INPUT_BYTES` | `52428800` | Maximum cumulative raw image-artifact bytes resolved for one LLM request |
 | `IRONFLOW_LLM_MAX_IMAGE_ARTIFACTS` | `32` | Maximum image-artifact blocks resolved for one LLM request |
 | `IRONFLOW_MAX_TRANSCRIBE_RESPONSE_BYTES` | `26214400` | Maximum transcription-provider response body. Checked while streaming even when `Content-Length` is absent or wrong; zero/invalid values retain the safe default. |
-| `IRONFLOW_MAX_HTTP_BODY_BYTES` | `52428800` | Maximum HTTP node response body, raw artifact upload, or complete multipart request size. Enforced before transfer when declared and while streaming; multipart admission includes conservative generated-framing allowance. |
+| `IRONFLOW_MAX_HTTP_BODY_BYTES` | `52428800` | Maximum HTTP node, ArangoDB Cursor API, Slack, or Resend response body bytes, raw artifact upload, or complete multipart request size. Declared sizes are checked up front and actual sizes while streaming; multipart admission includes conservative generated-framing allowance. Response text/JSON decoding can use additional memory. Does not apply to SMTP. |
 | `IRONFLOW_MAX_FILE_BYTES` | `52428800` | Maximum `read_file` payload and final `write_file` size (including an existing file in append mode), streamed `s3_get_object` response body, HTML/SRT/VTT extraction input, and raw DOCX/PPTX archive size |
 | `IRONFLOW_MAX_IMAGE_ENCODED_BYTES` | `52428800` | Maximum encoded bytes for one image path, artifact, or decoded Base64 source, checked before image pixel allocation |
 | `IRONFLOW_MAX_IMAGE_PIXELS` | `25000000` | Maximum decoded pixels in one source image or generated image transform |
-| `IRONFLOW_MAX_IMAGE_DECODE_ALLOCATION_BYTES` | `134217728` | Maximum decoder-managed allocation and admitted image working-buffer estimate; transforms check retained source plus known output buffers, while `image_to_pdf` also includes encoded, conversion, and compression buffers for non-JPEG sources |
+| `IRONFLOW_MAX_IMAGE_DECODE_ALLOCATION_BYTES` | `134217728` | Maximum decoder-managed allocation and admitted image working-buffer estimate, not a process-memory cap. Transforms check retained source plus known output buffers; `image_resize` also budgets the RGBA-float intermediate and filter scratch before pixel decoding/resizing. `image_to_pdf` includes encoded, conversion, and compression buffers for non-JPEG sources |
 | `IRONFLOW_MAX_IMAGE_TO_PDF_SOURCES` | `100` | Maximum source entries admitted by one `image_to_pdf` call, checked before parsing entries |
 | `IRONFLOW_MAX_IMAGE_TO_PDF_ENCODED_BYTES` | `104857600` | Maximum cumulative encoded source bytes processed by one `image_to_pdf` call |
 | `IRONFLOW_MAX_IMAGE_TO_PDF_PIXELS` | `50000000` | Maximum cumulative decoded source pixels processed by one `image_to_pdf` call |
@@ -1022,13 +1068,16 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_MAX_AUDIO_BYTES` | `25000000` | Maximum size of the audio/video file `transcribe` reads from disk before uploading it to the provider |
 | `IRONFLOW_MAX_CONVERSION_DEPTH` | `64` | Maximum nesting depth when converting values between JSON and Lua, and when admitting a verbose-JSON `transcribe` response before materialization |
 | `IRONFLOW_MAX_CONVERSION_NODES` | `100000` | Maximum total values converted between JSON and Lua in one conversion, also applied before a verbose-JSON `transcribe` response is materialized. A step handler converts the whole accumulated run context, not only the keys it reads, so a large fan-out can reach this in a step that never touched the data |
-| `IRONFLOW_MAX_SHELL_OUTPUT_BYTES` | `10485760` | Maximum captured bytes for each shell output stream and each MCP stdio JSON-RPC frame |
-| `IRONFLOW_MAX_TASK_OUTPUT_BYTES` | `2097152` | Maximum serialized task output persisted in run state before replacement with a truncation marker; the aborting counter reports `_minimum_bytes = limit + 1` rather than scanning for an exact rejected size |
+| `IRONFLOW_MAX_SHELL_OUTPUT_BYTES` | `10485760` | Maximum captured bytes for each shell output stream and each MCP stdio JSON-RPC frame; the input frame budget is cumulative across partial reads and includes the newline delimiter |
+| `IRONFLOW_MAX_TASK_OUTPUT_BYTES` | `2097152` | Maximum serialized task output or individual final context value persisted for inspection before replacement with a truncation marker; does not truncate live child results or carried repeat state. The aborting counter reports `_minimum_bytes = limit + 1` rather than an exact rejected size |
 | `IRONFLOW_MAX_DIRECTORY_ENTRIES` | `10000` | Maximum entries returned by a directory listing |
 | `IRONFLOW_MAX_DIRECTORY_DEPTH` | `32` | Maximum recursive depth for directory listings, ZIP source traversal, and ZIP extraction paths |
-| `IRONFLOW_MAX_ZIP_ENTRIES` | `10000` | Maximum entries processed by archive nodes and OOXML extractors (`extract_word`, `extract_pptx`, `extract_xlsx`); `zip_create` counts every visited child file and directory |
+| `IRONFLOW_MAX_ZIP_ENTRIES` | `10000` | Maximum entries processed by archive nodes and OOXML extractors (`extract_word`, `extract_pptx`, `extract_xlsx`); `zip_list`/`zip_extract` count raw entries before deduplication, and `zip_create` counts every visited child file and directory |
+| `IRONFLOW_MAX_ZIP_METADATA_BYTES` | `8388608` | Maximum cumulative raw filename, extra-field, file/archive-comment, and ZIP64 end-record extension bytes for `zip_list` and `zip_extract`, checked before ZIP construction; overridden by node `max_metadata_bytes`. Not a compressed payload or total memory cap |
 | `IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES` | `536870912` | Maximum total uncompressed bytes processed by archive nodes. For DOCX/PPTX it caps cumulative declared package bytes and cumulative actual bytes of parts read; for `extract_xlsx` it also caps the raw workbook before ZIP metadata allocation |
 | `IRONFLOW_MAX_PDF_BYTES` | `104857600` | Maximum size of each PDF accepted by rendering, metadata, splitting, merging, and `extract_pdf`; capped readers reject post-open growth where the parser API permits |
+| `IRONFLOW_MAX_PDF_DECOMPRESSED_STREAM_BYTES` | `67108864` | Per object/cross-reference stream decoded-byte limit for `extract_pdf`, `pdf_metadata`, `pdf_split`, and `pdf_merge`; strict loading and bounded recovery checks reject oversized streams. Not a cumulative memory cap; see [PDF loading](PDF_LOADING.md) |
+| `IRONFLOW_MAX_PDF_OBJECTS` | `250000` | Per-source loaded document objects for those four nodes, checked after parsing and before downstream work; not a preallocation guard or the merged-output object limit |
 | `IRONFLOW_MAX_PDF_MERGE_FILES` | `100` | Maximum number of sources admitted by one `pdf_merge` call before source descriptors are collected |
 | `IRONFLOW_MAX_PDF_MERGE_BYTES` | `536870912` | Maximum cumulative PDF input bytes and maximum staged merged output bytes for one `pdf_merge` call |
 | `IRONFLOW_MAX_PDF_MERGE_PAGES` | `2000` | Maximum cumulative pages admitted by one `pdf_merge` call |
@@ -1040,7 +1089,7 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_MAX_PDF_SPLIT_PAGES` | `1000` | Maximum selected pages materialized by one `pdf_split` call; page specifications are rejected before collecting more indices |
 | `IRONFLOW_MAX_PDF_RENDER_PIXELS` | `25000000` | Maximum pixels in one rendered PDF page |
 | `IRONFLOW_MAX_PDF_DPI` | `300` | Maximum PDF rendering DPI |
-| `IRONFLOW_MAX_XLSX_ARCHIVE_METADATA_BYTES` | `8388608` | Maximum cumulative XLSX central-directory filename, extra-field, and file-comment bytes, checked allocation-free before ZIP/Calamine construction |
+| `IRONFLOW_MAX_XLSX_ARCHIVE_METADATA_BYTES` | `8388608` | Maximum cumulative XLSX central-directory filename, extra-field, file/archive-comment, and ZIP64 end-record extension bytes, checked without materializing those fields before ZIP/Calamine construction |
 | `IRONFLOW_MAX_XLSX_ROWS` | `50000` | Highest one-based row position accepted in one sheet by `extract_xlsx`; sparse rows do not bypass it |
 | `IRONFLOW_MAX_XLSX_CELLS` | `33000` | Maximum total cells across every sheet one `extract_xlsx` call extracts |
 | `IRONFLOW_MAX_XLSX_OUTPUT_BYTES` | `52428800` | Maximum cumulative decoded/result bytes for one `extract_xlsx` call and maximum compressed/uncompressed size of one workbook part; repeated shared-string references are charged per use |

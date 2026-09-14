@@ -48,6 +48,59 @@ fn limits(objects: u64, pages: u64, bytes: u64) -> Limits {
     }
 }
 
+#[tokio::test]
+async fn inherited_resources_are_shared_and_counted_before_output_staging() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = directory.path().join("inherited.pdf");
+    shared_resource_pdf(&source);
+    let mut document = Document::load(&source).unwrap();
+    let pages = document.get_pages();
+    let first = document.get_dictionary(pages[&1]).unwrap();
+    let parent = first.get(b"Parent").unwrap().as_reference().unwrap();
+    let resources = first.get(b"Resources").unwrap().clone();
+    document
+        .get_dictionary_mut(parent)
+        .unwrap()
+        .set("Resources", resources);
+    for id in pages.values() {
+        document
+            .get_dictionary_mut(*id)
+            .unwrap()
+            .remove(b"Resources");
+    }
+    document.save(&source).unwrap();
+    let bytes = std::fs::metadata(&source).unwrap().len().saturating_mul(2);
+    for maximum in [7, 8] {
+        let output = directory.path().join(format!("out-{maximum}.pdf"));
+        let request = Request {
+            sources: vec![FileSource::path(source.clone())],
+            output_path: output.clone(),
+            limits: limits(maximum, 2, bytes),
+        };
+        let result = run_tracked_blocking_step(move |execution| merge(request, &execution)).await;
+        if maximum == 7 {
+            assert!(
+                result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("IRONFLOW_MAX_PDF_MERGE_OBJECTS")
+            );
+            assert!(!output.exists());
+        } else {
+            assert_eq!(result.unwrap(), 2);
+            let merged = Document::load(output).unwrap();
+            assert_eq!(
+                merged
+                    .objects
+                    .values()
+                    .filter(|object| object.type_name().ok() == Some(b"Font".as_slice()))
+                    .count(),
+                1
+            );
+        }
+    }
+}
+
 #[test]
 fn file_count_is_admitted_before_sources_are_cloned() {
     let config = serde_json::json!({"files": ["a.pdf", "b.pdf"]});

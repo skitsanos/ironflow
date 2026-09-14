@@ -160,7 +160,7 @@ mod tests {
 
     #[test]
     fn deserialization_denies_unknown_algorithms() {
-        let error = noyalib::compat::serde_yaml::from_str::<WebhookSignatureConfig>(
+        let error = noyalib::from_str::<WebhookSignatureConfig>(
             "type: hmac_sha1\nheader: x-signature\nsecret_env: SECRET_NAME\n",
         )
         .unwrap_err();

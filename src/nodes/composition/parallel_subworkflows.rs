@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use anyhow::{Context as AnyhowContext, Result};
 use async_trait::async_trait;
-use serde_json::{Map, Value};
 
 use crate::engine::executor::ExecutionOverlay;
 use crate::engine::types::{Context, NodeOutput};
@@ -11,6 +10,9 @@ use crate::nodes::{Node, NodeRegistry};
 
 use super::parallel_runner::{ChildRun, run_children};
 use crate::util::node_config::config_usize_strict;
+
+mod inputs;
+use inputs::resolve_flow_entries;
 
 /// Hard cap on `max_concurrent` to guard against pathological config values.
 const MAX_PARALLEL_SUBWORKFLOWS_CAP: usize = 1024;
@@ -27,89 +29,6 @@ impl ParallelSubworkflowsNode {
     }
 }
 
-fn build_dynamic_flow_entries(config: &Value, ctx: &Context) -> Result<Vec<Value>> {
-    let flow_file = config.get("flow").and_then(|v| v.as_str()).ok_or_else(|| {
-        anyhow::anyhow!(
-            "parallel_subworkflows dynamic mode requires 'flow' when 'flows' is not provided"
-        )
-    })?;
-    let source_key = config
-        .get("source_key")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "parallel_subworkflows dynamic mode requires 'source_key' when 'flows' is not provided"
-            )
-        })?;
-    let source = ctx
-        .get(source_key)
-        .and_then(|v| v.as_array())
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "parallel_subworkflows: source_key '{}' not found or not an array",
-                source_key
-            )
-        })?;
-
-    let item_key = config
-        .get("item_key")
-        .and_then(|v| v.as_str())
-        .unwrap_or("item");
-    let index_key = config
-        .get("index_key")
-        .and_then(|v| v.as_str())
-        .unwrap_or("index");
-    let child_output_key = config.get("child_output_key").and_then(|v| v.as_str());
-
-    let base_input = config.get("input").and_then(|v| v.as_object());
-    let mut entries = Vec::with_capacity(source.len());
-    for (idx, item) in source.iter().enumerate() {
-        let mut entry = Map::new();
-        entry.insert("flow".to_string(), Value::String(flow_file.to_string()));
-        if let Some(child_output_key) = child_output_key {
-            entry.insert(
-                "output_key".to_string(),
-                Value::String(child_output_key.to_string()),
-            );
-        }
-
-        let mut input = Map::new();
-        if let Some(base_input) = base_input {
-            for (key, value) in base_input {
-                input.insert(key.clone(), value.clone());
-            }
-        }
-        input.insert(item_key.to_string(), item.clone());
-        input.insert(index_key.to_string(), Value::Number((idx + 1).into()));
-        entry.insert("input".to_string(), Value::Object(input));
-        entries.push(Value::Object(entry));
-    }
-
-    Ok(entries)
-}
-
-fn resolve_flow_entries(config: &Value, ctx: &Context) -> Result<Vec<Value>> {
-    if let Some(flows) = config.get("flows") {
-        let flows = flows.as_array().ok_or_else(|| {
-            anyhow::anyhow!("parallel_subworkflows requires 'flows' array parameter")
-        })?;
-        if flows.is_empty() {
-            return Err(anyhow::anyhow!(
-                "parallel_subworkflows: 'flows' array must not be empty"
-            ));
-        }
-        return Ok(flows.clone());
-    }
-
-    if config.get("flow").is_some() || config.get("source_key").is_some() {
-        return build_dynamic_flow_entries(config, ctx);
-    }
-
-    Err(anyhow::anyhow!(
-        "parallel_subworkflows requires either 'flows' array or dynamic 'flow' + 'source_key'"
-    ))
-}
-
 #[async_trait]
 impl Node for ParallelSubworkflowsNode {
     fn node_type(&self) -> &str {
@@ -121,7 +40,7 @@ impl Node for ParallelSubworkflowsNode {
     }
 
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
-        let flows = resolve_flow_entries(config, ctx)?;
+        let entries = resolve_flow_entries(config, ctx)?;
 
         let fail_fast = match config
             .get("on_error")
@@ -162,10 +81,12 @@ impl Node for ParallelSubworkflowsNode {
             .and_then(|v| v.as_str())
             .map(String::from);
 
-        let mut children = Vec::with_capacity(flows.len());
+        let mut children = Vec::with_capacity(entries.len());
+        let mut flows = Vec::with_capacity(entries.len());
 
-        for (idx, flow_cfg) in flows.iter().enumerate() {
-            let flow_file = flow_cfg
+        for (idx, entry) in entries.into_iter().enumerate() {
+            let flow_file = entry
+                .config
                 .get("flow")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| {
@@ -176,28 +97,7 @@ impl Node for ParallelSubworkflowsNode {
                 })?
                 .to_string();
 
-            // Build child context from input mapping or clone parent
-            let mut sub_ctx =
-                if let Some(input_map) = flow_cfg.get("input").and_then(|v| v.as_object()) {
-                    let mut mapped = Context::new();
-                    for (sub_key, parent_key_val) in input_map {
-                        if let Some(parent_key) = parent_key_val.as_str() {
-                            if let Some(value) = ctx.get(parent_key) {
-                                mapped.insert(sub_key.clone(), value.clone());
-                            } else {
-                                mapped.insert(
-                                    sub_key.clone(),
-                                    serde_json::Value::String(parent_key.to_string()),
-                                );
-                            }
-                        } else {
-                            mapped.insert(sub_key.clone(), parent_key_val.clone());
-                        }
-                    }
-                    mapped
-                } else {
-                    ctx.clone()
-                };
+            let (flow_cfg, mut sub_ctx) = entry.into_parts(ctx);
 
             // Resolve flow path
             let flow_path = if PathBuf::from(&flow_file).is_absolute() {
@@ -232,6 +132,7 @@ impl Node for ParallelSubworkflowsNode {
             }
             execution_overlay.strip_from_context(&mut sub_ctx);
 
+            flows.push(flow_cfg);
             children.push(ChildRun {
                 index: idx,
                 flow_path: flow_path_str,

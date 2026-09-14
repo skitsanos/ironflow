@@ -198,6 +198,15 @@ fn sqlite_example_parallel_runs_use_disposable_independent_databases() {
     let node_temp = workspace.path().join("node-temp");
     fs::create_dir(&node_temp).unwrap();
     let flow = "examples/10-database/sqlite_crud.lua";
+    let validated = Command::new(env!("CARGO_BIN_EXE_ironflow"))
+        .env_clear()
+        .env("TMPDIR", &node_temp)
+        .current_dir(workspace.path())
+        .arg("validate")
+        .arg(repository_root().join(flow))
+        .output()
+        .unwrap();
+    assert!(validated.status.success(), "{}", stderr(&validated));
     let mut first = flow_command(
         workspace.path(),
         flow,
@@ -212,8 +221,16 @@ fn sqlite_example_parallel_runs_use_disposable_independent_databases() {
         &node_temp,
         None,
     );
-    first.stdout(Stdio::piped()).stderr(Stdio::piped());
-    second.stdout(Stdio::piped()).stderr(Stdio::piped());
+    first
+        .env_clear()
+        .env("TMPDIR", &node_temp)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    second
+        .env_clear()
+        .env("TMPDIR", &node_temp)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
 
     let first = first.spawn().unwrap();
     let second = second.spawn().unwrap();
@@ -236,6 +253,11 @@ fn sqlite_example_parallel_runs_use_disposable_independent_databases() {
             context["users_count"],
             json!(2),
             "{name} SQLite run did not report exactly two users"
+        );
+        assert_eq!(context["statistics_verified"], true);
+        assert_eq!(
+            context["statistics"],
+            json!([{"count": 2, "total_id": 3, "average_id": 1.5}])
         );
     }
 

@@ -141,14 +141,14 @@ pub(super) async fn inspect(root: &Path, relative: &Path, precompressed: bool) -
         Ok(path) if path.starts_with(root) => path,
         Ok(_) => return TargetKind::Rejected,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return TargetKind::Missing;
+            return inspect_missing(root, &candidate, precompressed).await;
         }
         Err(_) => return TargetKind::Rejected,
     };
     let metadata = match tokio::fs::metadata(canonical).await {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return TargetKind::Missing;
+            return inspect_missing(root, &candidate, precompressed).await;
         }
         Err(_) => return TargetKind::Rejected,
     };
@@ -162,6 +162,14 @@ pub(super) async fn inspect(root: &Path, relative: &Path, precompressed: bool) -
         return TargetKind::Rejected;
     }
     TargetKind::File
+}
+
+async fn inspect_missing(root: &Path, candidate: &Path, precompressed: bool) -> TargetKind {
+    if precompressed && !sidecars_are_confined(root, candidate).await {
+        TargetKind::Rejected
+    } else {
+        TargetKind::Missing
+    }
 }
 
 async fn sidecars_are_confined(root: &Path, candidate: &Path) -> bool {

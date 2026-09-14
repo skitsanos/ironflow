@@ -212,6 +212,15 @@ values must coexist. If a phase is cancelled or stalls before its barrier,
 none of that phase's buffered output enters final run context, although
 already-terminal bounded task history remains available.
 
+Final inspection context uses the same cap per value. Waiting subworkflows,
+parallel children, repeated children, and tool handlers pass full, redacted
+results to the live parent instead of reading those inspection snapshots.
+Large child values and carried repeat state therefore stay intact for later
+steps, subject to the usual Lua memory/conversion and execution limits. See
+[`live_child_results.lua`](../examples/11-subworkflow/live_child_results.lua)
+for an offline example whose parent verifies all bytes while CLI inspection
+shows a marker.
+
 ### Context variable interpolation
 
 Node parameter documentation identifies the string fields that resolve context
@@ -434,6 +443,22 @@ the hood, the function is compiled to bytecode at parse time and executed as a
 `log()`, `json_parse()`, and `now_unix_ms()` work inside handlers. Loader-only
 globals such as `Flow` and `nodes` do not.
 
+A self-contained callback can be registered on multiple steps. Reuse also
+works across `flow:step_if`, function-valued `nodes.code.source`, and
+`nodes.foreach.transform` (which receives an item and index rather than the
+step context). Each invocation still executes independently; reusing a
+function does not share mutable closure state. See
+[`reused_callbacks.lua`](../examples/07-advanced/reused_callbacks.lua) for a
+complete runnable example.
+
+```lua
+local function advance(ctx)
+    return { count = (ctx.count or 0) + 1 }
+end
+flow:step("first", advance)
+flow:step("second", advance):depends_on("first")
+```
+
 **Important:** Function handlers must be self-contained. Capturing a local from
 the enclosing scope is rejected while loading the flow because the upvalue
 cannot survive bytecode serialization:
@@ -459,6 +484,14 @@ column positions. String-source diagnostics identify the step and use positions
 relative to the decoded source string. They remain warnings unless `--strict`
 is supplied. Validation also compiles string-valued code without executing it,
 so invalid syntax is always an error.
+
+Repeated registrations report each source warning once, at its original
+location. Lua exposes a function's start and end lines but not its source
+columns. If multiple function definitions share that exact line range,
+validation rejects the ambiguous association instead of assigning diagnostics
+by registration order. Put those definitions on distinct lines, including
+nested functions when necessary. This is a validation-time source-analysis
+requirement; normal execution does not perform source association.
 
 ## Complete Example
 

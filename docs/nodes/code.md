@@ -34,6 +34,12 @@ serialization. Declare constants inside the handler or pass values through
 produce source-positioned warnings; `ironflow validate --strict` treats them as
 failures.
 
+The same self-contained function may be used by multiple code nodes or step
+handlers. Validation reports its source warnings once. Distinct function
+definitions must have distinguishable start/end line ranges; move same-range
+definitions onto separate lines if validation reports ambiguity. See
+[`reused_callbacks.lua`](../../examples/07-advanced/reused_callbacks.lua).
+
 ## Sandboxing
 
 The Lua VM starts from an allowlist containing computation-oriented table,

@@ -4,7 +4,8 @@ use async_trait::async_trait;
 use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
-use noyalib::compat::serde_yaml as yaml;
+// Direct defaults preserve merge expansion and YAML 1.2 scalar resolution.
+use noyalib as yaml;
 
 pub struct YamlParseNode;
 

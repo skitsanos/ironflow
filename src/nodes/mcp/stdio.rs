@@ -5,12 +5,15 @@ use rmcp::RoleClient;
 use rmcp::service::{RxJsonRpcMessage, TxJsonRpcMessage};
 use rmcp::transport::Transport;
 use thiserror::Error;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::BufReader;
 use tokio::process::{Child, ChildStdin, ChildStdout};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
 use crate::nodes::child_process::ChildProcessGuard;
+
+mod framing;
+use framing::{FrameReader, write_frame};
 
 const CHANNEL_CAPACITY: usize = 32;
 const EOF_GRACE_PERIOD: Duration = Duration::from_secs(1);
@@ -126,9 +129,9 @@ async fn run_worker(
     incoming: mpsc::Sender<RxJsonRpcMessage<RoleClient>>,
     mut close: oneshot::Receiver<()>,
 ) -> Result<(), StdioTransportError> {
-    let mut stdout = BufReader::new(stdout);
     let max_frame_bytes =
         crate::util::limits::max_shell_output_bytes().min((usize::MAX - 1) as u64) as usize;
+    let mut frames = FrameReader::new(BufReader::new(stdout), max_frame_bytes);
 
     loop {
         tokio::select! {
@@ -146,7 +149,7 @@ async fn run_worker(
                     }
                 }
             }
-            frame = read_frame(&mut stdout, max_frame_bytes) => {
+            frame = frames.read() => {
                 let Some(frame) = frame? else { break };
                 let value = serde_json::from_slice::<serde_json::Value>(&frame)
                     .map_err(invalid_frame)?;
@@ -256,59 +259,6 @@ fn invalid_frame(error: serde_json::Error) -> StdioTransportError {
         format!("invalid MCP JSON-RPC frame: {error}"),
     )
     .into()
-}
-
-async fn write_frame(
-    stdin: &mut ChildStdin,
-    message: &TxJsonRpcMessage<RoleClient>,
-    max_frame_bytes: usize,
-) -> Result<(), StdioTransportError> {
-    let frame = serde_json::to_vec(message)
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-    if frame.len() > max_frame_bytes {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("outgoing MCP frame exceeds {max_frame_bytes} bytes"),
-        )
-        .into());
-    }
-    stdin.write_all(&frame).await?;
-    stdin.write_all(b"\n").await?;
-    stdin.flush().await?;
-    Ok(())
-}
-
-async fn read_frame(
-    reader: &mut BufReader<ChildStdout>,
-    max_frame_bytes: usize,
-) -> Result<Option<Vec<u8>>, StdioTransportError> {
-    let mut frame = Vec::new();
-    let bytes_read = reader
-        .take((max_frame_bytes + 1) as u64)
-        .read_until(b'\n', &mut frame)
-        .await?;
-    if bytes_read == 0 {
-        return Ok(None);
-    }
-    if bytes_read > max_frame_bytes {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("incoming MCP frame exceeds {max_frame_bytes} bytes"),
-        )
-        .into());
-    }
-    if frame.last() != Some(&b'\n') {
-        return Err(io::Error::new(
-            io::ErrorKind::UnexpectedEof,
-            "MCP stdio frame is not newline-delimited",
-        )
-        .into());
-    }
-    frame.pop();
-    if frame.last() == Some(&b'\r') {
-        frame.pop();
-    }
-    Ok(Some(frame))
 }
 
 async fn shutdown_child(child: &mut Child, stdin: ChildStdin, process_guard: &ChildProcessGuard) {

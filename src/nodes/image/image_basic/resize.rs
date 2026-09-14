@@ -8,10 +8,12 @@ use crate::util::execution::run_tracked_blocking_step;
 use crate::util::node_config::config_u64;
 
 use super::super::common::{
-    load_image, parse_positive_u32, resolve_image_output_format, save_dynamic_image, target_size,
+    load_image_with_admission, parse_positive_u32, resolve_image_output_format, save_dynamic_image,
 };
 use super::super::image_sources::resolve_single_image_source;
-use super::super::resource::{ImageDecodeLimits, validate_output_shape};
+use super::super::resource::ImageDecodeLimits;
+
+mod budget;
 
 pub(crate) struct ImageResizeNode;
 
@@ -53,19 +55,20 @@ impl Node for ImageResizeNode {
 
         let limits = ImageDecodeLimits::current();
         run_tracked_blocking_step(move |execution| {
-            let source_loaded = load_image(source, limits, &execution)?;
+            let source_loaded = load_image_with_admission(
+                source,
+                limits,
+                &execution,
+                |source_w, source_h, color, bytes| {
+                    budget::admit((source_w, source_h), (width, height), color, bytes, limits)
+                        .map(|_| ())
+                },
+            )?;
             let source_bytes =
                 u64::try_from(source_loaded.image.as_bytes().len()).unwrap_or(u64::MAX);
-            let (target_w, target_h) = target_size(
-                source_loaded.image.width(),
-                source_loaded.image.height(),
-                width,
-                height,
-            )?;
-            validate_output_shape(
-                "image_resize",
-                target_w,
-                target_h,
+            let (target_w, target_h) = budget::admit(
+                (source_loaded.image.width(), source_loaded.image.height()),
+                (width, height),
                 source_loaded.image.color(),
                 source_bytes,
                 limits,

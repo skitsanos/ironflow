@@ -244,7 +244,7 @@ grace_seconds: 3600
 context:
   region: "eu"
 "#;
-    let schedule: ScheduleConfig = noyalib::compat::serde_yaml::from_str(yaml).unwrap();
+    let schedule: ScheduleConfig = noyalib::from_str(yaml).unwrap();
     assert_eq!(schedule.flow(), "reports/nightly.lua");
     assert_eq!(schedule.timezone(), chrono_tz::Europe::Berlin);
     assert_eq!(schedule.grace_seconds(), 3600);
@@ -253,12 +253,11 @@ context:
 
 #[test]
 fn deserialization_rejects_unknown_and_invalid_fields() {
-    let unknown = noyalib::compat::serde_yaml::from_str::<ScheduleConfig>(
-        "flow: f.lua\ncron: \"0 2 * * *\"\ntypo_field: 1\n",
-    );
+    let unknown =
+        noyalib::from_str::<ScheduleConfig>("flow: f.lua\ncron: \"0 2 * * *\"\ntypo_field: 1\n");
     assert!(unknown.is_err());
 
-    let bad_zone = noyalib::compat::serde_yaml::from_str::<ScheduleConfig>(
+    let bad_zone = noyalib::from_str::<ScheduleConfig>(
         "flow: f.lua\ncron: \"0 2 * * *\"\ntimezone: \"Nowhere/Nothing\"\n",
     )
     .unwrap_err()

@@ -1,4 +1,5 @@
 mod arangodb;
+mod row;
 mod sql;
 
 pub use arangodb::ArangoDbAqlNode;

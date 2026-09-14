@@ -3,6 +3,9 @@ use std::io::Write;
 use ironflow::engine::types::Context;
 use ironflow::nodes::NodeRegistry;
 
+#[path = "support/pptx_standard.rs"]
+mod pptx_standard;
+
 static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 const TRANSITIONAL_IMAGE_RELATIONSHIP: &str =
@@ -88,6 +91,7 @@ fn write_pptx_parts(path: &std::path::Path, relationships: &str, parts: &[(&str,
         archive.write_all(contents).unwrap();
     }
     archive.finish().unwrap();
+    pptx_standard::complete(path);
 }
 
 #[tokio::test]
@@ -184,7 +188,7 @@ async fn pptx_rejects_descriptor_budget_before_publishing_media() {
     let directory = tempfile::tempdir().unwrap();
     let artifact_dir = directory.path().join("artifacts");
     let _environment = ArtifactEnvironment::set(&artifact_dir);
-    let _output_limit = OutputLimitEnvironment::set("256");
+    let _output_limit = OutputLimitEnvironment::set("512");
     let path = directory.path().join("budget.pptx");
     write_pptx(&path, Some(b"must-not-be-published"));
 

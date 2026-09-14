@@ -10,7 +10,8 @@ use crate::nodes::NodeRegistry;
 use crate::storage::event_store::EventStore;
 use crate::storage::{RunLease, StateStore};
 
-use super::coordinator::{RunCoordinator, RunHandle};
+use super::coordinator::RunCoordinator;
+use super::handle::{ChildRunResult, RunHandle};
 use super::overlay::ExecutionOverlay;
 
 const EVENT_PUBLISH_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(500);
@@ -86,9 +87,29 @@ impl WorkflowEngine {
         execution_overlay: ExecutionOverlay,
     ) -> Result<RunHandle> {
         let run_id = Uuid::new_v4().to_string();
-        self.start_new_with_run_id(flow, initial_ctx, execution_overlay, run_id)
+        self.start_new_with_run_id(flow, initial_ctx, execution_overlay, run_id, false)
             .await?
             .ok_or_else(|| anyhow::anyhow!("generated workflow run ID already exists"))
+    }
+
+    /// Return live child values only after execution, finalization and worker drain.
+    pub(crate) async fn execute_child(
+        &self,
+        flow: &FlowDefinition,
+        initial_ctx: Context,
+        execution_overlay: ExecutionOverlay,
+    ) -> Result<ChildRunResult> {
+        self.start_new_with_run_id(
+            flow,
+            initial_ctx,
+            execution_overlay,
+            Uuid::new_v4().to_string(),
+            true,
+        )
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("generated child workflow run ID already exists"))?
+        .wait_child_cancel_on_drop()
+        .await
     }
 
     /// Atomically start a caller-identified run. `None` means another process
@@ -99,8 +120,14 @@ impl WorkflowEngine {
         initial_ctx: Context,
         run_id: String,
     ) -> Result<Option<RunHandle>> {
-        self.start_new_with_run_id(flow, initial_ctx, ExecutionOverlay::default(), run_id)
-            .await
+        self.start_new_with_run_id(
+            flow,
+            initial_ctx,
+            ExecutionOverlay::default(),
+            run_id,
+            false,
+        )
+        .await
     }
 
     async fn start_new_with_run_id(
@@ -109,6 +136,7 @@ impl WorkflowEngine {
         initial_ctx: Context,
         execution_overlay: ExecutionOverlay,
         run_id: String,
+        retain_child_result: bool,
     ) -> Result<Option<RunHandle>> {
         // Resolve limits before validating the flow or creating durable state.
         // Embedded callers receive the same fail-closed behavior as the CLI.
@@ -162,7 +190,9 @@ impl WorkflowEngine {
             self.metrics.clone(),
         );
 
-        Ok(Some(coordinator.spawn()))
+        Ok(Some(
+            coordinator.with_child_result(retain_child_result).spawn(),
+        ))
     }
 
     /// Execute a flow definition and wait for its supervised run to finish.

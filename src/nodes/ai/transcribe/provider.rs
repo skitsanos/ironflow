@@ -5,37 +5,6 @@ use crate::util::sensitive_url::redact_sensitive_text;
 
 use super::config::{Provider, TranscribeConfig};
 
-const MAX_SAME_ORIGIN_REDIRECTS: usize = 10;
-
-/// Permit provider redirects only while they remain on the original origin.
-///
-/// A transcription request carries both a credential and the caller's audio.
-/// Reqwest strips `Authorization` in some redirect cases, but it does not
-/// provide equivalent protection for Azure's custom `api-key` header or for
-/// the multipart body. Refusing an origin change is therefore the only safe
-/// default. Same-origin redirects remain useful for provider migrations and
-/// canonical endpoint paths, with an explicit hop ceiling to bound loops.
-pub(super) fn same_origin_redirect_policy() -> reqwest::redirect::Policy {
-    reqwest::redirect::Policy::custom(|attempt| {
-        if attempt.previous().len() > MAX_SAME_ORIGIN_REDIRECTS {
-            return attempt.error("too many transcribe redirects");
-        }
-
-        let Some(origin) = attempt.previous().first() else {
-            return attempt.error("transcribe redirect has no source origin");
-        };
-        let target = attempt.url();
-        if origin.scheme() != target.scheme()
-            || origin.host() != target.host()
-            || origin.port_or_known_default() != target.port_or_known_default()
-        {
-            attempt.error("cross-origin transcribe redirect refused")
-        } else {
-            attempt.follow()
-        }
-    })
-}
-
 /// Build the transcription endpoint. Azure addresses a deployment in the path
 /// and requires an api-version query parameter; the OpenAI-shaped providers
 /// append a fixed suffix to their base URL.

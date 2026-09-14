@@ -73,8 +73,7 @@ fn extract(
     // library call, so each call is bounded and bracketed by cancellation
     // checkpoints.
     budget.checkpoint()?;
-    let document = lopdf::Document::load_mem(&bytes)
-        .with_context(|| format!("extract_pdf: failed to parse PDF '{}'", "verified input"))?;
+    let document = crate::util::pdf_load::from_bytes(&bytes, "extract_pdf", &execution)?;
     budget.checkpoint()?;
 
     let pages = document.get_pages();

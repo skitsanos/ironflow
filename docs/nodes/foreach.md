@@ -22,6 +22,12 @@ reads with line and column information; use `ironflow validate --strict` to
 treat those warnings as failures. `Flow` and `nodes` are loader-only globals
 and are unavailable inside the transform VM.
 
+A transform callback can be reused by multiple nodes. Validation reports each
+source warning once; distinct functions sharing an exact start/end line range
+must be moved onto separate lines to avoid ambiguous source association. See
+[`reused_callbacks.lua`](../../examples/07-advanced/reused_callbacks.lua) for
+reuse across the function-backed node APIs.
+
 ## Execution Limits
 
 Each `foreach` transform runs inside the Lua execution budgets configured by `IRONFLOW_LUA_MAX_INSTRUCTIONS`, `IRONFLOW_LUA_MAX_SECONDS`, `IRONFLOW_LUA_MAX_MEMORY_BYTES`, `IRONFLOW_LUA_HOOK_INTERVAL`, and `IRONFLOW_LUA_GC_AFTER_EXECUTION`.

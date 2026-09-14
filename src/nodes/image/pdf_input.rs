@@ -42,8 +42,7 @@ pub(super) fn load_document_bounded(
         );
     }
     let reader = CappedReader::new(file, maximum, operation, execution);
-    let document = Document::load_from(reader)
-        .map_err(|error| anyhow::anyhow!("{operation}: failed to load '{label}': {error:?}"))?;
+    let document = crate::util::pdf_load::from_reader(reader, operation, execution)?;
     execution.checkpoint()?;
     Ok(LoadedPdf {
         document,

@@ -239,7 +239,9 @@ per cleanup pass; Redis uses per-claim TTL. See
 [Schedules](docs/CLI_REFERENCE.md#schedules).
 
 Active-active deployments must set `IRONFLOW_REPLICA_MODE=true` and use
-PostgreSQL or Redis for both state and events. SIGTERM closes readiness and new
+PostgreSQL or Redis for both state and events. SQL URL schemes must match their
+selected backends; startup rejects SQLite URLs labeled as PostgreSQL before
+opening either store. SIGTERM closes readiness and new
 execution admission before a bounded drain. See the
 [replica deployment contract](docs/REPLICA_DEPLOYMENT.md) and its opt-in
 two-process Docker fault gate.
@@ -529,7 +531,7 @@ Progressive examples from basic to advanced:
 | [09-cache](examples/09-cache/) | In-memory and file-based key-value caching with TTL |
 | [10-database](examples/10-database/) | SQLite CRUD operations with db_query and db_exec |
 | [11-subworkflow](examples/11-subworkflow/) | Subworkflow composition, fire-and-forget, on_error handling |
-| [12-arangodb](examples/12-arangodb/) | ArangoDB AQL queries with bind variables and env-based credentials |
+| [12-arangodb](examples/12-arangodb/) | ArangoDB AQL queries, cursor continuation/close, bind variables, and env-based credentials |
 | [13-ai](examples/13-ai/) | Text embeddings (OpenAI, Ollama, OAuth), text chunking (fixed, split, merge, semantic) |
 | [14-notifications](examples/14-notifications/) | Email via Resend or SMTP, Slack webhooks |
 | [15-webhooks](examples/15-webhooks/) | Config-driven webhook routes with default-deny, execution-only signature headers |
@@ -563,6 +565,14 @@ Enable the repository hooks once per checkout:
 git config --local core.hooksPath .githooks
 ```
 
+Agent workflows live in `.agents/skills`; `docs/issues/IF-NNN.md` pages are the
+canonical issue records, while the root and documentation indexes are generated.
+The pre-commit hook checks registry consistency when these surfaces change.
+Project Codex hooks load session context and guard `apply_patch` targets,
+including symlink-resolved protected paths. They do not intercept arbitrary
+shell writes or reads and are not a filesystem sandbox. Their canonical payload
+and alias handling follow the [Codex hook contract](https://learn.chatgpt.com/docs/hooks#pretooluse).
+
 Before a `develop` push, the pre-push hook fails closed unless the worktree is
 clean, no open pull request targets `develop`, remote `develop` is integrated,
 and the committed version is a new `X.Y.Z-dev.N`. It then runs the full local
@@ -574,11 +584,22 @@ bun run scripts/development_version.ts bump minor  # 1.15.0 -> 1.16.0-dev.1
 bun run scripts/development_version.ts bump next   # 1.16.0-dev.1 -> dev.2
 ```
 
-CI runs the full suite on pushes to `develop` and `main`, with optional manual
-dispatch. Its Linux release build is passed directly to Lua example validation;
+CI runs for relevant pushes and pull requests to `develop` and `main`, with
+optional manual dispatch. Hook-only changes also trigger repository-policy
+tests, including the Codex hook suite and shell syntax checks. Its Linux
+release build is passed directly to Lua example validation;
 the example job does not wait for macOS or compile a second release binary.
 Default Clippy/tests and combined PostgreSQL/Redis feature checks each share a
 single Linux workspace, avoiding isolated check and per-backend compilations.
+These two Linux validation jobs disable incremental compilation, limit Cargo
+to two concurrent build jobs, and use `line-tables-only` debug information for
+both development and test profiles. This reduces linked test artifact size
+while retaining file/line backtraces, debug assertions, overflow checks, and
+all existing test and lint commands. Disk and memory snapshots bracket
+validation, with final diagnostics also attempted after failure. These
+job-local settings do not change normal local development, macOS validation,
+or release builds. See [Cargo profiles](https://doc.rust-lang.org/cargo/reference/profiles.html)
+for the debug-information settings.
 Container publication uses a version- and digest-pinned Rust/cargo-chef builder
 so source and package-version changes retain the dependency layer, backed by a
 dedicated zstd-compressed GHCR BuildKit cache manifest. The mutable

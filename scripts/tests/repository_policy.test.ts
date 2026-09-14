@@ -44,6 +44,32 @@ describe("repository integration policy", () => {
     expect(gate).toContain("bun run scripts/issues_registry.ts check");
   });
 
+  test("hook-only changes trigger mandatory repository-policy validation", async () => {
+    const workflow = Bun.YAML.parse(await Bun.file(join(repository, ".github/workflows/ci.yml")).text()) as {
+      on: Record<string, { paths: string[] }>;
+      jobs: Record<string, {
+        "continue-on-error"?: boolean;
+        steps: Array<{ run?: string; "continue-on-error"?: boolean }>;
+      }>;
+    };
+    for (const event of ["push", "pull_request"]) {
+      for (const path of [".codex/config.toml", ".codex/hooks.json", ".codex/hooks/tests/test_hooks.py", ".githooks/pre-commit"]) {
+        expect(workflow.on[event].paths.some((pattern) => new Bun.Glob(pattern).match(path))).toBeTrue();
+      }
+    }
+    const job = workflow.jobs["repository-policy"];
+    expect(job["continue-on-error"]).not.toBeTrue();
+    for (const command of [
+      "python3 -B -m unittest discover -s .codex/hooks/tests -p 'test_*.py' -v",
+      "sh -n .githooks/pre-commit",
+      "bash -n .githooks/pre-push scripts/integration_gate.sh",
+    ]) {
+      const step = job.steps.find((step) => step.run === command);
+      expect(step).toBeDefined();
+      expect(step?.["continue-on-error"]).not.toBeTrue();
+    }
+  });
+
   test("dependency warnings fail closed and removed dependencies stay absent", async () => {
     const manifest = await Bun.file(join(repository, "Cargo.toml")).text();
     const lockfile = await Bun.file(join(repository, "Cargo.lock")).text();
@@ -54,8 +80,8 @@ describe("repository integration policy", () => {
     expect(workflow).toContain("cargo audit --deny warnings");
     expect(gate).toContain("cargo audit --deny warnings");
     expect(auditConfig).not.toContain('"RUSTSEC-2026-0192"');
-    expect(manifest).toContain('comrak = { version = "0.54", default-features = false }');
-    expect(manifest).toContain('lopdf = { version = "0.44", default-features = false, features = ["chrono"] }');
+    expect(manifest).toContain('comrak = { version = "0.55", default-features = false }');
+    expect(manifest).toContain('lopdf = { version = "0.45", default-features = false, features = ["chrono"] }');
     for (const removedPackage of [
       "bincode",
       "paste",
@@ -114,8 +140,8 @@ describe("repository integration policy", () => {
     ).text();
 
     expect(dockerfile).toContain(
-      "lukemathwalker/cargo-chef:0.1.78-rust-1.98.0-slim-bookworm@sha256:" +
-        "114101b5c218940bc2381db703dd3529473db554992bf10fc94a7ba2ac35baf8 AS chef",
+      "lukemathwalker/cargo-chef:0.1.78-rust-1.98.1-slim-bookworm@sha256:" +
+        "c4b714a1feca5c0784fd063171c8f20803dfc8d940e0fb91b6a6b96e495c2e21 AS chef",
     );
     expect(dockerfile).toContain("cargo chef prepare --recipe-path recipe.json");
     expect(dockerfile).toContain(

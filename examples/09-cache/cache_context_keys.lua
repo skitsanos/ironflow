@@ -1,4 +1,6 @@
 -- Cache keys can be derived from context in both cache_set and cache_get.
+-- File records hash the interpolated key and retain its exact identity; they
+-- do not reuse older sanitized filenames.
 -- Effects: retains a UUID-scoped cache directory under TMPDIR, TMP, TEMP, or
 -- `.` so the interpolated file-backed entry can be inspected after the run.
 

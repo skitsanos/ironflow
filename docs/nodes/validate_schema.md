@@ -7,8 +7,8 @@ Validate context data against a JSON Schema.
 | Parameter    | Type   | Required | Default | Description                                              |
 |--------------|--------|----------|---------|----------------------------------------------------------|
 | `source_key` | string | Yes      | --      | Top-level context key whose value will be validated      |
-| `schema`     | object | No*      | --      | A JSON Schema object to validate the data against        |
-| `schema_key` | string | No*      | --      | Context key containing a JSON Schema object or JSON Schema string |
+| `schema`     | object/boolean | No* | -- | A JSON Schema to validate the data against |
+| `schema_key` | string | No* | -- | Context key containing a decoded JSON Schema or JSON Schema string |
 
 *Provide exactly one of `schema` or `schema_key`.
 
@@ -16,6 +16,13 @@ The node retrieves the value stored under `source_key` in the workflow context a
 
 Use this node when the value is already in your context as JSON (object/array/value).  
 If the context value is a raw JSON string, use [`json_validate`](json_validate.md) instead.
+
+## Schema References
+
+Validation is offline-only. References bundled in the supplied schema work;
+references requiring network or file retrieval fail normally without fetching.
+See [JSON Schema validation](../JSON_SCHEMA_VALIDATION.md) for bundled-reference
+examples, error behavior, and cancellation boundaries.
 
 ## Context Output
 

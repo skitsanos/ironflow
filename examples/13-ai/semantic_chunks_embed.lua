@@ -1,7 +1,7 @@
 --[[
 This example shows semantic chunking before embedding:
 1) extract text from a PDF,
-2) split text by embedding similarity into semantic boundaries,
+2) split text at embedding cosine-distance peaks into semantic chunks,
 3) normalize each semantic chunk with `foreach`,
 4) embed those semantic chunks using OpenAI,
 5) log resulting embedding count/dim.

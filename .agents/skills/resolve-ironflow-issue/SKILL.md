@@ -12,6 +12,8 @@ description: Implement one tracked IronFlow `IF-NNN` finding end to end across R
 2. Read the `IF-NNN` summary in `docs/issues/README.md` and the canonical
    `docs/issues/IF-NNN.md` page. Confirm its current status, required outcome,
    and boundaries against the live code.
+   If registration was requested, create the next sequential issue page first;
+   preserve the original trigger and evidence boundary, not only a proposed fix.
 3. Trace every affected entry point, storage backend, docs page, and example.
    Treat the ledger as a hypothesis until the current source confirms it.
 4. State the implementation boundary when behavior depends on deployments,
@@ -23,8 +25,9 @@ description: Implement one tracked IronFlow `IF-NNN` finding end to end across R
   behavior whenever practical.
 - Fix the shared abstraction rather than patching only one caller. Cover all
   built-in backends or entry points governed by the contract.
-- Keep new production modules at or below 300 lines and never above 400. Split
-  orchestration, parsing, persistence, and policy into separate responsibilities.
+- Treat 300 lines as the soft target, not a reason for unrelated refactoring.
+  Follow AGENTS.md and the existing reviewed-exception policy; do not add or
+  widen exceptions to pass a gate. Keep responsibility boundaries coherent.
 - Preserve cancellation, admission ownership, bounded resource use, typed
   failures, secret redaction, and atomic storage semantics.
 - Update public docs and runnable Lua examples in the same change. Keep defaults,
@@ -42,8 +45,9 @@ independent defects as separate ledger candidates.
    suite for routine issue completion.
 3. Use disposable Redis/PostgreSQL instances with required-test flags when the
    issue touches those backends. A skipped integration test is not evidence.
-4. Validate every Lua example when the runtime, registry, docs, or examples
-   change.
+4. Validate affected Lua examples for docs/example changes. Validate all examples
+   only for runtime, registry, or broad public-contract changes, or at integration.
+   Run a bounded representative workflow when static validation cannot prove the fix.
 
 The full `$check-ironflow` integration gate is deferred to a branch merge, the
 pre-push boundary for `develop`, release preparation, or an explicit user request.
@@ -52,9 +56,12 @@ pre-push boundary for `develop`, release preparation, or an explicit user reques
 
 Only after the required gates pass:
 
-- mark the summary row and detailed entry resolved with the date;
+- mark only the canonical issue frontmatter resolved with the date; do not edit
+  generated summary rows directly;
 - document the cause, implementation, focused coverage, contract boundary, and
   exact validation evidence;
+- preserve the failed original regression and distinguish post-fix evidence from
+  historical baseline gates; do not depend on machine-local temporary fixtures;
 - regenerate the root and documentation indexes with
   `bun run scripts/issues_registry.ts generate`, then run the matching `check`;
 - run `git diff --check` and review the complete issue-scoped diff;

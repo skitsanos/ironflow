@@ -53,14 +53,14 @@ async fn assert_processes_terminated(processes: &[libc::pid_t]) {
     }
 }
 
-async fn wait_for_trace_method(path: &Path, expected: &str) {
+async fn wait_for_trace(path: &Path, field: &str, expected: &str) {
     tokio::time::timeout(Duration::from_secs(3), async {
         loop {
             if let Ok(trace) = tokio::fs::read_to_string(path).await
                 && trace.lines().any(|line| {
                     serde_json::from_str::<serde_json::Value>(line)
                         .ok()
-                        .and_then(|event| event.get("method").cloned())
+                        .and_then(|event| event.get(field).cloned())
                         .and_then(|method| method.as_str().map(str::to_string))
                         .as_deref()
                         == Some(expected)
@@ -72,7 +72,7 @@ async fn wait_for_trace_method(path: &Path, expected: &str) {
         }
     })
     .await
-    .unwrap_or_else(|_| panic!("MCP server did not receive {expected}"));
+    .unwrap_or_else(|_| panic!("MCP server did not record {field}={expected}"));
 }
 
 fn tree_script() -> &'static str {
@@ -142,6 +142,20 @@ async fn mcp_stdio_timeout_terminates_its_process_tree() {
 
 #[tokio::test]
 async fn dropping_mcp_session_request_terminates_its_process_tree() {
+    exercise_mcp_request_cleanup("slow-call", true).await;
+}
+
+#[tokio::test]
+async fn dropping_mcp_partial_frame_request_terminates_its_process_tree() {
+    exercise_mcp_request_cleanup("partial-hang", true).await;
+}
+
+#[tokio::test]
+async fn mcp_partial_frame_timeout_terminates_its_process_tree() {
+    exercise_mcp_request_cleanup("partial-hang", false).await;
+}
+
+async fn exercise_mcp_request_cleanup(mode: &str, cancel: bool) {
     let temp = tempfile::tempdir().unwrap();
     let parent_file = temp.path().join("parent.pid");
     let child_file = temp.path().join("child.pid");
@@ -155,7 +169,7 @@ async fn dropping_mcp_session_request_terminates_its_process_tree() {
                 "command": "python3",
                 "args": [
                     mock.to_str().unwrap(),
-                    "--mode", "slow-call",
+                    "--mode", mode,
                     "--delay", "30",
                     "--trace", trace_file.to_str().unwrap(),
                     "--parent-pid-file", parent_file.to_str().unwrap(),
@@ -175,21 +189,50 @@ async fn dropping_mcp_session_request_terminates_its_process_tree() {
     assert!(process_is_alive(parent_pid));
     assert!(process_is_alive(child_pid));
 
+    let request_node = node.clone();
+    let request_session = session.clone();
     let execution = tokio::spawn(async move {
-        node.execute(
-            &serde_json::json!({
-                "action": "call_tool",
-                "session": session,
-                "tool_name": "echo",
-                "arguments": {"query": "cancel me"},
-                "timeout": 30,
-            }),
+        request_node
+            .execute(
+                &serde_json::json!({
+                    "action": "call_tool",
+                    "session": request_session,
+                    "tool_name": "echo",
+                    "arguments": {"query": "cancel me"},
+                    "timeout": if cancel { 30.0 } else { 0.2 },
+                }),
+                &empty_ctx(),
+            )
+            .await
+    });
+    if mode == "partial-hang" {
+        wait_for_trace(&trace_file, "event", "fragment_prefix").await;
+    } else {
+        wait_for_trace(&trace_file, "method", "tools/call").await;
+    }
+    if cancel {
+        execution.abort();
+        assert!(execution.await.unwrap_err().is_cancelled());
+    } else {
+        let error = tokio::time::timeout(Duration::from_secs(3), execution)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("timeout") || error.contains("timed out"),
+            "{error}"
+        );
+    }
+    assert_processes_terminated(&[parent_pid, child_pid]).await;
+    let error = node
+        .execute(
+            &serde_json::json!({"action": "list_tools", "session": session}),
             &empty_ctx(),
         )
         .await
-    });
-    wait_for_trace_method(&trace_file, "tools/call").await;
-    execution.abort();
-    assert!(execution.await.unwrap_err().is_cancelled());
-    assert_processes_terminated(&[parent_pid, child_pid]).await;
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("unknown or expired session"), "{error}");
 }

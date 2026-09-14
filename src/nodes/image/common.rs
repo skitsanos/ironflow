@@ -6,7 +6,9 @@ mod capped_reader;
 mod load;
 mod pages;
 
-pub(crate) use load::{decode_image_bytes, inspect_image, load_image, load_image_for_pdf};
+pub(crate) use load::{
+    decode_image_bytes, inspect_image, load_image, load_image_for_pdf, load_image_with_admission,
+};
 pub(crate) use pages::parse_pages_spec;
 
 pub(crate) fn resolve_source(

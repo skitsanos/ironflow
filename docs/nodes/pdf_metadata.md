@@ -23,6 +23,12 @@ a tracked blocking worker with cancellation checkpoints around and during input
 reads. `lopdf` still constructs its document object model in memory, so the byte
 ceiling bounds raw input rather than promising that parser RSS equals file size.
 
+[Shared PDF loading](../PDF_LOADING.md) additionally enforces
+`IRONFLOW_MAX_PDF_DECOMPRESSED_STREAM_BYTES` (64 MiB) per object/cross-reference
+stream and `IRONFLOW_MAX_PDF_OBJECTS` (250000) after parsing. Strict loading and
+bounded recovery checks reject oversized streams instead of returning partial
+metadata. These are independent limits, not a cumulative memory ceiling.
+
 ## Context Output
 
 - `<output_key>` — object containing metadata:

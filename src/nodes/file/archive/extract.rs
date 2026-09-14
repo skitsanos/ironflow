@@ -6,7 +6,7 @@ use anyhow::Result;
 
 use super::super::helpers::{ZipLimits, validate_zip_entry_name};
 use super::copy::copy_with_control;
-use super::read::{add_uncompressed_size, open_zip_file, validate_entry_count};
+use super::read::{add_uncompressed_size, open_zip_archive, validate_entry_count};
 use super::rooted::RootedDir;
 use crate::util::execution::ExecutionControl;
 
@@ -30,14 +30,7 @@ pub(super) fn extract_zip_archive(
     execution: &ExecutionControl,
 ) -> Result<Vec<String>> {
     execution.checkpoint()?;
-    let file = open_zip_file(zip_path, "zip_extract")?;
-    let mut archive = zip::ZipArchive::new(file).map_err(|error| {
-        anyhow::anyhow!(
-            "zip_extract: '{}' is not a valid ZIP archive: {}",
-            zip_path,
-            error
-        )
-    })?;
+    let mut archive = open_zip_archive(zip_path, "zip_extract", limits, execution)?;
     let plans = preflight(&mut archive, limits, execution)?;
     execution.checkpoint()?;
 

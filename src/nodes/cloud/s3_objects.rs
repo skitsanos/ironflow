@@ -6,8 +6,8 @@ use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
 
 use super::s3_helpers::{
-    build_s3_client, resolve_optional, resolve_output_key, resolve_payload_bytes, resolve_required,
-    write_payload_to_output,
+    build_s3_client, encode_copy_source, resolve_optional, resolve_output_key,
+    resolve_payload_bytes, resolve_required, write_payload_to_output,
 };
 
 pub struct S3PutObjectNode;
@@ -252,7 +252,7 @@ impl Node for S3CopyObjectNode {
         let destination_key = resolve_required(config, "key", None, ctx)
             .ok_or_else(|| anyhow::anyhow!("s3_copy_object requires destination 'key'"))?;
         let output_key = resolve_output_key(config);
-        let copy_source = format!("{}/{}", source_bucket, source_key);
+        let copy_source = encode_copy_source(&source_bucket, &source_key);
 
         let client = build_s3_client(config, ctx).await?;
         let response = client

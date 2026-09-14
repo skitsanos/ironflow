@@ -3,6 +3,7 @@ mod commands;
 mod config;
 mod replica_config;
 mod resolution;
+mod sql_config;
 mod store_factory;
 
 pub use config::IronFlowConfig;

@@ -1,4 +1,7 @@
 -- Effects: retains one UUID-scoped PNG under TMPDIR, TMP, TEMP, or `.`.
+-- Width alone preserves aspect ratio; specifying height too uses that exact size.
+-- Resize admission includes Lanczos intermediate/scratch buffers under
+-- IRONFLOW_MAX_IMAGE_DECODE_ALLOCATION_BYTES (128 MiB by default).
 local flow = Flow.new("image_resize_demo")
 local temp_root = env("TMPDIR")
 if temp_root == nil or temp_root == "" then temp_root = env("TMP") end

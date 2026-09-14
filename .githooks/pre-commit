@@ -7,7 +7,12 @@ cd "$repo_root"
 echo "IronFlow pre-commit: checking staged diff"
 git diff --cached --check
 
-staged_paths=$(git diff --cached --name-only --diff-filter=ACMR)
+staged_paths=$(git diff --cached --name-only --diff-filter=ACMRD)
+
+if printf '%s\n' "$staged_paths" | grep -Eq '^(docs/issues/|docs/ROADMAP\.md$|ISSUES\.md$|AGENTS\.md$|scripts/issues_registry\.ts$|\.agents/skills/(resolve-ironflow-issue|check-ironflow)/)'; then
+  echo "IronFlow pre-commit: checking canonical issue registry"
+  bun run scripts/issues_registry.ts check
+fi
 
 if printf '%s\n' "$staged_paths" | grep -Eq '(^|/)(Cargo\.(toml|lock)|.*\.rs)$'; then
   echo "IronFlow pre-commit: checking Rust formatting"

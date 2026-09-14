@@ -14,6 +14,23 @@ fn ctx_with(pairs: Vec<(&str, serde_json::Value)>) -> Context {
 // --- xml_parse ---
 
 #[tokio::test]
+async fn xml_parse_preserves_utf8_names_attributes_and_normalizes_text_eols() {
+    let node = NodeRegistry::with_builtins().get("xml_parse").unwrap();
+    let result = node
+        .execute(
+            &serde_json::json!({
+                "input": "<r\u{e9}sum\u{e9} libell\u{e9}=\"caf\u{e9}\"><texte>na\u{ef}ve\r\n\u{6771}\u{4eac}\rfin</texte></r\u{e9}sum\u{e9}>"
+            }),
+            &empty_ctx(),
+        )
+        .await
+        .unwrap();
+    let root = &result["xml_data"]["r\u{e9}sum\u{e9}"];
+    assert_eq!(root["@libell\u{e9}"], "caf\u{e9}");
+    assert_eq!(root["texte"], "na\u{ef}ve\n\u{6771}\u{4eac}\nfin");
+}
+
+#[tokio::test]
 async fn xml_parse_simple_element() {
     let reg = NodeRegistry::with_builtins();
     let node = reg.get("xml_parse").unwrap();

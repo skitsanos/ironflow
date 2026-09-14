@@ -59,6 +59,11 @@ For `output_key = "result"`:
 
 Iteration history is intentionally not retained.
 
+Carried state and the final child context use full, redacted live values, not
+persisted inspection snapshots. `IRONFLOW_MAX_TASK_OUTPUT_BYTES` does not
+replace large state with a truncation marker between iterations. CLI/API
+inspection of the parent may still contain markers for large final values.
+
 ## Example
 
 Parent flow:
@@ -111,3 +116,7 @@ the compiled absolute ceiling of `1024`. A node may choose a lower
 `max_iterations`, but cannot raise the process limit. The node stores only the
 current state and final child context; payload growth inside that state remains
 the workflow author's responsibility.
+
+The inspection cap is not an execution-memory limit. Existing Lua
+memory/conversion limits, parent timeouts, and cancellation remain enforced;
+use artifact references when carried payloads would otherwise grow too large.

@@ -71,7 +71,7 @@ The engine automatically injects `_flow_dir` into the context when running a flo
 
 When `wait = true` (default):
 
-- All context keys produced by the child flow are merged into the parent context (or namespaced under `output_key` if specified).
+- Public child context keys (including inherited input, excluding `_`-prefixed keys) are merged into the parent context or namespaced under `output_key`.
 - `subworkflow_name` — the name of the executed subworkflow.
 - `subworkflow_success` — `true` when the child run succeeded. Always present, so the outcome is checkable even without `output_key`.
 - `{output_key}_success` — same flag, namespaced. Only when `output_key` is set.
@@ -83,12 +83,30 @@ the child returns a broad flattened context that can also contain inherited
 input keys, so namespacing is the safest composition boundary when parallel
 results must coexist.
 
+Waiting composition receives full, redacted child values directly from the live
+execution after finalization, not from persisted inspection snapshots.
+`IRONFLOW_MAX_TASK_OUTPUT_BYTES` may replace large values in CLI/API inspection
+with truncation markers, but does not truncate the values consumed by parent
+steps. With `on_error = "ignore"`, a failed child's prior committed values are
+also kept in full while its success flags remain false. Infrastructure/finalization errors
+still fail the step; they are not successful partial child results.
+
+This handoff is in-process, not a durable result-recovery API. Existing Lua
+memory/conversion limits and parent cancellation/timeouts still apply. Large
+values consume memory; use artifact references for bulky payloads rather than
+treating the inspection cap as an execution-memory limit.
+
 When `wait = false`:
 
 - `subworkflow_name` — the name of the subworkflow that was launched.
 - `subworkflow_async` — set to `true`, indicating the subworkflow is running in the background.
 
 ## Examples
+
+[`live_child_results.lua`](../../examples/11-subworkflow/live_child_results.lua)
+and its helper verify a 3 MiB result in a downstream parent step. The final CLI
+context shows a truncation marker under `child` at the default inspection cap,
+alongside `child_bytes = 3145728` and `live_result_verified = true`.
 
 ### Basic usage
 

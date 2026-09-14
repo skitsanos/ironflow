@@ -3,12 +3,16 @@ Send an email using the Resend API.
 
 Requires: RESEND_API_KEY env var (or pass api_key in config)
 Optional: SENDER_EMAIL env var for default sender address
+Optional: RESEND_API_URL overrides this example's endpoint for a local fixture.
+Response bytes are capped by IRONFLOW_MAX_HTTP_BODY_BYTES (default 52428800).
+Oversized or interrupted responses fail the step without partial output.
 ]]
 
 local flow = Flow.new("send_email_resend")
 
 -- Step 1: Send a welcome email via Resend
 flow:step("send_welcome", nodes.send_email({
+    api_url = env("RESEND_API_URL"),
     -- Send to yourself for testing; set SENDER_EMAIL in .env
     to = env("SENDER_EMAIL"),
     subject = "Welcome to IronFlow!",

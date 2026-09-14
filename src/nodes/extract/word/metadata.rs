@@ -32,7 +32,7 @@ fn parse_core_properties<R: BufRead>(
 ) -> Result<BTreeMap<String, String>> {
     use quick_xml::events::Event;
 
-    let mut metadata = BTreeMap::new();
+    let mut metadata = BTreeMap::<String, String>::new();
     let mut reader = quick_xml::Reader::from_reader(xml);
     reader.config_mut().check_comments = true;
     let mut buf = Vec::new();
@@ -44,21 +44,20 @@ fn parse_core_properties<R: BufRead>(
         let event = reader
             .read_event_into(&mut buf)
             .map_err(|error| anyhow::anyhow!("extract_word: invalid docProps/core.xml: {error}"))?;
-        document.observe(&event, budget)?;
+        let event = document.decode(event, budget)?;
         match event {
             Event::Start(ref event) => {
-                let name = String::from_utf8_lossy(event.name().as_ref()).to_string();
+                let name = event.name().as_ref().to_string();
                 if KNOWN_TAGS.contains(&name.as_str()) {
                     current_tag = name;
                     in_metadata = true;
                 }
             }
             Event::Text(ref event) if in_metadata => {
-                let text = String::from_utf8_lossy(event.as_ref()).trim().to_string();
-                if !text.is_empty() {
-                    budget.charge_output(text.len() as u64, "DOCX metadata value")?;
-                    metadata.insert(key_for_tag(&current_tag).to_string(), text);
-                }
+                metadata
+                    .entry(key_for_tag(&current_tag).to_string())
+                    .or_default()
+                    .push_str(event.as_ref());
             }
             Event::End(_) => in_metadata = false,
             Event::Eof => break,
@@ -66,6 +65,10 @@ fn parse_core_properties<R: BufRead>(
         }
         buf.clear();
     }
+    metadata.retain(|_, value| {
+        *value = value.trim().to_owned();
+        !value.is_empty()
+    });
     Ok(metadata)
 }
 

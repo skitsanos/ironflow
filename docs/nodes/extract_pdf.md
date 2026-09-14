@@ -41,6 +41,11 @@ output as a stable document-identity representation.
   platforms enforce the opened-handle regular-file check.
 - `IRONFLOW_MAX_PDF_EXTRACT_PAGES` (default `1000`) rejects the document after
   its page tree is parsed but before text extraction begins.
+- [Shared PDF loading](../PDF_LOADING.md) limits each object/cross-reference
+  stream to `IRONFLOW_MAX_PDF_DECOMPRESSED_STREAM_BYTES` (64 MiB) and rejects
+  more than `IRONFLOW_MAX_PDF_OBJECTS` (250000) loaded objects after parsing.
+  Strict parsing and bounded recovery checks reject oversized streams instead
+  of returning partial success. These are not a total memory ceiling.
 - `IRONFLOW_MAX_EXTRACT_ITEMS` (default `250000`) is cumulative across PDF
   pages, supported metadata fields that are present, and extracted text lines.
 - `IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES` (default `52428800`, 50 MiB) bounds the

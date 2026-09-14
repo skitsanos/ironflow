@@ -1,4 +1,4 @@
-//! Exact, allocation-free traversal of ZIP central-directory headers.
+//! Exact, bounded traversal of ZIP central-directory headers.
 
 use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
@@ -22,12 +22,12 @@ struct NameLocation {
 }
 
 #[derive(Clone, Copy)]
-pub(super) struct Limits<'a> {
-    pub(super) max_entries: u64,
-    pub(super) max_raw_bytes: u64,
-    pub(super) raw_limit_name: &'a str,
-    pub(super) max_metadata_bytes: u64,
-    pub(super) metadata_limit_name: &'a str,
+pub(crate) struct Limits<'a> {
+    pub(crate) max_entries: u64,
+    pub(crate) max_raw_bytes: u64,
+    pub(crate) raw_limit_name: &'a str,
+    pub(crate) max_metadata_bytes: u64,
+    pub(crate) metadata_limit_name: &'a str,
 }
 
 pub(super) fn validate<R: Read + Seek>(
@@ -41,7 +41,7 @@ pub(super) fn validate<R: Read + Seek>(
     validate_bounds(path, operation, directory, limits)?;
     let directory_end = directory.offset + directory.size;
     let mut cursor = directory.offset;
-    let mut metadata_bytes = 0_u64;
+    let mut metadata_bytes = directory.extra_metadata_bytes;
     let mut names: HashMap<[u8; 32], NameLocation> = HashMap::new();
     names
         .try_reserve(usize::try_from(directory.entries).unwrap_or(usize::MAX))
@@ -78,7 +78,7 @@ pub(super) fn validate<R: Read + Seek>(
             .ok_or_else(|| anyhow::anyhow!("{operation}: cumulative ZIP metadata overflow"))?;
         if metadata_bytes > limits.max_metadata_bytes {
             anyhow::bail!(
-                "{operation}: '{}' central-directory file names, extra fields, and comments total \
+                "{operation}: '{}' ZIP names, extra fields, comments, and end-record extensions total \
                  at least {metadata_bytes} bytes, exceeding {} ({})",
                 path.display(),
                 limits.metadata_limit_name,
@@ -174,9 +174,17 @@ fn validate_bounds(
     directory: Directory,
     limits: Limits<'_>,
 ) -> Result<()> {
+    if directory.extra_metadata_bytes > limits.max_metadata_bytes {
+        anyhow::bail!(
+            "{operation}: '{}' ZIP end-record metadata exceeds {} ({})",
+            path.display(),
+            limits.metadata_limit_name,
+            limits.max_metadata_bytes
+        );
+    }
     if directory.entries > limits.max_entries {
         anyhow::bail!(
-            "{operation}: '{}' declares {} zip entries, exceeding \
+            "{operation}: '{}' declares {} zip entries; raw count exceeds limit \
              IRONFLOW_MAX_ZIP_ENTRIES ({})",
             path.display(),
             directory.entries,

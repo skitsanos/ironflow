@@ -1,5 +1,6 @@
 mod anchors;
 mod numbering;
+mod properties;
 mod theme;
 mod xml;
 
@@ -9,6 +10,7 @@ use anyhow::Result;
 
 use anchors::AnchorCollector;
 pub(super) use numbering::parse_numbering_defs;
+use properties::apply_run_color;
 pub(super) use theme::parse_theme_colors;
 pub(super) use xml::{XmlDocument, visit_attributes};
 
@@ -79,6 +81,7 @@ pub(super) fn parse_docx_blocks<R: BufRead>(
     let mut blocks = Vec::new();
     let mut in_paragraph = false;
     let mut in_run = false;
+    let mut in_text = false;
     let mut in_run_props = false;
     let mut in_para_props = false;
     let mut table_stack = Vec::<DocxTable>::new();
@@ -94,13 +97,14 @@ pub(super) fn parse_docx_blocks<R: BufRead>(
         let event = reader
             .read_event_into(&mut buf)
             .map_err(|error| anyhow::anyhow!("extract_word: invalid word/document.xml: {error}"))?;
-        document.observe(&event, budget)?;
+        let event = document.decode(event, budget)?;
         if let Some(anchors) = anchors.as_mut() {
-            anchors.observe(&event, budget)?;
+            anchors.observe(&event, document.version(), budget)?;
         }
+        let is_empty = matches!(&event, Event::Empty(_));
         match event {
             Event::Start(ref event) | Event::Empty(ref event) => {
-                let name = String::from_utf8_lossy(event.name().as_ref()).to_string();
+                let name = event.name().as_ref().to_string();
                 match name.as_str() {
                     "w:tbl" => table_stack.push(DocxTable::default()),
                     "w:tr" if !table_stack.is_empty() => {
@@ -115,19 +119,26 @@ pub(super) fn parse_docx_blocks<R: BufRead>(
                     }
                     "w:pPr" if in_paragraph => in_para_props = true,
                     "w:pStyle" if in_para_props => {
-                        visit_attributes(event, "word/document.xml", budget, |key, value, _| {
-                            if key == b"w:val" {
-                                current_para.style =
-                                    Some(String::from_utf8_lossy(value).to_string());
-                            }
-                            Ok(())
-                        })?;
+                        visit_attributes(
+                            event,
+                            "word/document.xml",
+                            document.version(),
+                            budget,
+                            |key, value, _| {
+                                if key == b"w:val" {
+                                    current_para.style =
+                                        Some(String::from_utf8_lossy(value).to_string());
+                                }
+                                Ok(())
+                            },
+                        )?;
                     }
                     "w:numPr" if in_para_props => current_para.is_list_item = true,
                     "w:ilvl" if in_para_props => {
                         visit_attributes(
                             event,
                             "word/document.xml",
+                            document.version(),
                             budget,
                             |key, value, budget| {
                                 if key == b"w:val"
@@ -144,38 +155,57 @@ pub(super) fn parse_docx_blocks<R: BufRead>(
                         )?;
                     }
                     "w:numId" if in_para_props => {
-                        visit_attributes(event, "word/document.xml", budget, |key, value, _| {
-                            if key == b"w:val" {
-                                current_para.is_numbered = numbering_defs
-                                    .get(String::from_utf8_lossy(value).as_ref())
-                                    .copied()
-                                    .unwrap_or(false);
-                            }
-                            Ok(())
-                        })?;
+                        visit_attributes(
+                            event,
+                            "word/document.xml",
+                            document.version(),
+                            budget,
+                            |key, value, _| {
+                                if key == b"w:val" {
+                                    current_para.is_numbered = numbering_defs
+                                        .get(String::from_utf8_lossy(value).as_ref())
+                                        .copied()
+                                        .unwrap_or(false);
+                                }
+                                Ok(())
+                            },
+                        )?;
                     }
                     "w:r" if in_paragraph => {
                         in_run = true;
                         current_run = DocxRun::default();
                     }
                     "w:rPr" if in_run => in_run_props = true,
+                    "w:t" if in_run => in_text = !is_empty,
                     "w:b" if in_run_props => current_run.bold = true,
                     "w:i" if in_run_props => current_run.italic = true,
                     "w:u" if in_run_props => current_run.underline = true,
                     "w:strike" if in_run_props => current_run.strikethrough = true,
                     "w:color" if in_run_props => {
-                        apply_run_color(event, &mut current_run, theme_colors, budget)?;
+                        apply_run_color(
+                            event,
+                            &mut current_run,
+                            theme_colors,
+                            document.version(),
+                            budget,
+                        )?;
                     }
                     "w:highlight" if in_run_props => {
-                        visit_attributes(event, "word/document.xml", budget, |key, value, _| {
-                            if key == b"w:val" {
-                                let value = String::from_utf8_lossy(value).to_string();
-                                if value != "none" && !value.is_empty() {
-                                    current_run.highlight = Some(value);
+                        visit_attributes(
+                            event,
+                            "word/document.xml",
+                            document.version(),
+                            budget,
+                            |key, value, _| {
+                                if key == b"w:val" {
+                                    let value = String::from_utf8_lossy(value).to_string();
+                                    if value != "none" && !value.is_empty() {
+                                        current_run.highlight = Some(value);
+                                    }
                                 }
-                            }
-                            Ok(())
-                        })?;
+                                Ok(())
+                            },
+                        )?;
                     }
                     "w:tab" if in_run => {
                         budget.charge_output(1, "DOCX extracted text")?;
@@ -188,15 +218,13 @@ pub(super) fn parse_docx_blocks<R: BufRead>(
                     _ => {}
                 }
             }
-            Event::Text(ref event) if in_run => {
-                budget.charge_output(event.len() as u64, "DOCX extracted text")?;
-                current_run
-                    .text
-                    .push_str(&String::from_utf8_lossy(event.as_ref()));
+            Event::Text(ref event) if in_run && in_text => {
+                current_run.text.push_str(event.as_ref());
             }
             Event::End(ref event) => {
-                let name = String::from_utf8_lossy(event.name().as_ref()).to_string();
+                let name = event.name().as_ref().to_string();
                 match name.as_str() {
+                    "w:t" => in_text = false,
                     "w:p" => {
                         in_paragraph = false;
                         let finished = std::mem::take(&mut current_para);
@@ -244,33 +272,6 @@ pub(super) fn parse_docx_blocks<R: BufRead>(
         blocks,
         anchors: anchors.map(AnchorCollector::finish).unwrap_or_default(),
     })
-}
-
-fn apply_run_color(
-    event: &quick_xml::events::BytesStart<'_>,
-    run: &mut DocxRun,
-    theme_colors: &std::collections::HashMap<String, String>,
-    budget: &mut Budget<'_>,
-) -> Result<()> {
-    let mut hex = None;
-    let mut theme = None;
-    visit_attributes(event, "word/document.xml", budget, |key, value, _| {
-        match key {
-            b"w:val" => {
-                let value = String::from_utf8_lossy(value).to_string();
-                if value != "auto" && !value.is_empty() {
-                    hex = Some(value.to_uppercase());
-                }
-            }
-            b"w:themeColor" => {
-                theme = Some(String::from_utf8_lossy(value).to_string());
-            }
-            _ => {}
-        }
-        Ok(())
-    })?;
-    run.color = hex.or_else(|| theme.and_then(|key| theme_colors.get(&key).cloned()));
-    Ok(())
 }
 
 fn finish_table(

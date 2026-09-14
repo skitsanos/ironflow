@@ -1,22 +1,6 @@
 use std::collections::BTreeMap;
 
-use lopdf::{Document, Object, ObjectId};
-
-pub(crate) fn collect_objects_recursive(
-    document: &Document,
-    object_id: ObjectId,
-    collected: &mut BTreeMap<ObjectId, Object>,
-) {
-    if collected.contains_key(&object_id) {
-        return;
-    }
-    if let Ok(object) = document.get_object(object_id) {
-        collected.insert(object_id, object.clone());
-        for reference in extract_references(object) {
-            collect_objects_recursive(document, reference, collected);
-        }
-    }
-}
+use lopdf::{Object, ObjectId};
 
 pub(crate) fn extract_references(object: &Object) -> Vec<ObjectId> {
     let mut references = Vec::new();
@@ -45,9 +29,12 @@ pub(crate) fn extract_references(object: &Object) -> Vec<ObjectId> {
 pub(crate) fn remap_references(object: &mut Object, map: &BTreeMap<ObjectId, ObjectId>) {
     match object {
         Object::Reference(id) => {
-            if let Some(new_id) = map.get(id) {
-                *id = *new_id;
-            }
+            // An omitted page/tree reference cannot retain its old, possibly reused ID.
+            *object = map
+                .get(id)
+                .copied()
+                .map(Object::Reference)
+                .unwrap_or(Object::Null);
         }
         Object::Array(values) => {
             for value in values {

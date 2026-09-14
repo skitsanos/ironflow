@@ -180,6 +180,7 @@ impl S3ArtifactStore {
             )
             .await
             .context("S3 artifact download failed")?;
+            execution.checkpoint()?;
             let declared = response.content_length();
             let declared = u64::try_from(declared.unwrap_or_default())
                 .context("S3 artifact has a negative content length")?;
@@ -198,12 +199,16 @@ impl S3ArtifactStore {
             let mut hasher = Sha256::new();
             let mut size = 0_u64;
             loop {
+                execution.checkpoint()?;
                 let next = loop {
                     tokio::select! {
                         next = response.body.next() => break next,
                         () = tokio::time::sleep(CANCEL_POLL) => execution.checkpoint()?,
                     }
                 };
+                // Fast chunks can continually win over the idle poll. Check
+                // again before accepting bytes or treating EOF as completion.
+                execution.checkpoint()?;
                 let Some(chunk) = next else {
                     break;
                 };

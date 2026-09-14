@@ -14,9 +14,9 @@
       "label": "repeated_pptx_media",
       "node": "extract_pptx",
       "file": "repeated-media.pptx",
-      "sha256": "de10706d4b1f7a0259d626813c1d6b31de58df265fd7be2a0ff3dda4d40708e2",
-      "raw_bytes": 22698,
-      "declared_bytes": 29604
+      "sha256": "4edd2e6540a22d9b2a1e9926221e2dcbd3afbcba1a2ecf9b10570d38316c773c",
+      "raw_bytes": 23691,
+      "declared_bytes": 37706
     },
     {
       "label": "compressed_pdf_text",

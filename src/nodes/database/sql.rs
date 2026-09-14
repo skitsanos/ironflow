@@ -1,8 +1,9 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use futures_util::TryStreamExt;
-use sqlx::any::AnyRow;
-use sqlx::{AnyPool, Arguments, Column, Row, TypeInfo};
+use sqlx::{AnyPool, Arguments};
+
+use super::row::row_to_json;
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
@@ -82,60 +83,6 @@ pub(super) fn bind_params(params: &[serde_json::Value]) -> Result<sqlx::any::Any
         }
     }
     Ok(args)
-}
-
-/// Convert a row to a JSON object by inspecting column types at runtime.
-pub(super) fn row_to_json(row: &AnyRow) -> Result<serde_json::Value> {
-    let mut map = serde_json::Map::new();
-
-    for col in row.columns() {
-        let name = col.name().to_string();
-        let type_name = col.type_info().name();
-
-        let value: serde_json::Value = match type_name {
-            "INTEGER" | "INT" | "INT4" | "INT8" | "BIGINT" | "SMALLINT" => {
-                match row.try_get::<i64, _>(col.ordinal()) {
-                    Ok(v) => serde_json::json!(v),
-                    Err(_) => serde_json::Value::Null,
-                }
-            }
-            "REAL" | "FLOAT" | "FLOAT4" | "FLOAT8" | "DOUBLE" | "NUMERIC" => {
-                match row.try_get::<f64, _>(col.ordinal()) {
-                    Ok(v) => serde_json::json!(v),
-                    Err(_) => serde_json::Value::Null,
-                }
-            }
-            "BOOLEAN" | "BOOL" => {
-                if let Ok(v) = row.try_get::<bool, _>(col.ordinal()) {
-                    serde_json::json!(v)
-                } else if let Ok(v) = row.try_get::<i64, _>(col.ordinal()) {
-                    serde_json::json!(v != 0)
-                } else if let Ok(v) = row.try_get::<f64, _>(col.ordinal()) {
-                    serde_json::json!(v != 0.0)
-                } else if let Ok(v) = row.try_get::<String, _>(col.ordinal()) {
-                    matches!(
-                        v.as_str(),
-                        "1" | "true" | "TRUE" | "True" | "t" | "T" | "yes" | "YES"
-                    )
-                    .then_some(serde_json::Value::Bool(true))
-                    .unwrap_or(serde_json::Value::Bool(false))
-                } else {
-                    serde_json::Value::Null
-                }
-            }
-            _ => {
-                // Default: try as string (TEXT, VARCHAR, etc.)
-                match row.try_get::<String, _>(col.ordinal()) {
-                    Ok(v) => serde_json::Value::String(v),
-                    Err(_) => serde_json::Value::Null,
-                }
-            }
-        };
-
-        map.insert(name, value);
-    }
-
-    Ok(serde_json::Value::Object(map))
 }
 
 /// Connect to a database using the `connection` config parameter.

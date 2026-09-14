@@ -10,7 +10,8 @@ use crate::nodes::Node;
 use crate::util::execution::{ExecutionControl, run_tracked_blocking_step};
 
 use super::super::common::{parse_pages_spec, resolve_source};
-use super::{collect_objects_recursive, remap_references};
+use super::page_graph::collect_page_graph;
+use super::remap_references;
 
 pub(crate) struct PdfSplitNode;
 
@@ -98,7 +99,7 @@ fn split(request: Request, execution: &ExecutionControl) -> Result<NodeOutput> {
             .get(page_index)
             .ok_or_else(|| anyhow::anyhow!("pdf_split: page index {page_index} out of range"))?;
         let page_id = source_pages[page_number];
-        let mut document = single_page_document(&source, page_id);
+        let mut document = single_page_document(&source, page_id, execution)?;
         execution.checkpoint()?;
         let output_path =
             std::path::Path::new(&output_dir).join(format!("{stem}_{}.pdf", page_index + 1));
@@ -130,25 +131,29 @@ fn split(request: Request, execution: &ExecutionControl) -> Result<NodeOutput> {
     Ok(output)
 }
 
-fn single_page_document(source: &Document, page_id: lopdf::ObjectId) -> Document {
+fn single_page_document(
+    source: &Document,
+    page_id: lopdf::ObjectId,
+    execution: &ExecutionControl,
+) -> Result<Document> {
     let mut document = Document::new();
     let pages_id = document.new_object_id();
-    let mut objects = BTreeMap::new();
-    collect_objects_recursive(source, page_id, &mut objects);
-    let remap: BTreeMap<_, _> = objects
-        .iter()
-        .map(|(&old_id, object)| (old_id, document.add_object(object.clone())))
-        .collect();
+    let objects = collect_page_graph(source, &[page_id], None, "pdf_split", execution)?;
+    let mut remap = BTreeMap::new();
+    for (old_id, object) in objects {
+        execution.checkpoint()?;
+        remap.insert(old_id, document.add_object(object));
+    }
     for new_id in remap.values() {
-        if let Ok(object) = document.get_object_mut(*new_id) {
-            remap_references(object, &remap);
-        }
+        execution.checkpoint()?;
+        remap_references(document.get_object_mut(*new_id)?, &remap);
     }
 
     let new_page_id = remap[&page_id];
-    if let Ok(Object::Dictionary(dictionary)) = document.get_object_mut(new_page_id) {
-        dictionary.set("Parent", pages_id);
-    }
+    document
+        .get_object_mut(new_page_id)?
+        .as_dict_mut()?
+        .set("Parent", pages_id);
     document.objects.insert(
         pages_id,
         Object::Dictionary(dictionary! {
@@ -163,5 +168,5 @@ fn single_page_document(source: &Document, page_id: lopdf::ObjectId) -> Document
     });
     document.trailer.set("Root", catalog_id);
     document.max_id = document.objects.keys().map(|id| id.0).max().unwrap_or(0);
-    document
+    Ok(document)
 }

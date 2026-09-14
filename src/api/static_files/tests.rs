@@ -7,6 +7,9 @@ use http_body_util::BodyExt;
 
 use super::{StaticFiles, StaticFilesConfig};
 
+mod compatibility;
+mod confinement;
+
 fn config(directory: &std::path::Path) -> StaticFilesConfig {
     StaticFilesConfig {
         directory: directory.to_path_buf(),

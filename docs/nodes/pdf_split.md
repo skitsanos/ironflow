@@ -26,6 +26,27 @@ document and one selected page's reachable cloned object graph while producing
 that page, so the source byte cap is not an exact RSS ceiling. A later failure
 does not roll back page files already written to `output_dir`.
 
+Before writing any pages, [shared PDF loading](../PDF_LOADING.md) enforces
+`IRONFLOW_MAX_PDF_DECOMPRESSED_STREAM_BYTES` (64 MiB) per object/cross-reference
+stream and rejects more than `IRONFLOW_MAX_PDF_OBJECTS` (250000) loaded objects
+after parsing. Strict parsing and bounded recovery checks prevent oversized
+streams from silently producing partial documents.
+
+## Page isolation and fidelity
+
+Each output contains one selected page and its reachable dependencies, without
+copying the source page tree, sibling pages, or their unique resources. Before
+reparenting, the node materializes the nearest inherited `Resources`, `MediaBox`,
+`CropBox`, and `Rotate` values. Explicit page values take precedence; null values
+are treated as absent. Broken or cyclic parent chains fail before that page is
+written. Graph collection and remapping include cancellation checkpoints.
+
+References to omitted pages, source page-tree nodes, or the source catalog become
+PDF nulls, so a cross-page annotation cannot pull an excluded page back into the
+file. Annotation backlinks to the retained page are remapped normally. This is
+page extraction, not content redaction: retained shared resources, metadata, or
+streams may contain unused or hidden data and are not sanitized.
+
 ## Context Output
 
 - `<output_key>_files` (default `pdf_split_files`) — array of file paths for the split PDF pages.
