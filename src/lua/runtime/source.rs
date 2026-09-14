@@ -1,6 +1,8 @@
 //! Bounded flow-source validation and file reads.
 
-use std::fs::{File, OpenOptions};
+use std::fs::File;
+#[cfg(unix)]
+use std::fs::OpenOptions;
 use std::io::Read;
 use std::path::Path;
 
