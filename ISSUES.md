@@ -8,7 +8,6 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 
 | ID | Priority | Status | Area | Summary |
 |---|---:|---|---|---|
-| [IF-122](docs/issues/IF-122.md) | P2 | Open | SQL/concurrency | SQL's unowned context merge loses concurrent successful updates |
 | [IF-123](docs/issues/IF-123.md) | P2 | Open | CLI/replica safety | Replica mode trusts backend labels instead of actual SQL dialects |
 | [IF-124](docs/issues/IF-124.md) | P2 | Open | MCP/framing | MCP stdio drops partially consumed frames on select cancellation |
 | [IF-127](docs/issues/IF-127.md) | P2 | Open | ArangoDB/pagination | Arango cursor IDs are discarded |

@@ -45,10 +45,11 @@ _No committed initiative._
 
 ## Next
 
-### [IF-122](issues/IF-122.md) — Preserve concurrent SQL context updates
+### [IF-123](issues/IF-123.md) — Validate replica SQL backend dialects
 
-Make unowned context merges atomic so successful disjoint updates survive
-concurrency and stale writes cannot cross deletion and recreation.
+Validate resolved state and event URL dialects before connecting or admitting
+replica mode, rejecting SQLite URLs disguised as PostgreSQL without exposing
+credentials in errors.
 
 ## Later
 

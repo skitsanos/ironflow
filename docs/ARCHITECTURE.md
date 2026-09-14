@@ -291,7 +291,16 @@ Implementations:
   task cannot be inserted after its parent run disappears. A single run
   deletion removes its tasks and run row in one transaction; `prune_before`
   locks eligible runs and deletes every selected run/task set in one
-  transaction, so any failure rolls the whole prune back.
+  transaction, so any failure rolls the whole prune back. Context merges take
+  the same run lock before reading and hold it through the merged write and
+  commit. Successful disjoint updates survive across store instances; duplicate
+  keys use the last serialized writer's value (a shallow merge, including JSON
+  null). The owned path retains its live-lease check and acquires locks in
+  lease-then-run order. A context snapshot cannot cross deletion/recreation:
+  an absent run returns `NotFound`, while a first locked read after recreation
+  can legitimately merge into the new run. Unowned calls do not carry an owner
+  or incarnation token. These guarantees require all concurrent writers to
+  use the updated implementation; they do not make older binaries safe writers.
 - **RedisStateStore** — Redis-backed (optional, `redis` feature flag). Uses a
   Redis Hash per run plus native global and per-status Sorted Set indexes.
   Sorted Set members encode the normalized microsecond timestamp and run ID,

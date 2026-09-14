@@ -84,7 +84,7 @@ impl StateStore for SqlStateStore {
     }
 
     async fn get_ctx(&self, run_id: &str) -> StorageResult<Context> {
-        self.read_context(run_id).await
+        self.read_context(run_id, &self.pool).await
     }
 
     async fn update_ctx(&self, run_id: &str, ctx: &Context) -> StorageResult<()> {

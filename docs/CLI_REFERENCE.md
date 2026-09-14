@@ -487,6 +487,14 @@ rebuild.
 SQL run deletion and SQL pruning wrap their run/task changes in transactions;
 task upserts take the same per-run lock as deletion/pruning, and an error rolls
 the complete operation back.
+SQL context merges also lock the run before reading and commit the read/merge/write
+as one transaction. Concurrent successful disjoint updates are retained; duplicate
+keys replace the previous value without recursively merging nested objects.
+Lease-fenced writers keep their ownership checks and share this run lock. A merge
+cannot carry a stored context snapshot across run deletion/recreation, although an
+unowned call that first reads the replacement run can update that run. Upgrade all
+concurrent SQL writers before relying on these guarantees; no schema migration or
+new setting is required.
 
 SQL event identity is `(run_id, id)`. Upgrading a table whose primary key is
 the earlier global `(id)` form is a locked, guarded migration and requires a

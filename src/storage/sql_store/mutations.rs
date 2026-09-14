@@ -121,7 +121,11 @@ impl SqlStateStore {
         Ok(())
     }
 
-    pub(super) async fn read_context(&self, run_id: &str) -> StorageResult<Context> {
+    pub(super) async fn read_context<'e>(
+        &self,
+        run_id: &str,
+        executor: impl sqlx::Executor<'e, Database = sqlx::Any>,
+    ) -> StorageResult<Context> {
         let sql = format!(
             "SELECT ctx FROM {} WHERE id = {}",
             self.tables.runs,
@@ -129,7 +133,7 @@ impl SqlStateStore {
         );
         let row = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
             .bind(run_id)
-            .fetch_optional(&self.pool)
+            .fetch_optional(executor)
             .await
             .map_err(|error| {
                 StorageError::backend(
@@ -152,7 +156,19 @@ impl SqlStateStore {
         run_id: &str,
         ctx: &Context,
     ) -> StorageResult<()> {
-        let mut current = self.read_context(run_id).await?;
+        let mut transaction = self.pool.begin().await.map_err(|error| {
+            StorageError::backend(
+                format_args!("Failed to begin context update for run '{run_id}'"),
+                error,
+            )
+        })?;
+        // Lock before reading so neither another merge nor recreation can stale the snapshot.
+        if !self.lock_run_for_mutation(&mut transaction, run_id).await? {
+            return Err(StorageError::not_found(format_args!(
+                "Run '{run_id}' not found"
+            )));
+        }
+        let mut current = self.read_context(run_id, &mut *transaction).await?;
         current.extend(ctx.clone());
         let sql = format!(
             "UPDATE {} SET ctx = {} WHERE id = {}",
@@ -168,7 +184,7 @@ impl SqlStateStore {
                 )
             })?)
             .bind(run_id)
-            .execute(&self.pool)
+            .execute(&mut *transaction)
             .await
             .map_err(|error| {
                 StorageError::backend(
@@ -177,7 +193,13 @@ impl SqlStateStore {
                 )
             })?
             .rows_affected();
-        require_existing_run(run_id, affected)
+        require_existing_run(run_id, affected)?;
+        transaction.commit().await.map_err(|error| {
+            StorageError::backend(
+                format_args!("Failed to commit context for run '{run_id}'"),
+                error,
+            )
+        })
     }
 }
 

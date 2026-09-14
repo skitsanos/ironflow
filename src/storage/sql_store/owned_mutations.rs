@@ -1,4 +1,4 @@
-use super::{SqlStateStore, optional_json_to_string, row_value};
+use super::{SqlStateStore, optional_json_to_string};
 use crate::engine::types::{Context, TaskState};
 use crate::storage::{StorageError, StorageResult};
 
@@ -94,26 +94,13 @@ impl SqlStateStore {
         {
             return Ok(false);
         }
-        let sql = format!(
-            "SELECT ctx FROM {} WHERE id = {}",
-            self.tables.runs,
-            self.placeholder(1),
-        );
-        let row = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
-            .bind(run_id)
-            .fetch_optional(&mut *transaction)
-            .await
-            .map_err(|error| {
-                StorageError::backend(
-                    format_args!("Failed to read context for run '{run_id}'"),
-                    error,
-                )
-            })?
-            .ok_or_else(|| StorageError::not_found(format_args!("Run '{run_id}' not found")))?;
-        let raw: String = row_value(&row, "ctx", "run", run_id)?;
-        let mut current: Context = serde_json::from_str(&raw).map_err(|error| {
-            StorageError::corruption(format_args!("Invalid context for run '{run_id}'"), error)
-        })?;
+        // Preserve lease-then-run ordering while serializing with unowned merges.
+        if !self.lock_run_for_mutation(&mut transaction, run_id).await? {
+            return Err(StorageError::not_found(format_args!(
+                "Run '{run_id}' not found"
+            )));
+        }
+        let mut current = self.read_context(run_id, &mut *transaction).await?;
         current.extend(ctx.clone());
         let sql = format!(
             "UPDATE {} SET ctx = {} WHERE id = {}",
