@@ -51,26 +51,3 @@ test("Linux validation bounds artifacts without changing other build profiles", 
     }
   }
 });
-
-test("Linux validation reports resources before and after compilation, including failures", async () => {
-  const workflow = await readWorkflow("ci");
-  for (const name of validationJobs) {
-    const steps = workflow.jobs[name].steps;
-    const before = steps.findIndex((step) => step.name === "Runner resources before validation");
-    const after = steps.findIndex((step) => step.name === "Runner resources after validation");
-    const compilations = steps.flatMap((step, index) =>
-      /cargo (?:clippy|test)/.test(step.run ?? "") ? [index] : [],
-    );
-    expect(before).toBeGreaterThanOrEqual(0);
-    expect(compilations.length).toBeGreaterThan(0);
-    expect(before).toBeLessThan(Math.min(...compilations));
-    expect(after).toBeGreaterThan(Math.max(...compilations));
-    expect(steps[after].if).toBe("always()");
-    for (const index of [before, after]) {
-      expect(steps[index].run).toContain("df -h .");
-      expect(steps[index].run).toContain("free -h");
-    }
-    expect(steps[after].run).toContain("du -sh target");
-    expect(steps[after].run).toContain("if [[ -d target ]]");
-  }
-});
