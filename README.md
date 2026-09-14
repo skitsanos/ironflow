@@ -595,16 +595,22 @@ These two Linux validation jobs disable incremental compilation, limit Cargo
 to two concurrent build jobs, and use `line-tables-only` debug information for
 both development and test profiles. This reduces linked test artifact size
 while retaining file/line backtraces, debug assertions, overflow checks, and
-all existing test and lint commands. Disk and memory snapshots bracket
-validation, with final diagnostics also attempted after failure. These
-job-local settings do not change normal local development, macOS validation,
+all existing test and lint commands. These job-local settings do not change
+normal local development, macOS validation,
 or release builds. See [Cargo profiles](https://doc.rust-lang.org/cargo/reference/profiles.html)
 for the debug-information settings.
 Container publication uses a version- and digest-pinned Rust/cargo-chef builder
 so source and package-version changes retain the dependency layer, backed by a
-dedicated zstd-compressed GHCR BuildKit cache manifest. The mutable
+dedicated GHCR BuildKit cache with `mode=max`. The mutable
 `buildcache-amd64` tag is build input only; deploy the commit-tagged application
-image by its immutable digest. Release promotion creates
+image by its immutable digest. CI cancels superseded pull-request runs, while
+push runs use independent concurrency groups. The combined policy job runs
+repository, hook, module-size, and workflow lint checks.
+
+Releases build four targets with both default and full storage features. CI
+does not prebuild Windows release dependencies; release builds save caches
+for retries of the same tag. Different tags cannot reuse each other's caches,
+so Windows releases may require cold builds. Release promotion creates
 `release/X.Y.Z` from verified `develop`, finalizes the candidate there with
 `bun run scripts/development_version.ts finalize`, and merges that exact
 candidate into `main` before the stable tag. Stable versions never land on
