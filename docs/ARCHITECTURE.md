@@ -874,6 +874,10 @@ Context is a `HashMap<String, serde_json::Value>` that flows through the entire 
   `error` for execution metadata. Flattened child context cannot replace them;
   non-reserved child namespaces preserve same-named domain fields. Reserved
   child namespace names fail node admission before any child starts.
+- Dynamic parallel fan-out carries source items and one-based indexes as typed
+  literal inputs, separate from authored JSON mappings. Only mapping strings
+  select parent context keys; literal items never undergo reference lookup.
+  Injection precedes the existing engine-key and execution-overlay safeguards.
 - Output-size admission uses an aborting counting serializer. A truncation
   marker reports `_minimum_bytes = limit + 1`, not an exact original size,
   because counting stops as soon as the configured limit is crossed.

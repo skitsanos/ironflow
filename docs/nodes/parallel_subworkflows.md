@@ -9,8 +9,8 @@ Execute multiple subworkflows concurrently and collect their results.
 | `flows` | array | conditional | — | Static array of flow configurations to execute in parallel. Use either `flows` or dynamic `flow` + `source_key`. |
 | `flow` | string | conditional | — | Dynamic fan-out child flow path. Required when `flows` is omitted. |
 | `source_key` | string | conditional | — | Context key containing the runtime array to fan out over. Required when `flows` is omitted. |
-| `input` | object | no | — | In dynamic mode, base input mapping applied to every child run. |
-| `item_key` | string | no | `"item"` | Dynamic mode child context key that receives the current source item. |
+| `input` | object | no | — | In dynamic mode, authored base input mapping applied to every child run; string values select a matching parent key or remain literals. |
+| `item_key` | string | no | `"item"` | Dynamic mode child context key that receives the current source item as a literal value, never a parent-key reference. |
 | `index_key` | string | no | `"index"` | Dynamic mode child context key that receives the 1-based source item index. |
 | `child_output_key` | string | no | — | Dynamic mode namespace for each child context inside its result entry; cannot be `success`, `flow`, or `error`. |
 | `output_key` | string | no | `"parallel_results"` | Key for the results array in context |
@@ -150,6 +150,29 @@ If `ctx.jobs` is:
 ```
 
 then `worker.lua` runs twice. Each child context receives `job`, `job_index`, plus any mapped `input` fields. Dynamic mode allows an empty source array and returns an empty results array with `{output_key}_all_succeeded = true`.
+
+Source items and authored mappings have different semantics. If `ctx.jobs` is
+`{ "customer" }` and `ctx.customer` is `{ id = "C-42" }`, the child's `item`
+is the string `"customer"`, not that object. An explicit mapping such as
+`input = { customer_copy = "customer" }` still selects the parent object.
+Items are copied without key lookup or interpolation, preserving strings,
+objects, arrays, booleans, nulls, and numbers within the existing Lua conversion
+limits. A JSON null reaches a Lua handler as `json_null`, not `nil`.
+
+Mapped strings resolve once against a top-level parent key; a selected string
+is not resolved again. Non-string mapping values are copied without recursively
+interpreting strings inside objects or arrays. Dynamic mode does not inherit
+unmapped parent fields. Static entries without `input` retain their existing
+parent-context inheritance; `input = {}` selects no parent fields.
+
+The injected item and numeric one-based index override same-named authored
+input fields. Choose distinct `item_key` and `index_key`: if they are identical,
+the index retains its existing precedence. Engine-owned context keys, private
+output filtering, execution-overlay redaction, and resource limits still apply.
+
+[`parallel_literal_inputs.lua`](../../examples/11-subworkflow/parallel_literal_inputs.lua)
+and its [`literal_item_child.lua`](../../examples/11-subworkflow/literal_item_child.lua)
+helper demonstrate literal dynamic items alongside explicit parent mappings.
 
 ### Error handling
 

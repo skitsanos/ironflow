@@ -45,10 +45,10 @@ _No committed initiative._
 
 ## Next
 
-### [IF-119](issues/IF-119.md) — Preserve literal fan-out inputs
+### [IF-120](issues/IF-120.md) — Allow reused Lua callbacks
 
-Transport dynamic source items separately from input mappings so strings that
-match parent context keys retain their original values.
+Preserve source association when one callback is registered on multiple steps,
+while retaining validation diagnostics for invalid handlers.
 
 ## Later
 

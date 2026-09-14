@@ -7,7 +7,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts check`.
 
 - Total findings: 132
-- Active findings: 8
+- Active findings: 7
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
 | ID | Priority | Status | Area | Summary |
@@ -130,7 +130,7 @@ priority, area, and title. The registry is generated with
 | [IF-116](./IF-116.md) | P2 | Resolved | Engine/composition | Persistence truncation corrupts live child-workflow results |
 | [IF-117](./IF-117.md) | P2 | Resolved | Composition/tool security | Missing nested tool-input paths fall back to the entire root object |
 | [IF-118](./IF-118.md) | P2 | Resolved | Composition/correctness | Child context overwrites authoritative parallel-result metadata |
-| [IF-119](./IF-119.md) | P2 | Open | Composition/correctness | Dynamic fan-out reinterprets literal string items as context keys |
+| [IF-119](./IF-119.md) | P2 | Resolved | Composition/correctness | Dynamic fan-out reinterprets literal string items as context keys |
 | [IF-120](./IF-120.md) | P2 | Open | Lua/validation | Validation rejects a valid callback reused on two steps |
 | [IF-121](./IF-121.md) | P2 | Open | Redis/atomicity | Redis lease-aware mutations partially commit before type errors |
 | [IF-122](./IF-122.md) | P2 | Open | SQL/concurrency | SQL's unowned context merge loses concurrent successful updates |
