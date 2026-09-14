@@ -4,6 +4,7 @@ use mlua::prelude::*;
 use crate::lua::analysis::HandlerDiagnostics;
 use crate::nodes::NodeRegistry;
 
+use super::context_keys::register_context_keys;
 use super::handlers::serialize_handler;
 use super::node_factories::register_node_factories;
 
@@ -131,6 +132,7 @@ pub(super) fn register_flow_api(
                     })?;
                 builder.set("on_error", on_error_fn)?;
 
+                register_context_keys(lua, &builder)?;
                 Ok(builder)
             },
         )?;
@@ -264,6 +266,7 @@ pub(super) fn register_flow_api(
                     })?;
                 builder.set("on_error", on_error_fn)?;
 
+                register_context_keys(lua, &builder)?;
                 Ok(builder)
             },
         )?;

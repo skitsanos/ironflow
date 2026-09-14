@@ -1,6 +1,6 @@
 [package]
 name = "ironflow"
-version = "1.18.1-dev.5"
+version = "1.18.1-dev.6"
 edition = "2024"
 description = "Lightweight workflow engine — Rust core, Lua scripting, single binary"
 license = "MIT"
@@ -67,12 +67,13 @@ sqlx = { version = "0.9", features = ["runtime-tokio", "any", "sqlite"] }
 futures-util = "0.3"
 lettre = { version = "0.11.22", default-features = false, features = ["builder", "hostname", "pool", "smtp-transport", "tokio1", "tokio1-rustls-tls"] }
 redis = { version = "1.2", features = ["aio", "tokio-comp", "connection-manager"], optional = true }
+rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"], optional = true }
 
 [features]
 default = ["pdf-render"]
 pdf-render = []
-postgres = ["sqlx/postgres"]
-redis = ["dep:redis"]
+postgres = ["sqlx/postgres", "sqlx/tls-rustls", "dep:rustls"]
+redis = ["dep:redis", "redis/tokio-rustls-comp", "dep:rustls"]
 
 [dev-dependencies]
 tempfile = "3"

@@ -12,7 +12,12 @@ local html_path = temp_root .. "/ironflow-extract-html-" .. uuid4() .. ".html"
 -- First create an HTML file to extract from
 flow:step("create_html", nodes.write_file({
     path = html_path,
-    content = "<html><head><title>Test Page</title></head><body><h1>Hello</h1><p>This is a test paragraph.</p></body></html>"
+    content = [[<html><head><title>Test Page</title>
+<style>body { color: red; }</style><script>var headSecret = 1;</script></head>
+<body><h1>Hello</h1><p># literal text with <strong>bold</strong> and issue #133.</p>
+<ul><li>First item</li><li>Second item</li></ul>
+<table><tr><th>Name</th><th>Count</th></tr><tr><td>Example</td><td>48</td></tr></table>
+<noscript>hidden fallback</noscript></body></html>]]
 }))
 
 -- Extract text from the HTML
@@ -23,9 +28,15 @@ flow:step("extract", nodes.extract_html({
     metadata_key = "html_meta"
 })):depends_on("create_html")
 
+flow:step("extract_markdown", nodes.extract_html({
+    path = html_path,
+    format = "markdown",
+    output_key = "html_markdown"
+})):depends_on("create_html")
+
 flow:step("log_result", nodes.log({
-    message = "Extracted '${ctx.html_meta.title}': ${ctx.html_text}"
-})):depends_on("extract")
+    message = "Title: ${ctx.html_meta.title}\nText: ${ctx.html_text}\nMarkdown: ${ctx.html_markdown}"
+})):depends_on("extract", "extract_markdown")
 
 -- Clean up
 flow:step("cleanup", nodes.delete_file({

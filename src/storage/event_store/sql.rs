@@ -26,6 +26,10 @@ impl SqlEventStore {
         sqlx::any::install_default_drivers();
         let dialect = SqlDialect::from_url(url)
             .map_err(|error| StorageError::backend("Invalid SQL event store URL", error))?;
+        #[cfg(feature = "postgres")]
+        if dialect == SqlDialect::Postgres {
+            crate::storage::tls::initialize_provider();
+        }
         let pool = AnyPoolOptions::new()
             .max_connections(5)
             .connect(url)

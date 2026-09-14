@@ -339,6 +339,34 @@ and replica mode. SQL URL settings are ignored when their corresponding backend
 is not SQL. See [Replica deployment](REPLICA_DEPLOYMENT.md) for the shared-store
 operator contract.
 
+### Encrypted shared stores
+
+Source builds with `--features postgres` enable SQLx Rustls/ring TLS; builds
+with `--features redis` enable Tokio-Rustls and native certificate roots. Both
+stores select the ring provider if no provider has already been installed by
+an embedding application. Both are included with `--features postgres,redis`.
+Existing v1.18.1 and earlier release
+binaries do not include this support; use a build containing the IF-137 fix.
+
+For PostgreSQL, use `?sslmode=verify-full&sslrootcert=/path/to/ca.pem` on
+`IRONFLOW_STORE_URL` and `IRONFLOW_EVENT_STORE_URL`. `verify-ca` checks the CA
+without checking the hostname. `require` encrypts but does not authenticate the
+server certificate; prefer `verify-full`. No setting is silently changed and
+no fallback to plaintext is added by IronFlow.
+
+For Redis, set `REDIS_URL=rediss://host:6379/0`. Certificate and hostname
+verification are enabled. Native trust roots are used by default; `SSL_CERT_FILE`
+can select a PEM CA bundle (with optional `SSL_CERT_DIR`). These process-wide
+trust overrides replace platform roots for clients using native-certs. The
+`#insecure` bypass is not compiled in. Use `redis://` only where an explicitly
+approved unencrypted connection is appropriate.
+
+Run `bun --no-env-file scripts/test_store_tls.ts target/debug/ironflow` after building
+the combined feature binary to test disposable TLS-only stores, CLI and API
+workflows, restart persistence, and rejection of wrong CAs/hostnames/plaintext.
+
+### JSON file storage
+
 The JSON backend accepts only the canonical run IDs above, confines record and
 summary names to `store_dir`, and rejects a store root or run-related entry that
 is a symbolic link instead of following it. Each main record and summary
@@ -1067,7 +1095,7 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_ARTIFACT_S3_FORCE_PATH_STYLE` | `false` | Strict `true`/`false` path-style addressing switch for compatible services. |
 | `IRONFLOW_MAX_AUDIO_BYTES` | `25000000` | Maximum size of the audio/video file `transcribe` reads from disk before uploading it to the provider |
 | `IRONFLOW_MAX_CONVERSION_DEPTH` | `64` | Maximum nesting depth when converting values between JSON and Lua, and when admitting a verbose-JSON `transcribe` response before materialization |
-| `IRONFLOW_MAX_CONVERSION_NODES` | `100000` | Maximum total values converted between JSON and Lua in one conversion, also applied before a verbose-JSON `transcribe` response is materialized. A step handler converts the whole accumulated run context, not only the keys it reads, so a large fan-out can reach this in a step that never touched the data |
+| `IRONFLOW_MAX_CONVERSION_NODES` | `100000` | Maximum total values converted between JSON and Lua in one conversion, also applied before a verbose-JSON `transcribe` response is materialized. Handlers convert the whole context by default; code nodes and function handlers may opt into `context_keys` to exclude unused values. The root and all selected values still share one cumulative budget |
 | `IRONFLOW_MAX_SHELL_OUTPUT_BYTES` | `10485760` | Maximum captured bytes for each shell output stream and each MCP stdio JSON-RPC frame; the input frame budget is cumulative across partial reads and includes the newline delimiter |
 | `IRONFLOW_MAX_TASK_OUTPUT_BYTES` | `2097152` | Maximum serialized task output or individual final context value persisted for inspection before replacement with a truncation marker; does not truncate live child results or carried repeat state. The aborting counter reports `_minimum_bytes = limit + 1` rather than an exact rejected size |
 | `IRONFLOW_MAX_DIRECTORY_ENTRIES` | `10000` | Maximum entries returned by a directory listing |

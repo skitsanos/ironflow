@@ -221,6 +221,14 @@ steps, subject to the usual Lua memory/conversion and execution limits. See
 for an offline example whose parent verifies all bytes while CLI inspection
 shows a marker.
 
+Failed child results also carry a redacted summary of unresolved task errors:
+up to eight tasks in deterministic name order, with each name bounded to 128
+bytes and each message to 768 bytes. Recovery-resolved failures are excluded.
+Ignoring a child failure exposes the summary in `subworkflow_error` and, when
+configured, `<output_key>_error`; parallel child entries expose it in `error`.
+Repeat and tool-dispatch errors include the same reason. Cancellation and
+infrastructure failures retain their status/error fallback contracts.
+
 ### Context variable interpolation
 
 Node parameter documentation identifies the string fields that resolve context
@@ -442,6 +450,17 @@ the hood, the function is compiled to bytecode at parse time and executed as a
 `code` node — so the same sandbox rules apply. Runtime helpers such as `env()`,
 `log()`, `json_parse()`, and `now_unix_ms()` work inside handlers. Loader-only
 globals such as `Flow` and `nodes` do not.
+
+By default every context value is eagerly converted under one cumulative
+JSON-to-Lua budget. To exclude unused large values, declare literal top-level
+keys with `flow:step(...):context_keys({"count"})`, or configure
+`nodes.code({context_keys = {"count"}, source = ...})`. An empty list exposes
+an empty context; missing keys remain absent. Selected values retain the same
+depth and aggregate node limits, including the context root, so selecting a
+large array can still exceed `IRONFLOW_MAX_CONVERSION_NODES`. This is opt-in
+projection, not lazy access or a higher limit. With `step_if`, the projection
+applies to its handler only, not its condition; foreach keeps its full-context
+behavior. See [context_projection.lua](../examples/07-advanced/context_projection.lua).
 
 A self-contained callback can be registered on multiple steps. Reuse also
 works across `flow:step_if`, function-valued `nodes.code.source`, and

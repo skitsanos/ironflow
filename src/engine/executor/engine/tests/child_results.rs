@@ -72,6 +72,13 @@ async fn child_completion_is_redacted_and_independent_of_json_sqlite_and_null_hi
             };
             assert_eq!(result.status, expected);
             assert_eq!(result.flow_name, "live-result");
+            if fail {
+                let summary = result.failure_summary.as_deref().unwrap();
+                assert!(summary.contains("task 'fail'"), "{summary}");
+                assert!(summary.contains("expected child failure"), "{summary}");
+            } else {
+                assert!(result.failure_summary.is_none());
+            }
             let text = result.ctx["payload"].as_str().unwrap();
             assert_eq!(text.len(), BYTES);
             assert!(text.bytes().all(|byte| byte == b'x'));

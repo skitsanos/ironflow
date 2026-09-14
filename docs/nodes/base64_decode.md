@@ -17,6 +17,21 @@ Decode a base64 string to text or write decoded bytes to a file.
 - If no `output_file`: `<output_key>` (default `base64_decoded`) — the decoded string.
 - If `output_file` is set: `<output_key>_path` — the file path written to.
 
+## File safety
+
+`output_file` uses the same atomic, tracked write path as `write_file`.
+Valid directory aliases (including macOS `/tmp`) are accepted, but destination
+file symlinks and special files are refused. Missing parent directories are
+created. An existing regular file is replaced only after a complete, synced
+write; decoding, byte-limit, cancellation or write failure preserves it and
+removes temporary output. The decoded file is bounded by
+`IRONFLOW_MAX_FILE_BYTES` (default 50 MiB).
+
+Unix pins the resolved destination directory and uses handle-relative writes.
+Other platforms retain observed-path checks and atomic replacement; protect
+the parent namespace against concurrent hostile mutation. This does not impose
+a filesystem sandbox on a trusted flow's configured destination.
+
 ## Example
 
 ```lua

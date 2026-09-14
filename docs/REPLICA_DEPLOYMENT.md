@@ -20,6 +20,14 @@ preflights both selected SQL URLs before either store connects or creates local
 database files. Environment values override YAML, including an invalid or empty
 value, which fails instead of falling back. Errors identify the setting without
 echoing its URL. PostgreSQL and Redis are the supported shared backends.
+
+For builds containing IF-137, PostgreSQL features include Rustls TLS and Redis
+features include verified `rediss://` connections. Prefer PostgreSQL
+`sslmode=verify-full` with `sslrootcert`, and configure Redis native trust roots
+or `SSL_CERT_FILE` for a private CA. Published v1.18.1 and earlier binaries lack
+these store TLS features. Do not work around that limitation by disabling
+required encryption or certificate verification. See
+[encrypted shared stores](CLI_REFERENCE.md#encrypted-shared-stores).
 Do not mount a JSON/SQLite directory into
 multiple containers and treat it as a distributed database.
 

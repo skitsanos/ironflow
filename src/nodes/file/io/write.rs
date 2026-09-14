@@ -25,6 +25,26 @@ struct Request {
     max_bytes: u64,
 }
 
+pub(crate) async fn write_bytes(
+    destination: PathBuf,
+    bytes: Vec<u8>,
+    max_bytes: u64,
+) -> Result<()> {
+    admit_size(bytes.len() as u64, max_bytes)?;
+    run_tracked_blocking_step(move |execution| {
+        write_request(
+            Request {
+                destination,
+                input: WriteInput::Bytes(bytes),
+                append: false,
+                max_bytes,
+            },
+            &execution,
+        )
+    })
+    .await
+}
+
 #[async_trait]
 impl Node for WriteFileNode {
     fn node_type(&self) -> &str {
@@ -81,7 +101,7 @@ fn write_request(request: Request, execution: &ExecutionControl) -> Result<()> {
         .ok_or_else(|| anyhow::anyhow!("write_file: destination has no file name"))?;
     let root = RootedDir::prepare(parent, "write_file", execution)?;
     let existing = if request.append {
-        open_existing(&request.destination)?
+        root.open_existing(leaf, execution)?
     } else {
         None
     };
@@ -99,6 +119,7 @@ fn write_request(request: Request, execution: &ExecutionControl) -> Result<()> {
     let mut artifact_file = None;
     let incoming = match &request.input {
         WriteInput::Text(text) => text.len() as u64,
+        WriteInput::Bytes(bytes) => bytes.len() as u64,
         WriteInput::Base64 { decoded, .. } => *decoded,
         WriteInput::Artifact(source) => {
             let (file, _) = source.open("write_file artifact", execution)?.into_parts();
@@ -135,14 +156,6 @@ fn write_request(request: Request, execution: &ExecutionControl) -> Result<()> {
     staged.commit()
 }
 
-fn open_existing(path: &Path) -> Result<Option<std::fs::File>> {
-    match std::fs::symlink_metadata(path) {
-        Ok(_) => crate::util::bounded_read::open_regular_file(path, "write_file append").map(Some),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error.into()),
-    }
-}
-
 fn write_input(
     input: &WriteInput,
     artifact_file: Option<std::fs::File>,
@@ -151,6 +164,13 @@ fn write_input(
     execution: &ExecutionControl,
 ) -> Result<()> {
     match input {
+        WriteInput::Bytes(bytes) => copy_exact(
+            Cursor::new(bytes),
+            destination,
+            expected,
+            execution,
+            "binary input",
+        ),
         WriteInput::Text(text) => copy_exact(
             Cursor::new(text.as_bytes()),
             destination,

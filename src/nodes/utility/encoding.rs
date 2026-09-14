@@ -133,9 +133,11 @@ impl Node for Base64DecodeNode {
                 );
             }
             let path = interpolate_ctx(file_path, ctx);
-            tokio::fs::write(&path, &decoded_bytes)
+            crate::nodes::file::write_bytes(path.clone().into(), decoded_bytes, max_bytes)
                 .await
-                .map_err(|e| anyhow::anyhow!("Failed to write file '{}': {}", path, e))?;
+                .map_err(|e| {
+                    anyhow::anyhow!("base64_decode: failed to write file '{}': {e:#}", path)
+                })?;
             output.insert(
                 format!("{}_path", output_key),
                 serde_json::Value::String(path),

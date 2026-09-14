@@ -9,6 +9,7 @@ use crate::storage::event_store::EventStore;
 use crate::storage::null_store::NullStateStore;
 use crate::storage::{StateStore, StorageResult};
 
+mod child_failures;
 mod child_results;
 
 struct HangingEventStore;

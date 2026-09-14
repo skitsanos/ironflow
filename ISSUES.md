@@ -8,12 +8,7 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 
 | ID | Priority | Status | Area | Summary |
 |---|---:|---|---|---|
-| [IF-133](docs/issues/IF-133.md) | P2 | Open | Documents/HTML extraction | `extract_html` markdown mode leaks head, style and script content |
-| [IF-134](docs/issues/IF-134.md) | P3 | Open | Files/write_file | File-writing nodes disagree about symlinked destination roots |
-| [IF-135](docs/issues/IF-135.md) | P2 | Open | Workflow composition | A failed sub-workflow reports only its status, not the failing task's error |
-| [IF-136](docs/issues/IF-136.md) | P2 | Open | Lua runtime/conversion | Step handlers convert the entire run context under the JSON-to-Lua budget |
-| [IF-137](docs/issues/IF-137.md) | P1 | Open | Storage/Postgres | Postgres and Redis stores cannot connect over TLS: sqlx has no TLS feature |
-| [IF-138](docs/issues/IF-138.md) | P3 | Open | Database/ArangoDB | `arangodb_aql` bind variables from context are always strings |
+| — | — | — | — | No active findings |
 
 ## Working agreement
 

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
 use tokio::sync::{RwLock, Semaphore};
@@ -11,6 +11,8 @@ use super::engine::WorkflowEngine;
 use super::phase_output::StepCompletion;
 use super::task_runner::TaskRunError;
 use super::task_runtime::TaskRuntime;
+
+mod summary;
 
 /// A controlled node failure that may be resolved by one recovery step.
 #[derive(Debug)]
@@ -63,7 +65,7 @@ impl StepFailure {
 /// second failure or overwriting the original failed task.
 #[derive(Debug, Default)]
 pub(super) struct ExecutionState {
-    failures: HashMap<String, StepFailure>,
+    failures: BTreeMap<String, StepFailure>,
     unavailable: HashSet<String>,
 }
 

@@ -2407,7 +2407,7 @@ checksum = "791930b43c0d5973160d90a8f3894509f2b273430f5c5c73b668636d0287c5c0"
 
 [[package]]
 name = "ironflow"
-version = "1.18.1-dev.5"
+version = "1.18.1-dev.6"
 dependencies = [
  "ammonia",
  "anyhow",
@@ -2447,6 +2447,7 @@ dependencies = [
  "redis",
  "reqwest",
  "rmcp",
+ "rustls",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -3656,10 +3657,13 @@ dependencies = [
  "num-bigint 0.5.1",
  "percent-encoding",
  "pin-project-lite",
+ "rustls",
+ "rustls-native-certs",
  "ryu",
  "sha1_smol",
  "socket2",
  "tokio",
+ "tokio-rustls",
  "tokio-util",
  "url",
  "xxhash-rust",
@@ -4309,6 +4313,7 @@ dependencies = [
  "log",
  "memchr",
  "percent-encoding",
+ "rustls",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -4318,6 +4323,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "url",
+ "webpki-roots",
 ]
 
 [[package]]

@@ -2,6 +2,7 @@ use anyhow::Result;
 use mlua::prelude::*;
 
 use crate::engine::types::{FlowDefinition, RetryConfig, StepDefinition};
+use crate::lua::context_keys::parse_context_keys;
 use crate::lua::conversion::lua_table_to_json_at;
 
 /// Turn the Lua-built flow table into a `FlowDefinition`.
@@ -67,6 +68,11 @@ pub(super) fn extract_flow(lua: &Lua, flow_table: &LuaTable) -> Result<FlowDefin
             }
             other => other,
         };
+
+        if node_type == "code" {
+            parse_context_keys(&config)
+                .map_err(|error| anyhow::anyhow!("Step '{step_name}': {error}"))?;
+        }
 
         steps.push(StepDefinition {
             name: step_name,

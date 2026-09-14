@@ -151,13 +151,11 @@ impl Node for SubworkflowNode {
                 .await?;
 
             let child_succeeded = matches!(run_info.status, RunStatus::Success);
+            let child_error = (!child_succeeded)
+                .then(|| format!("Subworkflow '{}' {}", flow.name, run_info.terminal_reason()));
 
-            if !child_succeeded && fail_fast {
-                return Err(anyhow::anyhow!(
-                    "Subworkflow '{}' finished with status: {}",
-                    flow.name,
-                    run_info.status
-                ));
+            if fail_fast && let Some(error) = &child_error {
+                return Err(anyhow::anyhow!(error.clone()));
             }
 
             // A tolerated failure is otherwise invisible in the parent's log —
@@ -187,13 +185,10 @@ impl Node for SubworkflowNode {
                     format!("{}_success", key),
                     serde_json::Value::Bool(child_succeeded),
                 );
-                if !child_succeeded {
+                if let Some(error) = &child_error {
                     output.insert(
                         format!("{}_error", key),
-                        serde_json::Value::String(format!(
-                            "Subworkflow '{}' finished with status: {}",
-                            flow.name, run_info.status
-                        )),
+                        serde_json::Value::String(error.clone()),
                     );
                 }
             } else {
@@ -215,6 +210,12 @@ impl Node for SubworkflowNode {
                 "subworkflow_success".to_string(),
                 serde_json::Value::Bool(child_succeeded),
             );
+            if let Some(error) = child_error {
+                output.insert(
+                    "subworkflow_error".to_string(),
+                    serde_json::Value::String(error),
+                );
+            }
 
             Ok(output)
         } else {

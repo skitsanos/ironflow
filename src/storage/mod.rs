@@ -17,6 +17,8 @@ mod schedule_cleanup;
 pub(crate) mod sql_ddl;
 pub mod sql_names;
 pub mod sql_store;
+#[cfg(any(feature = "postgres", feature = "redis"))]
+mod tls;
 
 pub use error::{StorageError, StorageErrorKind, StorageResult};
 #[cfg(feature = "redis")]

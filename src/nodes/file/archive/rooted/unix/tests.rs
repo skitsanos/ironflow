@@ -8,6 +8,42 @@ struct EndlessReader {
     started: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
+#[tokio::test]
+async fn configured_alias_is_pinned_before_the_alias_is_retargeted() {
+    let directory = tempfile::tempdir().unwrap();
+    let first = directory.path().join("first");
+    let second = directory.path().join("second");
+    let alias = directory.path().join("alias");
+    std::fs::create_dir(&first).unwrap();
+    std::fs::create_dir(&second).unwrap();
+    std::fs::write(first.join("existing.txt"), b"original").unwrap();
+    std::fs::write(second.join("existing.txt"), b"replacement").unwrap();
+    symlink(&first, &alias).unwrap();
+    let original = first.clone();
+    let replacement = second.clone();
+    crate::util::execution::run_tracked_blocking_step(move |execution| {
+        let root = RootedDir::prepare(&alias, "test", &execution)?;
+        std::fs::remove_file(&alias)?;
+        symlink(&replacement, &alias)?;
+        let mut existing = root
+            .open_existing(std::ffi::OsStr::new("existing.txt"), &execution)?
+            .unwrap();
+        let mut contents = String::new();
+        existing.read_to_string(&mut contents)?;
+        assert_eq!(
+            contents, "original",
+            "append must read the pinned directory"
+        );
+        let mut staged = root.stage_file(Path::new("safe.txt"), true, &execution)?;
+        staged.writer().write_all(b"safe")?;
+        staged.commit()
+    })
+    .await
+    .unwrap();
+    assert_eq!(std::fs::read(original.join("safe.txt")).unwrap(), b"safe");
+    assert!(!second.join("safe.txt").exists());
+}
+
 impl Read for EndlessReader {
     fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
         if let Some(started) = self.started.take() {

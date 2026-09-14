@@ -48,6 +48,26 @@ impl RootedDir {
         Ok(())
     }
 
+    pub(crate) fn open_existing(
+        &self,
+        name: &std::ffi::OsStr,
+        execution: &ExecutionControl,
+    ) -> Result<Option<File>> {
+        execution.checkpoint()?;
+        let name = c_name(name, self.operation)?;
+        match syscalls::read_file_at(&self.root, &name) {
+            Ok(file) if file.metadata()?.is_file() => Ok(Some(file)),
+            Ok(_) => anyhow::bail!(
+                "{}: append destination must be a regular file",
+                self.operation
+            ),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(error) => {
+                Err(error).context("append destination must be a regular non-symlink file")
+            }
+        }
+    }
+
     pub(crate) fn stage_file(
         &self,
         relative: &Path,
@@ -159,64 +179,18 @@ fn open_or_create_root(
     operation: &'static str,
     execution: &ExecutionControl,
 ) -> Result<File> {
-    let path = if path.as_os_str().is_empty() {
-        Path::new(".")
-    } else {
-        path
-    };
-    let mut cursor = path.to_path_buf();
-    let mut missing = Vec::<std::ffi::OsString>::new();
-
-    loop {
+    let (anchor, missing) = super::destination_anchor(path, operation, execution)?;
+    let mut current = open_directory_path(&anchor, operation).with_context(|| {
+        format!(
+            "{operation}: failed to open destination anchor '{}'",
+            anchor.display()
+        )
+    })?;
+    for name in missing.iter().rev() {
         execution.checkpoint()?;
-        match std::fs::symlink_metadata(&cursor) {
-            Ok(metadata) => {
-                if missing.is_empty() && metadata.file_type().is_symlink() {
-                    anyhow::bail!(
-                        "{operation}: destination root '{}' is a symlink",
-                        cursor.display()
-                    );
-                }
-                let anchor = if metadata.file_type().is_symlink() {
-                    std::fs::canonicalize(&cursor)?
-                } else {
-                    cursor.clone()
-                };
-                if !std::fs::metadata(&anchor)?.is_dir() {
-                    anyhow::bail!(
-                        "{operation}: destination component '{}' is not a directory",
-                        cursor.display()
-                    );
-                }
-                let mut current = open_directory_path(&anchor, operation).with_context(|| {
-                    format!(
-                        "{operation}: failed to open destination anchor '{}'",
-                        anchor.display()
-                    )
-                })?;
-                for name in missing.iter().rev() {
-                    execution.checkpoint()?;
-                    current = open_or_create_directory(&current, name, operation)?;
-                }
-                return Ok(current);
-            }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                let name = cursor.file_name().ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "{operation}: destination '{}' has no creatable component",
-                        path.display()
-                    )
-                })?;
-                missing.push(name.to_os_string());
-                cursor = cursor
-                    .parent()
-                    .filter(|parent| !parent.as_os_str().is_empty())
-                    .unwrap_or_else(|| Path::new("."))
-                    .to_path_buf();
-            }
-            Err(error) => return Err(error.into()),
-        }
+        current = open_or_create_directory(&current, name, operation)?;
     }
+    Ok(current)
 }
 
 fn validate_leaf(

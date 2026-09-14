@@ -910,6 +910,15 @@ Context is a `HashMap<String, serde_json::Value>` that flows through the entire 
   History truncation cannot change child output or carried repeat state. The
   existing Lua memory/conversion limits still apply; this handoff is neither a
   global context-memory cap nor durable recovery storage.
+- Live failed child results include up to eight unresolved errors in task-name
+  order (128-byte names, 768-byte messages, UTF-8-safe truncation after full
+  redaction). Recovered failures are omitted. Waiting, parallel, repeat and
+  tool callers preserve these reasons without fetching persisted task history.
+- Code nodes and function handlers may opt into `context_keys` projection.
+  Only selected literal top-level keys are cloned for the worker, then one
+  conversion budget counts the root and all selected values at original
+  depths. Omitting projection preserves full-context behavior, including for
+  foreach's shared sandbox setup.
 - Public run handles retain their run-ID-only wait/cancel API and detach-on-drop
   behavior, without retaining a live completion payload. Internal child waiters
   request cancellation when their parent future is dropped.

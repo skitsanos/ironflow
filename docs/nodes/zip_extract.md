@@ -66,6 +66,10 @@ non-portable path components, duplicate destinations, symlink entries, and
 special-file entries. The archive itself must open as a regular file; on Unix,
 a final symlink is rejected without being followed.
 
+The configured destination root may be a directory alias such as macOS `/tmp`;
+it is resolved before extraction. This does not permit symlinked components
+within archive-controlled entry paths or final destination symlinks.
+
 On Unix, archive-controlled traversal is pinned to opened directories and uses
 directory-relative, no-follow operations for every parent and leaf. On other
 platforms, IronFlow rejects symlinks observed during traversal, but the standard

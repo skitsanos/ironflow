@@ -418,6 +418,11 @@ write `"\\${ctx.value}"`.
 
 ### Function handlers
 
+Code nodes and function handlers support opt-in `context_keys` selection to
+exclude unused large values from Lua conversion. The default remains the full
+context, and selected values still share the normal conversion limits. See
+[context projection](docs/nodes/code.md).
+
 Write inline Lua logic as step handlers — no need for `nodes.code()`:
 
 ```lua

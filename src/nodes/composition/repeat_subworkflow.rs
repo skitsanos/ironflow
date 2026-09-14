@@ -132,10 +132,10 @@ fn ensure_child_succeeded(
         return Ok(());
     }
     anyhow::bail!(
-        "repeat_subworkflow: child '{}' iteration {} finished with status: {}",
+        "repeat_subworkflow: child '{}' iteration {} {}",
         flow.name,
         iteration,
-        run.status
+        run.terminal_reason()
     )
 }
 

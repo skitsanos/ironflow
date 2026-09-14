@@ -1,6 +1,8 @@
 use anyhow::{Result, bail};
 use mlua::prelude::*;
 
+use crate::engine::types::Context;
+
 use super::ConversionLimits;
 use super::path::json_field_path;
 
@@ -43,8 +45,15 @@ impl<'lua> JsonToLuaConverter<'lua> {
                 Ok(LuaValue::String(self.lua.create_string(string)?))
             }
             serde_json::Value::Array(array) => self.convert_array(array, path, depth),
-            serde_json::Value::Object(object) => self.convert_object(object, path, depth),
+            serde_json::Value::Object(object) => self.convert_object(object.iter(), path, depth),
         }
+    }
+
+    pub(super) fn convert_context(&mut self, ctx: &Context) -> Result<LuaValue> {
+        self.visit("$", 0)?;
+        // Retain the JSON object's deterministic key order without cloning its values.
+        let fields = ctx.iter().collect::<std::collections::BTreeMap<_, _>>();
+        self.convert_object(fields.into_iter(), "$", 0)
     }
 
     fn visit(&mut self, path: &str, depth: usize) -> Result<()> {
@@ -56,7 +65,7 @@ impl<'lua> JsonToLuaConverter<'lua> {
         }
         if self.nodes >= self.limits.max_nodes {
             bail!(
-                "JSON-to-Lua maximum node count {} exceeded at {path}. This counts the whole value being converted, which for a step handler is the accumulated run context, not just the keys this step reads (raise IRONFLOW_MAX_CONVERSION_NODES)",
+                "JSON-to-Lua maximum node count {} exceeded at {path}. This counts the whole value being converted, including all selected context values; code nodes and function handlers can exclude unused values with context_keys (raise IRONFLOW_MAX_CONVERSION_NODES to allow more)",
                 self.limits.max_nodes
             );
         }
@@ -79,9 +88,9 @@ impl<'lua> JsonToLuaConverter<'lua> {
         Ok(LuaValue::Table(table))
     }
 
-    fn convert_object(
+    fn convert_object<'a>(
         &mut self,
-        object: &serde_json::Map<String, serde_json::Value>,
+        object: impl ExactSizeIterator<Item = (&'a String, &'a serde_json::Value)>,
         path: &str,
         depth: usize,
     ) -> Result<LuaValue> {

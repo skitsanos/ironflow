@@ -101,6 +101,13 @@ The child subworkflow result is selected from `tool_result_value` first, then
 This top-level private-key filter does not remove nested `_`-prefixed fields.
 Execution-overlay redaction still applies.
 
+When a child fails, its result entry's `error` and the `fail_fast` error include
+the bounded, redacted unresolved task reasons described under
+[`subworkflow` error handling](subworkflow.md#error-handling). Successfully
+recovered errors are excluded. Cancellation or missing details retain the
+status-only fallback. The selected `result`, `content`, and tool-message content
+still come from child context; failure details do not replace those values.
+
 Selection uses full, redacted live child values after finalization. The
 `IRONFLOW_MAX_TASK_OUTPUT_BYTES` inspection cap does not truncate results,
 the by-ID collection, or tool message content passed to later steps. Persisted

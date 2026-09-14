@@ -218,12 +218,20 @@ impl RunCoordinator {
             phase_output.commit(&self.ctx).await;
         }
 
-        let final_status = if state.read().await.has_failures() {
+        let state = state.read().await;
+        let final_status = if state.has_failures() {
             RunStatus::Failed
         } else {
             RunStatus::Success
         };
-        ExecutionOutcome::Completed(final_status)
+        let failure_summary = self
+            .retain_child_result
+            .then(|| state.failure_summary(&self.execution_overlay))
+            .flatten();
+        ExecutionOutcome::Completed {
+            status: final_status,
+            failure_summary,
+        }
     }
 
     async fn mark_unavailable(

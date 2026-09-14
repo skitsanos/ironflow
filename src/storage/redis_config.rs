@@ -2,6 +2,17 @@ use anyhow::{Result, ensure};
 
 use crate::storage::StorageError;
 
+pub(crate) fn client(url: &str) -> redis::RedisResult<redis::Client> {
+    let client = redis::Client::open(url)?;
+    if matches!(
+        client.get_connection_info().addr(),
+        redis::ConnectionAddr::TcpTls { .. }
+    ) {
+        super::tls::initialize_provider();
+    }
+    Ok(client)
+}
+
 /// Largest TTL that remains safe across IronFlow's Redis Lua scripts.
 ///
 /// Keeping the configured seconds at or below this value guarantees that its

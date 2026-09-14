@@ -7,6 +7,7 @@ use crate::util::file_source::parse_file_source;
 
 pub(super) enum WriteInput {
     Text(String),
+    Bytes(Vec<u8>),
     Base64 { encoded: String, decoded: u64 },
     Artifact(FileSource),
 }

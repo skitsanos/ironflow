@@ -330,7 +330,7 @@ if [[ "$1" == "fmt" ]]; then exit 42; fi
 `);
       await chmod(cargo, 0o755);
 
-      for (const command of ["cargo-audit", "python3", "bun", "actionlint", "docker"]) {
+      for (const command of ["cargo-audit", "python3", "bun", "actionlint", "docker", "openssl"]) {
         const path = join(fakeBin, command);
         await writeFile(path, "#!/bin/sh\nexit 0\n");
         await chmod(path, 0o755);

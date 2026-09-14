@@ -8,6 +8,7 @@ Execute inline Lua code with access to the workflow context.
 |----------------|--------|----------|---------|---------------------------------------------------------------------|
 | `source`       | string/function | No* | --      | Lua source code string **or inline function** to evaluate              |
 | `bytecode_b64` | string | No*      | --      | Base64-encoded Lua bytecode for function handler mode               |
+| `context_keys` | array of strings | No | Full context | Literal top-level context keys to expose to Lua; an empty list exposes none |
 
 *Exactly one of `source` or `bytecode_b64` must be provided.
 
@@ -40,6 +41,60 @@ definitions must have distinguishable start/end line ranges; move same-range
 definitions onto separate lines if validation reports ambiguity. See
 [`reused_callbacks.lua`](../../examples/07-advanced/reused_callbacks.lua).
 
+### Context projection
+
+By default, the entire accumulated context is converted before Lua runs, even
+if the code reads only one key. Opt in to `context_keys` when earlier steps
+produce large values that this handler does not need:
+
+```lua
+flow:step("inspect", nodes.code({
+    context_keys = {"embed_count", "embed_dimension"},
+    source = function(ctx)
+        return { checked_count = ctx.embed_count, dimension = ctx.embed_dimension }
+    end
+})):depends_on("embed")
+```
+
+The shorthand function-handler API supports the same projection through its
+chainable builder, including handlers created with `flow:step_if`:
+
+```lua
+flow:step("inspect", function(ctx)
+    return { checked_count = ctx.embed_count }
+end):context_keys({"embed_count"}):depends_on("embed")
+
+flow:step("constant", function(ctx)
+    return { ready = true }
+end):context_keys({}):depends_on("inspect")
+```
+
+- Omit `context_keys` to preserve the full-context default. Lua `{}` (JSON `[]`)
+  exposes an empty table, not the default context.
+- Keys are exact, case-sensitive top-level names, not paths or templates.
+  `"a.b"` selects `ctx["a.b"]`, not `ctx.a.b`. Missing keys remain absent (`nil`);
+  duplicate names are selected once. Invalid lists fail loading/validation or
+  direct node execution rather than silently exposing the full context.
+- A builder's projection belongs only to that step, even when multiple steps
+  reuse the same `nodes.code` descriptor.
+- Both the global `ctx` and the bytecode function's argument refer to the same
+  isolated snapshot. Projection does not remove data from the workflow context,
+  and Lua mutations do not modify stored input values. Outputs merge normally.
+- Conversion remains eager for selected values. The object root and **all**
+  selected keys share one `IRONFLOW_MAX_CONVERSION_NODES` budget (default
+  `100000`) and the original `IRONFLOW_MAX_CONVERSION_DEPTH` limit (default `64`).
+  There is no per-key reset. Selecting a 200,000-number array still fails before
+  the handler runs, even if it would read only its first element or nothing.
+- Projection does not bypass Lua memory/instruction/time limits or output
+  conversion limits, change step dependencies, or project a `step_if` guard.
+  It is available on code nodes and function handlers, not foreach transforms
+  or other node types.
+
+See the self-contained
+[`context_projection.lua`](../../examples/07-advanced/context_projection.lua)
+example, which retains a 200,000-number native-node output while subsequent
+handlers inspect only a scalar or use an empty snapshot.
+
 ## Sandboxing
 
 The Lua VM starts from an allowlist containing computation-oriented table,
@@ -59,7 +114,7 @@ are unavailable:
 
 ### Available globals
 
-- `ctx` -- isolated table snapshot of the workflow context (JSON values are converted to Lua types)
+- `ctx` -- isolated table snapshot of the workflow context, optionally projected with `context_keys` (JSON values are converted to Lua types)
 - `env(key)` -- function to read environment variables; returns the value as a string or `nil` if not set
 - `json_parse(str)` -- parse JSON text into a Lua table
 - `json_stringify(value)` -- serialize a Lua value to JSON text

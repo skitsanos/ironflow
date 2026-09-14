@@ -22,7 +22,7 @@ explicitly to say which you want:
 | `on_error` | Behaviour when the child run fails |
 |---|---|
 | `"fail_fast"` | The parent step returns an error. |
-| `"ignore"` | The parent step succeeds; inspect `subworkflow_success` (and `{output_key}_error`) to detect it. |
+| `"ignore"` | The parent step succeeds; inspect `subworkflow_success` and `subworkflow_error` (also `{output_key}_error` when namespaced) to detect it. |
 
 **When `on_error` is omitted, `output_key` decides it** — the historical
 behaviour, kept for compatibility:
@@ -38,6 +38,21 @@ of `output_key`.
 
 A tolerated failure is logged at `WARN` by the parent (the child's own run
 records the underlying error).
+
+Failure descriptions include the child's status and unresolved task errors,
+for example `Subworkflow 'child' finished with status: failed: task 'parse': ...boom`.
+The same description is used for `fail_fast`, `subworkflow_error`, and
+`{output_key}_error`. Errors resolved by a successful recovery handler are not
+included, even though the original task remains failed in inspection history.
+
+The live summary contains at most eight failures in task-name order. Each
+task name is limited to 128 UTF-8 bytes and each error to 768 UTF-8 bytes,
+including any `...[truncated]` marker; omitted failures are counted. The task
+summary stays below 8 KiB, independent of the inspection output cap. Credential
+and execution-overlay redaction run before truncation. It carries existing
+task diagnostics, not additional provider response bodies or child context.
+Cancellation or missing task details retain the status-only description.
+No context/history reload is used to reconstruct failure details.
 
 ```lua
 -- Namespace the output AND still fail the step if the child fails.
@@ -74,8 +89,9 @@ When `wait = true` (default):
 - Public child context keys (including inherited input, excluding `_`-prefixed keys) are merged into the parent context or namespaced under `output_key`.
 - `subworkflow_name` — the name of the executed subworkflow.
 - `subworkflow_success` — `true` when the child run succeeded. Always present, so the outcome is checkable even without `output_key`.
+- `subworkflow_error` - the status and bounded, redacted unresolved task-error summary. Present when the child did not succeed, with or without `output_key`.
 - `{output_key}_success` — same flag, namespaced. Only when `output_key` is set.
-- `{output_key}_error` — the failure description. Only when `output_key` is set **and** the child failed.
+- `{output_key}_error` — the same failure description as `subworkflow_error`. Only when `output_key` is set **and** the child did not succeed.
 
 The subworkflow's returned map follows the normal phase collision contract: a
 later-declared parallel parent step wins duplicate keys. Without `output_key`,
@@ -102,6 +118,15 @@ When `wait = false`:
 - `subworkflow_async` — set to `true`, indicating the subworkflow is running in the background.
 
 ## Examples
+
+[`if135_child_error_details.lua`](../../examples/11-subworkflow/if135_child_error_details.lua)
+and its [`if135_error_child.lua`](../../examples/11-subworkflow/if135_error_child.lua)
+helper form a self-contained offline example of tolerated failures. The parent
+asserts task names and error messages for namespaced, unnamespaced, and parallel
+calls, retains partial child context, and checks a successful child's result.
+Run the parent with a build containing IF-135; it should finish successfully
+with `child_error_details_verified = true`. No external service or credential
+is required.
 
 [`live_child_results.lua`](../../examples/11-subworkflow/live_child_results.lua)
 and its helper verify a 3 MiB result in a downstream parent step. The final CLI

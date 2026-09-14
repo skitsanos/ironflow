@@ -86,6 +86,22 @@ their health checks, set `IRONFLOW_REDIS_TEST_REQUIRED=1` and
 serially. Record image/database versions and remove only those named containers
 afterward. Never read or print credentials from `.env`.
 
+TLS changes also require `bun --no-env-file scripts/test_store_tls.ts target/debug/ironflow`
+after building with `--features postgres,redis`. This gate requires Docker,
+OpenSSL and Bun; it creates its own loopback-only PostgreSQL/Redis instances,
+short-lived test certificates and random credentials. It verifies CLI and
+serve persistence, TLS-only admission, CA/hostname rejection and disabled
+insecure Redis bypass. Never substitute shared services or disable certificate
+checks to satisfy this gate. The full integration gate and Linux feature CI
+run it automatically.
+
+Typed AQL ingestion changes can be checked against a local `arangodb:latest`
+image with `bun --no-env-file scripts/test_arango_typed_binds.ts`. It uses the
+already-built CLI and owns an authenticated disposable server, database and
+collection. It fails without a local Docker socket and removes only its labeled
+container, anonymous volumes and temporary directory. Request-capture tests
+alone do not prove database UPSERT execution.
+
 ## Report
 
 Report each command as pass, fail, skipped, or not applicable. Separate focused,

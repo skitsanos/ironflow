@@ -10,6 +10,7 @@ mod write;
 
 pub use read::ReadFileNode;
 pub use write::WriteFileNode;
+pub(crate) use write::write_bytes;
 
 pub struct CopyFileNode;
 

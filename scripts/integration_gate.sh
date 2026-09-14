@@ -31,7 +31,7 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-for command in cargo cargo-audit python3 bun actionlint docker; do
+for command in cargo cargo-audit python3 bun actionlint docker openssl; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "Integration gate requires '$command' on PATH." >&2
     exit 1
@@ -132,5 +132,8 @@ IRONFLOW_REDIS_TEST_REQUIRED=1 \
 IRONFLOW_POSTGRES_TEST_REQUIRED=1 \
 DATABASE_URL="postgres://postgres:$postgres_password@127.0.0.1:$postgres_port/ironflow_test" \
   cargo test --all-targets --features postgres,redis -- --test-threads=1
+
+echo "[integration] TLS-only storage and certificate rejection"
+bun --no-env-file scripts/test_store_tls.ts target/debug/ironflow
 
 echo "IronFlow full integration gate passed."

@@ -1,3 +1,5 @@
+#[path = "arango_cursor/bind_vars.rs"]
+mod bind_vars;
 #[path = "arango_cursor/cli.rs"]
 mod cli;
 #[path = "arango_cursor/lifecycle.rs"]

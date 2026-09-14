@@ -8,7 +8,7 @@ Extract text and metadata from an HTML file.
 |-----------|------|----------|---------|-------------|
 | `path` | string | one of `path` or `source_key` | — | File path to the HTML file; supports `${ctx.key}` interpolation. |
 | `source_key` | string | one of `path` or `source_key` | — | Context key containing a file path, artifact URI, or artifact descriptor. |
-| `format` | string | no | `"text"` | Output format: `"text"` sanitizes the HTML, converts it through the HTML-to-Markdown converter, and trims each output line; converter-produced Markdown markers can remain. `"markdown"` converts the original HTML directly to Markdown. |
+| `format` | string | no | `"text"` | Output format: `"text"` reads plain text from the filtered HTML tree; `"markdown"` converts that tree to Markdown, retaining headings, emphasis, lists, tables, links, and code. |
 | `output_key` | string | no | `"content"` | Context key where the extracted content is stored. |
 | `metadata_key` | string | no | — | If set, HTML metadata is stored under this context key. |
 
@@ -23,6 +23,32 @@ Extract text and metadata from an HTML file.
 - `<output_key>` (default `content`) — the extracted text or Markdown.
 - `<metadata_key>` (only when `metadata_key` is set) — an object with available fields: `title`, `description`, `author`, `keywords`, `viewport`, `og:title`, `og:description`, `og:type`, `og:url`.
 
+## Content Filtering
+
+Both formats parse HTML structurally and remove `head`, `title`, `script`,
+`style`, `noscript`, and inert `template` subtrees before rendering. Filtering
+also applies inside tables and preformatted content. HTML fragments and
+malformed markup use the HTML parser's recovery rules, not regular-expression
+tag removal. Comments are omitted; entity-encoded literal tags remain text.
+Metadata is still extracted separately from the original input, so a document
+title remains available under `metadata_key` without appearing in the content.
+
+`text` does not introduce Markdown markers or escaping. It separates blocks and
+line breaks with newlines, table cells with spaces, and keeps image alternative
+text. Normal HTML whitespace is collapsed; preformatted text preserves its
+internal whitespace. This replaces the older text mode's Markdown-converter
+output, which could include heading/list markers and backslash escapes.
+
+`markdown` keeps the converter's syntax-aware escaping, without blanket
+backslash removal. Ordinary prose such as `issue #133` and `C#` is unchanged.
+A paragraph containing `# literal heading` becomes `\# literal heading` in
+Markdown so it still renders as literal text, not an unintended heading;
+`text` returns `# literal heading`. Literal asterisks and backslashes likewise
+retain their meaning, while actual HTML emphasis and code retain formatting.
+Conversion remains best-effort and does not evaluate CSS visibility, execute
+scripts, or fetch external resources. This is content extraction, not a general
+HTML/Markdown security sanitizer.
+
 ## Resource and cancellation contract
 
 - The input must be a regular file and valid UTF-8. `IRONFLOW_MAX_FILE_BYTES`
@@ -36,16 +62,22 @@ Extract text and metadata from an HTML file.
   complete serialized `NodeOutput`, including the configured content key and
   optional metadata object. This is a logical result limit, not a process-RSS
   limit and not the later `IRONFLOW_MAX_TASK_OUTPUT_BYTES` persistence limit.
-- File reading, structural inspection, metadata scanning, and result
-  serialization run on a tracked blocking worker and check cancellation and
-  the step/run deadline cooperatively. The third-party HTML sanitizer and
-  HTML-to-Markdown converter cannot be interrupted inside one call; IronFlow
-  checks immediately before and after those calls. Their returned strings are
-  materialized before the extraction-output limit can inspect them, so that
-  logical result limit does not cap the libraries' transient peak allocation.
+- File reading, structural inspection, tree filtering, plain-text rendering,
+  metadata scanning, and result serialization run on a tracked blocking worker and check cancellation and
+  the step/run deadline cooperatively. Third-party HTML parsing and Markdown
+  conversion cannot be interrupted internally; IronFlow checks before and
+  after them, and during its own filtering and plain-text traversal. The parsed
+  tree and converter-produced Markdown are materialized before the
+  extraction-output limit can inspect them, so that logical result limit does
+  not cap the libraries' transient peak allocation.
   Task and run admission remain occupied until the physical worker stops.
 
 ## Example
+
+See [extract_html.lua](../../examples/08-extraction/extract_html.lua) for a
+self-contained example that creates one temporary page, extracts both formats
+and title metadata, and removes the input. Its style/script/fallback content is
+excluded from both outputs.
 
 ```lua
 local flow = Flow.new("read_html_file")
