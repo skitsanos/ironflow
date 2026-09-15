@@ -21,6 +21,12 @@
       "groupName": "Rust toolchain"
     },
     {
+      "description": "AWS SDK crates share one smithy runtime and must move in lockstep, so every aws-* crate updates in a single grouped PR.",
+      "matchManagers": ["cargo"],
+      "matchPackageNames": ["/^aws-/"],
+      "groupName": "AWS SDK"
+    },
+    {
       "description": "Defer PR #182's incompatible AWS cohort: https://github.com/smithy-lang/smithy-rs/issues/4853. Later releases remain eligible.",
       "matchManagers": ["cargo"],
       "matchPackageNames": ["aws-sdk-s3"],

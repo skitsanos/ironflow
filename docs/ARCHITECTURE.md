@@ -915,10 +915,13 @@ Context is a `HashMap<String, serde_json::Value>` that flows through the entire 
   redaction). Recovered failures are omitted. Waiting, parallel, repeat and
   tool callers preserve these reasons without fetching persisted task history.
 - Code nodes and function handlers may opt into `context_keys` projection.
-  Only selected literal top-level keys are cloned for the worker, then one
-  conversion budget counts the root and all selected values at original
-  depths. Omitting projection preserves full-context behavior, including for
-  foreach's shared sandbox setup.
+  Only selected literal top-level keys, plus the four small engine
+  diagnostics (`_error_message`, `_error_step`, `_error_node_type`,
+  `_flow_dir`), are cloned for the worker; bulky engine payloads such as
+  `_error_output` and invocation overlays must be listed, then one conversion budget counts the root and all selected values
+  at original depths. Omitting projection preserves full-context behavior,
+  including for foreach's shared sandbox setup. Flow extraction rejects
+  `context_keys` on any other node type instead of ignoring it.
 - Public run handles retain their run-ID-only wait/cancel API and detach-on-drop
   behavior, without retaining a live completion payload. Internal child waiters
   request cancellation when their parent future is dropped.

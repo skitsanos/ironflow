@@ -124,7 +124,7 @@ async fn structural_filter_handles_fragments_case_attributes_tables_and_pre() {
 #[tokio::test]
 async fn plain_text_retains_the_document_until_nested_and_sibling_nodes_are_read() {
     let output = extract("<p>first <em>nested</em> last</p><p>second</p>", "text").await;
-    assert_eq!(output["content"], "first nested last\nsecond");
+    assert_eq!(output["content"], "first nested last\n\nsecond");
 }
 
 #[tokio::test]
@@ -138,9 +138,10 @@ async fn plain_text_preserves_literal_punctuation_without_markdown_artifacts() {
     let output = extract(html, "text").await;
     assert_eq!(
         output["content"],
-        "Actual heading\n# literal heading\n\
-         *literal* _underscores_ ~tilde~ C:\\temp\\file and issue #133 & C#.\n\
-         [label](url) and `literal ticks`\none two three\nline\nbreak diagram\n  # code\n    *stay literal*\\path"
+        "Actual heading\n\n# literal heading\n\n\
+         *literal* _underscores_ ~tilde~ C:\\temp\\file and issue #133 & C#.\n\n\
+         [label](url) and `literal ticks`\n\none two three\n\nline\nbreak diagram\n\n\
+         \x20 # code\n    *stay literal*\\path"
     );
 }
 

@@ -6,7 +6,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts generate` and verified with
 `bun run scripts/issues_registry.ts check`.
 
-- Total findings: 139
+- Total findings: 144
 - Active findings: 0
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
@@ -151,3 +151,8 @@ priority, area, and title. The registry is generated with
 | [IF-137](./IF-137.md) | P1 | Resolved | Storage/Postgres | Postgres and Redis stores cannot connect over TLS: sqlx has no TLS feature |
 | [IF-138](./IF-138.md) | P3 | Resolved | Database/ArangoDB | `arangodb_aql` bind variables from context are always strings |
 | [IF-139](./IF-139.md) | P1 | Resolved | Files/write safety | Base64 file output follows destination symlinks and truncates their targets |
+| [IF-140](./IF-140.md) | P1 | Resolved | Nodes/security | `copy_file` writes through destination symlinks; `move_file` bypasses the destination policy |
+| [IF-141](./IF-141.md) | P1 | Resolved | Storage/TLS | `db_query`/`db_exec` panic on PostgreSQL `sslmode=verify-ca` in feature builds |
+| [IF-142](./IF-142.md) | P2 | Resolved | Nodes | `subworkflow_error` persists after a later successful subworkflow |
+| [IF-143](./IF-143.md) | P2 | Resolved | Extraction | `extract_html` text mode collapsed paragraph separation to one newline |
+| [IF-144](./IF-144.md) | P2 | Resolved | Lua DSL | `context_keys` dropped recovery diagnostics and was silently ignored on non-code nodes |

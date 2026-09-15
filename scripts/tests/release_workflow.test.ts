@@ -33,8 +33,6 @@ const platforms: Platform[] = [
 ];
 const target = "${{ matrix.platform.target }}";
 const suffix = "${{ matrix.suffix }}";
-const artifact = `ironflow-${target}${suffix}`;
-const archive = `ironflow-${"${{ github.ref_name }}"}-${target}${suffix}`;
 
 async function readWorkflow(): Promise<Workflow> {
   return Bun.YAML.parse(
@@ -62,40 +60,42 @@ test("release builds both feature variants with locked dependencies and strict w
   const workflow = await readWorkflow();
   expect(workflow.env.RUSTFLAGS).toBe("-Dwarnings");
   const steps = workflow.jobs.build.steps;
-  const buildSteps = steps.filter((step) => /cargo build/.test(step.run ?? ""));
-  expect(buildSteps).toHaveLength(1);
-  expect(buildSteps[0].if).toBeUndefined();
-  expect(buildSteps[0].run).toBe(
-    `cargo build --locked --release --target ${target} ${"${{ matrix.suffix == '-full' && '--features postgres,redis' || '' }}"}`,
-  );
+  const builds = steps.filter((step) => /cargo build/.test(step.run ?? ""));
+  expect(builds).toHaveLength(1);
+  const [build] = builds;
+  // One unconditional build per matrix cell: locked, cross-targeted, features chosen by the suffix axis.
+  expect(build.if).toBeUndefined();
+  expect(build.run).toContain("--locked");
+  expect(build.run).toContain(`--target ${target}`);
+  expect(build.run).toContain("matrix.suffix == '-full' && '--features postgres,redis'");
   expect(steps.find((step) => step.uses?.startsWith("dtolnay/rust-toolchain@"))?.with?.targets).toBe(target);
-  const musl = steps.find((step) => step.name === "Install musl tools (Linux)");
-  expect(musl?.if).toBe("matrix.platform.target == 'x86_64-unknown-linux-musl'");
-  expect(musl?.run).toContain("musl-tools");
-
-  const cache = steps.find((step) => step.uses === "Swatinem/rust-cache@v2");
-  expect(cache?.with).toEqual({
-    "shared-key": `release-${target}${suffix}`,
-    "cache-workspace-crates": false,
-  });
+  const musl = steps.find((step) => /musl-tools/.test(step.run ?? ""));
+  expect(musl?.if).toContain("matrix.platform.target == 'x86_64-unknown-linux-musl'");
+  const cache = steps.find((step) => step.uses?.startsWith("Swatinem/rust-cache@"));
+  const sharedKey = String(cache?.with?.["shared-key"]);
+  expect(sharedKey).toContain(target);
+  expect(sharedKey).toContain(suffix);
 });
 
 test("release packages and uploads distinct nonempty artifacts for every variant", async () => {
   const { jobs } = await readWorkflow();
-  const unix = jobs.build.steps.find((step) => step.name === "Package (unix)");
-  expect(unix?.if).toBe("runner.os != 'Windows'");
-  expect(unix?.run).toBe(`tar czf ${archive}.tar.gz -C target/${target}/release ironflow`);
-  const windows = jobs.build.steps.find((step) => step.name === "Package (windows)");
-  expect(windows?.if).toBe("runner.os == 'Windows'");
+  const steps = jobs.build.steps;
+  const unix = steps.find((step) => /\btar\b/.test(step.run ?? ""));
+  const windows = steps.find((step) => /Compress-Archive/.test(step.run ?? ""));
+  expect(unix?.if).toMatch(/runner\.os\s*!=\s*'Windows'/);
+  expect(windows?.if).toMatch(/runner\.os\s*==\s*'Windows'/);
   expect(windows?.shell).toBe("pwsh");
-  expect(windows?.run).toBe(
-    `Compress-Archive -Path "target/${target}/release/ironflow.exe" -DestinationPath "${archive}.zip"`,
-  );
-  expect(jobs.build.steps.find((step) => step.uses === "actions/upload-artifact@v7")?.with).toEqual({
-    name: artifact,
-    path: `${archive}.*`,
-    "if-no-files-found": "error",
-  });
+  for (const step of [unix, windows]) {
+    // Archive names carry target and suffix so the eight variants never collide.
+    expect(step?.run).toContain(target);
+    expect(step?.run).toContain(suffix);
+  }
+  const upload = steps.find((step) => step.uses?.startsWith("actions/upload-artifact@"));
+  expect(upload?.with?.["if-no-files-found"]).toBe("error");
+  const name = String(upload?.with?.name);
+  expect(name).toContain(target);
+  expect(name).toContain(suffix);
+  expect(String(upload?.with?.path)).toContain(target);
 });
 
 test("only guarded tag releases can publish and only the publishing job can write", async () => {

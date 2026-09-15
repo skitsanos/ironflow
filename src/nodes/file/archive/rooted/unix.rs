@@ -9,7 +9,7 @@ use crate::util::execution::ExecutionControl;
 
 use self::syscalls::{
     LeafKind, c_name, create_file_at, inspect_leaf, link_at, open_directory_path,
-    open_or_create_directory, rename_at, unlink_at,
+    open_or_create_directory, rename_at, rename_into_directory, unlink_at,
 };
 
 mod syscalls;
@@ -54,18 +54,49 @@ impl RootedDir {
         execution: &ExecutionControl,
     ) -> Result<Option<File>> {
         execution.checkpoint()?;
-        let name = c_name(name, self.operation)?;
-        match syscalls::read_file_at(&self.root, &name) {
+        let name_c = c_name(name, self.operation)?;
+        let name = Path::new(name).display();
+        match syscalls::read_file_at(&self.root, &name_c) {
             Ok(file) if file.metadata()?.is_file() => Ok(Some(file)),
             Ok(_) => anyhow::bail!(
-                "{}: append destination must be a regular file",
+                "{}: append destination '{name}' must be a regular file",
                 self.operation
             ),
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
-            Err(error) => {
-                Err(error).context("append destination must be a regular non-symlink file")
-            }
+            // O_NOFOLLOW reports a final symlink as ELOOP; every other failure
+            // (permissions, I/O) is reported as what it is.
+            Err(error) if error.raw_os_error() == Some(libc::ELOOP) => anyhow::bail!(
+                "{}: append destination '{name}' is a symlink and will not be followed",
+                self.operation
+            ),
+            Err(error) => anyhow::bail!(
+                "{}: failed to open '{name}' for append: {error}",
+                self.operation
+            ),
         }
+    }
+
+    /// Rename `source` onto `leaf` directly below the pinned root. The leaf is
+    /// validated like an overwriting staged write: a symlink, dangling link or
+    /// special file is refused, an existing regular file is replaced.
+    pub(crate) fn rename_into(
+        &self,
+        source: &Path,
+        leaf: &std::ffi::OsStr,
+        execution: &ExecutionControl,
+    ) -> Result<()> {
+        execution.checkpoint()?;
+        let leaf_c = c_name(leaf, self.operation)?;
+        validate_leaf(&self.root, &leaf_c, true, self.operation, Path::new(leaf))?;
+        let source_c = c_name(source.as_os_str(), self.operation)?;
+        rename_into_directory(&source_c, &self.root, &leaf_c).map_err(|error| {
+            anyhow::anyhow!(
+                "{}: failed to move '{}' to '{}': {error}",
+                self.operation,
+                source.display(),
+                Path::new(leaf).display()
+            )
+        })
     }
 
     pub(crate) fn stage_file(

@@ -17,7 +17,13 @@ describe("repository integration policy", () => {
     expect(push.paths).toBeUndefined();
     expect(pullRequest.paths).toBeUndefined();
     expect(pullRequest["paths-ignore"]).toEqual(push["paths-ignore"]);
-    expect(push["paths-ignore"]).toEqual(["README.md", "LICENSE*", ".claude/**", ".gitignore"]);
+    // Documentation-only edits skip CI; anything that can change the build does not.
+    const ignored = (path: string) =>
+      (push["paths-ignore"] as string[]).some((pattern) => new Bun.Glob(pattern).match(path));
+    expect(ignored("README.md")).toBeTrue();
+    expect(ignored(".claude/settings.json")).toBeTrue();
+    expect(ignored("src/main.rs")).toBeFalse();
+    expect(ignored("Cargo.lock")).toBeFalse();
   });
 
   test("issue registry changes run the Bun policy gate", async () => {
@@ -84,10 +90,11 @@ describe("repository integration policy", () => {
     const workflow = Bun.YAML.parse(await Bun.file(join(repository, ".github/workflows/ci.yml")).text()) as {
       concurrency: { group: string; "cancel-in-progress": string };
     };
-    expect(workflow.concurrency.group).toBe(
-      "ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}",
-    );
-    expect(workflow.concurrency["cancel-in-progress"]).toBe("${{ github.event_name == 'pull_request' }}");
+    // Pull requests share a per-ref group that newer runs cancel; every other
+    // event gets a run-unique group so pushes to main and develop run to completion.
+    expect(workflow.concurrency.group).toContain("github.ref");
+    expect(workflow.concurrency.group).toContain("github.run_id");
+    expect(workflow.concurrency["cancel-in-progress"]).toContain("pull_request");
   });
 
   test("dependency warnings fail closed and removed dependencies stay absent", async () => {

@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use anyhow::Result;
 use async_trait::async_trait;
 use base64::Engine;
@@ -114,35 +116,27 @@ impl Node for Base64DecodeNode {
             anyhow::bail!("base64_decode requires either 'input' or 'source_key'");
         };
 
-        let decoded_bytes = if url_safe {
-            URL_SAFE.decode(&encoded)
-        } else {
-            STANDARD.decode(&encoded)
-        }
-        .map_err(|e| anyhow::anyhow!("Failed to decode base64: {}", e))?;
-
         let mut output = NodeOutput::new();
 
         if let Some(file_path) = output_file {
-            let max_bytes = crate::util::limits::max_file_bytes();
-            if decoded_bytes.len() as u64 > max_bytes {
-                anyhow::bail!(
-                    "base64_decode: decoded payload {} bytes exceeds limit {} (set IRONFLOW_MAX_FILE_BYTES to raise)",
-                    decoded_bytes.len(),
-                    max_bytes
-                );
-            }
+            // The file path streams the decode in bounded chunks through the
+            // shared atomic writer; the helper's errors already carry the
+            // `base64_decode` prefix, so only the destination is added here.
             let path = interpolate_ctx(file_path, ctx);
-            crate::nodes::file::write_bytes(path.clone().into(), decoded_bytes, max_bytes)
+            crate::nodes::file::write_base64(PathBuf::from(&path), encoded, url_safe)
                 .await
-                .map_err(|e| {
-                    anyhow::anyhow!("base64_decode: failed to write file '{}': {e:#}", path)
-                })?;
+                .map_err(|error| anyhow::anyhow!("{error:#}; output_file '{path}'"))?;
             output.insert(
                 format!("{}_path", output_key),
                 serde_json::Value::String(path),
             );
         } else {
+            let decoded_bytes = if url_safe {
+                URL_SAFE.decode(&encoded)
+            } else {
+                STANDARD.decode(&encoded)
+            }
+            .map_err(|e| anyhow::anyhow!("Failed to decode base64: {}", e))?;
             let decoded_str = String::from_utf8(decoded_bytes)
                 .map_err(|e| anyhow::anyhow!("Decoded bytes are not valid UTF-8: {}", e))?;
             output.insert(

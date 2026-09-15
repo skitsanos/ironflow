@@ -80,3 +80,56 @@ fn context_projection_matches_whole_json_object_conversion() {
         }
     }
 }
+
+#[test]
+fn context_projection_keeps_engine_diagnostics_but_not_bulky_engine_payloads() {
+    let ctx = Context::from([
+        ("order_id".into(), json!(7)),
+        ("unused".into(), json!([1, 2, 3])),
+        ("_error_message".into(), json!("boom")),
+        ("_error_step".into(), json!("risky")),
+        ("_error_node_type".into(), json!("code")),
+        ("_flow_dir".into(), json!("/flows")),
+        ("_error_output".into(), json!({"rows": [1, 2, 3]})),
+        ("_headers".into(), json!({"authorization": "Bearer x"})),
+    ]);
+    // The scalar recovery diagnostics and `_flow_dir` are always present;
+    // bulky engine payloads stay behind the allowlist like user data.
+    let selected = project_context(&json!({"context_keys": ["order_id"]}), &ctx).unwrap();
+    assert_eq!(selected.len(), 5);
+    assert_eq!(selected["order_id"], 7);
+    assert_eq!(selected["_error_message"], "boom");
+    assert_eq!(selected["_error_step"], "risky");
+    assert_eq!(selected["_error_node_type"], "code");
+    assert_eq!(selected["_flow_dir"], "/flows");
+    assert!(!selected.contains_key("unused"));
+    assert!(!selected.contains_key("_error_output"));
+    assert!(!selected.contains_key("_headers"));
+
+    // Bulky engine payloads are selectable by listing them explicitly.
+    let explicit = project_context(
+        &json!({"context_keys": ["_error_output", "_headers"]}),
+        &ctx,
+    )
+    .unwrap();
+    assert_eq!(explicit.len(), 6);
+    assert_eq!(explicit["_error_output"]["rows"], json!([1, 2, 3]));
+    assert!(explicit.contains_key("_headers"));
+
+    // An empty list hides every user key and every bulky payload.
+    let empty = project_context(&json!({"context_keys": []}), &ctx).unwrap();
+    assert_eq!(empty.len(), 4);
+    assert!(
+        empty
+            .keys()
+            .all(|key| key.starts_with("_error_") || key == "_flow_dir")
+    );
+    assert!(!empty.contains_key("_error_output"));
+
+    // Listing an always-present key explicitly is harmless and selects it once.
+    let repeated = project_context(&json!({"context_keys": ["_flow_dir"]}), &ctx).unwrap();
+    assert_eq!(repeated.len(), 4);
+
+    // Omitting the projection is unchanged: the whole context is cloned.
+    assert_eq!(project_context(&json!({}), &ctx).unwrap().len(), 8);
+}

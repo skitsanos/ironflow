@@ -130,6 +130,19 @@ pub(super) fn rename_at(parent: &File, source: &CStr, destination: &CStr) -> io:
     })
 }
 
+/// Rename `source`, resolved like any process path, onto `leaf` inside the
+/// pinned `parent`. The kernel never follows an existing destination link.
+pub(super) fn rename_into_directory(source: &CStr, parent: &File, leaf: &CStr) -> io::Result<()> {
+    syscall_result(unsafe {
+        libc::renameat(
+            libc::AT_FDCWD,
+            source.as_ptr(),
+            parent.as_raw_fd(),
+            leaf.as_ptr(),
+        )
+    })
+}
+
 pub(super) fn link_at(parent: &File, source: &CStr, destination: &CStr) -> io::Result<()> {
     syscall_result(unsafe {
         libc::linkat(

@@ -6,7 +6,7 @@ mod io;
 pub(crate) use archive::rooted::RootedDir;
 pub use archive::{ZipCreateNode, ZipExtractNode, ZipListNode};
 pub use directory::ListDirectoryNode;
-pub(crate) use io::write_bytes;
+pub(crate) use io::write_base64;
 pub use io::{CopyFileNode, DeleteFileNode, MoveFileNode, ReadFileNode, WriteFileNode};
 
 use crate::nodes::NodeRegistry;

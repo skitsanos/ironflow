@@ -123,3 +123,57 @@ async fn macos_tmp_alias_supports_direct_file_writes() {
     result.unwrap();
     assert_eq!(contents.unwrap(), b"alias");
 }
+
+#[tokio::test]
+async fn directory_aliases_work_for_copy_move_and_pdf_merge() {
+    let directory = tempfile::tempdir().unwrap();
+    let real = directory.path().join("real");
+    let alias = directory.path().join("alias");
+    std::fs::create_dir(&real).unwrap();
+    symlink(&real, &alias).unwrap();
+    let registry = NodeRegistry::with_builtins();
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("examples/fixtures/ironflow-sample.pdf");
+    let source = directory.path().join("source.txt");
+    std::fs::write(&source, b"alias copy").unwrap();
+    for parent in [&alias, &alias.join("new/nested")] {
+        let copied = parent.join("copied.txt");
+        registry
+            .get("copy_file")
+            .unwrap()
+            .execute(
+                &json!({"source": source, "destination": copied}),
+                &Context::new(),
+            )
+            .await
+            .unwrap();
+        let moved = parent.join("moved.txt");
+        registry
+            .get("move_file")
+            .unwrap()
+            .execute(
+                &json!({"source": copied, "destination": moved}),
+                &Context::new(),
+            )
+            .await
+            .unwrap();
+        assert!(!copied.exists());
+        assert_eq!(std::fs::read(&moved).unwrap(), b"alias copy");
+
+        let merged = parent.join("merged.pdf");
+        let output = registry
+            .get("pdf_merge")
+            .unwrap()
+            .execute(
+                &json!({"files": [fixture], "output_path": merged}),
+                &Context::new(),
+            )
+            .await
+            .unwrap();
+        assert!(std::fs::read(&merged).unwrap().starts_with(b"%PDF"));
+        assert!(output["pdf_merge_page_count"].as_u64().unwrap() >= 1);
+    }
+    assert!(real.join("moved.txt").is_file());
+    assert!(real.join("new/nested/moved.txt").is_file());
+    assert!(real.join("new/nested/merged.pdf").is_file());
+}

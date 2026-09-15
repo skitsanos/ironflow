@@ -1,18 +1,49 @@
 import assert from "node:assert/strict";
 import { join, resolve } from "node:path";
-import { command, createFixture } from "./storage_tls/fixture";
+import { InterruptedError, command, createFixture, interrupt, interrupted, throwIfInterrupted, track } from "./storage_tls/fixture";
 
 // This gate owns its servers, certificates, credentials and storage. It never
 // inherits a database URL or .env file from the developer's environment.
 const binary = resolve(process.argv[2] ?? "target/debug/ironflow");
 assert(await Bun.file(binary).exists(), "Build ironflow with --features postgres,redis first");
-const fixture = await createFixture();
-const { root, password } = fixture;
+
+// Bun does not run `finally` blocks when a signal terminates it, so Ctrl-C is
+// answered explicitly: stop every spawned process, remove the disposable
+// containers and keys exactly once, then exit 130 (SIGINT) or 143 (SIGTERM).
+let fixture: Awaited<ReturnType<typeof createFixture>> | undefined;
+function redact(text: string) {
+  return fixture ? text.replaceAll(fixture.password, "[redacted]") : text;
+}
+function exitInterrupted(error?: unknown): never {
+  const { signal, code } = interrupted()!;
+  if (error !== undefined && !(error instanceof InterruptedError)) {
+    // Cleanup itself failed, so disposable resources may remain: fail loudly.
+    console.error(redact(error instanceof Error ? error.message : String(error)));
+    process.exit(1);
+  }
+  console.error(`TLS gate interrupted by ${signal}; disposable containers and keys were removed`);
+  process.exit(code);
+}
+async function shutdown(): Promise<never> {
+  try { await fixture!.cleanup(); } catch (error) { exitInterrupted(error); }
+  exitInterrupted();
+}
+// During setup createFixture answers the signal itself and removes whatever it
+// already created before rejecting; only the exit code is decided here.
+fixture = await createFixture().catch((error: unknown) => {
+  if (interrupted()) exitInterrupted(error);
+  throw error;
+});
+const { root, password, cleanup, postgresPort, redisPort } = fixture;
+const onSignal = (signal: string) => { interrupt(signal); void shutdown(); };
+process.once("SIGINT", onSignal);
+process.once("SIGTERM", onSignal);
+
 const flow = "local f = Flow.new('tls-probe'); f:step('answer', nodes.code({source='return {answer = 42}'})); return f";
 const baseEnv = { PATH: process.env.PATH ?? "", HOME: root, TMPDIR: root, RUST_LOG: "info", NO_COLOR: "1" };
 
 function pgUrl(mode: string, ca = "ca.pem", host = "localhost") {
-  const url = new URL(`postgres://postgres:${password}@${host}:${fixture.postgresPort}/ironflow_tls`);
+  const url = new URL(`postgres://postgres:${password}@${host}:${postgresPort}/ironflow_tls`);
   url.searchParams.set("sslmode", mode);
   if (mode !== "require" && mode !== "disable") url.searchParams.set("sslrootcert", join(root, ca));
   return url.toString();
@@ -28,8 +59,15 @@ async function cli(env: Record<string, string>, args: string[], accept: boolean,
   console.log(`PASS ${label}`);
   return result.stdout;
 }
+function finalContext(stdout: string): Record<string, unknown> {
+  const marker = "\nContext:\n";
+  const offset = stdout.lastIndexOf(marker);
+  assert(offset >= 0, "ironflow run did not print its final context");
+  return JSON.parse(stdout.slice(offset + marker.length));
+}
 async function start(env: Record<string, string>) {
-  const child = Bun.spawn([binary, "serve", "--host", "127.0.0.1", "--port", "0"], { cwd: root, env: { ...env, IRONFLOW_API_KEY: password, IRONFLOW_ALLOW_ADHOC_FLOWS: "true" }, stdout: "pipe", stderr: "pipe" });
+  throwIfInterrupted();
+  const child = track(Bun.spawn([binary, "serve", "--host", "127.0.0.1", "--port", "0"], { cwd: root, env: { ...env, IRONFLOW_API_KEY: password, IRONFLOW_ALLOW_ADHOC_FLOWS: "true" }, stdout: "pipe", stderr: "pipe" }));
   let logs = "";
   async function drain(stream: ReadableStream<Uint8Array>) {
     for await (const chunk of stream) logs = (logs + new TextDecoder().decode(chunk)).slice(-32_768);
@@ -46,6 +84,7 @@ async function start(env: Record<string, string>) {
   try {
     const deadline = Date.now() + 25_000;
     while (Date.now() < deadline && child.exitCode === null) {
+      throwIfInterrupted();
       const address = logs.match(/listening on (127\.0\.0\.1:\d+)/)?.[1];
       if (address) {
         const request = async (path: string, body?: unknown) => {
@@ -93,7 +132,17 @@ try {
     ["wrong hostname", pgUrl("verify-full", "ca.pem", "127.0.0.1")],
   ]) await cli(storeEnv("postgres", url), ["list"], false, `PostgreSQL rejects ${label}`);
 
-  const redis = `rediss://:${password}@localhost:${fixture.redisPort}/0`;
+  // The SQL node must find the process-wide TLS provider even when no TLS
+  // storage backend installed it, so these runs keep the default (JSON) store.
+  for (const mode of ["require", "verify-ca", "verify-full"]) {
+    const probe = join(root, `db-query-${mode}.lua`);
+    await Bun.write(probe, `local f = Flow.new('tls-db-query'); f:step('answer', nodes.db_query({connection = '${pgUrl(mode)}', query = 'SELECT 1 AS answer'})); return f`);
+    const context = finalContext(await cli(baseEnv, ["run", probe], true, `db_query ${mode}: TLS provider is process-wide`));
+    assert.deepEqual(context.rows, [{ answer: 1 }], `db_query ${mode}: unexpected rows`);
+    assert.equal(context.rows_success, true, `db_query ${mode}: rows_success`);
+  }
+
+  const redis = `rediss://:${password}@localhost:${redisPort}/0`;
   await workflow(storeEnv("redis", redis), "Redis verified TLS");
   for (const [label, url, ca] of [
     ["plaintext", redis.replace("rediss:", "redis:"), "ca.pem"],
@@ -102,4 +151,9 @@ try {
     ["insecure bypass", `${redis}#insecure`, "ca.pem"],
   ]) await cli(storeEnv("redis", url, ca), ["list"], false, `Redis rejects ${label}`);
   console.log("TLS storage acceptance passed; no shared or production services were used.");
-} finally { await fixture.cleanup(); }
+} catch (error) {
+  if (!interrupted()) throw error;
+} finally {
+  if (interrupted()) await shutdown();
+  await cleanup();
+}

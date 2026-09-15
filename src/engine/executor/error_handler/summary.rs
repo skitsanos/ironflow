@@ -1,6 +1,5 @@
 use super::ExecutionState;
 use crate::engine::executor::ExecutionOverlay;
-use crate::util::sensitive_url::redact_sensitive_text;
 
 const MAX_FAILURES: usize = 8;
 const MAX_TASK_BYTES: usize = 128;
@@ -30,7 +29,7 @@ impl ExecutionState {
 
 fn bounded_redacted(text: &str, limit: usize, overlay: &ExecutionOverlay) -> String {
     // Redact whole values before truncation to avoid leaking a secret prefix.
-    let mut text = redact_sensitive_text(&overlay.redact_text(text));
+    let mut text = overlay.redact_diagnostic(text);
     if text.len() > limit {
         let mut end = limit - TRUNCATED.len();
         while !text.is_char_boundary(end) {

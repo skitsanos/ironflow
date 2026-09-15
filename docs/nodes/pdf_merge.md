@@ -53,6 +53,11 @@ atomically committed. Parse, limit, save, and cancellation failures remove the
 partial staging file and preserve an existing destination. The output refuses
 a final link or non-regular destination.
 
+Configured parent-directory aliases for `output_path`, including macOS `/tmp`,
+are resolved before staging and missing parent directories are created. Unix
+pins the resolved directory, so retargeting the alias afterward cannot redirect
+the write. This is not permission to follow a destination-file symlink.
+
 Artifact inputs require a protected artifact directory visible at the same path
 on every eligible worker. A shared mount is not an authentication boundary
 against a process running under the same OS identity.

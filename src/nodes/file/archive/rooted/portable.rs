@@ -52,6 +52,28 @@ impl RootedDir {
         }
     }
 
+    /// Rename `source` onto `leaf` below the root after validating the leaf
+    /// like an overwriting staged write.
+    pub(crate) fn rename_into(
+        &self,
+        source: &Path,
+        leaf: &std::ffi::OsStr,
+        execution: &ExecutionControl,
+    ) -> Result<()> {
+        execution.checkpoint()?;
+        ensure_observed_directories(&self.root, self.operation, execution)?;
+        let destination = self.root.join(leaf);
+        validate_leaf(&destination, true, self.operation)?;
+        fs::rename(source, &destination).map_err(|error| {
+            anyhow::anyhow!(
+                "{}: failed to move '{}' to '{}': {error}",
+                self.operation,
+                source.display(),
+                destination.display()
+            )
+        })
+    }
+
     pub(crate) fn stage_file(
         &self,
         relative: &Path,

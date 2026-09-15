@@ -22,7 +22,7 @@ explicitly to say which you want:
 | `on_error` | Behaviour when the child run fails |
 |---|---|
 | `"fail_fast"` | The parent step returns an error. |
-| `"ignore"` | The parent step succeeds; inspect `subworkflow_success` and `subworkflow_error` (also `{output_key}_error` when namespaced) to detect it. |
+| `"ignore"` | The parent step succeeds; branch on `subworkflow_success` (or `{output_key}_success`) and read `subworkflow_error` (also `{output_key}_error` when namespaced) for the reason. |
 
 **When `on_error` is omitted, `output_key` decides it** — the historical
 behaviour, kept for compatibility:
@@ -89,9 +89,25 @@ When `wait = true` (default):
 - Public child context keys (including inherited input, excluding `_`-prefixed keys) are merged into the parent context or namespaced under `output_key`.
 - `subworkflow_name` — the name of the executed subworkflow.
 - `subworkflow_success` — `true` when the child run succeeded. Always present, so the outcome is checkable even without `output_key`.
-- `subworkflow_error` - the status and bounded, redacted unresolved task-error summary. Present when the child did not succeed, with or without `output_key`.
+- `subworkflow_error` — a string holding the status and bounded, redacted unresolved task-error summary when the child did not succeed; JSON `null` when it succeeded. Always present, with or without `output_key`.
 - `{output_key}_success` — same flag, namespaced. Only when `output_key` is set.
-- `{output_key}_error` — the same failure description as `subworkflow_error`. Only when `output_key` is set **and** the child did not succeed.
+- `{output_key}_error` — the same value as `subworkflow_error` (string on failure, `null` on success). Only when `output_key` is set.
+
+Branch on `subworkflow_success`, not on the presence of the error key. Node
+outputs merge into the run context by key and cannot remove keys, so the error
+slot is written on every call: a later successful `subworkflow` step overwrites
+an earlier tolerated failure's text with `null` instead of leaving it beside
+`subworkflow_success = true`. In Lua handlers and `code` steps a JSON `null`
+arrives as the `json_null` sentinel, which is not `nil` and is truthy;
+`if ctx.subworkflow_error then` therefore does not detect a failure, while
+`type(ctx.subworkflow_error) == "string"` or `ctx.subworkflow_error ~= json_null`
+does. `${ctx.subworkflow_error}` interpolation renders `null` as an empty string.
+
+Without `output_key`, the child's own `subworkflow_name`, `subworkflow_success`,
+`subworkflow_error`, and `subworkflow_async` keys (describing a grandchild it
+ran) are not merged into the parent; the parent's keys describe its direct
+child only. With `output_key`, the child's full public context, including those
+keys, stays under `output_key`.
 
 The subworkflow's returned map follows the normal phase collision contract: a
 later-declared parallel parent step wins duplicate keys. Without `output_key`,

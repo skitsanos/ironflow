@@ -162,7 +162,7 @@ template with the runnable `linux/amd64` manifest digest selected from the
 attested OCI index, never the index itself or a branch tag. That makes the
 declared Deployment digest identical to each container runtime `imageID` while
 the index retains the SBOM and provenance attestations. The workflow's mutable
-`buildcache-amd64` GHCR tag stores zstd-compressed BuildKit state only and is
+`buildcache-amd64` GHCR tag stores BuildKit cache state with `mode=max` and is
 never a runnable deployment reference. Create the referenced
 `ironflow-canary-secrets` Secret through the platform secret boundary before
 applying the rendered manifest. See
