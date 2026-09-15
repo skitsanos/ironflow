@@ -873,6 +873,11 @@ Features:
 ## Semantic Chunking
 
 The `ai_chunk_semantic` providers feed a shared sentence-boundary pipeline.
+OpenAI, OAuth, and Ollama share the same bounded sequential embedding batches
+with `ai_embed`. Vectors are validated and restored to input order before one
+global semantic pass; batch boundaries never partition topic detection. Per-batch
+retries do not checkpoint the node: an outer workflow retry restarts every batch.
+Response-byte and total-vector limits bound materialization, not process RSS.
 It averages adjacent embedding cosine distances, smooths the curve, and selects
 positive interior distance peaks, not distance minima. Relative percentile
 filtering favors stronger peaks; increasing `threshold` admits weaker candidates

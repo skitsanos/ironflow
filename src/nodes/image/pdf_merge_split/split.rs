@@ -51,6 +51,7 @@ impl Node for PdfSplitNode {
             .and_then(|value| value.as_str())
             .unwrap_or("all")
             .to_owned();
+        let pages = interpolate_ctx(&pages, ctx);
         run_tracked_blocking_step(move |execution| {
             split(
                 Request {

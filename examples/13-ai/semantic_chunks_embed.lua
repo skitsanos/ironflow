@@ -24,6 +24,7 @@ flow:step("semantic_chunk", nodes.ai_chunk_semantic({
     output_key = "semantic_chunks",
     provider = "openai",
     model = "text-embedding-3-small",
+    batch_size = 64,
     threshold = 0.5
 })):depends_on("load_document")
 
@@ -45,6 +46,7 @@ flow:step("embed_chunks", nodes.ai_embed({
     provider = "openai",
     model = "text-embedding-3-small",
     input_key = "chunk_texts",
+    batch_size = 64,
     output_key = "chunk_vectors"
 })):depends_on("prepare_chunks")
 

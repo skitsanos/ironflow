@@ -238,3 +238,53 @@ async fn pdf_split_missing_file_error() {
         "Error: {err}"
     );
 }
+
+#[tokio::test]
+async fn pdf_split_interpolates_runtime_range_and_preserves_page_identity() {
+    let registry = ironflow::nodes::NodeRegistry::with_builtins();
+    let node = registry.get("pdf_split").unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("sixty.pdf");
+    create_multi_page_pdf(&source, 60);
+    let config = json!({"path": source, "output_dir": dir.path().join("pages"),
+        "pages": "${ctx.range}"});
+    let ctx = HashMap::from([("range".into(), json!("31-60"))]);
+    let output = node.execute(&config, &ctx).await.unwrap();
+    let files = output["pdf_split_files"].as_array().unwrap();
+    assert_eq!(files.len(), 30);
+    assert_eq!(output["pdf_split_page_count"], 30);
+    for (index, file) in files.iter().enumerate() {
+        let document = Document::load(file.as_str().unwrap()).unwrap();
+        assert_eq!(document.get_pages().len(), 1);
+        assert_eq!(
+            document.extract_text(&[1]).unwrap().trim(),
+            format!("Page {}", index + 31)
+        );
+    }
+}
+
+#[tokio::test]
+async fn pdf_split_reports_resolved_invalid_selector_without_writing_pages() {
+    let registry = ironflow::nodes::NodeRegistry::with_builtins();
+    let node = registry.get("pdf_split").unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("one.pdf");
+    create_test_pdf(&source);
+    let output_dir = dir.path().join("pages");
+    let config = json!({"path": source, "output_dir": output_dir, "pages": "${ctx.range}"});
+    for ctx in [
+        HashMap::new(),
+        HashMap::from([("range".into(), json!("invalid"))]),
+    ] {
+        let error = format!("{:#}", node.execute(&config, &ctx).await.unwrap_err());
+        let resolved = ctx
+            .get("range")
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
+        assert!(
+            error.contains(&format!("Invalid page number: '{resolved}'")),
+            "{error}"
+        );
+        assert!(!output_dir.exists());
+    }
+}

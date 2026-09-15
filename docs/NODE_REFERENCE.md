@@ -174,7 +174,7 @@ endpoint, and AWS credential configuration may still come from the environment.
 | [`pdf_to_image`](nodes/pdf_to_image.md) | Render PDF pages to disk-backed image artifacts |
 | [`pdf_thumbnail`](nodes/pdf_thumbnail.md) | Render one PDF page to a disk-backed thumbnail artifact |
 | [`pdf_merge`](nodes/pdf_merge.md) | Merge multiple PDF files into one |
-| [`pdf_split`](nodes/pdf_split.md) | Split a PDF into individual pages or page ranges |
+| [`pdf_split`](nodes/pdf_split.md) | Select PDF pages by number or range; write one file per page |
 | [`image_metadata`](nodes/image_metadata.md) | Extract image dimensions, format, and color type |
 | [`image_convert`](nodes/image_convert.md) | Convert an image between formats (PNG, JPEG, etc.) |
 | [`image_watermark`](nodes/image_watermark.md) | Apply a semi-transparent text watermark to an image |

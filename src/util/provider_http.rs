@@ -1,7 +1,7 @@
 const MAX_SAME_ORIGIN_REDIRECTS: usize = 10;
 
-/// Admit notification response bytes before decoding either success or error text.
-pub(crate) async fn notification_response_text(
+/// Admit provider response bytes before decoding either success or error text.
+pub(crate) async fn bounded_response_text(
     mut response: reqwest::Response,
 ) -> anyhow::Result<String> {
     let maximum = super::limits::max_http_body_bytes();
@@ -31,7 +31,7 @@ pub(crate) async fn notification_response_text(
         }
         bytes
             .try_reserve_exact(chunk.len())
-            .map_err(|_| anyhow::anyhow!("cannot reserve memory for notification response"))?;
+            .map_err(|_| anyhow::anyhow!("cannot reserve memory for provider response"))?;
         bytes.extend_from_slice(&chunk);
         // A stream of immediately ready chunks must still let the executor cancel.
         tokio::task::yield_now().await;
@@ -50,7 +50,7 @@ pub(crate) async fn notification_response_text(
         .await
         .map_err(|error| {
             anyhow::anyhow!(
-                "Failed to decode notification response: {}",
+                "Failed to decode provider response: {}",
                 super::sensitive_url::redact_sensitive_text(&error.to_string())
             )
         })

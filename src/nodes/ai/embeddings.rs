@@ -1,7 +1,10 @@
+mod batch;
+mod batch_config;
 mod config;
 mod oauth;
 mod provider;
 mod response;
+mod transport;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -11,6 +14,7 @@ use crate::nodes::Node;
 use crate::util::duration::positive_duration;
 use crate::util::node_config::config_f64_or;
 
+pub(super) use batch_config::BatchOptions;
 pub(super) use config::resolve_param;
 pub(super) use oauth::acquire_oauth_token;
 pub(super) use provider::{embed_ollama, embed_openai};
@@ -78,6 +82,7 @@ impl Node for AiEmbedNode {
             .and_then(|value| value.as_str())
             .unwrap_or("embed");
         let timeout_s = config_f64_or(config, "timeout", ctx, 120.0)?;
+        let batch_options = BatchOptions::from_config(config, ctx)?;
 
         let input_value = ctx.get(&input_key).ok_or_else(|| {
             anyhow::anyhow!("ai_embed: input_key '{}' not found in context", input_key)
@@ -90,7 +95,8 @@ impl Node for AiEmbedNode {
         let client = crate::util::provider_http::client_builder()
             .timeout(positive_duration(timeout_s, "ai_embed timeout")?)
             .build()?;
-        let (embeddings, model) = provider::embed_for_config(&client, config, ctx, &texts).await?;
+        let (embeddings, model) =
+            provider::embed_for_config(&client, config, ctx, &texts, &batch_options).await?;
 
         Ok(build_output(output_key, embeddings, &model))
     }

@@ -2,9 +2,11 @@ use anyhow::Result;
 
 use crate::engine::types::Context;
 
+use super::batch::embed_batches;
+use super::batch_config::BatchOptions;
 use super::config::resolve_param;
 use super::oauth::acquire_oauth_token;
-use super::response::{parse_ollama_response, parse_openai_response};
+use super::transport::Endpoint;
 
 pub(in crate::nodes::ai) async fn embed_openai(
     client: &reqwest::Client,
@@ -12,22 +14,19 @@ pub(in crate::nodes::ai) async fn embed_openai(
     api_key: &str,
     model: &str,
     texts: &[String],
+    options: &BatchOptions,
 ) -> Result<Vec<Vec<f64>>> {
-    let url = format!("{}/embeddings", base_url.trim_end_matches('/'));
-    let response = client
-        .post(&url)
-        .header("Authorization", format!("Bearer {}", api_key))
-        .json(&serde_json::json!({ "model": model, "input": texts }))
-        .send()
-        .await
-        .map_err(|error| anyhow::anyhow!("OpenAI embedding request failed: {}", error))?;
-    let status = response.status();
-    let body = response
-        .text()
-        .await
-        .map_err(|error| anyhow::anyhow!("Failed to read OpenAI response: {}", error))?;
-
-    parse_openai_response(status, &body)
+    embed_batches(
+        Endpoint {
+            client,
+            url: format!("{}/embeddings", base_url.trim_end_matches('/')),
+            api_key: Some(api_key),
+            model,
+        },
+        texts,
+        options,
+    )
+    .await
 }
 
 pub(in crate::nodes::ai) async fn embed_ollama(
@@ -35,21 +34,19 @@ pub(in crate::nodes::ai) async fn embed_ollama(
     host: &str,
     model: &str,
     texts: &[String],
+    options: &BatchOptions,
 ) -> Result<Vec<Vec<f64>>> {
-    let url = format!("{}/api/embed", host.trim_end_matches('/'));
-    let response = client
-        .post(&url)
-        .json(&serde_json::json!({ "model": model, "input": texts }))
-        .send()
-        .await
-        .map_err(|error| anyhow::anyhow!("Ollama embedding request failed: {}", error))?;
-    let status = response.status();
-    let body = response
-        .text()
-        .await
-        .map_err(|error| anyhow::anyhow!("Failed to read Ollama response: {}", error))?;
-
-    parse_ollama_response(status, &body)
+    embed_batches(
+        Endpoint {
+            client,
+            url: format!("{}/api/embed", host.trim_end_matches('/')),
+            api_key: None,
+            model,
+        },
+        texts,
+        options,
+    )
+    .await
 }
 
 pub(super) async fn embed_for_config(
@@ -57,15 +54,16 @@ pub(super) async fn embed_for_config(
     config: &serde_json::Value,
     ctx: &Context,
     texts: &[String],
+    options: &BatchOptions,
 ) -> Result<(Vec<Vec<f64>>, String)> {
     match config
         .get("provider")
         .and_then(|value| value.as_str())
         .unwrap_or("openai")
     {
-        "openai" => embed_with_openai(client, config, ctx, texts).await,
-        "ollama" => embed_with_ollama(client, config, ctx, texts).await,
-        "oauth" => embed_with_oauth(client, config, ctx, texts).await,
+        "openai" => embed_with_openai(client, config, ctx, texts, options).await,
+        "ollama" => embed_with_ollama(client, config, ctx, texts, options).await,
+        "oauth" => embed_with_oauth(client, config, ctx, texts, options).await,
         provider => anyhow::bail!("ai_embed: unsupported provider '{}'", provider),
     }
 }
@@ -75,6 +73,7 @@ async fn embed_with_openai(
     config: &serde_json::Value,
     ctx: &Context,
     texts: &[String],
+    options: &BatchOptions,
 ) -> Result<(Vec<Vec<f64>>, String)> {
     let api_key = resolve_param(config, "api_key", "OPENAI_API_KEY", ctx).ok_or_else(|| {
         anyhow::anyhow!("ai_embed (openai) requires 'api_key' or OPENAI_API_KEY env var")
@@ -82,7 +81,7 @@ async fn embed_with_openai(
     let base_url = resolve_param(config, "base_url", "OPENAI_BASE_URL", ctx)
         .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
     let model = resolve_model(config, "text-embedding-3-small");
-    let embeddings = embed_openai(client, &base_url, &api_key, &model, texts).await?;
+    let embeddings = embed_openai(client, &base_url, &api_key, &model, texts, options).await?;
     Ok((embeddings, model))
 }
 
@@ -91,11 +90,12 @@ async fn embed_with_ollama(
     config: &serde_json::Value,
     ctx: &Context,
     texts: &[String],
+    options: &BatchOptions,
 ) -> Result<(Vec<Vec<f64>>, String)> {
     let host = resolve_param(config, "ollama_host", "OLLAMA_HOST", ctx)
         .unwrap_or_else(|| "http://localhost:11434".to_string());
     let model = resolve_model(config, "nomic-embed-text");
-    let embeddings = embed_ollama(client, &host, &model, texts).await?;
+    let embeddings = embed_ollama(client, &host, &model, texts, options).await?;
     Ok((embeddings, model))
 }
 
@@ -104,6 +104,7 @@ async fn embed_with_oauth(
     config: &serde_json::Value,
     ctx: &Context,
     texts: &[String],
+    options: &BatchOptions,
 ) -> Result<(Vec<Vec<f64>>, String)> {
     let token_url = required_param(config, "token_url", "OAUTH_TOKEN_URL", ctx, "token_url")?;
     let client_id = required_param(config, "client_id", "OAUTH_CLIENT_ID", ctx, "client_id")?;
@@ -125,7 +126,7 @@ async fn embed_with_oauth(
         scope.as_deref(),
     )
     .await?;
-    let embeddings = embed_openai(client, &base_url, &token, &model, texts).await?;
+    let embeddings = embed_openai(client, &base_url, &token, &model, texts, options).await?;
     Ok((embeddings, model))
 }
 

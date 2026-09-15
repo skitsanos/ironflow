@@ -1,6 +1,6 @@
 # `pdf_split`
 
-Split a PDF into individual pages or page ranges, saving each as a separate PDF file.
+Select PDF pages using individual numbers or ranges, saving each selected page as a separate one-page PDF file.
 
 ## Parameters
 
@@ -9,11 +9,19 @@ Split a PDF into individual pages or page ranges, saving each as a separate PDF 
 | `path` | string | one of `path` or `source_key` | — | File path to the PDF; supports `${ctx.key}` interpolation. |
 | `source_key` | string | one of `path` or `source_key` | — | Context key containing a file path, artifact URI, or artifact descriptor. |
 | `output_dir` | string | yes | — | Directory for output files; supports `${ctx.key}` interpolation. |
-| `pages` | string | no | `"all"` | Page specification: `"all"`, a single page `"3"`, a range `"1-5"`, or a combination `"1-3,7,9-11"`. Pages are 1-based. |
+| `pages` | string | no | `"all"` | Page specification: `"all"`, a single page `"3"`, a range `"1-5"`, or a combination `"1-3,7,9-11"`. Pages are 1-based; supports `${ctx.key}` interpolation before parsing. |
 | `output_key` | string | no | `"pdf_split"` | Context key prefix for output values. |
 
 > Providing both `path` and `source_key` is an error.
 > Artifact inputs are opened and SHA-256 verified inside the tracked blocking worker; PDF parsing consumes that same rewound handle rather than a resolved store pathname.
+
+For example, `pages = "${ctx.range}"` with `range = "31-60"` creates 30 one-page
+files, not one 30-page file. Missing or null context values resolve to empty text
+and fail the existing page-specification parser. Invalid resolved selectors fail
+before creating the output directory. Literal selectors retain their behavior,
+including ordering and repeated selections. For one multipage slice today, merge
+the selected files with [`pdf_merge`](pdf_merge.md). Native grouped output is
+tracked separately in [IF-147](../issues/IF-147.md).
 
 Page selection is bounded by `IRONFLOW_MAX_PDF_SPLIT_PAGES` (default `1000`).
 `"all"` and explicit or repeated ranges are rejected before the selector
@@ -58,11 +66,15 @@ streams may contain unused or hidden data and are not sanitized.
 ```lua
 local flow = Flow.new("split_pdf")
 
+flow:step("select", function(ctx)
+    return { range = "1-3,5" }
+end)
+
 flow:step("split", nodes.pdf_split({
     path = "/data/document.pdf",
     output_dir = "/data/pages",
-    pages = "1-3,5"
-}))
+    pages = "${ctx.range}"
+})):depends_on("select")
 
 flow:step("done", nodes.log({
     message = "Split into ${ctx.pdf_split_page_count} files"

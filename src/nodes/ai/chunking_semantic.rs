@@ -11,6 +11,7 @@ use crate::util::duration::positive_duration;
 
 use self::config::SemanticChunkParams;
 use super::chunking_semantic_engine::split_sentences;
+use super::embeddings::BatchOptions;
 
 pub struct AiChunkSemanticNode;
 
@@ -47,6 +48,7 @@ impl Node for AiChunkSemanticNode {
             .and_then(serde_json::Value::as_str)
             .unwrap_or("semantic");
         let params = SemanticChunkParams::from_config(config, ctx)?;
+        let batch_options = BatchOptions::from_config(config, ctx)?;
         let text = ctx
             .get(&source_key)
             .and_then(serde_json::Value::as_str)
@@ -72,7 +74,8 @@ impl Node for AiChunkSemanticNode {
                 "ai_chunk_semantic timeout",
             )?)
             .build()?;
-        let embeddings = provider::embed_sentences(&client, config, ctx, &sentences).await?;
+        let embeddings =
+            provider::embed_sentences(&client, config, ctx, &sentences, &batch_options).await?;
         let chunks =
             pipeline::build_chunks(&sentences, &embeddings, &params)?.unwrap_or_else(|| vec![text]);
 

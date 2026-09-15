@@ -112,7 +112,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **image_watermark.lua** — Apply a text watermark to an image
 - **extract_html.lua** — Extract text and metadata from HTML
 - **pdf_merge.lua** — Merge verified PDF artifact descriptors sequentially into one bounded output
-- **pdf_split.lua** — Split a PDF into individual pages
+- **pdf_split.lua** — Select a runtime page range and write one PDF per selected page
 - **image_metadata.lua** — Extract dimensions, format, and color info from a supported image source
 
 ## 09-cache
@@ -147,7 +147,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **aql_with_bind_vars.lua** — AQL query with bind variables for parameterized queries
 
 ## 13-ai
-- **embed_openai.lua** — Text embeddings via OpenAI API
+- **embed_openai.lua** — Text embeddings via OpenAI API in bounded batches
 - **embed_ollama.lua** — Text embeddings via local Ollama
 - **embed_oauth.lua** — Text embeddings via OAuth-authenticated endpoint
 - **oauth_chat_completion.lua** — OAuth token flow + OpenAI chat completion on OAUTH_BASE_URL (`gpt-5-mini`)
@@ -179,7 +179,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **chunk_embed_openai_word.lua** — Word document → chunk → foreach → OpenAI embeddings
 - **embed_openai_from_ctx.lua** — Context-driven document path for OpenAI embeddings
 - **chunk_semantic.lua** — Semantic chunking using embedding cosine-distance peaks
-- **semantic_chunks_embed.lua** — Semantic chunking then foreach + embeddings
+- **semantic_chunks_embed.lua** — Batched sentence embeddings, global semantic chunking, then batched chunk embeddings
 - **semantic_topic_boundary.lua** — Inline two-topic text with inspectable semantic chunks; no document fixture required
 - **transcribe_index.lua** — Transcribe audio to VTT, extract cues, chunk with preserved timecodes, and embed the chunk text
 
