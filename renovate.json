@@ -19,6 +19,24 @@
       "matchDatasources": ["rust-version"],
       "matchPackageNames": ["rust"],
       "groupName": "Rust toolchain"
+    },
+    {
+      "description": "Defer PR #182's incompatible AWS cohort: https://github.com/smithy-lang/smithy-rs/issues/4853. Later releases remain eligible.",
+      "matchManagers": ["cargo"],
+      "matchPackageNames": ["aws-sdk-s3"],
+      "allowedVersions": "!/^1\\.147\\.0$/"
+    },
+    {
+      "description": "Defer PR #182's incompatible AWS cohort: https://github.com/smithy-lang/smithy-rs/issues/4853. Later releases remain eligible.",
+      "matchManagers": ["cargo"],
+      "matchPackageNames": ["aws-sdk-s3vectors"],
+      "allowedVersions": "!/^1\\.37\\.0$/"
+    },
+    {
+      "description": "Defer PR #182's incompatible AWS cohort: https://github.com/smithy-lang/smithy-rs/issues/4853. Later releases remain eligible.",
+      "matchManagers": ["cargo"],
+      "matchPackageNames": ["aws-smithy-types"],
+      "allowedVersions": "!/^1\\.7\\.0$/"
     }
   ]
 }
