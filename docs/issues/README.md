@@ -6,8 +6,8 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts generate` and verified with
 `bun run scripts/issues_registry.ts check`.
 
-- Total findings: 145
-- Active findings: 1
+- Total findings: 146
+- Active findings: 2
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
 | ID | Priority | Status | Area | Summary |
@@ -157,3 +157,4 @@ priority, area, and title. The registry is generated with
 | [IF-143](./IF-143.md) | P2 | Resolved | Extraction | `extract_html` text mode collapsed paragraph separation to one newline |
 | [IF-144](./IF-144.md) | P2 | Resolved | Lua DSL | `context_keys` dropped recovery diagnostics and was silently ignored on non-code nodes |
 | [IF-145](./IF-145.md) | P3 | Open | Documents/PDF | `pdf_split` does not interpolate its `pages` parameter |
+| [IF-146](./IF-146.md) | P2 | Open | AI/embeddings | `ai_chunk_semantic` and `ai_embed` send all inputs in one embeddings request |

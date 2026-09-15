@@ -9,6 +9,7 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 | ID | Priority | Status | Area | Summary |
 |---|---:|---|---|---|
 | [IF-145](docs/issues/IF-145.md) | P3 | Open | Documents/PDF | `pdf_split` does not interpolate its `pages` parameter |
+| [IF-146](docs/issues/IF-146.md) | P2 | Open | AI/embeddings | `ai_chunk_semantic` and `ai_embed` send all inputs in one embeddings request |
 
 ## Working agreement
 
