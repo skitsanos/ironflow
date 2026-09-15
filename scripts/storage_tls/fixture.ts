@@ -21,6 +21,26 @@ export async function successful(args: string[], cwd?: string) {
   return result.stdout.trim();
 }
 
+export function postgresReadinessCommand(container: string, password: string) {
+  // The image's temporary initialization server accepts Unix sockets before TCP.
+  return [
+    "docker", "exec", "-e", `PGPASSWORD=${password}`, container,
+    "psql", "-X", "-A", "-t", "-q", "--set", "ON_ERROR_STOP=1",
+    "--dbname", "host=localhost hostaddr=127.0.0.1 user=postgres dbname=ironflow_tls sslmode=verify-full sslrootcert=/tls/ca.pem connect_timeout=3",
+    "--command", "SELECT 1",
+  ];
+}
+
+export async function waitForReady(args: string[], expected: string, run = command, timeout = 30_000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const result = await run(args, { timeout: Math.max(1, Math.min(5000, deadline - Date.now())) });
+    if (!result.timedOut && result.code === 0 && result.stdout.trim() === expected && Date.now() < deadline) return;
+    await Bun.sleep(Math.max(0, Math.min(500, deadline - Date.now())));
+  }
+  throw new Error("Disposable TLS store did not become ready");
+}
+
 export async function createFixture() {
   const root = await mkdtemp(join(tmpdir(), "ironflow-tls-"));
   const suffix = randomUUID();
@@ -49,16 +69,8 @@ export async function createFixture() {
     await successful(["docker", "run", "-d", "--name", postgres, "-p", "127.0.0.1::5432", "--mount", mount, "-e", `POSTGRES_PASSWORD=${password}`, "-e", "POSTGRES_DB=ironflow_tls", "--entrypoint", "sh", "postgres:latest", "-c", "install -o postgres -g postgres -m 600 /tls/server.key /tmp/ironflow.key\ninstall -o postgres -g postgres -m 644 /tls/server.pem /tmp/ironflow.pem\ninstall -o postgres -g postgres -m 644 /tls/pg_hba.conf /tmp/ironflow-hba.conf\nexec docker-entrypoint.sh postgres -c ssl=on -c ssl_cert_file=/tmp/ironflow.pem -c ssl_key_file=/tmp/ironflow.key -c hba_file=/tmp/ironflow-hba.conf"]);
     owned.push(redis);
     await successful(["docker", "run", "-d", "--name", redis, "-p", "127.0.0.1::6379", "--mount", mount, "--entrypoint", "sh", "redis:latest", "-c", "install -o redis -g redis -m 600 /tls/server.key /tmp/ironflow.key\ninstall -o redis -g redis -m 644 /tls/server.pem /tmp/ironflow.pem\ninstall -o redis -g redis -m 644 /tls/ca.pem /tmp/ironflow-ca.pem\nexec docker-entrypoint.sh redis-server --port 0 --tls-port 6379 --tls-cert-file /tmp/ironflow.pem --tls-key-file /tmp/ironflow.key --tls-ca-cert-file /tmp/ironflow-ca.pem --tls-auth-clients no --requirepass \"$1\"", "fixture", password]);
-    async function ready(args: string[], match: string) {
-      for (let attempt = 0; attempt < 60; attempt++) {
-        const result = await command(args, { timeout: 5000 });
-        if (result.code === 0 && result.stdout.includes(match)) return;
-        await Bun.sleep(500);
-      }
-      throw new Error("Disposable TLS store did not become ready");
-    }
-    await ready(["docker", "exec", postgres, "pg_isready", "-U", "postgres", "-d", "ironflow_tls"], "accepting connections");
-    await ready(["docker", "exec", "-e", `REDISCLI_AUTH=${password}`, redis, "redis-cli", "--tls", "--cacert", "/tmp/ironflow-ca.pem", "--sni", "localhost", "PING"], "PONG");
+    await waitForReady(postgresReadinessCommand(postgres, password), "1");
+    await waitForReady(["docker", "exec", "-e", `REDISCLI_AUTH=${password}`, redis, "redis-cli", "--tls", "--cacert", "/tmp/ironflow-ca.pem", "--sni", "localhost", "PING"], "PONG");
     async function port(name: string, exposed: string) {
       const binding = await successful(["docker", "port", name, exposed]);
       const match = binding.match(/^127\.0\.0\.1:(\d+)$/);
