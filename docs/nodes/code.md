@@ -8,7 +8,7 @@ Execute inline Lua code with access to the workflow context.
 |----------------|--------|----------|---------|---------------------------------------------------------------------|
 | `source`       | string/function | No* | --      | Lua source code string **or inline function** to evaluate              |
 | `bytecode_b64` | string | No*      | --      | Base64-encoded Lua bytecode for function handler mode               |
-| `context_keys` | array of strings | No | Full context | Literal top-level context keys to expose to Lua; an empty list exposes none. `_error_message`, `_error_step`, `_error_node_type` and `_flow_dir` always pass through |
+| `context_keys` | array of strings | No | Full context | Literal top-level context keys to expose to Lua. An empty list keeps only `_error_message`, `_error_step`, `_error_node_type` and `_flow_dir`, when present |
 
 *Exactly one of `source` or `bytecode_b64` must be provided.
 

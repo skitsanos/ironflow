@@ -13,9 +13,10 @@ as `write_file`. The copy runs on a tracked blocking worker and is bounded by
 
 ## Source and destination safety
 
-- The source follows the `read_file` policy: FIFOs, devices, directories and,
-  on Unix, a final-path symlink are refused before any byte is read. Its size
-  is admitted against `IRONFLOW_MAX_FILE_BYTES`, and a source that changes
+- The source follows the `read_file` policy: FIFOs, devices and directories
+  are refused before any byte is read. Final-path symlinks are also refused
+  on Unix and Windows. Its size is admitted against
+  `IRONFLOW_MAX_FILE_BYTES`, and a source that changes
   size while being copied fails the copy.
 - Configured parent-directory aliases, including macOS `/tmp`, are resolved
   before staging. Unix pins the resolved directory, so retargeting the alias
@@ -24,9 +25,11 @@ as `write_file`. The copy runs on a tracked blocking worker and is bounded by
 - A destination-file symlink, dangling link or special file is refused and its
   target is never opened or truncated. An existing regular destination is
   replaced only after a complete, flushed and synced copy.
-- The copy keeps the source's permission bits (for example an executable
-  `0751` script stays `0751`), like a plain `cp`; the staged file is created
-  `0600` and receives the source mode before it is published.
+- On Unix, the copy keeps the source's permission bits (for example an
+  executable `0751` script stays `0751`); the staged file is created `0600`
+  and receives the source mode before it is published. Other platforms use
+  native file-permission semantics, not Unix modes; protect destination
+  directories with appropriate access controls.
 - Source, admission, cancellation or commit failure leaves an existing
   destination unchanged and removes the staged file.
 - Portable platforms revalidate the destination immediately before an OS-level

@@ -460,14 +460,16 @@ globals such as `Flow` and `nodes` do not.
 By default every context value is eagerly converted under one cumulative
 JSON-to-Lua budget. To exclude unused large values, declare literal top-level
 keys with `flow:step(...):context_keys({"count"})`, or configure
-`nodes.code({context_keys = {"count"}, source = ...})`. An empty list exposes
-an empty context; missing keys remain absent. Selected values retain the same
+`nodes.code({context_keys = {"count"}, source = ...})`. An empty list excludes
+all values except the four engine diagnostics listed below; missing keys
+remain absent. Selected values retain the same
 depth and aggregate node limits, including the context root, so selecting a
 large array can still exceed `IRONFLOW_MAX_CONVERSION_NODES`. This is opt-in
 projection, not lazy access or a higher limit. Only the small engine
 diagnostics `_error_message`, `_error_step`, `_error_node_type` and
 `_flow_dir` pass through the list; bulky engine payloads such as
-`_error_output` or a webhook's `_headers` stay excluded unless listed. With `step_if`, the projection applies to its handler only, not its
+`_error_output` or a webhook's `_headers` stay excluded unless listed. With
+`step_if`, the projection applies to its handler only, not its
 condition; foreach keeps its full-context behavior, and `context_keys` on any
 non-code node is rejected at load time rather than ignored.
 See [context_projection.lua](../examples/07-advanced/context_projection.lua).
