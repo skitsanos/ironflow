@@ -4,6 +4,7 @@
     "config:recommended"
   ],
   "baseBranchPatterns": ["develop"],
+  "useBaseBranchConfig": "merge",
   "dependencyDashboard": false,
   "customManagers": [
     {
