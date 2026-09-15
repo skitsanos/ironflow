@@ -1,7 +1,9 @@
 pub(crate) fn initialize_provider() {
     // The dependency graph enables both ring and AWS-LC. SQLx certificate
     // verification and Redis use Rustls' process default; preserve any provider
-    // already selected by an embedding application.
+    // already selected by an embedding application. Called from `main`, from
+    // every public storage constructor and from the SQL nodes, so it must stay
+    // idempotent and cheap.
     let _ = rustls::crypto::ring::default_provider().install_default();
 }
 

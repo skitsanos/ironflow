@@ -188,3 +188,31 @@ async fn copy_refuses_a_source_symlink_like_read_file() {
     assert!(!destination.exists());
     assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 2);
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn copy_preserves_the_source_permission_bits() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let (directory, work) = scratch();
+    std::fs::write(work.join("source.txt"), b"#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(
+        work.join("source.txt"),
+        std::fs::Permissions::from_mode(0o751),
+    )
+    .unwrap();
+
+    let output = run_flow(directory.path(), &step("copy_file"), &[]).await;
+
+    assert!(output.contains("Status: success"), "{output}");
+    let mode = std::fs::metadata(work.join("destination"))
+        .unwrap()
+        .permissions()
+        .mode()
+        & 0o777;
+    assert_eq!(
+        mode, 0o751,
+        "copy must keep the source mode like a plain copy"
+    );
+    assert_eq!(staged_leftovers(&work), 0);
+}

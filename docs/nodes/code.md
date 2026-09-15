@@ -8,7 +8,7 @@ Execute inline Lua code with access to the workflow context.
 |----------------|--------|----------|---------|---------------------------------------------------------------------|
 | `source`       | string/function | No* | --      | Lua source code string **or inline function** to evaluate              |
 | `bytecode_b64` | string | No*      | --      | Base64-encoded Lua bytecode for function handler mode               |
-| `context_keys` | array of strings | No | Full context | Literal top-level user context keys to expose to Lua; an empty list exposes none. Engine-reserved `_` keys always pass through |
+| `context_keys` | array of strings | No | Full context | Literal top-level context keys to expose to Lua; an empty list exposes none. `_error_message`, `_error_step`, `_error_node_type` and `_flow_dir` always pass through |
 
 *Exactly one of `source` or `bytecode_b64` must be provided.
 
@@ -71,12 +71,15 @@ end):context_keys({}):depends_on("inspect")
 
 - Omit `context_keys` to preserve the full-context default. Lua `{}` (JSON `[]`)
   exposes no user keys, not the default context.
-- Engine-reserved keys always pass through regardless of the list: any key
-  starting with `_`, including the recovery overlay (`_error_message`,
-  `_error_step`, `_error_node_type`, `_error_output`) and `_flow_dir`. The list
-  governs user data keys only, so a projected `on_error` handler keeps its
-  diagnostics; listing a `_` key explicitly is harmless. Projection is a
-  conversion-budget control, not a secrecy boundary.
+- Four small engine diagnostics pass through regardless of the list:
+  `_error_message`, `_error_step`, `_error_node_type` and `_flow_dir`, so a
+  projected `on_error` handler keeps its diagnostics and relative paths still
+  resolve. Every other key, including bulky engine payloads such as
+  `_error_output` (the failing step's output) and invocation overlays
+  (`_headers`, `_webhook`, `_schedule`), is hidden unless listed, so a
+  projection can always exclude a large value. Listing an always-present key
+  explicitly is harmless. Projection is a conversion-budget control, not a
+  secrecy boundary.
 - Keys are exact, case-sensitive top-level names, not paths or templates.
   `"a.b"` selects `ctx["a.b"]`, not `ctx.a.b`. Missing keys remain absent (`nil`);
   duplicate names are selected once. Invalid lists fail loading/validation or

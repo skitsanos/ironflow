@@ -3,8 +3,11 @@ use anyhow::{Result, ensure};
 use crate::storage::StorageError;
 
 pub(crate) fn client(url: &str) -> redis::RedisResult<redis::Client> {
-    // The Rustls provider for `rediss://` is installed once at process start
-    // by `crate::initialize_tls_provider`, not per client.
+    // `rediss://` builds its Rustls configuration from the process default
+    // provider. The CLI installs it at startup; the library installs it here
+    // as well (idempotently) so an embedder that constructs a store directly
+    // gets a connection error, never a provider panic.
+    crate::initialize_tls_provider();
     redis::Client::open(url)
 }
 

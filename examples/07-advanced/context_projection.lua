@@ -24,8 +24,9 @@ flow:step("inspect", function(ctx)
     return { inspected_count = ctx.count }
 end):context_keys({"count"}):depends_on("parse")
 
--- An empty list hides every user key. Engine-reserved `_` keys such as the
--- `_flow_dir` injected by `ironflow run` still pass through.
+-- An empty list hides every user key. The small engine diagnostics
+-- (`_error_*` scalars and the `_flow_dir` injected by `ironflow run`) still
+-- pass through; bulky engine payloads must be listed like any other key.
 flow:step("constant", function(ctx)
     assert(ctx.unused == nil and ctx.count == nil and ctx.inspected_count == nil)
     return { ready = true }

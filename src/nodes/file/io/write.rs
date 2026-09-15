@@ -147,6 +147,7 @@ fn write_request(request: Request, execution: &ExecutionControl) -> Result<()> {
         );
     }
     let mut source_file = None;
+    let mut source_permissions = None;
     let incoming = match &request.input {
         WriteInput::Text(text) => text.len() as u64,
         WriteInput::Base64 { decoded, .. } => *decoded,
@@ -160,9 +161,12 @@ fn write_request(request: Request, execution: &ExecutionControl) -> Result<()> {
         }
         WriteInput::File(source) => {
             let file = open_regular_file(source, operation)?;
-            let size = file.metadata()?.len();
+            let metadata = file.metadata()?;
+            // A copy keeps the source mode like `cp`; staged files are
+            // created 0600, so apply it to the open handle before commit.
+            source_permissions = Some(metadata.permissions());
             source_file = Some(file);
-            size
+            metadata.len()
         }
     };
     let final_size = existing_size
@@ -190,6 +194,12 @@ fn write_request(request: Request, execution: &ExecutionControl) -> Result<()> {
         operation,
     )?;
     staged.writer().flush()?;
+    if let Some(permissions) = source_permissions {
+        staged
+            .writer()
+            .set_permissions(permissions)
+            .with_context(|| format!("{operation}: failed to apply the source permissions"))?;
+    }
     staged.writer().sync_all()?;
     execution.checkpoint()?;
     staged.commit()

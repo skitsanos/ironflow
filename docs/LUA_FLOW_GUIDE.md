@@ -161,8 +161,9 @@ handler can persist selected information by returning it in its normal node
 output.
 Distinct handlers can therefore execute concurrently without overwriting one
 another's error metadata. A handler that opts into `context_keys` projection
-still receives them: engine-reserved `_` keys always pass through, and the
-list governs user data keys only.
+still receives `_error_message`, `_error_step` and `_error_node_type`; the
+potentially large `_error_output` must be listed explicitly, like any other
+value the projection should convert.
 
 A successful handler resolves the source failure for scheduling and final run
 status. The source task remains `Failed` in durable history for auditability,
@@ -463,9 +464,10 @@ keys with `flow:step(...):context_keys({"count"})`, or configure
 an empty context; missing keys remain absent. Selected values retain the same
 depth and aggregate node limits, including the context root, so selecting a
 large array can still exceed `IRONFLOW_MAX_CONVERSION_NODES`. This is opt-in
-projection, not lazy access or a higher limit. Engine-reserved `_` keys, such
-as the `_error_*` recovery values and `_flow_dir`, always pass through the
-list. With `step_if`, the projection applies to its handler only, not its
+projection, not lazy access or a higher limit. Only the small engine
+diagnostics `_error_message`, `_error_step`, `_error_node_type` and
+`_flow_dir` pass through the list; bulky engine payloads such as
+`_error_output` or a webhook's `_headers` stay excluded unless listed. With `step_if`, the projection applies to its handler only, not its
 condition; foreach keeps its full-context behavior, and `context_keys` on any
 non-code node is rejected at load time rather than ignored.
 See [context_projection.lua](../examples/07-advanced/context_projection.lua).

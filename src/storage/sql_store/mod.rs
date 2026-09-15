@@ -42,6 +42,7 @@ impl SqlStateStore {
 
     pub async fn new_with_prefix(url: &str, table_prefix: Option<&str>) -> StorageResult<Self> {
         sqlx::any::install_default_drivers();
+        crate::initialize_tls_provider();
         let dialect = SqlDialect::from_url(url)
             .map_err(|error| StorageError::backend("Invalid SQL state store URL", error))?;
         let pool = AnyPoolOptions::new()

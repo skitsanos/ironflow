@@ -27,22 +27,22 @@
       "groupName": "AWS SDK"
     },
     {
-      "description": "Deferred until smithy-lang/smithy-rs#4853 is resolved; lift this rule then",
+      "description": "Defer PR #182's incompatible AWS cohort: https://github.com/smithy-lang/smithy-rs/issues/4853. Later releases remain eligible.",
       "matchManagers": ["cargo"],
       "matchPackageNames": ["aws-sdk-s3"],
-      "allowedVersions": "<1.147.0"
+      "allowedVersions": "!/^1\\.147\\.0$/"
     },
     {
-      "description": "Deferred until smithy-lang/smithy-rs#4853 is resolved; lift this rule then",
+      "description": "Defer PR #182's incompatible AWS cohort: https://github.com/smithy-lang/smithy-rs/issues/4853. Later releases remain eligible.",
       "matchManagers": ["cargo"],
       "matchPackageNames": ["aws-sdk-s3vectors"],
-      "allowedVersions": "<1.37.0"
+      "allowedVersions": "!/^1\\.37\\.0$/"
     },
     {
-      "description": "Deferred until smithy-lang/smithy-rs#4853 is resolved; lift this rule then",
+      "description": "Defer PR #182's incompatible AWS cohort: https://github.com/smithy-lang/smithy-rs/issues/4853. Later releases remain eligible.",
       "matchManagers": ["cargo"],
       "matchPackageNames": ["aws-smithy-types"],
-      "allowedVersions": "<1.7.0"
+      "allowedVersions": "!/^1\\.7\\.0$/"
     }
   ]
 }

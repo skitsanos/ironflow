@@ -40,16 +40,12 @@ function applies(rule: Rule, dependency: Dependency): boolean {
 function resolve(rules: Rule[], dependency: Dependency): Rule {
   return Object.assign({}, ...rules.filter((rule) => applies(rule, dependency)));
 }
-// Only the "<X.Y.Z" range form is modelled; the deferral tests require that form.
-function admits(range: string, version: string): boolean {
-  const bound = range.match(/^<(\d+)\.(\d+)\.(\d+)$/);
-  if (!bound) throw new Error(`Unsupported allowedVersions range: ${range}`);
-  const actual = version.split(".").map(Number);
-  const limit = bound.slice(1).map(Number);
-  for (let index = 0; index < 3; index++) {
-    if (actual[index] !== limit[index]) return actual[index] < limit[index];
-  }
-  return false;
+// Only the exact-exclusion form "!/^X\.Y\.Z$/" is modelled; the deferral
+// tests require it so that repaired later releases stay eligible.
+function admits(exclusion: string, version: string): boolean {
+  const pattern = exclusion.match(/^!\/(.*)\/$/);
+  if (!pattern) throw new Error(`Unsupported allowedVersions exclusion: ${exclusion}`);
+  return !new RegExp(pattern[1]).test(version);
 }
 
 test("every AWS crate updates inside one lockstep group", async () => {
@@ -67,29 +63,33 @@ test("every AWS crate updates inside one lockstep group", async () => {
   expect(resolve(rules, { manager: "custom.regex", datasource: "rust-version", name: "rust" }).groupName).toBe("Rust toolchain");
 });
 
-test("AWS deferrals keep the last good release and block the broken cohort onward", async () => {
+test("AWS deferrals exclude only the known-broken releases and keep later ones eligible", async () => {
   const rules = await packageRules();
   const lock = Bun.TOML.parse(await Bun.file(join(repository, "Cargo.lock")).text()) as {
     package: { name: string; version: string }[];
   };
   for (const [name, lastGood, broken, nextPatch] of deferred) {
     const { allowedVersions, description } = resolve(rules, cargo(name));
-    expect(allowedVersions).toMatch(/^<\d+\.\d+\.\d+$/);
-    expect(admits(allowedVersions!, lastGood)).toBeTrue();
+    expect(allowedVersions).toBe(`!/^${broken.replaceAll(".", "\\.")}$/`);
     expect(admits(allowedVersions!, broken)).toBeFalse();
-    expect(admits(allowedVersions!, nextPatch)).toBeFalse();
+    expect(admits(allowedVersions!, lastGood)).toBeTrue();
+    expect(admits(allowedVersions!, nextPatch)).toBeTrue();
     const locked = lock.package.find((entry) => entry.name === name)?.version;
     expect(locked).toBeDefined();
     expect(admits(allowedVersions!, locked!)).toBeTrue();
-    expect(description).toContain("smithy-lang/smithy-rs#4853");
-    expect(description).toContain("lift this rule");
+    expect(description).toContain("smithy-lang/smithy-rs/issues/4853");
+    expect(description).toContain("Later releases remain eligible");
   }
   expect(resolve(rules, cargo("aws-config")).allowedVersions).toBeUndefined();
 });
 
-test("no exact-version exclusions remain", async () => {
-  for (const rule of await packageRules()) {
-    expect(JSON.stringify(rule)).not.toContain("!/");
-    if (rule.allowedVersions !== undefined) expect(rule.allowedVersions).toMatch(/^<\d+\.\d+\.\d+$/);
+test("deferrals are exact exclusions, never version ceilings", async () => {
+  const rules = await packageRules();
+  const exclusions = rules.filter((rule) => rule.allowedVersions !== undefined);
+  expect(exclusions).toHaveLength(deferred.length);
+  for (const rule of exclusions) {
+    expect(rule.matchManagers).toEqual(["cargo"]);
+    expect(rule.matchPackageNames).toHaveLength(1);
+    expect(rule.allowedVersions).toMatch(/^!\/\^\d+\\\.\d+\\\.\d+\$\/$/);
   }
 });
