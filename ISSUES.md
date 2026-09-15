@@ -8,7 +8,7 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 
 | ID | Priority | Status | Area | Summary |
 |---|---:|---|---|---|
-| — | — | — | — | No active findings |
+| [IF-145](docs/issues/IF-145.md) | P3 | Open | Documents/PDF | `pdf_split` does not interpolate its `pages` parameter |
 
 ## Working agreement
 
