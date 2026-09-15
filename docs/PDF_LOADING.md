@@ -40,6 +40,13 @@ from `IRONFLOW_MAX_PDF_MERGE_OBJECTS`, which limits the merged output graph acro
 sources. Each merge source must pass the loading policy even if only a small
 subset of its objects will be retained in the output.
 
+When `pdf_split` uses `pages_per_file > 1`, it additionally applies
+`IRONFLOW_MAX_PDF_OBJECTS` during each output group's graph collection, including
+the new page tree and catalog, and `IRONFLOW_MAX_PDF_BYTES` while serializing each
+staged output file. These are per-group limits, not cumulative output-directory
+limits. Legacy single-page output is unchanged. See
+[`pdf_split`](nodes/pdf_split.md) for collision and partial-output behavior.
+
 ## Memory and cancellation boundaries
 
 These are independent resource limits, not a hard process-memory ceiling or a

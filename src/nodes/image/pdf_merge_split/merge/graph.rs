@@ -22,7 +22,10 @@ pub(super) fn merge_source(
     let graph = collect_page_graph(
         &source,
         page_ids,
-        Some(maximum_objects.saturating_sub(*total_objects)),
+        Some((
+            maximum_objects.saturating_sub(*total_objects),
+            "IRONFLOW_MAX_PDF_MERGE_OBJECTS",
+        )),
         "pdf_merge",
         execution,
     )?;

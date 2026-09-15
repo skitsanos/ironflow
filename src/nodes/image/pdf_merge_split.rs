@@ -1,5 +1,6 @@
 mod merge;
 mod objects;
+mod output;
 mod page_graph;
 mod split;
 

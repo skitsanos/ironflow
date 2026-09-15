@@ -113,6 +113,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **extract_html.lua** — Extract text and metadata from HTML
 - **pdf_merge.lua** — Merge verified PDF artifact descriptors sequentially into one bounded output
 - **pdf_split.lua** — Select a runtime page range and write one PDF per selected page
+- **pdf_split_grouped.lua** — Write selected pages directly into bounded multipage slices with source-page metadata
 - **image_metadata.lua** — Extract dimensions, format, and color info from a supported image source
 
 ## 09-cache

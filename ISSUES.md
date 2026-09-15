@@ -8,7 +8,7 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 
 | ID | Priority | Status | Area | Summary |
 |---|---:|---|---|---|
-| [IF-147](docs/issues/IF-147.md) | P3 | Open | Documents/PDF | Native grouped PDF slices for page-limited document providers |
+| — | — | — | — | No active findings |
 
 ## Working agreement
 
