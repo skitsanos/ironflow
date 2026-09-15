@@ -83,6 +83,13 @@ return flow
 ## Notes
 
 - The `connection` string follows the sqlx URL format. For SQLite, use `sqlite:/path/to/file?mode=rwc`.
+- PostgreSQL requires a build with the `postgres` feature. In such builds the
+  TLS modes `sslmode=require`, `verify-ca` and `verify-full` are supported, with
+  `sslrootcert=/path/to/ca.pem` for a private CA; prefer `verify-full`. The
+  Rustls crypto provider is process-wide: the `ironflow` binary installs it
+  once at startup, before the runtime is built, and applications embedding the
+  library must call `ironflow::initialize_tls_provider()` before running
+  workflows. See [IF-141](../issues/IF-141.md).
 - Query parameters use positional `?` placeholders for SQLite and `$1`, `$2`, ... for PostgreSQL. The `params` array values are bound in order.
 - String parameters support context interpolation (`${ctx.key}`) for values supplied by upstream steps. Context interpolation in the SQL query body is rejected; keep runtime values in `params`.
 - Null values in `params` are bound as SQL NULL.

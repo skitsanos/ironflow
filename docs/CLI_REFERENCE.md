@@ -342,9 +342,13 @@ operator contract.
 ### Encrypted shared stores
 
 Source builds with `--features postgres` enable SQLx Rustls/ring TLS; builds
-with `--features redis` enable Tokio-Rustls and native certificate roots. Both
-stores select the ring provider if no provider has already been installed by
-an embedding application. Both are included with `--features postgres,redis`.
+with `--features redis` enable Tokio-Rustls and native certificate roots. The
+`ironflow` binary installs the ring provider once at startup, before the Tokio
+runtime is built, so every TLS client in the process (shared stores and the
+`db_query`/`db_exec` nodes alike) sees the same provider. Embedders of the
+library call `ironflow::initialize_tls_provider()` before building a runtime;
+a provider already installed by the embedding application is preserved. Both
+features are included with `--features postgres,redis`.
 Existing v1.18.1 and earlier release
 binaries do not include this support; use a build containing the IF-137 fix.
 
@@ -363,7 +367,10 @@ approved unencrypted connection is appropriate.
 
 Run `bun --no-env-file scripts/test_store_tls.ts target/debug/ironflow` after building
 the combined feature binary to test disposable TLS-only stores, CLI and API
-workflows, restart persistence, and rejection of wrong CAs/hostnames/plaintext.
+workflows, restart persistence, `db_query` over `require`/`verify-ca`/`verify-full`
+with the default store, and rejection of wrong CAs/hostnames/plaintext. The
+script removes its containers and key material on completion and on
+SIGINT/SIGTERM.
 
 ### JSON file storage
 

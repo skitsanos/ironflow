@@ -90,56 +90,73 @@ fn prune(root: &Handle, execution: &ExecutionControl) -> Result<()> {
     Ok(())
 }
 
+/// How an element's text is separated from surrounding plain-text output.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Separator {
+    /// Paragraph-level block: a blank line on both entry and exit.
+    Paragraph,
+    /// Line-level block such as a list item, table row, or layout `div`.
+    Line,
+    /// `<br>`: one newline that never widens an existing blank line.
+    Break,
+    None,
+}
+
+fn separator(tag: &str) -> Separator {
+    match tag {
+        "address" | "article" | "aside" | "blockquote" | "dl" | "fieldset" | "figcaption"
+        | "figure" | "footer" | "form" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "header"
+        | "hr" | "main" | "nav" | "ol" | "p" | "pre" | "section" | "table" | "ul" => {
+            Separator::Paragraph
+        }
+        "dd" | "div" | "dt" | "li" | "tr" => Separator::Line,
+        "br" => Separator::Break,
+        _ => Separator::None,
+    }
+}
+
+/// Make non-empty output end with `newlines` line feeds, adding only the missing ones.
+fn separate(output: &mut String, newlines: usize) {
+    if output.is_empty() {
+        return;
+    }
+    let trailing = output
+        .chars()
+        .rev()
+        .take(newlines)
+        .take_while(|ch| *ch == '\n')
+        .count();
+    for _ in trailing..newlines {
+        output.push('\n');
+    }
+}
+
 fn plain_text(root: Handle, budget: &Budget<'_>) -> Result<String> {
     let mut output = String::new();
     let mut pending_space = false;
-    let mut pending = vec![(root, false, false)];
+    // `root` owns the document for the whole walk: RcDom's node destructor
+    // clears descendant child lists even while handles to them remain, and
+    // the root frame is popped first.
+    let mut pending = vec![(root.clone(), false, false)];
     while let Some((node, exiting, in_pre)) = pending.pop() {
         budget.checkpoint()?;
         let tag = match &node.data {
             NodeData::Element { name, .. } => name.local.as_ref(),
             _ => "",
         };
-        let block = matches!(
-            tag,
-            "address"
-                | "article"
-                | "aside"
-                | "blockquote"
-                | "div"
-                | "dl"
-                | "dt"
-                | "dd"
-                | "fieldset"
-                | "figcaption"
-                | "figure"
-                | "footer"
-                | "form"
-                | "h1"
-                | "h2"
-                | "h3"
-                | "h4"
-                | "h5"
-                | "h6"
-                | "header"
-                | "hr"
-                | "li"
-                | "main"
-                | "nav"
-                | "ol"
-                | "p"
-                | "pre"
-                | "section"
-                | "table"
-                | "tr"
-                | "ul"
-        );
-        if block || tag == "br" {
-            if !output.is_empty() && !output.ends_with('\n') {
+        let separator = separator(tag);
+        let cell = matches!(tag, "td" | "th");
+        match separator {
+            Separator::Paragraph => separate(&mut output, 2),
+            Separator::Line => separate(&mut output, 1),
+            Separator::Break if !output.is_empty() && !output.ends_with("\n\n") => {
                 output.push('\n');
             }
+            Separator::Break | Separator::None => {}
+        }
+        if separator != Separator::None {
             pending_space = false;
-        } else if exiting && matches!(tag, "td" | "th") {
+        } else if exiting && cell {
             pending_space = true;
         }
         if exiting {
@@ -164,14 +181,18 @@ fn plain_text(root: Handle, budget: &Budget<'_>) -> Result<String> {
         } else if tag == "img"
             && let Some(alt) = html2md::common::get_tag_attr(&node, "alt")
         {
+            budget.admit_output((output.len() + alt.len()) as u64, "HTML content")?;
             if pending_space && !output.is_empty() && !output.ends_with('\n') {
                 output.push(' ');
             }
             pending_space = false;
             output.push_str(&alt);
         }
-        budget.admit_output(output.len() as u64, "HTML content")?;
-        pending.push((node.clone(), true, in_pre));
+        // Only frames whose exit changes spacing are revisited; text, inline
+        // markup, `<br>`, and `<img>` need no second pass.
+        if matches!(separator, Separator::Paragraph | Separator::Line) || cell {
+            pending.push((node.clone(), true, in_pre));
+        }
         pending.extend(
             node.children
                 .borrow()
@@ -181,4 +202,49 @@ fn plain_text(root: Handle, budget: &Budget<'_>) -> Result<String> {
         );
     }
     Ok(output.trim_matches('\n').to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::nodes::extract::resource::Limits;
+
+    async fn text(html: &'static str) -> String {
+        crate::util::execution::run_blocking_step(move |execution| {
+            let budget = Budget::new("extract_html", Limits::current(), &execution);
+            extract(html, "text", &execution, &budget)
+        })
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn paragraphs_and_double_breaks_are_separated_by_blank_lines() {
+        assert_eq!(
+            text("<p>a<br><br>b</p><p>c</p>\n<br>\n<p>d</p>").await,
+            "a\n\nb\n\nc\n\nd"
+        );
+    }
+
+    #[tokio::test]
+    async fn list_items_are_separated_by_one_newline() {
+        assert_eq!(text("<ul><li>x</li><li>y</li></ul>").await, "x\ny");
+    }
+
+    #[tokio::test]
+    async fn heading_and_paragraph_are_separated_by_a_blank_line() {
+        assert_eq!(text("<h1>T</h1><p>a</p>").await, "T\n\na");
+    }
+
+    #[tokio::test]
+    async fn single_breaks_rules_and_table_rows_keep_narrow_separation() {
+        assert_eq!(
+            text("<p>a<br>b</p><br><p>c</p><hr><div>d</div>e").await,
+            "a\nb\n\nc\n\nd\ne"
+        );
+        assert_eq!(
+            text("<table><tr><th>N</th><th>C</th></tr><tr><td>S</td><td>4</td></tr></table>").await,
+            "N C\nS 4"
+        );
+    }
 }

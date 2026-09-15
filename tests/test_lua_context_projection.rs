@@ -312,3 +312,83 @@ async fn default_foreach_setup_retains_cumulative_context_limits() {
         .to_string();
     assert!(error.contains("JSON-to-Lua maximum node count"), "{error}");
 }
+
+#[test]
+fn descriptor_projection_on_non_code_nodes_fails_load_and_validation() {
+    let registry = NodeRegistry::with_builtins();
+    for node in [
+        r#"nodes.log({ context_keys = {"x"}, message = "hi" })"#,
+        r#"nodes.log({ context_keys = "not-a-list", message = "hi" })"#,
+        r#"nodes.log({ context_keys = json_null, message = "hi" })"#,
+        r#"nodes.foreach({
+            context_keys = {"x"},
+            source_key = "items",
+            transform = function(item) return item end
+        })"#,
+    ] {
+        let source = format!("local flow = Flow.new('bad')\nflow:step('bad', {node})\nreturn flow");
+        let error = LuaRuntime::load_flow_from_string(&source, &registry)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains(
+                "Step 'bad': context_keys is only supported for code nodes and function handlers"
+            ),
+            "{error}"
+        );
+        assert!(
+            LuaRuntime::validate_flow_from_string(&source, &registry).is_err(),
+            "{node}"
+        );
+    }
+}
+
+/// The CLI injects `_flow_dir`, and a failing step's recovery handler receives
+/// the `_error_*` overlay. Neither may be hidden by a user-key projection.
+#[test]
+fn cli_recovery_handler_projection_keeps_engine_reserved_keys() {
+    let temp = tempfile::tempdir().unwrap();
+    let flow_path = temp.path().join("flow.lua");
+    std::fs::write(
+        &flow_path,
+        r#"
+        local flow = Flow.new("projected_recovery")
+        flow:step("risky", function() error("boom") end):on_error("recover")
+        flow:step("recover", function(ctx)
+            assert(ctx.order_id == nil, "unlisted user keys must stay hidden")
+            assert(ctx._error_step == "risky", "missing _error_step")
+            assert(ctx._error_node_type == "code", "missing _error_node_type")
+            assert(string.find(ctx._error_message, "boom", 1, true), "missing _error_message")
+            return { recovered_from = ctx._error_step }
+        end):context_keys({"unrelated"})
+        flow:step("constant", function(ctx)
+            assert(ctx.order_id == nil and ctx.recovered_from == nil)
+            assert(type(ctx._flow_dir) == "string", "_flow_dir must survive an empty projection")
+            return { ready = true }
+        end):context_keys({}):depends_on("recover")
+        return flow
+        "#,
+    )
+    .unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_ironflow"))
+        .arg("run")
+        .arg(&flow_path)
+        .arg("--store-dir")
+        .arg(temp.path().join("runs"))
+        .arg("--context")
+        .arg(r#"{"order_id": 42}"#)
+        .output()
+        .expect("run ironflow CLI");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stdout}\n{stderr}");
+    assert!(stdout.contains("Status: success"), "{stdout}");
+    let (_, encoded) = stdout
+        .split_once("\nContext:\n")
+        .expect("CLI context missing");
+    let context: Value = serde_json::from_str(encoded.trim()).unwrap();
+    assert_eq!(context["recovered_from"], "risky");
+    assert_eq!(context["ready"], true);
+    assert_eq!(context["order_id"], 42);
+    assert!(context.get("_error_message").is_none());
+}

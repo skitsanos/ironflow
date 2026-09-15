@@ -1,4 +1,8 @@
+use std::path::PathBuf;
+
 use anyhow::Result;
+use base64::engine::GeneralPurpose;
+use base64::engine::general_purpose::STANDARD;
 
 use crate::artifacts::FileSource;
 use crate::engine::types::Context;
@@ -7,9 +11,15 @@ use crate::util::file_source::parse_file_source;
 
 pub(super) enum WriteInput {
     Text(String),
-    Bytes(Vec<u8>),
-    Base64 { encoded: String, decoded: u64 },
+    Base64 {
+        encoded: String,
+        decoded: u64,
+        engine: &'static GeneralPurpose,
+    },
     Artifact(FileSource),
+    /// A regular file opened with the `read_file` source policy (no final
+    /// symlink, no special file) and admitted against the byte limit.
+    File(PathBuf),
 }
 
 pub(super) fn parse_input(
@@ -64,14 +74,15 @@ pub(super) fn parse_input(
     };
     match encoding {
         "text" => {
-            admit_size(text.len() as u64, maximum)?;
+            admit_size(text.len() as u64, maximum, "write_file")?;
             Ok(WriteInput::Text(text))
         }
         "base64" => {
-            let decoded = preflight_base64(&text, maximum)?;
+            let decoded = preflight_base64(&text, maximum, "write_file")?;
             Ok(WriteInput::Base64 {
                 encoded: text,
                 decoded,
+                engine: &STANDARD,
             })
         }
         other => anyhow::bail!(
@@ -80,11 +91,14 @@ pub(super) fn parse_input(
     }
 }
 
-pub(super) fn preflight_base64(encoded: &str, maximum: u64) -> Result<u64> {
+/// Compute the decoded length of `encoded` from its encoded length alone and
+/// admit it against `maximum`, so no decoded byte is allocated for an
+/// oversized payload.
+pub(super) fn preflight_base64(encoded: &str, maximum: u64, operation: &str) -> Result<u64> {
     let length = encoded.len();
     let remainder = length % 4;
     if remainder == 1 {
-        anyhow::bail!("write_file: base64 input has an invalid encoded length");
+        anyhow::bail!("{operation}: base64 input has an invalid encoded length");
     }
     let mut decoded = (length / 4)
         .checked_mul(3)
@@ -102,14 +116,14 @@ pub(super) fn preflight_base64(encoded: &str, maximum: u64) -> Result<u64> {
                 .count() as u64,
         );
     }
-    admit_size(decoded, maximum)?;
+    admit_size(decoded, maximum, operation)?;
     Ok(decoded)
 }
 
-fn admit_size(size: u64, maximum: u64) -> Result<()> {
+pub(super) fn admit_size(size: u64, maximum: u64, operation: &str) -> Result<()> {
     if size > maximum {
         anyhow::bail!(
-            "write_file: final payload is {size} bytes, exceeds IRONFLOW_MAX_FILE_BYTES ({maximum})"
+            "{operation}: final payload is {size} bytes, exceeds the IRONFLOW_MAX_FILE_BYTES limit ({maximum})"
         );
     }
     Ok(())

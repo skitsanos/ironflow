@@ -17,6 +17,16 @@ use crate::util::node_config::config_bool;
 /// Override with `IRONFLOW_MAX_DETACHED_SUBWORKFLOWS`.
 const DEFAULT_MAX_DETACHED_SUBWORKFLOWS: usize = 64;
 
+/// Keys this node writes to describe its own child. A child that itself ran a
+/// subworkflow carries the same keys about *its* child; without `output_key`
+/// they must not merge into the parent as if they described this call.
+const RESULT_METADATA_KEYS: [&str; 4] = [
+    "subworkflow_name",
+    "subworkflow_success",
+    "subworkflow_error",
+    "subworkflow_async",
+];
+
 pub(crate) fn detached_subworkflow_capacity() -> usize {
     std::env::var("IRONFLOW_MAX_DETACHED_SUBWORKFLOWS")
         .ok()
@@ -170,6 +180,13 @@ impl Node for SubworkflowNode {
                 );
             }
 
+            // Node outputs merge into the run context by key and cannot remove
+            // keys, so the error slot is always written: a string on failure and
+            // null on success. Otherwise a later successful call would leave an
+            // earlier tolerated failure's text beside `subworkflow_success = true`.
+            let error_value = child_error
+                .clone()
+                .map_or(serde_json::Value::Null, serde_json::Value::String);
             let mut output = NodeOutput::new();
 
             if let Some(ref key) = output_key {
@@ -185,16 +202,12 @@ impl Node for SubworkflowNode {
                     format!("{}_success", key),
                     serde_json::Value::Bool(child_succeeded),
                 );
-                if let Some(error) = &child_error {
-                    output.insert(
-                        format!("{}_error", key),
-                        serde_json::Value::String(error.clone()),
-                    );
-                }
+                output.insert(format!("{}_error", key), error_value.clone());
             } else {
-                // Merge subworkflow output directly into parent context
+                // Merge subworkflow output directly into parent context, minus
+                // the child's own result metadata about any grandchild it ran.
                 for (k, v) in run_info.ctx {
-                    if !k.starts_with('_') {
+                    if !k.starts_with('_') && !RESULT_METADATA_KEYS.contains(&k.as_str()) {
                         output.insert(k, v);
                     }
                 }
@@ -210,12 +223,7 @@ impl Node for SubworkflowNode {
                 "subworkflow_success".to_string(),
                 serde_json::Value::Bool(child_succeeded),
             );
-            if let Some(error) = child_error {
-                output.insert(
-                    "subworkflow_error".to_string(),
-                    serde_json::Value::String(error),
-                );
-            }
+            output.insert("subworkflow_error".to_string(), error_value);
 
             Ok(output)
         } else {

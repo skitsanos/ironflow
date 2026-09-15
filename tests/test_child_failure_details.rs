@@ -174,8 +174,13 @@ async fn multiple_unresolved_errors_are_sorted_and_recovered_children_have_no_er
             .await
             .unwrap();
         assert_eq!(output["subworkflow_success"], true);
-        assert!(!output.contains_key("subworkflow_error"));
-        assert!(!output.contains_key("child_error"));
+        // The error slot stays present so a later run overwrites an earlier one.
+        assert_eq!(output["subworkflow_error"], Value::Null);
+        assert_eq!(
+            output.get("child_error"),
+            namespaced.then_some(&Value::Null),
+            "{output:?}"
+        );
     }
     let parallel = registry.get("parallel_subworkflows").unwrap();
     let config = json!({
@@ -195,6 +200,80 @@ async fn multiple_unresolved_errors_are_sorted_and_recovered_children_have_no_er
     assert!(!error.contains("recovered-reason"), "{error}");
     assert_eq!(entries[1]["success"], true);
     assert!(entries[1].get("error").is_none());
+}
+
+#[tokio::test]
+async fn later_success_resets_error_and_nested_metadata_does_not_leak() {
+    let directory = tempfile::tempdir().unwrap();
+    write_flow(
+        directory.path(),
+        "lua_failure",
+        r#"flow:step("explode", function() error("boom") end)"#,
+    );
+    write_flow(
+        directory.path(),
+        "success",
+        r#"flow:step("ok", function() return { ok = true } end)"#,
+    );
+    // Node outputs merge into the run context by key, so the second call must
+    // overwrite the first call's error instead of leaving it beside success.
+    write_flow(
+        directory.path(),
+        "sequential",
+        r#"
+        flow:step("first", nodes.subworkflow({ flow = "lua_failure.lua", on_error = "ignore" }))
+        flow:step("second", nodes.subworkflow({ flow = "success.lua", on_error = "ignore" }))
+            :depends_on("first")
+        flow:step("check", function(ctx)
+            assert(ctx.subworkflow_success == true, "second child success was hidden")
+            assert(ctx.subworkflow_name == "success", "stale subworkflow_name")
+            assert(ctx.subworkflow_error ~= nil, "subworkflow_error slot is missing")
+            assert(ctx.subworkflow_error == json_null, "stale subworkflow_error")
+            assert(type(ctx.subworkflow_error) ~= "string", "stale subworkflow_error")
+            return { sequential_verified = true }
+        end):depends_on("second")
+        "#,
+    );
+    // A child that tolerated a failing grandchild, and detached another one,
+    // carries that metadata in its own context; the parent must not inherit it.
+    write_flow(
+        directory.path(),
+        "nested",
+        r#"
+        flow:step("inner", nodes.subworkflow({ flow = "lua_failure.lua", on_error = "ignore" }))
+        flow:step("detached", nodes.subworkflow({ flow = "success.lua", wait = false }))
+            :depends_on("inner")
+        flow:step("after", function(ctx)
+            assert(type(ctx.subworkflow_error) == "string", "grandchild error was lost")
+            return { nested_done = true }
+        end):depends_on("detached")
+        "#,
+    );
+    let node = NodeRegistry::with_builtins().get("subworkflow").unwrap();
+
+    let sequential = node
+        .execute(
+            &json!({"flow": "sequential.lua", "output_key": "run", "on_error": "fail_fast"}),
+            &context(directory.path()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(sequential["run"]["sequential_verified"], true);
+    assert_eq!(sequential["run"]["subworkflow_success"], true);
+    assert_eq!(sequential["run"]["subworkflow_error"], Value::Null);
+    assert_eq!(sequential["run_success"], true);
+    assert_eq!(sequential["run_error"], Value::Null);
+    assert_eq!(sequential["subworkflow_error"], Value::Null);
+
+    let nested = node
+        .execute(&json!({"flow": "nested.lua"}), &context(directory.path()))
+        .await
+        .unwrap();
+    assert_eq!(nested["nested_done"], true);
+    assert_eq!(nested["subworkflow_name"], "nested");
+    assert_eq!(nested["subworkflow_success"], true);
+    assert_eq!(nested["subworkflow_error"], Value::Null);
+    assert!(!nested.contains_key("subworkflow_async"), "{nested:?}");
 }
 
 #[tokio::test]

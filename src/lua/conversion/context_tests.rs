@@ -80,3 +80,33 @@ fn context_projection_matches_whole_json_object_conversion() {
         }
     }
 }
+
+#[test]
+fn context_projection_always_keeps_engine_reserved_keys() {
+    let ctx = Context::from([
+        ("order_id".into(), json!(7)),
+        ("unused".into(), json!([1, 2, 3])),
+        ("_error_message".into(), json!("boom")),
+        ("_error_step".into(), json!("risky")),
+        ("_flow_dir".into(), json!("/flows")),
+    ]);
+    let selected = project_context(&json!({"context_keys": ["order_id"]}), &ctx).unwrap();
+    assert_eq!(selected.len(), 4);
+    assert!(!selected.contains_key("unused"));
+    assert_eq!(selected["order_id"], 7);
+    assert_eq!(selected["_error_message"], "boom");
+    assert_eq!(selected["_error_step"], "risky");
+    assert_eq!(selected["_flow_dir"], "/flows");
+
+    // An empty list hides every user key but never the engine overlay.
+    let empty = project_context(&json!({"context_keys": []}), &ctx).unwrap();
+    assert_eq!(empty.len(), 3);
+    assert!(empty.keys().all(|key| key.starts_with('_')));
+
+    // Listing a reserved key explicitly is harmless and selects it once.
+    let explicit = project_context(&json!({"context_keys": ["_flow_dir"]}), &ctx).unwrap();
+    assert_eq!(explicit.len(), 3);
+
+    // Omitting the projection is unchanged: the whole context is cloned.
+    assert_eq!(project_context(&json!({}), &ctx).unwrap().len(), 5);
+}

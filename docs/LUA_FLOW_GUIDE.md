@@ -160,7 +160,9 @@ The `_error_*` keys do not enter shared workflow context automatically. A
 handler can persist selected information by returning it in its normal node
 output.
 Distinct handlers can therefore execute concurrently without overwriting one
-another's error metadata.
+another's error metadata. A handler that opts into `context_keys` projection
+still receives them: engine-reserved `_` keys always pass through, and the
+list governs user data keys only.
 
 A successful handler resolves the source failure for scheduling and final run
 status. The source task remains `Failed` in durable history for auditability,
@@ -225,7 +227,10 @@ Failed child results also carry a redacted summary of unresolved task errors:
 up to eight tasks in deterministic name order, with each name bounded to 128
 bytes and each message to 768 bytes. Recovery-resolved failures are excluded.
 Ignoring a child failure exposes the summary in `subworkflow_error` and, when
-configured, `<output_key>_error`; parallel child entries expose it in `error`.
+configured, `<output_key>_error`; both keys are written on every run and hold
+JSON `null` after a successful child, so a later success always overwrites an
+earlier failure. Branch on `subworkflow_success`. Parallel child entries expose
+the summary in `error`.
 Repeat and tool-dispatch errors include the same reason. Cancellation and
 infrastructure failures retain their status/error fallback contracts.
 
@@ -380,7 +385,7 @@ flow:step_if("ctx.active", "greet", function(ctx)
 end)
 ```
 
-The returned builder supports the same chainable methods: `depends_on()`, `retries()`, `timeout()`, `on_error()`.
+The returned builder supports the same chainable methods: `depends_on()`, `retries()`, `timeout()`, `on_error()`, and, for code handlers, `context_keys()`.
 
 Multi-case routing with `switch_node`:
 
@@ -458,9 +463,12 @@ keys with `flow:step(...):context_keys({"count"})`, or configure
 an empty context; missing keys remain absent. Selected values retain the same
 depth and aggregate node limits, including the context root, so selecting a
 large array can still exceed `IRONFLOW_MAX_CONVERSION_NODES`. This is opt-in
-projection, not lazy access or a higher limit. With `step_if`, the projection
-applies to its handler only, not its condition; foreach keeps its full-context
-behavior. See [context_projection.lua](../examples/07-advanced/context_projection.lua).
+projection, not lazy access or a higher limit. Engine-reserved `_` keys, such
+as the `_error_*` recovery values and `_flow_dir`, always pass through the
+list. With `step_if`, the projection applies to its handler only, not its
+condition; foreach keeps its full-context behavior, and `context_keys` on any
+non-code node is rejected at load time rather than ignored.
+See [context_projection.lua](../examples/07-advanced/context_projection.lua).
 
 A self-contained callback can be registered on multiple steps. Reuse also
 works across `flow:step_if`, function-valued `nodes.code.source`, and

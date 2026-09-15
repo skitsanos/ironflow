@@ -144,3 +144,50 @@ fn cancelled_copy_cleans_temp_before_blocking_capacity_is_reused() {
         assert_eq!(temporary_count, 0);
     });
 }
+
+#[tokio::test]
+async fn unreadable_append_destination_reports_the_open_failure_not_a_symlink() {
+    use std::os::unix::fs::PermissionsExt;
+
+    // SAFETY: geteuid has no preconditions.
+    if unsafe { libc::geteuid() } == 0 {
+        eprintln!("skipping: root bypasses file permission checks");
+        return;
+    }
+    let directory = tempfile::tempdir().unwrap();
+    let locked = directory.path().join("locked.txt");
+    std::fs::write(&locked, b"secret").unwrap();
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o200)).unwrap();
+    let root_path = directory.path().to_path_buf();
+    let error = crate::util::execution::run_tracked_blocking_step(move |execution| {
+        let root = RootedDir::prepare(&root_path, "write_file", &execution)?;
+        root.open_existing(std::ffi::OsStr::new("locked.txt"), &execution)
+            .map(|file| file.is_some())
+    })
+    .await
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("write_file"), "{error}");
+    assert!(error.contains("locked.txt"), "{error}");
+    assert!(error.contains("for append"), "{error}");
+    assert!(!error.to_lowercase().contains("symlink"), "{error}");
+}
+
+#[tokio::test]
+async fn symlinked_append_destination_is_reported_as_a_symlink() {
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::write(directory.path().join("target.txt"), b"sentinel").unwrap();
+    symlink("target.txt", directory.path().join("link.txt")).unwrap();
+    let root_path = directory.path().to_path_buf();
+    let error = crate::util::execution::run_tracked_blocking_step(move |execution| {
+        let root = RootedDir::prepare(&root_path, "write_file", &execution)?;
+        root.open_existing(std::ffi::OsStr::new("link.txt"), &execution)
+            .map(|file| file.is_some())
+    })
+    .await
+    .unwrap_err()
+    .to_string();
+    assert!(error.contains("write_file"), "{error}");
+    assert!(error.contains("link.txt"), "{error}");
+    assert!(error.contains("symlink"), "{error}");
+}

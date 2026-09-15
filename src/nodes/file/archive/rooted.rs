@@ -34,7 +34,13 @@ fn destination_anchor(
                         cursor.display()
                     )
                 })?;
-                if !std::fs::metadata(&anchor)?.is_dir() {
+                let resolved = std::fs::metadata(&anchor).with_context(|| {
+                    format!(
+                        "{operation}: cannot inspect destination '{}'",
+                        anchor.display()
+                    )
+                })?;
+                if !resolved.is_dir() {
                     anyhow::bail!(
                         "{operation}: resolved destination '{}' is not a directory",
                         anchor.display()
@@ -56,7 +62,10 @@ fn destination_anchor(
                     .unwrap_or_else(|| Path::new("."))
                     .to_path_buf();
             }
-            Err(error) => return Err(error.into()),
+            Err(error) => anyhow::bail!(
+                "{operation}: cannot inspect destination '{}': {error}",
+                cursor.display()
+            ),
         }
     }
 }

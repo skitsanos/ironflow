@@ -420,7 +420,9 @@ write `"\\${ctx.value}"`.
 
 Code nodes and function handlers support opt-in `context_keys` selection to
 exclude unused large values from Lua conversion. The default remains the full
-context, and selected values still share the normal conversion limits. See
+context, selected values still share the normal conversion limits, and
+engine-reserved `_` keys such as the `_error_*` recovery values always pass
+through. Other node types reject the option at load time. See
 [context projection](docs/nodes/code.md).
 
 Write inline Lua logic as step handlers — no need for `nodes.code()`:

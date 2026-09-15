@@ -3,14 +3,9 @@ use anyhow::{Result, ensure};
 use crate::storage::StorageError;
 
 pub(crate) fn client(url: &str) -> redis::RedisResult<redis::Client> {
-    let client = redis::Client::open(url)?;
-    if matches!(
-        client.get_connection_info().addr(),
-        redis::ConnectionAddr::TcpTls { .. }
-    ) {
-        super::tls::initialize_provider();
-    }
-    Ok(client)
+    // The Rustls provider for `rediss://` is installed once at process start
+    // by `crate::initialize_tls_provider`, not per client.
+    redis::Client::open(url)
 }
 
 /// Largest TTL that remains safe across IronFlow's Redis Lua scripts.

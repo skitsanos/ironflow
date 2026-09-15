@@ -24,8 +24,10 @@ flow:step("inspect", function(ctx)
     return { inspected_count = ctx.count }
 end):context_keys({"count"}):depends_on("parse")
 
+-- An empty list hides every user key. Engine-reserved `_` keys such as the
+-- `_flow_dir` injected by `ironflow run` still pass through.
 flow:step("constant", function(ctx)
-    assert(next(ctx) == nil)
+    assert(ctx.unused == nil and ctx.count == nil and ctx.inspected_count == nil)
     return { ready = true }
 end):context_keys({}):depends_on("inspect")
 

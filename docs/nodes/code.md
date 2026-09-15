@@ -8,7 +8,7 @@ Execute inline Lua code with access to the workflow context.
 |----------------|--------|----------|---------|---------------------------------------------------------------------|
 | `source`       | string/function | No* | --      | Lua source code string **or inline function** to evaluate              |
 | `bytecode_b64` | string | No*      | --      | Base64-encoded Lua bytecode for function handler mode               |
-| `context_keys` | array of strings | No | Full context | Literal top-level context keys to expose to Lua; an empty list exposes none |
+| `context_keys` | array of strings | No | Full context | Literal top-level user context keys to expose to Lua; an empty list exposes none. Engine-reserved `_` keys always pass through |
 
 *Exactly one of `source` or `bytecode_b64` must be provided.
 
@@ -70,7 +70,13 @@ end):context_keys({}):depends_on("inspect")
 ```
 
 - Omit `context_keys` to preserve the full-context default. Lua `{}` (JSON `[]`)
-  exposes an empty table, not the default context.
+  exposes no user keys, not the default context.
+- Engine-reserved keys always pass through regardless of the list: any key
+  starting with `_`, including the recovery overlay (`_error_message`,
+  `_error_step`, `_error_node_type`, `_error_output`) and `_flow_dir`. The list
+  governs user data keys only, so a projected `on_error` handler keeps its
+  diagnostics; listing a `_` key explicitly is harmless. Projection is a
+  conversion-budget control, not a secrecy boundary.
 - Keys are exact, case-sensitive top-level names, not paths or templates.
   `"a.b"` selects `ctx["a.b"]`, not `ctx.a.b`. Missing keys remain absent (`nil`);
   duplicate names are selected once. Invalid lists fail loading/validation or
@@ -87,8 +93,13 @@ end):context_keys({}):depends_on("inspect")
   the handler runs, even if it would read only its first element or nothing.
 - Projection does not bypass Lua memory/instruction/time limits or output
   conversion limits, change step dependencies, or project a `step_if` guard.
-  It is available on code nodes and function handlers, not foreach transforms
-  or other node types.
+  It is available on code nodes and function handlers only. Declaring
+  `context_keys` on any other node type, whether through the builder or a
+  descriptor such as `nodes.log({ context_keys = {...} })` or
+  `nodes.foreach({ context_keys = {...} })`, is rejected at load time with
+  `Step '<name>': context_keys is only supported for code nodes and function
+  handlers`, so `ironflow validate` fails instead of silently running with the
+  full context.
 
 See the self-contained
 [`context_projection.lua`](../../examples/07-advanced/context_projection.lua)

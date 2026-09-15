@@ -2,7 +2,7 @@ use anyhow::Result;
 use mlua::prelude::*;
 
 use crate::engine::types::{FlowDefinition, RetryConfig, StepDefinition};
-use crate::lua::context_keys::parse_context_keys;
+use crate::lua::context_keys::{CONTEXT_KEYS_UNSUPPORTED, parse_context_keys};
 use crate::lua::conversion::lua_table_to_json_at;
 
 /// Turn the Lua-built flow table into a `FlowDefinition`.
@@ -69,9 +69,13 @@ pub(super) fn extract_flow(lua: &Lua, flow_table: &LuaTable) -> Result<FlowDefin
             other => other,
         };
 
+        // The builder form already rejects non-code steps; the descriptor
+        // form (`nodes.log({ context_keys = ... })`) must not pass silently.
         if node_type == "code" {
             parse_context_keys(&config)
                 .map_err(|error| anyhow::anyhow!("Step '{step_name}': {error}"))?;
+        } else if config.get("context_keys").is_some() {
+            anyhow::bail!("Step '{step_name}': {CONTEXT_KEYS_UNSUPPORTED}");
         }
 
         steps.push(StepDefinition {

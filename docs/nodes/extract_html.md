@@ -33,11 +33,19 @@ tag removal. Comments are omitted; entity-encoded literal tags remain text.
 Metadata is still extracted separately from the original input, so a document
 title remains available under `metadata_key` without appearing in the content.
 
-`text` does not introduce Markdown markers or escaping. It separates blocks and
-line breaks with newlines, table cells with spaces, and keeps image alternative
-text. Normal HTML whitespace is collapsed; preformatted text preserves its
-internal whitespace. This replaces the older text mode's Markdown-converter
-output, which could include heading/list markers and backslash escapes.
+`text` does not introduce Markdown markers or escaping. Paragraph-level blocks
+(`p`, headings, `pre`, `blockquote`, `hr`, `table`, `ul`, `ol`, `dl`, `figure`,
+`figcaption`, `form`, `fieldset`, and sectioning elements such as `section`,
+`article`, `aside`, `header`, `footer`, `nav`, `main`, and `address`) are
+separated from surrounding text by one blank line. List items, table rows,
+`dt`/`dd`, and `div` layout blocks are separated by a single newline. `<br>` is
+one newline and never widens an existing blank line, so `<br><br>` yields
+exactly one blank line and `</p><br><p>` still yields one. Table cells are
+separated with spaces and image alternative text is kept. Normal HTML
+whitespace is collapsed; preformatted text preserves its internal whitespace.
+Leading and trailing newlines are trimmed. This replaces the older text mode's
+Markdown-converter output, which could include heading/list markers and
+backslash escapes, while keeping its blank-line paragraph separation.
 
 `markdown` keeps the converter's syntax-aware escaping, without blanket
 backslash removal. Ordinary prose such as `issue #133` and `C#` is unchanged.
