@@ -76,6 +76,7 @@ postgres = ["sqlx/postgres", "sqlx/tls-rustls", "dep:rustls"]
 redis = ["dep:redis", "redis/tokio-rustls-comp", "dep:rustls"]
 
 [dev-dependencies]
+tokio = { version = "1.52.3", features = ["test-util"] }
 tempfile = "3"
 http-body-util = "0.1"
 tower = "0.5"
