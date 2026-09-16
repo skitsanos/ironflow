@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use anyhow::{Result, anyhow, bail};
 use http::{HeaderName, HeaderValue};
-use rmcp::model::ClientInfo;
+use rmcp::model::ClientConfig;
 use rmcp::transport::StreamableHttpClientTransport;
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
 use serde_json::Value;
@@ -18,7 +18,7 @@ use super::stdio::StrictStdioTransport;
 
 pub(super) async fn initialize(
     config: &Value,
-    client_info: ClientInfo,
+    client_info: ClientConfig,
     transport: McpTransport,
     timeout: Duration,
 ) -> Result<McpSession> {
@@ -32,7 +32,7 @@ pub(super) async fn initialize(
 
 async fn initialize_stdio(
     config: &Value,
-    client_info: ClientInfo,
+    client_info: ClientConfig,
     timeout: Duration,
 ) -> Result<McpSession> {
     let executable = config
@@ -97,7 +97,7 @@ async fn initialize_stdio(
 
 async fn initialize_streamable_http(
     config: &Value,
-    client_info: ClientInfo,
+    client_info: ClientConfig,
     timeout: Duration,
 ) -> Result<McpSession> {
     let url = config
