@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 #[derive(Clone, Default)]
 pub struct Fixture {
     pub calls: Arc<Mutex<Vec<Value>>>,
+    pub first_request: Arc<tokio::sync::Notify>,
     pub token_calls: Arc<Mutex<usize>>,
     pub fail_call: Option<usize>,
     pub status: Option<StatusCode>,
@@ -68,6 +69,7 @@ async fn embed(State(state): State<Fixture>, uri: Uri, Json(body): Json<Value>) 
         calls.push(body.clone());
         calls.len()
     };
+    state.first_request.notify_one();
     let input = body["input"].as_array().unwrap();
     if input.len() > 2048 {
         return (StatusCode::BAD_REQUEST, "array length must be 2048 or less").into_response();
