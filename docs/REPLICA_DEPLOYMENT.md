@@ -20,6 +20,14 @@ preflights both selected SQL URLs before either store connects or creates local
 database files. Environment values override YAML, including an invalid or empty
 value, which fails instead of falling back. Errors identify the setting without
 echoing its URL. PostgreSQL and Redis are the supported shared backends.
+
+For builds containing IF-137, PostgreSQL features include Rustls TLS and Redis
+features include verified `rediss://` connections. Prefer PostgreSQL
+`sslmode=verify-full` with `sslrootcert`, and configure Redis native trust roots
+or `SSL_CERT_FILE` for a private CA. Published v1.18.1 and earlier binaries lack
+these store TLS features. Do not work around that limitation by disabling
+required encryption or certificate verification. See
+[encrypted shared stores](CLI_REFERENCE.md#encrypted-shared-stores).
 Do not mount a JSON/SQLite directory into
 multiple containers and treat it as a distributed database.
 
@@ -140,6 +148,14 @@ both forms contain rendered secret values.
 
 ## OpenShift
 
+The image leaves the default JSON store directory absent so a non-root runtime
+UID can create and own it with private permissions. Fresh named volumes work
+with the default UID or an arbitrary UID in group 0. This does not make a JSON
+volume portable between UIDs or suitable for replica sharing: use PostgreSQL
+or Redis for the replica configuration below. Existing root-owned JSON store
+directories require an offline, backed-up ownership migration or a new store
+path; an image update alone does not repair their ownership.
+
 The image's writable paths are root-group writable and it can run with the
 arbitrary UID assigned by OpenShift's restricted SCC. Do not set a fixed
 `runAsUser` solely for IronFlow and do not grant `anyuid`.
@@ -154,7 +170,7 @@ template with the runnable `linux/amd64` manifest digest selected from the
 attested OCI index, never the index itself or a branch tag. That makes the
 declared Deployment digest identical to each container runtime `imageID` while
 the index retains the SBOM and provenance attestations. The workflow's mutable
-`buildcache-amd64` GHCR tag stores zstd-compressed BuildKit state only and is
+`buildcache-amd64` GHCR tag stores BuildKit cache state with `mode=max` and is
 never a runnable deployment reference. Create the referenced
 `ironflow-canary-secrets` Secret through the platform secret boundary before
 applying the rendered manifest. See

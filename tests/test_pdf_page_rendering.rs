@@ -112,3 +112,58 @@ async fn cli_split_and_merge_preserve_inherited_page_rendering() {
         println!("PDF rendering evidence: {}", directory.keep().display());
     }
 }
+
+#[tokio::test]
+#[ignore = "requires pdftoppm (Poppler) on PATH"]
+async fn cli_grouped_split_preserves_reordered_page_pixels() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = directory.path().join("source.pdf");
+    fixture::inherited_document().save(&source).unwrap();
+    let pages = directory.path().join("parts");
+    let flow = directory.path().join("grouped.lua");
+    std::fs::write(&flow, format!(
+        "local flow = Flow.new('grouped_fidelity')\nflow:step('split', nodes.pdf_split({{path = {}, output_dir = {}, pages = '2,1', pages_per_file = 2}}))\nreturn flow\n",
+        serde_json::json!(source), serde_json::json!(pages)
+    )).unwrap();
+    checked(
+        Command::new(env!("CARGO_BIN_EXE_ironflow"))
+            .env_clear()
+            .current_dir(directory.path())
+            .arg("run")
+            .arg(&flow),
+    )
+    .await;
+    let grouped = pages.join("source_part_001.pdf");
+    for original_page in 1..=2 {
+        let original = render(
+            &source,
+            original_page,
+            &directory.path().join(format!("original-{original_page}")),
+        )
+        .await;
+        let result = render(
+            &grouped,
+            3 - original_page,
+            &directory.path().join(format!("grouped-{original_page}")),
+        )
+        .await;
+        assert!(
+            original
+                .pixels()
+                .filter(|pixel| pixel.0 != [255, 255, 255])
+                .count()
+                > 1000
+        );
+        assert_eq!(result.dimensions(), original.dimensions());
+        assert!(
+            result == original,
+            "grouping changed page {original_page} pixels"
+        );
+    }
+    if std::env::var_os("IRONFLOW_KEEP_PDF_TEST_OUTPUT").is_some() {
+        println!(
+            "Grouped PDF rendering evidence: {}",
+            directory.keep().display()
+        );
+    }
+}

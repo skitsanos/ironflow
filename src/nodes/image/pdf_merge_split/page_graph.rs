@@ -12,7 +12,7 @@ const INHERITED: [&[u8]; 4] = [b"Resources", b"MediaBox", b"CropBox", b"Rotate"]
 pub(super) fn collect_page_graph(
     document: &Document,
     page_ids: &[ObjectId],
-    maximum: Option<u64>,
+    maximum: Option<(u64, &str)>,
     operation: &str,
     execution: &ExecutionControl,
 ) -> Result<BTreeMap<ObjectId, Object>> {
@@ -32,8 +32,10 @@ pub(super) fn collect_page_graph(
         if !is_page && matches!(source.type_name(), Ok(b"Page" | b"Pages" | b"Catalog")) {
             continue;
         }
-        if maximum.is_some_and(|maximum| collected.len() as u64 >= maximum) {
-            anyhow::bail!("{operation}: retained objects exceed IRONFLOW_MAX_PDF_MERGE_OBJECTS");
+        if let Some((maximum, variable)) = maximum
+            && collected.len() as u64 >= maximum
+        {
+            anyhow::bail!("{operation}: retained objects exceed {variable}");
         }
         let object = if is_page {
             Object::Dictionary(inherited_page(document, id, operation, execution)?)

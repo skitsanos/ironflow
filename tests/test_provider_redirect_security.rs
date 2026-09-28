@@ -40,13 +40,13 @@ fn cases(base: &str) -> Vec<(&'static str, Value)> {
         (
             "ai_embed",
             json!({"provider": "openai", "base_url": base,
-            "api_key": "synthetic-embedding-key", "input_key": "text"}),
+            "api_key": "synthetic-embedding-key", "input_key": "texts"}),
         ),
         (
             "ai_embed",
             json!({"provider": "oauth", "base_url": base,
             "token_url": format!("{base}/token"), "client_id": "fixture",
-            "client_secret": "synthetic-oauth-secret", "input_key": "text"}),
+            "client_secret": "synthetic-oauth-secret", "input_key": "texts"}),
         ),
         (
             "ai_chunk_semantic",
@@ -63,10 +63,16 @@ fn cases(base: &str) -> Vec<(&'static str, Value)> {
 }
 
 fn context() -> Context {
-    Context::from([(
-        "text".to_string(),
-        json!("First private sentence. Second private sentence."),
-    )])
+    Context::from([
+        (
+            "text".to_string(),
+            json!("First private sentence. Second private sentence."),
+        ),
+        (
+            "texts".to_string(),
+            json!(["First private sentence.", "Second private sentence."]),
+        ),
+    ])
 }
 
 #[tokio::test]

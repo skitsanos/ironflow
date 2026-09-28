@@ -6,7 +6,7 @@ use tracing::{debug, error, info, trace, warn};
 use uuid::Uuid;
 
 use crate::engine::types::Context;
-use crate::lua::conversion::{json_value_to_lua, lua_to_log_string, register_json_globals};
+use crate::lua::conversion::{context_to_lua, lua_to_log_string, register_json_globals};
 
 /// Read an environment variable for the Lua `env()` global, honoring an
 /// optional allowlist (IF-052b).
@@ -154,10 +154,7 @@ pub(crate) fn setup_sandbox(lua: &Lua, ctx: &Context) -> Result<LuaValue> {
     globals.set("now_unix_ms", now_unix_fn)?;
 
     // ctx table
-    let ctx_value = json_value_to_lua(
-        lua,
-        &serde_json::Value::Object(ctx.iter().map(|(k, v)| (k.clone(), v.clone())).collect()),
-    )?;
+    let ctx_value = context_to_lua(lua, ctx)?;
     globals.set("ctx", ctx_value.clone())?;
 
     Ok(ctx_value)

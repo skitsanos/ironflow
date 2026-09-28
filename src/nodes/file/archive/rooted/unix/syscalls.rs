@@ -72,6 +72,17 @@ pub(super) fn create_file_at(parent: &File, name: &CStr) -> io::Result<File> {
     file_from_descriptor(descriptor)
 }
 
+pub(super) fn read_file_at(parent: &File, name: &CStr) -> io::Result<File> {
+    let descriptor = unsafe {
+        libc::openat(
+            parent.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK,
+        )
+    };
+    file_from_descriptor(descriptor)
+}
+
 fn file_from_descriptor(descriptor: libc::c_int) -> io::Result<File> {
     if descriptor < 0 {
         Err(io::Error::last_os_error())
@@ -115,6 +126,19 @@ pub(super) fn rename_at(parent: &File, source: &CStr, destination: &CStr) -> io:
             source.as_ptr(),
             parent.as_raw_fd(),
             destination.as_ptr(),
+        )
+    })
+}
+
+/// Rename `source`, resolved like any process path, onto `leaf` inside the
+/// pinned `parent`. The kernel never follows an existing destination link.
+pub(super) fn rename_into_directory(source: &CStr, parent: &File, leaf: &CStr) -> io::Result<()> {
+    syscall_result(unsafe {
+        libc::renameat(
+            libc::AT_FDCWD,
+            source.as_ptr(),
+            parent.as_raw_fd(),
+            leaf.as_ptr(),
         )
     })
 }

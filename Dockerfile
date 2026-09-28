@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM lukemathwalker/cargo-chef:0.1.78-rust-1.98.1-slim-bookworm@sha256:c4b714a1feca5c0784fd063171c8f20803dfc8d940e0fb91b6a6b96e495c2e21 AS chef
+FROM lukemathwalker/cargo-chef:0.1.78-rust-1.98.1-slim-bookworm@sha256:9a2089c084b6f8b85b7cbc6dac81f38afcdcd87708fe5a5a1697da254d21c147 AS chef
 
 WORKDIR /app
 
@@ -30,10 +30,12 @@ RUN cargo build --release --locked --features "${FEATURES}" --bin ironflow
 
 FROM debian:bookworm-slim AS runtime
 
+# Leave the private JSON store absent so the runtime UID creates and owns it.
+# Root-group write access alone cannot chmod a root-owned store to 0700.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /data/runs /data/flows \
+    && mkdir -p /data/flows \
     && chgrp -R 0 /data \
     && chmod -R g=u /data
 

@@ -10,6 +10,21 @@ pub(crate) struct ChildRunResult {
     pub(crate) flow_name: String,
     pub(crate) status: RunStatus,
     pub(crate) ctx: Context,
+    pub(crate) failure_summary: Option<String>,
+}
+
+impl ChildRunResult {
+    pub(crate) fn terminal_reason(&self) -> String {
+        let mut reason = format!("finished with status: {}", self.status);
+        if self.status == RunStatus::Failed
+            && let Some(summary) = &self.failure_summary
+            && !summary.is_empty()
+        {
+            reason.push_str(": ");
+            reason.push_str(summary);
+        }
+        reason
+    }
 }
 
 /// Handle for a supervised workflow execution.
@@ -95,5 +110,30 @@ impl RunHandle {
             format!("Run coordinator for '{}' stopped unexpectedly", self.run_id)
         })??;
         Ok((self.run_id, result))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn terminal_reason_has_status_fallback_and_ignores_nonfailure_details() {
+        let mut child = ChildRunResult {
+            flow_name: "child".to_string(),
+            status: RunStatus::Failed,
+            ctx: Context::new(),
+            failure_summary: None,
+        };
+        assert_eq!(child.terminal_reason(), "finished with status: failed");
+        child.failure_summary = Some("task 'work': boom".to_string());
+        assert_eq!(
+            child.terminal_reason(),
+            "finished with status: failed: task 'work': boom"
+        );
+        child.status = RunStatus::Cancelled;
+        assert_eq!(child.terminal_reason(), "finished with status: cancelled");
+        child.status = RunStatus::Success;
+        assert_eq!(child.terminal_reason(), "finished with status: success");
     }
 }

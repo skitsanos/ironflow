@@ -1,13 +1,31 @@
 # `move_file`
 
-Move (rename) a file to a new location.
+Move (rename) a file to a new location. The destination directory is prepared
+with the shared rooted policy used by `write_file`, and the rename runs on a
+tracked blocking worker.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `source` | string | yes | — | Path to the file to move. Supports `${ctx.key}` interpolation. |
-| `destination` | string | yes | — | New path for the file. Supports `${ctx.key}` interpolation. |
+| `destination` | string | yes | — | New path for the file. Missing parent directories are created. Supports `${ctx.key}` interpolation. |
+
+## Destination safety
+
+- Configured parent-directory aliases, including macOS `/tmp`, are resolved
+  before the rename. Unix pins the resolved directory and renames relative to
+  that handle, so retargeting the alias afterward cannot redirect the move.
+  This is not permission to follow a destination-file symlink.
+- A destination leaf that is a symlink, dangling link or special file is
+  refused, so the move never replaces a link or writes through one. An
+  existing regular destination file is replaced atomically.
+- The source is renamed as-is: a source symlink moves the link itself, and the
+  source must stay on the same filesystem. A cross-device move fails with an
+  error rather than copying and deleting.
+- Portable platforms revalidate the destination immediately before the rename,
+  but cannot close a hostile parent-directory swap race; protect destination
+  trees from same-identity mutation.
 
 ## Context Output
 

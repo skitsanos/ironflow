@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use anyhow::{Result, anyhow, bail};
-use rmcp::model::{ClientCapabilities, ClientInfo, Implementation, ProtocolVersion};
+use rmcp::model::{ClientCapabilities, ClientConfig, Implementation, ProtocolVersion};
 use serde_json::{Map, Value};
 
 use crate::engine::types::Context;
@@ -116,7 +116,7 @@ pub(super) fn session_handle(config: &Value) -> Result<&str> {
         })
 }
 
-pub(super) fn client_info(config: &Value) -> Result<ClientInfo> {
+pub(super) fn client_info(config: &Value) -> Result<ClientConfig> {
     let params = match config.get("params") {
         Some(Value::Object(params)) => params,
         Some(_) => bail!("mcp_client initialize expects 'params' to be an object"),
@@ -157,7 +157,7 @@ pub(super) fn client_info(config: &Value) -> Result<ClientInfo> {
         implementation.version = version.to_string();
     }
 
-    Ok(ClientInfo::new(capabilities, implementation)
+    Ok(ClientConfig::new(capabilities, implementation)
         .with_protocol_version(ProtocolVersion::V_2025_11_25))
 }
 

@@ -35,6 +35,7 @@ flow:step("embed", nodes.ai_embed({
     provider = "openai",
     model = "text-embedding-3-small",
     input_key = "chunk_texts",
+    batch_size = 64,
     output_key = "result"
 })):depends_on("prepare_chunks")
 

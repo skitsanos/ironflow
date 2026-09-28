@@ -284,7 +284,7 @@ async fn exhausted_retries_publish_only_the_final_attempt() {
     assert_eq!(info.ctx["attempt_diagnostic"], "attempt-2");
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn backoff_timeout_keeps_the_last_completed_attempt_diagnostics() {
     let mut registry = NodeRegistry::new();
     registry.register(Arc::new(RetryNode {

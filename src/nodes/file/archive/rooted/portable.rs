@@ -25,17 +25,53 @@ impl RootedDir {
         operation: &'static str,
         execution: &ExecutionControl,
     ) -> Result<Self> {
-        let root = if path.as_os_str().is_empty() {
-            PathBuf::from(".")
-        } else {
-            path.to_path_buf()
-        };
+        let (mut root, missing) = super::destination_anchor(path, operation, execution)?;
+        for name in missing.iter().rev() {
+            root.push(name);
+        }
         ensure_observed_directories(&root, operation, execution)?;
         Ok(Self { root, operation })
     }
 
     pub(crate) fn ensure_dir(&self, relative: &Path, execution: &ExecutionControl) -> Result<()> {
         ensure_observed_directories(&self.root.join(relative), self.operation, execution)
+    }
+
+    pub(crate) fn open_existing(
+        &self,
+        name: &std::ffi::OsStr,
+        execution: &ExecutionControl,
+    ) -> Result<Option<File>> {
+        execution.checkpoint()?;
+        ensure_observed_directories(&self.root, self.operation, execution)?;
+        let path = self.root.join(name);
+        match fs::symlink_metadata(&path) {
+            Ok(_) => crate::util::bounded_read::open_regular_file(&path, self.operation).map(Some),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    /// Rename `source` onto `leaf` below the root after validating the leaf
+    /// like an overwriting staged write.
+    pub(crate) fn rename_into(
+        &self,
+        source: &Path,
+        leaf: &std::ffi::OsStr,
+        execution: &ExecutionControl,
+    ) -> Result<()> {
+        execution.checkpoint()?;
+        ensure_observed_directories(&self.root, self.operation, execution)?;
+        let destination = self.root.join(leaf);
+        validate_leaf(&destination, true, self.operation)?;
+        fs::rename(source, &destination).map_err(|error| {
+            anyhow::anyhow!(
+                "{}: failed to move '{}' to '{}': {error}",
+                self.operation,
+                source.display(),
+                destination.display()
+            )
+        })
     }
 
     pub(crate) fn stage_file(

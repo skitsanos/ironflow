@@ -249,6 +249,8 @@ async fn streamable_http_keeps_transport_state_behind_an_opaque_session() {
                 "transport": "streamable_http",
                 "url": server.url,
                 "action": "initialize",
+                "client_name": "ironflow-http-test",
+                "client_version": "1.2.3",
                 "output_key": "init"
             }),
             &empty_context(),
@@ -308,6 +310,10 @@ async fn streamable_http_keeps_transport_state_behind_an_opaque_session() {
     assert_eq!(
         initialize_body["params"]["protocolVersion"],
         json!("2025-11-25")
+    );
+    assert_eq!(
+        initialize_body["params"]["clientInfo"],
+        json!({"name": "ironflow-http-test", "version": "1.2.3"})
     );
 
     let initialized_notification = requests

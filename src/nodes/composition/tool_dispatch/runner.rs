@@ -66,8 +66,9 @@ pub(super) async fn dispatch_call(
     let content = result_content(&result);
     let error = (!succeeded).then(|| {
         format!(
-            "tool_dispatch: tool '{}' subworkflow finished with status: {}",
-            name, run_info.status
+            "tool_dispatch: tool '{}' subworkflow {}",
+            name,
+            run_info.terminal_reason()
         )
     });
 

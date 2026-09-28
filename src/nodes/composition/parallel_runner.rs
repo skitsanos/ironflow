@@ -140,6 +140,14 @@ fn success_entry(
     run_info: ChildRunResult,
 ) -> Result<(Value, Option<String>)> {
     let succeeded = matches!(run_info.status, RunStatus::Success);
+    let error = (!succeeded).then(|| {
+        format!(
+            "Subworkflow '{}' (index {}) {}",
+            name,
+            index,
+            run_info.terminal_reason()
+        )
+    });
     let mut entry = Map::new();
 
     if let Some(output_key) = flow_config.get("output_key").and_then(Value::as_str) {
@@ -165,12 +173,6 @@ fn success_entry(
     entry.insert("success".to_string(), Value::Bool(succeeded));
     entry.insert("flow".to_string(), Value::String(name.clone()));
 
-    let error = (!succeeded).then(|| {
-        format!(
-            "Subworkflow '{}' (index {}) finished with status: {}",
-            name, index, run_info.status
-        )
-    });
     if let Some(error) = &error {
         entry.insert("error".to_string(), Value::String(error.clone()));
     }

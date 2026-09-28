@@ -37,7 +37,7 @@ impl RedisStateStore {
     pub async fn new(url: &str, prefix: Option<String>, ttl: Option<u64>) -> StorageResult<Self> {
         let ttl = validate_redis_ttl(ttl)
             .map_err(|error| StorageError::backend("Invalid Redis state store TTL", error))?;
-        let client = redis::Client::open(url)
+        let client = crate::storage::redis_config::client(url)
             .map_err(|error| StorageError::backend("Invalid Redis state store URL", error))?;
         let conn = redis::aio::ConnectionManager::new(client)
             .await

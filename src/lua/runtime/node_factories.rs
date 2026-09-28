@@ -4,6 +4,7 @@ use mlua::prelude::*;
 use crate::lua::analysis::HandlerDiagnostics;
 use crate::nodes::NodeRegistry;
 
+use super::context_keys::set_context_keys;
 use super::handlers::serialize_handler;
 
 pub(super) fn register_node_factories(
@@ -19,6 +20,13 @@ pub(super) fn register_node_factories(
         let factory = lua.create_function(move |lua, config: Option<LuaTable>| {
             let table = config.unwrap_or(lua.create_table()?);
             table.set("_node_type", factory_node_type.clone())?;
+
+            if factory_node_type == "code" {
+                let keys: LuaValue = table.get("context_keys")?;
+                if !matches!(keys, LuaValue::Nil) {
+                    set_context_keys(lua, &table, keys)?;
+                }
+            }
 
             if factory_node_type == "code"
                 && let Ok(LuaValue::Function(function)) = table.get::<LuaValue>("source")

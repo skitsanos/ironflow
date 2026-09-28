@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow, bail};
 use rmcp::model::{
-    CallToolRequest, CallToolRequestParams, CallToolResult, ClientInfo, ClientRequest,
+    CallToolRequest, CallToolRequestParams, CallToolResult, ClientConfig, ClientRequest,
     ListToolsRequest, ListToolsResult, ProtocolVersion, ServerPeerInfo, ServerResult,
 };
 use rmcp::service::{PeerRequestOptions, RoleClient, RunningService};
@@ -19,7 +19,7 @@ const DEFAULT_SESSION_CAPACITY: usize = 1024;
 const DEFAULT_SESSION_TTL_SECS: u64 = 3600;
 const BACKGROUND_CLOSE_TIMEOUT: Duration = Duration::from_secs(3);
 
-pub(super) type ClientService = RunningService<RoleClient, ClientInfo>;
+pub(super) type ClientService = RunningService<RoleClient, ClientConfig>;
 
 pub(super) struct McpSession {
     service: ClientService,

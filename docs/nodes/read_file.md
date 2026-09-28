@@ -20,9 +20,10 @@ Read a file as text, explicitly encode it as Base64, or stream it into the confi
 
 ## Resource and file-type limits
 
-`read_file` accepts regular files only. FIFOs, devices, directories, and, on
-Unix, final-path symlinks are rejected before their contents are read. Actual
-bytes are additionally bounded by `IRONFLOW_MAX_FILE_BYTES` (50 MiB by
+`read_file` accepts regular files only. FIFOs, devices and directories are
+rejected before their contents are read. Final-path symlinks are also rejected
+on Unix and Windows. Actual bytes are additionally bounded by
+`IRONFLOW_MAX_FILE_BYTES` (50 MiB by
 default), so a file that grows after its metadata check still cannot exceed the
 configured raw-byte ceiling. Text and Base64 modes retain inline output in
 memory; Base64 can temporarily coexist with its raw input and expanded encoded

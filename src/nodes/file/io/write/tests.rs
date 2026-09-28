@@ -8,11 +8,11 @@ use super::*;
 
 #[test]
 fn base64_preflight_rejects_amplification_before_decode() {
-    let error = preflight_base64(&"A".repeat(100), 4)
+    let error = preflight_base64(&"A".repeat(100), 4, "write_file")
         .unwrap_err()
         .to_string();
     assert!(error.contains("IRONFLOW_MAX_FILE_BYTES"), "{error}");
-    assert!(preflight_base64("A", 100).is_err());
+    assert!(preflight_base64("A", 100, "write_file").is_err());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -42,6 +42,7 @@ async fn cancellation_removes_staging_and_preserves_destination() {
                 staged.writer(),
                 u64::MAX,
                 &execution,
+                "write_file",
                 "test input",
             );
             // The waiter observes physical cleanup, not merely the final write.

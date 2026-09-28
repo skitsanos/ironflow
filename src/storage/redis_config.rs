@@ -2,6 +2,15 @@ use anyhow::{Result, ensure};
 
 use crate::storage::StorageError;
 
+pub(crate) fn client(url: &str) -> redis::RedisResult<redis::Client> {
+    // `rediss://` builds its Rustls configuration from the process default
+    // provider. The CLI installs it at startup; the library installs it here
+    // as well (idempotently) so an embedder that constructs a store directly
+    // gets a connection error, never a provider panic.
+    crate::initialize_tls_provider();
+    redis::Client::open(url)
+}
+
 /// Largest TTL that remains safe across IronFlow's Redis Lua scripts.
 ///
 /// Keeping the configured seconds at or below this value guarantees that its

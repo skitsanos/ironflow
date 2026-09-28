@@ -16,7 +16,10 @@ pub(super) enum ExecutionSignal {
 }
 
 pub(super) enum ExecutionOutcome {
-    Completed(RunStatus),
+    Completed {
+        status: RunStatus,
+        failure_summary: Option<String>,
+    },
     Cancelled,
     Infrastructure(anyhow::Error),
 }

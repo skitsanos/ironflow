@@ -55,5 +55,6 @@ Creation runs on a tracked blocking worker and checks the enclosing step/run
 deadline and cancellation signal while traversing entries and copying chunks.
 The archive is written to a sibling temporary file. Failure or cancellation
 removes that temporary file and preserves any prior output; only a complete
-archive is published. An existing output symlink is rejected rather than
+archive is published. The configured output parent may be a directory alias
+such as macOS `/tmp`; it is resolved before staging. An existing output symlink is rejected rather than
 followed.

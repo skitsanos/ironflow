@@ -94,8 +94,10 @@ pub(super) async fn connect(config: &serde_json::Value, ctx: &Context) -> Result
 
     let url = interpolate_ctx(url, ctx);
 
-    // Install any drivers that are compiled in
+    // Install any drivers that are compiled in, and the Rustls provider the
+    // PostgreSQL `verify-ca` verifier needs (idempotent; see IF-141).
     sqlx::any::install_default_drivers();
+    crate::initialize_tls_provider();
 
     let pool = AnyPool::connect(&url).await.map_err(|_| {
         // Drivers may detach credentials or query values from the URL and

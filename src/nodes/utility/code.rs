@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use mlua::prelude::*;
 
 use crate::engine::types::{Context, NodeOutput};
+use crate::lua::context_keys::project_context;
 use crate::lua::conversion::lua_value_to_json;
 use crate::lua::sandbox;
 use crate::nodes::Node;
@@ -23,7 +24,7 @@ impl Node for CodeNode {
 
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let config = config.clone();
-        let ctx = ctx.clone();
+        let ctx = project_context(&config, ctx)?;
         run_blocking_step(move |execution| execute_code(&config, &ctx, execution)).await
     }
 }

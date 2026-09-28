@@ -14,25 +14,35 @@ describe("repository integration policy", () => {
     const pullRequest = triggers.pull_request as Record<string, unknown>;
     expect(push.branches).toEqual(["main", "develop"]);
     expect(pullRequest.branches).toEqual(["main", "develop"]);
-    expect(pullRequest.paths).toEqual(push.paths);
+    expect(push.paths).toBeUndefined();
+    expect(pullRequest.paths).toBeUndefined();
+    expect(pullRequest["paths-ignore"]).toEqual(push["paths-ignore"]);
+    // Documentation-only edits skip CI; anything that can change the build does not.
+    const ignored = (path: string) =>
+      (push["paths-ignore"] as string[]).some((pattern) => new Bun.Glob(pattern).match(path));
+    expect(ignored("README.md")).toBeTrue();
+    expect(ignored(".claude/settings.json")).toBeTrue();
+    expect(ignored("src/main.rs")).toBeFalse();
+    expect(ignored("Cargo.lock")).toBeFalse();
   });
 
   test("issue registry changes run the Bun policy gate", async () => {
     const source = await Bun.file(join(repository, ".github/workflows/ci.yml")).text();
     const workflow = Bun.YAML.parse(source) as {
-      on: { push: { paths: string[] } };
+      on: Record<string, { "paths-ignore": string[] }>;
       jobs: Record<string, { steps: Array<{ uses?: string; run?: string }> }>;
     };
-    for (const path of ["docs/**", ".agents/**", "AGENTS.md", "ISSUES.md"]) {
-      expect(workflow.on.push.paths).toContain(path);
+    for (const event of ["push", "pull_request"]) {
+      for (const path of ["docs/issues/IF-133.md", ".agents/skills/check-ironflow/SKILL.md", "AGENTS.md", "ISSUES.md", "rust-toolchain.toml", ".github/workflows/release.yml"]) {
+        expect(workflow.on[event]["paths-ignore"].some((pattern) => new Bun.Glob(pattern).match(path))).toBeFalse();
+      }
     }
-    expect(workflow.on.push.paths).toContain("rust-toolchain.toml");
 
-    const commands = workflow.jobs["repository-policy"].steps
+    const commands = workflow.jobs.policy.steps
       .map((step) => step.run ?? "")
       .join("\n");
     expect(
-      workflow.jobs["repository-policy"].steps.some(
+      workflow.jobs.policy.steps.some(
         (step) => step.uses === "oven-sh/setup-bun@v2",
       ),
     ).toBeTrue();
@@ -46,28 +56,45 @@ describe("repository integration policy", () => {
 
   test("hook-only changes trigger mandatory repository-policy validation", async () => {
     const workflow = Bun.YAML.parse(await Bun.file(join(repository, ".github/workflows/ci.yml")).text()) as {
-      on: Record<string, { paths: string[] }>;
+      on: Record<string, { "paths-ignore": string[] }>;
       jobs: Record<string, {
         "continue-on-error"?: boolean;
-        steps: Array<{ run?: string; "continue-on-error"?: boolean }>;
+        steps: Array<{ uses?: string; run?: string; "continue-on-error"?: boolean }>;
       }>;
     };
     for (const event of ["push", "pull_request"]) {
       for (const path of [".codex/config.toml", ".codex/hooks.json", ".codex/hooks/tests/test_hooks.py", ".githooks/pre-commit"]) {
-        expect(workflow.on[event].paths.some((pattern) => new Bun.Glob(pattern).match(path))).toBeTrue();
+        expect(workflow.on[event]["paths-ignore"].some((pattern) => new Bun.Glob(pattern).match(path))).toBeFalse();
       }
     }
-    const job = workflow.jobs["repository-policy"];
+    const job = workflow.jobs.policy;
     expect(job["continue-on-error"]).not.toBeTrue();
     for (const command of [
       "python3 -B -m unittest discover -s .codex/hooks/tests -p 'test_*.py' -v",
+      "python3 -B -m unittest discover -s scripts/tests -p 'test_*.py' -v",
+      "python3 -B scripts/check_module_size.py",
       "sh -n .githooks/pre-commit",
       "bash -n .githooks/pre-push scripts/integration_gate.sh",
     ]) {
-      const step = job.steps.find((step) => step.run === command);
+      const step = job.steps.find((step) => step.run?.split("\n").includes(command));
       expect(step).toBeDefined();
       expect(step?.["continue-on-error"]).not.toBeTrue();
     }
+    expect(job.steps.filter((step) => step.uses === "actions/checkout@v7")).toHaveLength(1);
+    const lint = job.steps.find((step) => step.uses === "raven-actions/actionlint@v2");
+    expect(lint).toBeDefined();
+    expect(lint?.["continue-on-error"]).not.toBeTrue();
+  });
+
+  test("only pull requests share a cancellable concurrency group", async () => {
+    const workflow = Bun.YAML.parse(await Bun.file(join(repository, ".github/workflows/ci.yml")).text()) as {
+      concurrency: { group: string; "cancel-in-progress": string };
+    };
+    // Pull requests share a per-ref group that newer runs cancel; every other
+    // event gets a run-unique group so pushes to main and develop run to completion.
+    expect(workflow.concurrency.group).toContain("github.ref");
+    expect(workflow.concurrency.group).toContain("github.run_id");
+    expect(workflow.concurrency["cancel-in-progress"]).toContain("pull_request");
   });
 
   test("dependency warnings fail closed and removed dependencies stay absent", async () => {
@@ -141,7 +168,7 @@ describe("repository integration policy", () => {
 
     expect(dockerfile).toContain(
       "lukemathwalker/cargo-chef:0.1.78-rust-1.98.1-slim-bookworm@sha256:" +
-        "c4b714a1feca5c0784fd063171c8f20803dfc8d940e0fb91b6a6b96e495c2e21 AS chef",
+        "9a2089c084b6f8b85b7cbc6dac81f38afcdcd87708fe5a5a1697da254d21c147 AS chef",
     );
     expect(dockerfile).toContain("cargo chef prepare --recipe-path recipe.json");
     expect(dockerfile).toContain(
@@ -159,11 +186,29 @@ describe("repository integration policy", () => {
       `cache-from: type=registry,ref=${cacheReference}`,
     );
     expect(workflowSource).toContain(
-      `cache-to: type=registry,ref=${cacheReference},mode=max,` +
-        "oci-mediatypes=true,image-manifest=true,compression=zstd," +
-        "compression-level=15,force-compression=true",
+      `cache-to: type=registry,ref=${cacheReference},mode=max\n`,
     );
     expect(workflowSource).not.toContain("cache-to: type=gha");
+  });
+
+  test("container aliases stay branch-scoped and preserve commit tags", async () => {
+    const workflow = Bun.YAML.parse(
+      await Bun.file(join(repository, ".github/workflows/container.yml")).text(),
+    ) as {
+      jobs: Record<string, { steps: Array<{ id?: string; with?: Record<string, string> }> }>;
+    };
+    const steps = workflow.jobs.publish.steps;
+    const metadata = steps.find((step) => step.id === "metadata")?.with;
+    // Never let develop or an arbitrary manually selected ref move latest.
+    expect(metadata?.flavor).toBe("latest=false");
+    expect(metadata?.tags.trim().split("\n")).toEqual([
+      "type=sha,format=long,prefix=sha-",
+      "type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}",
+      "type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}",
+    ]);
+    expect(steps.find((step) => step.id === "build")?.with?.tags).toBe(
+      "${{ steps.metadata.outputs.tags }}",
+    );
   });
 
   test("active Rust toolchain pins stay aligned", async () => {
@@ -192,11 +237,9 @@ describe("repository integration policy", () => {
       }>;
     };
     const linuxBuild = workflow.jobs["build-linux"];
-    const macosBuild = workflow.jobs["build-macos"];
     const validation = workflow.jobs["validate-examples"];
 
     expect(linuxBuild).toBeDefined();
-    expect(macosBuild).toBeDefined();
     expect(validation.needs).toBe("build-linux");
     expect(
       linuxBuild.steps.some((step) => step.uses === "actions/upload-artifact@v7"),
@@ -231,6 +274,8 @@ describe("repository integration policy", () => {
       "redis-tests",
       "postgres-tests",
       "test",
+      "build-macos",
+      "windows-release-cache",
     ]) {
       expect(jobs[removedJob]).toBeUndefined();
     }
@@ -266,85 +311,10 @@ describe("repository integration policy", () => {
       .sort();
     expect(compilingJobs).toEqual([
       "build-linux",
-      "build-macos",
       "rust-default",
       "rust-features",
       "test-macos",
-      "windows-release-cache",
     ]);
-  });
-
-  test("main primes one dependency-only cache for both Windows release variants", async () => {
-    const ciSource = await Bun.file(join(repository, ".github/workflows/ci.yml")).text();
-    const releaseSource = await Bun.file(
-      join(repository, ".github/workflows/release.yml"),
-    ).text();
-    const ci = Bun.YAML.parse(ciSource) as {
-      on: { push: { paths: string[] } };
-      jobs: Record<string, {
-        if?: string;
-        "runs-on": string;
-        steps: Array<{ uses?: string; run?: string; with?: Record<string, unknown> }>;
-      }>;
-    };
-    const release = Bun.YAML.parse(releaseSource) as {
-      jobs: Record<string, {
-        env?: Record<string, string>;
-        strategy?: { matrix?: { include?: Array<Record<string, unknown>> } };
-        steps: Array<{ uses?: string; with?: Record<string, unknown> }>;
-      }>;
-    };
-
-    expect(ci.on.push.paths).toContain(".github/workflows/release.yml");
-    const primer = ci.jobs["windows-release-cache"];
-    expect(primer.if).toBe("github.ref == 'refs/heads/main'");
-    expect(primer["runs-on"]).toBe("windows-latest");
-
-    const sharedKey = "release-x86_64-pc-windows-msvc";
-    const primerCache = primer.steps.find((step) => step.uses === "Swatinem/rust-cache@v2");
-    expect(primerCache?.with?.["shared-key"]).toBe(sharedKey);
-    expect(primerCache?.with?.["cache-workspace-crates"]).toBeFalse();
-    expect(primer.steps.some((step) => step.uses === "actions/upload-artifact@v7")).toBeFalse();
-
-    const primerCommands = primer.steps.map((step) => step.run ?? "").join("\n");
-    expect(primerCommands).toContain(
-      "cargo build --release --target x86_64-pc-windows-msvc\n",
-    );
-    expect(primerCommands).toContain(
-      "cargo build --release --target x86_64-pc-windows-msvc --features postgres,redis",
-    );
-
-    const releaseBuild = release.jobs.build;
-    const variants = releaseBuild.strategy?.matrix?.include ?? [];
-    expect(variants).toHaveLength(8);
-    for (const target of [
-      "x86_64-unknown-linux-musl",
-      "x86_64-apple-darwin",
-      "aarch64-apple-darwin",
-      "x86_64-pc-windows-msvc",
-    ]) {
-      expect(
-        variants
-          .filter((entry) => entry.target === target)
-          .map((entry) => entry.artifact_suffix)
-          .sort(),
-      ).toEqual(["", "-full"]);
-    }
-    const windowsVariants = variants.filter(
-      (entry) => entry.target === "x86_64-pc-windows-msvc",
-    );
-    expect(windowsVariants).toHaveLength(2);
-    expect(windowsVariants.every((entry) => entry.cache_key === sharedKey)).toBeTrue();
-    expect(windowsVariants.every((entry) => entry.save_cache === false)).toBeTrue();
-    expect(windowsVariants.every((entry) => entry.rustflags === "-Dwarnings")).toBeTrue();
-    expect(releaseBuild.env?.RUSTFLAGS).toBe("${{ matrix.rustflags }}");
-
-    const releaseCache = releaseBuild.steps.find(
-      (step) => step.uses === "Swatinem/rust-cache@v2",
-    );
-    expect(releaseCache?.with?.["shared-key"]).toBe("${{ matrix.cache_key }}");
-    expect(releaseCache?.with?.["cache-workspace-crates"]).toBeFalse();
-    expect(releaseCache?.with?.["save-if"]).toBe("${{ matrix.save_cache }}");
   });
 
   test("the local integration gate bounds workspace artifact growth", async () => {
@@ -387,7 +357,7 @@ if [[ "$1" == "fmt" ]]; then exit 42; fi
 `);
       await chmod(cargo, 0o755);
 
-      for (const command of ["cargo-audit", "python3", "bun", "actionlint", "docker"]) {
+      for (const command of ["cargo-audit", "python3", "bun", "actionlint", "docker", "openssl"]) {
         const path = join(fakeBin, command);
         await writeFile(path, "#!/bin/sh\nexit 0\n");
         await chmod(path, 0o755);

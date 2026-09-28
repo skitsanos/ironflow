@@ -41,6 +41,12 @@ non-boolean completion values, a missing next state, and exhaustion of
 `max_iterations` fail the parent step without publishing a partial successful
 result.
 
+Failed-child errors include the child name, iteration, status, and the bounded,
+redacted unresolved task-error summary described under
+[`subworkflow` error handling](subworkflow.md#error-handling). Recovered errors
+are excluded; cancellation or missing details retain the status-only fallback.
+The summary arrives with the live child result, without reloading history.
+
 All registered composition nodes are available inside the child. Parent step
 timeouts and cancellation remain authoritative over active child runs and
 inter-iteration delays.

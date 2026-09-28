@@ -175,7 +175,7 @@ impl RunCoordinator {
                     Err(payload) => {
                     let message = self
                         .execution_overlay
-                        .redact_text(&panic_message(payload.as_ref()));
+                        .redact_diagnostic(&panic_message(payload.as_ref()));
                     error!(run_id = %self.run_id, panic = %message, "Workflow coordinator caught a panic");
                     ExecutionOutcome::Infrastructure(anyhow::anyhow!(
                         "workflow execution panicked: {message}"

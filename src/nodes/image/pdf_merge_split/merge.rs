@@ -1,7 +1,6 @@
 mod config;
 mod graph;
 
-use std::io::{Error, ErrorKind, Result as IoResult, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
@@ -193,17 +192,18 @@ fn save_atomic(
         .file_name()
         .ok_or_else(|| anyhow::anyhow!("pdf_merge: output path has no file name"))?;
     let root = RootedDir::prepare(parent, "pdf_merge", execution)?;
-    let mut staged = root.stage_file(Path::new(leaf), true, execution)?;
-    {
-        let mut writer = CappedWriter::new(staged.writer(), maximum, execution);
-        document
-            .save_to(&mut writer)
-            .map_err(|error| anyhow::anyhow!("pdf_merge: failed to save merged PDF: {error:?}"))?;
-        writer.flush()?;
-    }
-    staged.writer().sync_all()?;
-    execution.checkpoint()?;
-    staged.commit()
+    super::output::save_atomic(
+        document,
+        &root,
+        Path::new(leaf),
+        super::output::Policy {
+            operation: "pdf_merge",
+            variable: "IRONFLOW_MAX_PDF_MERGE_BYTES",
+            maximum,
+            overwrite: true,
+        },
+        execution,
+    )
 }
 
 fn enforce_limit(value: u64, maximum: u64, variable: &str, label: &str) -> Result<()> {
@@ -211,47 +211,6 @@ fn enforce_limit(value: u64, maximum: u64, variable: &str, label: &str) -> Resul
         anyhow::bail!("pdf_merge: {label} {value} exceed {variable} ({maximum})");
     }
     Ok(())
-}
-
-struct CappedWriter<'a> {
-    inner: &'a mut std::fs::File,
-    maximum: u64,
-    written: u64,
-    execution: &'a ExecutionControl,
-}
-
-impl<'a> CappedWriter<'a> {
-    fn new(inner: &'a mut std::fs::File, maximum: u64, execution: &'a ExecutionControl) -> Self {
-        Self {
-            inner,
-            maximum,
-            written: 0,
-            execution,
-        }
-    }
-}
-
-impl Write for CappedWriter<'_> {
-    fn write(&mut self, buffer: &[u8]) -> IoResult<usize> {
-        self.execution.checkpoint().map_err(Error::other)?;
-        let next = self.written.saturating_add(buffer.len() as u64);
-        if next > self.maximum {
-            return Err(Error::new(
-                ErrorKind::InvalidData,
-                format!(
-                    "merged PDF exceeds IRONFLOW_MAX_PDF_MERGE_BYTES ({})",
-                    self.maximum
-                ),
-            ));
-        }
-        let written = self.inner.write(buffer)?;
-        self.written = self.written.saturating_add(written as u64);
-        Ok(written)
-    }
-
-    fn flush(&mut self) -> IoResult<()> {
-        self.inner.flush()
-    }
 }
 
 #[cfg(test)]

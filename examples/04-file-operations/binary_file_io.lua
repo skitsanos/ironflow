@@ -5,7 +5,7 @@
 -- disk-backed artifact handoff for binary workflow data.
 --
 -- Effects:
--- - Creates and removes two UUID-scoped PNGs under TMPDIR, TMP, TEMP, or `.`.
+-- - Creates and removes three UUID-scoped PNGs under TMPDIR, TMP, TEMP, or `.`.
 -- - Publishes one immutable artifact under IRONFLOW_ARTIFACT_DIR; it is not
 --   automatically pruned.
 -- - A failed run may leave that uniquely named file for inspection.
@@ -18,6 +18,7 @@ if temp_root == nil or temp_root == "" then temp_root = env("TEMP") end
 if temp_root == nil or temp_root == "" then temp_root = "." end
 local image_path = temp_root .. "/ironflow-binary-file-" .. uuid4() .. ".png"
 local restored_path = temp_root .. "/ironflow-restored-file-" .. uuid4() .. ".png"
+local decoded_path = temp_root .. "/ironflow-decoded-file-" .. uuid4() .. ".png"
 
 -- Create a 1x1 transparent PNG as base64 in context
 flow:step("create_data", function(ctx)
@@ -39,6 +40,19 @@ flow:step("read_back", nodes.read_file({
     output_key = "result",
     encoding = "base64"
 })):depends_on("write_png")
+
+-- Like write_file, file decoding is atomic and accepts configured directory
+-- aliases such as macOS /tmp, but rejects a symlink at the destination file.
+flow:step("decode_png", nodes.base64_decode({
+    source_key = "result_content",
+    output_file = decoded_path
+})):depends_on("read_back")
+
+flow:step("read_decoded", nodes.read_file({
+    path = decoded_path,
+    output_key = "decoded",
+    encoding = "base64"
+})):depends_on("decode_png")
 
 -- The normal workflow handoff keeps bytes on disk and returns only a small,
 -- immutable content-addressed descriptor.
@@ -63,6 +77,7 @@ flow:step("read_restored", nodes.read_file({
 
 -- Verify both the explicit Base64 and artifact-backed round trips.
 flow:step("verify", function(ctx)
+    assert(ctx.img_data == ctx.decoded_content, "decoded bytes changed")
     return {
         roundtrip_ok = (ctx.img_data == ctx.result_content),
         artifact_roundtrip_ok = (ctx.img_data == ctx.restored_content),
@@ -70,7 +85,7 @@ flow:step("verify", function(ctx)
             and ctx.cached_artifact.artifact_uri ~= nil
             and ctx.cached_artifact.size_bytes > 0
     }
-end):depends_on("read_back", "read_restored")
+end):depends_on("read_back", "read_restored", "read_decoded")
 
 flow:step("done", nodes.log({
     message = "Base64 OK: ${ctx.roundtrip_ok}; artifact restore OK: ${ctx.artifact_roundtrip_ok}; artifact descriptor OK: ${ctx.artifact_ok}"
@@ -83,5 +98,9 @@ flow:step("cleanup", nodes.delete_file({
 flow:step("cleanup_restored", nodes.delete_file({
     path = restored_path
 })):depends_on("cleanup")
+
+flow:step("cleanup_decoded", nodes.delete_file({
+    path = decoded_path
+})):depends_on("cleanup_restored")
 
 return flow

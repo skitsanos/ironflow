@@ -10,7 +10,9 @@ use ironflow::storage::StateStore;
 #[path = "support/scheduler.rs"]
 mod scheduler_support;
 
-use scheduler_support::{build_executor, flows_with_logger, wait_for_terminal};
+use scheduler_support::{
+    build_controlled_executor, build_executor, flows_with_logger, wait_for_terminal,
+};
 
 // These cases construct independent in-process scheduler/server fixtures, but
 // production flow-load admission is intentionally process-wide. Serialize the
@@ -200,18 +202,22 @@ async fn a_long_running_schedule_does_not_block_the_next_evaluation() {
     )
     .unwrap();
 
-    let app = build_executor(flows.path());
+    let (app, delay) = build_controlled_executor(flows.path());
     let schedule =
         ScheduleConfig::new("slow.lua", "0 2 * * *", Some("UTC"), None, Context::new()).unwrap();
 
-    let started = std::time::Instant::now();
-    let run_id = app.executor.run("slow", &schedule).await.unwrap();
-    let elapsed = started.elapsed();
-
-    assert!(
-        elapsed < std::time::Duration::from_millis(1500),
-        "run() blocked for {elapsed:?}; it must return once the run has started"
-    );
+    // The timeout is only a deadlock watchdog: completion is impossible until
+    // this test releases the task, regardless of startup or filesystem speed.
+    let run_id = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        app.executor.run("slow", &schedule),
+    )
+    .await
+    .expect("run() waited for task completion")
+    .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(30), delay.started.notified())
+        .await
+        .expect("detached task did not start");
     assert!(!run_id.is_empty());
 
     // The run is genuinely in flight, not skipped.
@@ -220,13 +226,9 @@ async fn a_long_running_schedule_does_not_block_the_next_evaluation() {
         Some(run_id.as_str())
     );
 
-    // A non-terminal record alone doesn't prove the detached task is doing
-    // anything: `init_run` writes it synchronously inside `start()`, before
-    // the run task is even spawned, so the assertion above would pass
-    // identically if `tokio::spawn` were deleted or the task panicked on its
-    // first poll. Settling to a terminal status is the only thing that can't
-    // be faked that way — it proves the detached task actually carried the
-    // flow through.
+    // Entry was observed above; successful terminal state after release also
+    // proves the detached task was supervised through completion.
+    delay.release.notify_one();
     let status = wait_for_terminal(&app.store, &run_id).await;
     assert_eq!(status, ironflow::engine::types::RunStatus::Success);
 }

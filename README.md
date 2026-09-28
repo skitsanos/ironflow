@@ -110,53 +110,88 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 
 ## Quick Start
 
-### Build
+Start with a **[prebuilt binary](https://github.com/skitsanos/ironflow/releases/latest)**
+or a **[Docker image](https://github.com/skitsanos/ironflow/pkgs/container/ironflow)**.
+Neither option requires Rust or a separate Lua installation.
+See [Getting started](docs/GETTING_STARTED.md) for platform selection, checksum
+verification, installation on `PATH`, and running workflow files in Docker.
 
-```bash
-git clone https://github.com/skitsanos/ironflow.git
-cd ironflow
-cargo build --release
-```
+### Download and run a binary
 
-### Run a flow
+1. Open the [latest release](https://github.com/skitsanos/ironflow/releases/latest)
+   and expand **Assets**.
+2. Download the archive for your platform: Linux x86-64
+   (`x86_64-unknown-linux-musl`), macOS Apple Silicon (`aarch64-apple-darwin`),
+   macOS Intel (`x86_64-apple-darwin`), or Windows x86-64
+   (`x86_64-pc-windows-msvc`). The default archive is enough to get started;
+   choose `-full` if you need PostgreSQL or Redis storage.
+3. Extract it and open a terminal in the extracted directory. Check the binary
+   with `./ironflow --version` (PowerShell: `.\ironflow.exe --version`).
 
-```bash
-# Simple flow
-./target/release/ironflow run examples/01-basics/hello_world.lua --context '{"user_name": "Alice"}'
+Save this as `hello.lua` in the same directory:
 
-# Call OpenAI and extract the reply with a function handler
-./target/release/ironflow run examples/05-http/openai_with_extract.lua --context '{"prompt": "Explain recursion"}'
-
-# Validate without executing
-./target/release/ironflow validate examples/03-control-flow/switch_routing.lua
-
-# Verbose mode — see per-task timing and outputs
-./target/release/ironflow run examples/07-advanced/data_pipeline.lua --verbose
-```
-
-### Start the REST API
-
-```bash
-./target/release/ironflow serve --host 127.0.0.1 --port 3000
+```lua
+local flow = Flow.new("hello")
+flow:step("greet", nodes.log({ message = "Hello from IronFlow!" }))
+return flow
 ```
 
 ```bash
-# Run a flow via API
-curl -X POST http://127.0.0.1:3000/flows/run \
+./ironflow validate hello.lua
+./ironflow run hello.lua
+```
+
+You should see `Hello from IronFlow!` and a completed workflow. On Windows,
+use `.\ironflow.exe` in place of `./ironflow`. Run history is saved under
+`data/runs` in your working directory.
+
+### Or start with Docker
+
+With Docker running, start a local API server (Bash or Zsh):
+
+```bash
+IMAGE=ghcr.io/skitsanos/ironflow:latest
+docker run --rm --pull always --name ironflow --platform linux/amd64 \
+  -p 127.0.0.1:3000:3000 \
+  -e IRONFLOW_ALLOW_UNAUTHENTICATED_API=true \
+  -e IRONFLOW_STORE_DIR=/data/state/runs \
+  -v ironflow-data:/data \
+  "$IMAGE"
+```
+
+`:latest` follows published builds from `main`; use `:develop` for the newest
+published development build. Both are moving tags, so `--pull always` checks
+for an updated image on each start. Commit tags and digest references are also
+available; see [image selection](docs/GETTING_STARTED.md#select-an-image).
+Images include PostgreSQL and Redis support and currently target `linux/amd64`;
+ARM hosts need Docker's x86-64 emulation. The `ironflow-data` volume preserves
+state after the container stops.
+
+The command allows unauthenticated access for this localhost demo. For hosted
+use, configure [API authentication](docs/CLI_REFERENCE.md#api-authentication)
+and follow the [deployment guide](docs/REPLICA_DEPLOYMENT.md).
+
+### Try the REST API
+
+The Docker command above starts the API. With a downloaded binary, start it
+with `./ironflow serve --host 127.0.0.1 --port 3000` instead.
+In a second terminal (Bash or Zsh):
+
+```bash
+curl --fail http://127.0.0.1:3000/health/ready
+
+curl --fail http://127.0.0.1:3000/flows/run \
   -H "Content-Type: application/json" \
   -d '{
     "source": "local flow = Flow.new(\"hello\")\nflow:step(\"greet\", nodes.log({ message = \"Hello ${ctx.user}!\" }))\nreturn flow",
     "context": {"user": "Alice"}
   }'
-
-# Or send base64-encoded Lua to avoid JSON escaping
-curl -X POST http://127.0.0.1:3000/flows/run \
-  -H "Content-Type: application/json" \
-  -d '{
-    "source_base64": "bG9jYWwgZmxvdz1GbG93Lm5ldygiaGVsbG8iKTtmbG93OnN0ZXAoImdyZWV0Iixub2Rlcy5sb2coe21lc3NhZ2U9IkhlbGxvICR7Y3R4LnVzZXJ9ISJ9KSk7cmV0dXJuIGZsb3c=",
-    "context": {"user": "Alice"}
-  }'
 ```
+
+The response includes the run ID and status. Stop the server with **Ctrl+C**.
+Next, explore the [Lua examples](examples/README.md) and
+[CLI reference](docs/CLI_REFERENCE.md). Prefer compiling locally? See
+[Build from source](docs/GETTING_STARTED.md#build-from-source).
 
 ## Configuration
 
@@ -418,6 +453,14 @@ write `"\\${ctx.value}"`.
 
 ### Function handlers
 
+Code nodes and function handlers support opt-in `context_keys` selection to
+exclude unused large values from Lua conversion. The default remains the full
+context, selected values still share the normal conversion limits, and the small
+engine diagnostics (`_error_message`, `_error_step`, `_error_node_type`,
+`_flow_dir`) always pass through while bulky engine payloads stay
+selectable. Other node types reject the option at load time. See
+[context projection](docs/nodes/code.md).
+
 Write inline Lua logic as step handlers — no need for `nodes.code()`:
 
 ```lua
@@ -595,16 +638,28 @@ These two Linux validation jobs disable incremental compilation, limit Cargo
 to two concurrent build jobs, and use `line-tables-only` debug information for
 both development and test profiles. This reduces linked test artifact size
 while retaining file/line backtraces, debug assertions, overflow checks, and
-all existing test and lint commands. Disk and memory snapshots bracket
-validation, with final diagnostics also attempted after failure. These
-job-local settings do not change normal local development, macOS validation,
+all existing test and lint commands. These job-local settings do not change
+normal local development, macOS validation,
 or release builds. See [Cargo profiles](https://doc.rust-lang.org/cargo/reference/profiles.html)
 for the debug-information settings.
 Container publication uses a version- and digest-pinned Rust/cargo-chef builder
 so source and package-version changes retain the dependency layer, backed by a
-dedicated zstd-compressed GHCR BuildKit cache manifest. The mutable
+dedicated GHCR BuildKit cache with `mode=max`. Successful builds also update
+`:latest` on `main` and `:develop` on `develop` for convenient local use. Before
+publishing any tag, the Container workflow executes a workflow with the default
+JSON store under both the default UID and an arbitrary UID, verifies private
+store permissions, and checks persistence after container removal. Run the
+same check locally with `bun --no-env-file scripts/test_container_store.ts <image>`.
+The mutable
 `buildcache-amd64` tag is build input only; deploy the commit-tagged application
-image by its immutable digest. Release promotion creates
+image by its immutable digest. CI cancels superseded pull-request runs, while
+push runs use independent concurrency groups. The combined policy job runs
+repository, hook, module-size, and workflow lint checks.
+
+Releases build four targets with both default and full storage features. CI
+does not prebuild Windows release dependencies; release builds save caches
+for retries of the same tag. Different tags cannot reuse each other's caches,
+so Windows releases may require cold builds. Release promotion creates
 `release/X.Y.Z` from verified `develop`, finalizes the candidate there with
 `bun run scripts/development_version.ts finalize`, and merges that exact
 candidate into `main` before the stable tag. Stable versions never land on

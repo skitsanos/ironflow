@@ -1,3 +1,5 @@
+mod content;
+
 use std::collections::BTreeMap;
 
 use anyhow::Result;
@@ -62,19 +64,7 @@ fn extract_html(
     budget.inspect_html(&html)?;
 
     budget.checkpoint()?;
-    let content = match format {
-        "markdown" => html2md::parse_html(&html),
-        _ => {
-            // Strip HTML tags for plain text — sanitize with ammonia then strip.
-            let clean = ammonia::clean(&html);
-            budget.checkpoint()?;
-            html2md::parse_html(&clean)
-                .lines()
-                .map(str::trim)
-                .collect::<Vec<_>>()
-                .join("\n")
-        }
-    };
+    let content = content::extract(&html, format, execution, &budget)?;
     budget.checkpoint()?;
     budget.charge_output(content.len() as u64, "HTML content")?;
 

@@ -154,8 +154,9 @@ async fn async_flow_loader_observes_the_enclosing_step_deadline() {
     .expect("async flow loader did not stop at its deadline")
     .expect_err("infinite top-level Lua must fail");
 
+    // Source reads can add path context before the Lua VM starts.
     assert!(
-        error.to_string().contains("step deadline exceeded"),
+        format!("{error:#}").contains("step deadline exceeded"),
         "{error:#}"
     );
 }

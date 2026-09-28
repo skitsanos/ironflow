@@ -61,6 +61,19 @@ impl ExecutionOverlay {
         self.redactor.redact_text(text)
     }
 
+    /// Redact a diagnostic string that may reach logs, events, persisted task
+    /// state, or a parent workflow.
+    ///
+    /// Overlay secrets are replaced first, then URL spans and DSN-style
+    /// credential assignments. The order matters: an overlay secret that is a
+    /// whole connection string must be matched intact. Running the URL
+    /// scrubber first would strip only the userinfo, after which the overlay
+    /// value no longer matches and the host and path would leak. Every
+    /// diagnostic sink must use this single order.
+    pub(crate) fn redact_diagnostic(&self, text: &str) -> String {
+        crate::util::sensitive_url::redact_sensitive_text(&self.redact_text(text))
+    }
+
     pub(crate) fn strip_from_context(&self, context: &mut Context) {
         for key in self.values.keys() {
             context.remove(key);
@@ -105,5 +118,26 @@ mod tests {
         assert!(matches!(&redacted, Cow::Owned(_)));
         assert!(!redacted.contains_key("_headers"));
         assert_eq!(redacted["copy"], "[REDACTED]");
+    }
+
+    #[test]
+    fn diagnostic_redaction_matches_whole_connection_string_before_url_scrubbing() {
+        let secret = "https://user:hunter2@example.com/path";
+        let overlay = ExecutionOverlay::new(Context::from([(
+            "_database_url".to_string(),
+            serde_json::json!(secret),
+        )]));
+        let diagnostic = format!("connect failed for {secret} (timeout)");
+
+        let redacted = overlay.redact_diagnostic(&diagnostic);
+
+        assert_eq!(redacted, "connect failed for [REDACTED] (timeout)");
+        assert!(!redacted.contains("hunter2"), "{redacted}");
+        assert!(!redacted.contains("example.com"), "{redacted}");
+        // The reverse order is exactly the leak this method exists to prevent.
+        let reversed = overlay.redact_text(&crate::util::sensitive_url::redact_sensitive_text(
+            &diagnostic,
+        ));
+        assert!(reversed.contains("example.com"), "{reversed}");
     }
 }

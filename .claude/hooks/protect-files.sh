@@ -12,7 +12,7 @@ fi
 case "$FILE_PATH" in
   .env.example|*/.env.example)
     ;;
-  */.env|*/.env.*|*/secrets/*|*/.git/*)
+  .env|*/.env|.env.*|*/.env.*|secrets/*|*/secrets/*|.git/*|*/.git/*)
     echo "Blocked: $FILE_PATH is protected and must not be edited directly." >&2
     exit 2
     ;;

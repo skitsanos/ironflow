@@ -873,6 +873,11 @@ Features:
 ## Semantic Chunking
 
 The `ai_chunk_semantic` providers feed a shared sentence-boundary pipeline.
+OpenAI, OAuth, and Ollama share the same bounded sequential embedding batches
+with `ai_embed`. Vectors are validated and restored to input order before one
+global semantic pass; batch boundaries never partition topic detection. Per-batch
+retries do not checkpoint the node: an outer workflow retry restarts every batch.
+Response-byte and total-vector limits bound materialization, not process RSS.
 It averages adjacent embedding cosine distances, smooths the curve, and selects
 positive interior distance peaks, not distance minima. Relative percentile
 filtering favors stronger peaks; increasing `threshold` admits weaker candidates
@@ -910,6 +915,18 @@ Context is a `HashMap<String, serde_json::Value>` that flows through the entire 
   History truncation cannot change child output or carried repeat state. The
   existing Lua memory/conversion limits still apply; this handoff is neither a
   global context-memory cap nor durable recovery storage.
+- Live failed child results include up to eight unresolved errors in task-name
+  order (128-byte names, 768-byte messages, UTF-8-safe truncation after full
+  redaction). Recovered failures are omitted. Waiting, parallel, repeat and
+  tool callers preserve these reasons without fetching persisted task history.
+- Code nodes and function handlers may opt into `context_keys` projection.
+  Only selected literal top-level keys, plus the four small engine
+  diagnostics (`_error_message`, `_error_step`, `_error_node_type`,
+  `_flow_dir`), are cloned for the worker; bulky engine payloads such as
+  `_error_output` and invocation overlays must be listed, then one conversion budget counts the root and all selected values
+  at original depths. Omitting projection preserves full-context behavior,
+  including for foreach's shared sandbox setup. Flow extraction rejects
+  `context_keys` on any other node type instead of ignoring it.
 - Public run handles retain their run-ID-only wait/cancel API and detach-on-drop
   behavior, without retaining a live completion payload. Internal child waiters
   request cancellation when their parent future is dropped.

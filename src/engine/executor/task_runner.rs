@@ -176,9 +176,9 @@ impl WorkflowEngine {
                     } else {
                         prepare_failure_output(&mut e, runtime.execution_overlay)
                     };
-                    let diagnostic =
-                        crate::util::sensitive_url::redact_sensitive_text(&format!("{:#}", e));
-                    let err_msg = runtime.execution_overlay.redact_text(&diagnostic);
+                    let err_msg = runtime
+                        .execution_overlay
+                        .redact_diagnostic(&format!("{e:#}"));
                     warn!(task = %step.name, attempt = attempt, error = %err_msg, "Task attempt failed");
 
                     task_state.status = TaskStatus::Failed;

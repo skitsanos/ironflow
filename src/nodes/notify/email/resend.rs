@@ -49,7 +49,7 @@ pub(super) async fn send(config: &serde_json::Value, ctx: &Context) -> Result<No
 
     let status = response.status().as_u16();
     let success = response.status().is_success();
-    let body = crate::util::provider_http::notification_response_text(response)
+    let body = crate::util::provider_http::bounded_response_text(response)
         .await
         .map_err(|error| {
             anyhow::anyhow!(

@@ -12,9 +12,10 @@ or replays a query to continue a cursor.
 | `url` | string | No* | — | ArangoDB server URL (e.g. `http://localhost:8529`) |
 | `database` | string | No* | — | Database name |
 | `action` | string | No | `"query"` | `query`, `next`, or `close` |
-| `query` | string | For `query` | — | AQL query string; runtime values belong in `bindVars` |
+| `query` | string | For `query` | — | AQL query string; runtime values belong in `bindVars` or `bindVars_key` |
 | `cursor_id` | string | For `next`/`close` | — | Cursor ID returned by an earlier batch. Accepts 1-128 ASCII letters, digits, underscores, or hyphens; never a URL or path. |
-| `bindVars` | object | No | — | Bind variables, used only by `query` |
+| `bindVars` | object | No | — | Literal bind object; string values support interpolation. Used only by `query`; mutually exclusive with `bindVars_key`. |
+| `bindVars_key` | non-empty string | No | — | Literal top-level context key containing the complete typed bind object. No interpolation or nested-path lookup. Used only by `query`; mutually exclusive with `bindVars`. |
 | `batchSize` | positive integer | No | Server default | Max results per batch, set when creating a cursor |
 | `ttl` | positive number | No | Server default | Cursor time-to-live in seconds, set when creating a cursor |
 | `timeout` | number | No | `30` | HTTP request timeout in seconds |
@@ -106,7 +107,28 @@ Connection/authentication strings, `action`, `cursor_id`, and values inside
 `bindVars` support `${ctx.key}` interpolation. Numeric options also accept numeric
 strings or context templates. The output prefix is literal. Context interpolation
 inside the AQL query itself is rejected; use `@var` placeholders and `bindVars`
-to avoid injection.
+or `bindVars_key` to avoid injection.
+
+### Typed Context Binds
+
+`bindVars_key = "aql_binds"` copies the complete object at `ctx.aql_binds`
+into the request's `bindVars`. Arrays, objects, numbers, booleans, null values,
+and strings retain their JSON types, including nested values and collection
+bind names such as `"@collection"`. Strings within this context object are data:
+even `${ctx.other}` is sent unchanged, not interpolated a second time.
+
+The key is a literal top-level context key, not `${ctx.aql_binds}` or a dotted
+path. A missing key, an empty/whitespace-only or non-string key parameter, or a
+context value that is not an object fails before sending a query. Empty objects
+are valid; `null` is valid inside a bind object but not as the whole object.
+Providing both `bindVars` and `bindVars_key` fails for every action, even if one
+is `null`. With a single bind source, `next` and `close` do not read or resend it.
+
+Existing `bindVars` behavior is unchanged: typed literals remain typed and
+string placeholders remain strings. For example, `docs = "${ctx.docs}"` still
+sends JSON text when `ctx.docs` is an array. `{ key = "docs" }` remains a literal
+object, not a per-variable context reference. Use `bindVars_key` for typed
+runtime data; no `JSON_PARSE` or `TO_NUMBER` is necessary in AQL.
 
 ## Examples
 
@@ -154,6 +176,39 @@ flow:step("find_user", nodes.arangodb_aql({
     output_key = "result"
 }))
 ```
+
+### Typed Document Ingestion
+
+The runnable [aql_typed_bind_vars.lua](../../examples/12-arangodb/aql_typed_bind_vars.lua)
+builds a bind object in a preceding code step and performs a read-only query
+over its document array. It requires an ArangoDB connection but no collection.
+
+For ingestion, prepare the same object with `docs` (array), `limit` (number),
+and `enabled` (boolean) under `ctx.ingest_binds`, then use:
+
+```lua
+flow:step("upsert_documents", nodes.arangodb_aql({
+    query = [[FOR d IN @docs
+        FILTER @enabled
+        LIMIT @limit
+        UPSERT { _key: d._key }
+        INSERT d UPDATE d IN documents
+        RETURN NEW._key]],
+    bindVars_key = "ingest_binds",
+    output_key = "ingested"
+})):depends_on("prepare")
+```
+
+This ingestion variant writes to the existing `documents` collection. The
+query text stays static; the bind object carries the typed runtime values.
+Cursor lifecycle and cleanup obligations still apply if the result spans more
+than one batch.
+
+For a local acceptance check, build IronFlow, make `arangodb:latest` available
+in Docker, and run `bun --no-env-file scripts/test_arango_typed_binds.ts`.
+The script creates an authenticated, loopback-only disposable server and verifies
+typed insert/update UPSERTs, numeric limits, boolean filtering, and this example.
+It removes only its owned container, anonymous volumes, and temporary files.
 
 ### Explicit connection (overrides env)
 

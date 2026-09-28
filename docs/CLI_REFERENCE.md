@@ -2,6 +2,9 @@
 
 Complete reference for all commands, flags, and environment variables.
 
+For binary downloads, Docker images, and a first workflow, start with
+[Getting started](GETTING_STARTED.md).
+
 ---
 
 ## Global Options
@@ -338,6 +341,44 @@ preflights both selected SQL URLs before opening either store, in standalone
 and replica mode. SQL URL settings are ignored when their corresponding backend
 is not SQL. See [Replica deployment](REPLICA_DEPLOYMENT.md) for the shared-store
 operator contract.
+
+### Encrypted shared stores
+
+Source builds with `--features postgres` enable SQLx Rustls/ring TLS; builds
+with `--features redis` enable Tokio-Rustls and native certificate roots. The
+`ironflow` binary installs the ring provider once at startup, before the Tokio
+runtime is built, so every TLS client in the process (shared stores and the
+`db_query`/`db_exec` nodes alike) sees the same provider. The library also
+installs it, idempotently, when a store or SQL node builds its first TLS
+client, so embedders that never call `ironflow::initialize_tls_provider()`
+still get a connection error rather than a panic; calling it before building
+a runtime is recommended when other Rustls clients are built first, and a
+provider the embedding application already installed is preserved. Both
+features are included with `--features postgres,redis`.
+Existing v1.18.1 and earlier release
+binaries do not include this support; use a build containing the IF-137 fix.
+
+For PostgreSQL, use `?sslmode=verify-full&sslrootcert=/path/to/ca.pem` on
+`IRONFLOW_STORE_URL` and `IRONFLOW_EVENT_STORE_URL`. `verify-ca` checks the CA
+without checking the hostname. `require` encrypts but does not authenticate the
+server certificate; prefer `verify-full`. No setting is silently changed and
+no fallback to plaintext is added by IronFlow.
+
+For Redis, set `REDIS_URL=rediss://host:6379/0`. Certificate and hostname
+verification are enabled. Native trust roots are used by default; `SSL_CERT_FILE`
+can select a PEM CA bundle (with optional `SSL_CERT_DIR`). These process-wide
+trust overrides replace platform roots for clients using native-certs. The
+`#insecure` bypass is not compiled in. Use `redis://` only where an explicitly
+approved unencrypted connection is appropriate.
+
+Run `bun --no-env-file scripts/test_store_tls.ts target/debug/ironflow` after building
+the combined feature binary to test disposable TLS-only stores, CLI and API
+workflows, restart persistence, `db_query` over `require`/`verify-ca`/`verify-full`
+with the default store, and rejection of wrong CAs/hostnames/plaintext. The
+script removes its containers and key material on completion and on
+SIGINT/SIGTERM.
+
+### JSON file storage
 
 The JSON backend accepts only the canonical run IDs above, confines record and
 summary names to `store_dir`, and rejects a store root or run-related entry that
@@ -1049,7 +1090,8 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_LLM_MAX_IMAGE_INPUT_BYTES` | `52428800` | Maximum cumulative raw image-artifact bytes resolved for one LLM request |
 | `IRONFLOW_LLM_MAX_IMAGE_ARTIFACTS` | `32` | Maximum image-artifact blocks resolved for one LLM request |
 | `IRONFLOW_MAX_TRANSCRIBE_RESPONSE_BYTES` | `26214400` | Maximum transcription-provider response body. Checked while streaming even when `Content-Length` is absent or wrong; zero/invalid values retain the safe default. |
-| `IRONFLOW_MAX_HTTP_BODY_BYTES` | `52428800` | Maximum HTTP node, ArangoDB Cursor API, Slack, or Resend response body bytes, raw artifact upload, or complete multipart request size. Declared sizes are checked up front and actual sizes while streaming; multipart admission includes conservative generated-framing allowance. Response text/JSON decoding can use additional memory. Does not apply to SMTP. |
+| `IRONFLOW_MAX_HTTP_BODY_BYTES` | `52428800` | Maximum HTTP node, embedding, ArangoDB Cursor API, Slack, or Resend response body bytes, raw artifact upload, or complete multipart request size. Declared sizes are checked up front and actual sizes while streaming; multipart admission includes conservative generated-framing allowance. Response text/JSON decoding can use additional memory. Does not apply to SMTP or OAuth token responses. |
+| `IRONFLOW_MAX_EMBEDDING_VALUES` | `16777216` | Maximum total scalar values across one `ai_embed` or `ai_chunk_semantic` vector matrix, not per batch. Default equals 128 MiB of raw `f64` values; parsing, JSON, containers, and semantic processing use additional memory. Invalid or zero values retain the default. |
 | `IRONFLOW_MAX_FILE_BYTES` | `52428800` | Maximum `read_file` payload and final `write_file` size (including an existing file in append mode), streamed `s3_get_object` response body, HTML/SRT/VTT extraction input, and raw DOCX/PPTX archive size |
 | `IRONFLOW_MAX_IMAGE_ENCODED_BYTES` | `52428800` | Maximum encoded bytes for one image path, artifact, or decoded Base64 source, checked before image pixel allocation |
 | `IRONFLOW_MAX_IMAGE_PIXELS` | `25000000` | Maximum decoded pixels in one source image or generated image transform |
@@ -1067,7 +1109,7 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_ARTIFACT_S3_FORCE_PATH_STYLE` | `false` | Strict `true`/`false` path-style addressing switch for compatible services. |
 | `IRONFLOW_MAX_AUDIO_BYTES` | `25000000` | Maximum size of the audio/video file `transcribe` reads from disk before uploading it to the provider |
 | `IRONFLOW_MAX_CONVERSION_DEPTH` | `64` | Maximum nesting depth when converting values between JSON and Lua, and when admitting a verbose-JSON `transcribe` response before materialization |
-| `IRONFLOW_MAX_CONVERSION_NODES` | `100000` | Maximum total values converted between JSON and Lua in one conversion, also applied before a verbose-JSON `transcribe` response is materialized. A step handler converts the whole accumulated run context, not only the keys it reads, so a large fan-out can reach this in a step that never touched the data |
+| `IRONFLOW_MAX_CONVERSION_NODES` | `100000` | Maximum total values converted between JSON and Lua in one conversion, also applied before a verbose-JSON `transcribe` response is materialized. Handlers convert the whole context by default; code nodes and function handlers may opt into `context_keys` to exclude unused values. The root and all selected values still share one cumulative budget |
 | `IRONFLOW_MAX_SHELL_OUTPUT_BYTES` | `10485760` | Maximum captured bytes for each shell output stream and each MCP stdio JSON-RPC frame; the input frame budget is cumulative across partial reads and includes the newline delimiter |
 | `IRONFLOW_MAX_TASK_OUTPUT_BYTES` | `2097152` | Maximum serialized task output or individual final context value persisted for inspection before replacement with a truncation marker; does not truncate live child results or carried repeat state. The aborting counter reports `_minimum_bytes = limit + 1` rather than an exact rejected size |
 | `IRONFLOW_MAX_DIRECTORY_ENTRIES` | `10000` | Maximum entries returned by a directory listing |
@@ -1075,9 +1117,9 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_MAX_ZIP_ENTRIES` | `10000` | Maximum entries processed by archive nodes and OOXML extractors (`extract_word`, `extract_pptx`, `extract_xlsx`); `zip_list`/`zip_extract` count raw entries before deduplication, and `zip_create` counts every visited child file and directory |
 | `IRONFLOW_MAX_ZIP_METADATA_BYTES` | `8388608` | Maximum cumulative raw filename, extra-field, file/archive-comment, and ZIP64 end-record extension bytes for `zip_list` and `zip_extract`, checked before ZIP construction; overridden by node `max_metadata_bytes`. Not a compressed payload or total memory cap |
 | `IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES` | `536870912` | Maximum total uncompressed bytes processed by archive nodes. For DOCX/PPTX it caps cumulative declared package bytes and cumulative actual bytes of parts read; for `extract_xlsx` it also caps the raw workbook before ZIP metadata allocation |
-| `IRONFLOW_MAX_PDF_BYTES` | `104857600` | Maximum size of each PDF accepted by rendering, metadata, splitting, merging, and `extract_pdf`; capped readers reject post-open growth where the parser API permits |
+| `IRONFLOW_MAX_PDF_BYTES` | `104857600` | Maximum size of each PDF accepted by rendering, metadata, splitting, merging, and `extract_pdf`; capped readers reject post-open growth where the parser API permits. Also caps each staged `pdf_split` output when `pages_per_file > 1` |
 | `IRONFLOW_MAX_PDF_DECOMPRESSED_STREAM_BYTES` | `67108864` | Per object/cross-reference stream decoded-byte limit for `extract_pdf`, `pdf_metadata`, `pdf_split`, and `pdf_merge`; strict loading and bounded recovery checks reject oversized streams. Not a cumulative memory cap; see [PDF loading](PDF_LOADING.md) |
-| `IRONFLOW_MAX_PDF_OBJECTS` | `250000` | Per-source loaded document objects for those four nodes, checked after parsing and before downstream work; not a preallocation guard or the merged-output object limit |
+| `IRONFLOW_MAX_PDF_OBJECTS` | `250000` | Per-source loaded document objects for those four nodes, checked after parsing, not a parser preallocation guard. Also caps each grouped `pdf_split` graph during collection, including its new tree and catalog; separate from the merged-output object limit |
 | `IRONFLOW_MAX_PDF_MERGE_FILES` | `100` | Maximum number of sources admitted by one `pdf_merge` call before source descriptors are collected |
 | `IRONFLOW_MAX_PDF_MERGE_BYTES` | `536870912` | Maximum cumulative PDF input bytes and maximum staged merged output bytes for one `pdf_merge` call |
 | `IRONFLOW_MAX_PDF_MERGE_PAGES` | `2000` | Maximum cumulative pages admitted by one `pdf_merge` call |
@@ -1086,7 +1128,7 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_MAX_EXTRACT_ITEMS` | `250000` | Maximum cumulative structural/work items for one non-XLSX extraction call; units are format-specific and documented on each extract node |
 | `IRONFLOW_MAX_PDF_EXTRACT_PAGES` | `1000` | Maximum pages accepted by one `extract_pdf` call before text extraction begins |
 | `IRONFLOW_MAX_PDF_RENDER_PAGES` | `25` | Maximum pages rendered by one PDF node call |
-| `IRONFLOW_MAX_PDF_SPLIT_PAGES` | `1000` | Maximum selected pages materialized by one `pdf_split` call; page specifications are rejected before collecting more indices |
+| `IRONFLOW_MAX_PDF_SPLIT_PAGES` | `1000` | Maximum selected pages materialized by one `pdf_split` call; page specifications are rejected before collecting more indices. Also the maximum configured `pages_per_file` |
 | `IRONFLOW_MAX_PDF_RENDER_PIXELS` | `25000000` | Maximum pixels in one rendered PDF page |
 | `IRONFLOW_MAX_PDF_DPI` | `300` | Maximum PDF rendering DPI |
 | `IRONFLOW_MAX_XLSX_ARCHIVE_METADATA_BYTES` | `8388608` | Maximum cumulative XLSX central-directory filename, extra-field, file/archive-comment, and ZIP64 end-record extension bytes, checked without materializing those fields before ZIP/Calamine construction |

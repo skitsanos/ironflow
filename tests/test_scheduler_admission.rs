@@ -17,7 +17,7 @@ use ironflow::scheduler::config::ScheduleConfig;
 #[path = "support/scheduler.rs"]
 mod scheduler_support;
 
-use scheduler_support::{build_executor, wait_for_terminal};
+use scheduler_support::{build_controlled_executor, wait_for_terminal};
 
 #[tokio::test]
 async fn the_admission_permit_is_held_for_the_runs_real_duration() {
@@ -37,7 +37,7 @@ async fn the_admission_permit_is_held_for_the_runs_real_duration() {
     )
     .unwrap();
 
-    let app = build_executor(flows.path());
+    let (app, delay) = build_controlled_executor(flows.path());
     let schedule =
         ScheduleConfig::new("slow.lua", "0 2 * * *", Some("UTC"), None, Context::new()).unwrap();
 
@@ -46,14 +46,16 @@ async fn the_admission_permit_is_held_for_the_runs_real_duration() {
         "capacity should be available before any run starts"
     );
 
-    let started = std::time::Instant::now();
-    let run_id = app.executor.run("slow", &schedule).await.unwrap();
-    let elapsed = started.elapsed();
-    assert!(
-        elapsed < std::time::Duration::from_millis(1500),
-        "run() blocked for {elapsed:?}; it must return once the run has started, \
-         not once the 2-second delay step has finished"
-    );
+    let run_id = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        app.executor.run("slow", &schedule),
+    )
+    .await
+    .expect("run() waited for task completion")
+    .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(30), delay.started.notified())
+        .await
+        .expect("detached task did not start");
 
     // The assertion that matters: this can only hold if the permit acquired
     // inside `run()` moved into the spawned task rather than being dropped
@@ -65,6 +67,7 @@ async fn the_admission_permit_is_held_for_the_runs_real_duration() {
         "the permit must still be held while the run is in flight"
     );
 
+    delay.release.notify_one();
     let status = wait_for_terminal(&app.store, &run_id).await;
     assert_eq!(status, RunStatus::Success);
 
@@ -72,7 +75,7 @@ async fn the_admission_permit_is_held_for_the_runs_real_duration() {
     // shutdown. Admission deliberately covers that complete supervised
     // lifecycle, so wait for the detached waiter to settle instead of treating
     // the first observable terminal read as the permit-release instant.
-    tokio::time::timeout(std::time::Duration::from_secs(1), async {
+    tokio::time::timeout(std::time::Duration::from_secs(30), async {
         loop {
             if app.executor.has_capacity() {
                 break;

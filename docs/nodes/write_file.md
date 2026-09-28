@@ -34,6 +34,10 @@ file. A canonical artifact URI stored as a context string requires
   Portable platforms revalidate the destination immediately before an OS-level
   atomic replacement, but cannot close a hostile parent-directory swap race;
   protect destination trees from same-identity mutation.
+- Configured parent-directory aliases, including macOS `/tmp`, are resolved
+  before staging. Unix pins the resolved directory, so retargeting the alias
+  afterward cannot redirect that write. This is not permission to follow a
+  destination-file symlink or an archive entry's symlinked subdirectory.
 
 Artifact descriptors are backend-neutral. Local mode requires the same
 protected `IRONFLOW_ARTIFACT_DIR` on every possible consumer. S3 mode restores

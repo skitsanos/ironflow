@@ -21,6 +21,9 @@ pub(super) struct Operation {
 
 impl Operation {
     pub(super) fn parse(config: &Value, ctx: &Context) -> Result<Self> {
+        if config.get("bindVars").is_some() && config.get("bindVars_key").is_some() {
+            bail!("arangodb_aql bindVars and bindVars_key are mutually exclusive");
+        }
         let action = match config.get("action") {
             None => Action::Query,
             Some(Value::String(value)) => match interpolate_ctx(value, ctx).as_str() {
@@ -54,7 +57,7 @@ impl Operation {
             bail!(
                 "arangodb_aql: the query must not interpolate context values with \
                 '${{ctx...}}' (AQL injection risk). Supply runtime values via \
-                'bindVars' with @var placeholders instead."
+                'bindVars' or 'bindVars_key' with @var placeholders instead."
             );
         }
         let mut body = json!({"query": interpolate_ctx(query, ctx)});
@@ -63,6 +66,21 @@ impl Operation {
                 bail!("arangodb_aql bindVars must be an object");
             }
             body["bindVars"] = interpolate_value(bind_vars, ctx);
+        } else if let Some(key) = config.get("bindVars_key") {
+            let key = key
+                .as_str()
+                .filter(|key| !key.trim().is_empty())
+                .ok_or_else(|| {
+                    anyhow::anyhow!("arangodb_aql bindVars_key must be a non-empty string")
+                })?;
+            let bind_vars = ctx.get(key).ok_or_else(|| {
+                anyhow::anyhow!("arangodb_aql bindVars_key references a missing context value")
+            })?;
+            if !bind_vars.is_object() {
+                bail!("arangodb_aql bindVars_key must reference a context object");
+            }
+            // Context objects are data, including any template-looking strings.
+            body["bindVars"] = bind_vars.clone();
         }
         if let Some(batch_size) = config_u64_strict(config, "batchSize", ctx)? {
             if batch_size == 0 {

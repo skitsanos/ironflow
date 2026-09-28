@@ -13,6 +13,9 @@ fn main() {
         Ok(path) => path,
         Err(error) => exit_with_error(error),
     };
+    // Process-wide: every TLS client (stores, SQL nodes, Redis) relies on the
+    // Rustls default provider being installed before the runtime starts.
+    ironflow::initialize_tls_provider();
 
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)

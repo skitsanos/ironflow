@@ -11,6 +11,9 @@ Split text into semantic chunks using embedding similarity to detect topic bound
 | `provider` | string | No | `"openai"` | Embedding provider: `"openai"`, `"ollama"`, `"oauth"` |
 | `model` | string | No | per provider | Model name (same defaults as `ai_embed`) |
 | `timeout` | number | No | `120` | HTTP request timeout in seconds |
+| `batch_size` | number/string | No | `512` | Maximum sentences per embedding request, `1`-`2048`; accepts context interpolation |
+| `batch_max_bytes` | number/string | No | `262144` | Maximum combined UTF-8 sentence bytes per batch, `1`-`52428800`; accepts context interpolation |
+| `batch_retries` | number/string | No | `2` | Additional transient-error attempts per batch, `0`-`5`; accepts context interpolation |
 | `sim_window` | number | No | `3` | Window for averaging adjacent sentence cosine distances (odd, >= 3) |
 | `sg_window` | number | No | `11` | Savitzky-Golay smoothing window (odd) |
 | `poly_order` | number | No | `3` | Savitzky-Golay polynomial order |
@@ -28,6 +31,16 @@ scheme, host, and effective port, with at most 10 hops. Cross-origin redirects
 fail before replaying credentials or source text; automatic `Referer` is disabled.
 Configure the final provider endpoint explicitly when its origin changes.
 
+Sentence embeddings share [`ai_embed`'s batching, retry, ordering, and resource
+limits](ai_embed.md#batching-and-limits), including the response-body ceiling and
+cumulative `IRONFLOW_MAX_EMBEDDING_VALUES` budget. All batches are concatenated
+before one global boundary-detection pass. A batch edge is not a topic boundary;
+this node returns chunk strings, not the sentence vectors. Input count, sentence
+length, and model limits matter, not document page count. A sentence exceeding the
+byte budget fails without being silently truncated; byte budgets are not exact
+token counts. Workflow step retries restart all batches, while batch-local retries
+repeat only the failing request.
+
 ## Context Output
 
 | Key | Type | Description |
@@ -39,7 +52,7 @@ Configure the final provider endpoint explicitly when its origin changes.
 ## Algorithm
 
 1. Split text into sentences (`.!?` followed by ASCII whitespace or end of input)
-2. Embed all sentences using the selected provider
+2. Embed sentences in bounded sequential batches using the selected provider, then concatenate the ordered vectors
 3. Compute a distance at each sentence gap: `1 - average cosine similarity` of adjacent sentence pairs in a local window
 4. Apply Savitzky-Golay smoothing to the distance curve
 5. Detect positive interior local maxima with near-zero first derivative and negative curvature; a flat-topped peak contributes one center point (left center for even widths)

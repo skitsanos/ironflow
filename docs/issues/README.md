@@ -6,7 +6,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts generate` and verified with
 `bun run scripts/issues_registry.ts check`.
 
-- Total findings: 132
+- Total findings: 150
 - Active findings: 0
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
@@ -144,3 +144,21 @@ priority, area, and title. The registry is generated with
 | [IF-130](./IF-130.md) | P2 | Resolved | ZIP/admission | ZIP duplicate handling and entry limits occur after deduplicating metadata |
 | [IF-131](./IF-131.md) | P2 | Resolved | S3/copy correctness | S3 copy source keys are not URL-encoded |
 | [IF-132](./IF-132.md) | P2 | Resolved | Artifact/cancellation | A continuously progressing artifact download delays cancellation until EOF |
+| [IF-133](./IF-133.md) | P2 | Resolved | Documents/HTML extraction | `extract_html` markdown mode leaks head, style and script content |
+| [IF-134](./IF-134.md) | P3 | Resolved | Files/write_file | File-writing nodes disagree about symlinked destination roots |
+| [IF-135](./IF-135.md) | P2 | Resolved | Workflow composition | A failed sub-workflow reports only its status, not the failing task's error |
+| [IF-136](./IF-136.md) | P2 | Resolved | Lua runtime/conversion | Step handlers convert the entire run context under the JSON-to-Lua budget |
+| [IF-137](./IF-137.md) | P1 | Resolved | Storage/Postgres | Postgres and Redis stores cannot connect over TLS: sqlx has no TLS feature |
+| [IF-138](./IF-138.md) | P3 | Resolved | Database/ArangoDB | `arangodb_aql` bind variables from context are always strings |
+| [IF-139](./IF-139.md) | P1 | Resolved | Files/write safety | Base64 file output follows destination symlinks and truncates their targets |
+| [IF-140](./IF-140.md) | P1 | Resolved | Nodes/security | `copy_file` writes through destination symlinks; `move_file` bypasses the destination policy |
+| [IF-141](./IF-141.md) | P1 | Resolved | Storage/TLS | `db_query`/`db_exec` panic on PostgreSQL `sslmode=verify-ca` in feature builds |
+| [IF-142](./IF-142.md) | P2 | Resolved | Nodes | `subworkflow_error` persists after a later successful subworkflow |
+| [IF-143](./IF-143.md) | P2 | Resolved | Extraction | `extract_html` text mode collapsed paragraph separation to one newline |
+| [IF-144](./IF-144.md) | P2 | Resolved | Lua DSL | `context_keys` dropped recovery diagnostics and was silently ignored on non-code nodes |
+| [IF-145](./IF-145.md) | P3 | Resolved | Documents/PDF | `pdf_split` does not interpolate its `pages` parameter |
+| [IF-146](./IF-146.md) | P2 | Resolved | AI/embeddings | `ai_chunk_semantic` and `ai_embed` send all inputs in one embeddings request |
+| [IF-147](./IF-147.md) | P3 | Resolved | Documents/PDF | Native grouped PDF slices for page-limited document providers |
+| [IF-148](./IF-148.md) | P2 | Resolved | Test reliability | Scheduler startup regressions depend on wall-clock margins |
+| [IF-149](./IF-149.md) | P2 | Resolved | Test reliability | Detached-run regression uses a tight persistence watchdog |
+| [IF-150](./IF-150.md) | P1 | Resolved | Container/storage | Published container cannot secure its default JSON store directory |

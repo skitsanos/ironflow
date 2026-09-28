@@ -122,6 +122,10 @@ pub fn max_http_body_bytes() -> u64 {
     env_u64("IRONFLOW_MAX_HTTP_BODY_BYTES", DEFAULT_HTTP_BODY_BYTES)
 }
 
+pub fn max_embedding_values() -> u64 {
+    env_u64("IRONFLOW_MAX_EMBEDDING_VALUES", 16_777_216)
+}
+
 pub fn max_llm_response_bytes() -> Option<u64> {
     env_optional_u64(
         "IRONFLOW_LLM_MAX_RESPONSE_BYTES",

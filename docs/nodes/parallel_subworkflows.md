@@ -51,6 +51,20 @@ inherited by the child. Successful entries have no top-level `error` field;
 failed entries have the engine's failure description. Aggregate counts and
 flags follow those same execution outcomes.
 
+For finalized failed children, `error` includes unresolved task names and
+reasons, not just the child status. Summaries use the same redaction, ordering,
+and limits as [`subworkflow`](subworkflow.md#error-handling): at most eight
+failures, 128 bytes per name, and 768 bytes per message, with truncation markers
+and an omitted-failure count. Recovered task errors are excluded. Cancelled
+children or unavailable task details retain a status-only description;
+loading/execution errors keep their existing error-entry behavior.
+
+`on_error = "fail_fast"` collects the children before failing the parent step;
+its aggregate message includes each failed child's reason in input order,
+using the same text as the corresponding `error` entry. It does not stop the
+remaining children at the first failure. These details come from live execution,
+not a context/history reload.
+
 Without a child namespace, same-named child fields are omitted from the result.
 To retain them, use a non-reserved per-flow `output_key` (static mode) or
 `child_output_key` (dynamic mode), such as `"child"`. Then `result.success`
@@ -77,6 +91,12 @@ execution limits and parent cancellation/timeouts still apply. Large results
 remain in memory while collected; prefer artifact references for bulky payloads.
 
 ## Example
+
+[`if135_child_error_details.lua`](../../examples/11-subworkflow/if135_child_error_details.lua)
+uses its bundled [`helper`](../../examples/11-subworkflow/if135_error_child.lua)
+to demonstrate tolerated child errors without external services. It asserts
+that a failed result includes the task name and `boom: unsupported file type`,
+while a successful result has no `error` field.
 
 The offline [`parallel_result_metadata.lua`](../../examples/11-subworkflow/parallel_result_metadata.lua)
 example and its [`metadata_child.lua`](../../examples/11-subworkflow/metadata_child.lua)

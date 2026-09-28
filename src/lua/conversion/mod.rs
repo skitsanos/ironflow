@@ -1,12 +1,17 @@
 use anyhow::Result;
 use mlua::prelude::*;
 
+use crate::engine::types::Context;
+
 use self::json_to_lua::JsonToLuaConverter;
 use self::lua_to_json::LuaToJsonConverter;
 
 mod json_to_lua;
 mod lua_to_json;
 mod path;
+
+#[cfg(test)]
+mod context_tests;
 
 pub(super) const OBJECT_METATABLE_REGISTRY_KEY: &str = "__ironflow_json_object_metatable";
 
@@ -78,6 +83,11 @@ pub(crate) fn register_json_globals(lua: &Lua) -> Result<()> {
 /// and array positions survive a round trip.
 pub(crate) fn json_value_to_lua(lua: &Lua, value: &serde_json::Value) -> Result<LuaValue> {
     JsonToLuaConverter::new(lua, ConversionLimits::default()).convert(value, "$", 0)
+}
+
+/// Convert a context snapshot with one cumulative budget, including its object root.
+pub(crate) fn context_to_lua(lua: &Lua, ctx: &Context) -> Result<LuaValue> {
+    JsonToLuaConverter::new(lua, ConversionLimits::default()).convert_context(ctx)
 }
 
 /// Convert a Lua value to JSON using the default bounded conversion policy.

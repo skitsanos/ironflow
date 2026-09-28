@@ -18,7 +18,7 @@ impl RunCoordinator {
         outcome: ExecutionOutcome,
     ) -> Result<Option<ChildRunResult>> {
         let mut status = match &outcome {
-            ExecutionOutcome::Completed(status) => status.clone(),
+            ExecutionOutcome::Completed { status, .. } => status.clone(),
             ExecutionOutcome::Cancelled => RunStatus::Cancelled,
             ExecutionOutcome::Infrastructure(_) => RunStatus::Stalled,
         };
@@ -136,10 +136,18 @@ impl RunCoordinator {
                 errors.join("; ")
             ))
         } else {
+            let failure_summary = match outcome {
+                ExecutionOutcome::Completed {
+                    status: RunStatus::Failed,
+                    failure_summary,
+                } => failure_summary,
+                _ => None,
+            };
             Ok(live_ctx.map(|ctx| ChildRunResult {
                 flow_name: self.flow.name.clone(),
                 status,
                 ctx,
+                failure_summary,
             }))
         }
     }

@@ -2,6 +2,13 @@
 
 Examples organized from basic to advanced. Each folder builds on concepts from the previous ones.
 
+New to IronFlow? [Install a binary or use Docker](../docs/GETTING_STARTED.md)
+and run the [Quick Start workflow](../README.md#quick-start) first. To use this
+collection, download the repository's source archive or clone it, then run
+examples from the repository root. Release binary archives contain the
+executable only. Use examples from the matching release tag when running a
+stable release binary.
+
 ## Requirements and effects
 
 The machine-readable [`catalog.json`](catalog.json) assigns every flow one
@@ -81,6 +88,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **run_commands.lua** — Execute shell commands with args, env vars, timeout, and inspectable non-zero exits
 
 ## 07-advanced
+- **context_projection.lua** - Exclude an unused 200,000-number array from Lua handler conversion while retaining limits on selected values
 - **hashing.lua** — SHA-256 and MD5 hash computation
 - **schema_validation.lua** — Offline JSON Schema validation with a bundled customer definition
 - **json_validate.lua** — Validate raw JSON strings using a bundled schema reference
@@ -111,7 +119,8 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **image_watermark.lua** — Apply a text watermark to an image
 - **extract_html.lua** — Extract text and metadata from HTML
 - **pdf_merge.lua** — Merge verified PDF artifact descriptors sequentially into one bounded output
-- **pdf_split.lua** — Split a PDF into individual pages
+- **pdf_split.lua** — Select a runtime page range and write one PDF per selected page
+- **pdf_split_grouped.lua** — Write selected pages directly into bounded multipage slices with source-page metadata
 - **image_metadata.lua** — Extract dimensions, format, and color info from a supported image source
 
 ## 09-cache
@@ -123,6 +132,8 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **sqlite_crud.lua** — SQLite CRUD and numeric aggregate assertions using `db_exec` and `db_query`
 
 ## 11-subworkflow
+- **if135_child_error_details.lua** - Assert tolerated child errors and partial results for single and parallel calls
+- **if135_error_child.lua** - Reusable failing/successful child for the error-details example
 - **basic_subworkflow.lua** — Call a subworkflow and use its output
 - **fire_and_forget.lua** — Launch a subworkflow without waiting (async)
 - **live_child_results.lua** — Verify a full 3 MiB child result in a downstream step while CLI inspection remains truncated
@@ -138,12 +149,13 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **greet.lua** — Simple reusable helper flow used by the subworkflow examples
 
 ## 12-arangodb
+- **aql_typed_bind_vars.lua** - Preserve array, object, numeric and boolean context values as typed AQL bind variables
 - **aql_pagination.lua** — Read three batches from a five-row AQL query, preserve cursor identity, and explicitly close the cursor
 - **aql_query.lua** — Simple AQL query with environment-based credentials
 - **aql_with_bind_vars.lua** — AQL query with bind variables for parameterized queries
 
 ## 13-ai
-- **embed_openai.lua** — Text embeddings via OpenAI API
+- **embed_openai.lua** — Text embeddings via OpenAI API in bounded batches
 - **embed_ollama.lua** — Text embeddings via local Ollama
 - **embed_oauth.lua** — Text embeddings via OAuth-authenticated endpoint
 - **oauth_chat_completion.lua** — OAuth token flow + OpenAI chat completion on OAUTH_BASE_URL (`gpt-5-mini`)
@@ -175,7 +187,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **chunk_embed_openai_word.lua** — Word document → chunk → foreach → OpenAI embeddings
 - **embed_openai_from_ctx.lua** — Context-driven document path for OpenAI embeddings
 - **chunk_semantic.lua** — Semantic chunking using embedding cosine-distance peaks
-- **semantic_chunks_embed.lua** — Semantic chunking then foreach + embeddings
+- **semantic_chunks_embed.lua** — Batched sentence embeddings, global semantic chunking, then batched chunk embeddings
 - **semantic_topic_boundary.lua** — Inline two-topic text with inspectable semantic chunks; no document fixture required
 - **transcribe_index.lua** — Transcribe audio to VTT, extract cues, chunk with preserved timecodes, and embed the chunk text
 
@@ -307,14 +319,14 @@ duplicated, unclassified, or inconsistent entries.
 
 | Category | Count | Default CI execution |
 | --- | ---: | --- |
-| Offline | 42 | Fixture-backed deterministic subset |
+| Offline | 43 | Fixture-backed deterministic subset |
 | Offline with outputs/processes | 24 | Fixture-backed local-output cases and MCP stdio use isolated paths; others require isolated outputs |
 | Public/local network | 9 | No |
-| Credentialed external service | 50 | No |
+| Credentialed external service | 51 | No |
 | Server/manual HTTP or scheduler | 7 | No |
-| Composition parent/helper flow | 16 | Exercised as coordinated cases where applicable |
+| Composition parent/helper flow | 18 | Exercised as coordinated cases where applicable |
 
-All 148 flows are still parsed by `ironflow validate`. Twelve fixture-backed
+All 152 flows are still parsed by `ironflow validate`. Twelve fixture-backed
 offline flows and the local MCP stdio example also run from a disposable
 working directory as part of:
 
