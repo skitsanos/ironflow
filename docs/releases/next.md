@@ -1,6 +1,6 @@
 # Next IronFlow release — draft
 
-Proposed version: **1.19.0**, pending approval and final release qualification.
+Approved version: **1.19.0**, pending final release qualification.
 This is a minor release because it adds opt-in workflow capabilities while
 preserving existing defaults. It includes changes since v1.18.1.
 
