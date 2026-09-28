@@ -6,7 +6,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts generate` and verified with
 `bun run scripts/issues_registry.ts check`.
 
-- Total findings: 147
+- Total findings: 149
 - Active findings: 0
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
@@ -159,3 +159,5 @@ priority, area, and title. The registry is generated with
 | [IF-145](./IF-145.md) | P3 | Resolved | Documents/PDF | `pdf_split` does not interpolate its `pages` parameter |
 | [IF-146](./IF-146.md) | P2 | Resolved | AI/embeddings | `ai_chunk_semantic` and `ai_embed` send all inputs in one embeddings request |
 | [IF-147](./IF-147.md) | P3 | Resolved | Documents/PDF | Native grouped PDF slices for page-limited document providers |
+| [IF-148](./IF-148.md) | P2 | Resolved | Test reliability | Scheduler startup regressions depend on wall-clock margins |
+| [IF-149](./IF-149.md) | P2 | Resolved | Test reliability | Detached-run regression uses a tight persistence watchdog |
