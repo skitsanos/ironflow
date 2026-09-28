@@ -191,6 +191,26 @@ describe("repository integration policy", () => {
     expect(workflowSource).not.toContain("cache-to: type=gha");
   });
 
+  test("container aliases stay branch-scoped and preserve commit tags", async () => {
+    const workflow = Bun.YAML.parse(
+      await Bun.file(join(repository, ".github/workflows/container.yml")).text(),
+    ) as {
+      jobs: Record<string, { steps: Array<{ id?: string; with?: Record<string, string> }> }>;
+    };
+    const steps = workflow.jobs.publish.steps;
+    const metadata = steps.find((step) => step.id === "metadata")?.with;
+    // Never let develop or an arbitrary manually selected ref move latest.
+    expect(metadata?.flavor).toBe("latest=false");
+    expect(metadata?.tags.trim().split("\n")).toEqual([
+      "type=sha,format=long,prefix=sha-",
+      "type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}",
+      "type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}",
+    ]);
+    expect(steps.find((step) => step.id === "build")?.with?.tags).toBe(
+      "${{ steps.metadata.outputs.tags }}",
+    );
+  });
+
   test("active Rust toolchain pins stay aligned", async () => {
     const toolchainSource = await Bun.file(join(repository, "rust-toolchain.toml")).text();
     const toolchain = Bun.TOML.parse(toolchainSource) as { toolchain: { channel: string } };

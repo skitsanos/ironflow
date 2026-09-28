@@ -2,6 +2,13 @@
 
 Examples organized from basic to advanced. Each folder builds on concepts from the previous ones.
 
+New to IronFlow? [Install a binary or use Docker](../docs/GETTING_STARTED.md)
+and run the [Quick Start workflow](../README.md#quick-start) first. To use this
+collection, download the repository's source archive or clone it, then run
+examples from the repository root. Release binary archives contain the
+executable only. Use examples from the matching release tag when running a
+stable release binary.
+
 ## Requirements and effects
 
 The machine-readable [`catalog.json`](catalog.json) assigns every flow one

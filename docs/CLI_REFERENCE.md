@@ -2,6 +2,9 @@
 
 Complete reference for all commands, flags, and environment variables.
 
+For binary downloads, Docker images, and a first workflow, start with
+[Getting started](GETTING_STARTED.md).
+
 ---
 
 ## Global Options
