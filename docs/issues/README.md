@@ -7,7 +7,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts check`.
 
 - Total findings: 150
-- Active findings: 1
+- Active findings: 0
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
 | ID | Priority | Status | Area | Summary |
@@ -161,4 +161,4 @@ priority, area, and title. The registry is generated with
 | [IF-147](./IF-147.md) | P3 | Resolved | Documents/PDF | Native grouped PDF slices for page-limited document providers |
 | [IF-148](./IF-148.md) | P2 | Resolved | Test reliability | Scheduler startup regressions depend on wall-clock margins |
 | [IF-149](./IF-149.md) | P2 | Resolved | Test reliability | Detached-run regression uses a tight persistence watchdog |
-| [IF-150](./IF-150.md) | P1 | Open | Container/storage | Published container cannot secure its default JSON store directory |
+| [IF-150](./IF-150.md) | P1 | Resolved | Container/storage | Published container cannot secure its default JSON store directory |

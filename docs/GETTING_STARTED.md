@@ -155,11 +155,19 @@ try the [Quick Start API request](../README.md#try-the-rest-api).
 Stop the server with **Ctrl+C**, or run `docker stop ironflow` in another
 terminal. The named `ironflow-data` volume keeps files under `/data`, including
 run history at `/data/state/runs`, when the container is removed. Reuse the same
-volume and store-directory setting on your next run. This path lets the
-container user create and own the private JSON store directory; the image
-pre-creates `/data/runs` as root, so using that default can fail when the
-store tightens its permissions. Remove the volume with `docker volume rm ironflow-data`
-only when you want to delete that local demo's stored data.
+volume and store-directory setting on your next run. The explicit path also
+works with older images that pre-created `/data/runs` as root. New images let
+the runtime UID create the default `/data/runs` with private `0700` permissions.
+Remove the volume with `docker volume rm ironflow-data` only when you want to
+delete that local demo's stored data.
+
+Updating the image does not repair an existing root-owned store directory.
+Stop all writers and back up the volume before an operator corrects ownership
+for the intended runtime UID, or select a new runtime-owned directory and
+migrate the retained state offline. Do not loosen the store's `0700` directory
+or `0600` file permissions. Reusing a JSON volume requires the same owning UID;
+arbitrary-UID containers can initialize fresh volumes, while replicas should
+use the shared storage described in the [deployment guide](REPLICA_DEPLOYMENT.md).
 
 ### Run a workflow file
 

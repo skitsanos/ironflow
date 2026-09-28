@@ -148,6 +148,14 @@ both forms contain rendered secret values.
 
 ## OpenShift
 
+The image leaves the default JSON store directory absent so a non-root runtime
+UID can create and own it with private permissions. Fresh named volumes work
+with the default UID or an arbitrary UID in group 0. This does not make a JSON
+volume portable between UIDs or suitable for replica sharing: use PostgreSQL
+or Redis for the replica configuration below. Existing root-owned JSON store
+directories require an offline, backed-up ownership migration or a new store
+path; an image update alone does not repair their ownership.
+
 The image's writable paths are root-group writable and it can run with the
 arbitrary UID assigned by OpenShift's restricted SCC. Do not set a fixed
 `runAsUser` solely for IronFlow and do not grant `anyuid`.

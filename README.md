@@ -645,7 +645,12 @@ for the debug-information settings.
 Container publication uses a version- and digest-pinned Rust/cargo-chef builder
 so source and package-version changes retain the dependency layer, backed by a
 dedicated GHCR BuildKit cache with `mode=max`. Successful builds also update
-`:latest` on `main` and `:develop` on `develop` for convenient local use. The mutable
+`:latest` on `main` and `:develop` on `develop` for convenient local use. Before
+publishing any tag, the Container workflow executes a workflow with the default
+JSON store under both the default UID and an arbitrary UID, verifies private
+store permissions, and checks persistence after container removal. Run the
+same check locally with `bun --no-env-file scripts/test_container_store.ts <image>`.
+The mutable
 `buildcache-amd64` tag is build input only; deploy the commit-tagged application
 image by its immutable digest. CI cancels superseded pull-request runs, while
 push runs use independent concurrency groups. The combined policy job runs

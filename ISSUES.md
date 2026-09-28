@@ -8,7 +8,7 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 
 | ID | Priority | Status | Area | Summary |
 |---|---:|---|---|---|
-| [IF-150](docs/issues/IF-150.md) | P1 | Open | Container/storage | Published container cannot secure its default JSON store directory |
+| — | — | — | — | No active findings |
 
 ## Working agreement
 
