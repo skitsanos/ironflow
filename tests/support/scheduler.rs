@@ -18,11 +18,15 @@ pub struct TestScheduler {
 
 #[allow(dead_code)]
 pub fn build_executor(flows_dir: &Path) -> TestScheduler {
+    build_executor_with_registry(flows_dir, NodeRegistry::with_builtins())
+}
+
+fn build_executor_with_registry(flows_dir: &Path, registry: NodeRegistry) -> TestScheduler {
     let store_dir = tempfile::tempdir().unwrap();
     let store = Arc::new(JsonStateStore::new(store_dir.path()));
     let events = Arc::new(MemoryEventStore::new());
     let executor = Arc::new(FlowExecutor::new(
-        Arc::new(NodeRegistry::with_builtins()),
+        Arc::new(registry),
         store.clone(),
         events.clone(),
         Some(flows_dir.to_path_buf()),
@@ -67,4 +71,42 @@ pub fn flows_with_logger() -> tempfile::TempDir {
     )
     .unwrap();
     dir
+}
+
+/// A real engine task whose completion is controlled by the test, independent
+/// of wall-clock speed. Override only this fixture's delay node.
+#[allow(dead_code)]
+#[derive(Default)]
+pub struct ControlledDelay {
+    pub started: tokio::sync::Notify,
+    pub release: tokio::sync::Notify,
+}
+
+#[async_trait::async_trait]
+impl ironflow::nodes::Node for ControlledDelay {
+    fn node_type(&self) -> &str {
+        "delay"
+    }
+
+    fn description(&self) -> &str {
+        "Test-controlled scheduler task"
+    }
+
+    async fn execute(
+        &self,
+        _config: &serde_json::Value,
+        _ctx: &ironflow::engine::types::Context,
+    ) -> anyhow::Result<ironflow::engine::types::NodeOutput> {
+        self.started.notify_one();
+        self.release.notified().await;
+        Ok(ironflow::engine::types::NodeOutput::new())
+    }
+}
+
+#[allow(dead_code)]
+pub fn build_controlled_executor(flows_dir: &Path) -> (TestScheduler, Arc<ControlledDelay>) {
+    let delay = Arc::new(ControlledDelay::default());
+    let mut registry = NodeRegistry::with_builtins();
+    registry.register(delay.clone());
+    (build_executor_with_registry(flows_dir, registry), delay)
 }

@@ -63,13 +63,15 @@ async fn assert_one_finished_event(events: &MemoryEventStore, run_id: &str, expe
 }
 
 async fn wait_for_terminal(store: &dyn StateStore, run_id: &str) -> RunInfo {
-    tokio::time::timeout(Duration::from_secs(2), async {
+    // A persistence watchdog, not a latency contract. Leave the supervised
+    // writer time to finish instead of continuously contending with reads.
+    tokio::time::timeout(Duration::from_secs(30), async {
         loop {
             let info = store.get_run_info(run_id).await.unwrap();
             if info.status.is_terminal() {
                 return info;
             }
-            tokio::task::yield_now().await;
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
     .await
