@@ -83,6 +83,18 @@ test("AWS deferrals exclude only the known-broken releases and keep later ones e
   expect(resolve(rules, cargo("aws-config")).allowedVersions).toBeUndefined();
 });
 
+test("Rust workflow pins and the Docker builder stay in one update group", async () => {
+  const rules = await packageRules();
+  for (const dependency of [
+    { manager: "custom.regex", datasource: "rust-version", name: "rust" },
+    { manager: "rust-toolchain", datasource: "rust-version", name: "rust" },
+    { manager: "dockerfile", datasource: "docker", name: "rust" },
+  ]) {
+    expect(resolve(rules, dependency).groupName).toBe("Rust toolchain");
+  }
+  expect(resolve(rules, { manager: "dockerfile", datasource: "docker", name: "debian" }).groupName).toBeUndefined();
+});
+
 test("deferrals are exact exclusions, never version ceilings", async () => {
   const rules = await packageRules();
   const exclusions = rules.filter((rule) => rule.allowedVersions !== undefined);

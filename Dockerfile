@@ -1,6 +1,10 @@
 # syntax=docker/dockerfile:1
 
-FROM lukemathwalker/cargo-chef:0.1.78-rust-1.98.1-slim-bookworm@sha256:9a2089c084b6f8b85b7cbc6dac81f38afcdcd87708fe5a5a1697da254d21c147 AS chef
+# cargo-chef has no published Rust 1.99.0 image yet. Build the same pinned
+# helper with its locked dependencies on the digest-pinned official Rust image.
+FROM rust:1.99.0-slim-bookworm@sha256:452176c0cefca88c0b3184ce85a4eb03e3d4fa05d2afb5366abcba853221019e AS chef
+
+RUN cargo install cargo-chef --version 0.1.78 --locked
 
 WORKDIR /app
 

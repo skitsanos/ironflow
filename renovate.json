@@ -16,7 +16,8 @@
   ],
   "packageRules": [
     {
-      "matchDatasources": ["rust-version"],
+      "description": "Keep local/CI Rust pins and the official Docker builder image in one toolchain update.",
+      "matchDatasources": ["rust-version", "docker"],
       "matchPackageNames": ["rust"],
       "groupName": "Rust toolchain"
     },

@@ -1,84 +1,23 @@
 # Next IronFlow release — draft
 
-Approved version: **1.19.0**, pending final release qualification.
-This is a minor release because it adds opt-in workflow capabilities while
-preserving existing defaults. It includes changes since v1.18.1.
+Development candidate: **1.19.1-dev.1**. These changes are after v1.19.0;
+this draft does not authorize or announce another stable release.
 
-## Workflow and document processing
+## Toolchain and dependencies
 
-- Split PDFs directly into bounded multipage files with
-  `pdf_split.pages_per_file`, preserving selected page order and exposing
-  per-part metadata. The default remains one output file per page (IF-147).
-- Interpolate `pdf_split.pages` from workflow context (IF-145).
-- Batch embeddings in `ai_embed` and `ai_chunk_semantic` while preserving
-  response order, aggregate metadata, provider limits, and cancellation
-  boundaries (IF-146).
-- Let code nodes and Lua step handlers select `context_keys` before converting
-  context into Lua. Excluded large values no longer consume the handler's
-  input conversion budget; selected values retain the existing limits and
-  engine diagnostics remain available (IF-136, IF-144).
-- Preserve JSON types when binding context values into ArangoDB queries
-  (IF-138).
-- Keep HTML head/style/script content out of Markdown extraction and preserve
-  paragraph separation in plain-text extraction (IF-133, IF-143).
-- Include failing child-task diagnostics in subworkflow failures and clear
-  stale subworkflow errors after successful execution (IF-135, IF-142).
+- Update the exact local, CI, release, and container Rust toolchain to 1.99.0.
+  No cargo-chef image for that Rust version was published when this candidate
+  was prepared, so the builder uses the digest-pinned official Rust image
+  and installs the existing cargo-chef 0.1.78 with `--locked` dependencies.
+  Dependency cooking remains separate from application source compilation.
+- Group Renovate updates for the Rust Docker base and local/CI toolchain pins.
+- Replace the deprecated atomic `fetch_update` call in the S3 artifact retry
+  test helper with `try_update`, preserving its orderings and failure budget.
+- Update JSON Schema and its companion crates from 0.58.1 to 0.58.4.
+- Update AWS S3 to 1.152.0, S3 Vectors to 1.42.0, and their compatible Smithy
+  HTTP client/runtime crates together.
+- Replace yanked `yoke-derive 0.8.3` with 0.8.4. The dependency audit passes
+  with warnings denied and no advisory exceptions.
 
-## Storage and filesystem correctness
-
-- Enable certificate-verified PostgreSQL and Redis TLS connections across
-  supported CLI and library entry points. Handle PostgreSQL verification modes
-  without the previous feature-build panic (IF-137, IF-141).
-- Align configured destination-root handling and reject unsafe symlink writes
-  across file output, Base64 decoding, copy, and move operations
-  (IF-134, IF-139, IF-140).
-- Let the container's runtime UID create the default private JSON store.
-  Fresh named volumes work with the default non-root user and an arbitrary UID
-  in group 0. Container publication now requires a regression covering both
-  UIDs, mode 0700, workflow execution, and persistence after server removal
-  (IF-150).
-
-## Getting started
-
-- Lead the README with prebuilt Linux, macOS, and Windows binaries and Docker.
-  Add platform selection, checksum verification, a self-contained first flow,
-  and local API examples in the Getting Started guide.
-- Publish `ghcr.io/skitsanos/ironflow:latest` from successful main builds and
-  `:develop` from successful develop builds, alongside commit tags and digests.
-  Images currently target linux/amd64; ARM hosts need x86-64 emulation.
-- The website now offers matching binary and Docker onboarding and can sync
-  the new Getting Started guide from this release. The website must be rebuilt
-  after the release to embed the new release-pinned documentation snapshot.
-
-## Maintenance and supply chain
-
-- Refresh compatible dependencies, including the reviewed AWS SDK, rmcp,
-  noyalib, Redis, JSON Schema, and thiserror updates.
-- Remove all remaining obsolete advisory exceptions. The candidate audit
-  passes with an empty ignore list (IF-040).
-- Retain exact Rust 1.98.1 toolchain and container-builder pins.
-- Stabilize scheduler startup and detached-run lifecycle regressions without
-  weakening their assertions (IF-148, IF-149).
-
-## Upgrade notes
-
-- Existing flows retain default context conversion and one-page PDF splitting.
-  Grouped PDF output is opt-in, rejects duplicate selected pages and existing
-  destinations, and does not promise all-or-nothing output across groups.
-- Updating a Docker image does not repair an existing root-owned JSON store.
-  Stop writers and back up the volume before correcting ownership or migrating
-  to a new runtime-owned path. Keep directory/file modes 0700/0600; JSON
-  volumes retain their owning UID. Replica deployments use shared PostgreSQL
-  or Redis storage.
-- Moving image tags are convenient for local use. Pin a verified digest for
-  deployments and pull/restart explicitly to update a running container.
-- Full binaries and Docker include PostgreSQL/Redis features, not database
-  servers or native Pdfium. PDF rendering still requires the native library.
-
-## Qualification status
-
-Release preparation is in progress. The Docker packaging regression and
-focused workflow/policy checks passed locally, and the updated dependency
-audit passed. The full candidate integration gate, final versioned gate,
-main CI, and published release asset verification must complete before this
-file is used as release notes. No new release is published by this draft.
+Existing workflow configuration and defaults are unchanged. Published v1.19.0
+notes are retained in [1.19.0.md](./1.19.0.md).
