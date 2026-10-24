@@ -2,7 +2,7 @@
 
 # cargo-chef has no published Rust 1.99.0 image yet. Build the same pinned
 # helper with its locked dependencies on the digest-pinned official Rust image.
-FROM rust:1.99.0-slim-bookworm@sha256:452176c0cefca88c0b3184ce85a4eb03e3d4fa05d2afb5366abcba853221019e AS chef
+FROM rust:1.99.1-slim-bookworm@sha256:86234e857a413004348b471d11a4ebe1aa92d2eae2b6b143cac68fd1ac3c48be AS chef
 
 RUN cargo install cargo-chef --version 0.1.78 --locked
 
