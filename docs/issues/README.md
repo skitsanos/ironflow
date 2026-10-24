@@ -6,7 +6,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts generate` and verified with
 `bun run scripts/issues_registry.ts check`.
 
-- Total findings: 153
+- Total findings: 154
 - Active findings: 0
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
@@ -165,3 +165,4 @@ priority, area, and title. The registry is generated with
 | [IF-151](./IF-151.md) | P1 | Resolved | Security/TLS | eMudhra distrust updates missing from bundled TLS dependencies |
 | [IF-152](./IF-152.md) | P1 | Resolved | Security/dependencies | AWS SigV4a retains an affected bigint dependency |
 | [IF-153](./IF-153.md) | P2 | Resolved | Test reliability | JSON lease regression uses a tight reaper-start watchdog |
+| [IF-154](./IF-154.md) | P2 | Resolved | Test reliability | XLSX preflight regression treats scheduling latency as decompression |

@@ -236,3 +236,29 @@ async fn reference_failures_terminalize_and_can_be_recovered_by_the_workflow() {
     }
     server.assert_unused();
 }
+
+#[tokio::test]
+async fn object_equality_ignores_member_order_in_both_schema_nodes() {
+    let first: Value = serde_json::from_str(r#"{"b":2,"a":1}"#).unwrap();
+    let reordered: Value = serde_json::from_str(r#"{"a":1,"b":2}"#).unwrap();
+    for node in ["validate_schema", "json_validate"] {
+        for source in ["inline", "object", "string"] {
+            for schema in [json!({"const": first}), json!({"enum": [first]})] {
+                let output = execute(node, schema, reordered.clone(), source)
+                    .await
+                    .unwrap();
+                assert_eq!(output["validation_success"], true);
+            }
+            let schema = json!({"type": "array", "uniqueItems": true});
+            let error = execute(node, schema.clone(), json!([first, reordered]), source)
+                .await
+                .unwrap_err();
+            let failure = error.downcast_ref::<NodeFailure>().unwrap();
+            assert_eq!(failure.output()["validation_success"], false);
+            let output = execute(node, schema, json!([first, {"a": 2, "b": 2}]), source)
+                .await
+                .unwrap();
+            assert_eq!(output["validation_success"], true);
+        }
+    }
+}
