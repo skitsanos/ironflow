@@ -57,7 +57,7 @@ ammonia = "4.1.2"
 zip = "9.0.5"
 quick-xml = "0.42.0"
 calamine = { version = "0.37", default-features = false, features = ["dates"] }
-lopdf = { version = "0.45", default-features = false, features = ["chrono"] }
+lopdf = { version = "0.46", default-features = false, features = ["chrono"] }
 image = { version = "0.25.10", default-features = false, features = [
     "bmp", "ff", "gif", "hdr", "ico", "jpeg", "png", "pnm", "qoi", "tga", "tiff", "webp",
 ] }
