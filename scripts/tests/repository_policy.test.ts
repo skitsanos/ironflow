@@ -108,7 +108,11 @@ describe("repository integration policy", () => {
     expect(gate).toContain("cargo audit --deny warnings");
     expect(auditConfig).not.toContain('"RUSTSEC-2026-0192"');
     expect(manifest).toContain('comrak = { version = "0.57", default-features = false }');
-    expect(manifest).toContain('lopdf = { version = "0.45", default-features = false, features = ["chrono"] }');
+    const dependencies = (Bun.TOML.parse(manifest) as {
+      dependencies: { lopdf: { "default-features": boolean; features: string[] } };
+    }).dependencies;
+    expect(dependencies.lopdf["default-features"]).toBeFalse();
+    expect(dependencies.lopdf.features).toEqual(["chrono"]);
     for (const removedPackage of [
       "bincode",
       "paste",

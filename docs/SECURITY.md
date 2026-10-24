@@ -7,16 +7,16 @@ affects clients that still accept the compromised certificate chains. Updating
 a browser or host alone does not update bundled roots inside an existing
 IronFlow binary. An affected dependency graph is not proof of interception.
 
-The development candidate addresses this with `rustls-webpki >= 0.103.16`,
+The changes prepared for v1.19.1 address this with `rustls-webpki >= 0.103.16`,
 `webpki-roots >= 1.0.10`, and `webpki-root-certs >= 1.0.10`. Both Docker stages
 require Debian bookworm `ca-certificates >= 20250419~deb12u2`. CI requires a
 patched Bun runtime (>= 1.4.4). See [IF-151](issues/IF-151.md) for the exact
-validation state; do not infer a published release or production rollout from
-these development changes.
+validation state; confirm publication against the tagged release and do not
+infer a production rollout from these source changes.
 
-The latest published release at assessment time is v1.19.0 and predates these
-fixes. Both curl and an IronFlow `http_get` workflow in the published `latest`
-image accepted a compromised chain in local reproductions; its immutable
+The pre-fix published release tested during this assessment was v1.19.0. Both
+curl and an IronFlow `http_get` workflow in its then-current `latest` image
+accepted a compromised chain in local reproductions; its immutable
 digest is recorded in IF-151. Do not treat
 that release or an already-running image as protected by this source update.
 

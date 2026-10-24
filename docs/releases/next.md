@@ -1,23 +1,27 @@
-# Next IronFlow release — draft
+# Next IronFlow release - draft
 
-Development candidate: **1.19.1-dev.1**. These changes are after v1.19.0;
-this draft does not authorize or announce another stable release.
+Development candidate: **1.19.2-dev.1**, after the published v1.19.1 security
+release. This draft does not announce another stable release.
 
-## Toolchain and dependencies
+## Dependencies
 
-- Update the exact local, CI, release, and container Rust toolchain to 1.99.0.
-  No cargo-chef image for that Rust version was published when this candidate
-  was prepared, so the builder uses the digest-pinned official Rust image
-  and installs the existing cargo-chef 0.1.78 with `--locked` dependencies.
-  Dependency cooking remains separate from application source compilation.
-- Group Renovate updates for the Rust Docker base and local/CI toolchain pins.
-- Replace the deprecated atomic `fetch_update` call in the S3 artifact retry
-  test helper with `try_update`, preserving its orderings and failure budget.
-- Update JSON Schema and its companion crates from 0.58.1 to 0.58.4.
-- Update AWS S3 to 1.152.0, S3 Vectors to 1.42.0, and their compatible Smithy
-  HTTP client/runtime crates together.
-- Replace yanked `yoke-derive 0.8.3` with 0.8.4. The dependency audit passes
-  with warnings denied and no advisory exceptions.
+- Integrate dependency PRs #218, #219, #221, #222, #223 and #224: serde_json
+  1.0.154, SHA-2 0.11.1, tree-sitter 0.27.1 (tree-sitter-language 0.1.9),
+  Redis 1.8.0, JSON Schema 0.60.1 and lopdf 0.46.0.
+- Keep PDF default features disabled and retain only the selected chrono
+  feature. Preserve the existing tempfile/getrandom resolution rather than
+  importing unrelated resolver churn.
+- Retain Rust 1.99.1 and the v1.19.1 TLS distrust updates, container CA floors,
+  and disabled SigV4a signing. No advisory ignores are added.
 
-Existing workflow configuration and defaults are unchanged. Published v1.19.0
-notes are retained in [1.19.0.md](./1.19.0.md).
+## Regression coverage
+
+- Verify object member order does not change const/enum or uniqueItems
+  validation in either schema node, including inline and context schemas.
+- Replace a 50 ms XLSX timing assertion with a corrupt-payload regression that
+  proves declared limits are checked before decompression (IF-154).
+- Check PDF dependency feature policy structurally rather than freezing an
+  unrelated version string.
+
+No new workflow options or configuration defaults are introduced. Existing
+v1.19.1 upgrade limitations remain documented in [the security guide](../SECURITY.md).
