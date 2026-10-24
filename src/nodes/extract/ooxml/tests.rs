@@ -102,7 +102,11 @@ async fn declared_and_actual_archive_budgets_are_cumulative() {
     .await
     .unwrap_err()
     .to_string();
-    assert!(error.contains("cumulative or per-part"), "{error}");
+    // ZIP 9 rejects the forged declaration before our streaming budget.
+    assert!(
+        error.contains("larger than its declared uncompressed size"),
+        "{error}"
+    );
 }
 
 #[tokio::test]

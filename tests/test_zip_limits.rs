@@ -7,7 +7,14 @@ fn archive_entry_names(path: &Path) -> Vec<String> {
     let file = std::fs::File::open(path).unwrap();
     let mut archive = zip::ZipArchive::new(file).unwrap();
     (0..archive.len())
-        .map(|index| archive.by_index(index).unwrap().name().to_string())
+        .map(|index| {
+            archive
+                .by_index(index)
+                .unwrap()
+                .name()
+                .unwrap()
+                .into_owned()
+        })
         .collect()
 }
 

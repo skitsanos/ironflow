@@ -1102,7 +1102,7 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_ARTIFACT_BACKEND` | `local` | Artifact durability backend: `local` or `s3`. Any other value fails before artifact work begins. |
 | `IRONFLOW_ARTIFACT_DIR` | `data/artifacts` | Immutable local store, or private staging/cache when the S3 backend is selected. Files use `sha256/<digest>`. |
 | `IRONFLOW_MAX_ARTIFACT_BYTES` | `52428800` | Positive maximum bytes uploaded to or restored from the S3 artifact backend, enforced against descriptors, response metadata, and streamed bytes. |
-| `IRONFLOW_ARTIFACT_S3_BUCKET` | — | Required bucket when `IRONFLOW_ARTIFACT_BACKEND=s3`. Use standard AWS credential environment variables or workload identity. |
+| `IRONFLOW_ARTIFACT_S3_BUCKET` | — | Required regional bucket when `IRONFLOW_ARTIFACT_BACKEND=s3`. Use standard AWS credentials or workload identity. SigV4a Multi-Region Access Points are unsupported; see [S3 signing](SECURITY.md#s3-signing). |
 | `IRONFLOW_ARTIFACT_S3_PREFIX` | `ironflow/artifacts` | Safe 1–512 byte object-key prefix; objects are stored beneath `<prefix>/sha256/<digest>`. |
 | `IRONFLOW_ARTIFACT_S3_REGION` | SDK chain | Optional artifact-specific AWS region override. |
 | `IRONFLOW_ARTIFACT_S3_ENDPOINT_URL` | SDK default | Optional S3-compatible endpoint. Credentials and endpoint values are not placed in artifact descriptors. |

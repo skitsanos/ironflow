@@ -1,6 +1,6 @@
 # All previous transitive advisory exceptions were retired during the
-# 2026-09-28 release review (IF-040). The lockfile now uses rustls-webpki
-# 0.103.15 and lru 0.18.5, without the affected legacy versions.
+# 2026-09-28 release review (IF-040). Trust-store fixes must remain in the
+# resolved dependency graph, including rustls-webpki >= 0.103.16.
 # Keep the audit fail-closed; do not reintroduce exceptions without review.
 [advisories]
 ignore = []

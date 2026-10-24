@@ -2,6 +2,9 @@
 
 Download object content from S3 (or S3-compatible storage).
 
+Uses regional SigV4 signing. SigV4a Multi-Region Access Points are unsupported;
+see [S3 signing](../SECURITY.md#s3-signing).
+
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |

@@ -13,8 +13,10 @@ pub fn complete(path: &Path) {
         .open(path)
         .unwrap();
     let archive = zip::ZipArchive::new(file).unwrap();
-    let names: std::collections::HashSet<String> =
-        archive.file_names().map(str::to_owned).collect();
+    let names: std::collections::HashSet<String> = archive
+        .file_names()
+        .map(|name| name.unwrap().into_owned())
+        .collect();
     if names.contains("ppt/presentation.xml") {
         return;
     }

@@ -36,7 +36,7 @@ pub(super) fn check<R: Read + Seek>(
                 path.display()
             )
         })?;
-        let normalized = entry.name().replace('\\', "/").to_ascii_lowercase();
+        let normalized = entry.name()?.replace('\\', "/").to_ascii_lowercase();
         if normalized == "sharedstrings.xml" || normalized.ends_with(PART_SUFFIX) {
             if shared_index.replace(index).is_some() {
                 anyhow::bail!(

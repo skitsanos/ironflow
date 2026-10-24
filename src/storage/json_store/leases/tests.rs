@@ -39,16 +39,18 @@ async fn live_renewal_proceeds_while_expired_backlog_is_reaped() {
 
     let reached = Arc::new(tokio::sync::Notify::new());
     let resume = Arc::new(tokio::sync::Notify::new());
+    let _resume_on_drop = NotifyOnDrop(resume.clone());
     *store.lease_reap_hook.lock().unwrap() = Some((reached.clone(), resume.clone()));
     let reaper_store = store.clone();
     let reaper =
         tokio::spawn(async move { reaper_store.reconcile_expired_run_leases(Utc::now()).await });
-    tokio::time::timeout(std::time::Duration::from_secs(1), reached.notified())
+    // The hook proves ordering; these are deadlock watchdogs, not latency SLAs.
+    tokio::time::timeout(std::time::Duration::from_secs(30), reached.notified())
         .await
         .unwrap();
 
     let renewal = tokio::time::timeout(
-        std::time::Duration::from_millis(250),
+        std::time::Duration::from_secs(30),
         store.renew_run_lease("live", &RunLease::renewed("live-owner".to_string())),
     )
     .await

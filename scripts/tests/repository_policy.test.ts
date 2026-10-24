@@ -107,7 +107,7 @@ describe("repository integration policy", () => {
     expect(workflow).toContain("cargo audit --deny warnings");
     expect(gate).toContain("cargo audit --deny warnings");
     expect(auditConfig).not.toContain('"RUSTSEC-2026-0192"');
-    expect(manifest).toContain('comrak = { version = "0.55", default-features = false }');
+    expect(manifest).toContain('comrak = { version = "0.57", default-features = false }');
     expect(manifest).toContain('lopdf = { version = "0.45", default-features = false, features = ["chrono"] }');
     for (const removedPackage of [
       "bincode",
@@ -167,8 +167,8 @@ describe("repository integration policy", () => {
     ).text();
 
     expect(dockerfile).toContain(
-      "rust:1.99.0-slim-bookworm@sha256:" +
-        "452176c0cefca88c0b3184ce85a4eb03e3d4fa05d2afb5366abcba853221019e AS chef",
+      "rust:1.99.1-slim-bookworm@sha256:" +
+        "86234e857a413004348b471d11a4ebe1aa92d2eae2b6b143cac68fd1ac3c48be AS chef",
     );
     expect(dockerfile).toContain("cargo install cargo-chef --version 0.1.78 --locked");
     expect(dockerfile).toContain("cargo chef prepare --recipe-path recipe.json");
