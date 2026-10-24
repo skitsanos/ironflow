@@ -14,6 +14,12 @@ patched Bun runtime (>= 1.4.4). See [IF-151](issues/IF-151.md) for the exact
 validation state; do not infer a published release or production rollout from
 these development changes.
 
+The latest published release at assessment time is v1.19.0 and predates these
+fixes. Both curl and an IronFlow `http_get` workflow in the published `latest`
+image accepted a compromised chain in local reproductions; its immutable
+digest is recorded in IF-151. Do not treat
+that release or an already-running image as protected by this source update.
+
 ## Trust sources
 
 | Surface | Trust source and update responsibility |
@@ -28,6 +34,11 @@ Repository policy tests guard the resolved Rust versions and container package
 floor. `cargo audit --deny warnings` remains mandatory without advisory ignores.
 No vendored PEM certificate bundles were found in the tracked application,
 test, script, documentation, or example trees during this assessment.
+
+For PostgreSQL, use `sslmode=verify-full` with the appropriate CA. Encryption-
+only `sslmode=require` does not verify the server certificate and cannot
+provide this identity protection. `verify-ca` verifies the chain but not the
+hostname. Existing configuration is not silently upgraded to a stronger mode.
 
 ## S3 signing
 
