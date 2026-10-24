@@ -16,7 +16,7 @@ fn cumulative_names_extra_fields_and_comments_have_an_xlsx_ceiling() {
             .into_full_options()
             .with_file_comment("c".repeat(2_048));
         options
-            .add_extra_data(0xBEEF, vec![b'x'; 4_096], true)
+            .add_extra_field(0xBEEF, vec![b'x'; 4_096], true)
             .unwrap();
         writer.start_file("n".repeat(1_024), options).unwrap();
         writer.write_all(b"x").unwrap();

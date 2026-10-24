@@ -2,6 +2,9 @@
 
 List buckets visible to the current credentials.
 
+Uses regional SigV4 signing. SigV4a Multi-Region Access Points are unsupported;
+see [S3 signing](../SECURITY.md#s3-signing).
+
 This read-only node contacts an S3-compatible external service and uses the AWS
 SDK credential chain plus the configured region/endpoint. On AWS S3 it requires
 the account-level `s3:ListAllMyBuckets` permission. The runnable

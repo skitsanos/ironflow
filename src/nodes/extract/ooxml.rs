@@ -180,7 +180,7 @@ fn validate_entry_type(entry: &zip::read::ZipFile<'_, File>, operation: &str) ->
     if entry.is_symlink() {
         anyhow::bail!(
             "{operation}: archive symlink parts are not supported: {}",
-            entry.name()
+            entry.name()?
         );
     }
     let expected = if entry.is_dir() { 0o040000 } else { 0o100000 };
@@ -189,7 +189,7 @@ fn validate_entry_type(entry: &zip::read::ZipFile<'_, File>, operation: &str) ->
         if file_type != 0 && file_type != expected {
             anyhow::bail!(
                 "{operation}: archive part is not a regular file or directory: {}",
-                entry.name()
+                entry.name()?
             );
         }
     }

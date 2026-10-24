@@ -82,7 +82,7 @@ fn preflight(
         let entry = archive.by_index(index)?;
         add_uncompressed_size("zip_extract", &mut declared_total, entry.size(), limits)?;
         let kind = validate_entry_type(&entry)?;
-        let name = entry.name().to_string();
+        let name = entry.name()?.into_owned();
         let relative =
             validate_zip_entry_name(&name, kind == EntryKind::Directory, limits.max_depth)?;
         let collision_key = collision_key(&relative);
@@ -106,7 +106,7 @@ fn validate_entry_type(entry: &zip::read::ZipFile<'_, File>) -> Result<EntryKind
     if entry.is_symlink() {
         anyhow::bail!(
             "zip_extract: archive symlink entries are not supported: {}",
-            entry.name()
+            entry.name()?
         );
     }
     let kind = if entry.is_dir() {
@@ -123,7 +123,7 @@ fn validate_entry_type(entry: &zip::read::ZipFile<'_, File>) -> Result<EntryKind
         if file_type != 0 && file_type != expected {
             anyhow::bail!(
                 "zip_extract: archive entry is not a regular file or directory: {}",
-                entry.name()
+                entry.name()?
             );
         }
     }

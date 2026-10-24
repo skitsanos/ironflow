@@ -192,7 +192,7 @@ async fn upload(
 ) -> StatusCode {
     if state
         .put_failures
-        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |remaining| {
+        .try_update(Ordering::AcqRel, Ordering::Acquire, |remaining| {
             remaining.checked_sub(1)
         })
         .is_ok()

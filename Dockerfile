@@ -1,6 +1,13 @@
 # syntax=docker/dockerfile:1
 
-FROM lukemathwalker/cargo-chef:0.1.78-rust-1.98.1-slim-bookworm@sha256:9a2089c084b6f8b85b7cbc6dac81f38afcdcd87708fe5a5a1697da254d21c147 AS chef
+# Build the pinned helper on the digest-pinned official Rust image.
+FROM rust:1.99.1-slim-bookworm@sha256:86234e857a413004348b471d11a4ebe1aa92d2eae2b6b143cac68fd1ac3c48be AS chef
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' ca-certificates)" ge '20250419~deb12u2' \
+    && rm -rf /var/lib/apt/lists/* \
+    && cargo install cargo-chef --version 0.1.78 --locked
 
 WORKDIR /app
 
@@ -34,6 +41,7 @@ FROM debian:bookworm-slim AS runtime
 # Root-group write access alone cannot chmod a root-owned store to 0700.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' ca-certificates)" ge '20250419~deb12u2' \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /data/flows \
     && chgrp -R 0 /data \

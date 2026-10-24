@@ -454,7 +454,7 @@ async fn zip_create_happy_path() {
     let mut archive = zip::ZipArchive::new(file).unwrap();
     let mut names = Vec::new();
     for i in 0..archive.len() {
-        names.push(archive.by_index(i).unwrap().name().to_string());
+        names.push(archive.by_index(i).unwrap().name().unwrap().into_owned());
     }
     assert!(names.contains(&"a.txt".to_string()));
     assert!(names.contains(&"nested/b.txt".to_string()));
