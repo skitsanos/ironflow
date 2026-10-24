@@ -8,7 +8,7 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 
 | ID | Priority | Status | Area | Summary |
 |---|---:|---|---|---|
-| [IF-154](docs/issues/IF-154.md) | P2 | Open | Test reliability | XLSX preflight regression treats scheduling latency as decompression |
+| — | — | — | — | No active findings |
 
 ## Working agreement
 
