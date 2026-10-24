@@ -1,5 +1,7 @@
 # IronFlow — Workflow Automation Engine in Rust
 
+TLS trust-store incident assessment and rebuild guidance: [Security](docs/SECURITY.md).
+
 **A lightweight, high-performance workflow engine built in Rust with Lua scripting. The open-source alternative to n8n, Airflow, and Prefect that ships as a single binary without a Python, Node.js, or container runtime.**
 
 IronFlow is a DAG-based workflow orchestration engine designed for CI/CD pipelines, data processing, ETL jobs, API integrations, document extraction, and task automation. Define workflows in simple Lua scripts — a language with only ~20 keywords — and run them on a sandboxed, async Rust runtime with parallel step execution, retry logic, conditional routing, and a built-in REST API.
@@ -527,6 +529,9 @@ flow:step("standard_flow", nodes.log({
 ```
 
 ## Built-in Nodes
+
+S3 uses regional SigV4 signing. Multi-Region Access Points requiring SigV4a
+are unsupported; see [S3 signing](docs/SECURITY.md#s3-signing).
 
 | Category | Nodes |
 |----------|-------|

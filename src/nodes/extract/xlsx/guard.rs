@@ -68,6 +68,7 @@ pub(super) fn check_archive_size<R: Read + Seek>(
                 path.display()
             )
         })?;
+        let name = entry.name()?.into_owned();
         declared = declared.saturating_add(entry.size());
         if declared > max_bytes {
             bail!(
@@ -81,7 +82,7 @@ pub(super) fn check_archive_size<R: Read + Seek>(
             bail!(
                 "extract_xlsx: workbook part '{}' declares {} uncompressed bytes, exceeding \
                  IRONFLOW_MAX_XLSX_OUTPUT_BYTES ({max_part_bytes})",
-                entry.name(),
+                name,
                 entry.size()
             );
         }
@@ -89,7 +90,7 @@ pub(super) fn check_archive_size<R: Read + Seek>(
             bail!(
                 "extract_xlsx: workbook part '{}' has {} compressed bytes, exceeding \
                  IRONFLOW_MAX_XLSX_OUTPUT_BYTES ({max_part_bytes})",
-                entry.name(),
+                name,
                 entry.compressed_size()
             );
         }
@@ -100,7 +101,7 @@ pub(super) fn check_archive_size<R: Read + Seek>(
             let read = entry.read(&mut buffer).map_err(|error| {
                 anyhow::anyhow!(
                     "extract_xlsx: workbook part '{}' could not be decoded: {error}",
-                    entry.name()
+                    name
                 )
             })?;
             if read == 0 {
@@ -112,7 +113,7 @@ pub(super) fn check_archive_size<R: Read + Seek>(
                 bail!(
                     "extract_xlsx: workbook part '{}' exceeded \
                      IRONFLOW_MAX_XLSX_OUTPUT_BYTES ({max_part_bytes}) while streaming",
-                    entry.name()
+                    name
                 );
             }
             if actual > max_bytes {

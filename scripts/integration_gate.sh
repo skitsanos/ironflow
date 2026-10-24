@@ -84,6 +84,11 @@ if (( example_failures > 0 )); then
 fi
 echo "Validated $example_count Lua examples."
 
+if [[ "${IRONFLOW_TEST_PUBLIC_TLS:-0}" == "1" ]]; then
+  echo "[integration] opt-in public TLS acceptance"
+  bun --no-env-file scripts/test_public_tls.ts target/release/ironflow
+fi
+
 echo "[integration] reclaiming pre-integration Rust artifacts"
 clean_workspace_artifacts
 

@@ -8,7 +8,8 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 
 | ID | Priority | Status | Area | Summary |
 |---|---:|---|---|---|
-| — | — | — | — | No active findings |
+| [IF-151](docs/issues/IF-151.md) | P1 | Open | Security/TLS | eMudhra distrust updates missing from bundled TLS dependencies |
+| [IF-152](docs/issues/IF-152.md) | P1 | Open | Security/dependencies | AWS SigV4a retains an affected bigint dependency |
 
 ## Working agreement
 

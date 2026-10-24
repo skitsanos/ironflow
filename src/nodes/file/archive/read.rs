@@ -24,7 +24,7 @@ pub(super) fn list_zip_entries(
         let entry = archive.by_index(index)?;
         add_uncompressed_size("zip_list", &mut total_uncompressed, entry.size(), limits)?;
         entries.push(serde_json::json!({
-            "name": entry.name(),
+            "name": entry.name()?,
             "is_directory": entry.is_dir(),
             "size": entry.size(),
             "compressed_size": entry.compressed_size(),
