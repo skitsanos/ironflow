@@ -8,7 +8,7 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 
 | ID | Priority | Status | Area | Summary |
 |---|---:|---|---|---|
-| [IF-155](docs/issues/IF-155.md) | P2 | Open | SQLite startup | SQLite index verification mixes stale pooled schema metadata |
+| — | — | — | — | No active findings |
 
 ## Working agreement
 
