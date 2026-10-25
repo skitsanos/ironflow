@@ -1,6 +1,6 @@
 # Next IronFlow release - draft
 
-Development candidate: **1.19.2-dev.1**, after the published v1.19.1 security
+Development candidate: **1.19.2-dev.2**, after the published v1.19.1 security
 release. This draft does not announce another stable release.
 
 ## Dependencies
@@ -8,6 +8,9 @@ release. This draft does not announce another stable release.
 - Integrate dependency PRs #218, #219, #221, #222, #223 and #224: serde_json
   1.0.154, SHA-2 0.11.1, tree-sitter 0.27.1 (tree-sitter-language 0.1.9),
   Redis 1.8.0, JSON Schema 0.60.1 and lopdf 0.46.0.
+- Update ZIP to 9.1.0, with its LZMA 0.23.0 and typed-path 0.13.0 dependencies
+  (PR #226). Existing archive admission, path and cancellation limits remain
+  unchanged.
 - Keep PDF default features disabled and retain only the selected chrono
   feature. Preserve the existing tempfile/getrandom resolution rather than
   importing unrelated resolver churn.
