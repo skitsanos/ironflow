@@ -1,6 +1,6 @@
 # Next IronFlow release - draft
 
-Development candidate: **1.19.2-dev.2**, after the published v1.19.1 security
+Development candidate: **1.19.2-dev.3**, after the published v1.19.1 security
 release. This draft does not announce another stable release.
 
 ## Dependencies
@@ -25,6 +25,9 @@ release. This draft does not announce another stable release.
   proves declared limits are checked before decompression (IF-154).
 - Check PDF dependency feature policy structurally rather than freezing an
   unrelated version string.
+- Fix intermittent fresh SQLite event-store startup rejection by keeping
+  index metadata verification on one refreshed connection. Retain bounded,
+  redacted startup diagnostics and reap failed test children (IF-155).
 
 No new workflow options or configuration defaults are introduced. Existing
 v1.19.1 upgrade limitations remain documented in [the security guide](../SECURITY.md).

@@ -5,6 +5,9 @@ use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 
+#[path = "sql_backend_startup.rs"]
+mod startup;
+
 pub const FLOW: &str = "local f = Flow.new('sql-backend-probe'); f:step('value', nodes.code({source = 'return { answer = 42 }'})); return f";
 
 pub fn command(directory: &Path) -> Command {
@@ -68,21 +71,9 @@ impl Server {
             .stderr(Stdio::piped());
         let mut child = command.spawn().unwrap();
         let mut stderr = BufReader::new(child.stderr.take().unwrap()).lines();
-        let base = tokio::time::timeout(Duration::from_secs(10), async {
-            while let Some(line) = stderr.next_line().await.unwrap() {
-                if let Some((_, tail)) = line.split_once("IronFlow API server listening on ") {
-                    let address: String = tail
-                        .chars()
-                        .take_while(|c| c.is_ascii_digit() || matches!(c, '.' | ':'))
-                        .collect();
-                    let _: std::net::SocketAddr = address.parse().unwrap();
-                    return format!("http://{address}");
-                }
-            }
-            panic!("server exited before listening");
-        })
-        .await
-        .expect("server should start promptly");
+        let base = startup::wait_for_listener(&mut child, &mut stderr, Duration::from_secs(10))
+            .await
+            .unwrap_or_else(|diagnostic| panic!("{diagnostic}"));
         let logs = tokio::spawn(async move { while let Ok(Some(_)) = stderr.next_line().await {} });
         Self {
             child,
