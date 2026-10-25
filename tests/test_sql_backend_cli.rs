@@ -8,6 +8,52 @@ mod support;
 
 use support::{Server, command, output, rejected};
 
+async fn startup_failure(cmd: tokio::process::Command) -> String {
+    let failure = tokio::spawn(async move { Server::start(cmd).await.stop().await })
+        .await
+        .expect_err("invalid configuration must fail startup");
+    let panic = failure.into_panic();
+    panic
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| panic.downcast_ref::<&str>().map(|text| text.to_string()))
+        .expect("startup panic must contain a diagnostic")
+}
+
+#[tokio::test]
+async fn sqlite_startup_failure_retains_the_cause_and_exit_code() {
+    let directory = tempfile::tempdir().unwrap();
+    fs::write(directory.path().join("not-a-directory"), "fixture").unwrap();
+    let mut cmd = command(directory.path());
+    cmd.env("IRONFLOW_STORE", "sqlite").env(
+        "IRONFLOW_STORE_URL",
+        "sqlite:not-a-directory/state.db?mode=rwc",
+    );
+    let diagnostic = startup_failure(cmd).await;
+    assert!(
+        diagnostic.contains("Failed to connect SQL state store"),
+        "{diagnostic}"
+    );
+    assert!(diagnostic.contains("exit code 1"), "{diagnostic}");
+}
+
+#[tokio::test]
+async fn startup_failure_diagnostics_do_not_expose_url_credentials() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut cmd = command(directory.path());
+    cmd.env("IRONFLOW_STORE", "sqlite").env(
+        "IRONFLOW_STORE_URL",
+        "postgres://fixture:startup-secret@127.0.0.1:1/db?token=startup-secret",
+    );
+    let diagnostic = startup_failure(cmd).await;
+    assert!(
+        diagnostic.contains("sqlite state store requires"),
+        "{diagnostic}"
+    );
+    assert!(!diagnostic.contains("startup-secret"), "{diagnostic}");
+    assert!(!directory.path().join("data").exists());
+}
+
 #[tokio::test]
 async fn sqlite_state_commands_reject_postgres_urls_before_connecting() {
     for args in [

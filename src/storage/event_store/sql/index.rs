@@ -4,6 +4,9 @@ use super::SqlEventStore;
 use crate::storage::sql_names::SqlDialect;
 use crate::storage::{StorageError, StorageResult};
 
+#[cfg(test)]
+mod tests;
+
 impl SqlEventStore {
     pub(super) async fn ensure_event_sequence_index(&self) -> StorageResult<()> {
         crate::storage::sql_ddl::create_if_absent(
@@ -25,9 +28,17 @@ impl SqlEventStore {
     }
 
     async fn verify_sqlite_event_sequence_index(&self) -> StorageResult<()> {
+        let mut connection = self.pool.acquire().await.map_err(|error| {
+            StorageError::backend(
+                "Failed to acquire SQLite index verification connection",
+                error,
+            )
+        })?;
+        // Refresh SQLite's per-connection schema cache with the catalog read,
+        // then keep both PRAGMAs on that same connection.
         let object = sqlx::query("SELECT type, tbl_name FROM sqlite_master WHERE name = ?")
             .bind(&self.tables.events_run_sequence_idx)
-            .fetch_optional(&self.pool)
+            .fetch_optional(&mut *connection)
             .await
             .map_err(|error| {
                 StorageError::backend("Failed to inspect SQLite event sequence index", error)
@@ -53,7 +64,7 @@ impl SqlEventStore {
             self.tables.events.replace('\'', "''")
         );
         let rows = sqlx::query(sqlx::AssertSqlSafe(pragma.as_str()))
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *connection)
             .await
             .map_err(|error| {
                 StorageError::backend("Failed to inspect SQLite event indexes", error)
@@ -81,7 +92,7 @@ impl SqlEventStore {
         let Some((unique, partial, origin)) = shape else {
             return Err(invalid_managed_index("SQLite"));
         };
-        let columns = self.sqlite_sequence_index_columns().await?;
+        let columns = self.sqlite_sequence_index_columns(&mut connection).await?;
         if !unique
             || partial
             || origin != "c"
@@ -92,13 +103,16 @@ impl SqlEventStore {
         Ok(())
     }
 
-    async fn sqlite_sequence_index_columns(&self) -> StorageResult<Vec<Option<String>>> {
+    async fn sqlite_sequence_index_columns(
+        &self,
+        connection: &mut sqlx::AnyConnection,
+    ) -> StorageResult<Vec<Option<String>>> {
         let pragma = format!(
             "PRAGMA index_xinfo('{}')",
             self.tables.events_run_sequence_idx.replace('\'', "''")
         );
         let rows = sqlx::query(sqlx::AssertSqlSafe(pragma.as_str()))
-            .fetch_all(&self.pool)
+            .fetch_all(connection)
             .await
             .map_err(|error| {
                 StorageError::backend("Failed to inspect SQLite event index columns", error)
