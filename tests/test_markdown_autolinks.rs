@@ -35,3 +35,28 @@ async fn markdown_autolinks_preserve_long_unmatched_parenthesis_suffixes() {
     assert!(html.contains("href=\"https://example.com\""));
     assert_eq!(html.matches(')').count(), count);
 }
+
+#[tokio::test]
+async fn markdown_wide_tables_preserve_alignment_and_autocompleted_cells() {
+    let node = NodeRegistry::with_builtins()
+        .get("markdown_to_html")
+        .unwrap();
+    let columns = 4_096;
+    let rows = 3;
+    // Exercise the wide, mostly empty rows from Comrak's table-renderer fix.
+    let input = format!(
+        "{}|\n{}|\n{}",
+        "|a".repeat(columns),
+        "|:-".repeat(columns),
+        "a\n".repeat(rows)
+    );
+    let output = node
+        .execute(&json!({"input": input}), &HashMap::new())
+        .await
+        .unwrap();
+    let html = output["html"].as_str().unwrap();
+    assert_eq!(html.matches("<table>").count(), 1);
+    assert_eq!(html.matches("<th align=\"left\">").count(), columns);
+    assert_eq!(html.matches("<td align=\"left\">").count(), columns * rows);
+    assert_eq!(html.matches("<tr>").count(), rows + 1);
+}
