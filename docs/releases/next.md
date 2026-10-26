@@ -1,6 +1,6 @@
 # Next IronFlow release - draft
 
-Development candidate: **1.19.2-dev.3**, after the published v1.19.1 security
+Development candidate: **1.19.2-dev.4**, after the published v1.19.1 security
 release. This draft does not announce another stable release.
 
 ## Dependencies
@@ -11,6 +11,11 @@ release. This draft does not announce another stable release.
 - Update ZIP to 9.1.0, with its LZMA 0.23.0 and typed-path 0.13.0 dependencies
   (PR #226). Existing archive admission, path and cancellation limits remain
   unchanged.
+- Integrate ZIP 9.1.1 and Comrak 0.58.0 (PRs #228 and #229). Preserve unrelated
+  lockfile resolutions and keep Comrak default features disabled. Check this
+  feature policy structurally so dependency updates do not fail on a stale
+  version assertion. Comrak fixes quadratic table-cell rendering; cover wide
+  aligned tables with autocompleted cells through IronFlow's Markdown node.
 - Keep PDF default features disabled and retain only the selected chrono
   feature. Preserve the existing tempfile/getrandom resolution rather than
   importing unrelated resolver churn.

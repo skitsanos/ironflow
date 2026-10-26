@@ -1,6 +1,6 @@
 [package]
 name = "ironflow"
-version = "1.19.2-dev.3"
+version = "1.19.2-dev.4"
 edition = "2024"
 description = "Lightweight workflow engine — Rust core, Lua scripting, single binary"
 license = "MIT"
@@ -51,7 +51,7 @@ hex = "0.4.3"
 axum = "0.8.9"
 tower-http = { version = "0.7.0", features = ["cors", "fs", "trace"] }
 base64 = "0.23.0"
-comrak = { version = "0.57", default-features = false }
+comrak = { version = "0.58", default-features = false }
 html2md = "0.2.15"
 ammonia = "4.1.2"
 zip = "9.0.5"
