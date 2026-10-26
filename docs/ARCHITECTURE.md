@@ -501,6 +501,8 @@ returns `StorageErrorKind::NotFound`.
   managed index name resolves to that exact live unique index; publication
   rejects negative or trigger-altered counters before committing, and legacy
   repair rejects a guarded update/delete that makes no progress.
+  SQLite's catalog read and both index PRAGMAs share one acquired connection,
+  keeping validation on the refreshed per-connection schema metadata.
 
   Replacing a legacy global `PRIMARY KEY(id)` is a guarded, locked schema
   migration. SQLite rebuilds the table only after rejecting unknown columns,

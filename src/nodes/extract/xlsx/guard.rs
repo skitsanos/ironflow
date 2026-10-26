@@ -138,9 +138,8 @@ fn checkpoint(execution: Option<&ExecutionControl>) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
+    use std::io::{Cursor, Read, Write};
     use std::path::{Path, PathBuf};
-    use std::time::{Duration, Instant};
 
     use super::check_archive_size;
 
@@ -259,22 +258,43 @@ mod tests {
     }
 
     #[test]
-    fn refusal_is_fast_because_nothing_is_decompressed() {
-        // Proves the guard's whole reason for existing: a declared payload
-        // far larger than the limit is refused quickly, because
-        // `by_index_raw` never inflates the entry to measure it.
+    fn declared_limit_is_checked_before_decompressing_the_payload() {
         let dir = tempfile::tempdir().unwrap();
-        let path = write_bomb(dir.path(), 64 * 1024 * 1024);
-
-        let start = Instant::now();
-        let file = std::fs::File::open(&path).unwrap();
-        let result = check_archive_size(file, &path, 1024 * 1024, 10_000, 1024 * 1024, None);
-        let elapsed = start.elapsed();
-
-        assert!(result.is_err(), "a 64 MiB declared payload must be refused");
+        let path = write_bomb(dir.path(), 2 * 1024 * 1024);
+        let mut bytes = std::fs::read(&path).unwrap();
+        let (start, length) = {
+            let mut archive = zip::ZipArchive::new(Cursor::new(&bytes)).unwrap();
+            let entry = archive.by_index_raw(0).unwrap();
+            (
+                entry.data_start().unwrap() as usize,
+                entry.compressed_size() as usize,
+            )
+        };
+        // Corrupt only the compressed payload, preserving readable metadata.
+        bytes[start..start + length].fill(0xff);
+        let mut archive = zip::ZipArchive::new(Cursor::new(&bytes)).unwrap();
         assert!(
-            elapsed < Duration::from_millis(50),
-            "guard took {elapsed:?}, which suggests it decompressed the entry"
+            archive
+                .by_index(0)
+                .unwrap()
+                .read_to_end(&mut Vec::new())
+                .is_err()
+        );
+
+        let error = check_archive_size(
+            Cursor::new(&bytes),
+            &path,
+            1024 * 1024,
+            10_000,
+            u64::MAX,
+            None,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("declares"), "{error}");
+        assert!(
+            error.contains("IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES"),
+            "{error}"
         );
     }
 }

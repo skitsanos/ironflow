@@ -561,6 +561,9 @@ Both dialects verify that the managed sequence-index name denotes the exact
 live unique `(run_id, sequence)` index. Negative or trigger-altered counters and
 no-progress legacy repairs fail as corruption instead of publishing an
 unreadable or cursor-skipping event.
+SQLite startup refreshes and verifies index metadata on one connection, so
+stale metadata on another pooled connection cannot falsely reject a new
+event database. No migration or configuration change is required.
 For shared SQL databases, set `IRONFLOW_SQL_TABLE_PREFIX` or `sql_table_prefix` to isolate IronFlow tables. Prefixes are strictly validated and may contain only ASCII letters, digits, and underscores after deriving table names.
 
 Treat storage, event-store, SMTP, and webhook URLs as secrets when they contain

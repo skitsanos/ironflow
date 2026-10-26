@@ -1,6 +1,6 @@
 [package]
 name = "ironflow"
-version = "1.19.1"
+version = "1.19.2"
 edition = "2024"
 description = "Lightweight workflow engine — Rust core, Lua scripting, single binary"
 license = "MIT"
@@ -42,7 +42,7 @@ aws-sdk-s3vectors = { version = "1.27.0", default-features = false, features = [
 ] }
 aws-smithy-types = "1.4.9"
 csv = "1.4.0"
-jsonschema = "0.58"
+jsonschema = "0.60"
 num_cpus = "1.17.0"
 dotenvy = "0.15.7"
 sha2 = "0.11"
@@ -51,13 +51,13 @@ hex = "0.4.3"
 axum = "0.8.9"
 tower-http = { version = "0.7.0", features = ["cors", "fs", "trace"] }
 base64 = "0.23.0"
-comrak = { version = "0.57", default-features = false }
+comrak = { version = "0.58", default-features = false }
 html2md = "0.2.15"
 ammonia = "4.1.2"
 zip = "9.0.5"
 quick-xml = "0.42.0"
 calamine = { version = "0.37", default-features = false, features = ["dates"] }
-lopdf = { version = "0.45", default-features = false, features = ["chrono"] }
+lopdf = { version = "0.46", default-features = false, features = ["chrono"] }
 image = { version = "0.25.10", default-features = false, features = [
     "bmp", "ff", "gif", "hdr", "ico", "jpeg", "png", "pnm", "qoi", "tga", "tiff", "webp",
 ] }
