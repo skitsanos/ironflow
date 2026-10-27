@@ -1,7 +1,7 @@
 # Next IronFlow release - draft
 
 Unreleased additions on `develop`, after published **v1.19.2**. The local
-package version remains `1.19.2-dev.4` until the next development-version bump.
+package version is `1.19.2-dev.5` for the current integration batch.
 This draft does not announce another stable release.
 
 ## Document Generation
@@ -37,6 +37,8 @@ This draft does not announce another stable release.
 
 - Integrate ZIP 9.1.2 (PR #232) without unrelated Windows/getrandom lockfile
   changes, and Comrak 0.59.0 (PR #233) with default features still disabled.
+  Integrate JSON Schema 0.60.2 (PR #234) and RMCP 3.8.0 (PR #235), retaining
+  the existing tempfile/getrandom resolution rather than unrelated lockfile churn.
   No stable release is published by this maintenance batch.
 
 ## Validation Resources
