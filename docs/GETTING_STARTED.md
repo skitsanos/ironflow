@@ -91,7 +91,9 @@ to your user `Path` through **Environment Variables**.
 ## Use Docker
 
 The public image is published to
-[GitHub Container Registry](https://github.com/skitsanos/ironflow/pkgs/container/ironflow).
+[GitHub Container Registry](https://github.com/skitsanos/ironflow/pkgs/container/ironflow)
+and [Docker Hub](https://hub.docker.com/r/skitsanos/ironflow). Both registries
+receive the same build with matching `latest`, `develop`, and `sha-<full-commit>` tags.
 Docker Desktop or Docker Engine must be running. Images include PostgreSQL
 and Redis storage support and currently target **linux/amd64** only. On ARM
 hosts, Docker must support x86-64 emulation; on Windows, use Linux containers.
@@ -107,6 +109,11 @@ manual Container workflow runs:
 | `ghcr.io/skitsanos/ironflow:develop` | Most recently published build from `develop`; may include unreleased changes. |
 | `ghcr.io/skitsanos/ironflow:sha-<full-commit>` | A specific published source revision. |
 | `ghcr.io/skitsanos/ironflow@sha256:...` | An exact image digest for reproducible deployment. |
+
+For Docker Hub, replace `ghcr.io/skitsanos/ironflow` with
+`docker.io/skitsanos/ironflow` (or the shorthand `skitsanos/ironflow`)
+in any reference above. Tag meanings are identical on both registries;
+for example, `skitsanos/ironflow:latest` follows `main`.
 
 In Bash or Zsh, select an image once for the commands below:
 
@@ -125,13 +132,19 @@ as shown below. Running containers do not update automatically.
 
 Find published commit tags on the
 [package page](https://github.com/skitsanos/ironflow/pkgs/container/ironflow),
+the [Docker Hub tags page](https://hub.docker.com/r/skitsanos/ironflow/tags),
 or open a successful [Container workflow run](https://github.com/skitsanos/ironflow/actions/workflows/container.yml)
-and copy the `ghcr.io/skitsanos/ironflow@sha256:...` reference from its
+and copy the digest reference for either registry from its
 **Published container** summary into `IMAGE`. A source commit alone does not
 guarantee that its image has finished publishing. If an alias is not available
-yet, use a published commit tag or digest. The `buildcache-amd64` tag is build
+yet, use a published commit tag or digest. Registry pushes are not atomic across
+services: a failed workflow may have updated only one registry, so use a successful
+run's digest when matching images. The `buildcache-amd64` GHCR tag is build
 cache, not an application image. Hosted deployments use the
 [digest-pinned deployment procedure](REPLICA_DEPLOYMENT.md).
+
+Maintainers: see [Docker publishing](DOCKER_PUBLISHING.md) for credentials,
+tag synchronization, and the Docker Hub overview source.
 
 ### Start a local API server
 

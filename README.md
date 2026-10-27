@@ -114,6 +114,7 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 
 Start with a **[prebuilt binary](https://github.com/skitsanos/ironflow/releases/latest)**
 or a **[Docker image](https://github.com/skitsanos/ironflow/pkgs/container/ironflow)**.
+Docker images are also available on [Docker Hub](https://hub.docker.com/r/skitsanos/ironflow).
 Neither option requires Rust or a separate Lua installation.
 See [Getting started](docs/GETTING_STARTED.md) for platform selection, checksum
 verification, installation on `PATH`, and running workflow files in Docker.
@@ -149,6 +150,8 @@ use `.\ironflow.exe` in place of `./ironflow`. Run history is saved under
 
 ### Or start with Docker
 
+Use `ghcr.io/skitsanos/ironflow` or `skitsanos/ironflow` from Docker Hub;
+both registries publish the same image with matching tags.
 With Docker running, start a local API server (Bash or Zsh):
 
 ```bash
