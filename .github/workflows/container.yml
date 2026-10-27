@@ -25,6 +25,7 @@ concurrency:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  DOCKERHUB_IMAGE: skitsanos/ironflow
 
 jobs:
   publish:
@@ -45,11 +46,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          registry: docker.io
+          username: skitsanos
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Generate image metadata
         id: metadata
         uses: docker/metadata-action@v6
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+            docker.io/${{ env.DOCKERHUB_IMAGE }}
           flavor: latest=false
           tags: |
             type=sha,format=long,prefix=sha-
@@ -90,11 +100,13 @@ jobs:
       - name: Record immutable reference
         env:
           IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          DOCKERHUB_IMAGE: docker.io/${{ env.DOCKERHUB_IMAGE }}
           DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           {
             echo "### Published container"
             echo '```text'
             echo "${IMAGE}@${DIGEST}"
+            echo "${DOCKERHUB_IMAGE}@${DIGEST}"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

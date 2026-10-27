@@ -165,7 +165,9 @@ namespace-scoped acceptance template: a disposable PostgreSQL PVC, two
 IronFlow replicas, health probes, edge-TLS Route, and a PodDisruptionBudget. It
 intentionally omits credentials and contains a non-pullable image marker. The
 repository Container workflow publishes `linux/amd64` images to GHCR with an
-immutable tag for every commit on `develop` and `main`; deployment renders the
+immutable tag for each published commit on `develop` and `main`, and publishes
+the same build and tags to Docker Hub as `skitsanos/ironflow`. The OpenShift
+renderer continues to require the GHCR reference; deployment renders the
 template with the runnable `linux/amd64` manifest digest selected from the
 attested OCI index, never the index itself or a branch tag. That makes the
 declared Deployment digest identical to each container runtime `imageID` while
