@@ -4,4 +4,7 @@ The approved 1.20.0 changes are recorded in [1.20.0.md](1.20.0.md).
 Development versions remain prereleases until release-branch finalization;
 publication is verified separately.
 
-No additional unreleased changes are recorded yet.
+Development continues as `1.20.1-dev.1`. No additional unreleased changes are
+recorded yet.
+
+Earlier maintenance changes remain in [the 1.19.2 notes](1.19.2.md).
