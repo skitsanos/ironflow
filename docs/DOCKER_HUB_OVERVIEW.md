@@ -20,10 +20,11 @@ Both registries receive the same build with matching tags:
 | --- | --- |
 | `latest` | Most recently published build from `main`. |
 | `develop` | Most recently published development build; may include unreleased changes. |
+| `1.20.0` | Published image for the stable 1.20.0 release. |
 | `sha-<full-commit>` | A specific published source revision. |
 
-Check the repository's Tags tab for available images. If the first Docker Hub
-publication is still pending, use `ghcr.io/skitsanos/ironflow:latest`.
+Check the repository's Tags tab for available images. Stable `X.Y.Z` tags are
+added automatically after release publication and preserve the promoted digest.
 `latest` follows `main`, rather than the GitHub Releases API; check `--version`
 when matching an image to a binary release. Use an image digest for reproducible
 deployments. The GHCR `buildcache-amd64` tag is build cache, not an application image.

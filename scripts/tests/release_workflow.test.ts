@@ -12,6 +12,9 @@ type Step = {
 type Platform = { target: string; os: string };
 type Job = {
   name?: string;
+  uses?: string;
+  with?: Record<string, string>;
+  secrets?: string;
   needs?: string;
   "runs-on"?: string;
   permissions?: Record<string, string>;
@@ -99,16 +102,21 @@ test("release packages and uploads distinct nonempty artifacts for every variant
   expect(String(upload?.with?.path)).toContain(target);
 });
 
-test("only guarded tag releases can publish and only the publishing job can write", async () => {
+test("only guarded tag releases can publish and publishing jobs have scoped write access", async () => {
   const workflow = await readWorkflow();
   expect(workflow.on).toEqual({ push: { tags: ["v*"] } });
   expect(workflow.permissions).toEqual({ contents: "read" });
   expect(workflow.jobs.build.needs).toBe("guard");
   expect(workflow.jobs.guard.steps.some((step) => step.run?.includes("git merge-base --is-ancestor"))).toBeTrue();
   expect(workflow.jobs.release.needs).toBe("build");
+  expect(workflow.jobs.container.needs).toBe("release");
+  expect(workflow.jobs.container.uses).toBe("./.github/workflows/container-release.yml");
+  expect(workflow.jobs.container.with?.release_tag).toBe("${{ github.ref_name }}");
+  expect(workflow.jobs.container.secrets).toBe("inherit");
   for (const [name, job] of Object.entries(workflow.jobs)) {
     expect(job.permissions ?? workflow.permissions).toEqual({
       contents: name === "release" ? "write" : "read",
+      ...(name === "container" ? { packages: "write" } : {}),
     });
   }
 });

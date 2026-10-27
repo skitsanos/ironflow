@@ -93,7 +93,8 @@ to your user `Path` through **Environment Variables**.
 The public image is published to
 [GitHub Container Registry](https://github.com/skitsanos/ironflow/pkgs/container/ironflow)
 and [Docker Hub](https://hub.docker.com/r/skitsanos/ironflow). Both registries
-receive the same build with matching `latest`, `develop`, and `sha-<full-commit>` tags.
+receive the same build with matching `latest`, `develop`, `sha-<full-commit>`,
+and stable release version tags.
 Docker Desktop or Docker Engine must be running. Images include PostgreSQL
 and Redis storage support and currently target **linux/amd64** only. On ARM
 hosts, Docker must support x86-64 emulation; on Windows, use Linux containers.
@@ -107,6 +108,7 @@ manual Container workflow runs:
 | --- | --- |
 | `ghcr.io/skitsanos/ironflow:latest` | Most recently published build from `main`; the Quick Start default. |
 | `ghcr.io/skitsanos/ironflow:develop` | Most recently published build from `develop`; may include unreleased changes. |
+| `ghcr.io/skitsanos/ironflow:1.20.0` | Published image for the stable 1.20.0 release. |
 | `ghcr.io/skitsanos/ironflow:sha-<full-commit>` | A specific published source revision. |
 | `ghcr.io/skitsanos/ironflow@sha256:...` | An exact image digest for reproducible deployment. |
 
@@ -129,6 +131,10 @@ matching an image to a binary release. Moving tags update only after a
 successful Container workflow run on their respective branch. Pull again
 before restarting to use an updated image, or use `docker run --pull always`
 as shown below. Running containers do not update automatically.
+
+Stable `X.Y.Z` tags are added by the release workflow after binary publication;
+the promotion automation refuses to replace an existing version with a different
+digest. Check the registry's tags page before selecting a newly released version.
 
 Find published commit tags on the
 [package page](https://github.com/skitsanos/ironflow/pkgs/container/ironflow),

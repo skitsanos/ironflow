@@ -1,0 +1,67 @@
+name: Container release tags
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: Stable Git release tag, such as v1.20.0
+        required: true
+        type: string
+      source_digest:
+        description: Optional verified image digest for an existing release
+        required: false
+        default: ""
+        type: string
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Stable Git release tag, such as v1.20.0
+        required: true
+        type: string
+      source_digest:
+        description: Optional verified image digest; defaults to the release commit image
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: container-release-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: Promote verified image to release version
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          registry: docker.io
+          username: skitsanos
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Publish version tags without rebuilding
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          SOURCE_DIGEST: ${{ inputs.source_digest }}
+        run: bun --no-env-file scripts/tag_container_release.ts
