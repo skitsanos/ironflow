@@ -6,24 +6,56 @@ use super::InterpolationError;
 use super::path;
 
 pub(super) fn render(template: &str, context: &Context) -> Result<String, InterpolationError> {
-    visit(template, |expression| {
+    visit(template, None, |expression| {
         let segments = path::parse(expression)?;
         Ok(stringify(path::resolve(&segments, context)))
     })
 }
 
 pub(super) fn validate(template: &str) -> Result<(), InterpolationError> {
-    visit(template, |expression| {
+    visit(template, None, |expression| {
         path::parse(expression)?;
         Ok(String::new())
     })
     .map(|_| ())
 }
 
-fn visit<F>(template: &str, mut resolve: F) -> Result<String, InterpolationError>
+pub(super) fn render_bounded(
+    template: &str,
+    context: &Context,
+    maximum: usize,
+) -> Result<String, InterpolationError> {
+    visit(template, Some(maximum), |expression| {
+        let segments = path::parse(expression)?;
+        match path::resolve(&segments, context) {
+            Some(Value::String(value)) if value.len() <= maximum => Ok(value.clone()),
+            Some(Value::String(_)) => Err(InterpolationError::new(
+                expression,
+                "interpolated value exceeds document byte limit",
+            )),
+            Some(Value::Null) | None => Ok(String::new()),
+            Some(_) => Err(InterpolationError::new(
+                expression,
+                "document interpolation requires string values; use source_key for Markdown",
+            )),
+        }
+    })
+}
+
+fn visit<F>(
+    template: &str,
+    maximum: Option<usize>,
+    mut resolve: F,
+) -> Result<String, InterpolationError>
 where
     F: FnMut(&str) -> Result<String, InterpolationError>,
 {
+    if maximum.is_some_and(|max| template.len() > max) {
+        return Err(InterpolationError::new(
+            "ctx",
+            "template exceeds document byte limit",
+        ));
+    }
     let mut output = String::with_capacity(template.len());
     let mut cursor = 0;
 
@@ -56,13 +88,32 @@ where
         };
 
         if reserved {
-            output.push_str(&resolve(expression)?);
+            let value = resolve(expression)?;
+            if maximum.is_some_and(|max| output.len().saturating_add(value.len()) > max) {
+                return Err(InterpolationError::new(
+                    expression,
+                    "interpolated document exceeds byte limit",
+                ));
+            }
+            output.push_str(&value);
         } else {
             output.push_str(&template[open..=close]);
         }
         cursor = close + 1;
+        if maximum.is_some_and(|max| output.len() > max) {
+            return Err(InterpolationError::new(
+                "ctx",
+                "interpolated document exceeds byte limit",
+            ));
+        }
     }
 
+    if maximum.is_some_and(|max| output.len().saturating_add(template.len() - cursor) > max) {
+        return Err(InterpolationError::new(
+            "ctx",
+            "interpolated document exceeds byte limit",
+        ));
+    }
     output.push_str(&template[cursor..]);
     Ok(output)
 }

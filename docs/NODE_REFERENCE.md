@@ -1,6 +1,6 @@
 # IronFlow — Node Reference
 
-Complete reference for all 103 built-in nodes. Click any node name for full documentation with parameters, context output, and Lua examples.
+Complete reference for all 105 built-in nodes. Click any node name for full documentation with parameters, context output, and Lua examples.
 
 For adding or maintaining node implementations, see [Node Contributor Manual](NODE_CONTRIBUTING.md).
 
@@ -124,6 +124,8 @@ endpoint, and AWS credential configuration may still come from the environment.
 | Node | Description |
 |------|-------------|
 | [`markdown_to_html`](nodes/markdown_to_html.md) | Convert Markdown to HTML |
+| [`markdown_to_pdf`](nodes/markdown_to_pdf.md) | Generate a searchable PDF locally from Markdown |
+| [`markdown_to_docx`](nodes/markdown_to_docx.md) | Generate an editable Word document locally from Markdown |
 | [`html_to_markdown`](nodes/html_to_markdown.md) | Convert HTML to Markdown |
 
 ## XML Nodes

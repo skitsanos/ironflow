@@ -33,6 +33,26 @@ best-effort basis, but whitespace can be introduced or omitted when positioned
 glyph fragments are joined. Do not treat exact whitespace or byte-for-byte
 output as a stable document-identity representation.
 
+When page marked-content sequences supply `/ActualText`, extraction uses that
+logical replacement string once instead of the enclosed glyphs. The outermost
+replacement wins for nested spans; an empty string deliberately suppresses the
+enclosed content. Direct dictionaries and named `/Properties` resources,
+including inherited resources and indirect property/text references, are
+supported. PDFDocEncoding, BOM-marked UTF-16BE and BOM-marked UTF-8 text strings
+are decoded with lopdf's text-string APIs. Malformed strings/properties,
+unbalanced markers and cyclic references fail instead of returning partial text.
+
+This preserves logical Hebrew/Arabic, combining marks, CJK and mixed-direction
+text in PDFs produced by `markdown_to_pdf` ([IF-156](../issues/IF-156.md)). It is
+not OCR or a general semantic-layout reconstruction. Structure-tree-only
+ActualText and text inside Form XObjects are not newly traversed; untagged text
+still depends on the existing font encodings and stream order. No heuristic
+string reversal is applied. `extract_pdf` still reads all pages of its input;
+use `pdf_split` first to select pages, preserving their replacement resources.
+Replacement text is author-supplied and can differ from what is visibly drawn;
+extraction does not verify semantic consistency or prove that a PDF was redacted
+correctly.
+
 ## Resource and cancellation contract
 
 - The input must be a regular file. `IRONFLOW_MAX_PDF_BYTES` (default
@@ -47,21 +67,30 @@ output as a stable document-identity representation.
   Strict parsing and bounded recovery checks reject oversized streams instead
   of returning partial success. These are not a total memory ceiling.
 - `IRONFLOW_MAX_EXTRACT_ITEMS` (default `250000`) is cumulative across PDF
-  pages, supported metadata fields that are present, and extracted text lines.
+  pages, present supported metadata fields, fonts, content operations, text
+  operands, property-reference/resource-ancestor hops, 4 KiB input chunks of
+  replacement/glyph strings, and extracted text lines.
 - `IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES` (default `52428800`, 50 MiB) bounds the
   extracted text before it is appended and the complete serialized
   `NodeOutput`, including content and requested metadata. The remaining text
   budget also bounds each page's decompressed content and font-mapping streams.
   This is not the later `IRONFLOW_MAX_TASK_OUTPUT_BYTES` persistence limit.
+- Marked-content and text-operand nesting are limited to 64 levels. Property
+  reference chains are limited to 32 hops with cycle detection; named-property
+  resource inheritance is limited to 64 ancestors. ActualText's decoded UTF-8
+  length is checked before the replacement string is materialized and appended.
 - File reading and post-extraction text/Markdown processing run on a tracked
   blocking worker with cooperative cancellation and deadline checkpoints.
   IronFlow parses the input once with `lopdf`, releases the original byte
   buffer, and extracts one page at a time. Document loading and each bounded
-  page extraction are synchronous library calls and cannot be interrupted
-  midway; IronFlow checks cancellation immediately before and after them.
-  Previously extracted text plus the next page's decompressed content cannot
-  exceed the configured extraction-output budget. Task and run admission
-  remain occupied until the physical worker stops.
+  content/CMap decoding are synchronous library calls and cannot be interrupted
+  midway; IronFlow checks cancellation before/after them and between operations,
+  reference hops, text operands and replacement-string validation chunks. Page
+  content and font streams use the smaller of the remaining output budget and
+  the shared decompressed-stream limit. This is not a peak-memory ceiling:
+  parsed operations, font maps and temporary glyph-decoding strings coexist
+  with the retained document and result. Task and run admission remain occupied
+  until the physical worker stops.
 
 ## Example
 

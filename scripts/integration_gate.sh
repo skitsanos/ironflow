@@ -56,7 +56,7 @@ actionlint .github/workflows/*.yml
 echo "[integration] default Rust gates"
 cargo check --all-targets
 cargo clippy --all-targets -- -D warnings
-cargo test --all-targets
+bun --no-env-file scripts/test_rust_targets.ts
 cargo test --doc
 cargo audit --deny warnings
 
@@ -136,7 +136,7 @@ IRONFLOW_REDIS_TEST_URL="redis://127.0.0.1:$redis_port" \
 IRONFLOW_REDIS_TEST_REQUIRED=1 \
 IRONFLOW_POSTGRES_TEST_REQUIRED=1 \
 DATABASE_URL="postgres://postgres:$postgres_password@127.0.0.1:$postgres_port/ironflow_test" \
-  cargo test --all-targets --features postgres,redis -- --test-threads=1
+  bun --no-env-file scripts/test_rust_targets.ts --features postgres,redis -- --test-threads=1
 
 echo "[integration] TLS-only storage and certificate rejection"
 bun --no-env-file scripts/test_store_tls.ts target/debug/ironflow

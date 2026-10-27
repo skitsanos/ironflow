@@ -97,6 +97,8 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **function_handler.lua** — Pass Lua functions directly as step handlers
 - **reused_callbacks.lua** — Reuse one self-contained callback across steps, conditional steps, code nodes, and foreach transforms
 - **markdown_conversion.lua** — Markdown ↔ HTML conversion with GFM support
+- **markdown_documents.lua** — Generate searchable PDF and editable DOCX from one Markdown source, with tables and an explicitly bound local image. Creates `data/output/markdown/report.pdf` and `report.docx`; override `pdf_path` and `docx_path` for isolated runs. Existing files are not overwritten.
+- **markdown_multilingual.lua** — Generate PDF and DOCX from a Ukrainian/CJK/Hebrew/Arabic fixture, including mixed-direction paragraphs and an RTL table, then extract the PDF's logical ActualText as `pdf_text`. Creates `data/output/markdown/multilingual.pdf` and `.docx`; override `pdf_path` and `docx_path` for isolated runs. Supports `language` and `direction` context overrides.
 - **base64_encode_decode.lua** — Base64 encode and decode round-trip
 
 ## 08-extraction

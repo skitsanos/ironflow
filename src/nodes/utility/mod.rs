@@ -7,6 +7,7 @@ mod hash;
 mod html_sanitize;
 mod log;
 mod markdown;
+mod markdown_document;
 mod shell;
 mod template;
 mod validate;
@@ -24,6 +25,7 @@ pub fn register_all(registry: &mut NodeRegistry) {
     registry.register(Arc::new(template::TemplateRenderNode));
     registry.register(Arc::new(markdown::MarkdownToHtmlNode));
     registry.register(Arc::new(markdown::HtmlToMarkdownNode));
+    markdown_document::register(registry);
     registry.register(Arc::new(html_sanitize::HtmlSanitizeNode));
     registry.register(Arc::new(encoding::Base64EncodeNode));
     registry.register(Arc::new(encoding::Base64DecodeNode));

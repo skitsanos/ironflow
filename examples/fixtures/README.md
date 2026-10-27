@@ -5,7 +5,7 @@ runnable from a clean checkout. They contain original test content created for
 this repository and no copied documents, customer data, corporate slides, or
 third-party images.
 
-The seven files are intentionally reused across examples:
+The fixtures are intentionally reused across examples:
 
 - `ironflow-sample.pdf` — three text pages for extraction, metadata, merge,
   split, rendering, and chunking.
@@ -19,6 +19,8 @@ The seven files are intentionally reused across examples:
   common real-world layout where the header is not row one.
 - `ironflow-transcript.vtt` and `ironflow-transcript.srt` — equivalent subtitle
   transcripts for extraction, cue chunking, and service-backed examples.
+- `markdown-multilingual.md` — Ukrainian, Chinese, Japanese, Korean, Hebrew,
+  Arabic, combining marks, mixed-direction text and an RTL table for document generation.
 
 Lua examples address these files through the injected `_flow_dir` context key,
 so their inputs resolve relative to the flow file rather than the process's

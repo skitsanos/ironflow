@@ -32,6 +32,7 @@ RUN cargo chef cook --release --locked --features "${FEATURES}" \
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 COPY tools ./tools
+COPY assets ./assets
 
 RUN cargo build --release --locked --features "${FEATURES}" --bin ironflow
 
@@ -48,6 +49,7 @@ RUN apt-get update \
     && chmod -R g=u /data
 
 COPY --from=builder /app/target/release/ironflow /usr/local/bin/ironflow
+COPY assets/fonts/OFL.txt /usr/local/share/licenses/ironflow/fonts-OFL.txt
 
 ENV HOST=0.0.0.0 \
     PORT=3000 \

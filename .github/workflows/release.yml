@@ -70,12 +70,12 @@ jobs:
 
       - name: Package (unix)
         if: runner.os != 'Windows'
-        run: tar czf ironflow-${{ github.ref_name }}-${{ matrix.platform.target }}${{ matrix.suffix }}.tar.gz -C target/${{ matrix.platform.target }}/release ironflow
+        run: tar czf ironflow-${{ github.ref_name }}-${{ matrix.platform.target }}${{ matrix.suffix }}.tar.gz assets/fonts/OFL.txt -C target/${{ matrix.platform.target }}/release ironflow
 
       - name: Package (windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Compress-Archive -Path "target/${{ matrix.platform.target }}/release/ironflow.exe" -DestinationPath "ironflow-${{ github.ref_name }}-${{ matrix.platform.target }}${{ matrix.suffix }}.zip"
+        run: Compress-Archive -Path "target/${{ matrix.platform.target }}/release/ironflow.exe", "assets/fonts/OFL.txt" -DestinationPath "ironflow-${{ github.ref_name }}-${{ matrix.platform.target }}${{ matrix.suffix }}.zip"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7

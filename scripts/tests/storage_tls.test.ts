@@ -88,7 +88,7 @@ test("TLS acceptance runs after the full-feature build in local and CI gates", a
   };
   const steps = workflow.jobs["rust-features"].steps;
   const tls = steps.findIndex(s => s.run === "bun --no-env-file scripts/test_store_tls.ts target/debug/ironflow");
-  const build = steps.findIndex(s => s.run?.includes("cargo test --all-targets --features postgres,redis"));
+  const build = steps.findIndex(s => s.run?.includes("scripts/test_rust_targets.ts --features postgres,redis"));
   expect(build).toBeGreaterThanOrEqual(0);
   expect(tls).toBeGreaterThan(build);
   expect(steps.slice(0, tls).some(s => s.uses === "oven-sh/setup-bun@v2")).toBeTrue();
