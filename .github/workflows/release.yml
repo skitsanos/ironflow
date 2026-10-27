@@ -110,3 +110,14 @@ jobs:
           files: |
             artifacts/ironflow-*
             artifacts/checksums-sha256.txt
+
+  container:
+    name: Publish container version tags
+    needs: release
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/container-release.yml
+    with:
+      release_tag: ${{ github.ref_name }}
+    secrets: inherit

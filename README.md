@@ -168,6 +168,8 @@ docker run --rm --pull always --name ironflow --platform linux/amd64 \
 published development build. Both are moving tags, so `--pull always` checks
 for an updated image on each start. Commit tags and digest references are also
 available; see [image selection](docs/GETTING_STARTED.md#select-an-image).
+Use `:1.20.0` to select that stable release. Future stable releases receive
+matching `X.Y.Z` tags on both registries after release publication.
 Images include PostgreSQL and Redis support and currently target `linux/amd64`;
 ARM hosts need Docker's x86-64 emulation. The `ironflow-data` volume preserves
 state after the container stops.
