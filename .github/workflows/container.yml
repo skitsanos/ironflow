@@ -5,6 +5,7 @@ on:
     branches: [main, develop]
     paths:
       - "src/**"
+      - "assets/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "Dockerfile"

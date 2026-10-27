@@ -15,8 +15,11 @@ cleanup() {
   gate_status=$?
   trap - EXIT INT TERM
 
-  if [[ -n "$redis_container" || -n "$postgres_container" ]]; then
-    docker rm -f "$redis_container" "$postgres_container" >/dev/null 2>&1 || true
+  local -a owned_containers=()
+  if [[ -n "$redis_container" ]]; then owned_containers+=("$redis_container"); fi
+  if [[ -n "$postgres_container" ]]; then owned_containers+=("$postgres_container"); fi
+  if (( ${#owned_containers[@]} > 0 )); then
+    docker rm -f -v "${owned_containers[@]}" >/dev/null 2>&1 || true
   fi
 
   echo "[integration] removing gate-owned IronFlow artifacts"

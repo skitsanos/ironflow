@@ -1,6 +1,15 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
 
+test("container publication includes font-only asset changes", async () => {
+  const root = join(import.meta.dir, "../..");
+  const workflow = Bun.YAML.parse(await Bun.file(join(root, ".github/workflows/container.yml")).text()) as {
+    on: { push: { paths: string[] } };
+  };
+  expect(await Bun.file(join(root, "Dockerfile")).text()).toContain("COPY assets ./assets");
+  expect(workflow.on.push.paths).toContain("assets/**");
+});
+
 test("container publication waits for runtime storage acceptance", async () => {
   const source = await Bun.file(join(import.meta.dir, "../../.github/workflows/container.yml")).text();
   const workflow = Bun.YAML.parse(source) as {
