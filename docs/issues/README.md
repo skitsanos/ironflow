@@ -6,7 +6,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts generate` and verified with
 `bun run scripts/issues_registry.ts check`.
 
-- Total findings: 155
+- Total findings: 160
 - Active findings: 0
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
@@ -167,3 +167,8 @@ priority, area, and title. The registry is generated with
 | [IF-153](./IF-153.md) | P2 | Resolved | Test reliability | JSON lease regression uses a tight reaper-start watchdog |
 | [IF-154](./IF-154.md) | P2 | Resolved | Test reliability | XLSX preflight regression treats scheduling latency as decompression |
 | [IF-155](./IF-155.md) | P2 | Resolved | SQLite startup | SQLite index verification mixes stale pooled schema metadata |
+| [IF-156](./IF-156.md) | P2 | Resolved | PDF extraction | PDF extraction ignores logical ActualText for shaped RTL content |
+| [IF-157](./IF-157.md) | P2 | Resolved | Document generation | DOCX importers lose RTL alignment and infer incompatible body/table defaults |
+| [IF-158](./IF-158.md) | P2 | Resolved | Development validation | Full integration tests retain every linked executable until the phase ends |
+| [IF-159](./IF-159.md) | P2 | Resolved | Container automation | Font-only changes do not trigger container publication |
+| [IF-160](./IF-160.md) | P2 | Resolved | Validation resource lifecycle | Integration cleanup leaves anonymous PostgreSQL volumes |

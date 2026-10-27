@@ -1,7 +1,9 @@
-# Next IronFlow release - draft
+# Next IronFlow Release - Draft
 
-The 1.19.2 maintenance changes are recorded in
-[the 1.19.2 release notes](1.19.2.md).
+The approved 1.20.0 changes are recorded in [1.20.0.md](1.20.0.md).
+Development versions remain prereleases until release-branch finalization;
+publication is verified separately.
 
-No subsequent release candidate has been prepared. Add the next development
-candidate and its changes here when development resumes.
+No additional unreleased changes are recorded yet.
+
+Earlier maintenance changes remain in [the 1.19.2 notes](1.19.2.md).

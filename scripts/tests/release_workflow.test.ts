@@ -89,6 +89,7 @@ test("release packages and uploads distinct nonempty artifacts for every variant
     // Archive names carry target and suffix so the eight variants never collide.
     expect(step?.run).toContain(target);
     expect(step?.run).toContain(suffix);
+    expect(step?.run).toContain("assets/fonts/OFL.txt");
   }
   const upload = steps.find((step) => step.uses?.startsWith("actions/upload-artifact@"));
   expect(upload?.with?.["if-no-files-found"]).toBe("error");

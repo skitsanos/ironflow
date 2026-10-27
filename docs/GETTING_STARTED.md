@@ -10,7 +10,7 @@ and API request.
 Open the [latest stable release](https://github.com/skitsanos/ironflow/releases/latest)
 and expand **Assets**. Download the archive matching your system and the
 `checksums-sha256.txt` file from the same release. Asset names include the
-release version; `<version>` below stands for that version, such as `1.18.1`.
+release version; `<version>` below stands for that version, such as `1.20.0`.
 
 | System | Default archive |
 | --- | --- |
@@ -37,17 +37,17 @@ against its entry in `checksums-sha256.txt`:
 
 ```bash
 # Linux; replace the filename with the asset you downloaded.
-sha256sum ironflow-v1.18.1-x86_64-unknown-linux-musl.tar.gz
+sha256sum ironflow-v1.20.0-x86_64-unknown-linux-musl.tar.gz
 
 # macOS Apple Silicon; use x86_64-apple-darwin for an Intel Mac.
-shasum -a 256 ironflow-v1.18.1-aarch64-apple-darwin.tar.gz
+shasum -a 256 ironflow-v1.20.0-aarch64-apple-darwin.tar.gz
 ```
 
 Only continue if the hash matches. Extract your archive with `tar -xzf`, for
 example on Linux:
 
 ```bash
-tar -xzf ironflow-v1.18.1-x86_64-unknown-linux-musl.tar.gz
+tar -xzf ironflow-v1.20.0-x86_64-unknown-linux-musl.tar.gz
 ./ironflow --version
 ```
 
@@ -72,13 +72,13 @@ In PowerShell, verify the archive hash against its entry in
 `checksums-sha256.txt`, then extract it. Substitute the version you downloaded:
 
 ```powershell
-Get-FileHash .\ironflow-v1.18.1-x86_64-pc-windows-msvc.zip -Algorithm SHA256
+Get-FileHash .\ironflow-v1.20.0-x86_64-pc-windows-msvc.zip -Algorithm SHA256
 ```
 
 After confirming that the hash matches:
 
 ```powershell
-Expand-Archive .\ironflow-v1.18.1-x86_64-pc-windows-msvc.zip -DestinationPath .\ironflow
+Expand-Archive .\ironflow-v1.20.0-x86_64-pc-windows-msvc.zip -DestinationPath .\ironflow
 Set-Location .\ironflow
 .\ironflow.exe --version
 ```

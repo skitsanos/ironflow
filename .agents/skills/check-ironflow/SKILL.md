@@ -39,6 +39,8 @@ The local full gate sets `CARGO_INCREMENTAL=0` and runs package-scoped
 `cargo clean --package ironflow` before and after validation. Dependency caches
 remain available, but IronFlow binaries and linked test executables are
 intentionally removed so repeated versioned gates do not exhaust local disk.
+Gate cleanup removes its owned containers and associated anonymous volumes;
+it does not prune shared named volumes or unrelated Docker resources.
 
 Read the script before running it. Its coverage includes repository/issue/skill
 and hook tests, formatting, module-size policy, actionlint, default checks,

@@ -139,7 +139,25 @@ pub trait Node: Send + Sync {
 }
 ```
 
-Nodes are registered in a `NodeRegistry` and exposed to Lua as callable factory functions. 103 built-in nodes are provided across HTTP, shell, file, S3, S3 vector, MCP, data transform, iteration, caching, conditional, timing, code execution, markdown, XML, YAML, HTML sanitization, date/time, encoding, document extraction, image processing, database, AI, subworkflow/tool dispatch, notification, and utility categories. The `pdf_to_image` and `pdf_thumbnail` nodes require the native Pdfium library at runtime.
+Nodes are registered in a `NodeRegistry` and exposed to Lua as callable factory functions. 105 built-in nodes are provided across HTTP, shell, file, S3, S3 vector, MCP, data transform, iteration, caching, conditional, timing, code execution, markdown, XML, YAML, HTML sanitization, date/time, encoding, document extraction, image processing, database, AI, subworkflow/tool dispatch, notification, and utility categories. The `pdf_to_image` and `pdf_thumbnail` nodes require the native Pdfium library at runtime.
+
+`markdown_to_pdf` and `markdown_to_docx` share a bounded Comrak-derived document
+model and explicit file/artifact image bindings. Tracked workers retain one of
+two process-wide generation permits until physical completion. PDF uses Parley
+for shaping, font fallback, Unicode bidi ordering and line breaking, with Krilla
+for output and logical ActualText spans. Its bundled font registry does not
+discover system fonts. DOCX uses the existing XML/ZIP stack with explicit
+script-specific font, language and bidi properties. Both
+publish through the shared staged-file boundary and require no external
+converter. See [Markdown Documents](MARKDOWN_DOCUMENTS.md) for limits and format
+differences.
+
+`extract_pdf` reuses the shared single-parse PDF loading boundary and decodes one
+page at a time. A bounded marked-content walker substitutes outermost ActualText
+strings and resolves direct/named/inherited property resources without traversing
+arbitrary structure trees. Ordinary glyph text continues through lopdf font
+encodings. Shared extraction budgets cover operations, property hops and text,
+with cooperative checkpoints outside opaque content/font decoding calls.
 
 ### 3. Lua Runtime (`lua/`)
 

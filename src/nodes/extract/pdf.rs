@@ -12,6 +12,11 @@ use super::common::{ensure_distinct_keys, optional_string, string_or, validate_f
 use super::resource::{Budget, Limits, read_file};
 use crate::util::file_source::get_file_source;
 
+mod marked;
+mod resolve;
+mod text;
+mod text_output;
+
 pub struct ExtractPdfNode;
 
 #[async_trait]
@@ -93,12 +98,7 @@ fn extract(
         .transpose()?;
     drop(bytes);
 
-    let text = extract_pdf_text(
-        &document,
-        pages.keys().copied(),
-        limits.max_output_bytes,
-        &budget,
-    )?;
+    let text = extract_pdf_text(&document, &pages, limits.max_output_bytes, &mut budget)?;
     budget.checkpoint()?;
     inspect_text(&text, &mut budget)?;
 
@@ -120,13 +120,13 @@ fn extract(
 
 fn extract_pdf_text(
     document: &lopdf::Document,
-    pages: impl IntoIterator<Item = u32>,
+    pages: &BTreeMap<u32, lopdf::ObjectId>,
     max_output_bytes: u64,
-    budget: &Budget<'_>,
+    budget: &mut Budget<'_>,
 ) -> Result<String> {
     let mut text = String::new();
 
-    for page in pages {
+    for (&page, &page_id) in pages {
         budget.checkpoint()?;
         let current_bytes = u64::try_from(text.len()).unwrap_or(u64::MAX);
         let remaining_bytes = max_output_bytes.checked_sub(current_bytes).ok_or_else(|| {
@@ -136,12 +136,11 @@ fn extract_pdf_text(
             )
         })?;
         let page_limit = usize::try_from(remaining_bytes).unwrap_or(usize::MAX);
-        let page_text = document
-            .extract_text_with_limit(&[page], page_limit)
-            .with_context(|| {
-                format!(
+        let page_text =
+            text::extract_page(document, page_id, page_limit, budget).map_err(|error| {
+                anyhow::anyhow!(
                     "extract_pdf: failed to extract page {page} within \
-                     IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES ({max_output_bytes})"
+                     IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES ({max_output_bytes}): {error:#}"
                 )
             })?;
         budget.checkpoint()?;

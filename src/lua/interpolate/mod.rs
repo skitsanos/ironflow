@@ -64,6 +64,14 @@ pub fn try_interpolate_ctx(
     template::render(template, context)
 }
 
+pub(crate) fn interpolate_ctx_bounded(
+    template: &str,
+    context: &Context,
+    maximum: usize,
+) -> Result<String, InterpolationError> {
+    template::render_bounded(template, context, maximum)
+}
+
 /// Interpolate `${ctx...}` placeholders, preserving a malformed template.
 ///
 /// Evaluated flows reject malformed expressions during validation. This

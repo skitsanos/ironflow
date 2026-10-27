@@ -96,7 +96,10 @@ jobs:
         with:
           cache-targets: false
       - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo test --all-targets
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun --no-env-file scripts/test_rust_targets.ts
       - run: cargo test --doc
 
   rust-features:
@@ -143,10 +146,10 @@ jobs:
         with:
           cache-targets: false
       - run: cargo clippy --all-targets --features postgres,redis -- -D warnings
-      - run: cargo test --all-targets --features postgres,redis -- --test-threads=1
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.4
+      - run: bun --no-env-file scripts/test_rust_targets.ts --features postgres,redis -- --test-threads=1
       - name: TLS-only storage and certificate rejection
         run: bun --no-env-file scripts/test_store_tls.ts target/debug/ironflow
 
@@ -159,7 +162,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-targets: false
-      - run: cargo test --all-targets
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun --no-env-file scripts/test_rust_targets.ts
 
   build-linux:
     name: Build (ubuntu-latest)

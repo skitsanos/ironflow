@@ -111,11 +111,18 @@ describe("repository integration policy", () => {
       dependencies: {
         comrak: { "default-features": boolean };
         lopdf: { "default-features": boolean; features: string[] };
+        parley: { "default-features": boolean; features: string[] };
+        krilla: { "default-features": boolean; features: string[] };
       };
     }).dependencies;
     expect(dependencies.comrak["default-features"]).toBeFalse();
     expect(dependencies.lopdf["default-features"]).toBeFalse();
     expect(dependencies.lopdf.features).toEqual(["chrono"]);
+    expect(dependencies.parley["default-features"]).toBeFalse();
+    expect(dependencies.parley.features).toEqual(["std", "complex-scripts"]);
+    expect(lockfile).not.toContain('name = "textris-pdf"');
+    expect(dependencies.krilla["default-features"]).toBeFalse();
+    expect(dependencies.krilla.features).toEqual(["raster-images"]);
     for (const removedPackage of [
       "bincode",
       "paste",
@@ -187,6 +194,10 @@ describe("repository integration policy", () => {
     const applicationCopy = dockerfile.indexOf("COPY src ./src", dependencyCook);
     expect(dependencyCook).toBeGreaterThan(-1);
     expect(applicationCopy).toBeGreaterThan(dependencyCook);
+    const assetsCopy = dockerfile.indexOf("COPY assets ./assets", dependencyCook);
+    expect(assetsCopy).toBeGreaterThan(dependencyCook);
+    expect(assetsCopy).toBeLessThan(dockerfile.indexOf("RUN cargo build", dependencyCook));
+    expect(dockerfile).toContain("COPY assets/fonts/OFL.txt /usr/local/share/licenses/ironflow/fonts-OFL.txt");
 
     const cacheReference =
       "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache-amd64";
@@ -292,7 +303,7 @@ describe("repository integration policy", () => {
       .map((step) => step.run)
       .filter(Boolean);
     expect(defaultCommands).toContain("cargo clippy --all-targets -- -D warnings");
-    expect(defaultCommands).toContain("cargo test --all-targets");
+    expect(defaultCommands).toContain("bun --no-env-file scripts/test_rust_targets.ts");
     expect(defaultCommands).toContain("cargo test --doc");
 
     const featureJob = jobs["rust-features"];
@@ -307,13 +318,13 @@ describe("repository integration policy", () => {
       "cargo clippy --all-targets --features postgres,redis -- -D warnings",
     );
     expect(featureCommands).toContain(
-      "cargo test --all-targets --features postgres,redis -- --test-threads=1",
+      "bun --no-env-file scripts/test_rust_targets.ts --features postgres,redis -- --test-threads=1",
     );
     expect(featureCommands).not.toContain("cargo check");
 
     const compilingJobs = Object.entries(jobs)
       .filter(([, job]) =>
-        job.steps.some((step) => /cargo (?:check|clippy|test|build)(?:\s|$)/.test(step.run ?? "")),
+        job.steps.some((step) => /cargo (?:check|clippy|test|build)(?:\s|$)|scripts\/test_rust_targets\.ts/.test(step.run ?? "")),
       )
       .map(([name]) => name)
       .sort();
@@ -323,6 +334,19 @@ describe("repository integration policy", () => {
       "rust-features",
       "test-macos",
     ]);
+  });
+
+  test("every CI batch runner has Bun available and cannot skip test failures", async () => {
+    const workflow = Bun.YAML.parse(await Bun.file(join(repository, ".github/workflows/ci.yml")).text()) as {
+      jobs: Record<string, {steps: {uses?: string; run?: string; "continue-on-error"?: boolean}[]}>;
+    };
+    for (const job of ["rust-default", "rust-features", "test-macos"]) {
+      const steps = workflow.jobs[job].steps;
+      const runner = steps.findIndex(s => s.run?.includes("scripts/test_rust_targets.ts"));
+      expect(runner).toBeGreaterThan(0);
+      expect(steps.slice(0, runner).some(s => s.uses === "oven-sh/setup-bun@v2")).toBeTrue();
+      expect(steps[runner]["continue-on-error"]).not.toBeTrue();
+    }
   });
 
   test("the local integration gate bounds workspace artifact growth", async () => {
@@ -335,11 +359,12 @@ describe("repository integration policy", () => {
     const integrationCleanup =
       'echo "[integration] reclaiming pre-integration Rust artifacts"';
     const featureTests =
-      "cargo test --all-targets --features postgres,redis -- --test-threads=1";
+      "bun --no-env-file scripts/test_rust_targets.ts --features postgres,redis -- --test-threads=1";
 
     expect(gate).toContain(cleanup);
     expect(gate).not.toMatch(/cargo clean(?:\s*(?:\n|$)|\s+--workspace)/);
     expect(gate).toContain("export CARGO_INCREMENTAL=0");
+    expect(gate).toContain("bun --no-env-file scripts/test_rust_targets.ts\n");
     expect(gate).toContain("trap cleanup EXIT");
     expect(gate.indexOf(prune)).toBeLessThan(gate.indexOf(firstRustGate));
     expect(gate.indexOf(audit)).toBeLessThan(gate.indexOf(defaultCleanup));
