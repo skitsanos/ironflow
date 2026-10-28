@@ -1,12 +1,16 @@
-use std::cell::RefCell;
-use std::collections::HashMap;
 use std::rc::Rc;
 
 use anyhow::{Result, anyhow};
-use html2md::{Handle, NodeData, StructuredPrinter, TagHandler, TagHandlerFactory};
+use htmd::HtmlToMarkdown;
+use markup5ever_rcdom::{Node, NodeData};
 
 use crate::nodes::extract::resource::Budget;
 use crate::util::execution::ExecutionControl;
+
+/// Non-content subtrees removed before either rendering. `html_to_markdown`
+/// skips the same set so both nodes agree on what counts as page content.
+pub(crate) const NON_CONTENT_TAGS: [&str; 6] =
+    ["head", "title", "script", "style", "noscript", "template"];
 
 pub(super) fn extract(
     html: &str,
@@ -14,80 +18,49 @@ pub(super) fn extract(
     execution: &ExecutionControl,
     budget: &Budget<'_>,
 ) -> Result<String> {
-    let root = Rc::new(RefCell::new(None));
-    let filter = BodyFilter {
-        root: root.clone(),
-        execution: execution.clone(),
-        skip: format == "text",
-    };
-    let custom: HashMap<String, Box<dyn TagHandlerFactory>> = HashMap::from([(
-        "html".to_string(),
-        Box::new(filter) as Box<dyn TagHandlerFactory>,
-    )]);
+    let converter = HtmlToMarkdown::new();
     budget.checkpoint()?;
-    let markdown = html2md::parse_html_custom(html, &custom);
+    // `root` owns the document for the whole call: RcDom's node destructor
+    // clears descendant child lists even while handles to them remain.
+    let root = converter
+        .html_to_tree(html)
+        .map_err(|error| anyhow!("extract_html: HTML parser failed: {error}"))?;
     budget.checkpoint()?;
-    let root = root
-        .borrow_mut()
-        .take()
-        .ok_or_else(|| anyhow!("extract_html: HTML parser did not produce a document"))??;
+    // Filter the parsed tree before conversion so table cells and preformatted
+    // descendants follow the same rule as top-level elements.
+    prune(&root, execution)?;
     if format == "text" {
         plain_text(root, budget)
     } else {
+        let markdown = converter.tree_to_markdown(&root);
+        budget.checkpoint()?;
         Ok(markdown)
     }
 }
 
-#[derive(Clone)]
-struct BodyFilter {
-    root: Rc<RefCell<Option<Result<Handle>>>>,
-    execution: ExecutionControl,
-    skip: bool,
-}
-
-impl TagHandlerFactory for BodyFilter {
-    fn instantiate(&self) -> Box<dyn TagHandler> {
-        Box::new(self.clone())
-    }
-}
-
-impl TagHandler for BodyFilter {
-    fn handle(&mut self, tag: &Handle, _printer: &mut StructuredPrinter) {
-        // Filter the whole parsed tree before conversion: table handlers start
-        // their own walks, and preformatted descendants bypass custom handlers.
-        // RcDom's document destructor clears descendant child lists even when
-        // those nodes still have handles. Retain the owner, not just <html>,
-        // until plain-text traversal finishes after parse_html_custom returns.
-        let parent = tag.parent.take();
-        let document = parent.as_ref().and_then(std::rc::Weak::upgrade);
-        tag.parent.set(parent);
-        let result = prune(tag, &self.execution).and_then(|()| {
-            document.ok_or_else(|| anyhow!("extract_html: HTML document owner is missing"))
-        });
-        self.skip |= result.is_err();
-        *self.root.borrow_mut() = Some(result);
-    }
-
-    fn after_handle(&mut self, _printer: &mut StructuredPrinter) {}
-
-    fn skip_descendants(&self) -> bool {
-        self.skip
-    }
-}
-
-fn prune(root: &Handle, execution: &ExecutionControl) -> Result<()> {
+fn prune(root: &Rc<Node>, execution: &ExecutionControl) -> Result<()> {
     let mut pending = vec![root.clone()];
     while let Some(node) = pending.pop() {
         execution.checkpoint()?;
         let mut children = node.children.borrow_mut();
         children.retain(|child| {
             !matches!(&child.data, NodeData::Element { name, .. }
-                if matches!(name.local.as_ref(),
-                    "head" | "title" | "script" | "style" | "noscript" | "template"))
+                if NON_CONTENT_TAGS.contains(&name.local.as_ref()))
         });
         pending.extend(children.iter().cloned());
     }
     Ok(())
+}
+
+fn attribute(node: &Node, name: &str) -> Option<String> {
+    match &node.data {
+        NodeData::Element { attrs, .. } => attrs
+            .borrow()
+            .iter()
+            .find(|attribute| attribute.name.local.as_ref() == name)
+            .map(|attribute| attribute.value.to_string()),
+        _ => None,
+    }
 }
 
 /// How an element's text is separated from surrounding plain-text output.
@@ -131,7 +104,7 @@ fn separate(output: &mut String, newlines: usize) {
     }
 }
 
-fn plain_text(root: Handle, budget: &Budget<'_>) -> Result<String> {
+fn plain_text(root: Rc<Node>, budget: &Budget<'_>) -> Result<String> {
     let mut output = String::new();
     let mut pending_space = false;
     // `root` owns the document for the whole walk: RcDom's node destructor
@@ -179,7 +152,7 @@ fn plain_text(root: Handle, budget: &Budget<'_>) -> Result<String> {
                 }
             }
         } else if tag == "img"
-            && let Some(alt) = html2md::common::get_tag_attr(&node, "alt")
+            && let Some(alt) = attribute(&node, "alt")
         {
             budget.admit_output((output.len() + alt.len()) as u64, "HTML content")?;
             if pending_space && !output.is_empty() && !output.ends_with('\n') {

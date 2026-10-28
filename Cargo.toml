@@ -1,6 +1,6 @@
 [package]
 name = "ironflow"
-version = "1.20.1-dev.6"
+version = "1.20.1-dev.7"
 edition = "2024"
 description = "Lightweight workflow engine — Rust core, Lua scripting, single binary"
 license = "MIT"
@@ -57,7 +57,10 @@ parley = { version = "0.12.0", default-features = false, features = ["std", "com
 krilla = { version = "0.8.2", default-features = false, features = ["raster-images"] }
 unicode-bidi = "0.3"
 unicode-script = "0.5.8"
-html2md = "0.2.15"
+# HTML-to-Markdown conversion and the shared rcdom tree walked by extract_html.
+# Both are permissively licensed; the GPL html2md crate was removed in IF-161.
+htmd = "0.5.6"
+markup5ever_rcdom = "0.38"
 ammonia = "4.1.2"
 zip = "9.0.5"
 quick-xml = "0.42.0"

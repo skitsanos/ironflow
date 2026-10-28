@@ -107,6 +107,14 @@ describe("repository integration policy", () => {
     expect(workflow).toContain("cargo audit --deny warnings");
     expect(gate).toContain("cargo audit --deny warnings");
     expect(auditConfig).not.toContain('"RUSTSEC-2026-0192"');
+    // IF-161: shipped binaries are MIT; copyleft dependencies must fail closed
+    // in CI, the local gate, and the pre-commit hook for manifest changes.
+    const preCommit = await Bun.file(join(repository, ".githooks/pre-commit")).text();
+    for (const surface of [workflow, gate, preCommit]) {
+      expect(surface).toContain("bun --no-env-file scripts/check_licenses.ts");
+    }
+    expect(manifest).not.toMatch(/^html2md\s*=/m);
+    expect(lockfile).not.toContain('name = "html2md"');
     const dependencies = (Bun.TOML.parse(manifest) as {
       dependencies: {
         comrak: { "default-features": boolean };

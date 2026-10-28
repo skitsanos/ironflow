@@ -19,6 +19,11 @@ if printf '%s\n' "$staged_paths" | grep -Eq '(^|/)(Cargo\.(toml|lock)|.*\.rs)$';
   cargo fmt --all -- --check
 fi
 
+if printf '%s\n' "$staged_paths" | grep -Eq '^(Cargo\.(toml|lock)|scripts/check_licenses\.ts)$'; then
+  echo "IronFlow pre-commit: checking dependency licenses"
+  bun --no-env-file scripts/check_licenses.ts
+fi
+
 if printf '%s\n' "$staged_paths" | grep -Eq '^(src/.*\.rs|scripts/check_module_size\.py|scripts/module_size_policy\.json|scripts/tests/test_check_module_size\.py)$'; then
   echo "IronFlow pre-commit: checking module-size policy"
   python3 -B -m unittest discover -s scripts/tests -p 'test_check_module_size.py'

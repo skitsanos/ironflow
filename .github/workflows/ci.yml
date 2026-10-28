@@ -67,6 +67,13 @@ jobs:
       # reviewed ignore list at .cargo/audit.toml.
       - name: Audit dependencies
         run: cargo audit --deny warnings
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      # Fails on copyleft-only, unparsable, or missing licenses anywhere in the
+      # shipped dependency graph; the allowlist lives in scripts/check_licenses.ts.
+      - name: Check dependency licenses
+        run: bun --no-env-file scripts/check_licenses.ts
 
   fmt:
     name: Format
