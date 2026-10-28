@@ -15,8 +15,6 @@ use crate::nodes::child_process::ChildProcessGuard;
 
 use super::config::McpTransport;
 
-const DEFAULT_SESSION_CAPACITY: usize = 1024;
-const DEFAULT_SESSION_TTL_SECS: u64 = 3600;
 const BACKGROUND_CLOSE_TIMEOUT: Duration = Duration::from_secs(3);
 
 pub(super) type ClientService = RunningService<RoleClient, ClientConfig>;
@@ -134,8 +132,8 @@ pub(super) struct SessionManager {
 
 impl Default for SessionManager {
     fn default() -> Self {
-        let capacity = env_usize("IRONFLOW_MCP_SESSION_CACHE_SIZE", DEFAULT_SESSION_CAPACITY);
-        let ttl_secs = env_u64("IRONFLOW_MCP_SESSION_TTL_SECS", DEFAULT_SESSION_TTL_SECS);
+        let capacity = crate::util::limits::mcp_session_cache_size();
+        let ttl_secs = crate::util::limits::mcp_session_ttl_secs();
         Self {
             sessions: Mutex::new(HashMap::new()),
             capacity,
@@ -273,20 +271,4 @@ fn schedule_close(sessions: impl IntoIterator<Item = Arc<AsyncMutex<McpSession>>
             let _ = session.close(BACKGROUND_CLOSE_TIMEOUT).await;
         });
     }
-}
-
-fn env_usize(name: &str, default: usize) -> usize {
-    std::env::var(name)
-        .ok()
-        .and_then(|value| value.parse().ok())
-        .filter(|value| *value > 0)
-        .unwrap_or(default)
-}
-
-fn env_u64(name: &str, default: u64) -> u64 {
-    std::env::var(name)
-        .ok()
-        .and_then(|value| value.parse().ok())
-        .filter(|value| *value > 0)
-        .unwrap_or(default)
 }

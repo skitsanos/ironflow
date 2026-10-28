@@ -140,6 +140,7 @@ impl WorkflowEngine {
     ) -> Result<Option<RunHandle>> {
         // Resolve limits before validating the flow or creating durable state.
         // Embedded callers receive the same fail-closed behavior as the CLI.
+        crate::util::limits::validate_environment()?;
         let max_concurrent_tasks =
             crate::util::runtime_config::max_concurrent_tasks(self.max_concurrent_tasks)?;
         let run_deadline = crate::util::runtime_config::run_deadline()?;

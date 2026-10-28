@@ -180,7 +180,7 @@ pub async fn run_cli() -> Result<()> {
             verbose,
             store_dir,
         } => {
-            resolution::validate_run_deadline_environment()?;
+            resolution::validate_limit_environment()?;
             let store_dir = resolution::with_config(
                 store_dir,
                 sources.store_dir,
@@ -190,7 +190,10 @@ pub async fn run_cli() -> Result<()> {
             let store = create_store(&cfg, &store_dir).await?;
             commands::cmd_run(flow, context, verbose, store, max_concurrent_tasks).await
         }
-        Commands::Validate { flow, strict } => commands::cmd_validate(flow, strict),
+        Commands::Validate { flow, strict } => {
+            resolution::validate_limit_environment()?;
+            commands::cmd_validate(flow, strict)
+        }
         Commands::List {
             status,
             store_dir,

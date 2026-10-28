@@ -160,6 +160,7 @@ pub(crate) async fn prepare(
 ) -> Result<PreparedServer> {
     validate_execution_policy(options.allow_adhoc_flows, options.flows_dir.as_deref())?;
     super::admission::validate_configuration()?;
+    crate::util::limits::validate_environment()?;
     let _ = crate::util::runtime_config::run_deadline()?;
     let _ = crate::util::runtime_config::shutdown_grace()?;
     let max_concurrent_tasks =

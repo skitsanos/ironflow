@@ -1041,6 +1041,16 @@ state store. Explicit CLI flags override them; they override matching
 configuration-file fields. `IRONFLOW_STORE_DIR` applies to `run`, `list`,
 `inspect`, and `serve`.
 
+Numeric limits share one parsing contract. `run`, `serve`, and `validate`
+reject a value that is not a plain base-10 integer at startup, before a store
+opens or a flow file is read, with an error that names the variable, for
+example `IRONFLOW_MAX_HTTP_BODY_BYTES must be a positive integer`. Ceilings
+require a positive integer; the rows below that say `0` disables also accept
+zero. Units (`10MB`), signs, decimals, and exponents are rejected instead of
+falling back to the default, and boolean switches accept only `true` or
+`false`. Embedded servers and `WorkflowEngine` apply the same check when they
+start.
+
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `HOST` | `0.0.0.0` | Server bind address |
@@ -1084,7 +1094,7 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_LUA_MAX_MEMORY_BYTES` | `134217728` | Max Lua VM memory per Lua state; `0` disables |
 | `IRONFLOW_ENV_ALLOWLIST` | unset (all) | Comma-separated variable names the Lua `env()` global may read. When set, `env()` returns `nil` for any other key; when unset, any process variable is readable (the default). |
 | `IRONFLOW_LUA_HOOK_INTERVAL` | `10000` | Instruction interval for budget checks |
-| `IRONFLOW_LUA_GC_AFTER_EXECUTION` | `true` | Run a Lua garbage-collection cycle after flow parsing/code execution |
+| `IRONFLOW_LUA_GC_AFTER_EXECUTION` | `true` | Run a Lua garbage-collection cycle after flow parsing/code execution; accepts only `true` or `false` |
 | `IRONFLOW_CACHE_MAX_ENTRIES` | `10000` | Max entries retained by the process-global `cache_set` / `cache_get` memory backend |
 | `IRONFLOW_CACHE_DIR` | `.ironflow_cache` | Default root for the `cache_set` / `cache_get` file backend when `cache_dir` is not set; entries use `v1/<sha256-key>.json` with exact stored-key verification. Legacy sanitized files are untouched cache misses; see [cache upgrades](nodes/cache_get.md#file-identity-and-upgrades) |
 | `IRONFLOW_DB_MAX_ROWS` | `1000` | Max rows returned by `db_query`; `0` disables |

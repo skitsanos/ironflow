@@ -13,10 +13,6 @@ use crate::nodes::{Node, NodeRegistry};
 use crate::storage::null_store::NullStateStore;
 use crate::util::node_config::config_bool;
 
-/// Process-global cap on concurrently-running fire-and-forget subworkflows.
-/// Override with `IRONFLOW_MAX_DETACHED_SUBWORKFLOWS`.
-const DEFAULT_MAX_DETACHED_SUBWORKFLOWS: usize = 64;
-
 /// Keys this node writes to describe its own child. A child that itself ran a
 /// subworkflow carries the same keys about *its* child; without `output_key`
 /// they must not merge into the parent as if they described this call.
@@ -28,11 +24,7 @@ const RESULT_METADATA_KEYS: [&str; 4] = [
 ];
 
 pub(crate) fn detached_subworkflow_capacity() -> usize {
-    std::env::var("IRONFLOW_MAX_DETACHED_SUBWORKFLOWS")
-        .ok()
-        .and_then(|v| v.parse::<usize>().ok())
-        .filter(|n| *n > 0)
-        .unwrap_or(DEFAULT_MAX_DETACHED_SUBWORKFLOWS)
+    crate::util::limits::max_detached_subworkflows()
 }
 
 pub(crate) fn detached_subworkflow_semaphore() -> &'static Arc<Semaphore> {

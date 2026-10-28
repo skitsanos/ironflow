@@ -66,14 +66,20 @@ fn environment_metadata_limit_and_node_override_work_in_cli() {
                 b"fixture"
             );
         }
-        for fallback in ["0", "invalid"] {
-            assert_success(
-                command(temp.path())
-                    .env("IRONFLOW_MAX_ZIP_METADATA_BYTES", fallback)
-                    .arg("run")
-                    .arg(&flow)
-                    .output()
-                    .unwrap(),
+        // IF-168: a malformed or zero ceiling is rejected at startup instead of
+        // silently restoring the default.
+        for rejected in ["0", "invalid"] {
+            let output = command(temp.path())
+                .env("IRONFLOW_MAX_ZIP_METADATA_BYTES", rejected)
+                .arg("run")
+                .arg(&flow)
+                .output()
+                .unwrap();
+            assert!(!output.status.success(), "{rejected:?} was accepted");
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                stderr.contains("IRONFLOW_MAX_ZIP_METADATA_BYTES must be a positive integer"),
+                "unexpected stderr for {rejected:?}: {stderr}"
             );
         }
     }

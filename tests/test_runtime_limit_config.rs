@@ -116,3 +116,118 @@ fn run_deadline_above_the_timer_range_is_fatal_before_store_initialization() {
     );
     assert!(!stderr.contains("Unknown state store backend"), "{stderr}");
 }
+
+// IF-168: every numeric `IRONFLOW_*` limit shares one contract and is checked
+// once at startup, before a store opens or a flow file is read.
+
+fn assert_fatal_before_work(output: Output, variable: &str, expected: &str) {
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(&format!("{variable} must be {expected}")),
+        "unexpected stderr: {stderr}"
+    );
+    assert!(
+        !stderr.contains("Unknown state store backend") && !stderr.contains("missing.lua"),
+        "work started before {variable} validation: {stderr}"
+    );
+}
+
+#[test]
+fn malformed_ceilings_are_fatal_for_run_serve_and_validate() {
+    for (variable, value) in [
+        ("IRONFLOW_MAX_HTTP_BODY_BYTES", "10MB"),
+        ("IRONFLOW_MAX_FILE_BYTES", "-1"),
+        ("IRONFLOW_MAX_PDF_BYTES", "0"),
+        ("IRONFLOW_MAX_XLSX_CELLS", "1e6"),
+        ("IRONFLOW_MAX_IMAGE_PIXELS", " "),
+        ("IRONFLOW_MCP_SESSION_TTL_SECS", "soon"),
+        ("IRONFLOW_CACHE_MAX_ENTRIES", "many"),
+        ("IRONFLOW_MAX_DETACHED_SUBWORKFLOWS", "0"),
+    ] {
+        for arguments in [
+            vec!["run", "missing.lua"],
+            vec!["serve"],
+            vec!["validate", "missing.lua"],
+        ] {
+            let temp = tempfile::tempdir().unwrap();
+            let output = isolated_command(temp.path())
+                .env(variable, value)
+                .env("IRONFLOW_STORE", "unreachable-test-backend")
+                .args(arguments)
+                .output()
+                .unwrap();
+            assert_fatal_before_work(output, variable, "a positive integer");
+        }
+    }
+}
+
+#[test]
+fn disableable_limits_reject_negative_values_and_toggles_reject_words() {
+    for (variable, value, expected) in [
+        (
+            "IRONFLOW_LUA_MAX_MEMORY_BYTES",
+            "-5",
+            "a non-negative integer (0 disables the limit)",
+        ),
+        (
+            "IRONFLOW_DB_MAX_ROWS",
+            "unlimited",
+            "a non-negative integer (0 disables the limit)",
+        ),
+        (
+            "IRONFLOW_LLM_MAX_RESPONSE_BYTES",
+            "25MB",
+            "a non-negative integer (0 disables the limit)",
+        ),
+        (
+            "IRONFLOW_LUA_GC_AFTER_EXECUTION",
+            "yes",
+            "either 'true' or 'false'",
+        ),
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        let output = isolated_command(temp.path())
+            .env(variable, value)
+            .env("IRONFLOW_STORE", "unreachable-test-backend")
+            .args(["validate", "missing.lua"])
+            .output()
+            .unwrap();
+        assert_fatal_before_work(output, variable, expected);
+    }
+}
+
+const MINIMAL_FLOW: &str = "local flow = Flow.new(\"limits\")\n\
+flow:step(\"ok\", function(_ctx) return { ok = true } end)\n\
+return flow\n";
+
+#[test]
+fn documented_zero_disables_and_valid_overrides_are_honored() {
+    let temp = tempfile::tempdir().unwrap();
+    std::fs::write(temp.path().join("flow.lua"), MINIMAL_FLOW).unwrap();
+
+    // `0` is the documented way to disable the Lua memory ceiling.
+    let output = isolated_command(temp.path())
+        .env("IRONFLOW_LUA_MAX_MEMORY_BYTES", "0")
+        .args(["validate", "flow.lua"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "zero was rejected: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // A valid tightening override reaches the code that enforces it.
+    let output = isolated_command(temp.path())
+        .env("IRONFLOW_MAX_FLOW_SOURCE_BYTES", "16")
+        .args(["validate", "flow.lua"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("IRONFLOW_MAX_FLOW_SOURCE_BYTES"),
+        "override was not applied: {stderr}"
+    );
+}

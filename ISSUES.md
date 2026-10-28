@@ -13,7 +13,6 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 | [IF-165](docs/issues/IF-165.md) | P2 | Open | Architecture | Module-size gate optimizes file length while functions stay complex |
 | [IF-166](docs/issues/IF-166.md) | P2 | Open | CI performance | CI re-runs the full suite in the feature job and rebuilds release to validate examples |
 | [IF-167](docs/issues/IF-167.md) | P2 | Open | Validation workflow | Pre-push gate repeats CI on every develop push and pulls floating service images |
-| [IF-168](docs/issues/IF-168.md) | P2 | Open | Runtime safety | Malformed IRONFLOW_MAX_* limit values silently fall back to defaults |
 | [IF-169](docs/issues/IF-169.md) | P2 | Open | Repository process | Repository governance tooling outweighs the code it governs |
 | [IF-170](docs/issues/IF-170.md) | P3 | Open | Docs | Documentation and repository hygiene drift |
 | [IF-171](docs/issues/IF-171.md) | P3 | Open | Supply chain | Dependency and lint hygiene: unpinned actions, duplicate crates, unguarded unwraps |

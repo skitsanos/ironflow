@@ -116,7 +116,7 @@ pub(super) struct ServerConfig {
 
 impl ServerConfig {
     pub fn resolve(config: &IronFlowConfig) -> Result<Self> {
-        validate_run_deadline_environment()?;
+        validate_limit_environment()?;
         // Unlike ordinary byte ceilings, an invalid admission limit cannot
         // safely fall back: doing so changes a bounded server into an
         // unlimited one while appearing to honor the operator's setting.
@@ -171,12 +171,13 @@ impl ServerConfig {
     }
 }
 
-/// Validate the process-wide deadline before any store is opened or run is
-/// started. The coordinator reads the value lazily, but CLI entry points must
-/// reject a typo instead of silently turning the deadline off.
-pub(super) fn validate_run_deadline_environment() -> Result<()> {
+/// Validate the process-wide deadline and every numeric limit before any
+/// store is opened, flow file read, or run started. Nodes read limits lazily,
+/// but CLI entry points must reject a typo instead of silently keeping a
+/// default or turning the deadline off.
+pub(super) fn validate_limit_environment() -> Result<()> {
     let _ = crate::util::runtime_config::run_deadline()?;
-    Ok(())
+    crate::util::limits::validate_environment()
 }
 
 pub(super) fn resolve_max_concurrent_tasks(config: &IronFlowConfig) -> Result<Option<usize>> {
