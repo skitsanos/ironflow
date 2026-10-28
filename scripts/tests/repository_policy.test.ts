@@ -151,6 +151,11 @@ describe("repository integration policy", () => {
     expect(source).toContain("scripts/check_incoming_prs.ts");
     expect(source).toContain("scripts/development_version.ts check");
     expect(source).toContain("scripts/integration_gate.sh");
+    // IF-167: the fast mode is explicit, bounded, and rejects other values.
+    expect(source).toContain('case "${IRONFLOW_PREPUSH_GATE:-full}" in');
+    expect(source).toContain("bun --no-env-file scripts/test_rust_targets.ts --test examples --test cli");
+    expect(source).toContain("IRONFLOW_PREPUSH_GATE must be 'full' or 'fast'");
+    expect(source.indexOf("scripts/development_version.ts check")).toBeLessThan(source.indexOf("IRONFLOW_PREPUSH_GATE:-full"));
   });
 
   test("PostgreSQL integration credentials are generated per run", async () => {

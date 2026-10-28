@@ -37,6 +37,10 @@ Run `scripts/integration_gate.sh` only when:
 - preparing a release;
 - the user explicitly requests the whole suite.
 
+An intermediate `develop` push may set `IRONFLOW_PREPUSH_GATE=fast` to run
+formatting, repository policy, default Clippy and the `examples` and `cli`
+binaries instead; the full gate still precedes every merge and release.
+
 The script is authoritative for the complete local suite and uses disposable
 Redis/PostgreSQL containers. Never substitute shared or production services.
 

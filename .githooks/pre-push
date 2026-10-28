@@ -39,5 +39,25 @@ fi
 echo "IronFlow develop pre-push: checking committed development version"
 bun run scripts/development_version.ts check "$develop_local" "$develop_remote"
 
-echo "IronFlow develop pre-push: running full integration gate"
-scripts/integration_gate.sh
+# IRONFLOW_PREPUSH_GATE=fast keeps a develop push honest but quick: formatting,
+# repository policy, default Clippy and the example and CLI binaries. The full
+# gate stays mandatory before merging a release branch or cutting a release
+# (scripts/integration_gate.sh, run by the release skill).
+case "${IRONFLOW_PREPUSH_GATE:-full}" in
+  full)
+    echo "IronFlow develop pre-push: running full integration gate"
+    scripts/integration_gate.sh
+    ;;
+  fast)
+    echo "IronFlow develop pre-push: IRONFLOW_PREPUSH_GATE=fast; run scripts/integration_gate.sh before merging or releasing"
+    cargo fmt --all -- --check
+    bun run scripts/issues_registry.ts check
+    bun test scripts/tests/*.test.ts
+    cargo clippy --all-targets -- -D warnings
+    bun --no-env-file scripts/test_rust_targets.ts --test examples --test cli
+    ;;
+  *)
+    echo "Push blocked: IRONFLOW_PREPUSH_GATE must be 'full' or 'fast'." >&2
+    exit 1
+    ;;
+esac

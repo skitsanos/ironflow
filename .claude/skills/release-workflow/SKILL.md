@@ -32,7 +32,8 @@ prepare a development version. `next` advances an existing candidate.
    `scripts/integration_gate.sh`.
 5. Push only with user authorization. `.githooks/pre-push` independently checks
    incoming PRs, cleanliness, remote ancestry, development version, and the
-   full integration gate.
+   full integration gate; never set `IRONFLOW_PREPUSH_GATE=fast` for a release
+   candidate.
 
 ## Promote to main
 

@@ -7,7 +7,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts check`.
 
 - Total findings: 171
-- Active findings: 6
+- Active findings: 5
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
 | ID | Priority | Status | Area | Summary |
@@ -178,7 +178,7 @@ priority, area, and title. The registry is generated with
 | [IF-164](./IF-164.md) | P2 | Resolved | Binary size | Release binary carries 36 MB of embedded fonts and no release profile |
 | [IF-165](./IF-165.md) | P2 | Open | Architecture | Module-size gate optimizes file length while functions stay complex |
 | [IF-166](./IF-166.md) | P2 | Resolved | CI performance | CI re-runs the full suite in the feature job and rebuilds release to validate examples |
-| [IF-167](./IF-167.md) | P2 | Open | Validation workflow | Pre-push gate repeats CI on every develop push and pulls floating service images |
+| [IF-167](./IF-167.md) | P2 | Resolved | Validation workflow | Pre-push gate repeats CI on every develop push and pulls floating service images |
 | [IF-168](./IF-168.md) | P2 | Resolved | Runtime safety | Malformed IRONFLOW_MAX_* limit values silently fall back to defaults |
 | [IF-169](./IF-169.md) | P2 | Open | Repository process | Repository governance tooling outweighs the code it governs |
 | [IF-170](./IF-170.md) | P3 | Open | Docs | Documentation and repository hygiene drift |
