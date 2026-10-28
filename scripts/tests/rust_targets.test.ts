@@ -24,10 +24,17 @@ test("feature closure and harness arguments match the default and storage gates"
   const target = {name:"pg",kind:["test"],"required-features":["postgres"]};
   expect(selections([target], config.features)).toEqual([["--test","pg"]]);
   expect(selections([target], new Set())).toEqual([]);
+  const area = {name:"nodes",kind:["test"]};
+  const lib = {name:"ironflow",kind:["lib"]};
+  expect(selections([lib, area, target], config.features, new Set(["nodes"]))).toEqual([["--test","nodes"]]);
+  expect(selections([lib, area, target], new Set(), new Set(["pg"]))).toEqual([]);
+  expect(() => selections([lib, area], config.features, new Set(["missing"]))).toThrow("Unknown test target");
   expect(() => options(["--features"], definitions)).toThrow();
   expect(() => options(["--features", "ironflow/postgres"], definitions)).toThrow();
   expect(() => options(["--features", "unknown"], definitions)).toThrow();
-  expect(() => options(["--test", "one"], definitions)).toThrow();
+  expect([...options(["--test", "one", "--test", "two"], definitions).tests]).toEqual(["one", "two"]);
+  expect(options(["--test", "one"], definitions).cargo).toEqual([]);
+  expect(() => options(["--test"], definitions)).toThrow();
 });
 
 test("only current-package test-profile executables are reclaimable", () => {

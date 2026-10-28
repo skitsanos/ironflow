@@ -260,6 +260,7 @@ describe("repository integration policy", () => {
     const workflow = Bun.YAML.parse(source) as {
       jobs: Record<string, {
         needs?: string | string[];
+        if?: string;
         steps: Array<{ uses?: string; run?: string; with?: Record<string, string> }>;
       }>;
     };
@@ -268,6 +269,10 @@ describe("repository integration policy", () => {
 
     expect(linuxBuild).toBeDefined();
     expect(validation.needs).toBe("build-linux");
+    // IF-166: pushes and dispatch only; pull requests load every example in tests.
+    for (const job of [linuxBuild, validation]) {
+      expect(job.if).toBe("github.event_name != 'pull_request'");
+    }
     expect(
       linuxBuild.steps.some((step) => step.uses === "actions/upload-artifact@v7"),
     ).toBeTrue();
@@ -326,7 +331,9 @@ describe("repository integration policy", () => {
       "cargo clippy --all-targets --features postgres,redis,cjk-fonts -- -D warnings",
     );
     expect(featureCommands).toContain(
-      "bun --no-env-file scripts/test_rust_targets.ts --features postgres,redis,cjk-fonts -- --test-threads=1",
+      "bun --no-env-file scripts/test_rust_targets.ts --features postgres,redis,cjk-fonts "
+        + "--test storage --test storage_postgres --test storage_redis --test library_tls_boundaries "
+        + "--test cli --test scheduler --test documents -- --test-threads=1",
     );
     expect(featureCommands).not.toContain("cargo check");
 
@@ -346,15 +353,22 @@ describe("repository integration policy", () => {
 
   test("every CI batch runner has Bun available and cannot skip test failures", async () => {
     const workflow = Bun.YAML.parse(await Bun.file(join(repository, ".github/workflows/ci.yml")).text()) as {
-      jobs: Record<string, {steps: {uses?: string; run?: string; "continue-on-error"?: boolean}[]}>;
+      jobs: Record<string, {steps: {uses?: string; run?: string; if?: string; "continue-on-error"?: boolean}[]}>;
     };
     for (const job of ["rust-default", "rust-features", "test-macos"]) {
       const steps = workflow.jobs[job].steps;
       const runner = steps.findIndex(s => s.run?.includes("scripts/test_rust_targets.ts"));
       expect(runner).toBeGreaterThan(0);
       expect(steps.slice(0, runner).some(s => s.uses === "oven-sh/setup-bun@v2")).toBeTrue();
-      expect(steps[runner]["continue-on-error"]).not.toBeTrue();
+      for (const step of steps.filter(s => s.run?.includes("scripts/test_rust_targets.ts"))) {
+        expect(step["continue-on-error"]).not.toBeTrue();
+      }
     }
+    // IF-166: macOS pull requests run the platform-sensitive areas, pushes the whole suite.
+    const macos = workflow.jobs["test-macos"].steps.filter(s => s.run?.includes("scripts/test_rust_targets.ts")) as Array<{ run?: string; if?: string }>;
+    expect(macos.map(s => s.if)).toEqual(["github.event_name == 'pull_request'", "github.event_name != 'pull_request'"]);
+    expect(macos[0].run).toContain("--test nodes --test cli --test engine --test serial");
+    expect(macos[1].run).toBe("bun --no-env-file scripts/test_rust_targets.ts");
   });
 
   test("the local integration gate bounds workspace artifact growth", async () => {

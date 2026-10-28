@@ -24,7 +24,7 @@ export interface Metadata {
   target_directory: string;
   packages: Package[];
 }
-interface Options { cargo: string[]; harness: string[]; features: Set<string> }
+interface Options { cargo: string[]; harness: string[]; features: Set<string>; tests: Set<string> }
 export interface Invocation { selection: string[]; harness: string[] }
 
 // Test binaries that mutate process-global state (environment variables) and
@@ -37,13 +37,23 @@ export function options(args: string[], definitions: Record<string, string[]>): 
   const cargo = separator < 0 ? args : args.slice(0, separator);
   const harness = separator < 0 ? [] : args.slice(separator + 1);
   const pending = cargo.includes("--no-default-features") ? [] : ["default"];
+  const tests = new Set<string>();
+  const passthrough: string[] = [];
   for (let i = 0; i < cargo.length; i++) {
+    if (cargo[i] === "--test") {
+      // Named test binaries only; the selection below still comes from metadata.
+      if (!cargo[i + 1] || cargo[i + 1].startsWith("-")) throw new Error("--test needs a target name");
+      tests.add(cargo[++i]);
+      continue;
+    }
+    passthrough.push(cargo[i]);
     if (cargo[i] === "--features") {
       if (!cargo[i + 1] || cargo[i + 1].startsWith("-")) throw new Error("--features needs a value");
       const requested = cargo[++i].split(/[\s,]+/).filter(Boolean);
       if (requested.some(feature => !Object.hasOwn(definitions, feature))) {
         throw new Error("Only explicitly declared local Cargo features are supported");
       }
+      passthrough.push(cargo[i]);
       pending.push(...requested);
     } else if (cargo[i] === "--all-features") pending.push(...Object.keys(definitions));
     else if (cargo[i] !== "--no-default-features") throw new Error(`Unsupported Cargo option: ${cargo[i]}`);
@@ -55,11 +65,19 @@ export function options(args: string[], definitions: Record<string, string[]>): 
     features.add(feature);
     pending.push(...(definitions[feature] ?? []).filter(f => !f.includes(":") && !f.includes("/")));
   }
-  return { cargo, harness, features };
+  return { cargo: passthrough, harness, features, tests };
 }
 
-export function selections(targets: Target[], features: Set<string>): string[][] {
+// With `tests` given, only those test binaries are selected; a name that is not
+// a test target of the package is an error so a typo cannot silently run nothing.
+export function selections(targets: Target[], features: Set<string>, tests: Set<string> = new Set()): string[][] {
+  for (const name of tests) {
+    if (!targets.some(target => target.kind[0] === "test" && target.name === name)) {
+      throw new Error(`Unknown test target: ${name}`);
+    }
+  }
   return targets.flatMap(target => {
+    if (tests.size && (target.kind[0] !== "test" || !tests.has(target.name))) return [];
     if (target["required-features"]?.some(f => !features.has(f))) {
       console.log(`[rust targets] feature-gated: ${target.name}`);
       return [];
@@ -172,7 +190,7 @@ async function main(args: string[]): Promise<void> {
   const pkg = metadata.packages.find(p => resolve(p.manifest_path) === join(metadata.workspace_root, "Cargo.toml"));
   if (!pkg || metadata.packages.length !== 1) throw new Error("This runner requires a single-package workspace");
   const config = options(args, pkg.features);
-  const targets = selections(pkg.targets, config.features);
+  const targets = selections(pkg.targets, config.features, config.tests);
   if (!targets.length) throw new Error("Cargo metadata selected no test targets");
   for (const invocation of invocations(targets, config.harness)) {
     const count = invocation.selection.filter(arg => arg.startsWith("--")).length;
