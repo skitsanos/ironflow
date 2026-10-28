@@ -42,27 +42,53 @@ hostname. Existing configuration is not silently upgraded to a stronger mode.
 
 ## S3 signing
 
-IronFlow uses regional AWS Signature Version 4 (SigV4). SigV4a remains disabled;
-it was originally disabled to remove the AWS SDK's affected optional
-`crypto-bigint 0.5` dependency
+IronFlow uses AWS Signature Version 4 (SigV4) for regional buckets and enables
+SigV4a for supported S3 Multi-Region Access Point (MRAP) object operations.
+The SDK selects the signing scheme from the endpoint; enabling SigV4a does
+not switch ordinary regional requests to asymmetric signing. Regional
+S3-compatible endpoints and S3 Vectors retain their existing behavior.
+
+For MRAPs, supply the ARN, for example
+`arn:aws:s3::123456789012:accesspoint/fixture.mrap`, as the node's `bucket` or
+`IRONFLOW_ARTIFACT_S3_BUCKET`. An alias or hostname is not a substitute for the
+ARN. Leave custom endpoints unset and keep `force_path_style` /
+`IRONFLOW_ARTIFACT_S3_FORCE_PATH_STYLE` false. The normal credential and region
+provider chains still apply. `AWS_SIGV4A_SIGNING_REGION_SET` can narrow the
+signing region set; the MRAP default is `*`.
+
+[AWS's operation restrictions](https://docs.aws.amazon.com/AmazonS3/latest/userguide/MrapOperations.html)
+still apply: copy supports MRAPs only as a destination, and `s3_list_buckets`
+does not enumerate or manage MRAPs. This restoration does not create access
+points, configure replication/routing, or grant IAM permissions. Treat
+presigned URLs as bearer credentials and forward any returned required headers.
+
+For shared artifacts, MRAP signing is not a replacement for replication or
+read-after-write visibility across Regions. A read can reach a bucket where
+the object has not replicated and return 404. Prefer one regional bucket when
+immediate cross-replica reads are required; qualify MRAP replication, routing
+and pruning separately. See
+[AWS's replication guidance](https://docs.aws.amazon.com/AmazonS3/latest/userguide/MultiRegionAccessPointBucketReplication.html).
+
+### 2026-10-28 restoration
+
+SigV4a was disabled on 2026-10-24 to remove the vulnerable bigint dependency
 ([RUSTSEC-2026-0387](https://rustsec.org/advisories/RUSTSEC-2026-0387.html)).
-S3 Multi-Region Access Points, which require SigV4a, are not supported.
-Use regional buckets or regional access points instead. This
-applies to every S3 node and the S3 artifact backend. Regional S3, compatible
-regional endpoints, presigned URLs, and S3 Vectors remain available. There is
-no configuration or IronFlow feature switch that enables SigV4a.
-
-### 2026-10-28 dependency follow-up
-
-The development lockfile now resolves `aws-sdk-s3 1.156.0`,
-`aws-sdk-s3vectors 1.46.0`, and `aws-sigv4 1.6.4`. The
+The initial 2026-10-28 dependency refresh kept that mitigation while the
+upstream fix was assessed. With approval, development restores the feature
+and raises the minimum S3 SDK to `1.156.0`, requiring `aws-sigv4 >= 1.6.4`.
+The
 [upstream release](https://github.com/awslabs/aws-sdk-rust/releases/tag/release-2026-10-28)
-fixes the optional SigV4a signer by requiring `crypto-bigint >= 0.7.10`.
-IronFlow still leaves that feature disabled and resolves no `crypto-bigint`,
-including with both storage features enabled. This update does not restore
-MRAP support or change the signing contract above; re-enabling SigV4a requires
-a separate compatibility change and validation. The bigint timing advisory is
-separate from the eMudhra certificate-trust incident.
+requires `crypto-bigint >= 0.7.10`; the resolved graph contains only `0.7.10`,
+including with both storage features enabled. Policy tests guard the SDK and
+signer floors and every resolved bigint copy. No audit exception or local
+crypto patch is used. The bigint timing advisory is separate from the eMudhra
+certificate-trust incident.
+
+Offline regressions cover MRAP header signing, GET/PUT/HEAD/DELETE presigning,
+session tokens, signing region sets, regional SigV4 preservation and invalid
+path-style rejection. They do not establish live AWS permissions, routing,
+replication or failover acceptance. Published older binaries keep the signing
+behavior of their tagged source; source changes do not upgrade deployments.
 
 ## Runtime checks and rollout
 

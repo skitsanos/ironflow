@@ -30,19 +30,25 @@ test("both container stages require Debian's patched CA package", async () => {
   }
 });
 
-test("AWS signing excludes SigV4a and its affected bigint dependency", async () => {
+test("AWS signing enables SigV4a only on the patched SDK and bigint cohort", async () => {
   const manifest = Bun.TOML.parse(await Bun.file(join(root, "Cargo.toml")).text()) as {
-    dependencies: Record<string, { "default-features"?: boolean; features: string[] }>;
+    dependencies: Record<string, { version: string; "default-features"?: boolean; features: string[] }>;
   };
   const s3 = manifest.dependencies["aws-sdk-s3"];
   expect(s3["default-features"]).toBeFalse();
-  expect(s3.features).not.toContain("sigv4a");
+  expect(s3.features).toContain("sigv4a");
+  expect(Bun.semver.satisfies(s3.version, ">=1.156.0")).toBeTrue();
+  expect(Bun.semver.satisfies("1.155.0", s3.version)).toBeFalse();
   expect(s3.features).toContain("default-https-client");
   const lock = Bun.TOML.parse(await Bun.file(join(root, "Cargo.lock")).text()) as {
     package: Array<{ name: string; version: string }>;
   };
-  for (const entry of lock.package.filter((entry) => entry.name === "crypto-bigint")) {
-    expect(Bun.semver.satisfies(entry.version, ">=0.7.6")).toBeTrue();
+  for (const [name, minimum] of [["aws-sdk-s3", "1.156.0"], ["aws-sigv4", "1.6.4"], ["crypto-bigint", "0.7.10"]]) {
+    const packages = lock.package.filter((entry) => entry.name === name);
+    expect(packages.length).toBeGreaterThan(0);
+    for (const entry of packages) {
+      expect(Bun.semver.satisfies(entry.version, `>=${minimum}`)).toBeTrue();
+    }
   }
 });
 

@@ -2,14 +2,14 @@
 
 Upload text or base64 payloads to S3 (or S3-compatible storage).
 
-Uses regional SigV4 signing. SigV4a Multi-Region Access Points are unsupported;
+Uses regional SigV4 signing, or SigV4a when `bucket` is an MRAP ARN;
 see [S3 signing](../SECURITY.md#s3-signing).
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `bucket` | string | yes | env `S3_BUCKET` | Destination bucket name. |
+| `bucket` | string | yes | env `S3_BUCKET` | Destination bucket name or MRAP ARN. |
 | `key` | string | yes | -- | Destination object key. |
 | `content` | string | no | -- | Inline text payload for upload. |
 | `source_key` | string | no | -- | Read string payload from context key instead of `content`. |

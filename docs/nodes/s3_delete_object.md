@@ -2,14 +2,14 @@
 
 Delete a single object from S3 (or S3-compatible storage).
 
-Uses regional SigV4 signing. SigV4a Multi-Region Access Points are unsupported;
+Uses regional SigV4 signing, or SigV4a when `bucket` is an MRAP ARN;
 see [S3 signing](../SECURITY.md#s3-signing).
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `bucket` | string | yes | env `S3_BUCKET` | Target bucket name. |
+| `bucket` | string | yes | env `S3_BUCKET` | Target bucket name or MRAP ARN. |
 | `key` | string | yes | -- | Object key to delete. |
 | `version_id` | string | no | -- | Optional version ID for versioned buckets. |
 | `region` | string | no | `S3_REGION` / `AWS_REGION` | Explicit AWS/S3 region override. |

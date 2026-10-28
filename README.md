@@ -535,8 +535,9 @@ flow:step("standard_flow", nodes.log({
 
 ## Built-in Nodes
 
-S3 uses regional SigV4 signing. Multi-Region Access Points requiring SigV4a
-are unsupported; see [S3 signing](docs/SECURITY.md#s3-signing).
+S3 uses SigV4 for regional buckets and SigV4a for supported Multi-Region Access
+Point object operations. Supply an MRAP ARN as the bucket and keep path-style
+addressing disabled; see [S3 signing](docs/SECURITY.md#s3-signing).
 
 | Category | Nodes |
 |----------|-------|

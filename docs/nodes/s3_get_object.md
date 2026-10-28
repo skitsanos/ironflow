@@ -2,14 +2,14 @@
 
 Download object content from S3 (or S3-compatible storage).
 
-Uses regional SigV4 signing. SigV4a Multi-Region Access Points are unsupported;
+Uses regional SigV4 signing, or SigV4a when `bucket` is an MRAP ARN;
 see [S3 signing](../SECURITY.md#s3-signing).
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `bucket` | string | yes | env `S3_BUCKET` | Destination bucket name. |
+| `bucket` | string | yes | env `S3_BUCKET` | Bucket name or MRAP ARN. |
 | `key` | string | yes | -- | Object key inside the bucket. |
 | `region` | string | no | `S3_REGION` / `AWS_REGION` | Explicit AWS/S3 region override. |
 | `endpoint_url` | string | no | env `AWS_ENDPOINT_URL` | Optional custom endpoint (for S3-compatible services). |
@@ -19,7 +19,7 @@ see [S3 signing](../SECURITY.md#s3-signing).
 
 ## Context Output
 
-- `{output_key}_bucket` — Bucket name used.
+- `{output_key}_bucket` — Bucket name or ARN used.
 - `{output_key}_key` — Object key used.
 - `{output_key}_content` — Object body (text or base64 depending on `encoding`).
 - `{output_key}_encoding` — Body encoding used (`text` or `base64`).

@@ -10,9 +10,11 @@ Development continues as `1.20.1-dev.5`.
 
 - Update AWS S3 to `1.156.0`, S3 Vectors to `1.46.0`, and the shared Smithy
   runtime cohort, including `aws-sigv4 1.6.4`.
-- The upstream SigV4a bigint fix is available, but IronFlow keeps SigV4a
-  disabled and MRAP unsupported. No affected bigint is reintroduced; see
-  [security guidance](../SECURITY.md#s3-signing).
+- Restore SigV4a for supported S3 Multi-Region Access Point object operations
+  and presigned URLs. Require S3 SDK `>=1.156.0`, signer `>=1.6.4`, and patched
+  `crypto-bigint 0.7.10`; preserve regional SigV4 and fail-closed audit policy.
+  See [security guidance](../SECURITY.md#s3-signing) for limits and the
+  [MRAP example](../../examples/04-file-operations/s3_mrap_presign.lua).
 - Update ZIP to `9.1.3`, including AES key zeroization, ZIP64 offset and
   archive metadata fixes, and Windows symlink-safe extraction improvements.
 

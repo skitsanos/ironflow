@@ -67,6 +67,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **copy_move_files.lua** — Copy and move files between locations
 - **[s3_put_get_list.lua](04-file-operations/s3_put_get_list.lua)** — List visible buckets, then upload, download, list, and delete one UUID-scoped object
 - **s3_copy.lua** — Copy a literal space/percent key in S3, verify downloaded content and object listing, then clean up
+- **s3_mrap_presign.lua** — Generate four SigV4a MRAP presigned URLs without S3 calls; static credentials keep signing offline
 - **s3_presign_url.lua** — Upload a demo object and generate a presigned S3 URL
 - **zip_workflow.lua** — Create a ZIP archive, list and extract with raw entry/metadata budgets, and log results
 

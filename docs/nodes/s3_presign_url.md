@@ -2,14 +2,14 @@
 
 Generate a presigned URL (or presigned DELETE/HEAD/PUT URL) for S3 operations.
 
-Uses regional SigV4 signing. SigV4a Multi-Region Access Points are unsupported;
+Uses regional SigV4 signing, or SigV4a when `bucket` is an MRAP ARN;
 see [S3 signing](../SECURITY.md#s3-signing).
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `bucket` | string | yes | env `S3_BUCKET` | Bucket name used for signing. |
+| `bucket` | string | yes | env `S3_BUCKET` | Regional bucket name or MRAP ARN used for signing. |
 | `key` | string | yes | -- | Object key to access. |
 | `method` | string | no | `"GET"` | One of `GET`, `PUT`, `HEAD`, `DELETE`. |
 | `expires_in` | number | no | `3600` | URL validity in seconds (`1..604800`). |
@@ -29,6 +29,21 @@ see [S3 signing](../SECURITY.md#s3-signing).
 - `{output_key}_url` — Presigned URL string.
 - `{output_key}_headers` — Required headers for signing (if any).
 - `{output_key}_success` — `true` on success.
+
+## Multi-Region Access Points
+
+Use an ARN such as `arn:aws:s3::123456789012:accesspoint/fixture.mrap` for
+`bucket`, with path-style addressing disabled and no custom endpoint. The
+SDK generates an `AWS4-ECDSA-P256-SHA256` signature and a signing region set;
+regional buckets continue to use `AWS4-HMAC-SHA256`. GET, PUT, HEAD and DELETE
+are supported. Forward `{output_key}_headers` along with the URL when sending
+the request, and keep the URL private until it expires.
+
+The [MRAP presigning example](../../examples/04-file-operations/s3_mrap_presign.lua)
+generates all four URL types without contacting S3. Static credentials make
+signing network-free; other credential providers may contact their identity
+service. Presigning does not verify that the MRAP exists or that its policy
+permits the eventual request.
 
 ## Example
 
