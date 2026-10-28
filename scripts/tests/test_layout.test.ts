@@ -60,11 +60,15 @@ test("test autodiscovery is off and every test file belongs to exactly one binar
 });
 
 test("feature-gated test files live in binaries that require the feature", async () => {
-  const { targets, files, owners } = await layout();
+  const { parsed, targets, files, owners } = await layout();
   const required = new Map(targets.map((t) => [t.name, new Set(t["required-features"] ?? [])]));
+  // A file gated on a default feature compiles in every default build and may
+  // share an area binary; only non-default features need a dedicated target.
+  const defaults = new Set((parsed as { features?: { default?: string[] } }).features?.default ?? []);
   for (const file of files) {
     const source = await Bun.file(join(repository, "tests", file)).text();
-    for (const [, feature] of source.matchAll(/^#!\[cfg\(feature = "([a-z]+)"\)\]$/gm)) {
+    for (const [, feature] of source.matchAll(/^#!\[cfg\(feature = "([a-z-]+)"\)\]$/gm)) {
+      if (defaults.has(feature)) continue;
       const [owner] = owners.get(file)!;
       expect(required.get(owner)?.has(feature), `${file} needs feature ${feature} but ${owner} does not require it`).toBeTrue();
     }

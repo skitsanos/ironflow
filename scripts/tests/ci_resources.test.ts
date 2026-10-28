@@ -42,8 +42,12 @@ test("Linux validation bounds artifacts without changing other build profiles", 
     );
   }
 
-  const manifest = Bun.TOML.parse(await Bun.file(join(repository, "Cargo.toml")).text());
-  expect(manifest.profile).toBeUndefined();
+  // The release profile is pinned by cargo_features.test.ts; CI must not add
+  // dev or test profile overrides to the manifest.
+  const manifest = Bun.TOML.parse(await Bun.file(join(repository, "Cargo.toml")).text()) as {
+    profile?: Record<string, unknown>;
+  };
+  expect(Object.keys(manifest.profile ?? {})).toEqual(["release"]);
   const release = await readWorkflow("release");
   for (const job of Object.values(release.jobs)) {
     const environment = { ...release.env, ...job.env };

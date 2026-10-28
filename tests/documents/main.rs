@@ -28,6 +28,8 @@ mod test_markdown_document_runtime;
 mod test_markdown_documents;
 #[path = "../test_markdown_docx_alignment.rs"]
 mod test_markdown_docx_alignment;
+#[path = "../test_markdown_fonts.rs"]
+mod test_markdown_fonts;
 #[path = "../test_markdown_multilingual.rs"]
 mod test_markdown_multilingual;
 #[path = "../test_pdf_actual_text.rs"]

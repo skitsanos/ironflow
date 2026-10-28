@@ -65,8 +65,8 @@ cargo audit --deny warnings
 bun --no-env-file scripts/check_licenses.ts
 
 echo "[integration] feature-enabled Rust gates"
-cargo check --all-targets --features postgres,redis
-cargo clippy --all-targets --features postgres,redis -- -D warnings
+cargo check --all-targets --features postgres,redis,cjk-fonts
+cargo clippy --all-targets --features postgres,redis,cjk-fonts -- -D warnings
 
 echo "[integration] release build and Lua examples"
 cargo build --release
@@ -134,7 +134,7 @@ IRONFLOW_REDIS_TEST_URL="redis://127.0.0.1:$redis_port" \
 IRONFLOW_REDIS_TEST_REQUIRED=1 \
 IRONFLOW_POSTGRES_TEST_REQUIRED=1 \
 DATABASE_URL="postgres://postgres:$postgres_password@127.0.0.1:$postgres_port/ironflow_test" \
-  bun --no-env-file scripts/test_rust_targets.ts --features postgres,redis -- --test-threads=1
+  bun --no-env-file scripts/test_rust_targets.ts --features postgres,redis,cjk-fonts -- --test-threads=1
 
 echo "[integration] TLS-only storage and certificate rejection"
 bun --no-env-file scripts/test_store_tls.ts target/debug/ironflow

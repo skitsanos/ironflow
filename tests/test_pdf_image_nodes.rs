@@ -1,3 +1,7 @@
+//! `pdf_to_image` and `pdf_thumbnail` exist only with the default `pdf-render`
+//! feature (IF-164).
+#![cfg(feature = "pdf-render")]
+
 use base64::Engine;
 use ironflow::engine::types::Context;
 use ironflow::nodes::NodeRegistry;

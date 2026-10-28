@@ -1,6 +1,8 @@
 # `pdf_to_image`
 
 Render PDF pages to images using the native `pdfium` library at runtime.
+The node exists only in builds with the default `pdf-render` Cargo feature;
+`--no-default-features` drops it together with the `pdfium-render` crate.
 
 ## Parameters
 

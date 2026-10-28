@@ -11,7 +11,7 @@ RUN apt-get update \
 
 WORKDIR /app
 
-ARG FEATURES="postgres redis"
+ARG FEATURES="postgres redis cjk-fonts"
 
 FROM chef AS planner
 
@@ -23,7 +23,7 @@ RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
 
-ARG FEATURES="postgres redis"
+ARG FEATURES="postgres redis cjk-fonts"
 
 COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --locked --features "${FEATURES}" \

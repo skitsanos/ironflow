@@ -15,6 +15,9 @@ fn part(path: &std::path::Path, name: &str) -> String {
     xml
 }
 
+// The in-process render needs the bundled CJK font; default builds cover this
+// path through the CLI tests in test_markdown_fonts.rs with IRONFLOW_FONT_DIR.
+#[cfg(feature = "cjk-fonts")]
 #[tokio::test]
 async fn pdf_retains_multilingual_text_and_embeds_fallback_fonts() {
     let temp = tempfile::tempdir().unwrap();

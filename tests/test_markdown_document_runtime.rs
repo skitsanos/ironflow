@@ -22,6 +22,9 @@ fn command(root: &Path, temp: &Path) -> Command {
             command.env(key, value);
         }
     }
+    // The multilingual fixture needs a CJK font; default builds take it from
+    // the font directory instead of the `cjk-fonts` feature (IF-164).
+    command.env("IRONFLOW_FONT_DIR", root.join("assets/fonts"));
     command
         .arg("--dotenv")
         .arg(temp.join("environment.conf"))

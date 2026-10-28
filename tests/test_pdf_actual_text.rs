@@ -6,6 +6,9 @@ use ironflow::{engine::types::Context, nodes::NodeRegistry};
 use lopdf::{Object, dictionary, text_string};
 use serde_json::json;
 
+// The in-process render needs the bundled CJK font; default builds cover this
+// path through the CLI tests in test_markdown_fonts.rs with IRONFLOW_FONT_DIR.
+#[cfg(feature = "cjk-fonts")]
 #[tokio::test]
 async fn generated_multilingual_pdf_round_trips_through_the_extraction_node() {
     let temp = tempfile::tempdir().unwrap();

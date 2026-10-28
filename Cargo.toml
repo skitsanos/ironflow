@@ -71,7 +71,7 @@ lopdf = { version = "0.46", default-features = false, features = ["chrono"] }
 image = { version = "0.25.10", default-features = false, features = [
     "bmp", "ff", "gif", "hdr", "ico", "jpeg", "png", "pnm", "qoi", "tga", "tiff", "webp",
 ] }
-pdfium-render = "0.9"
+pdfium-render = { version = "0.9", optional = true }
 sqlx = { version = "0.9", features = ["runtime-tokio", "any", "sqlite"] }
 futures-util = "0.3"
 lettre = { version = "0.11.22", default-features = false, features = ["builder", "hostname", "pool", "smtp-transport", "tokio1", "tokio1-rustls-tls"] }
@@ -80,7 +80,12 @@ rustls = { version = "0.23", default-features = false, features = ["std", "ring"
 
 [features]
 default = ["pdf-render"]
-pdf-render = []
+# `pdf_to_image` and `pdf_thumbnail` render through the Pdfium runtime library;
+# build without this feature to drop those two nodes and the binding crate.
+pdf-render = ["dep:pdfium-render"]
+# Embed Noto Sans CJK (about 29 MiB) for `markdown_to_pdf`. Without it, CJK text
+# needs a font supplied through IRONFLOW_FONT_DIR; see docs/MARKDOWN_DOCUMENTS.md.
+cjk-fonts = []
 postgres = ["sqlx/postgres", "sqlx/tls-rustls", "dep:rustls"]
 redis = ["dep:redis", "redis/tokio-rustls-comp", "dep:rustls"]
 
@@ -195,3 +200,11 @@ path = "tests/test_http_proxy_modes.rs"
 name = "library_tls_boundaries"
 path = "tests/test_library_tls_boundaries.rs"
 required-features = ["redis"]
+
+# IF-164: release binaries are stripped and link-time optimized. `panic` stays
+# at the default `unwind` because the executor coordinator relies on
+# `catch_unwind` to turn a panicking node into a failed task.
+[profile.release]
+strip = true
+lto = "fat"
+codegen-units = 1

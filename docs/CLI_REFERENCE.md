@@ -331,6 +331,12 @@ IronFlow supports these state storage backends:
 - **postgres** — SQL storage in Postgres (requires a `-full` release binary or building with `--features postgres`)
 - **redis** — Redis-backed storage (requires a `-full` release binary or building with `--features redis`)
 
+Two further Cargo features shape the binary: `pdf-render` (default) provides
+`pdf_to_image` and `pdf_thumbnail` through the Pdfium runtime library, and
+`cjk-fonts` (off by default, on in `-full` binaries and the container image)
+embeds the Noto CJK font for `markdown_to_pdf`; see `IRONFLOW_FONT_DIR` below
+for loading fonts at runtime instead.
+
 For SQL state and event stores, the resolved URL scheme must match the selected
 backend: `sqlite:` for `sqlite`, or `postgres://` / `postgresql://` for `postgres`.
 PostgreSQL requires an explicit URL; SQLite still defaults to local files when
@@ -573,7 +579,10 @@ their paths. Malformed URLs fail closed to a redacted placeholder. This protects
 current diagnostics, but cannot rewrite historical logs, so rotate credentials
 and purge retained logs if an older version may have exposed a full URL.
 
-GitHub releases include default binaries and `-full` binaries. Use the `-full` artifact when you need both Postgres and Redis support.
+GitHub releases include default binaries and `-full` binaries. Use the `-full`
+artifact when you need Postgres or Redis support or the embedded CJK font
+(`postgres,redis,cjk-fonts`). Release binaries are stripped and link-time
+optimized by the `[profile.release]` section of `Cargo.toml`.
 
 To build with optional backends locally:
 
@@ -581,6 +590,7 @@ To build with optional backends locally:
 cargo build --release --features postgres
 cargo build --release --features redis
 cargo build --release --features postgres,redis
+cargo build --release --features postgres,redis,cjk-fonts
 ```
 
 #### CORS
@@ -1136,6 +1146,7 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_MAX_PDF_MERGE_FILES` | `100` | Maximum number of sources admitted by one `pdf_merge` call before source descriptors are collected |
 | `IRONFLOW_MAX_PDF_MERGE_BYTES` | `536870912` | Maximum cumulative PDF input bytes and maximum staged merged output bytes for one `pdf_merge` call |
 | `IRONFLOW_MAX_PDF_MERGE_PAGES` | `2000` | Maximum cumulative pages admitted by one `pdf_merge` call |
+| `IRONFLOW_FONT_DIR` | unset | Directory of additional `.ttf`/`.otf`/`.ttc` fonts for `markdown_to_pdf`, registered once per process after the bundled fonts and used as fallbacks for CJK scripts; at most 64 files of at most 64 MiB each, and an unreadable directory or file fails the first document with an error naming the path |
 | `IRONFLOW_MAX_PDF_MERGE_OBJECTS` | `250000` | Maximum retained merged PDF graph objects, including the merged page tree and catalog; shared objects within one source are counted once |
 | `IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES` | `52428800` | Maximum complete serialized `NodeOutput` for one `extract_html`, `extract_pdf`, `extract_word`, `extract_pptx`, `extract_srt`, or `extract_vtt` call; includes configured content/alias, metadata, comments, cues, and artifact descriptors as applicable, but not the artifact files themselves |
 | `IRONFLOW_MAX_EXTRACT_ITEMS` | `250000` | Maximum cumulative structural/work items for one non-XLSX extraction call; units are format-specific and documented on each extract node |

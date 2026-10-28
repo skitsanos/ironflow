@@ -1,6 +1,8 @@
 # `pdf_thumbnail`
 
 Render a single PDF page to an image using the native `pdfium` library at runtime.
+The node exists only in builds with the default `pdf-render` Cargo feature;
+`--no-default-features` drops it together with the `pdfium-render` crate.
 
 ## Parameters
 

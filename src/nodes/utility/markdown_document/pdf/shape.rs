@@ -36,6 +36,7 @@ pub(super) struct Line {
 
 pub(super) struct Shaper {
     fonts: FontContext,
+    cjk_available: bool,
     layouts: LayoutContext<u8>,
     cache: HashMap<(u64, u32, u32), Font>,
     remaining_text: usize,
@@ -43,8 +44,10 @@ pub(super) struct Shaper {
 
 impl Shaper {
     pub fn new() -> Result<Self> {
+        let fonts = super::fonts::context()?;
         Ok(Self {
-            fonts: super::fonts::context()?,
+            fonts: fonts.context,
+            cjk_available: fonts.cjk_available,
             layouts: LayoutContext::new(),
             cache: HashMap::new(),
             remaining_text: 1024 * 1024,
@@ -89,6 +92,16 @@ impl Shaper {
             }
         }
         self.remaining_text -= text.len();
+        // Fail before layout with a pointer to the remedy instead of a generic
+        // missing-glyph error when no registered font covers CJK text.
+        if !self.cjk_available && text.chars().any(|c| Face::of(c) == Some(Face::Cjk)) {
+            anyhow::bail!(
+                "markdown_to_pdf: the document contains CJK text but no CJK font is available; \
+                 build IronFlow with the `cjk-fonts` feature or set {} to a directory \
+                 containing a CJK font",
+                super::fonts::FONT_DIR_ENV
+            );
+        }
         let source: Arc<str> = text.into();
         let mut builder = self
             .layouts
@@ -195,7 +208,7 @@ impl Shaper {
                     for glyph in cluster.glyphs() {
                         ensure!(
                             glyph.id != 0,
-                            "PDF contains a character missing from the bundled fonts"
+                            "PDF contains a character missing from the available fonts"
                         );
                         glyphs.push(KrillaGlyph::new(
                             GlyphId::new(glyph.id),

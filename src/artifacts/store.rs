@@ -148,6 +148,7 @@ impl LocalArtifactStore {
     ///
     /// This is intended for encoders that require `Write + Seek`; their output
     /// is hashed from disk and published without an intermediate byte vector.
+    #[cfg_attr(not(feature = "pdf-render"), allow(dead_code))]
     pub(crate) fn put_writer(
         &self,
         max_bytes: u64,

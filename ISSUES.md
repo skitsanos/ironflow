@@ -9,7 +9,6 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 | ID | Priority | Status | Area | Summary |
 |---|---:|---|---|---|
 | [IF-163](docs/issues/IF-163.md) | P1 | Open | JSON storage | Default JSON state store re-implements database concerns over the filesystem |
-| [IF-164](docs/issues/IF-164.md) | P2 | Open | Binary size | Release binary carries 36 MB of embedded fonts and no release profile |
 | [IF-165](docs/issues/IF-165.md) | P2 | Open | Architecture | Module-size gate optimizes file length while functions stay complex |
 | [IF-166](docs/issues/IF-166.md) | P2 | Open | CI performance | CI re-runs the full suite in the feature job and rebuilds release to validate examples |
 | [IF-167](docs/issues/IF-167.md) | P2 | Open | Validation workflow | Pre-push gate repeats CI on every develop push and pulls floating service images |

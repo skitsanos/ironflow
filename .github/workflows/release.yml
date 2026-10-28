@@ -37,7 +37,8 @@ jobs:
     strategy:
       matrix:
         # Each target is built twice: default features and the "-full"
-        # variant with postgres and redis storage backends.
+        # variant with the postgres and redis storage backends and the bundled
+        # CJK font.
         suffix: ["", "-full"]
         platform:
           - target: x86_64-unknown-linux-musl
@@ -66,7 +67,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
       - name: Build release binary
-        run: cargo build --locked --release --target ${{ matrix.platform.target }} ${{ matrix.suffix == '-full' && '--features postgres,redis' || '' }}
+        run: cargo build --locked --release --target ${{ matrix.platform.target }} ${{ matrix.suffix == '-full' && '--features postgres,redis,cjk-fonts' || '' }}
 
       - name: Package (unix)
         if: runner.os != 'Windows'

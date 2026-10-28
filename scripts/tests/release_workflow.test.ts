@@ -70,7 +70,7 @@ test("release builds both feature variants with locked dependencies and strict w
   expect(build.if).toBeUndefined();
   expect(build.run).toContain("--locked");
   expect(build.run).toContain(`--target ${target}`);
-  expect(build.run).toContain("matrix.suffix == '-full' && '--features postgres,redis'");
+  expect(build.run).toContain("matrix.suffix == '-full' && '--features postgres,redis,cjk-fonts'");
   expect(steps.find((step) => step.uses?.startsWith("dtolnay/rust-toolchain@"))?.with?.targets).toBe(target);
   const musl = steps.find((step) => /musl-tools/.test(step.run ?? ""));
   expect(musl?.if).toContain("matrix.platform.target == 'x86_64-unknown-linux-musl'");

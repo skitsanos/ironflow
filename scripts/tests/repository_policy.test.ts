@@ -323,10 +323,10 @@ describe("repository integration policy", () => {
     expect(featureJob.env?.IRONFLOW_REDIS_TEST_REQUIRED).toBe("1");
     expect(featureJob.env?.IRONFLOW_POSTGRES_TEST_REQUIRED).toBe("1");
     expect(featureCommands).toContain(
-      "cargo clippy --all-targets --features postgres,redis -- -D warnings",
+      "cargo clippy --all-targets --features postgres,redis,cjk-fonts -- -D warnings",
     );
     expect(featureCommands).toContain(
-      "bun --no-env-file scripts/test_rust_targets.ts --features postgres,redis -- --test-threads=1",
+      "bun --no-env-file scripts/test_rust_targets.ts --features postgres,redis,cjk-fonts -- --test-threads=1",
     );
     expect(featureCommands).not.toContain("cargo check");
 
@@ -365,7 +365,7 @@ describe("repository integration policy", () => {
     const audit = "cargo audit --deny warnings";
     const featureGates = 'echo "[integration] feature-enabled Rust gates"';
     const featureTests =
-      "bun --no-env-file scripts/test_rust_targets.ts --features postgres,redis -- --test-threads=1";
+      "bun --no-env-file scripts/test_rust_targets.ts --features postgres,redis,cjk-fonts -- --test-threads=1";
 
     expect(gate).toContain(cleanup);
     expect(gate).not.toMatch(/cargo clean(?:\s*(?:\n|$)|\s+--workspace)/);

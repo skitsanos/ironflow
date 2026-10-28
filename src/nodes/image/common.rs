@@ -70,6 +70,7 @@ pub(crate) fn save_dynamic_image(
         .map_err(|e| anyhow::anyhow!("{}", e))
 }
 
+#[cfg(feature = "pdf-render")]
 pub(crate) fn load_pdfium() -> Result<Box<dyn pdfium_render::prelude::PdfiumLibraryBindings>> {
     use pdfium_render::prelude::*;
     if let Ok(env_path) = std::env::var("PDFIUM_LIB_PATH") {
@@ -114,6 +115,7 @@ pub(crate) fn parse_rotation_angle(angle: u64, field: &str) -> Result<u16> {
     }
 }
 
+#[cfg(feature = "pdf-render")]
 pub(crate) fn validate_pdf_dpi(dpi: f32, node_name: &str) -> Result<()> {
     if !dpi.is_finite() || dpi <= 0.0 {
         anyhow::bail!("{}: dpi must be a positive finite number", node_name);
@@ -161,6 +163,7 @@ pub(crate) fn image_format_name(format: image::ImageFormat) -> &'static str {
     }
 }
 
+#[cfg(feature = "pdf-render")]
 pub(crate) fn open_pdf_file_capped(
     source: &crate::artifacts::FileSource,
     node_name: &str,
