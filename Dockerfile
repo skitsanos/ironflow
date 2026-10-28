@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # Build the pinned helper on the digest-pinned official Rust image.
-FROM rust:1.99.1-slim-bookworm@sha256:86234e857a413004348b471d11a4ebe1aa92d2eae2b6b143cac68fd1ac3c48be AS chef
+FROM rust:1.99.1-slim-bookworm@sha256:61e86bac21b4c1aeea7100008e1902d0048f9842fc94c7fb9c5f01baecbcb475 AS chef
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \

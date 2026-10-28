@@ -42,13 +42,27 @@ hostname. Existing configuration is not silently upgraded to a stronger mode.
 
 ## S3 signing
 
-IronFlow uses regional AWS Signature Version 4 (SigV4). SigV4a is disabled
-to avoid the AWS SDK's affected optional `crypto-bigint 0.5` dependency
-(RUSTSEC-2026-0387). S3 Multi-Region Access Points, which require SigV4a, are
-not supported. Use regional buckets or regional access points instead. This
+IronFlow uses regional AWS Signature Version 4 (SigV4). SigV4a remains disabled;
+it was originally disabled to remove the AWS SDK's affected optional
+`crypto-bigint 0.5` dependency
+([RUSTSEC-2026-0387](https://rustsec.org/advisories/RUSTSEC-2026-0387.html)).
+S3 Multi-Region Access Points, which require SigV4a, are not supported.
+Use regional buckets or regional access points instead. This
 applies to every S3 node and the S3 artifact backend. Regional S3, compatible
 regional endpoints, presigned URLs, and S3 Vectors remain available. There is
-no configuration or feature switch that re-enables the affected signer.
+no configuration or IronFlow feature switch that enables SigV4a.
+
+### 2026-10-28 dependency follow-up
+
+The development lockfile now resolves `aws-sdk-s3 1.156.0`,
+`aws-sdk-s3vectors 1.46.0`, and `aws-sigv4 1.6.4`. The
+[upstream release](https://github.com/awslabs/aws-sdk-rust/releases/tag/release-2026-10-28)
+fixes the optional SigV4a signer by requiring `crypto-bigint >= 0.7.10`.
+IronFlow still leaves that feature disabled and resolves no `crypto-bigint`,
+including with both storage features enabled. This update does not restore
+MRAP support or change the signing contract above; re-enabling SigV4a requires
+a separate compatibility change and validation. The bigint timing advisory is
+separate from the eMudhra certificate-trust incident.
 
 ## Runtime checks and rollout
 
