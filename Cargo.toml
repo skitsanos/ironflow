@@ -60,7 +60,7 @@ unicode-script = "0.5.8"
 # HTML-to-Markdown conversion and the shared rcdom tree walked by extract_html.
 # Both are permissively licensed; the GPL html2md crate was removed in IF-161.
 htmd = "0.5.6"
-markup5ever_rcdom = "0.38"
+markup5ever_rcdom = "0.39"
 ammonia = "4.1.2"
 zip = "9.0.5"
 quick-xml = "0.42.0"
