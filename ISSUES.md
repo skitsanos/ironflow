@@ -8,7 +8,17 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 
 | ID | Priority | Status | Area | Summary |
 |---|---:|---|---|---|
-| — | — | — | — | No active findings |
+| [IF-161](docs/issues/IF-161.md) | P1 | Open | Supply chain | GPL-3.0 html2md is linked into the MIT single binary |
+| [IF-162](docs/issues/IF-162.md) | P1 | Open | Test architecture | One integration test binary per test file drives disk and CI compensation |
+| [IF-163](docs/issues/IF-163.md) | P1 | Open | JSON storage | Default JSON state store re-implements database concerns over the filesystem |
+| [IF-164](docs/issues/IF-164.md) | P2 | Open | Binary size | Release binary carries 36 MB of embedded fonts and no release profile |
+| [IF-165](docs/issues/IF-165.md) | P2 | Open | Architecture | Module-size gate optimizes file length while functions stay complex |
+| [IF-166](docs/issues/IF-166.md) | P2 | Open | CI performance | CI re-runs the full suite in the feature job and rebuilds release to validate examples |
+| [IF-167](docs/issues/IF-167.md) | P2 | Open | Validation workflow | Pre-push gate repeats CI on every develop push and pulls floating service images |
+| [IF-168](docs/issues/IF-168.md) | P2 | Open | Runtime safety | Malformed IRONFLOW_MAX_* limit values silently fall back to defaults |
+| [IF-169](docs/issues/IF-169.md) | P2 | Open | Repository process | Repository governance tooling outweighs the code it governs |
+| [IF-170](docs/issues/IF-170.md) | P3 | Open | Docs | Documentation and repository hygiene drift |
+| [IF-171](docs/issues/IF-171.md) | P3 | Open | Supply chain | Dependency and lint hygiene: unpinned actions, duplicate crates, unguarded unwraps |
 
 ## Working agreement
 
