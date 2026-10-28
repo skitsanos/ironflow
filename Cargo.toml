@@ -1,7 +1,9 @@
 [package]
 name = "ironflow"
-version = "1.20.1-dev.7"
+version = "1.20.1-dev.8"
 edition = "2024"
+# IF-162: integration tests are declared below as area binaries; see tests/<area>/main.rs.
+autotests = false
 description = "Lightweight workflow engine — Rust core, Lua scripting, single binary"
 license = "MIT"
 repository = "https://github.com/skitsanos/ironflow"
@@ -95,3 +97,101 @@ libc = "0.2.186"
 [[example]]
 name = "extraction_benchmark_worker"
 path = "tools/extraction_benchmark_worker.rs"
+
+# IF-162: integration tests build as a bounded set of area binaries. Each
+# tests/<area>/main.rs includes unchanged test files as modules; run one area
+# with `cargo test --test <area>` and one file with `--test <area> <module>::`.
+
+[[test]]
+name = "api"
+path = "tests/api/main.rs"
+
+[[test]]
+name = "cli"
+path = "tests/cli/main.rs"
+
+[[test]]
+name = "examples"
+path = "tests/examples/main.rs"
+
+[[test]]
+name = "engine"
+path = "tests/engine/main.rs"
+
+[[test]]
+name = "scheduler"
+path = "tests/scheduler/main.rs"
+
+[[test]]
+name = "storage"
+path = "tests/storage/main.rs"
+
+[[test]]
+name = "nodes"
+path = "tests/nodes/main.rs"
+
+[[test]]
+name = "nodes_network"
+path = "tests/nodes_network/main.rs"
+
+[[test]]
+name = "documents"
+path = "tests/documents/main.rs"
+
+[[test]]
+name = "storage_postgres"
+path = "tests/storage_postgres/main.rs"
+required-features = ["postgres"]
+
+[[test]]
+name = "storage_redis"
+path = "tests/storage_redis/main.rs"
+required-features = ["redis"]
+
+# `serial` mutates process-global environment variables and must run with
+# `-- --test-threads=1`; its root explains and enforces the rule.
+[[test]]
+name = "serial"
+path = "tests/serial/main.rs"
+
+# Process-isolated binaries: each configures a process-wide OnceLock from the
+# environment before anything else in its process reads it, or asserts on
+# process state that other tests would initialize first.
+
+[[test]]
+name = "scheduler_admission"
+path = "tests/test_scheduler_admission.rs"
+
+[[test]]
+name = "limits_defaults"
+path = "tests/test_limits_defaults.rs"
+
+[[test]]
+name = "conversion_limits_env"
+path = "tests/test_conversion_limits_env.rs"
+
+[[test]]
+name = "flow_load_admission"
+path = "tests/test_flow_load_admission.rs"
+
+# Each installs a process-wide tracing subscriber whose gate layer holds every
+# worker of its kind until the test releases it, so nothing else may share
+# the process.
+[[test]]
+name = "extract_execution"
+path = "tests/test_extract_execution.rs"
+
+[[test]]
+name = "schema_execution"
+path = "tests/test_schema_execution.rs"
+
+# The process-wide LazyLock HTTP clients capture the proxy environment the
+# first time any test builds them.
+[[test]]
+name = "http_proxy_modes"
+path = "tests/test_http_proxy_modes.rs"
+
+[[test]]
+name = "library_tls_boundaries"
+path = "tests/test_library_tls_boundaries.rs"
+required-features = ["redis"]

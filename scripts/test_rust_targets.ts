@@ -1,3 +1,9 @@
+// Runs every Cargo test target of the single-package workspace, in two Cargo
+// invocations: all parallel-safe targets together, then each single-threaded
+// binary with `--test-threads=1`. Feature and harness flags pass through, and
+// the linked test executables are removed once their invocation finishes so a
+// repeated gate never accumulates them. Library, CLI and dependency artifacts
+// stay in place for the next build.
 import { lstat, realpath, unlink } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
@@ -19,6 +25,12 @@ export interface Metadata {
   packages: Package[];
 }
 interface Options { cargo: string[]; harness: string[]; features: Set<string> }
+export interface Invocation { selection: string[]; harness: string[] }
+
+// Test binaries that mutate process-global state (environment variables) and
+// therefore run one test at a time; `tests/serial/main.rs` explains the rule.
+export const SINGLE_THREADED = new Set(["serial"]);
+const SINGLE_THREAD_FLAG = "--test-threads=1";
 
 export function options(args: string[], definitions: Record<string, string[]>): Options {
   const separator = args.indexOf("--");
@@ -58,6 +70,18 @@ export function selections(targets: Target[], features: Set<string>): string[][]
     if (["bin", "test", "example", "bench"].includes(kind)) return [[`--${kind}`, target.name]];
     throw new Error(`Unsupported Cargo target kind: ${kind}`);
   });
+}
+
+// One invocation for every parallel-safe target, then one per single-threaded
+// test binary so its harness always receives `--test-threads=1`.
+export function invocations(targets: string[][], harness: string[]): Invocation[] {
+  const serial = targets.filter(([kind, name]) => kind === "--test" && SINGLE_THREADED.has(name));
+  const parallel = targets.filter(target => !serial.includes(target));
+  const plan: Invocation[] = [];
+  if (parallel.length) plan.push({ selection: parallel.flat(), harness });
+  const singleThreaded = harness.includes(SINGLE_THREAD_FLAG) ? harness : [...harness, SINGLE_THREAD_FLAG];
+  for (const target of serial) plan.push({ selection: target, harness: singleThreaded });
+  return plan;
 }
 
 function inside(root: string, path: string): boolean {
@@ -150,15 +174,14 @@ async function main(args: string[]): Promise<void> {
   const config = options(args, pkg.features);
   const targets = selections(pkg.targets, config.features);
   if (!targets.length) throw new Error("Cargo metadata selected no test targets");
-  // Keep dependency/library/CLI builds reusable; retire only each batch's test executables.
-  const batchSize = 8;
-  for (let start = 0; start < targets.length; start += batchSize) {
-    const batch = targets.slice(start, start + batchSize).flat();
-    console.log(`[rust targets] ${start + 1}-${Math.min(start + batchSize, targets.length)} of ${targets.length}`);
-    await runBatch(metadata, pkg.id, ["cargo", "test", "--message-format=json", ...config.cargo,
-      ...batch, ...(config.harness.length ? ["--", ...config.harness] : [])]);
+  for (const invocation of invocations(targets, config.harness)) {
+    const count = invocation.selection.filter(arg => arg.startsWith("--")).length;
+    console.log(`[rust targets] ${count} target(s): ${invocation.selection.join(" ")}`
+      + (invocation.harness.length ? ` -- ${invocation.harness.join(" ")}` : ""));
+    await runBatch(metadata, pkg.id, ["cargo", "test", "--no-fail-fast", "--message-format=json", ...config.cargo,
+      ...invocation.selection, ...(invocation.harness.length ? ["--", ...invocation.harness] : [])]);
   }
-  console.log(`[rust targets] all ${targets.length} targets passed; batch executables reclaimed`);
+  console.log(`[rust targets] all ${targets.length} targets passed; test executables reclaimed`);
 }
 
 if (import.meta.main) {

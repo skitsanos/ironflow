@@ -5,7 +5,6 @@ const repository = join(import.meta.dir, "../..");
 const validationJobs = ["rust-default", "rust-features"];
 const resourceEnvironment = {
   CARGO_INCREMENTAL: "0",
-  CARGO_BUILD_JOBS: "2",
   CARGO_PROFILE_DEV_DEBUG: "line-tables-only",
   CARGO_PROFILE_TEST_DEBUG: "line-tables-only",
 };
@@ -35,6 +34,8 @@ test("Linux validation bounds artifacts without changing other build profiles", 
       }
     }
     expect(environment.RUSTFLAGS).toBe("-Dwarnings");
+    // IF-162: area test binaries removed the need to throttle parallel links.
+    expect(environment.CARGO_BUILD_JOBS).toBeUndefined();
     const profileKeys = Object.keys(environment).filter((key) => key.startsWith("CARGO_PROFILE_"));
     expect(profileKeys.sort()).toEqual(
       validationJobs.includes(name) ? ["CARGO_PROFILE_DEV_DEBUG", "CARGO_PROFILE_TEST_DEBUG"] : [],

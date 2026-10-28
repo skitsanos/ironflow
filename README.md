@@ -608,8 +608,10 @@ directory in CI.
 
 ## Development validation and versioning
 
-Routine work uses focused tests for the behavior changed. Rust changes also
-require formatting, the module-size policy, and
+Routine work uses focused tests for the behavior changed. Integration tests
+build as area binaries (`cargo test --test engine`, `--test nodes`, and so on;
+see `AGENTS.md`), so one area links once instead of one executable per file.
+Rust changes also require formatting, the module-size policy, and
 `cargo clippy --all-targets -- -D warnings`; the whole suite is intentionally
 not run on each save or ordinary commit.
 

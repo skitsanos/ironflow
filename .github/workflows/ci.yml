@@ -88,10 +88,9 @@ jobs:
   rust-default:
     name: Clippy and tests (ubuntu-latest)
     runs-on: ubuntu-latest
-    # Keep linked test artifacts within hosted-runner disk and memory limits.
+    # Keep linked test artifacts small on hosted runners.
     env:
       CARGO_INCREMENTAL: "0"
-      CARGO_BUILD_JOBS: "2"
       CARGO_PROFILE_DEV_DEBUG: line-tables-only
       CARGO_PROFILE_TEST_DEBUG: line-tables-only
     steps:
@@ -137,7 +136,6 @@ jobs:
           --health-retries 20
     env:
       CARGO_INCREMENTAL: "0"
-      CARGO_BUILD_JOBS: "2"
       CARGO_PROFILE_DEV_DEBUG: line-tables-only
       CARGO_PROFILE_TEST_DEBUG: line-tables-only
       IRONFLOW_REDIS_TEST_URL: redis://127.0.0.1:6379

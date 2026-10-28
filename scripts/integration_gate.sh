@@ -64,9 +64,6 @@ cargo test --doc
 cargo audit --deny warnings
 bun --no-env-file scripts/check_licenses.ts
 
-echo "[integration] reclaiming default Rust artifacts"
-clean_workspace_artifacts
-
 echo "[integration] feature-enabled Rust gates"
 cargo check --all-targets --features postgres,redis
 cargo clippy --all-targets --features postgres,redis -- -D warnings
@@ -92,9 +89,6 @@ if [[ "${IRONFLOW_TEST_PUBLIC_TLS:-0}" == "1" ]]; then
   echo "[integration] opt-in public TLS acceptance"
   bun --no-env-file scripts/test_public_tls.ts target/release/ironflow
 fi
-
-echo "[integration] reclaiming pre-integration Rust artifacts"
-clean_workspace_artifacts
 
 container_suffix="$$"
 redis_container="ironflow-integration-redis-$container_suffix"

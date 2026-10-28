@@ -362,10 +362,8 @@ describe("repository integration policy", () => {
     const cleanup = "cargo clean --package ironflow";
     const prune = 'echo "[integration] pruning stale IronFlow artifacts"';
     const firstRustGate = "cargo fmt --all -- --check";
-    const defaultCleanup = 'echo "[integration] reclaiming default Rust artifacts"';
     const audit = "cargo audit --deny warnings";
-    const integrationCleanup =
-      'echo "[integration] reclaiming pre-integration Rust artifacts"';
+    const featureGates = 'echo "[integration] feature-enabled Rust gates"';
     const featureTests =
       "bun --no-env-file scripts/test_rust_targets.ts --features postgres,redis -- --test-threads=1";
 
@@ -375,14 +373,17 @@ describe("repository integration policy", () => {
     expect(gate).toContain("bun --no-env-file scripts/test_rust_targets.ts\n");
     expect(gate).toContain("trap cleanup EXIT");
     expect(gate.indexOf(prune)).toBeLessThan(gate.indexOf(firstRustGate));
-    expect(gate.indexOf(audit)).toBeLessThan(gate.indexOf(defaultCleanup));
-    expect(gate.indexOf(defaultCleanup)).toBeLessThan(
-      gate.indexOf('echo "[integration] feature-enabled Rust gates"'),
-    );
+    expect(gate.indexOf(audit)).toBeLessThan(gate.indexOf(featureGates));
     expect(gate.indexOf("Validated $example_count Lua examples.")).toBeLessThan(
-      gate.indexOf(integrationCleanup),
+      gate.indexOf(featureTests),
     );
-    expect(gate.indexOf(integrationCleanup)).toBeLessThan(gate.indexOf(featureTests));
+    // IF-162: the area test binaries made the mid-gate package cleans redundant;
+    // the runner reclaims each invocation's test executables and the exit trap
+    // cleans the package once.
+    expect(gate.match(/^clean_workspace_artifacts$/gm)).toHaveLength(1);
+    expect(gate).toContain("if ! clean_workspace_artifacts; then");
+    expect(gate).not.toContain("reclaiming default Rust artifacts");
+    expect(gate).not.toContain("reclaiming pre-integration Rust artifacts");
     expect(gate).toContain('echo "[integration] removing gate-owned IronFlow artifacts"');
   });
 

@@ -218,9 +218,9 @@ async fn an_instant_just_inside_the_grace_window_still_fires() {
     // Exactly at the boundary: `>` means equal lateness is still inside the
     // window, so this must fire too.
     // (`scheduler` the local binding above now shadows the `scheduler` helper
-    // fn, so the helper is reached via its crate-root path here.)
+    // fn, so the helper is reached via its module path here.)
     let executor = Arc::new(StubExecutor::default());
-    let mut scheduler = crate::scheduler(
+    let mut scheduler = self::scheduler(
         Arc::new(NullStateStore::new()),
         executor.clone(),
         utc(2026, 5, 1, 1, 59),
