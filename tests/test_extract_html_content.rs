@@ -243,3 +243,45 @@ async fn html_example_validates_and_runs_both_formats_through_the_cli() {
             .is_none_or(|extension| extension != "html")
     }));
 }
+
+#[tokio::test]
+async fn markdown_keeps_lists_tables_images_code_blocks_and_quotes_renderable() {
+    let html = concat!(
+        "<h2>Section</h2>",
+        "<ul><li>one</li><li>two<ul><li>nested</li></ul></li></ul>",
+        "<ol><li>first</li><li>second</li></ol>",
+        "<table><thead><tr><th>Name</th><th>Count</th></tr></thead>",
+        "<tbody><tr><td>Sample</td><td>48</td></tr></tbody></table>",
+        "<p>Inline <code>x*y</code> and <img alt=\"diagram\" src=\"diagram.png\"></p>",
+        "<pre><code>line one\n*raw*</code></pre>",
+        "<blockquote><p>quoted</p></blockquote><hr>",
+        "<p>Visit <a href=\"https://example.com/a?b=1&amp;c=2\">Example</a>.</p>",
+    );
+    let output = extract(html, "markdown").await;
+    let content = output["content"].as_str().unwrap();
+    let mut options = comrak::Options::default();
+    options.extension.table = true;
+    let rendered = comrak::markdown_to_html(content, &options);
+    for semantic in [
+        "<h2>Section</h2>",
+        "<li>one</li>",
+        "<li>nested</li>",
+        "<ol>",
+        "<li>first</li>",
+        "<table>",
+        "<th>Name</th>",
+        "<td>Sample</td>",
+        "<td>48</td>",
+        "<code>x*y</code>",
+        "<img src=\"diagram.png\" alt=\"diagram\"",
+        "<pre><code>line one\n*raw*\n</code></pre>",
+        "<blockquote>",
+        "<hr />",
+        "<a href=\"https://example.com/a?b=1&amp;c=2\">Example</a>",
+    ] {
+        assert!(
+            rendered.contains(semantic),
+            "lost {semantic}\n{content}\n{rendered}"
+        );
+    }
+}

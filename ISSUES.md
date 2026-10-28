@@ -8,7 +8,6 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 
 | ID | Priority | Status | Area | Summary |
 |---|---:|---|---|---|
-| [IF-161](docs/issues/IF-161.md) | P1 | Open | Supply chain | GPL-3.0 html2md is linked into the MIT single binary |
 | [IF-162](docs/issues/IF-162.md) | P1 | Open | Test architecture | One integration test binary per test file drives disk and CI compensation |
 | [IF-163](docs/issues/IF-163.md) | P1 | Open | JSON storage | Default JSON state store re-implements database concerns over the filesystem |
 | [IF-164](docs/issues/IF-164.md) | P2 | Open | Binary size | Release binary carries 36 MB of embedded fonts and no release profile |

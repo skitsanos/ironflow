@@ -62,6 +62,7 @@ cargo clippy --all-targets -- -D warnings
 bun --no-env-file scripts/test_rust_targets.ts
 cargo test --doc
 cargo audit --deny warnings
+bun --no-env-file scripts/check_licenses.ts
 
 echo "[integration] reclaiming default Rust artifacts"
 clean_workspace_artifacts

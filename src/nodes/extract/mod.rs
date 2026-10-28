@@ -12,7 +12,7 @@ mod word;
 mod word_format;
 mod xlsx;
 
-pub(crate) use html::ExtractHtmlNode;
+pub(crate) use html::{ExtractHtmlNode, NON_CONTENT_TAGS};
 pub(crate) use pdf::ExtractPdfNode;
 pub(crate) use pptx::ExtractPptxNode;
 pub(crate) use subtitles::{ExtractSrtNode, ExtractVttNode};

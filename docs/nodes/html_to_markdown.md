@@ -16,6 +16,19 @@ Convert HTML to Markdown (best-effort, inherently lossy on complex HTML).
 
 - `<output_key>` (default `markdown`) — the generated Markdown string.
 
+## Content Filtering
+
+The input is parsed structurally with the HTML parser's recovery rules, so
+fragments and malformed markup are accepted. `head`, `title`, `script`,
+`style`, `noscript`, and inert `template` subtrees are skipped, the same set
+that [`extract_html`](extract_html.md) removes, so a page title or style sheet
+never surfaces as Markdown text. Comments are omitted. Headings, emphasis,
+links, images, inline and fenced code, block quotes, lists, and tables (GFM
+pipe tables) are retained; literal Markdown punctuation in prose is escaped
+(`# literal` becomes `\# literal`) so it still renders as text, while code
+content is left untouched. Conversion is best-effort: CSS, scripts, and
+external resources are never evaluated, and this is not a sanitizer.
+
 ## Example
 
 ```lua

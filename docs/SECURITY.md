@@ -110,3 +110,29 @@ trust stores and administrator-managed bundles. Re-run checks from the actual
 deployment environment. Local results do not establish protection on other
 machines or old deployments. Review historic endpoint, proxy, and TLS logs
 separately; a patched audit cannot establish absence of past exploitation.
+
+## Dependency licenses
+
+IronFlow is MIT licensed and ships statically linked binaries and container
+images, so every crate that is compiled into them must carry a permissive
+license. `scripts/check_licenses.ts` resolves the dependency graph with
+`cargo metadata --locked --all-features`, follows normal and build dependencies
+from the root (dev-dependencies never ship), and fails closed on any package
+whose SPDX expression is missing, unparsable, or not satisfiable from the
+reviewed allowlist in that script. `OR` alternatives pass when one option is
+allowed; `AND` operands must all be allowed. A package that only carries a
+license file needs a `name@version` entry in `LICENSE_EXCEPTIONS` with the
+reviewed finding, and the entry becomes a violation once that version leaves the
+graph.
+
+The check runs in the CI `audit` job, in `scripts/integration_gate.sh`, and in
+the pre-commit hook whenever `Cargo.toml`, `Cargo.lock`, or the script itself is
+staged:
+
+```sh
+bun --no-env-file scripts/check_licenses.ts
+```
+
+The first run of this gate found `html2md` (GPL-3.0+) in the shipped graph; it
+was replaced by `htmd` (Apache-2.0) in IF-161. Fonts embedded for PDF generation
+remain under the SIL Open Font License shipped as `assets/fonts/OFL.txt`.
