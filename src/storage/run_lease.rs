@@ -29,6 +29,7 @@ impl RunLease {
     }
 
     /// Extend `owner` from the current wall clock by the standard TTL.
+    #[allow(clippy::expect_used)] // Infallible: run lease TTL fits chrono.
     pub fn renewed(owner: String) -> Self {
         let ttl = Duration::from_std(RUN_LEASE_TTL).expect("run lease TTL fits chrono");
         Self {

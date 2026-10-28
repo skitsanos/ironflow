@@ -136,3 +136,20 @@ bun --no-env-file scripts/check_licenses.ts
 The first run of this gate found `html2md` (GPL-3.0+) in the shipped graph; it
 was replaced by `htmd` (Apache-2.0) in IF-161. Fonts embedded for PDF generation
 remain under the SIL Open Font License shipped as `assets/fonts/OFL.txt`.
+
+## Watched dependencies
+
+`noyalib` parses `IronFlowConfig` YAML and backs the `yaml_parse` /
+`yaml_stringify` nodes. It is a young crate (0.0.x versions, a single
+maintainer) whose nesting depth IronFlow already bounds (IF-037). It stays on a
+watch list with an exit criterion: migrate to a maintained YAML parser if a
+release changes its public API incompatibly, if six months pass without a
+release, or if an advisory is published against it. The dependency audit in
+CI (`cargo audit --deny warnings`) and the Renovate cohort both surface those
+events.
+
+GitHub Actions in every workflow are pinned to commit SHAs with the version
+noted in a comment; Renovate's `helpers:pinGitHubActionDigests` preset keeps
+the digests current. The only exception is `dtolnay/rust-toolchain`, whose tag
+is the Rust version that `rust-toolchain.toml` and the Docker builder image
+must match, so the toolchain update group pins it by version instead.

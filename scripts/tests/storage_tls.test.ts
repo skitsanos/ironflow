@@ -91,7 +91,7 @@ test("TLS acceptance runs after the full-feature build in local and CI gates", a
   const build = steps.findIndex(s => s.run?.includes("scripts/test_rust_targets.ts --features postgres,redis"));
   expect(build).toBeGreaterThanOrEqual(0);
   expect(tls).toBeGreaterThan(build);
-  expect(steps.slice(0, tls).some(s => s.uses === "oven-sh/setup-bun@v2")).toBeTrue();
+  expect(steps.slice(0, tls).some(s => s.uses?.startsWith("oven-sh/setup-bun@"))).toBeTrue();
   expect(steps[tls]["continue-on-error"]).not.toBeTrue();
   const gate = await Bun.file(join(root, "scripts/integration_gate.sh")).text();
   expect(gate).toContain("docker openssl");

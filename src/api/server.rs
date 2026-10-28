@@ -135,6 +135,7 @@ impl RunningServer {
     }
 }
 
+#[allow(clippy::expect_used)] // Infallible: SIGTERM handler can be installed.
 async fn shutdown_signal() {
     #[cfg(unix)]
     {

@@ -4,6 +4,7 @@ use sha2::{Digest as _, Sha256};
 
 pub(crate) const SCHEDULE_INSTANT_CONTEXT_KEY: &str = "_schedule_instant";
 
+#[allow(clippy::expect_used)] // Infallible: writing to String cannot fail.
 pub(crate) fn run_id(schedule: &str, instant: &str) -> String {
     let mut digest = Sha256::new();
     hash_part(schedule.as_bytes(), &mut digest);

@@ -166,6 +166,7 @@ impl ScheduleConfig {
         self.grace_seconds
     }
 
+    #[allow(clippy::expect_used)] // Infallible: validated grace fits i64.
     pub(super) fn grace_seconds_i64(&self) -> i64 {
         i64::try_from(self.grace_seconds).expect("validated grace fits i64")
     }

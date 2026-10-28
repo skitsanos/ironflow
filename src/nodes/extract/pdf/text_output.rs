@@ -4,6 +4,7 @@ use lopdf::Object;
 use std::sync::LazyLock;
 
 // Derive byte lengths from lopdf's PDFDocEncoding table without duplicating it.
+#[allow(clippy::expect_used)] // Infallible: decoding a one-byte PDFDocEncoding string is total for every byte value.
 static PDF_DOC_LENGTHS: LazyLock<[usize; 256]> = LazyLock::new(|| {
     std::array::from_fn(|byte| {
         lopdf::decode_text_string(&Object::String(

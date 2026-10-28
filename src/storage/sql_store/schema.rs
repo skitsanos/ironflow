@@ -189,6 +189,7 @@ impl SqlStateStore {
         Ok(row.is_some())
     }
 
+    #[allow(clippy::expect_used)] // Infallible: the backfill query excludes NULL timestamps.
     pub(super) async fn backfill_started_micros(&self) -> StorageResult<()> {
         loop {
             let sql = format!(

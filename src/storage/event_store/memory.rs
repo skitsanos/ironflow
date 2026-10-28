@@ -54,6 +54,7 @@ pub struct MemoryEventStore {
 }
 
 impl MemoryEventStore {
+    #[allow(clippy::expect_used)] // Infallible: the default memory event capacity is positive.
     pub fn new() -> Self {
         Self::with_capacity(DEFAULT_MEMORY_EVENT_CAPACITY)
             .expect("the default memory event capacity is positive")

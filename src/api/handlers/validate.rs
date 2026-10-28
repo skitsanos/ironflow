@@ -14,6 +14,7 @@ use super::helpers::{
 use super::types::{ValidateFlowRequest, ValidateResponse};
 
 /// POST /flows/validate
+#[allow(clippy::expect_used)] // Infallible: source validation guarantees one resolved file.
 pub async fn validate_flow(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ValidateFlowRequest>,

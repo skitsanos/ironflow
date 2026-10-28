@@ -17,6 +17,10 @@ on:
       - ".gitignore"
   workflow_dispatch:
 
+# Validation needs read access only; jobs that publish declare their own grants.
+permissions:
+  contents: read
+
 # Superseded pull-request runs are cancelled; pushes to main and develop
 # always run to completion so their caches and artifacts stay intact.
 concurrency:
@@ -32,8 +36,8 @@ jobs:
     name: Repository policy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.4
       - run: bun run scripts/validate_skills.ts
@@ -50,15 +54,15 @@ jobs:
           sh -n .githooks/pre-commit
           bash -n .githooks/pre-push scripts/integration_gate.sh
       - name: Lint workflows
-        uses: raven-actions/actionlint@v2
+        uses: raven-actions/actionlint@3d39aea434753780c3b3d4a1a31c854b4dbf49d7 # v2
 
   audit:
     name: Security audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dtolnay/rust-toolchain@1.99.1
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           cache-targets: false
       - name: Install cargo-audit
@@ -67,7 +71,7 @@ jobs:
       # reviewed ignore list at .cargo/audit.toml.
       - name: Audit dependencies
         run: cargo audit --deny warnings
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.4
       # Fails on copyleft-only, unparsable, or missing licenses anywhere in the
@@ -79,7 +83,7 @@ jobs:
     name: Format
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dtolnay/rust-toolchain@1.99.1
         with:
           components: rustfmt
@@ -94,15 +98,15 @@ jobs:
       CARGO_PROFILE_DEV_DEBUG: line-tables-only
       CARGO_PROFILE_TEST_DEBUG: line-tables-only
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dtolnay/rust-toolchain@1.99.1
         with:
           components: clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           cache-targets: false
       - run: cargo clippy --all-targets -- -D warnings
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.4
       - run: bun --no-env-file scripts/test_rust_targets.ts
@@ -143,15 +147,15 @@ jobs:
       DATABASE_URL: postgres://postgres:ironflow-${{ github.run_id }}-${{ github.run_attempt }}@127.0.0.1:5432/ironflow_test
       IRONFLOW_POSTGRES_TEST_REQUIRED: "1"
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dtolnay/rust-toolchain@1.99.1
         with:
           components: clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           cache-targets: false
       - run: cargo clippy --all-targets --features postgres,redis,cjk-fonts -- -D warnings
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.4
       # Only the binaries with feature-gated tests: storage backends, the TLS
@@ -165,12 +169,12 @@ jobs:
     name: Test (macos-latest)
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dtolnay/rust-toolchain@1.99.1
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           cache-targets: false
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.4
       # Pull requests cover the areas where macOS differs (files, paths,
@@ -189,14 +193,14 @@ jobs:
     # pull requests already load every Lua example through the `examples` tests.
     if: github.event_name != 'pull_request'
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dtolnay/rust-toolchain@1.99.1
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           cache-targets: false
       - run: cargo build --release
       - name: Upload Linux release binary
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ironflow-linux-release-${{ github.sha }}
           path: target/release/ironflow
@@ -209,9 +213,9 @@ jobs:
     needs: build-linux
     if: github.event_name != 'pull_request'
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Download Linux release binary
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: ironflow-linux-release-${{ github.sha }}
           path: target/release

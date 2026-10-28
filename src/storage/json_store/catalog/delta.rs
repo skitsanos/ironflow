@@ -195,6 +195,7 @@ fn decode_entry(data: &[u8]) -> StorageResult<DeltaEntry> {
     }
 }
 
+#[allow(clippy::expect_used)] // Infallible: fixed u32.
 fn read_u32(data: &[u8], offset: usize) -> u32 {
     u32::from_be_bytes(data[offset..offset + 4].try_into().expect("fixed u32"))
 }

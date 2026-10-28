@@ -82,6 +82,7 @@ fn public_error(status: StatusCode, error: String, code: &'static str) -> Respon
         .into_response()
 }
 
+#[allow(clippy::expect_used)] // Infallible: UUID error IDs are valid HTTP header values.
 fn internal_error(diagnostic: &str) -> Response {
     let error_id = Uuid::new_v4().to_string();
     let diagnostic = redact_sensitive_text(diagnostic);

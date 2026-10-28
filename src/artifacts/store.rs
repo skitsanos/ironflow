@@ -237,6 +237,7 @@ impl LocalArtifactStore {
         self.open_digest(digest, None, execution)
     }
 
+    #[allow(clippy::expect_used)] // Infallible: checked as present.
     fn open_digest(
         &self,
         digest: &str,

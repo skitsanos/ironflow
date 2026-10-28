@@ -64,6 +64,7 @@ impl ListingPolicy {
 }
 
 impl Default for ListingPolicy {
+    #[allow(clippy::expect_used)] // Infallible: the default listing policy is valid.
     fn default() -> Self {
         Self::from_value(None).expect("the default listing policy is valid")
     }

@@ -272,6 +272,7 @@ impl ScopeAnalyzer<'_> {
         });
     }
 
+    #[allow(clippy::expect_used)] // Infallible: scope analyzer always has a scope.
     fn declare(&mut self, name: &str) {
         self.scopes
             .last_mut()

@@ -1,3 +1,9 @@
+// Production code handles failure explicitly. The remaining `expect`/`unwrap`
+// sites carry a scoped allowance naming the invariant that makes them
+// infallible (IF-171); test modules are exempt.
+#![warn(clippy::unwrap_used, clippy::expect_used)]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+
 use tracing_subscriber::EnvFilter;
 
 fn exit_with_error(error: anyhow::Error) -> ! {

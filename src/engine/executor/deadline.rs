@@ -71,6 +71,7 @@ impl StepDeadline {
         self.run(tokio::time::sleep(duration)).await
     }
 
+    #[allow(clippy::expect_used)] // Infallible: a deadline error requires a configured timeout.
     pub(super) fn error_message(self, step_name: &str) -> String {
         format!(
             "Task '{}' timed out after {}s total",

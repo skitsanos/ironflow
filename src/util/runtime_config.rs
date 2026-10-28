@@ -34,7 +34,7 @@ pub fn max_concurrent_tasks(configured: Option<usize>) -> Result<usize> {
     };
     validate_semaphore_limit(MAX_CONCURRENT_TASKS, configured)?;
 
-    let value = configured.unwrap_or_else(num_cpus::get);
+    let value = configured.unwrap_or_else(host_parallelism);
     if value == 0 {
         tracing::warn!("max_concurrent_tasks=0 would deadlock execution; using 1");
         Ok(1)
@@ -88,6 +88,11 @@ pub fn shutdown_grace() -> Result<Duration> {
         bail!("{SHUTDOWN_GRACE_SECONDS} exceeds the {MAX_SHUTDOWN_GRACE_SECONDS}-second limit");
     }
     Ok(Duration::from_secs(seconds))
+}
+
+/// Available hardware parallelism, or one when the platform cannot report it.
+pub fn host_parallelism() -> usize {
+    std::thread::available_parallelism().map_or(1, usize::from)
 }
 
 /// Validate a concurrency value already resolved by the CLI/YAML layer.

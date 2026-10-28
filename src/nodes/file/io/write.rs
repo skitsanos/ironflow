@@ -205,6 +205,7 @@ fn write_request(request: Request, execution: &ExecutionControl) -> Result<()> {
     staged.commit()
 }
 
+#[allow(clippy::expect_used)] // Infallible: source input was opened during admission.
 fn write_input(
     input: &WriteInput,
     source_file: Option<File>,

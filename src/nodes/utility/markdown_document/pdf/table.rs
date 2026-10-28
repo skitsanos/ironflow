@@ -4,6 +4,7 @@ use anyhow::{Result, ensure};
 
 type Row = Vec<std::collections::VecDeque<Line>>;
 
+#[allow(clippy::expect_used)] // Infallible: front exists.
 pub(super) fn layout(plan: &mut Planner<'_>, rows: &[Vec<Vec<Run>>]) -> Result<()> {
     let columns = rows.iter().map(Vec::len).max().unwrap_or(0);
     if columns == 0 {

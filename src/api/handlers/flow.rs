@@ -13,6 +13,7 @@ use super::helpers::{decode_base64_source, flow_file_load_error, resolve_flow_pa
 use super::types::{RunFlowRequest, RunFlowResponse};
 
 /// POST /flows/run
+#[allow(clippy::expect_used)] // Infallible: source validation guarantees one resolved file.
 pub async fn run_flow(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,

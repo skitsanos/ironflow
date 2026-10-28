@@ -43,7 +43,7 @@ describe("repository integration policy", () => {
       .join("\n");
     expect(
       workflow.jobs.policy.steps.some(
-        (step) => step.uses === "oven-sh/setup-bun@v2",
+        (step) => step.uses?.startsWith("oven-sh/setup-bun@"),
       ),
     ).toBeTrue();
     expect(commands).toContain("bun run scripts/validate_skills.ts");
@@ -80,8 +80,8 @@ describe("repository integration policy", () => {
       expect(step).toBeDefined();
       expect(step?.["continue-on-error"]).not.toBeTrue();
     }
-    expect(job.steps.filter((step) => step.uses === "actions/checkout@v7")).toHaveLength(1);
-    const lint = job.steps.find((step) => step.uses === "raven-actions/actionlint@v2");
+    expect(job.steps.filter((step) => step.uses?.startsWith("actions/checkout@"))).toHaveLength(1);
+    const lint = job.steps.find((step) => step.uses?.startsWith("raven-actions/actionlint@"));
     expect(lint).toBeDefined();
     expect(lint?.["continue-on-error"]).not.toBeTrue();
   });
@@ -143,6 +143,32 @@ describe("repository integration policy", () => {
     }
     expect(lockfile.match(/name = "lopdf"/g) ?? []).toHaveLength(1);
     expect(lockfile).toContain('name = "event-listener"\nversion = "5.4.2"');
+  });
+
+  test("third-party actions are pinned to commit SHAs with their version noted", async () => {
+    const files = [...new Bun.Glob(".github/workflows/*.yml").scanSync(repository)];
+    expect(files.length).toBeGreaterThan(0);
+    for (const file of files) {
+      const source = await Bun.file(join(repository, file)).text();
+      for (const [, reference] of source.matchAll(/uses:\s*([^\s#]+)/g)) {
+        if (reference.startsWith("./")) continue;
+        if (reference.startsWith("dtolnay/rust-toolchain@")) continue;
+        expect(reference, `${file}: ${reference}`).toMatch(/^[^@]+@[0-9a-f]{40}$/);
+      }
+      for (const line of source.split("\n").filter((line) => /uses:\s*[^.][^\s]*@[0-9a-f]{40}/.test(line))) {
+        expect(line, line).toMatch(/# v?\d/);
+      }
+    }
+    const ci = Bun.YAML.parse(await Bun.file(join(repository, ".github/workflows/ci.yml")).text()) as {
+      permissions?: Record<string, string>;
+    };
+    expect(ci.permissions).toEqual({ contents: "read" });
+    const renovate = JSON.parse(await Bun.file(join(repository, "renovate.json")).text()) as {
+      extends: string[];
+      packageRules: Array<{ matchPackageNames?: string[]; pinDigests?: boolean }>;
+    };
+    expect(renovate.extends).toContain("helpers:pinGitHubActionDigests");
+    expect(renovate.packageRules.some((rule) => rule.matchPackageNames?.includes("dtolnay/rust-toolchain") && rule.pinDigests === false)).toBeTrue();
   });
 
   test("develop pre-push checks PRs, version, and the integration gate", async () => {
@@ -279,10 +305,10 @@ describe("repository integration policy", () => {
       expect(job.if).toBe("github.event_name != 'pull_request'");
     }
     expect(
-      linuxBuild.steps.some((step) => step.uses === "actions/upload-artifact@v7"),
+      linuxBuild.steps.some((step) => step.uses?.startsWith("actions/upload-artifact@")),
     ).toBeTrue();
     expect(
-      validation.steps.some((step) => step.uses === "actions/download-artifact@v8"),
+      validation.steps.some((step) => step.uses?.startsWith("actions/download-artifact@")),
     ).toBeTrue();
 
     const validationCommands = validation.steps
@@ -364,7 +390,7 @@ describe("repository integration policy", () => {
       const steps = workflow.jobs[job].steps;
       const runner = steps.findIndex(s => s.run?.includes("scripts/test_rust_targets.ts"));
       expect(runner).toBeGreaterThan(0);
-      expect(steps.slice(0, runner).some(s => s.uses === "oven-sh/setup-bun@v2")).toBeTrue();
+      expect(steps.slice(0, runner).some(s => s.uses?.startsWith("oven-sh/setup-bun@"))).toBeTrue();
       for (const step of steps.filter(s => s.run?.includes("scripts/test_rust_targets.ts"))) {
         expect(step["continue-on-error"]).not.toBeTrue();
       }

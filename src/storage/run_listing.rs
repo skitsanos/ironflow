@@ -150,6 +150,7 @@ impl RunSummaryPage {
         self.next.is_some()
     }
 
+    #[allow(clippy::expect_used)] // Infallible: a page with a continuation has at least one item.
     pub(crate) fn from_ordered(mut items: Vec<RunSummary>, query: &RunListQuery) -> Self {
         let has_more = items.len() > query.limit.get();
         items.truncate(query.limit.get());

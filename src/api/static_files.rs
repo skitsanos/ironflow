@@ -63,6 +63,7 @@ impl StaticFiles {
         })
     }
 
+    #[allow(clippy::expect_used)] // Infallible: the builders only receive status codes, static header values and bodies that cannot fail to assemble.
     pub(super) async fn serve(&self, mut request: Request) -> Response {
         let decoded = match DecodedPath::parse(request.uri().path()) {
             Some(path) if !path.is_reserved() => path,
@@ -212,6 +213,7 @@ fn rewrite_to_index(uri: &mut Uri, index: &str) -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::unwrap_used)] // Infallible: the builders only receive status codes, static header values and bodies that cannot fail to assemble.
 fn slash_redirect(uri: &Uri) -> Response {
     let path = format!("{}/", uri.path());
     let location = match uri.query() {
@@ -238,6 +240,7 @@ fn uri_with_path(uri: &Uri, path: &str) -> Result<Uri> {
     Ok(Uri::from_parts(parts)?)
 }
 
+#[allow(clippy::unwrap_used)] // Infallible: the builders only receive status codes, static header values and bodies that cannot fail to assemble.
 fn not_found() -> Response {
     Response::builder()
         .status(StatusCode::NOT_FOUND)
@@ -245,6 +248,7 @@ fn not_found() -> Response {
         .unwrap()
 }
 
+#[allow(clippy::unwrap_used)] // Infallible: the builders only receive status codes, static header values and bodies that cannot fail to assemble.
 fn method_not_allowed() -> Response {
     Response::builder()
         .status(StatusCode::METHOD_NOT_ALLOWED)
@@ -253,6 +257,7 @@ fn method_not_allowed() -> Response {
         .unwrap()
 }
 
+#[allow(clippy::unwrap_used)] // Infallible: the builders only receive status codes, static header values and bodies that cannot fail to assemble.
 fn static_io_error(error: std::io::Error) -> Response {
     // try_call exposes errors that the service's infallible call maps to 404.
     if matches!(

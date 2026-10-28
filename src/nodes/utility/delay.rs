@@ -26,7 +26,9 @@ impl Node for DelayNode {
         let mut output = NodeOutput::new();
         output.insert(
             "delay_seconds".to_string(),
-            serde_json::Value::Number(serde_json::Number::from_f64(seconds).unwrap()),
+            serde_json::Number::from_f64(seconds)
+                .map(serde_json::Value::Number)
+                .ok_or_else(|| anyhow::anyhow!("delay: 'seconds' must be a finite number"))?,
         );
         Ok(output)
     }

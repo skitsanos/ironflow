@@ -151,11 +151,8 @@ impl RedisStateStore {
             || "+".to_string(),
             |cursor| format!("({}", ordered_member_parts(cursor.started(), cursor.id())),
         );
-        let capacity = query
-            .limit()
-            .get()
-            .checked_add(1)
-            .expect("PageSize reserves room for a continuation");
+        // PageSize reserves room for a continuation, so this cannot saturate.
+        let capacity = query.limit().get().saturating_add(1);
         let mut items = Vec::with_capacity(capacity);
         let mut seen = HashSet::with_capacity(capacity);
 

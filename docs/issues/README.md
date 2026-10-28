@@ -7,7 +7,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts check`.
 
 - Total findings: 171
-- Active findings: 4
+- Active findings: 3
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
 | ID | Priority | Status | Area | Summary |
@@ -182,4 +182,4 @@ priority, area, and title. The registry is generated with
 | [IF-168](./IF-168.md) | P2 | Resolved | Runtime safety | Malformed IRONFLOW_MAX_* limit values silently fall back to defaults |
 | [IF-169](./IF-169.md) | P2 | Open | Repository process | Repository governance tooling outweighs the code it governs |
 | [IF-170](./IF-170.md) | P3 | Resolved | Docs | Documentation and repository hygiene drift |
-| [IF-171](./IF-171.md) | P3 | Open | Supply chain | Dependency and lint hygiene: unpinned actions, duplicate crates, unguarded unwraps |
+| [IF-171](./IF-171.md) | P3 | Resolved | Supply chain | Dependency and lint hygiene: unpinned actions, duplicate crates, unguarded unwraps |

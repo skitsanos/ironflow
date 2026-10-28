@@ -44,6 +44,7 @@ pub(super) fn resolve(config: &Value, ctx: &Context) -> Result<RequestBody> {
         .map(RequestBody::Multipart)
 }
 
+#[allow(clippy::expect_used)] // Infallible: exclusive source validation ensures artifact exists.
 fn resolve_part(value: &Value, ctx: &Context) -> Result<MultipartField> {
     let part = value
         .as_object()

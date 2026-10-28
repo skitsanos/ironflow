@@ -54,6 +54,7 @@ impl Shaper {
         })
     }
 
+    #[allow(clippy::expect_used)] // Infallible: ligature start recorded; batch exists.
     pub fn paragraph(
         &mut self,
         runs: &[Run],
