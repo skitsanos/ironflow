@@ -2,7 +2,8 @@
 
 Copy an existing object to another key or bucket.
 
-Uses regional SigV4 signing. SigV4a Multi-Region Access Points are unsupported;
+Uses regional SigV4 signing, or SigV4a for an MRAP destination ARN. MRAP copy
+sources are unsupported by AWS;
 see [S3 signing](../SECURITY.md#s3-signing).
 
 ## Parameters
@@ -11,7 +12,7 @@ see [S3 signing](../SECURITY.md#s3-signing).
 |-----------|------|----------|---------|-------------|
 | `source_bucket` | string | no | env `S3_BUCKET` | Source bucket name, not URL-encoded. Supports `${ctx.key}` interpolation. |
 | `source_key` | string | yes | -- | Literal source object key, not a URL or pre-encoded path. Supports `${ctx.key}` interpolation. |
-| `bucket` | string | no | env `S3_BUCKET` | Destination bucket name. |
+| `bucket` | string | no | env `S3_BUCKET` | Destination bucket name or MRAP ARN. |
 | `key` | string | yes | -- | Destination object key. |
 | `region` | string | no | `S3_REGION` / `AWS_REGION` | Explicit AWS/S3 region override. |
 | `endpoint_url` | string | no | env `AWS_ENDPOINT_URL` | Optional custom endpoint (for S3-compatible services). |

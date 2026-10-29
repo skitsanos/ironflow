@@ -22,6 +22,9 @@ fn command(root: &Path, temp: &Path) -> Command {
             command.env(key, value);
         }
     }
+    // The multilingual fixture needs a CJK font; default builds take it from
+    // the font directory instead of the `cjk-fonts` feature (IF-164).
+    command.env("IRONFLOW_FONT_DIR", root.join("assets/fonts"));
     command
         .arg("--dotenv")
         .arg(temp.join("environment.conf"))
@@ -75,8 +78,10 @@ async fn document_generation_runs_through_cli_and_real_serve_http() {
             .spawn()
             .unwrap(),
     );
+    // The request deadline bounds a hung server, not latency: this file shares
+    // the `documents` test binary with PDF and PPTX cases that load the host.
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(2))
+        .timeout(Duration::from_secs(15))
         .build()
         .unwrap();
     let base = format!("http://127.0.0.1:{port}");

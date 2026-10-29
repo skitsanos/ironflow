@@ -43,6 +43,7 @@ pub(super) async fn commit_mutation(
     Ok(())
 }
 
+#[allow(clippy::expect_used)] // Infallible: a selected compaction merge branch contains a record.
 fn merge_ordered(base: Vec<CatalogRecord>, changed: Vec<CatalogRecord>) -> Vec<CatalogRecord> {
     let capacity = base.len().saturating_add(changed.len());
     let mut base = base.into_iter().peekable();

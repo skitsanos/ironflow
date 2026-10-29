@@ -116,6 +116,7 @@ fn unavailable_token() -> StorageError {
 }
 
 impl JsonStateStore {
+    #[allow(clippy::expect_used)] // Infallible: current sidecar exists.
     pub(super) async fn catalog_record(&self, run_id: &str) -> StorageResult<CatalogRecord> {
         let record = self.read_run_record(run_id).await?;
         let summary = RunSummary::from(&record.info);

@@ -168,10 +168,12 @@ impl TempArtifact {
         }
     }
 
+    #[allow(clippy::expect_used)] // Infallible: temporary artifact file missing.
     pub(super) fn file(&self) -> &File {
         self.file.as_ref().expect("temporary artifact file missing")
     }
 
+    #[allow(clippy::expect_used)] // Infallible: temporary artifact file missing.
     pub(super) fn file_mut(&mut self) -> &mut File {
         self.file.as_mut().expect("temporary artifact file missing")
     }

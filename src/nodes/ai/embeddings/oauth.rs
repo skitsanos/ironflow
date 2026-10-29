@@ -20,16 +20,10 @@ struct TokenResponse {
 
 type OauthKey = (String, String, Option<String>);
 
-/// Hard upper bound on distinct OAuth client tuples remembered across the process.
-/// Override with `IRONFLOW_OAUTH_CACHE_SIZE`.
-const DEFAULT_OAUTH_CACHE_SIZE: usize = 128;
-
+/// Hard upper bound on distinct OAuth client tuples remembered across the
+/// process; `IRONFLOW_OAUTH_CACHE_SIZE` overrides it (see `util::limits`).
 fn oauth_cache_capacity() -> usize {
-    std::env::var("IRONFLOW_OAUTH_CACHE_SIZE")
-        .ok()
-        .and_then(|value| value.parse::<usize>().ok())
-        .filter(|capacity| *capacity > 0)
-        .unwrap_or(DEFAULT_OAUTH_CACHE_SIZE)
+    crate::util::limits::oauth_cache_size()
 }
 
 static OAUTH_TOKEN_CACHE: LazyLock<BoundedCache<OauthKey, CachedToken>> =

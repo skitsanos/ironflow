@@ -326,10 +326,16 @@ port 123); quote a value when it must remain a string. Configuration loading and
 
 IronFlow supports these state storage backends:
 
-- **json** (default) — File-based JSON storage in `store_dir`
-- **sqlite** — SQL storage in a local SQLite database
+- **sqlite** (default) — one SQLite database, `ironflow.sqlite`, created under `store_dir`; the directory is restricted to its owner on Unix, and transactions, indexes and keyset pagination come from the database
+- **json** — file-based JSON records in `store_dir`; maintenance-only since IF-163 and kept for existing store directories, selected explicitly with `IRONFLOW_STORE=json`
 - **postgres** — SQL storage in Postgres (requires a `-full` release binary or building with `--features postgres`)
 - **redis** — Redis-backed storage (requires a `-full` release binary or building with `--features redis`)
+
+Two further Cargo features shape the binary: `pdf-render` (default) provides
+`pdf_to_image` and `pdf_thumbnail` through the Pdfium runtime library, and
+`cjk-fonts` (off by default, on in `-full` binaries and the container image)
+embeds the Noto CJK font for `markdown_to_pdf`; see `IRONFLOW_FONT_DIR` below
+for loading fonts at runtime instead.
 
 For SQL state and event stores, the resolved URL scheme must match the selected
 backend: `sqlite:` for `sqlite`, or `postgres://` / `postgresql://` for `postgres`.
@@ -458,7 +464,7 @@ Or via environment variables (override config file):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `IRONFLOW_STORE` | `json` | Storage backend: `json`, `sqlite`, `postgres`, or `redis` |
+| `IRONFLOW_STORE` | `sqlite` | Storage backend: `sqlite`, `json`, `postgres`, or `redis` |
 | `IRONFLOW_STORE_URL` | SQLite auto path for `sqlite`; required for `postgres` | SQL store URL |
 | `IRONFLOW_EVENT_STORE` | `memory` | Event backend for `/runs/{id}/events`: `memory`, `sqlite`, `postgres`, or `redis` |
 | `IRONFLOW_EVENT_STORE_URL` | SQLite auto path for `sqlite`; required for `postgres` | SQL event store URL |
@@ -470,7 +476,7 @@ Or via environment variables (override config file):
 | `REDIS_PREFIX` | `ironflow:` | Key prefix for Redis keys |
 | `REDIS_TTL` | — | TTL seconds for Redis run/event keys and event-deletion fences: `1..=99,999,999,999` (no expiration if unset). State mutations and event publishes refresh their keys; the first successful event deletion sets the fence expiry, while same-owner retries preserve that original lifetime. |
 
-When `IRONFLOW_STORE=sqlite` and no URL is configured, IronFlow creates `ironflow.sqlite` under `IRONFLOW_STORE_DIR`.
+When the state backend is `sqlite` (the default) and no URL is configured, IronFlow creates `ironflow.sqlite` under `IRONFLOW_STORE_DIR`, creating that directory with owner-only permissions on Unix and refusing a symbolic link in its place. Existing JSON store directories keep working with `IRONFLOW_STORE=json`; there is no automatic import between backends, so a deployment that switches backends starts with an empty run history unless it keeps the old selection.
 When `IRONFLOW_EVENT_STORE=sqlite` and no URL is configured, IronFlow creates `ironflow-events.sqlite` under `IRONFLOW_STORE_DIR`.
 Run state and run events are configured separately, so a deployment can store run records in one backend and stream event replay from another. Redis event storage is available behind `--features redis` and uses `REDIS_URL`, `REDIS_PREFIX`, and optional `REDIS_TTL`.
 Redis state mutations use revision-token compare-and-swap, while event payload/cursor publication is one idempotent Lua operation. These guarantees apply per operation; state and event writes are not a single transaction. The current multi-key layout supports standalone Redis, not Redis Cluster.
@@ -573,7 +579,10 @@ their paths. Malformed URLs fail closed to a redacted placeholder. This protects
 current diagnostics, but cannot rewrite historical logs, so rotate credentials
 and purge retained logs if an older version may have exposed a full URL.
 
-GitHub releases include default binaries and `-full` binaries. Use the `-full` artifact when you need both Postgres and Redis support.
+GitHub releases include default binaries and `-full` binaries. Use the `-full`
+artifact when you need Postgres or Redis support or the embedded CJK font
+(`postgres,redis,cjk-fonts`). Release binaries are stripped and link-time
+optimized by the `[profile.release]` section of `Cargo.toml`.
 
 To build with optional backends locally:
 
@@ -581,6 +590,7 @@ To build with optional backends locally:
 cargo build --release --features postgres
 cargo build --release --features redis
 cargo build --release --features postgres,redis
+cargo build --release --features postgres,redis,cjk-fonts
 ```
 
 #### CORS
@@ -1041,12 +1051,22 @@ state store. Explicit CLI flags override them; they override matching
 configuration-file fields. `IRONFLOW_STORE_DIR` applies to `run`, `list`,
 `inspect`, and `serve`.
 
+Numeric limits share one parsing contract. `run`, `serve`, and `validate`
+reject a value that is not a plain base-10 integer at startup, before a store
+opens or a flow file is read, with an error that names the variable, for
+example `IRONFLOW_MAX_HTTP_BODY_BYTES must be a positive integer`. Ceilings
+require a positive integer; the rows below that say `0` disables also accept
+zero. Units (`10MB`), signs, decimals, and exponents are rejected instead of
+falling back to the default, and boolean switches accept only `true` or
+`false`. Embedded servers and `WorkflowEngine` apply the same check when they
+start.
+
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `HOST` | `0.0.0.0` | Server bind address |
 | `PORT` | `3000` | Server listen port |
 | `IRONFLOW_STORE_DIR` | `data/runs` | State store directory |
-| `IRONFLOW_STORE` | `json` | State store backend: `json`, `sqlite`, `postgres`, or `redis` |
+| `IRONFLOW_STORE` | `sqlite` | State store backend: `sqlite`, `json`, `postgres`, or `redis` |
 | `IRONFLOW_STORE_URL` | SQLite auto path for `sqlite`; required for `postgres` | SQL store URL |
 | `IRONFLOW_EVENT_STORE` | `memory` | Event backend for `/runs/{id}/events`: `memory`, `sqlite`, `postgres`, or `redis` |
 | `IRONFLOW_EVENT_STORE_URL` | SQLite auto path for `sqlite`; required for `postgres` | SQL event store URL |
@@ -1084,7 +1104,7 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_LUA_MAX_MEMORY_BYTES` | `134217728` | Max Lua VM memory per Lua state; `0` disables |
 | `IRONFLOW_ENV_ALLOWLIST` | unset (all) | Comma-separated variable names the Lua `env()` global may read. When set, `env()` returns `nil` for any other key; when unset, any process variable is readable (the default). |
 | `IRONFLOW_LUA_HOOK_INTERVAL` | `10000` | Instruction interval for budget checks |
-| `IRONFLOW_LUA_GC_AFTER_EXECUTION` | `true` | Run a Lua garbage-collection cycle after flow parsing/code execution |
+| `IRONFLOW_LUA_GC_AFTER_EXECUTION` | `true` | Run a Lua garbage-collection cycle after flow parsing/code execution; accepts only `true` or `false` |
 | `IRONFLOW_CACHE_MAX_ENTRIES` | `10000` | Max entries retained by the process-global `cache_set` / `cache_get` memory backend |
 | `IRONFLOW_CACHE_DIR` | `.ironflow_cache` | Default root for the `cache_set` / `cache_get` file backend when `cache_dir` is not set; entries use `v1/<sha256-key>.json` with exact stored-key verification. Legacy sanitized files are untouched cache misses; see [cache upgrades](nodes/cache_get.md#file-identity-and-upgrades) |
 | `IRONFLOW_DB_MAX_ROWS` | `1000` | Max rows returned by `db_query`; `0` disables |
@@ -1105,7 +1125,7 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_ARTIFACT_BACKEND` | `local` | Artifact durability backend: `local` or `s3`. Any other value fails before artifact work begins. |
 | `IRONFLOW_ARTIFACT_DIR` | `data/artifacts` | Immutable local store, or private staging/cache when the S3 backend is selected. Files use `sha256/<digest>`. |
 | `IRONFLOW_MAX_ARTIFACT_BYTES` | `52428800` | Positive maximum bytes uploaded to or restored from the S3 artifact backend, enforced against descriptors, response metadata, and streamed bytes. |
-| `IRONFLOW_ARTIFACT_S3_BUCKET` | — | Required regional bucket when `IRONFLOW_ARTIFACT_BACKEND=s3`. Use standard AWS credentials or workload identity. SigV4a Multi-Region Access Points are unsupported; see [S3 signing](SECURITY.md#s3-signing). |
+| `IRONFLOW_ARTIFACT_S3_BUCKET` | — | Required bucket name or MRAP ARN when `IRONFLOW_ARTIFACT_BACKEND=s3`. Use standard AWS credentials or workload identity. MRAPs use SigV4a with path-style addressing disabled; see [S3 signing](SECURITY.md#s3-signing). |
 | `IRONFLOW_ARTIFACT_S3_PREFIX` | `ironflow/artifacts` | Safe 1–512 byte object-key prefix; objects are stored beneath `<prefix>/sha256/<digest>`. |
 | `IRONFLOW_ARTIFACT_S3_REGION` | SDK chain | Optional artifact-specific AWS region override. |
 | `IRONFLOW_ARTIFACT_S3_ENDPOINT_URL` | SDK default | Optional S3-compatible endpoint. Credentials and endpoint values are not placed in artifact descriptors. |
@@ -1126,6 +1146,7 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_MAX_PDF_MERGE_FILES` | `100` | Maximum number of sources admitted by one `pdf_merge` call before source descriptors are collected |
 | `IRONFLOW_MAX_PDF_MERGE_BYTES` | `536870912` | Maximum cumulative PDF input bytes and maximum staged merged output bytes for one `pdf_merge` call |
 | `IRONFLOW_MAX_PDF_MERGE_PAGES` | `2000` | Maximum cumulative pages admitted by one `pdf_merge` call |
+| `IRONFLOW_FONT_DIR` | unset | Directory of additional `.ttf`/`.otf`/`.ttc` fonts for `markdown_to_pdf`, registered once per process after the bundled fonts and used as fallbacks for CJK scripts; at most 64 files of at most 64 MiB each, and an unreadable directory or file fails the first document with an error naming the path |
 | `IRONFLOW_MAX_PDF_MERGE_OBJECTS` | `250000` | Maximum retained merged PDF graph objects, including the merged page tree and catalog; shared objects within one source are counted once |
 | `IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES` | `52428800` | Maximum complete serialized `NodeOutput` for one `extract_html`, `extract_pdf`, `extract_word`, `extract_pptx`, `extract_srt`, or `extract_vtt` call; includes configured content/alias, metadata, comments, cues, and artifact descriptors as applicable, but not the artifact files themselves |
 | `IRONFLOW_MAX_EXTRACT_ITEMS` | `250000` | Maximum cumulative structural/work items for one non-XLSX extraction call; units are format-specific and documented on each extract node |

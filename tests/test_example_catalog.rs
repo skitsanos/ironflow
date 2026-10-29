@@ -271,3 +271,54 @@ fn examples_avoid_ignored_inputs_and_shared_machine_paths() {
         errors.join("\n")
     );
 }
+
+/// Every document that states the built-in node count must agree with the
+/// registry, so the number cannot drift again (IF-170). The count is the
+/// default-feature registry, which is what the published binaries and docs
+/// describe.
+#[test]
+fn documented_node_counts_match_the_registry() {
+    let root = repository_root();
+    let registered = NodeRegistry::with_builtins().list().len();
+    let documents = [
+        "README.md",
+        "docs/ARCHITECTURE.md",
+        "docs/NODE_REFERENCE.md",
+        "docs/IMPLEMENTATION_PLAN.md",
+        "docs/LUA_FLOW_GUIDE.md",
+    ];
+    let mut mentions = 0;
+    for relative in documents {
+        let text = fs::read_to_string(root.join(relative)).unwrap();
+        for (index, line) in text.lines().enumerate() {
+            let lower = line.to_ascii_lowercase();
+            let Some(position) = lower.find("built-in nodes") else {
+                continue;
+            };
+            // The number is the last integer before the phrase on that line.
+            let digits: String = lower[..position]
+                .trim_end_matches(|c: char| !c.is_ascii_digit())
+                .chars()
+                .rev()
+                .take_while(|c| c.is_ascii_digit())
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
+            if digits.is_empty() {
+                continue;
+            }
+            mentions += 1;
+            assert_eq!(
+                digits.parse::<usize>().unwrap(),
+                registered,
+                "{relative}:{} documents a different node count: {line}",
+                index + 1
+            );
+        }
+    }
+    assert!(
+        mentions >= 5,
+        "expected the node count in several documents, found {mentions}"
+    );
+}

@@ -16,11 +16,19 @@ An audit is read-only unless fixes or issue registration were requested.
 
 - Use the focused gate for ordinary tasks: relevant unit/integration tests plus
   checks for the surfaces changed. Do not run tests merely because a file was saved.
-- For Rust changes, finish with `cargo fmt --all -- --check`, the module-size
-  policy, `cargo clippy --all-targets -- -D warnings`, and focused tests.
+- For Rust changes, finish with `cargo fmt --all -- --check`,
+  `python3 -B scripts/check_module_size.py`,
+  `cargo clippy --all-targets -- -D warnings`, and focused tests. For docs,
+  Lua, hooks, skills, or workflows without Rust changes, run only their
+  relevant validators.
 - Use the full gate only for branch integration, immediately before a
   `develop` push, release preparation, or an explicit user request. Prefer
   `scripts/integration_gate.sh` so local integration matches repository policy.
+  A passing run records the receipt that `.githooks/pre-push` requires for the
+  pushed tree; the gate cannot finish inside the push's SSH session.
+  An intermediate `develop` push may set `IRONFLOW_PREPUSH_GATE=fast` to run
+  formatting, repository policy, default Clippy and the `examples` and `cli`
+  binaries instead; the full gate still precedes every merge and release.
 - Add example validation when Lua runtime, node registration, docs, or examples
   change.
 - Run `bun run scripts/issues_registry.ts check` when issue pages, issue

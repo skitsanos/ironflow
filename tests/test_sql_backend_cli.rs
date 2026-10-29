@@ -20,6 +20,85 @@ async fn startup_failure(cmd: tokio::process::Command) -> String {
         .expect("startup panic must contain a diagnostic")
 }
 
+/// IF-163: SQLite is the default backend. Without `IRONFLOW_STORE`, a run
+/// creates `ironflow.sqlite` under an owner-only store directory, writes no
+/// JSON records, and `list` reads the run back from that file.
+#[tokio::test]
+async fn default_backend_is_sqlite_under_a_private_store_directory() {
+    let directory = tempfile::tempdir().unwrap();
+    fs::write(directory.path().join("probe.lua"), support::FLOW).unwrap();
+    let store = directory.path().join("state").join("runs");
+
+    let run = output(
+        command(directory.path())
+            .args(["run", "probe.lua", "--store-dir"])
+            .arg(&store)
+            .env("RUST_LOG", "info"),
+    )
+    .await;
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    assert!(run.status.success(), "run failed: {stderr}");
+    assert!(
+        stderr.contains("Using SQLite state store"),
+        "default backend was not SQLite: {stderr}"
+    );
+    assert!(store.join("ironflow.sqlite").is_file());
+    let json_records = fs::read_dir(&store)
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "json"))
+        .count();
+    assert_eq!(
+        json_records, 0,
+        "the default store must not write JSON records"
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let mode = fs::metadata(&store).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o700, "store directory must be owner-only");
+    }
+
+    let listed = output(
+        command(directory.path())
+            .args(["list", "--format", "json", "--store-dir"])
+            .arg(&store),
+    )
+    .await;
+    assert!(
+        listed.status.success(),
+        "list failed: {}",
+        String::from_utf8_lossy(&listed.stderr)
+    );
+    let page: serde_json::Value = serde_json::from_slice(&listed.stdout).unwrap();
+    let runs = page["runs"].as_array().unwrap();
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0]["flow_name"], "sql-backend-probe");
+    assert_eq!(runs[0]["status"], "success");
+}
+
+/// A symbolic link in place of the default store directory is refused rather
+/// than followed, matching the JSON store's root rule.
+#[cfg(unix)]
+#[tokio::test]
+async fn default_store_directory_must_not_be_a_symlink() {
+    let directory = tempfile::tempdir().unwrap();
+    let elsewhere = directory.path().join("elsewhere");
+    fs::create_dir(&elsewhere).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, directory.path().join("runs")).unwrap();
+
+    let listed =
+        output(command(directory.path()).args(["list", "--format", "json", "--store-dir", "runs"]))
+            .await;
+    assert!(!listed.status.success());
+    assert!(
+        String::from_utf8_lossy(&listed.stderr).contains("must be a real directory"),
+        "unexpected stderr: {}",
+        String::from_utf8_lossy(&listed.stderr)
+    );
+    assert!(fs::read_dir(&elsewhere).unwrap().next().is_none());
+}
+
 #[tokio::test]
 async fn sqlite_startup_failure_retains_the_cause_and_exit_code() {
     let directory = tempfile::tempdir().unwrap();
@@ -146,7 +225,10 @@ async fn invalid_url_environment_and_dotenv_override_valid_yaml() {
 async fn unused_sql_urls_do_not_affect_json_or_memory_backends() {
     let directory = tempfile::tempdir().unwrap();
     let mut cmd = command(directory.path());
-    cmd.env("IRONFLOW_STORE_URL", "mysql://if123-secret")
+    // The JSON store is selected explicitly: SQLite is the default (IF-163)
+    // and would validate the SQL URL.
+    cmd.env("IRONFLOW_STORE", "json")
+        .env("IRONFLOW_STORE_URL", "mysql://if123-secret")
         .env("IRONFLOW_EVENT_STORE_URL", "mysql://if123-secret");
     let server = Server::start(cmd).await;
     let id = server.run_flow().await;

@@ -69,6 +69,7 @@ pub(super) async fn run_children(
     collect_children(&mut tasks, task_indices, flow_configs).await
 }
 
+#[allow(clippy::expect_used)] // Infallible: parallel child semaphore cannot be closed.
 async fn run_child(
     child: ChildRun,
     registry: Arc<NodeRegistry>,

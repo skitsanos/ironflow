@@ -82,7 +82,7 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 | Shared context | Lua table backed by Rust HashMap, serialized as JSON |
 | DAG resolution | Topological sort with cycle detection (Kahn's algorithm) |
 | Parallel execution | Steps without dependencies run concurrently via Tokio |
-| State persistence | Rust trait with JSON and SQLite backends; optional PostgreSQL and Redis features |
+| State persistence | Rust trait with SQLite (default) and JSON backends; optional PostgreSQL and Redis features |
 
 ## Features
 
@@ -145,8 +145,8 @@ return flow
 ```
 
 You should see `Hello from IronFlow!` and a completed workflow. On Windows,
-use `.\ironflow.exe` in place of `./ironflow`. Run history is saved under
-`data/runs` in your working directory.
+use `.\ironflow.exe` in place of `./ironflow`. Run history is saved in a SQLite
+database under `data/runs` in your working directory.
 
 ### Or start with Docker
 
@@ -168,7 +168,7 @@ docker run --rm --pull always --name ironflow --platform linux/amd64 \
 published development build. Both are moving tags, so `--pull always` checks
 for an updated image on each start. Commit tags and digest references are also
 available; see [image selection](docs/GETTING_STARTED.md#select-an-image).
-Use `:1.20.0` to select that stable release. Future stable releases receive
+Use `:1.21.0` to select that stable release. Future stable releases receive
 matching `X.Y.Z` tags on both registries after release publication.
 Images include PostgreSQL and Redis support and currently target `linux/amd64`;
 ARM hosts need Docker's x86-64 emulation. The `ironflow-data` volume preserves
@@ -313,7 +313,8 @@ instead of an array of full run records. API, CLI, and Rust-library consumers
 must migrate together. See the [CLI reference](docs/CLI_REFERENCE.md#run-listing)
 for the exact old-to-new mapping.
 
-The default JSON state backend rejects symlinked store roots, run records, and
+The JSON state backend (`IRONFLOW_STORE=json`; SQLite is the default since
+IF-163) rejects symlinked store roots, run records, and
 summary entries, and publishes each file through a same-directory temporary file.
 The main record is authoritative: main and summary files carry the same opaque
 revision and SHA-256 digest of the public summary. Listing accepts a sidecar
@@ -339,9 +340,10 @@ binds the base generation and delta revision, so missing, dirty, stale, or
 malformed metadata rebuilds automatically from authoritative primaries. Stop
 all writers when upgrading or downgrading across this state format. For an
 explicit offline repair and compaction, stop writers and call
-`JsonStateStore::rebuild_run_summary_catalog()`. The JSON backend remains a
-moderate-cardinality local store; prefer SQL or Redis for sustained high-write
-workloads.
+`JsonStateStore::rebuild_run_summary_catalog()`. The JSON backend is
+maintenance-only: it keeps existing store directories working and gains no new
+features, and it remains a moderate-cardinality local store. New deployments
+use the default SQLite backend, or PostgreSQL and Redis for shared storage.
 
 On Unix, its directory is mode `0700` and committed files are `0600`; other
 platforms require equivalent operator-managed ACLs. See the precise filesystem
@@ -535,8 +537,9 @@ flow:step("standard_flow", nodes.log({
 
 ## Built-in Nodes
 
-S3 uses regional SigV4 signing. Multi-Region Access Points requiring SigV4a
-are unsupported; see [S3 signing](docs/SECURITY.md#s3-signing).
+S3 uses SigV4 for regional buckets and SigV4a for supported Multi-Region Access
+Point object operations. Supply an MRAP ARN as the bucket and keep path-style
+addressing disabled; see [S3 signing](docs/SECURITY.md#s3-signing).
 
 | Category | Nodes |
 |----------|-------|
@@ -607,8 +610,10 @@ directory in CI.
 
 ## Development validation and versioning
 
-Routine work uses focused tests for the behavior changed. Rust changes also
-require formatting, the module-size policy, and
+Routine work uses focused tests for the behavior changed. Integration tests
+build as area binaries (`cargo test --test engine`, `--test nodes`, and so on;
+see `AGENTS.md`), so one area links once instead of one executable per file.
+Rust changes also require formatting, the module-size policy, and
 `cargo clippy --all-targets -- -D warnings`; the whole suite is intentionally
 not run on each save or ordinary commit.
 
@@ -628,8 +633,10 @@ and alias handling follow the [Codex hook contract](https://learn.chatgpt.com/do
 
 Before a `develop` push, the pre-push hook fails closed unless the worktree is
 clean, no open pull request targets `develop`, remote `develop` is integrated,
-and the committed version is a new `X.Y.Z-dev.N`. It then runs the full local
-integration gate, including disposable Redis and PostgreSQL tests. Start or
+and the committed version is a new `X.Y.Z-dev.N`. It then requires a receipt
+from a `scripts/integration_gate.sh` run on the exact tree being pushed: run
+the full local gate first, including its disposable Redis and PostgreSQL tests,
+because the gate cannot finish inside the push's SSH session. Start or
 advance a candidate with:
 
 ```bash
@@ -657,7 +664,7 @@ so source and package-version changes retain the dependency layer, backed by a
 dedicated GHCR BuildKit cache with `mode=max`. Successful builds also update
 `:latest` on `main` and `:develop` on `develop` for convenient local use. Before
 publishing any tag, the Container workflow executes a workflow with the default
-JSON store under both the default UID and an arbitrary UID, verifies private
+SQLite store under both the default UID and an arbitrary UID, verifies private
 store permissions, and checks persistence after container removal. Run the
 same check locally with `bun --no-env-file scripts/test_container_store.ts <image>`.
 The mutable

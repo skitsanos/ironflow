@@ -75,6 +75,7 @@ fn worker_gate(directory: PathBuf) -> Arc<WorkerGate> {
     gate
 }
 
+#[allow(clippy::expect_used)] // Infallible: a lease lock path has a parent.
 fn acquire_lock(
     directory: &SecureStoreDir,
     timeout: std::time::Duration,

@@ -408,7 +408,7 @@ flow:step("handle_pro", nodes.log({
 
 ## Available Nodes
 
-See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list of 103 built-in nodes and their configuration options.
+See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list of 105 built-in nodes and their configuration options.
 
 ## Inline Lua Code
 

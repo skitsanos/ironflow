@@ -34,10 +34,12 @@ fn seed_runs(directory: &std::path::Path, count: usize) {
 
 fn base_list_command(workdir: &std::path::Path, store: &std::path::Path) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_ironflow"));
+    // These tests seed JSON records directly, so they select the JSON store
+    // explicitly (SQLite is the default since IF-163).
     command
         .current_dir(workdir)
         .env_remove("IRONFLOW_MAX_LIST_RECORDS")
-        .env_remove("IRONFLOW_STORE")
+        .env("IRONFLOW_STORE", "json")
         .arg("list")
         .arg("--store-dir")
         .arg(store);

@@ -9,7 +9,6 @@ port: 3100
 allow_unauthenticated_api: true
 flows_dir: "examples/21-schedules"
 store_dir: "data/runs/schedule-example"
-store_backend: "json"
 
 schedules:
   hello_every_minute:

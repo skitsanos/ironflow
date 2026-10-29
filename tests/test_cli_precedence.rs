@@ -3,7 +3,9 @@ use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};
 
-use ironflow::engine::types::{RunInfo, RunStatus, RunSummary};
+use ironflow::engine::types::RunStatus;
+use ironflow::storage::StateStore;
+use ironflow::storage::sql_store::SqlStateStore;
 
 fn isolated_command(workdir: &Path) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_ironflow"));
@@ -17,29 +19,26 @@ fn list_command(workdir: &Path) -> Command {
     command
 }
 
+/// Seed one finished run into the default SQLite store below `relative_store`,
+/// the same file the CLI opens when no backend is selected (IF-163).
 fn seed_store(workdir: &Path, relative_store: &str, run_id: &str) {
     let store = workdir.join(relative_store);
     fs::create_dir_all(&store).unwrap();
-    let info = RunInfo {
-        id: run_id.to_string(),
-        flow_name: "precedence-probe".to_string(),
-        status: RunStatus::Success,
-        started: None,
-        finished: None,
-        ctx: HashMap::new(),
-        tasks: HashMap::new(),
-    };
-
-    fs::write(
-        store.join(format!("{run_id}.json")),
-        serde_json::to_vec(&info).unwrap(),
-    )
-    .unwrap();
-    fs::write(
-        store.join(format!("{run_id}.summary.json")),
-        serde_json::to_vec(&RunSummary::from(&info)).unwrap(),
-    )
-    .unwrap();
+    let url = format!(
+        "sqlite://{}?mode=rwc",
+        store.join("ironflow.sqlite").display()
+    );
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let store = SqlStateStore::new(&url).await.unwrap();
+        store
+            .init_run(run_id, "precedence-probe", &HashMap::new())
+            .await
+            .unwrap();
+        store
+            .set_run_status(run_id, RunStatus::Success)
+            .await
+            .unwrap();
+    });
 }
 
 fn assert_selected_run(output: Output, expected_run_id: &str) {
@@ -251,7 +250,7 @@ fn dotenv_rust_log_is_loaded_before_tracing_initialization() {
     let baseline = baseline.output().unwrap();
     assert!(baseline.status.success());
     assert!(
-        String::from_utf8_lossy(&baseline.stderr).contains("Using JSON state store"),
+        String::from_utf8_lossy(&baseline.stderr).contains("Using SQLite state store"),
         "test precondition failed: info-level state-store log was absent"
     );
 
@@ -263,7 +262,7 @@ fn dotenv_rust_log_is_loaded_before_tracing_initialization() {
         String::from_utf8_lossy(&suppressed.stderr)
     );
     assert!(
-        !String::from_utf8_lossy(&suppressed.stderr).contains("Using JSON state store"),
+        !String::from_utf8_lossy(&suppressed.stderr).contains("Using SQLite state store"),
         "dotenv RUST_LOG was read after tracing had already selected its filter"
     );
 }

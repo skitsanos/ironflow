@@ -279,6 +279,102 @@ async fn html_to_markdown_custom_output_key() {
     );
 }
 
+async fn html_to_markdown(input: &str) -> String {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("html_to_markdown").unwrap();
+    let result = node
+        .execute(&serde_json::json!({ "input": input }), &empty_ctx())
+        .await
+        .unwrap();
+    result
+        .get("markdown")
+        .unwrap()
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
+fn render(markdown: &str) -> String {
+    let mut options = comrak::Options::default();
+    options.extension.table = true;
+    comrak::markdown_to_html(markdown, &options)
+}
+
+#[tokio::test]
+async fn html_to_markdown_keeps_lists_tables_code_images_and_quotes_renderable() {
+    let md = html_to_markdown(concat!(
+        "<h2>Section</h2>",
+        "<ul><li>one</li><li>two<ul><li>nested</li></ul></li></ul>",
+        "<ol><li>first</li><li>second</li></ol>",
+        "<table><thead><tr><th>Name</th><th>Count</th></tr></thead>",
+        "<tbody><tr><td>Sample</td><td>48</td></tr></tbody></table>",
+        "<p>Inline <code>x*y</code> and <img alt=\"diagram\" src=\"diagram.png\"></p>",
+        "<pre><code>line one\n*raw*</code></pre>",
+        "<blockquote><p>quoted</p></blockquote><hr>",
+        "<p>Visit <a href=\"https://example.com/a?b=1&amp;c=2\">Example</a>.</p>",
+    ))
+    .await;
+    let rendered = render(&md);
+    for semantic in [
+        "<h2>Section</h2>",
+        "<li>one</li>",
+        "<li>nested</li>",
+        "<ol>",
+        "<li>first</li>",
+        "<table>",
+        "<th>Name</th>",
+        "<td>Sample</td>",
+        "<td>48</td>",
+        "<code>x*y</code>",
+        "<img src=\"diagram.png\" alt=\"diagram\"",
+        "<pre><code>line one\n*raw*\n</code></pre>",
+        "<blockquote>",
+        "<hr />",
+        "<a href=\"https://example.com/a?b=1&amp;c=2\">Example</a>",
+    ] {
+        assert!(
+            rendered.contains(semantic),
+            "lost {semantic}\n{md}\n{rendered}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn html_to_markdown_escapes_literal_markdown_punctuation() {
+    let md = html_to_markdown(concat!(
+        "<p># not a heading</p>",
+        "<p>*stars* and _unders_ and C# issue #7</p>",
+        "<p><code>*code*\\path</code></p>",
+    ))
+    .await;
+    assert!(md.contains(r"\# not a heading"), "{md}");
+    assert!(md.contains(r"\*stars\*"), "{md}");
+    assert!(md.contains("C# issue #7"), "{md}");
+    assert!(md.contains(r"`*code*\path`"), "{md}");
+    let rendered = render(&md);
+    assert!(rendered.contains("<p># not a heading</p>"), "{rendered}");
+    assert!(
+        rendered.contains("*stars* and _unders_ and C# issue #7"),
+        "{rendered}"
+    );
+    assert!(rendered.contains(r"<code>*code*\path</code>"), "{rendered}");
+}
+
+#[tokio::test]
+async fn html_to_markdown_omits_head_script_style_and_fallback_content() {
+    let md = html_to_markdown(concat!(
+        "<!doctype html><html><head><title>Page Title</title>",
+        "<style>body{color:red}</style><script>secret()</script></head>",
+        "<body><p>Visible</p><script>bodySecret()</script>",
+        "<noscript>fallback</noscript><template>inert</template></body></html>",
+    ))
+    .await;
+    assert!(md.contains("Visible"), "{md}");
+    for hidden in ["Page Title", "color:red", "secret()", "fallback", "inert"] {
+        assert!(!md.contains(hidden), "leaked {hidden}: {md}");
+    }
+}
+
 // --- Shell output bounded by IRONFLOW_MAX_SHELL_OUTPUT_BYTES ---
 
 #[tokio::test]

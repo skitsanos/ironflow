@@ -114,6 +114,7 @@ pub(crate) fn validate_value(value: &Value) -> Vec<(String, InterpolationError)>
     errors
 }
 
+#[allow(clippy::expect_used)] // Infallible: serializing a JSON object key cannot fail.
 fn validate_value_at(value: &Value, path: &str, errors: &mut Vec<(String, InterpolationError)>) {
     match value {
         Value::String(template) => {

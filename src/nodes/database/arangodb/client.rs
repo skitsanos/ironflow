@@ -64,6 +64,7 @@ impl CursorClient {
         })
     }
 
+    #[allow(clippy::expect_used)] // Infallible: validated HTTP URL.
     fn request(&self, method: Method, cursor: Option<&str>) -> RequestBuilder {
         let mut url = self.url.clone();
         if let Some(cursor) = cursor {

@@ -2,14 +2,14 @@
 
 List objects under a bucket and optional prefix.
 
-Uses regional SigV4 signing. SigV4a Multi-Region Access Points are unsupported;
+Uses regional SigV4 signing, or SigV4a when `bucket` is an MRAP ARN;
 see [S3 signing](../SECURITY.md#s3-signing).
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `bucket` | string | yes | env `S3_BUCKET` | Bucket to query. |
+| `bucket` | string | yes | env `S3_BUCKET` | Bucket name or MRAP ARN to query. |
 | `prefix` | string | no | `""` | Prefix used to filter keys. |
 | `delimiter` | string | no | `""` | Optional delimiter for grouped prefixes. |
 | `max_keys` | number | no | -- | Optional maximum items per request/page. |

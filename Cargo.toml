@@ -1,7 +1,9 @@
 [package]
 name = "ironflow"
-version = "1.20.0"
+version = "1.21.0"
 edition = "2024"
+# IF-162: integration tests are declared below as area binaries; see tests/<area>/main.rs.
+autotests = false
 description = "Lightweight workflow engine — Rust core, Lua scripting, single binary"
 license = "MIT"
 repository = "https://github.com/skitsanos/ironflow"
@@ -31,10 +33,11 @@ percent-encoding = "2.3.2"
 http = "1"
 rmcp = { version = "3.4.0", default-features = false, features = ["client", "transport-streamable-http-client-reqwest"] }
 aws-config = "1.8.18"
-aws-sdk-s3 = { version = "1.135.0", default-features = false, features = [
+aws-sdk-s3 = { version = "1.156.0", default-features = false, features = [
     "http-1x",
     "default-https-client",
     "rt-tokio",
+    "sigv4a",
 ] }
 aws-sdk-s3vectors = { version = "1.27.0", default-features = false, features = [
     "default-https-client",
@@ -43,7 +46,6 @@ aws-sdk-s3vectors = { version = "1.27.0", default-features = false, features = [
 aws-smithy-types = "1.4.9"
 csv = "1.4.0"
 jsonschema = "0.60"
-num_cpus = "1.17.0"
 dotenvy = "0.15.7"
 sha2 = "0.11"
 md-5 = "0.11"
@@ -56,7 +58,10 @@ parley = { version = "0.12.0", default-features = false, features = ["std", "com
 krilla = { version = "0.8.2", default-features = false, features = ["raster-images"] }
 unicode-bidi = "0.3"
 unicode-script = "0.5.8"
-html2md = "0.2.15"
+# HTML-to-Markdown conversion and the shared rcdom tree walked by extract_html.
+# Both are permissively licensed; the GPL html2md crate was removed in IF-161.
+htmd = "0.5.6"
+markup5ever_rcdom = "0.38"
 ammonia = "4.1.2"
 zip = "9.0.5"
 quick-xml = "0.42.0"
@@ -65,7 +70,7 @@ lopdf = { version = "0.46", default-features = false, features = ["chrono"] }
 image = { version = "0.25.10", default-features = false, features = [
     "bmp", "ff", "gif", "hdr", "ico", "jpeg", "png", "pnm", "qoi", "tga", "tiff", "webp",
 ] }
-pdfium-render = "0.9"
+pdfium-render = { version = "0.9", optional = true }
 sqlx = { version = "0.9", features = ["runtime-tokio", "any", "sqlite"] }
 futures-util = "0.3"
 lettre = { version = "0.11.22", default-features = false, features = ["builder", "hostname", "pool", "smtp-transport", "tokio1", "tokio1-rustls-tls"] }
@@ -74,7 +79,12 @@ rustls = { version = "0.23", default-features = false, features = ["std", "ring"
 
 [features]
 default = ["pdf-render"]
-pdf-render = []
+# `pdf_to_image` and `pdf_thumbnail` render through the Pdfium runtime library;
+# build without this feature to drop those two nodes and the binding crate.
+pdf-render = ["dep:pdfium-render"]
+# Embed Noto Sans CJK (about 29 MiB) for `markdown_to_pdf`. Without it, CJK text
+# needs a font supplied through IRONFLOW_FONT_DIR; see docs/MARKDOWN_DOCUMENTS.md.
+cjk-fonts = []
 postgres = ["sqlx/postgres", "sqlx/tls-rustls", "dep:rustls"]
 redis = ["dep:redis", "redis/tokio-rustls-comp", "dep:rustls"]
 
@@ -83,7 +93,6 @@ tokio = { version = "1.52.3", features = ["test-util"] }
 tempfile = "3"
 http-body-util = "0.1"
 tower = "0.5"
-futures-util = "0.3"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.186"
@@ -91,3 +100,109 @@ libc = "0.2.186"
 [[example]]
 name = "extraction_benchmark_worker"
 path = "tools/extraction_benchmark_worker.rs"
+
+# IF-162: integration tests build as a bounded set of area binaries. Each
+# tests/<area>/main.rs includes unchanged test files as modules; run one area
+# with `cargo test --test <area>` and one file with `--test <area> <module>::`.
+
+[[test]]
+name = "api"
+path = "tests/api/main.rs"
+
+[[test]]
+name = "cli"
+path = "tests/cli/main.rs"
+
+[[test]]
+name = "examples"
+path = "tests/examples/main.rs"
+
+[[test]]
+name = "engine"
+path = "tests/engine/main.rs"
+
+[[test]]
+name = "scheduler"
+path = "tests/scheduler/main.rs"
+
+[[test]]
+name = "storage"
+path = "tests/storage/main.rs"
+
+[[test]]
+name = "nodes"
+path = "tests/nodes/main.rs"
+
+[[test]]
+name = "nodes_network"
+path = "tests/nodes_network/main.rs"
+
+[[test]]
+name = "documents"
+path = "tests/documents/main.rs"
+
+[[test]]
+name = "storage_postgres"
+path = "tests/storage_postgres/main.rs"
+required-features = ["postgres"]
+
+[[test]]
+name = "storage_redis"
+path = "tests/storage_redis/main.rs"
+required-features = ["redis"]
+
+# `serial` mutates process-global environment variables and must run with
+# `-- --test-threads=1`; its root explains and enforces the rule.
+[[test]]
+name = "serial"
+path = "tests/serial/main.rs"
+
+# Process-isolated binaries: each configures a process-wide OnceLock from the
+# environment before anything else in its process reads it, or asserts on
+# process state that other tests would initialize first.
+
+[[test]]
+name = "scheduler_admission"
+path = "tests/test_scheduler_admission.rs"
+
+[[test]]
+name = "limits_defaults"
+path = "tests/test_limits_defaults.rs"
+
+[[test]]
+name = "conversion_limits_env"
+path = "tests/test_conversion_limits_env.rs"
+
+[[test]]
+name = "flow_load_admission"
+path = "tests/test_flow_load_admission.rs"
+
+# Each installs a process-wide tracing subscriber whose gate layer holds every
+# worker of its kind until the test releases it, so nothing else may share
+# the process.
+[[test]]
+name = "extract_execution"
+path = "tests/test_extract_execution.rs"
+
+[[test]]
+name = "schema_execution"
+path = "tests/test_schema_execution.rs"
+
+# The process-wide LazyLock HTTP clients capture the proxy environment the
+# first time any test builds them.
+[[test]]
+name = "http_proxy_modes"
+path = "tests/test_http_proxy_modes.rs"
+
+[[test]]
+name = "library_tls_boundaries"
+path = "tests/test_library_tls_boundaries.rs"
+required-features = ["redis"]
+
+# IF-164: release binaries are stripped and link-time optimized. `panic` stays
+# at the default `unwind` because the executor coordinator relies on
+# `catch_unwind` to turn a panicking node into a failed task.
+[profile.release]
+strip = true
+lto = "fat"
+codegen-units = 1

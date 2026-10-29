@@ -7,6 +7,7 @@ pub(crate) mod image_sources;
 mod pdf_input;
 pub(crate) mod pdf_merge_split;
 pub(crate) mod pdf_metadata;
+#[cfg(feature = "pdf-render")]
 pub(crate) mod pdf_render;
 pub(crate) mod resource;
 
@@ -16,13 +17,19 @@ pub(crate) use image_conversion::ImageToPdfNode;
 pub(crate) use image_metadata::ImageMetadataNode;
 pub(crate) use pdf_merge_split::{PdfMergeNode, PdfSplitNode};
 pub(crate) use pdf_metadata::PdfMetadataNode;
+#[cfg(feature = "pdf-render")]
 pub(crate) use pdf_render::{PdfThumbnailNode, PdfToImageNode};
 
 use std::sync::Arc;
 
 pub fn register_all(registry: &mut crate::nodes::NodeRegistry) {
-    registry.register(Arc::new(PdfToImageNode));
-    registry.register(Arc::new(PdfThumbnailNode));
+    // `pdf_to_image` and `pdf_thumbnail` need the Pdfium runtime library and
+    // exist only in builds with the default `pdf-render` feature.
+    #[cfg(feature = "pdf-render")]
+    {
+        registry.register(Arc::new(PdfToImageNode));
+        registry.register(Arc::new(PdfThumbnailNode));
+    }
     registry.register(Arc::new(ImageToPdfNode));
     registry.register(Arc::new(PdfMetadataNode));
     registry.register(Arc::new(ImageResizeNode));

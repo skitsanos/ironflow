@@ -11,6 +11,7 @@ use ironflow::nodes::NodeRegistry;
 use ironflow::storage::StateStore;
 use ironflow::storage::event_store::{EventStore, MemoryEventStore};
 use ironflow::storage::json_store::JsonStateStore;
+use ironflow::storage::sql_store::SqlStateStore;
 use serde_json::json;
 use support::{Server, success};
 
@@ -200,17 +201,36 @@ async fn environment_only_key_is_absent_from_cli_logs_and_durable_history() {
         !console.contains(key),
         "credential reached CLI/tracing output"
     );
-    let mut records = 0;
-    for entry in std::fs::read_dir(store_path).unwrap() {
+    // The default state store is SQLite (IF-163): read the durable record back
+    // through that backend, then scan the raw database files, which cover every
+    // table the CLI wrote.
+    let store = SqlStateStore::new(&format!(
+        "sqlite://{}?mode=rwc",
+        store_path.join("ironflow.sqlite").display()
+    ))
+    .await
+    .unwrap();
+    let summaries = store.list_run_summaries(None).await.unwrap();
+    assert_eq!(summaries.len(), 1, "no durable records were checked");
+    let info = store.get_run_info(&summaries[0].id).await.unwrap();
+    let record = serde_json::to_string(&info).unwrap();
+    assert!(!record.contains(key), "credential reached durable record");
+    assert!(record.contains("[REDACTED]"));
+    drop(store);
+    let mut files = 0;
+    for entry in std::fs::read_dir(&store_path).unwrap() {
         let path = entry.unwrap().path();
-        if path
-            .extension()
-            .is_some_and(|extension| extension == "json")
-        {
-            let text = std::fs::read_to_string(path).unwrap();
-            assert!(!text.contains(key), "credential reached durable record");
-            records += 1;
+        if path.is_file() {
+            let bytes = std::fs::read(&path).unwrap();
+            assert!(
+                !bytes
+                    .windows(key.len())
+                    .any(|window| window == key.as_bytes()),
+                "credential reached {}",
+                path.display()
+            );
+            files += 1;
         }
     }
-    assert!(records > 0, "no durable records were checked");
+    assert!(files > 0, "no durable files were checked");
 }

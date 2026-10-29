@@ -120,6 +120,7 @@ fn resolve_inline_body(body_type: &str, config: &Value, ctx: &Context) -> Result
     }
 }
 
+#[allow(clippy::expect_used)] // Infallible: exclusive source validation ensures body exists.
 fn resolve_artifact_body(config: &Value, ctx: &Context) -> Result<RequestBody> {
     if config.get("parts").is_some() {
         anyhow::bail!("HTTP parts require body_type='multipart'");

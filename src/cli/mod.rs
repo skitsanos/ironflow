@@ -165,6 +165,7 @@ pub unsafe fn bootstrap_environment() -> Result<Option<PathBuf>> {
     unsafe { bootstrap::load_dotenv(cli.dotenv.as_deref()) }
 }
 
+#[allow(clippy::too_many_lines)] // One command dispatcher; each arm delegates to its command module.
 pub async fn run_cli() -> Result<()> {
     let matches = Cli::command().get_matches();
     let sources = resolution::CommandValueSources::from_matches(&matches);
@@ -180,7 +181,7 @@ pub async fn run_cli() -> Result<()> {
             verbose,
             store_dir,
         } => {
-            resolution::validate_run_deadline_environment()?;
+            resolution::validate_limit_environment()?;
             let store_dir = resolution::with_config(
                 store_dir,
                 sources.store_dir,
@@ -190,7 +191,10 @@ pub async fn run_cli() -> Result<()> {
             let store = create_store(&cfg, &store_dir).await?;
             commands::cmd_run(flow, context, verbose, store, max_concurrent_tasks).await
         }
-        Commands::Validate { flow, strict } => commands::cmd_validate(flow, strict),
+        Commands::Validate { flow, strict } => {
+            resolution::validate_limit_environment()?;
+            commands::cmd_validate(flow, strict)
+        }
         Commands::List {
             status,
             store_dir,

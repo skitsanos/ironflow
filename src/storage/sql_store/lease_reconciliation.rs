@@ -18,6 +18,7 @@ impl SqlStateStore {
         }
     }
 
+    #[allow(clippy::expect_used)] // Infallible: a concrete reconciliation timestamp always serializes.
     async fn reconcile_owned_batch(&self) -> StorageResult<(usize, usize)> {
         let mut transaction = self.pool.begin().await.map_err(reconcile_error)?;
         self.lock_prune_writer(&mut transaction).await?;

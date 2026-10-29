@@ -100,6 +100,7 @@
       "flows": [
         "examples/00-showcase/nightly_report.lua",
         "examples/04-file-operations/s3_copy.lua",
+        "examples/04-file-operations/s3_mrap_presign.lua",
         "examples/04-file-operations/s3_presign_url.lua",
         "examples/04-file-operations/s3_put_get_list.lua",
         "examples/05-http/oauth_access_token.lua",
@@ -194,6 +195,7 @@
         "examples/00-showcase/nightly_report.lua",
         "examples/02-data-transforms/json_extract_path.lua",
         "examples/04-file-operations/s3_copy.lua",
+        "examples/04-file-operations/s3_mrap_presign.lua",
         "examples/04-file-operations/s3_presign_url.lua",
         "examples/04-file-operations/s3_put_get_list.lua",
         "examples/05-http/api_call.lua",
@@ -258,6 +260,7 @@
       "flows": [
         "examples/00-showcase/nightly_report.lua",
         "examples/04-file-operations/s3_copy.lua",
+        "examples/04-file-operations/s3_mrap_presign.lua",
         "examples/04-file-operations/s3_presign_url.lua",
         "examples/04-file-operations/s3_put_get_list.lua",
         "examples/05-http/oauth_access_token.lua",

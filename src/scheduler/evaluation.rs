@@ -137,28 +137,55 @@ impl Scheduler {
         instant: &DueInstant,
         now: DateTime<Utc>,
     ) -> Outcome {
-        let claimed = match self
+        let claimed = match self.claim(name, schedule, instant).await {
+            Ok(claimed) => claimed,
+            Err(outcome) => return outcome,
+        };
+        if let Some(skip) = self.post_claim_skip(name, schedule, instant, now).await {
+            return skip;
+        }
+        self.start(name, schedule, instant, claimed).await
+    }
+
+    /// Own the instant durably. `Ok(false)` means a peer owns it and this
+    /// replica converges on the peer's deterministic run identity.
+    async fn claim(
+        &self,
+        name: &str,
+        schedule: &ScheduleConfig,
+        instant: &DueInstant,
+    ) -> Result<bool, Outcome> {
+        match self
             .store
             .claim_schedule(name, &instant.key, schedule.claim_ttl_seconds())
             .await
         {
-            Ok(true) => true,
+            Ok(true) => Ok(true),
             Ok(false) => {
                 tracing::debug!(
                     schedule = %name,
                     key = %instant.key,
                     "instant claimed by a peer; converging on its deterministic run identity"
                 );
-                false
+                Ok(false)
             }
             Err(error) => {
                 tracing::warn!(schedule = %name, key = %instant.key, %error, "claim failed");
-                return Outcome::ClaimFailed {
+                Err(Outcome::ClaimFailed {
                     error: error.to_string(),
-                };
+                })
             }
-        };
+        }
+    }
 
+    /// Grace, overlap and capacity checks that consume the instant without a run.
+    async fn post_claim_skip(
+        &self,
+        name: &str,
+        schedule: &ScheduleConfig,
+        instant: &DueInstant,
+        now: DateTime<Utc>,
+    ) -> Option<Outcome> {
         let lateness_seconds = (now - instant.instant.with_timezone(&Utc)).num_seconds();
         if lateness_seconds > schedule.grace_seconds_i64() {
             tracing::warn!(
@@ -168,7 +195,7 @@ impl Scheduler {
                 grace_seconds = schedule.grace_seconds(),
                 "skipping missed instant: past its grace window"
             );
-            return Outcome::Late { lateness_seconds };
+            return Some(Outcome::Late { lateness_seconds });
         }
 
         if let Some(active_run) = self.executor.active_run(name).await {
@@ -178,7 +205,7 @@ impl Scheduler {
                 %active_run,
                 "skipping instant: a previous run has not finished"
             );
-            return Outcome::Overlapped { active_run };
+            return Some(Outcome::Overlapped { active_run });
         }
 
         if !self.executor.has_capacity() {
@@ -187,9 +214,19 @@ impl Scheduler {
                 key = %instant.key,
                 "skipping instant: at maximum concurrent run capacity"
             );
-            return Outcome::AtCapacity;
+            return Some(Outcome::AtCapacity);
         }
 
+        None
+    }
+
+    async fn start(
+        &self,
+        name: &str,
+        schedule: &ScheduleConfig,
+        instant: &DueInstant,
+        claimed: bool,
+    ) -> Outcome {
         match self.executor.run(name, &instant.key, schedule).await {
             Ok(super::ScheduleRun::Started { run_id }) => {
                 tracing::info!(schedule = %name, key = %instant.key, %run_id, "scheduled run started");

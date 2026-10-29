@@ -53,7 +53,6 @@ python3 -B scripts/check_module_size.py
 bun run scripts/validate_skills.ts
 bun run scripts/issues_registry.ts check
 bun test scripts/tests/*.test.ts
-python3 -B -m unittest discover -s .codex/hooks/tests -p 'test_*.py' -v
 actionlint .github/workflows/*.yml
 
 echo "[integration] default Rust gates"
@@ -62,13 +61,11 @@ cargo clippy --all-targets -- -D warnings
 bun --no-env-file scripts/test_rust_targets.ts
 cargo test --doc
 cargo audit --deny warnings
-
-echo "[integration] reclaiming default Rust artifacts"
-clean_workspace_artifacts
+bun --no-env-file scripts/check_licenses.ts
 
 echo "[integration] feature-enabled Rust gates"
-cargo check --all-targets --features postgres,redis
-cargo clippy --all-targets --features postgres,redis -- -D warnings
+cargo check --all-targets --features postgres,redis,cjk-fonts
+cargo clippy --all-targets --features postgres,redis,cjk-fonts -- -D warnings
 
 echo "[integration] release build and Lua examples"
 cargo build --release
@@ -91,9 +88,6 @@ if [[ "${IRONFLOW_TEST_PUBLIC_TLS:-0}" == "1" ]]; then
   echo "[integration] opt-in public TLS acceptance"
   bun --no-env-file scripts/test_public_tls.ts target/release/ironflow
 fi
-
-echo "[integration] reclaiming pre-integration Rust artifacts"
-clean_workspace_artifacts
 
 container_suffix="$$"
 redis_container="ironflow-integration-redis-$container_suffix"
@@ -139,9 +133,15 @@ IRONFLOW_REDIS_TEST_URL="redis://127.0.0.1:$redis_port" \
 IRONFLOW_REDIS_TEST_REQUIRED=1 \
 IRONFLOW_POSTGRES_TEST_REQUIRED=1 \
 DATABASE_URL="postgres://postgres:$postgres_password@127.0.0.1:$postgres_port/ironflow_test" \
-  bun --no-env-file scripts/test_rust_targets.ts --features postgres,redis -- --test-threads=1
+  bun --no-env-file scripts/test_rust_targets.ts --features postgres,redis,cjk-fonts -- --test-threads=1
 
 echo "[integration] TLS-only storage and certificate rejection"
 bun --no-env-file scripts/test_store_tls.ts target/debug/ironflow
+
+# IF-172: the develop pre-push hook accepts this receipt instead of re-running
+# the gate inside the push's SSH session, which GitHub closes before it ends.
+echo "[integration] recording the gate receipt"
+bun --no-env-file scripts/gate_receipt.ts write \
+  || echo "[integration] no receipt recorded: commit the worktree and rerun the gate before a develop push" >&2
 
 echo "IronFlow full integration gate passed."

@@ -170,21 +170,7 @@ impl RunCoordinator {
                 error: workflow_error,
                 output,
             }) => {
-                if step.on_error.is_some() {
-                    warn!(
-                        task = %step.name,
-                        error = %workflow_error,
-                        "Task failed; its recovery handler remains scheduled in the DAG"
-                    );
-                } else if recovery_source.is_some() {
-                    error!(
-                        task = %step.name,
-                        error = %workflow_error,
-                        "Recovery handler failed"
-                    );
-                } else {
-                    error!(task = %step.name, error = %workflow_error, "Task failed");
-                }
+                log_workflow_failure(&step, recovery_source.is_some(), &workflow_error);
                 // Only a scheduled recovery handler needs a second reference
                 // to structured failure output. Otherwise the phase consumes
                 // the uniquely owned value without a deep clone.
@@ -201,5 +187,19 @@ impl RunCoordinator {
             }
             Err(TaskRunError::Infrastructure(infrastructure_error)) => Err(infrastructure_error),
         }
+    }
+}
+
+fn log_workflow_failure(step: &StepDefinition, is_recovery_handler: bool, error: &anyhow::Error) {
+    if step.on_error.is_some() {
+        warn!(
+            task = %step.name,
+            error = %error,
+            "Task failed; its recovery handler remains scheduled in the DAG"
+        );
+    } else if is_recovery_handler {
+        error!(task = %step.name, error = %error, "Recovery handler failed");
+    } else {
+        error!(task = %step.name, error = %error, "Task failed");
     }
 }

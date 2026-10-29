@@ -32,7 +32,7 @@ pub struct IronFlowConfig {
     /// Allowed CORS origins for the API server.
     /// Use ["*"] only when intentionally allowing browser access from any origin.
     pub cors_origins: Option<Vec<String>>,
-    /// State backend: "json" (default), "sqlite", "postgres", or "redis".
+    /// State backend: "sqlite" (default), "json", "postgres", or "redis".
     pub store_backend: Option<String>,
     /// SQL state store URL; its scheme must match `store_backend`.
     pub store_url: Option<String>,

@@ -45,6 +45,15 @@ the content-addressed remote object is authoritative, so another replica can
 restore and verify it without sharing a filesystem. Keep the local cache on a
 writable volume or `/tmp` in restricted/read-only-root containers.
 
+The S3 backend can use an MRAP ARN as `IRONFLOW_ARTIFACT_S3_BUCKET` with SigV4a.
+Keep path-style addressing disabled and leave custom endpoints unset; see
+[S3 signing](SECURITY.md#s3-signing) for AWS restrictions and validation limits.
+This is not a drop-in consistency guarantee: MRAPs do not replicate objects
+automatically, and a routed read can return 404 before the destination bucket
+has the object. For immediate cross-replica visibility, use one regional bucket.
+MRAP deployments need separately qualified replication/routing and offline
+pruning coordination.
+
 ## Failure semantics
 
 An executing process owns its run through a fenced durable lease. A live owner
@@ -148,12 +157,12 @@ both forms contain rendered secret values.
 
 ## OpenShift
 
-The image leaves the default JSON store directory absent so a non-root runtime
+The image leaves the default store directory absent so a non-root runtime
 UID can create and own it with private permissions. Fresh named volumes work
-with the default UID or an arbitrary UID in group 0. This does not make a JSON
-volume portable between UIDs or suitable for replica sharing: use PostgreSQL
-or Redis for the replica configuration below. Existing root-owned JSON store
-directories require an offline, backed-up ownership migration or a new store
+with the default UID or an arbitrary UID in group 0. This does not make a local
+store volume portable between UIDs or suitable for replica sharing: use
+PostgreSQL or Redis for the replica configuration below. Existing root-owned
+store directories require an offline, backed-up ownership migration or a new store
 path; an image update alone does not repair their ownership.
 
 The image's writable paths are root-group writable and it can run with the

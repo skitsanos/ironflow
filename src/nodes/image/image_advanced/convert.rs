@@ -25,6 +25,7 @@ impl Node for ImageConvertNode {
         "Convert between image formats"
     }
 
+    #[allow(clippy::expect_used)] // Infallible: quality range was validated.
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let source = resolve_single_image_source(config, ctx, "image_convert")?;
         let output_path = config

@@ -64,6 +64,7 @@ pub(super) fn encode(records: &mut [CatalogRecord]) -> StorageResult<(uuid::Uuid
     Ok((generation, data))
 }
 
+#[allow(clippy::expect_used)] // Infallible: fixed timestamp.
 pub(super) fn decode_record(data: &[u8]) -> StorageResult<CatalogRecord> {
     if data.len() != RECORD_BYTES {
         return Err(corrupt("truncated catalog record"));

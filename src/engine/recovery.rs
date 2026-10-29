@@ -216,9 +216,10 @@ fn build_graph(
 }
 
 fn add_edge(graph: &mut HashMap<String, BTreeSet<String>>, from: &str, to: &str) {
+    // Every step was inserted into the graph before its edges are added.
     graph
-        .get_mut(from)
-        .expect("validated graph node must exist")
+        .entry(from.to_string())
+        .or_default()
         .insert(to.to_string());
 }
 
@@ -230,9 +231,7 @@ fn topological_phases(
         graph.keys().map(|name| (name.clone(), 0)).collect();
     for dependents in graph.values() {
         for dependent in dependents {
-            *in_degree
-                .get_mut(dependent)
-                .expect("validated graph node must exist") += 1;
+            *in_degree.entry(dependent.clone()).or_insert(0) += 1;
         }
     }
 
@@ -259,9 +258,9 @@ fn topological_phases(
         for name in &ready {
             remaining.remove(name);
             for dependent in &graph[name] {
-                *in_degree
-                    .get_mut(dependent)
-                    .expect("validated graph node must exist") -= 1;
+                if let Some(degree) = in_degree.get_mut(dependent) {
+                    *degree = degree.saturating_sub(1);
+                }
             }
         }
         phases.push(ready);

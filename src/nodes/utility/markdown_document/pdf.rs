@@ -63,6 +63,7 @@ impl Planner<'_> {
         }
         Ok(())
     }
+    #[allow(clippy::expect_used)] // Infallible: one initial page.
     fn push(&mut self, draw: Draw) {
         self.pages.last_mut().expect("one initial page").push(draw);
     }

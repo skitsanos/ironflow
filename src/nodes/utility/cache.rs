@@ -37,16 +37,10 @@ impl CacheEntry {
     }
 }
 
-/// Hard upper bound on entries kept in the process-global memory cache.
-/// Override with `IRONFLOW_CACHE_MAX_ENTRIES`.
-const DEFAULT_MEMORY_CACHE_MAX_ENTRIES: usize = 10_000;
-
+/// Hard upper bound on entries kept in the process-global memory cache;
+/// `IRONFLOW_CACHE_MAX_ENTRIES` overrides it (see `util::limits`).
 fn memory_cache_capacity() -> usize {
-    std::env::var("IRONFLOW_CACHE_MAX_ENTRIES")
-        .ok()
-        .and_then(|v| v.parse::<usize>().ok())
-        .filter(|n| *n > 0)
-        .unwrap_or(DEFAULT_MEMORY_CACHE_MAX_ENTRIES)
+    crate::util::limits::cache_max_entries()
 }
 
 /// Process-global memory cache. Bounded by `IRONFLOW_CACHE_MAX_ENTRIES`.

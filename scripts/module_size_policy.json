@@ -1,15 +1,10 @@
 {
   "version": 1,
-  "exception_budget": 9,
+  "exception_budget": 8,
   "exceptions": [
     {
-      "path": "src/engine/executor/task_runner.rs",
-      "max_lines": 303,
-      "rationale": "IF-028/062/100 review: one task lifecycle spanning retries, deadlines, cancellation, lease-fenced persistence, and output publication; run-scoped dependency wiring was extracted before metrics instrumentation. Split before adding another lifecycle phase."
-    },
-    {
       "path": "src/engine/recovery.rs",
-      "max_lines": 317,
+      "max_lines": 316,
       "rationale": "IF-046/052 review: one execution-plan validator and recovery-DAG builder covering dependency, cycle, on_error, retry-count, timeout, and route validation; split validation from graph construction before adding another planning phase."
     },
     {
@@ -39,7 +34,7 @@
     },
     {
       "path": "src/storage/redis_store/listing.rs",
-      "max_lines": 319,
+      "max_lines": 316,
       "rationale": "IF-028 review: one ordered catalog paging and repair boundary with inline ordering tests; extract tests or repair logic before adding listing behavior."
     },
     {

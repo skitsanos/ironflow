@@ -39,6 +39,7 @@ impl Node for ParallelSubworkflowsNode {
         "Execute multiple subworkflows concurrently and collect their results"
     }
 
+    #[allow(clippy::too_many_lines)] // One bounded fan-out lifecycle over child runs and their result projection.
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let entries = resolve_flow_entries(config, ctx)?;
 
@@ -62,11 +63,12 @@ impl Node for ParallelSubworkflowsNode {
             .and_then(|v| v.as_str())
             .unwrap_or("parallel_results");
 
-        // Concurrency cap. Default: num_cpus. Users can raise or lower it per
+        // Concurrency cap. Default: the host's available parallelism. Users can
+        // raise or lower it per
         // node. Hard-capped at MAX_PARALLEL_SUBWORKFLOWS_CAP to block pathological
         // config values from saturating the runtime.
-        let max_concurrent =
-            config_usize_strict(config, "max_concurrent", ctx)?.unwrap_or_else(num_cpus::get);
+        let max_concurrent = config_usize_strict(config, "max_concurrent", ctx)?
+            .unwrap_or_else(crate::util::runtime_config::host_parallelism);
         if max_concurrent == 0 {
             anyhow::bail!("parallel_subworkflows: 'max_concurrent' must be greater than 0");
         }

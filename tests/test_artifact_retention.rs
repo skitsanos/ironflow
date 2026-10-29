@@ -3,7 +3,7 @@ use std::process::Command;
 
 use ironflow::artifacts::LocalArtifactStore;
 use ironflow::storage::StateStore;
-use ironflow::storage::json_store::JsonStateStore;
+use ironflow::storage::sql_store::SqlStateStore;
 
 #[tokio::test]
 async fn offline_prune_keeps_referenced_artifacts_and_deletes_unreferenced_ones() {
@@ -35,7 +35,14 @@ async fn offline_prune_keeps_referenced_artifacts_and_deletes_unreferenced_ones(
     .await
     .unwrap();
 
-    let state = JsonStateStore::new(&run_dir);
+    // Prune scans the store the CLI opens by default: SQLite (IF-163).
+    std::fs::create_dir_all(&run_dir).unwrap();
+    let state = SqlStateStore::new(&format!(
+        "sqlite://{}?mode=rwc",
+        run_dir.join("ironflow.sqlite").display()
+    ))
+    .await
+    .unwrap();
     state
         .init_run(
             "artifact-retention-run",

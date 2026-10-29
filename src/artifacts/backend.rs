@@ -86,6 +86,8 @@ impl ArtifactStore {
         Ok(artifact)
     }
 
+    // Only the Pdfium render worker streams artifacts today (`pdf-render`).
+    #[cfg_attr(not(feature = "pdf-render"), allow(dead_code))]
     pub(crate) fn put_writer(
         &self,
         max_bytes: u64,

@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # Build the pinned helper on the digest-pinned official Rust image.
-FROM rust:1.99.1-slim-bookworm@sha256:86234e857a413004348b471d11a4ebe1aa92d2eae2b6b143cac68fd1ac3c48be AS chef
+FROM rust:1.99.1-slim-bookworm@sha256:24707e70a4f1e23d9a7b25202ec43126d28a52294b96aad5c670df1fd1f1d400 AS chef
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
@@ -11,7 +11,7 @@ RUN apt-get update \
 
 WORKDIR /app
 
-ARG FEATURES="postgres redis"
+ARG FEATURES="postgres redis cjk-fonts"
 
 FROM chef AS planner
 
@@ -23,7 +23,7 @@ RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
 
-ARG FEATURES="postgres redis"
+ARG FEATURES="postgres redis cjk-fonts"
 
 COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --locked --features "${FEATURES}" \
@@ -38,7 +38,7 @@ RUN cargo build --release --locked --features "${FEATURES}" --bin ironflow
 
 FROM debian:bookworm-slim AS runtime
 
-# Leave the private JSON store absent so the runtime UID creates and owns it.
+# Leave the private store directory absent so the runtime UID creates and owns it.
 # Root-group write access alone cannot chmod a root-owned store to 0700.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl \

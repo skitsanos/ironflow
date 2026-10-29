@@ -6,7 +6,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts generate` and verified with
 `bun run scripts/issues_registry.ts check`.
 
-- Total findings: 160
+- Total findings: 172
 - Active findings: 0
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
@@ -172,3 +172,15 @@ priority, area, and title. The registry is generated with
 | [IF-158](./IF-158.md) | P2 | Resolved | Development validation | Full integration tests retain every linked executable until the phase ends |
 | [IF-159](./IF-159.md) | P2 | Resolved | Container automation | Font-only changes do not trigger container publication |
 | [IF-160](./IF-160.md) | P2 | Resolved | Validation resource lifecycle | Integration cleanup leaves anonymous PostgreSQL volumes |
+| [IF-161](./IF-161.md) | P1 | Resolved | Supply chain | GPL-3.0 html2md is linked into the MIT single binary |
+| [IF-162](./IF-162.md) | P1 | Resolved | Test architecture | One integration test binary per test file drives disk and CI compensation |
+| [IF-163](./IF-163.md) | P1 | Resolved | JSON storage | Default JSON state store re-implements database concerns over the filesystem |
+| [IF-164](./IF-164.md) | P2 | Resolved | Binary size | Release binary carries 36 MB of embedded fonts and no release profile |
+| [IF-165](./IF-165.md) | P2 | Resolved | Architecture | Module-size gate optimizes file length while functions stay complex |
+| [IF-166](./IF-166.md) | P2 | Resolved | CI performance | CI re-runs the full suite in the feature job and rebuilds release to validate examples |
+| [IF-167](./IF-167.md) | P2 | Resolved | Validation workflow | Pre-push gate repeats CI on every develop push and pulls floating service images |
+| [IF-168](./IF-168.md) | P2 | Resolved | Runtime safety | Malformed IRONFLOW_MAX_* limit values silently fall back to defaults |
+| [IF-169](./IF-169.md) | P2 | Resolved | Repository process | Repository governance tooling outweighs the code it governs |
+| [IF-170](./IF-170.md) | P3 | Resolved | Docs | Documentation and repository hygiene drift |
+| [IF-171](./IF-171.md) | P3 | Resolved | Supply chain | Dependency and lint hygiene: unpinned actions, duplicate crates, unguarded unwraps |
+| [IF-172](./IF-172.md) | P1 | Resolved | Validation workflow | Full pre-push gate outlives GitHub's SSH idle timeout, so a gated develop push cannot complete |

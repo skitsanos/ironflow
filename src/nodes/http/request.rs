@@ -32,6 +32,7 @@ const MAX_REDIRECTS: usize = 100;
 /// interval instead of spinning a tight network loop.
 const MIN_STATUS_RETRY_DELAY_SECONDS: f64 = 0.01;
 
+#[allow(clippy::too_many_lines)] // One bounded request loop: redirects, status retries and response admission.
 pub(super) async fn do_http_request(
     method: &str,
     config: &serde_json::Value,

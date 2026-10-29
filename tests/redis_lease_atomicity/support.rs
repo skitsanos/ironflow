@@ -4,7 +4,7 @@ use ironflow::engine::types::{Context, RunStatus};
 use ironflow::storage::{RunLease, StateStore, redis_store::RedisStateStore};
 use redis::aio::ConnectionManager;
 
-use crate::redis_support::RedisTest;
+use super::redis_support::RedisTest;
 
 pub const RUN: &str = "lease-run";
 pub const OWNER: &str = "lease-owner";

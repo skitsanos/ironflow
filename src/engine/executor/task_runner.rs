@@ -1,18 +1,17 @@
 use std::sync::Arc;
 
-use anyhow::{Context as _, Result};
-use chrono::Utc;
-use tracing::{info, warn};
+use anyhow::Result;
+use tracing::warn;
 
-use crate::engine::events::{RunEvent, RunEventType};
-use crate::engine::types::{Context, StepDefinition, TaskState, TaskStatus};
-use crate::util::duration::nonnegative_duration;
+use crate::engine::types::{Context, StepDefinition, TaskState};
+use crate::metrics::TaskAttemptObservation;
 use crate::util::execution::with_execution_deadline;
 
-use super::context::{task_duration_ms, task_input_context};
+use super::context::task_input_context;
 use super::deadline::StepDeadline;
 use super::engine::WorkflowEngine;
-use super::output::{prepare_failure_output, prepare_output, split_failure_output};
+use super::output::prepare_failure_output;
+use super::task_attempt;
 use super::task_runtime::TaskRuntime;
 
 /// A task can fail because the workflow/node rejected its input, or because
@@ -28,23 +27,35 @@ pub(super) enum TaskRunError {
 }
 
 impl TaskRunError {
-    fn workflow(error: impl Into<anyhow::Error>) -> Self {
+    pub(super) fn workflow(error: impl Into<anyhow::Error>) -> Self {
         Self::Workflow {
             error: error.into(),
             output: None,
         }
     }
 
-    fn workflow_with_output(error: impl Into<anyhow::Error>, output: Option<Arc<Context>>) -> Self {
+    pub(super) fn workflow_with_output(
+        error: impl Into<anyhow::Error>,
+        output: Option<Arc<Context>>,
+    ) -> Self {
         Self::Workflow {
             error: error.into(),
             output,
         }
     }
 
-    fn infrastructure(error: impl Into<anyhow::Error>) -> Self {
+    pub(super) fn infrastructure(error: impl Into<anyhow::Error>) -> Self {
         Self::Infrastructure(error.into())
     }
+}
+
+/// Facts about one attempt that the failure path needs.
+#[derive(Clone, Copy)]
+struct Attempt {
+    number: u32,
+    max: u32,
+    deadline: StepDeadline,
+    deadline_expired: bool,
 }
 
 impl WorkflowEngine {
@@ -71,30 +82,7 @@ impl WorkflowEngine {
         let mut last_error = None;
 
         for attempt in 1..=max_attempts {
-            // Update task state to running
-            let mut task_state = TaskState::new(&step.name, &step.node_type);
-            task_state.status = TaskStatus::Running;
-            task_state.attempt = attempt;
-            task_state.started = Some(Utc::now());
-            runtime
-                .persist_task(&task_state)
-                .await
-                .with_context(|| format!("Failed to persist task '{}' as running", step.name))
-                .map_err(TaskRunError::infrastructure)?;
-            Self::publish_event_ref(
-                runtime.events,
-                RunEvent::task(
-                    runtime.run_id,
-                    &step.name,
-                    &step.node_type,
-                    RunEventType::TaskStarted,
-                    TaskStatus::Running,
-                    Some(attempt),
-                ),
-            )
-            .await;
-
-            info!(task = %step.name, attempt = attempt, max = max_attempts, "Running task");
+            let mut task_state = task_attempt::start(runtime, step, attempt, max_attempts).await?;
 
             // The no-overlay path is a cheap `Arc::clone`. Recovery handlers
             // can add invocation-local metadata without publishing it into
@@ -118,179 +106,36 @@ impl WorkflowEngine {
                     Err(anyhow::anyhow!(deadline.error_message(&step.name)))
                 }
             };
-            match result {
+            let error = match result {
                 Ok(output) => {
                     if let Some(observation) = attempt_observation {
                         observation.finish(crate::metrics::TaskOutcome::Success);
                     }
-                    // Only explicit node output is published. An input
-                    // overlay therefore stays local unless the node returns
-                    // one of its values. Overlay values and keys are redacted
-                    // before publication so a later step cannot transform a
-                    // copied credential past the persistence fence.
-                    let prepared_output = prepare_output(output, runtime.execution_overlay);
-                    let (context, task_output) = prepared_output.into_parts();
-
-                    // Update task state to success. `output` is a
-                    // HashMap<String, Value> — convert it to a JSON object
-                    // directly and apply the shared task-history size cap.
-                    task_state.status = TaskStatus::Success;
-                    task_state.output = Some(task_output);
-                    task_state.finished = Some(Utc::now());
-                    let duration_ms = task_duration_ms(task_state.started, task_state.finished);
-                    runtime
-                        .persist_task(&task_state)
-                        .await
-                        .with_context(|| {
-                            format!("Failed to persist task '{}' as successful", step.name)
-                        })
-                        .map_err(TaskRunError::infrastructure)?;
-                    Self::publish_event_ref(
-                        runtime.events,
-                        RunEvent::task(
-                            runtime.run_id,
-                            &step.name,
-                            &step.node_type,
-                            RunEventType::TaskSucceeded,
-                            TaskStatus::Success,
-                            Some(attempt),
-                        )
-                        .with_duration_ms(duration_ms),
-                    )
-                    .await;
-
-                    info!(task = %step.name, "Task completed successfully");
+                    let context =
+                        task_attempt::record_success(runtime, step, task_state, output, attempt)
+                            .await?;
                     return Ok(Arc::new(context));
                 }
-                Err(mut e) => {
-                    if let Some(observation) = attempt_observation {
-                        let outcome = if deadline_expired {
-                            crate::metrics::TaskOutcome::TimedOut
-                        } else {
-                            crate::metrics::TaskOutcome::Failed
-                        };
-                        observation.finish(outcome);
-                    }
-                    let mut failure_output = if deadline_expired {
-                        None
-                    } else {
-                        prepare_failure_output(&mut e, runtime.execution_overlay)
-                    };
-                    let err_msg = runtime
-                        .execution_overlay
-                        .redact_diagnostic(&format!("{e:#}"));
-                    warn!(task = %step.name, attempt = attempt, error = %err_msg, "Task attempt failed");
+                Err(error) => error,
+            };
 
-                    task_state.status = TaskStatus::Failed;
-                    task_state.error = Some(err_msg.clone());
-                    let (buffered_output, task_output) = if attempt == max_attempts {
-                        split_failure_output(failure_output.take())
-                    } else {
-                        (None, None)
-                    };
-                    task_state.output = task_output;
-                    task_state.finished = Some(Utc::now());
-                    let duration_ms = task_duration_ms(task_state.started, task_state.finished);
-                    runtime
-                        .persist_task(&task_state)
-                        .await
-                        .with_context(|| {
-                            format!("Failed to persist task '{}' as failed", step.name)
-                        })
-                        .map_err(TaskRunError::infrastructure)?;
-                    Self::publish_event_ref(
-                        runtime.events,
-                        RunEvent::task(
-                            runtime.run_id,
-                            &step.name,
-                            &step.node_type,
-                            RunEventType::TaskFailed,
-                            TaskStatus::Failed,
-                            Some(attempt),
-                        )
-                        .with_duration_ms(duration_ms)
-                        .with_error(err_msg.clone()),
-                    )
-                    .await;
-
-                    last_error = Some(err_msg.clone());
-
-                    // A total timeout is terminal: every later attempt would
-                    // inherit the same already-expired deadline.
-                    if deadline_expired {
-                        return Err(TaskRunError::workflow(anyhow::anyhow!(
-                            deadline.error_message(&step.name)
-                        )));
-                    }
-
-                    // Apply backoff before retry (unless this was the last attempt)
-                    if attempt < max_attempts {
-                        let delay = step.retry.backoff_s * 2.0_f64.powi((attempt - 1) as i32);
-                        info!(task = %step.name, delay_s = delay, "Waiting before retry");
-                        // The attempt failed, but the step is still active
-                        // while it waits to retry. This lets explicit workflow
-                        // cancellation terminalize it as Cancelled rather than
-                        // preserving an intermediate attempt failure.
-                        task_state.status = TaskStatus::Running;
-                        task_state.finished = None;
-                        runtime
-                            .persist_task(&task_state)
-                            .await
-                            .with_context(|| {
-                                format!("Failed to persist task '{}' retry wait", step.name)
-                            })
-                            .map_err(TaskRunError::infrastructure)?;
-                        let delay = nonnegative_duration(delay, "step retry backoff")
-                            .map_err(TaskRunError::workflow)?;
-                        if deadline.sleep(delay).await.is_err() {
-                            let timeout_error = deadline.error_message(&step.name);
-                            // The attempt failure was already emitted. Replace
-                            // the summary error so durable task state reflects
-                            // why no subsequent attempt was started.
-                            task_state.status = TaskStatus::Failed;
-                            task_state.error = Some(timeout_error.clone());
-                            let (output, task_output) = split_failure_output(failure_output.take());
-                            task_state.output = task_output;
-                            task_state.finished = Some(Utc::now());
-                            runtime
-                                .persist_task(&task_state)
-                                .await
-                                .with_context(|| {
-                                    format!("Failed to persist task '{}' timeout", step.name)
-                                })
-                                .map_err(TaskRunError::infrastructure)?;
-                            return Err(TaskRunError::workflow_with_output(
-                                anyhow::anyhow!(timeout_error),
-                                output,
-                            ));
-                        }
-                        Self::publish_event_ref(
-                            runtime.events,
-                            RunEvent::task(
-                                runtime.run_id,
-                                &step.name,
-                                &step.node_type,
-                                RunEventType::TaskRetrying,
-                                TaskStatus::Running,
-                                Some(attempt + 1),
-                            ),
-                        )
-                        .await;
-                    }
-
-                    if attempt == max_attempts {
-                        return Err(TaskRunError::workflow_with_output(
-                            anyhow::anyhow!(
-                                "Task '{}' failed after {} attempts: {}",
-                                step.name,
-                                max_attempts,
-                                err_msg
-                            ),
-                            buffered_output,
-                        ));
-                    }
-                }
-            }
+            let attempt = Attempt {
+                number: attempt,
+                max: max_attempts,
+                deadline,
+                deadline_expired,
+            };
+            last_error = Some(
+                Self::settle_failed_attempt(
+                    runtime,
+                    step,
+                    &mut task_state,
+                    attempt,
+                    error,
+                    attempt_observation,
+                )
+                .await?,
+            );
         }
 
         Err(TaskRunError::workflow(anyhow::anyhow!(
@@ -299,5 +144,79 @@ impl WorkflowEngine {
             max_attempts,
             last_error.unwrap_or_default()
         )))
+    }
+
+    /// Record a failed attempt, then either wait out the backoff and return
+    /// the redacted message for the next attempt, or stop with the terminal
+    /// workflow error.
+    async fn settle_failed_attempt(
+        runtime: &TaskRuntime<'_>,
+        step: &StepDefinition,
+        task_state: &mut TaskState,
+        attempt: Attempt,
+        mut error: anyhow::Error,
+        observation: Option<TaskAttemptObservation>,
+    ) -> Result<String, TaskRunError> {
+        if let Some(observation) = observation {
+            let outcome = if attempt.deadline_expired {
+                crate::metrics::TaskOutcome::TimedOut
+            } else {
+                crate::metrics::TaskOutcome::Failed
+            };
+            observation.finish(outcome);
+        }
+        let mut failure_output = if attempt.deadline_expired {
+            None
+        } else {
+            prepare_failure_output(&mut error, runtime.execution_overlay)
+        };
+        let err_msg = runtime
+            .execution_overlay
+            .redact_diagnostic(&format!("{error:#}"));
+        warn!(task = %step.name, attempt = attempt.number, error = %err_msg, "Task attempt failed");
+
+        let final_attempt = attempt.number == attempt.max;
+        let buffered_output = task_attempt::record_failure(
+            runtime,
+            step,
+            task_state,
+            attempt.number,
+            &err_msg,
+            if final_attempt {
+                failure_output.take()
+            } else {
+                None
+            },
+        )
+        .await?;
+
+        // A total timeout is terminal: every later attempt would inherit the
+        // same already-expired deadline.
+        if attempt.deadline_expired {
+            return Err(TaskRunError::workflow(anyhow::anyhow!(
+                attempt.deadline.error_message(&step.name)
+            )));
+        }
+        if final_attempt {
+            return Err(TaskRunError::workflow_with_output(
+                anyhow::anyhow!(
+                    "Task '{}' failed after {} attempts: {}",
+                    step.name,
+                    attempt.max,
+                    err_msg
+                ),
+                buffered_output,
+            ));
+        }
+        task_attempt::wait_for_retry(
+            runtime,
+            step,
+            task_state,
+            attempt.number,
+            attempt.deadline,
+            failure_output,
+        )
+        .await?;
+        Ok(err_msg)
     }
 }

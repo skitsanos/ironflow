@@ -7,7 +7,7 @@ use super::sql_config::{SqlStoreKind, configured_url};
 pub(crate) fn validate(cfg: &IronFlowConfig, replica_mode: bool) -> Result<()> {
     let state = environment_string("IRONFLOW_STORE")?
         .or_else(|| cfg.store_backend.clone())
-        .unwrap_or_else(|| "json".to_string());
+        .unwrap_or_else(|| super::store_factory::DEFAULT_STATE_BACKEND.to_string());
     let events = environment_string("IRONFLOW_EVENT_STORE")?
         .or_else(|| cfg.event_store.clone())
         .unwrap_or_else(|| "memory".to_string());

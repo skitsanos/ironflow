@@ -1,8 +1,12 @@
 # Document Fonts
 
 These unmodified variable fonts are embedded by `markdown_to_pdf`, so generation
-does not depend on fonts installed on the host. DOCX references font families
-and leaves font substitution and pagination to the document viewer.
+does not depend on fonts installed on the host. `NotoSansCJK.otf` is embedded
+only when IronFlow is built with the `cjk-fonts` Cargo feature (the `-full`
+release binaries and the container image); other builds can load it, or any
+other font, from the directory named by `IRONFLOW_FONT_DIR`. DOCX references
+font families and leaves font substitution and pagination to the document
+viewer.
 
 Source: [Google Fonts](https://github.com/google/fonts/tree/e7db6ca603fd4862010383ff17ffd6cc4ffac1c0/ofl),
 revision `e7db6ca603fd4862010383ff17ffd6cc4ffac1c0`.
@@ -25,8 +29,9 @@ and emoji are not universally covered; missing glyphs fail explicitly.
 Generation does not claim PDF/A or PDF/UA conformance.
 
 These trusted fonts are registered once per process without system font discovery.
-The Arabic, Hebrew and pan-CJK additions add about 30 MiB of uncompressed font
-data to the binary. PDF output embeds subsets, not the full CJK font.
+The Arabic and Hebrew fonts add about 1 MiB and the pan-CJK font about 29 MiB of
+uncompressed font data to a binary that includes them. PDF output embeds
+subsets, not the full CJK font.
 
 DOCX files reference the Noto family names but do not embed these fonts. Install
 them in the consuming viewer's environment or supply suitable fallback fonts.

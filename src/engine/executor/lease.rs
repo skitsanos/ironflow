@@ -140,58 +140,82 @@ pub(super) async fn heartbeat_with_timing(
                     _ = &mut stop => return,
                     result = renewal => result,
                 };
-                match result {
-                    Err(_) => {
-                        if let Some(metrics) = &metrics {
-                            metrics.lease(crate::metrics::LeaseOutcome::TimedOut);
-                        }
-                        tracing::error!(%run_id, "workflow run lease refresh timed out; stopping local execution");
-                        report_infrastructure(
-                            &cancel,
-                            "workflow execution stopped because its ownership lease renewal timed out",
-                        );
-                        return;
-                    }
-                    Ok(Ok(true)) => {
-                        if let Some(metrics) = &metrics {
-                            metrics.lease(crate::metrics::LeaseOutcome::Renewed);
-                        }
-                    }
-                    Ok(Ok(false)) => {
-                        if let Some(metrics) = &metrics {
-                            metrics.lease(crate::metrics::LeaseOutcome::Lost);
-                        }
-                        tracing::error!(%run_id, "workflow run ownership lease expired or was lost; stopping local execution");
-                        report_infrastructure(
-                            &cancel,
-                            "workflow execution stopped after its ownership lease was lost",
-                        );
-                        if let Err(error) = bounded(
-                            "reconcile an expired workflow run lease",
-                            store.reconcile_expired_run_leases(chrono::Utc::now()),
-                            STATE_OPERATION_TIMEOUT,
-                        ).await {
-                            if let Some(metrics) = &metrics {
-                                metrics.lease(crate::metrics::LeaseOutcome::ReconciliationFailed);
-                            }
-                            tracing::warn!(%run_id, %error, "failed to reconcile an expired run lease");
-                        }
-                        return;
-                    }
-                    Ok(Err(error)) => {
-                        if let Some(metrics) = &metrics {
-                            metrics.lease(crate::metrics::LeaseOutcome::Error);
-                        }
-                        tracing::error!(%run_id, %error, "workflow run lease refresh failed; stopping local execution");
-                        report_infrastructure(
-                            &cancel,
-                            format!("workflow execution stopped because ownership lease renewal failed: {error}"),
-                        );
-                        return;
-                    }
+                if !settle_renewal(result, store.as_ref(), &run_id, &cancel, metrics.as_deref()).await {
+                    return;
                 }
             }
         }
+    }
+}
+
+/// Record one renewal result. Returns `false` once local execution must stop.
+async fn settle_renewal(
+    result: Result<StorageResult<bool>, tokio::time::error::Elapsed>,
+    store: &dyn StateStore,
+    run_id: &str,
+    cancel: &watch::Sender<ExecutionSignal>,
+    metrics: Option<&crate::metrics::Metrics>,
+) -> bool {
+    use crate::metrics::LeaseOutcome;
+
+    match result {
+        Err(_) => {
+            observe_lease(metrics, LeaseOutcome::TimedOut);
+            tracing::error!(%run_id, "workflow run lease refresh timed out; stopping local execution");
+            report_infrastructure(
+                cancel,
+                "workflow execution stopped because its ownership lease renewal timed out",
+            );
+            false
+        }
+        Ok(Ok(true)) => {
+            observe_lease(metrics, LeaseOutcome::Renewed);
+            true
+        }
+        Ok(Ok(false)) => {
+            observe_lease(metrics, LeaseOutcome::Lost);
+            tracing::error!(%run_id, "workflow run ownership lease expired or was lost; stopping local execution");
+            report_infrastructure(
+                cancel,
+                "workflow execution stopped after its ownership lease was lost",
+            );
+            reconcile_lost_lease(store, run_id, metrics).await;
+            false
+        }
+        Ok(Err(error)) => {
+            observe_lease(metrics, LeaseOutcome::Error);
+            tracing::error!(%run_id, %error, "workflow run lease refresh failed; stopping local execution");
+            report_infrastructure(
+                cancel,
+                format!(
+                    "workflow execution stopped because ownership lease renewal failed: {error}"
+                ),
+            );
+            false
+        }
+    }
+}
+
+async fn reconcile_lost_lease(
+    store: &dyn StateStore,
+    run_id: &str,
+    metrics: Option<&crate::metrics::Metrics>,
+) {
+    if let Err(error) = bounded(
+        "reconcile an expired workflow run lease",
+        store.reconcile_expired_run_leases(chrono::Utc::now()),
+        STATE_OPERATION_TIMEOUT,
+    )
+    .await
+    {
+        observe_lease(metrics, crate::metrics::LeaseOutcome::ReconciliationFailed);
+        tracing::warn!(%run_id, %error, "failed to reconcile an expired run lease");
+    }
+}
+
+fn observe_lease(metrics: Option<&crate::metrics::Metrics>, outcome: crate::metrics::LeaseOutcome) {
+    if let Some(metrics) = metrics {
+        metrics.lease(outcome);
     }
 }
 

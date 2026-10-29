@@ -24,6 +24,7 @@ struct ResolvedImage {
     detail: Option<String>,
 }
 
+#[allow(clippy::expect_used)] // Infallible: every image block path was validated while the images were collected, and `messages` is not reshaped in between.
 pub(super) async fn resolve(
     mut messages: Vec<Value>,
     config: &Value,
@@ -143,6 +144,7 @@ fn collect(messages: &[Value], ctx: &Context) -> Result<Vec<PendingImage>> {
     Ok(pending)
 }
 
+#[allow(clippy::expect_used)] // Infallible: exclusive source validation ensures artifact is present.
 fn parse_block(
     block: &Map<String, Value>,
     ctx: &Context,

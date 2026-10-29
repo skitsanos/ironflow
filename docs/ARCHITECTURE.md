@@ -392,6 +392,10 @@ major version.
 
 #### JSON store filesystem boundary
 
+The JSON store is selected explicitly with `IRONFLOW_STORE=json` and is
+maintenance-only since IF-163: SQLite is the default state backend, and the
+boundary below is preserved for existing store directories rather than extended.
+
 Public API paths and `JsonStateStore` share one canonical run-ID validator.
 The token is 1 through 128 bytes, contains only ASCII letters, digits, `-`, and
 `_`, and must start and end with a letter or digit. Validation is byte-exact:
@@ -485,7 +489,7 @@ than an ignored entry. Direct-store custom IDs outside the grammar require an
 offline, backed-up export/reimport or a coordinated rename of both main and
 summary filenames plus their embedded IDs.
 
-State backend selection is controlled by the `store_backend` config field or `IRONFLOW_STORE` environment variable. SQLite/Postgres table names use `IRONFLOW_SQL_TABLE_PREFIX` / `sql_table_prefix`, defaulting to `ironflow_` so existing names such as `ironflow_runs` are preserved.
+State backend selection is controlled by the `store_backend` config field or `IRONFLOW_STORE` environment variable; the default is `sqlite`, which creates `ironflow.sqlite` under the owner-only store directory. SQLite/Postgres table names use `IRONFLOW_SQL_TABLE_PREFIX` / `sql_table_prefix`, defaulting to `ironflow_` so existing names such as `ironflow_runs` are preserved.
 
 Run execution events use a separate `EventStore` abstraction so monitoring can
 be scaled independently from run persistence. Besides publish and replay, the
@@ -1103,7 +1107,7 @@ running under the same OS identity from mutating the leased inode.
   timing order and can vary between runs; event order does not define context
   collision precedence.
 - Configurable via environment variable:
-  - `IRONFLOW_MAX_CONCURRENT_TASKS` (default: num_cpus)
+  - `IRONFLOW_MAX_CONCURRENT_TASKS` (default: the host's available parallelism)
 - Async cancellation drops the active node future. CPU-bound Lua work receives
   a cooperative cancellation flag while running on the blocking pool. ZIP
   traversal, parsing, compression, and copying use tracked blocking workers;

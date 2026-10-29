@@ -41,6 +41,7 @@ fn matches_query(record: &CatalogRecord, query: &RunListQuery) -> bool {
     status_matches && follows_cursor
 }
 
+#[allow(clippy::expect_used)] // Infallible: a selected merge branch contains a record.
 fn merge_sorted(
     base: Vec<CatalogRecord>,
     changed: Vec<CatalogRecord>,

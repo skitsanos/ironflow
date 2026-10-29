@@ -50,6 +50,7 @@ pub(super) fn encode(generation: Uuid, counts: [u64; SECTION_COUNT]) -> Vec<u8> 
     data
 }
 
+#[allow(clippy::expect_used)] // Infallible: fixed version; fixed record size; fixed count.
 pub(super) fn decode(data: &[u8], file_len: u64) -> StorageResult<CatalogHeader> {
     if data.len() != HEADER_BYTES || &data[..16] != MAGIC {
         return Err(corrupt("missing or invalid catalog header"));

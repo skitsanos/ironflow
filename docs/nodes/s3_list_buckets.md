@@ -2,7 +2,8 @@
 
 List buckets visible to the current credentials.
 
-Uses regional SigV4 signing. SigV4a Multi-Region Access Points are unsupported;
+Account-level bucket listing uses regional SigV4; this node does not enumerate
+or manage MRAPs. Other S3 object nodes support MRAP ARN signing with SigV4a;
 see [S3 signing](../SECURITY.md#s3-signing).
 
 This read-only node contacts an S3-compatible external service and uses the AWS

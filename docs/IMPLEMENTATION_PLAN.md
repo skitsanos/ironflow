@@ -302,8 +302,8 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
   Clippy and tests, fmt, Linux/macOS builds, validate examples) — runs on pushes
   and pull requests to `develop` and `main` (plus explicit manual dispatch),
   with path filters covering code, documentation, examples, and repository policy.
-  Routine work uses focused local checks; `.githooks/pre-push` runs the full
-  integration gate before `develop`.
+  Routine work uses focused local checks; a `develop` push requires a receipt
+  from a passing `scripts/integration_gate.sh` run on the pushed tree.
   Linux example validation reuses the release-build artifact without waiting
   for macOS or recompiling it. Container publication separates a cargo-chef
   dependency layer from source and package-version changes and exports it to a
@@ -345,7 +345,7 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
 - [x] Executor `step_map` shared via `Arc<HashMap<String, Arc<StepDefinition>>>`; per-task step and step_map clones removed
 - [x] Task output persisted via direct `Value::Object` construction instead of `serde_json::to_value` round-trip
 - [x] Node trait migrated to `&Context`; executor wraps context in `Arc<RwLock<Arc<Context>>>` with copy-on-write via `Arc::make_mut` — per-attempt deep clone eliminated
-- [x] Subworkflow fan-out backpressure: `parallel_subworkflows` accepts `max_concurrent` (default: num_cpus, capped at 1 024); detached `subworkflow(wait=false)` bounded by process-wide semaphore `IRONFLOW_MAX_DETACHED_SUBWORKFLOWS` (default 64)
+- [x] Subworkflow fan-out backpressure: `parallel_subworkflows` accepts `max_concurrent` (default: the host's available parallelism, capped at 1 024); detached `subworkflow(wait=false)` bounded by process-wide semaphore `IRONFLOW_MAX_DETACHED_SUBWORKFLOWS` (default 64)
 - [x] Run persistence: `RunSummary` type + `StateStore::list_run_summaries()` + `prune_before(cutoff)` trait methods; task outputs larger than `IRONFLOW_MAX_TASK_OUTPUT_BYTES` (default 2 MB) replaced with truncation marker
 - [x] I/O size guards: `http_*`, `read_file`, `write_file`, `shell_command` all enforce configurable caps — `IRONFLOW_MAX_HTTP_BODY_BYTES` (50 MB), `IRONFLOW_MAX_FILE_BYTES` (50 MB), `IRONFLOW_MAX_SHELL_OUTPUT_BYTES` (10 MB per stream, exposes optional `{output_key}_output_truncated = true`)
 

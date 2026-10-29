@@ -1,6 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, Utc};
+use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Offset as _, Utc};
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
@@ -26,7 +26,7 @@ fn auto_parse(input: &str) -> Option<DateTime<FixedOffset>> {
     }
     // Date only
     if let Ok(nd) = NaiveDate::parse_from_str(input, "%Y-%m-%d") {
-        let ndt = nd.and_hms_opt(0, 0, 0).unwrap();
+        let ndt = nd.and_time(NaiveTime::MIN);
         return Some(ndt.and_utc().fixed_offset());
     }
     None
@@ -36,7 +36,7 @@ fn auto_parse(input: &str) -> Option<DateTime<FixedOffset>> {
 fn parse_timezone(tz: &str) -> Result<FixedOffset> {
     let trimmed = tz.trim();
     if trimmed.eq_ignore_ascii_case("utc") || trimmed == "Z" {
-        return Ok(FixedOffset::east_opt(0).unwrap());
+        return Ok(Utc.fix());
     }
     // Parse "+HH:MM" or "-HH:MM"
     if (trimmed.starts_with('+') || trimmed.starts_with('-')) && trimmed.len() >= 5 {
@@ -111,7 +111,7 @@ impl Node for DateFormatNode {
             let ndt = NaiveDateTime::parse_from_str(&raw_input, input_fmt)
                 .or_else(|_| {
                     NaiveDate::parse_from_str(&raw_input, input_fmt)
-                        .map(|nd| nd.and_hms_opt(0, 0, 0).unwrap())
+                        .map(|nd| nd.and_time(NaiveTime::MIN))
                 })
                 .map_err(|e| {
                     anyhow::anyhow!(

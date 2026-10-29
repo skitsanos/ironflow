@@ -58,11 +58,18 @@ inferred from the requested format; callers should choose `.pdf` or `.docx`.
   JavaScript, template execution, SVG rendering or remote asset loading.
 
 PDF uses Parley for shaping, Unicode bidi ordering, fallback and line breaking,
-with Krilla for output. Bundled Noto Serif/Mono, Arabic, Hebrew and pan-CJK fonts
-cover Ukrainian, Chinese, Japanese, Korean, Hebrew and Arabic samples, including
-mixed English/RTL text and combining marks. The font registry does not discover
-system fonts or fetch anything remotely. Characters outside the bundled coverage
-still fail explicitly; this is not a guarantee for every language or emoji.
+with Krilla for output. Bundled Noto Serif/Mono, Arabic and Hebrew fonts cover
+Ukrainian, Hebrew and Arabic samples, including mixed English/RTL text and
+combining marks. The pan-CJK font (about 29 MiB) is embedded only in builds
+with the `cjk-fonts` feature: the `-full` release binaries and the container
+image. Other builds load CJK, or any additional, fonts from the directory named
+by `IRONFLOW_FONT_DIR`: every `.ttf`, `.otf` and `.ttc` file there (at most 64
+files of at most 64 MiB each) is registered once per process after the bundled
+fonts, and its families become fallbacks for the CJK scripts. CJK text without
+any CJK font fails before layout with an error naming the feature and the
+variable. The font registry does not discover system fonts or fetch anything
+remotely. Characters outside the available coverage still fail explicitly; this
+is not a guarantee for every language or emoji.
 
 PDF embeds subset fonts and line-level logical `/ActualText` spans.
 IronFlow's `extract_pdf` honors these page spans with bounded property resolution,

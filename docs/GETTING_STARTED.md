@@ -10,7 +10,7 @@ and API request.
 Open the [latest stable release](https://github.com/skitsanos/ironflow/releases/latest)
 and expand **Assets**. Download the archive matching your system and the
 `checksums-sha256.txt` file from the same release. Asset names include the
-release version; `<version>` below stands for that version, such as `1.20.0`.
+release version; `<version>` below stands for that version, such as `1.21.0`.
 
 | System | Default archive |
 | --- | --- |
@@ -19,7 +19,7 @@ release version; `<version>` below stands for that version, such as `1.20.0`.
 | macOS Intel | `ironflow-v<version>-x86_64-apple-darwin.tar.gz` |
 | Windows x86-64 | `ironflow-v<version>-x86_64-pc-windows-msvc.zip` |
 
-Choose the default archive for local JSON or SQLite state storage. For
+Choose the default archive for local SQLite (the default) or JSON state storage. For
 PostgreSQL or Redis storage, choose the matching archive with `-full` before
 `.tar.gz` or `.zip`. The full variant enables both storage backends; it does
 not bundle database servers. Linux ARM64 and Windows ARM64 native binaries
@@ -37,17 +37,17 @@ against its entry in `checksums-sha256.txt`:
 
 ```bash
 # Linux; replace the filename with the asset you downloaded.
-sha256sum ironflow-v1.20.0-x86_64-unknown-linux-musl.tar.gz
+sha256sum ironflow-v1.21.0-x86_64-unknown-linux-musl.tar.gz
 
 # macOS Apple Silicon; use x86_64-apple-darwin for an Intel Mac.
-shasum -a 256 ironflow-v1.20.0-aarch64-apple-darwin.tar.gz
+shasum -a 256 ironflow-v1.21.0-aarch64-apple-darwin.tar.gz
 ```
 
 Only continue if the hash matches. Extract your archive with `tar -xzf`, for
 example on Linux:
 
 ```bash
-tar -xzf ironflow-v1.20.0-x86_64-unknown-linux-musl.tar.gz
+tar -xzf ironflow-v1.21.0-x86_64-unknown-linux-musl.tar.gz
 ./ironflow --version
 ```
 
@@ -72,13 +72,13 @@ In PowerShell, verify the archive hash against its entry in
 `checksums-sha256.txt`, then extract it. Substitute the version you downloaded:
 
 ```powershell
-Get-FileHash .\ironflow-v1.20.0-x86_64-pc-windows-msvc.zip -Algorithm SHA256
+Get-FileHash .\ironflow-v1.21.0-x86_64-pc-windows-msvc.zip -Algorithm SHA256
 ```
 
 After confirming that the hash matches:
 
 ```powershell
-Expand-Archive .\ironflow-v1.20.0-x86_64-pc-windows-msvc.zip -DestinationPath .\ironflow
+Expand-Archive .\ironflow-v1.21.0-x86_64-pc-windows-msvc.zip -DestinationPath .\ironflow
 Set-Location .\ironflow
 .\ironflow.exe --version
 ```
@@ -108,7 +108,7 @@ manual Container workflow runs:
 | --- | --- |
 | `ghcr.io/skitsanos/ironflow:latest` | Most recently published build from `main`; the Quick Start default. |
 | `ghcr.io/skitsanos/ironflow:develop` | Most recently published build from `develop`; may include unreleased changes. |
-| `ghcr.io/skitsanos/ironflow:1.20.0` | Published image for the stable 1.20.0 release. |
+| `ghcr.io/skitsanos/ironflow:1.21.0` | Published image for the stable 1.21.0 release. |
 | `ghcr.io/skitsanos/ironflow:sha-<full-commit>` | A specific published source revision. |
 | `ghcr.io/skitsanos/ironflow@sha256:...` | An exact image digest for reproducible deployment. |
 
@@ -184,7 +184,7 @@ Updating the image does not repair an existing root-owned store directory.
 Stop all writers and back up the volume before an operator corrects ownership
 for the intended runtime UID, or select a new runtime-owned directory and
 migrate the retained state offline. Do not loosen the store's `0700` directory
-or `0600` file permissions. Reusing a JSON volume requires the same owning UID;
+or `0600` file permissions. Reusing a store volume requires the same owning UID;
 arbitrary-UID containers can initialize fresh volumes, while replicas should
 use the shared storage described in the [deployment guide](REPLICA_DEPLOYMENT.md).
 

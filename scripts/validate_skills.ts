@@ -1,13 +1,27 @@
 #!/usr/bin/env bun
+// Validate the canonical repository skills under `.agents/skills` and the
+// Claude entries under `.claude/skills`. A Claude entry that names a canonical
+// skill is a shim: it must point at an existing skill and stay thin (IF-169).
 
 import { basename, dirname, join } from "node:path";
 
 type YamlMap = Record<string, unknown>;
 
 const repository = join(import.meta.dir, "..");
-const skillGlob = new Bun.Glob(".agents/skills/*/SKILL.md");
+const canonicalGlob = new Bun.Glob(".agents/skills/*/SKILL.md");
+const claudeGlob = new Bun.Glob(".claude/skills/*/SKILL.md");
+const canonicalFields = new Set(["name", "description"]);
+const claudeFields = new Set([
+  "name",
+  "description",
+  "argument-hint",
+  "disable-model-invocation",
+  "user-invocable",
+  "allowed-tools",
+]);
+const canonicalReference = /\.agents\/skills\/[a-z0-9-]+\/SKILL\.md/g;
+const maxShimBodyLines = 15;
 const errors: string[] = [];
-let count = 0;
 
 function asMap(value: unknown, label: string): YamlMap | undefined {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -30,7 +44,11 @@ function parseYaml(source: string, label: string): YamlMap | undefined {
   }
 }
 
-function validateSkill(path: string, source: string): string | undefined {
+function validateSkill(
+  path: string,
+  source: string,
+  allowed: Set<string>,
+): { name: string; body: string } | undefined {
   const match = source.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]+)$/);
   if (!match) {
     errors.push(`${path}: expected YAML frontmatter and a non-empty body`);
@@ -40,9 +58,7 @@ function validateSkill(path: string, source: string): string | undefined {
   const frontmatter = parseYaml(match[1], `${path} frontmatter`);
   if (!frontmatter) return undefined;
 
-  const unexpected = Object.keys(frontmatter).filter(
-    (key) => key !== "name" && key !== "description",
-  );
+  const unexpected = Object.keys(frontmatter).filter((key) => !allowed.has(key));
   if (unexpected.length > 0) {
     errors.push(`${path}: unsupported frontmatter fields: ${unexpected.join(", ")}`);
   }
@@ -62,7 +78,7 @@ function validateSkill(path: string, source: string): string | undefined {
   if (source.includes("[TODO") || source.includes("TODO:")) {
     errors.push(`${path}: unresolved scaffold TODO`);
   }
-  return name;
+  return { name, body: match[2] };
 }
 
 async function validateInterface(skillPath: string, name: string): Promise<void> {
@@ -88,23 +104,58 @@ async function validateInterface(skillPath: string, name: string): Promise<void>
   }
 }
 
-const paths: string[] = [];
-for await (const path of skillGlob.scan({ cwd: repository, dot: true, onlyFiles: true })) {
-  paths.push(path);
+/// A Claude entry that names a canonical skill defers to it: the reference
+/// must resolve, and the body must not grow back into a second copy.
+async function validateShim(path: string, body: string): Promise<boolean> {
+  const references = new Set(body.match(canonicalReference) ?? []);
+  if (references.size === 0) return false;
+  for (const reference of references) {
+    if (!(await Bun.file(join(repository, reference)).exists())) {
+      errors.push(`${path}: references missing canonical skill ${reference}`);
+    }
+  }
+  const lines = body.split(/\r?\n/).filter((line) => line.trim().length > 0);
+  if (lines.length > maxShimBodyLines) {
+    errors.push(
+      `${path}: a shim must stay within ${maxShimBodyLines} non-empty lines (found ${lines.length})`,
+    );
+  }
+  if (/^#{1,6}\s/m.test(body)) {
+    errors.push(`${path}: a shim must not restate canonical sections under headings`);
+  }
+  return true;
 }
-paths.sort();
 
-for (const path of paths) {
-  count += 1;
-  const name = validateSkill(path, await Bun.file(join(repository, path)).text());
-  if (name) await validateInterface(path, name);
+async function collect(glob: Bun.Glob): Promise<string[]> {
+  const paths: string[] = [];
+  for await (const path of glob.scan({ cwd: repository, dot: true, onlyFiles: true })) {
+    paths.push(path);
+  }
+  return paths.sort();
 }
 
-if (count === 0) errors.push("no repository skills found under .agents/skills");
+const canonical = await collect(canonicalGlob);
+for (const path of canonical) {
+  const skill = validateSkill(path, await Bun.file(join(repository, path)).text(), canonicalFields);
+  if (skill) await validateInterface(path, skill.name);
+}
+if (canonical.length === 0) errors.push("no repository skills found under .agents/skills");
+
+let shims = 0;
+let standalone = 0;
+for (const path of await collect(claudeGlob)) {
+  const skill = validateSkill(path, await Bun.file(join(repository, path)).text(), claudeFields);
+  if (!skill) continue;
+  if (await validateShim(path, skill.body)) shims += 1;
+  else standalone += 1;
+}
 
 if (errors.length > 0) {
   for (const error of errors) console.error(`skill validation: ${error}`);
   process.exit(1);
 }
 
-console.log(`Skill validation passed: ${count} repository skills.`);
+console.log(
+  `Skill validation passed: ${canonical.length} repository skills, ${shims} Claude shims, `
+    + `${standalone} Claude-only skills.`,
+);

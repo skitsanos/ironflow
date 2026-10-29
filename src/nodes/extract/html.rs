@@ -2,6 +2,8 @@ mod content;
 
 use std::collections::BTreeMap;
 
+pub(crate) use content::NON_CONTENT_TAGS;
+
 use anyhow::Result;
 use async_trait::async_trait;
 
