@@ -7,7 +7,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts check`.
 
 - Total findings: 171
-- Active findings: 2
+- Active findings: 1
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
 | ID | Priority | Status | Area | Summary |
@@ -174,7 +174,7 @@ priority, area, and title. The registry is generated with
 | [IF-160](./IF-160.md) | P2 | Resolved | Validation resource lifecycle | Integration cleanup leaves anonymous PostgreSQL volumes |
 | [IF-161](./IF-161.md) | P1 | Resolved | Supply chain | GPL-3.0 html2md is linked into the MIT single binary |
 | [IF-162](./IF-162.md) | P1 | Resolved | Test architecture | One integration test binary per test file drives disk and CI compensation |
-| [IF-163](./IF-163.md) | P1 | Open | JSON storage | Default JSON state store re-implements database concerns over the filesystem |
+| [IF-163](./IF-163.md) | P1 | Resolved | JSON storage | Default JSON state store re-implements database concerns over the filesystem |
 | [IF-164](./IF-164.md) | P2 | Resolved | Binary size | Release binary carries 36 MB of embedded fonts and no release profile |
 | [IF-165](./IF-165.md) | P2 | Resolved | Architecture | Module-size gate optimizes file length while functions stay complex |
 | [IF-166](./IF-166.md) | P2 | Resolved | CI performance | CI re-runs the full suite in the feature job and rebuilds release to validate examples |

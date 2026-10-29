@@ -326,8 +326,8 @@ port 123); quote a value when it must remain a string. Configuration loading and
 
 IronFlow supports these state storage backends:
 
-- **json** (default) — File-based JSON storage in `store_dir`
-- **sqlite** — SQL storage in a local SQLite database
+- **sqlite** (default) — one SQLite database, `ironflow.sqlite`, created under `store_dir`; the directory is restricted to its owner on Unix, and transactions, indexes and keyset pagination come from the database
+- **json** — file-based JSON records in `store_dir`; maintenance-only since IF-163 and kept for existing store directories, selected explicitly with `IRONFLOW_STORE=json`
 - **postgres** — SQL storage in Postgres (requires a `-full` release binary or building with `--features postgres`)
 - **redis** — Redis-backed storage (requires a `-full` release binary or building with `--features redis`)
 
@@ -464,7 +464,7 @@ Or via environment variables (override config file):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `IRONFLOW_STORE` | `json` | Storage backend: `json`, `sqlite`, `postgres`, or `redis` |
+| `IRONFLOW_STORE` | `sqlite` | Storage backend: `sqlite`, `json`, `postgres`, or `redis` |
 | `IRONFLOW_STORE_URL` | SQLite auto path for `sqlite`; required for `postgres` | SQL store URL |
 | `IRONFLOW_EVENT_STORE` | `memory` | Event backend for `/runs/{id}/events`: `memory`, `sqlite`, `postgres`, or `redis` |
 | `IRONFLOW_EVENT_STORE_URL` | SQLite auto path for `sqlite`; required for `postgres` | SQL event store URL |
@@ -476,7 +476,7 @@ Or via environment variables (override config file):
 | `REDIS_PREFIX` | `ironflow:` | Key prefix for Redis keys |
 | `REDIS_TTL` | — | TTL seconds for Redis run/event keys and event-deletion fences: `1..=99,999,999,999` (no expiration if unset). State mutations and event publishes refresh their keys; the first successful event deletion sets the fence expiry, while same-owner retries preserve that original lifetime. |
 
-When `IRONFLOW_STORE=sqlite` and no URL is configured, IronFlow creates `ironflow.sqlite` under `IRONFLOW_STORE_DIR`.
+When the state backend is `sqlite` (the default) and no URL is configured, IronFlow creates `ironflow.sqlite` under `IRONFLOW_STORE_DIR`, creating that directory with owner-only permissions on Unix and refusing a symbolic link in its place. Existing JSON store directories keep working with `IRONFLOW_STORE=json`; there is no automatic import between backends, so a deployment that switches backends starts with an empty run history unless it keeps the old selection.
 When `IRONFLOW_EVENT_STORE=sqlite` and no URL is configured, IronFlow creates `ironflow-events.sqlite` under `IRONFLOW_STORE_DIR`.
 Run state and run events are configured separately, so a deployment can store run records in one backend and stream event replay from another. Redis event storage is available behind `--features redis` and uses `REDIS_URL`, `REDIS_PREFIX`, and optional `REDIS_TTL`.
 Redis state mutations use revision-token compare-and-swap, while event payload/cursor publication is one idempotent Lua operation. These guarantees apply per operation; state and event writes are not a single transaction. The current multi-key layout supports standalone Redis, not Redis Cluster.
@@ -1066,7 +1066,7 @@ start.
 | `HOST` | `0.0.0.0` | Server bind address |
 | `PORT` | `3000` | Server listen port |
 | `IRONFLOW_STORE_DIR` | `data/runs` | State store directory |
-| `IRONFLOW_STORE` | `json` | State store backend: `json`, `sqlite`, `postgres`, or `redis` |
+| `IRONFLOW_STORE` | `sqlite` | State store backend: `sqlite`, `json`, `postgres`, or `redis` |
 | `IRONFLOW_STORE_URL` | SQLite auto path for `sqlite`; required for `postgres` | SQL store URL |
 | `IRONFLOW_EVENT_STORE` | `memory` | Event backend for `/runs/{id}/events`: `memory`, `sqlite`, `postgres`, or `redis` |
 | `IRONFLOW_EVENT_STORE_URL` | SQLite auto path for `sqlite`; required for `postgres` | SQL event store URL |

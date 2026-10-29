@@ -74,14 +74,36 @@ pub(super) fn resolve_url(
     if backend != "sqlite" {
         anyhow::bail!("Unsupported SQL backend");
     }
-    std::fs::create_dir_all(store_dir)
-        .with_context(|| format!("Failed to create store dir: {}", store_dir.display()))?;
+    create_private_store_dir(store_dir)?;
     let filename = match kind {
         SqlStoreKind::State => "ironflow.sqlite",
         SqlStoreKind::Event => "ironflow-events.sqlite",
     };
     let path = store_dir.join(filename);
     Ok(format!("sqlite://{}?mode=rwc", path.to_string_lossy()))
+}
+
+/// Create the directory that holds the default SQLite files. Run records carry
+/// workflow context, so the directory is owner-only on Unix, like the JSON
+/// store's root, and must be a real directory rather than a symbolic link.
+fn create_private_store_dir(store_dir: &Path) -> Result<()> {
+    std::fs::create_dir_all(store_dir)
+        .with_context(|| format!("Failed to create store dir: {}", store_dir.display()))?;
+    let metadata = std::fs::symlink_metadata(store_dir)
+        .with_context(|| format!("Failed to inspect store dir: {}", store_dir.display()))?;
+    if !metadata.is_dir() {
+        anyhow::bail!(
+            "Store dir must be a real directory, not a symbolic link or file: {}",
+            store_dir.display()
+        );
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(store_dir, std::fs::Permissions::from_mode(0o700))
+            .with_context(|| format!("Failed to restrict store dir: {}", store_dir.display()))?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

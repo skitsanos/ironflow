@@ -5,7 +5,7 @@ const image = Bun.argv[2];
 if (!image || image.startsWith("-")) {
   throw new Error("Usage: bun --no-env-file scripts/test_container_store.ts <image>");
 }
-const prefix = `ironflow-json-smoke-${randomUUID()}`;
+const prefix = `ironflow-store-smoke-${randomUUID()}`;
 const containers = new Set<string>();
 const volumes = new Set<string>();
 const children = new Set<ReturnType<typeof Bun.spawn>>();
@@ -82,6 +82,10 @@ try {
     }
     const mode = await docker(["exec", name, "stat", "-c", "%u:%a", "/data/runs"]);
     if (mode !== `${uid}:700`) throw new Error(`Unexpected private store ownership/mode: ${mode}`);
+    // IF-163: the default backend is SQLite; the store holds one database, no JSON records.
+    const entries = (await docker(["exec", name, "ls", "/data/runs"])).split("\n");
+    if (!entries.includes("ironflow.sqlite")) throw new Error(`Default SQLite store missing: ${entries.join(" ")}`);
+    if (entries.some(entry => entry.endsWith(".json"))) throw new Error(`Default store wrote JSON records: ${entries.join(" ")}`);
     await docker(["stop", name]);
     await docker(["rm", name]);
     containers.delete(name);
@@ -95,7 +99,7 @@ try {
     if (!inspected.includes(result.run_id) || !inspected.toLowerCase().includes("success")) {
       throw new Error(`UID ${uid}: persisted run was not readable after server removal`);
     }
-    console.log(`PASS UID ${uid}: default JSON store, mode 0700, execution and restart persistence`);
+    console.log(`PASS UID ${uid}: default SQLite store, mode 0700, execution and restart persistence`);
   }
 } finally {
   await cleanup();

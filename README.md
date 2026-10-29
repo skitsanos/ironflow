@@ -82,7 +82,7 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 | Shared context | Lua table backed by Rust HashMap, serialized as JSON |
 | DAG resolution | Topological sort with cycle detection (Kahn's algorithm) |
 | Parallel execution | Steps without dependencies run concurrently via Tokio |
-| State persistence | Rust trait with JSON and SQLite backends; optional PostgreSQL and Redis features |
+| State persistence | Rust trait with SQLite (default) and JSON backends; optional PostgreSQL and Redis features |
 
 ## Features
 
@@ -145,8 +145,8 @@ return flow
 ```
 
 You should see `Hello from IronFlow!` and a completed workflow. On Windows,
-use `.\ironflow.exe` in place of `./ironflow`. Run history is saved under
-`data/runs` in your working directory.
+use `.\ironflow.exe` in place of `./ironflow`. Run history is saved in a SQLite
+database under `data/runs` in your working directory.
 
 ### Or start with Docker
 
@@ -313,7 +313,8 @@ instead of an array of full run records. API, CLI, and Rust-library consumers
 must migrate together. See the [CLI reference](docs/CLI_REFERENCE.md#run-listing)
 for the exact old-to-new mapping.
 
-The default JSON state backend rejects symlinked store roots, run records, and
+The JSON state backend (`IRONFLOW_STORE=json`; SQLite is the default since
+IF-163) rejects symlinked store roots, run records, and
 summary entries, and publishes each file through a same-directory temporary file.
 The main record is authoritative: main and summary files carry the same opaque
 revision and SHA-256 digest of the public summary. Listing accepts a sidecar
@@ -339,9 +340,10 @@ binds the base generation and delta revision, so missing, dirty, stale, or
 malformed metadata rebuilds automatically from authoritative primaries. Stop
 all writers when upgrading or downgrading across this state format. For an
 explicit offline repair and compaction, stop writers and call
-`JsonStateStore::rebuild_run_summary_catalog()`. The JSON backend remains a
-moderate-cardinality local store; prefer SQL or Redis for sustained high-write
-workloads.
+`JsonStateStore::rebuild_run_summary_catalog()`. The JSON backend is
+maintenance-only: it keeps existing store directories working and gains no new
+features, and it remains a moderate-cardinality local store. New deployments
+use the default SQLite backend, or PostgreSQL and Redis for shared storage.
 
 On Unix, its directory is mode `0700` and committed files are `0600`; other
 platforms require equivalent operator-managed ACLs. See the precise filesystem
@@ -660,7 +662,7 @@ so source and package-version changes retain the dependency layer, backed by a
 dedicated GHCR BuildKit cache with `mode=max`. Successful builds also update
 `:latest` on `main` and `:develop` on `develop` for convenient local use. Before
 publishing any tag, the Container workflow executes a workflow with the default
-JSON store under both the default UID and an arbitrary UID, verifies private
+SQLite store under both the default UID and an arbitrary UID, verifies private
 store permissions, and checks persistence after container removal. Run the
 same check locally with `bun --no-env-file scripts/test_container_store.ts <image>`.
 The mutable

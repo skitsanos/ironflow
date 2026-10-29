@@ -38,7 +38,7 @@ RUN cargo build --release --locked --features "${FEATURES}" --bin ironflow
 
 FROM debian:bookworm-slim AS runtime
 
-# Leave the private JSON store absent so the runtime UID creates and owns it.
+# Leave the private store directory absent so the runtime UID creates and owns it.
 # Root-group write access alone cannot chmod a root-owned store to 0700.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl \

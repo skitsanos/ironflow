@@ -17,6 +17,7 @@
 - Keep async runtime threads free of blocking filesystem, archive, parsing, database-driver, or process work. Use the existing blocking/cancellation bridges and retain admission permits until physical work stops.
 - Treat Lua, paths, URLs, archives, provider responses, storage records, and environment configuration as untrusted input. Enforce limits before materialization and keep secrets out of errors and logs.
 - Avoid new dependencies when the standard library or an existing dependency is sufficient. Do not weaken `.cargo/audit.toml` without documenting and reviewing the advisory.
+- The JSON state store (`src/storage/json_store`) is maintenance-only since IF-163: fix defects and keep the `StateStore` contract, but add no features. SQLite is the default backend; new storage behavior belongs to the SQL and Redis stores.
 
 ## Documentation and examples
 

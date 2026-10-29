@@ -19,7 +19,7 @@ release version; `<version>` below stands for that version, such as `1.20.0`.
 | macOS Intel | `ironflow-v<version>-x86_64-apple-darwin.tar.gz` |
 | Windows x86-64 | `ironflow-v<version>-x86_64-pc-windows-msvc.zip` |
 
-Choose the default archive for local JSON or SQLite state storage. For
+Choose the default archive for local SQLite (the default) or JSON state storage. For
 PostgreSQL or Redis storage, choose the matching archive with `-full` before
 `.tar.gz` or `.zip`. The full variant enables both storage backends; it does
 not bundle database servers. Linux ARM64 and Windows ARM64 native binaries
@@ -184,7 +184,7 @@ Updating the image does not repair an existing root-owned store directory.
 Stop all writers and back up the volume before an operator corrects ownership
 for the intended runtime UID, or select a new runtime-owned directory and
 migrate the retained state offline. Do not loosen the store's `0700` directory
-or `0600` file permissions. Reusing a JSON volume requires the same owning UID;
+or `0600` file permissions. Reusing a store volume requires the same owning UID;
 arbitrary-UID containers can initialize fresh volumes, while replicas should
 use the shared storage described in the [deployment guide](REPLICA_DEPLOYMENT.md).
 

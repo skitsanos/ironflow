@@ -61,6 +61,12 @@ fn ensure_postgres_feature(store_kind: &str) -> Result<()> {
     }
 }
 
+/// The state backend used when neither `IRONFLOW_STORE` nor `store_backend`
+/// selects one. SQLite (IF-163): one database file under the store directory,
+/// with transactions, indexes and keyset pagination from the engine itself.
+/// Existing JSON store directories keep working with `IRONFLOW_STORE=json`.
+pub const DEFAULT_STATE_BACKEND: &str = "sqlite";
+
 /// Create a state store based on configuration.
 ///
 /// Selects a state store backend.
@@ -70,7 +76,7 @@ fn ensure_postgres_feature(store_kind: &str) -> Result<()> {
 pub async fn create_store(cfg: &IronFlowConfig, store_dir: &Path) -> Result<Arc<dyn StateStore>> {
     let backend = environment_string("IRONFLOW_STORE")?
         .or_else(|| cfg.store_backend.clone())
-        .unwrap_or_else(|| "json".to_string());
+        .unwrap_or_else(|| DEFAULT_STATE_BACKEND.to_string());
 
     create_store_for_backend(&backend, cfg, store_dir).await
 }
@@ -81,13 +87,13 @@ async fn create_store_for_backend(
     store_dir: &Path,
 ) -> Result<Arc<dyn StateStore>> {
     match backend {
-        "json" => Ok(json_state_store(store_dir)),
         "sqlite" => sqlite_state_store(cfg, store_dir).await,
+        "json" => Ok(json_state_store(store_dir)),
         "postgres" => postgres_state_store(cfg, store_dir).await,
         "redis" => redis_state_store(cfg).await,
         other => {
             anyhow::bail!(
-                "Unknown state store backend '{}'. Use one of: json, sqlite, postgres, redis",
+                "Unknown state store backend '{}'. Use one of: sqlite, json, postgres, redis",
                 other
             );
         }

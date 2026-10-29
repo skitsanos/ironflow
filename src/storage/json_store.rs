@@ -1,3 +1,11 @@
+//! File-based state store, selected with `IRONFLOW_STORE=json`.
+//!
+//! Maintenance-only since IF-163 (2026-10-29): SQLite is the default backend.
+//! Defects in this store are fixed and the `StateStore` contract is kept, but
+//! no new catalog, paging or layout features land here; new storage behavior
+//! belongs to the SQL and Redis stores. Existing JSON store directories keep
+//! working unchanged under the explicit selection.
+
 use std::collections::HashMap;
 use std::sync::Arc;
 #[cfg(test)]
