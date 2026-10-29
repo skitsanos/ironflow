@@ -1107,7 +1107,7 @@ running under the same OS identity from mutating the leased inode.
   timing order and can vary between runs; event order does not define context
   collision precedence.
 - Configurable via environment variable:
-  - `IRONFLOW_MAX_CONCURRENT_TASKS` (default: num_cpus)
+  - `IRONFLOW_MAX_CONCURRENT_TASKS` (default: the host's available parallelism)
 - Async cancellation drops the active node future. CPU-bound Lua work receives
   a cooperative cancellation flag while running on the blocking pool. ZIP
   traversal, parsing, compression, and copying use tracked blocking workers;
