@@ -8,7 +8,7 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 
 | ID | Priority | Status | Area | Summary |
 |---|---:|---|---|---|
-| [IF-169](docs/issues/IF-169.md) | P2 | In progress | Repository process | Repository governance tooling outweighs the code it governs |
+| — | — | — | — | No active findings |
 
 ## Working agreement
 
