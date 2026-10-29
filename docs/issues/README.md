@@ -6,7 +6,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts generate` and verified with
 `bun run scripts/issues_registry.ts check`.
 
-- Total findings: 171
+- Total findings: 172
 - Active findings: 0
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
@@ -183,3 +183,4 @@ priority, area, and title. The registry is generated with
 | [IF-169](./IF-169.md) | P2 | Resolved | Repository process | Repository governance tooling outweighs the code it governs |
 | [IF-170](./IF-170.md) | P3 | Resolved | Docs | Documentation and repository hygiene drift |
 | [IF-171](./IF-171.md) | P3 | Resolved | Supply chain | Dependency and lint hygiene: unpinned actions, duplicate crates, unguarded unwraps |
+| [IF-172](./IF-172.md) | P1 | Resolved | Validation workflow | Full pre-push gate outlives GitHub's SSH idle timeout, so a gated develop push cannot complete |

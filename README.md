@@ -633,8 +633,10 @@ and alias handling follow the [Codex hook contract](https://learn.chatgpt.com/do
 
 Before a `develop` push, the pre-push hook fails closed unless the worktree is
 clean, no open pull request targets `develop`, remote `develop` is integrated,
-and the committed version is a new `X.Y.Z-dev.N`. It then runs the full local
-integration gate, including disposable Redis and PostgreSQL tests. Start or
+and the committed version is a new `X.Y.Z-dev.N`. It then requires a receipt
+from a `scripts/integration_gate.sh` run on the exact tree being pushed: run
+the full local gate first, including its disposable Redis and PostgreSQL tests,
+because the gate cannot finish inside the push's SSH session. Start or
 advance a candidate with:
 
 ```bash

@@ -302,8 +302,8 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
   Clippy and tests, fmt, Linux/macOS builds, validate examples) — runs on pushes
   and pull requests to `develop` and `main` (plus explicit manual dispatch),
   with path filters covering code, documentation, examples, and repository policy.
-  Routine work uses focused local checks; `.githooks/pre-push` runs the full
-  integration gate before `develop`.
+  Routine work uses focused local checks; a `develop` push requires a receipt
+  from a passing `scripts/integration_gate.sh` run on the pushed tree.
   Linux example validation reuses the release-build artifact without waiting
   for macOS or recompiling it. Container publication separates a cargo-chef
   dependency layer from source and package-version changes and exports it to a

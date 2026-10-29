@@ -44,8 +44,9 @@ Run `scripts/integration_gate.sh`, which includes the complete
 live Redis/PostgreSQL suites. Every gate must pass. Do not proceed on skipped
 required tests or by adding new audit/module-size exceptions without review.
 `.githooks/pre-push` independently checks incoming PRs, worktree cleanliness,
-remote ancestry, the development version, and the full gate; never set
-`IRONFLOW_PREPUSH_GATE=fast` for a release candidate.
+remote ancestry, the development version, and the integration gate receipt for
+the pushed tree (run the gate first; it cannot finish inside the push); never
+set `IRONFLOW_PREPUSH_GATE=fast` for a release candidate.
 
 ## 4. Propose the version
 

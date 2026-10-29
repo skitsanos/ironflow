@@ -138,4 +138,10 @@ DATABASE_URL="postgres://postgres:$postgres_password@127.0.0.1:$postgres_port/ir
 echo "[integration] TLS-only storage and certificate rejection"
 bun --no-env-file scripts/test_store_tls.ts target/debug/ironflow
 
+# IF-172: the develop pre-push hook accepts this receipt instead of re-running
+# the gate inside the push's SSH session, which GitHub closes before it ends.
+echo "[integration] recording the gate receipt"
+bun --no-env-file scripts/gate_receipt.ts write \
+  || echo "[integration] no receipt recorded: commit the worktree and rerun the gate before a develop push" >&2
+
 echo "IronFlow full integration gate passed."

@@ -39,14 +39,17 @@ fi
 echo "IronFlow develop pre-push: checking committed development version"
 bun run scripts/development_version.ts check "$develop_local" "$develop_remote"
 
-# IRONFLOW_PREPUSH_GATE=fast keeps a develop push honest but quick: formatting,
-# repository policy, default Clippy and the example and CLI binaries. The full
-# gate stays mandatory before merging a release branch or cutting a release
-# (scripts/integration_gate.sh, run by the release skill).
+# The full gate cannot run inside the push: GitHub closes the idle SSH session
+# long before scripts/integration_gate.sh finishes (IF-172). A passing gate
+# records a receipt for the tree it validated, and the default mode accepts
+# only a fresh receipt for the commit being pushed. IRONFLOW_PREPUSH_GATE=fast
+# keeps an intermediate develop push honest but quick: formatting, repository
+# policy, default Clippy and the example and CLI binaries. The full gate stays
+# mandatory before merging a release branch or cutting a release.
 case "${IRONFLOW_PREPUSH_GATE:-full}" in
   full)
-    echo "IronFlow develop pre-push: running full integration gate"
-    scripts/integration_gate.sh
+    echo "IronFlow develop pre-push: checking the integration gate receipt for the pushed commit"
+    bun --no-env-file scripts/gate_receipt.ts check "$develop_local"
     ;;
   fast)
     echo "IronFlow develop pre-push: IRONFLOW_PREPUSH_GATE=fast; run scripts/integration_gate.sh before merging or releasing"
