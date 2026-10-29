@@ -26,6 +26,12 @@
 - Classify old plans and investigation notes honestly; do not present historical evidence as the current runtime contract.
 - After changing issue metadata or records, run `bun run scripts/issues_registry.ts generate` and then `bun run scripts/issues_registry.ts check`.
 
+## Repository tooling
+
+- `.agents/skills/` holds the canonical repository skills (`check-ironflow`, `release-ironflow`, `resolve-ironflow-issue`). `.claude/skills/check` and `.claude/skills/release-workflow` are thin shims that defer to them: edit the canonical skill, never the shim. `bun run scripts/validate_skills.ts` validates both and rejects a shim that names a missing skill, exceeds 15 non-empty lines, or restates sections. `.codex/` holds only the Codex hooks (`protect_paths.py`, `session_context.py`) and their manifest.
+- Every script has one of four reasons to exist: gates (`check_module_size.py`, `check_licenses.ts`, `validate_skills.ts`, `issues_registry.ts`, `development_version.ts`, `check_incoming_prs.ts`, `integration_gate.sh`), the bounded test runner (`test_rust_targets.ts`), live-service acceptance (`test_store_tls.ts` with `storage_tls/`, `test_container_store.ts`, `test_arango_typed_binds.ts`, `test_public_tls.ts`, `replica_acceptance.ts`), and release automation (`tag_container_release.ts`). `extraction_benchmark.ts` is a developer benchmark, not a gate.
+- `scripts/tests/` is the single policy test entry: `python3 -B -m unittest discover -s scripts/tests -p 'test_*.py'` covers the Codex hooks, the pre-commit hook and the module-size checker; `bun test scripts/tests/*.test.ts` covers the scripts and repository policy. A policy test must protect behavior (version arithmetic, registry parsing, cleanup traps, target selection, supply-chain pins); do not add tests that only restate YAML, TOML or shell text. The keep/merge/delete inventory is recorded in `docs/issues/IF-169.md`.
+
 ## Validation
 
 - Do not run tests or Clippy merely because a file was saved. During ordinary work, run only the tests and validators relevant to the behavior changed, including negative and cancellation cases where appropriate.
@@ -35,7 +41,7 @@
 - For docs, examples, hooks, skills, or workflows without Rust changes, run only their relevant validators. Run `cargo test --doc` after public Rust API documentation changes, and `cargo audit --deny warnings` plus `bun --no-env-file scripts/check_licenses.ts` after dependency or security-sensitive changes.
 - Validate affected Lua examples after docs/example-only changes. Validate every Lua example only after node registration, Lua runtime, or broad public workflow changes, or at the integration boundary.
 - Run `actionlint .github/workflows/*.yml` after workflow changes when `actionlint` is available.
-- Run `bun run scripts/validate_skills.ts` after changing repository skills. Repository-owned YAML validation must use Bun and must not add a Python YAML dependency.
+- Run `bun run scripts/validate_skills.ts` after changing repository skills or their Claude shims. Repository-owned YAML validation must use Bun and must not add a Python YAML dependency.
 - Storage integration tests are destructive. Use disposable, explicitly named Redis/PostgreSQL instances with required-test flags; never use a shared or production service and remove only the containers created for the test.
 - Never expose values from `.env`. Treat `.env`, `.env.*` other than `.env.example`, private keys, `secrets/`, and `.git/` as protected paths.
 

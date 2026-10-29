@@ -22,6 +22,8 @@ describe("repository integration policy", () => {
       (push["paths-ignore"] as string[]).some((pattern) => new Bun.Glob(pattern).match(path));
     expect(ignored("README.md")).toBeTrue();
     expect(ignored(".claude/settings.json")).toBeTrue();
+    // IF-169: Claude skill shims are validated by the policy job.
+    expect(ignored(".claude/skills/check/SKILL.md")).toBeFalse();
     expect(ignored("src/main.rs")).toBeFalse();
     expect(ignored("Cargo.lock")).toBeFalse();
   });
@@ -63,14 +65,15 @@ describe("repository integration policy", () => {
       }>;
     };
     for (const event of ["push", "pull_request"]) {
-      for (const path of [".codex/config.toml", ".codex/hooks.json", ".codex/hooks/tests/test_hooks.py", ".githooks/pre-commit"]) {
+      for (const path of [".codex/config.toml", ".codex/hooks.json", "scripts/tests/test_codex_hooks.py", ".githooks/pre-commit"]) {
         expect(workflow.on[event]["paths-ignore"].some((pattern) => new Bun.Glob(pattern).match(path))).toBeFalse();
       }
     }
     const job = workflow.jobs.policy;
     expect(job["continue-on-error"]).not.toBeTrue();
+    // IF-169: one Python policy entry covers the Codex hooks, the pre-commit
+    // hook and the module-size checker.
     for (const command of [
-      "python3 -B -m unittest discover -s .codex/hooks/tests -p 'test_*.py' -v",
       "python3 -B -m unittest discover -s scripts/tests -p 'test_*.py' -v",
       "python3 -B scripts/check_module_size.py",
       "sh -n .githooks/pre-commit",

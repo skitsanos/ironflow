@@ -9,10 +9,10 @@ import unittest
 from pathlib import Path
 
 
-HOOKS = Path(__file__).resolve().parents[1]
+REPOSITORY = Path(__file__).resolve().parents[2]
+HOOKS = REPOSITORY / ".codex" / "hooks"
 PROTECT_PATHS = HOOKS / "protect_paths.py"
 SESSION_CONTEXT = HOOKS / "session_context.py"
-REPOSITORY = HOOKS.parents[1]
 
 
 def run_hook(script: Path, payload: dict[str, object]) -> subprocess.CompletedProcess[str]:

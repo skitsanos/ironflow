@@ -6,14 +6,16 @@ on:
     paths-ignore:
       - "README.md"
       - "LICENSE*"
-      - ".claude/**"
+      - ".claude/settings.json"
+      - ".claude/hooks/**"
       - ".gitignore"
   pull_request:
     branches: [main, develop]
     paths-ignore:
       - "README.md"
       - "LICENSE*"
-      - ".claude/**"
+      - ".claude/settings.json"
+      - ".claude/hooks/**"
       - ".gitignore"
   workflow_dispatch:
 
@@ -43,10 +45,8 @@ jobs:
       - run: bun run scripts/validate_skills.ts
       - run: bun run scripts/issues_registry.ts check
       - run: bun test scripts/tests/*.test.ts
-      - name: Test repository hooks and module-size checker
-        run: |
-          python3 -B -m unittest discover -s .codex/hooks/tests -p 'test_*.py' -v
-          python3 -B -m unittest discover -s scripts/tests -p 'test_*.py' -v
+      - name: Test repository hooks, scripts and the module-size checker
+        run: python3 -B -m unittest discover -s scripts/tests -p 'test_*.py' -v
       - name: Enforce production module-size policy
         run: python3 -B scripts/check_module_size.py
       - name: Check hook and gate script syntax
