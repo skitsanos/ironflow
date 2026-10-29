@@ -1,0 +1,8 @@
+# IF-165: function-level limits complement the module-size gate. The gate
+# bounds files; these bound the functions inside them. `src/lib.rs` and
+# `src/main.rs` enable `too_many_lines` and `cognitive_complexity` as warnings,
+# which the required `cargo clippy --all-targets -- -D warnings` promotes to
+# errors. Refactor or add a scoped allowance naming the single responsibility;
+# never raise a threshold to pass the gate.
+too-many-lines-threshold = 100
+cognitive-complexity-threshold = 25

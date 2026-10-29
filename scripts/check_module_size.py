@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Enforce IronFlow's reviewed Rust production-module size ratchet."""
+"""Enforce IronFlow's reviewed Rust production-module size ratchet.
+
+Test-only files are excluded by path convention (IF-165): `tests.rs`,
+`*_tests.rs`, `test_support.rs`, and anything under a `tests/` or
+`test_support/` directory. A reviewed module that shrinks is reported as a
+warning; `--ratchet` rewrites the policy so the improvement cannot regress.
+"""
 
 from __future__ import annotations
 
@@ -16,6 +22,8 @@ REPORT_COUNT = 20
 MAX_EXCEPTION_BUDGET = 14
 DEFAULT_POLICY = Path("scripts/module_size_policy.json")
 MIN_RATIONALE_LENGTH = 20
+TEST_FILE_NAMES = frozenset({"tests.rs", "test_support.rs"})
+TEST_DIRECTORY_NAMES = frozenset({"tests", "test_support"})
 REVIEW_NOTE = (
     "LOC is a review trigger, not a design score: review responsibility boundaries, "
     "cognitive complexity, and useful test extraction before changing an exception."
@@ -42,6 +50,25 @@ class ModuleSize:
 class Policy:
     exception_budget: int
     rules: dict[str, ExceptionRule]
+
+
+@dataclass(frozen=True)
+class Scan:
+    production: list[ModuleSize]
+    excluded_tests: int
+
+
+@dataclass(frozen=True)
+class Evaluation:
+    violations: list[str]
+    warnings: list[str]
+
+
+def is_test_module(path: PurePosixPath) -> bool:
+    """Test-only Rust files by path convention; the gate does not scan them."""
+    if path.name in TEST_FILE_NAMES or path.name.endswith("_tests.rs"):
+        return True
+    return any(part in TEST_DIRECTORY_NAMES for part in path.parts[:-1])
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -85,6 +112,10 @@ def _validated_exception(raw: object, index: int) -> tuple[str, ExceptionRule]:
         or any(part in {"", ".", ".."} for part in parsed.parts)
     ):
         raise PolicyError(f"{location}.path must be a normalized src/**/*.rs path")
+    if is_test_module(parsed):
+        raise PolicyError(
+            f"{location}.path is a test-only module, which the production gate does not scan"
+        )
 
     max_lines = raw["max_lines"]
     if type(max_lines) is not int or not TARGET_LINES < max_lines <= HARD_LIMIT_LINES:
@@ -140,15 +171,28 @@ def load_policy(path: Path) -> Policy:
     return Policy(exception_budget=budget, rules=rules)
 
 
+def write_policy(path: Path, policy: Policy) -> None:
+    document = {
+        "version": 1,
+        "exception_budget": policy.exception_budget,
+        "exceptions": [
+            {"path": module, "max_lines": rule.max_lines, "rationale": rule.rationale}
+            for module, rule in sorted(policy.rules.items())
+        ],
+    }
+    path.write_text(json.dumps(document, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
 def count_physical_lines(data: bytes) -> int:
     return data.count(b"\n") + int(bool(data) and not data.endswith(b"\n"))
 
 
-def scan_modules(root: Path) -> list[ModuleSize]:
+def scan_modules(root: Path) -> Scan:
     source_root = root / "src"
     if source_root.is_symlink() or not source_root.is_dir():
         raise PolicyError(f"Rust source root does not exist: {source_root}")
     modules = []
+    excluded_tests = 0
     pending = [source_root]
     while pending:
         directory = pending.pop()
@@ -168,18 +212,22 @@ def scan_modules(root: Path) -> list[ModuleSize]:
                 continue
             if path.suffix != ".rs":
                 continue
+            relative = PurePosixPath(path.relative_to(root).as_posix())
+            if is_test_module(relative):
+                excluded_tests += 1
+                continue
             try:
                 lines = count_physical_lines(path.read_bytes())
             except OSError as error:
                 raise PolicyError(f"cannot read {path}: {error}") from error
-            modules.append(ModuleSize(path.relative_to(root).as_posix(), lines))
-    return sorted(modules, key=lambda module: (-module.lines, module.path))
+            modules.append(ModuleSize(str(relative), lines))
+    production = sorted(modules, key=lambda module: (-module.lines, module.path))
+    return Scan(production=production, excluded_tests=excluded_tests)
 
 
-def evaluate(
-    modules: list[ModuleSize], rules: dict[str, ExceptionRule]
-) -> list[str]:
+def evaluate(modules: list[ModuleSize], rules: dict[str, ExceptionRule]) -> Evaluation:
     violations: list[str] = []
+    warnings: list[str] = []
     sizes = {module.path: module.lines for module in modules}
     for path in rules.keys() - sizes.keys():
         violations.append(f"{path}: exception is stale because the module does not exist")
@@ -202,33 +250,68 @@ def evaluate(
                 f"{rule.max_lines}-line ceiling"
             )
         elif rule is not None and module.lines <= TARGET_LINES:
-            violations.append(
-                f"{module.path}: now fits the {TARGET_LINES}-line target; remove its stale exception"
+            warnings.append(
+                f"{module.path}: now fits the {TARGET_LINES}-line target; "
+                "its exception is stale"
             )
         elif rule is not None and module.lines < rule.max_lines:
-            violations.append(
-                f"{module.path}: shrank to {module.lines} lines; lower its reviewed "
-                f"{rule.max_lines}-line ceiling so the improvement cannot regress"
+            warnings.append(
+                f"{module.path}: shrank to {module.lines} lines below its reviewed "
+                f"{rule.max_lines}-line ceiling"
             )
-    return sorted(violations)
+    return Evaluation(violations=sorted(violations), warnings=sorted(warnings))
 
 
-def run_check(root: Path, policy_path: Path, stream: TextIO) -> int:
+def ratchet(policy: Policy, modules: list[ModuleSize]) -> Policy:
+    """Lower shrunken ceilings to the current size and drop exceptions that fit the target."""
+    sizes = {module.path: module.lines for module in modules}
+    rules: dict[str, ExceptionRule] = {}
+    for path, rule in policy.rules.items():
+        lines = sizes.get(path)
+        if lines is None:
+            rules[path] = rule
+        elif lines <= TARGET_LINES:
+            continue
+        elif lines < rule.max_lines:
+            rules[path] = ExceptionRule(max_lines=lines, rationale=rule.rationale)
+        else:
+            rules[path] = rule
+    return Policy(exception_budget=len(rules), rules=rules)
+
+
+def run_check(root: Path, policy_path: Path, stream: TextIO, apply_ratchet: bool = False) -> int:
     policy = load_policy(policy_path)
+    scan = scan_modules(root)
+    evaluation = evaluate(scan.production, policy.rules)
+    if apply_ratchet and evaluation.warnings:
+        policy = ratchet(policy, scan.production)
+        write_policy(policy_path, policy)
+        print(
+            f"Lowered reviewed ceilings in {policy_path}: "
+            f"{len(evaluation.warnings)} exception(s) ratcheted.",
+            file=stream,
+        )
+        evaluation = evaluate(scan.production, policy.rules)
     rules = policy.rules
-    modules = scan_modules(root)
-    violations = evaluate(modules, rules)
 
-    print(f"Largest Rust production modules ({len(modules)} scanned):", file=stream)
-    for module in modules[:REPORT_COUNT]:
+    print(
+        f"Largest Rust production modules ({len(scan.production)} scanned, "
+        f"{scan.excluded_tests} test-only files excluded by path convention):",
+        file=stream,
+    )
+    for module in scan.production[:REPORT_COUNT]:
         rule = rules.get(module.path)
         annotation = f" [reviewed ceiling: {rule.max_lines}]" if rule else ""
         print(f"{module.lines:4}  {module.path}{annotation}", file=stream)
     print(REVIEW_NOTE, file=stream)
 
-    if violations:
+    if evaluation.warnings:
+        print("Module-size policy warnings (run with --ratchet to record them):", file=stream)
+        for warning in evaluation.warnings:
+            print(f"- {warning}", file=stream)
+    if evaluation.violations:
         print("Module-size policy violations:", file=stream)
-        for violation in violations:
+        for violation in evaluation.violations:
             print(f"- {violation}", file=stream)
         return 1
     print(
@@ -245,6 +328,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=repository)
     parser.add_argument("--policy", type=Path, default=DEFAULT_POLICY)
+    parser.add_argument(
+        "--ratchet",
+        action="store_true",
+        help="rewrite the policy so shrunken reviewed modules cannot regress",
+    )
     return parser.parse_args(argv)
 
 
@@ -255,7 +343,7 @@ def main(argv: list[str] | None = None) -> int:
     if not policy_path.is_absolute():
         policy_path = root / policy_path
     try:
-        return run_check(root, policy_path, sys.stdout)
+        return run_check(root, policy_path, sys.stdout, apply_ratchet=args.ratchet)
     except PolicyError as error:
         print(f"Invalid module-size policy: {error}", file=sys.stderr)
         return 2

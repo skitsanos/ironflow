@@ -3,6 +3,10 @@
 // infallible (IF-171); test modules are exempt.
 #![warn(clippy::unwrap_used, clippy::expect_used)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+// Functions stay within the thresholds in `clippy.toml` (IF-165). A scoped
+// allowance names the single responsibility that justifies the length.
+#![warn(clippy::too_many_lines, clippy::cognitive_complexity)]
+#![cfg_attr(test, allow(clippy::too_many_lines, clippy::cognitive_complexity))]
 
 pub mod api;
 pub mod artifacts;

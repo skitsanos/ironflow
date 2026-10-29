@@ -97,13 +97,74 @@ class ModuleSizeCheckerTests(unittest.TestCase):
         self.assertEqual(result, 1)
         self.assertIn("grew to 321 lines above its reviewed 320-line ceiling", output)
 
-    def test_reduction_ratchets_the_reviewed_ceiling_downward(self) -> None:
+    def test_reduction_is_a_warning_that_ratchet_records(self) -> None:
         self.write_module("src/cohesive.rs", 319)
+        policy = self.write_policy([self.exception("src/cohesive.rs", 320)])
 
-        result, output = self.check([self.exception("src/cohesive.rs", 320)])
+        output = io.StringIO()
+        result = CHECKER.run_check(self.root, policy, output)
+
+        self.assertEqual(result, 0)
+        self.assertIn(
+            "shrank to 319 lines below its reviewed 320-line ceiling", output.getvalue()
+        )
+        self.assertIn("--ratchet", output.getvalue())
+
+        ratcheted = io.StringIO()
+        result = CHECKER.run_check(self.root, policy, ratcheted, apply_ratchet=True)
+
+        self.assertEqual(result, 0)
+        self.assertIn("1 exception(s) ratcheted", ratcheted.getvalue())
+        data = json.loads(policy.read_text())
+        self.assertEqual(data["exception_budget"], 1)
+        self.assertEqual(data["exceptions"][0]["max_lines"], 319)
+        self.assertEqual(
+            data["exceptions"][0]["rationale"], self.exception("", 0)["rationale"]
+        )
+
+        clean = io.StringIO()
+        self.assertEqual(CHECKER.run_check(self.root, policy, clean), 0)
+        self.assertNotIn("warnings", clean.getvalue())
+
+    def test_ratchet_drops_exceptions_that_fit_the_target(self) -> None:
+        self.write_module("src/reduced.rs", 300)
+        self.write_module("src/cohesive.rs", 320)
+        policy = self.write_policy(
+            [self.exception("src/cohesive.rs", 320), self.exception("src/reduced.rs", 320)]
+        )
+
+        result = CHECKER.run_check(self.root, policy, io.StringIO(), apply_ratchet=True)
+
+        self.assertEqual(result, 0)
+        data = json.loads(policy.read_text())
+        self.assertEqual(data["exception_budget"], 1)
+        self.assertEqual([entry["path"] for entry in data["exceptions"]], ["src/cohesive.rs"])
+
+    def test_test_only_modules_are_excluded_by_path_convention(self) -> None:
+        for relative in [
+            "src/area/tests.rs",
+            "src/area/paging_tests.rs",
+            "src/area/test_support.rs",
+            "src/area/tests/fixture.rs",
+            "src/area/test_support/fixture.rs",
+            "src/area/deep/tests/nested/fixture.rs",
+        ]:
+            self.write_module(relative, 900)
+        self.write_module("src/area/testsuite.rs", 301)
+
+        result, output = self.check([])
 
         self.assertEqual(result, 1)
-        self.assertIn("lower its reviewed 320-line ceiling", output)
+        self.assertIn("6 test-only files excluded by path convention", output)
+        self.assertNotIn("tests.rs", output)
+        self.assertNotIn("fixture.rs", output)
+        self.assertIn("src/area/testsuite.rs: 301 lines exceeds", output)
+
+    def test_exceptions_cannot_target_test_only_modules(self) -> None:
+        self.write_module("src/area/tests.rs", 320)
+
+        with self.assertRaisesRegex(CHECKER.PolicyError, "test-only module"):
+            CHECKER.load_policy(self.write_policy([self.exception("src/area/tests.rs", 320)]))
 
     def test_hard_limit_is_unconditional(self) -> None:
         self.write_module("src/cohesive.rs", 401)
@@ -165,7 +226,7 @@ class ModuleSizeCheckerTests(unittest.TestCase):
                 )
             )
 
-    def test_missing_and_now_small_exceptions_are_stale(self) -> None:
+    def test_missing_exception_targets_fail_and_fitting_ones_warn(self) -> None:
         self.write_module("src/reduced.rs", 300)
         exceptions = [
             self.exception("src/missing.rs", 320),
@@ -176,7 +237,12 @@ class ModuleSizeCheckerTests(unittest.TestCase):
 
         self.assertEqual(result, 1)
         self.assertIn("module does not exist", output)
-        self.assertIn("remove its stale exception", output)
+        self.assertIn("now fits the 300-line target; its exception is stale", output)
+
+        result, output = self.check(exceptions[1:])
+
+        self.assertEqual(result, 0)
+        self.assertIn("its exception is stale", output)
 
     def test_only_production_src_modules_are_scanned(self) -> None:
         self.write_module("src/lib.rs", 10)
@@ -193,7 +259,7 @@ class ModuleSizeCheckerTests(unittest.TestCase):
         unterminated.write_bytes(b"first\nsecond")
         crlf.write_bytes(b"first\r\nsecond\r\n")
 
-        sizes = {item.path: item.lines for item in CHECKER.scan_modules(self.root)}
+        sizes = {item.path: item.lines for item in CHECKER.scan_modules(self.root).production}
 
         self.assertEqual(sizes["src/unterminated.rs"], 2)
         self.assertEqual(sizes["src/crlf.rs"], 2)

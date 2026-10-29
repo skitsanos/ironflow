@@ -9,7 +9,6 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 | ID | Priority | Status | Area | Summary |
 |---|---:|---|---|---|
 | [IF-163](docs/issues/IF-163.md) | P1 | Open | JSON storage | Default JSON state store re-implements database concerns over the filesystem |
-| [IF-165](docs/issues/IF-165.md) | P2 | Open | Architecture | Module-size gate optimizes file length while functions stay complex |
 | [IF-169](docs/issues/IF-169.md) | P2 | Open | Repository process | Repository governance tooling outweighs the code it governs |
 
 ## Working agreement

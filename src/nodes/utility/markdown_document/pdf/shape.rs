@@ -55,6 +55,7 @@ impl Shaper {
     }
 
     #[allow(clippy::expect_used)] // Infallible: ligature start recorded; batch exists.
+    #[allow(clippy::too_many_lines)] // One shaping pass: runs, ligatures, line breaking and CJK fallback.
     pub fn paragraph(
         &mut self,
         runs: &[Run],

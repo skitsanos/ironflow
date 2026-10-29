@@ -10,8 +10,9 @@
 
 ## Rust design rules
 
-- Keep production modules focused and normally at or below 300 lines. The hard ceiling is 400 lines.
-- Run `python3 -B scripts/check_module_size.py` after Rust changes. Do not add or widen a module-size exception merely to make the gate pass; split responsibilities first.
+- Keep production modules focused and normally at or below 300 lines. The hard ceiling is 400 lines. Test-only files (`tests.rs`, `*_tests.rs`, `test_support.rs`, and `tests/` or `test_support/` directories) are outside the gate.
+- Keep functions at or below 100 lines and cognitive complexity 25 (`clippy.toml`). Refactor first; a scoped `#[allow]` must name the single responsibility that justifies the length, and no change may raise a threshold.
+- Run `python3 -B scripts/check_module_size.py` after Rust changes. Do not add or widen a module-size exception merely to make the gate pass; split responsibilities first. When a reviewed module shrinks, run the checker with `--ratchet` to record the lower ceiling.
 - Prefer small modules, typed errors and state transitions, explicit ownership, and bounded work over large coordinating functions or implicit side effects.
 - Keep async runtime threads free of blocking filesystem, archive, parsing, database-driver, or process work. Use the existing blocking/cancellation bridges and retain admission permits until physical work stops.
 - Treat Lua, paths, URLs, archives, provider responses, storage records, and environment configuration as untrusted input. Enforce limits before materialization and keep secrets out of errors and logs.

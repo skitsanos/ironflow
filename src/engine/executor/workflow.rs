@@ -1,84 +1,44 @@
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::Arc;
 
-use anyhow::Context as _;
-use chrono::Utc;
 use futures_util::stream::{FuturesUnordered, StreamExt as _};
 use tokio::sync::{RwLock, Semaphore, watch};
-use tracing::{info, warn};
+use tracing::info;
 
 use crate::engine::events::{RunEvent, RunEventType};
-use crate::engine::types::{RunStatus, StepDefinition, TaskState, TaskStatus};
+use crate::engine::types::{RunStatus, StepDefinition, TaskState};
 
 use super::coordinator::RunCoordinator;
 use super::engine::WorkflowEngine;
-use super::error_handler::{ExecutionState, RecoveryInvocation};
-use super::phase_output::PhaseOutputAccumulator;
+use super::error_handler::ExecutionState;
+use super::phase_output::{PhaseOutputAccumulator, StepCompletion};
+use super::placement::Placement;
 use super::signal::{ExecutionOutcome, ExecutionSignal};
+
+/// Execution either continues or stops with the outcome that ends the run.
+pub(super) type Progress<T> = Result<T, ExecutionOutcome>;
+
+pub(super) fn infrastructure(error: impl Into<anyhow::Error>) -> ExecutionOutcome {
+    ExecutionOutcome::Infrastructure(error.into())
+}
 
 impl RunCoordinator {
     pub(super) async fn run(
         &self,
         cancel: &mut watch::Receiver<ExecutionSignal>,
     ) -> ExecutionOutcome {
-        for step in &self.flow.steps {
-            if let Some(outcome) = cancel.borrow().outcome() {
-                return outcome;
-            }
-            let task_state = TaskState::new(&step.name, &step.node_type);
-            if let Err(error) = super::lease::persist_task(
-                self.store.as_ref(),
-                &self.run_id,
-                &task_state,
-                &self.lease_owner,
-            )
-            .await
-            {
-                return ExecutionOutcome::Infrastructure(anyhow::Error::new(error).context(
-                    format!(
-                        "Failed to initialize task '{}' for run {}",
-                        step.name, self.run_id
-                    ),
-                ));
-            }
+        match self.execute(cancel).await {
+            Ok(outcome) | Err(outcome) => outcome,
         }
+    }
 
-        if let Some(outcome) = cancel.borrow().outcome() {
-            return outcome;
-        }
-        let owned = match super::lease::persist_status(
-            self.store.as_ref(),
-            &self.run_id,
-            RunStatus::Running,
-            &self.lease_owner,
-        )
-        .await
-        {
-            Ok(owned) => owned,
-            Err(error) => {
-                return ExecutionOutcome::Infrastructure(
-                    anyhow::Error::new(error)
-                        .context(format!("Failed to mark run {} as running", self.run_id)),
-                );
-            }
-        };
-        if !owned {
-            return ExecutionOutcome::Infrastructure(anyhow::anyhow!(
-                "run {} lost its execution-owner lease before starting",
-                self.run_id
-            ));
-        }
-        WorkflowEngine::publish_event_ref(
-            self.events.as_ref(),
-            RunEvent::run(
-                &self.run_id,
-                &self.flow.name,
-                RunEventType::RunStarted,
-                RunStatus::Running,
-            ),
-        )
-        .await;
-
+    async fn execute(
+        &self,
+        cancel: &mut watch::Receiver<ExecutionSignal>,
+    ) -> Progress<ExecutionOutcome> {
+        self.initialize_tasks(cancel).await?;
+        self.mark_running(cancel).await?;
         info!(run_id = %self.run_id, flow = %self.flow.name, "Starting workflow execution");
 
         let step_map: HashMap<String, Arc<StepDefinition>> = self
@@ -92,134 +52,134 @@ impl RunCoordinator {
 
         for phase in &self.execution_plan.phases {
             if let Some(outcome) = cancel.borrow().outcome() {
-                return outcome;
+                return Err(outcome);
             }
 
             // Every member and retry in one phase reads this exact snapshot.
             // Outputs stay private until all scheduled members have settled.
             let phase_ctx = self.ctx.read().await.clone();
-            let mut tasks = FuturesUnordered::new();
+            let tasks = FuturesUnordered::new();
             for step_name in phase {
                 let step = step_map[step_name].clone();
-
-                if let Some(source) = self.execution_plan.recovery_sources.get(step_name) {
-                    let source_failure = state.write().await.take_for_recovery(source);
-                    let Some(source_failure) = source_failure else {
-                        if let Err(error) = self
-                            .mark_unavailable(&step, &state, "error handler was not triggered")
-                            .await
-                        {
-                            return ExecutionOutcome::Infrastructure(error);
-                        }
-                        continue;
-                    };
-
-                    let blocked_dependency =
-                        { state.read().await.blocked_dependency(&step.dependencies) };
-                    if let Some(dependency) = blocked_dependency {
-                        warn!(
-                            task = %step_name,
-                            dependency = %dependency,
-                            "Skipping recovery handler because a dependency is unavailable"
-                        );
-                        if let Err(error) = self
-                            .mark_unavailable(&step, &state, "recovery handler dependency failed")
-                            .await
-                        {
-                            return ExecutionOutcome::Infrastructure(error);
-                        }
-                        continue;
-                    }
-
-                    tasks.push(self.execute_planned_step(
+                match self.place_step(&step, &state, &phase_ctx).await? {
+                    Placement::Skipped => {}
+                    Placement::Run(recovery) => tasks.push(self.execute_planned_step(
                         step,
                         semaphore.clone(),
                         state.clone(),
                         phase_ctx.clone(),
-                        Some(RecoveryInvocation {
-                            source: source.clone(),
-                            failure: source_failure,
-                        }),
-                    ));
-                    continue;
+                        recovery,
+                    )),
                 }
-
-                let blocked_dependency =
-                    { state.read().await.blocked_dependency(&step.dependencies) };
-                if let Some(dependency) = blocked_dependency {
-                    warn!(
-                        task = %step_name,
-                        dependency = %dependency,
-                        "Skipping task because a dependency is unavailable"
-                    );
-                    if let Err(error) = self
-                        .mark_unavailable(&step, &state, "dependency failed")
-                        .await
-                    {
-                        return ExecutionOutcome::Infrastructure(error);
-                    }
-                    continue;
-                }
-
-                if let Some(route) = &step.route {
-                    let should_skip =
-                        !WorkflowEngine::check_route(&step, route, phase_ctx.as_ref());
-                    if should_skip {
-                        info!(task = %step_name, route = %route, "Skipping task because its route did not match");
-                        if let Err(error) = self
-                            .mark_skipped(&step, "route condition was not matched")
-                            .await
-                        {
-                            return ExecutionOutcome::Infrastructure(error);
-                        }
-                        continue;
-                    }
-                }
-
-                tasks.push(self.execute_planned_step(
-                    step,
-                    semaphore.clone(),
-                    state.clone(),
-                    phase_ctx.clone(),
-                    None,
-                ));
             }
 
             let mut phase_output = PhaseOutputAccumulator::new(phase);
-            while !tasks.is_empty() {
-                tokio::select! {
-                    biased;
-                    changed = cancel.changed() => {
-                        if changed.is_err() {
-                            return ExecutionOutcome::Infrastructure(anyhow::anyhow!(
-                                "workflow execution control channel closed unexpectedly"
-                            ));
-                        }
-                        if let Some(outcome) = cancel.borrow().outcome() {
-                            return outcome;
-                        }
-                    }
-                    result = tasks.next() => {
-                        match result {
-                            Some(Ok(completion)) => {
-                                if let Err(error) = phase_output.record(completion) {
-                                    return ExecutionOutcome::Infrastructure(error);
-                                }
-                            }
-                            Some(Err(error)) => return ExecutionOutcome::Infrastructure(error),
-                            None => {}
-                        }
-                    }
-                }
-            }
-
-            drop(tasks);
+            Self::settle_phase(tasks, cancel, &mut phase_output).await?;
             drop(phase_ctx);
             phase_output.commit(&self.ctx).await;
         }
 
+        Ok(self.conclude(&state).await)
+    }
+
+    /// Persist every task as pending before any work starts.
+    async fn initialize_tasks(&self, cancel: &watch::Receiver<ExecutionSignal>) -> Progress<()> {
+        for step in &self.flow.steps {
+            if let Some(outcome) = cancel.borrow().outcome() {
+                return Err(outcome);
+            }
+            let task_state = TaskState::new(&step.name, &step.node_type);
+            super::lease::persist_task(
+                self.store.as_ref(),
+                &self.run_id,
+                &task_state,
+                &self.lease_owner,
+            )
+            .await
+            .map_err(|error| {
+                infrastructure(anyhow::Error::new(error).context(format!(
+                    "Failed to initialize task '{}' for run {}",
+                    step.name, self.run_id
+                )))
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Move the run to `Running` under the execution-owner lease and announce it.
+    async fn mark_running(&self, cancel: &watch::Receiver<ExecutionSignal>) -> Progress<()> {
+        if let Some(outcome) = cancel.borrow().outcome() {
+            return Err(outcome);
+        }
+        let owned = super::lease::persist_status(
+            self.store.as_ref(),
+            &self.run_id,
+            RunStatus::Running,
+            &self.lease_owner,
+        )
+        .await
+        .map_err(|error| {
+            infrastructure(
+                anyhow::Error::new(error)
+                    .context(format!("Failed to mark run {} as running", self.run_id)),
+            )
+        })?;
+        if !owned {
+            return Err(infrastructure(anyhow::anyhow!(
+                "run {} lost its execution-owner lease before starting",
+                self.run_id
+            )));
+        }
+        WorkflowEngine::publish_event_ref(
+            self.events.as_ref(),
+            RunEvent::run(
+                &self.run_id,
+                &self.flow.name,
+                RunEventType::RunStarted,
+                RunStatus::Running,
+            ),
+        )
+        .await;
+        Ok(())
+    }
+
+    /// Drive one phase's scheduled members to completion while honoring the
+    /// cancellation channel. Member outputs stay buffered until the phase ends.
+    async fn settle_phase(
+        mut tasks: FuturesUnordered<impl Future<Output = anyhow::Result<StepCompletion>>>,
+        cancel: &mut watch::Receiver<ExecutionSignal>,
+        phase_output: &mut PhaseOutputAccumulator,
+    ) -> Progress<()> {
+        while !tasks.is_empty() {
+            tokio::select! {
+                biased;
+                changed = cancel.changed() => {
+                    if changed.is_err() {
+                        return Err(infrastructure(anyhow::anyhow!(
+                            "workflow execution control channel closed unexpectedly"
+                        )));
+                    }
+                    if let Some(outcome) = cancel.borrow().outcome() {
+                        return Err(outcome);
+                    }
+                }
+                result = tasks.next() => {
+                    match result {
+                        Some(Ok(completion)) => {
+                            phase_output.record(completion).map_err(infrastructure)?;
+                        }
+                        Some(Err(error)) => return Err(infrastructure(error)),
+                        None => {}
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn conclude(&self, state: &RwLock<ExecutionState>) -> ExecutionOutcome {
         let state = state.read().await;
-        let final_status = if state.has_failures() {
+        let status = if state.has_failures() {
             RunStatus::Failed
         } else {
             RunStatus::Success
@@ -229,47 +189,8 @@ impl RunCoordinator {
             .then(|| state.failure_summary(&self.execution_overlay))
             .flatten();
         ExecutionOutcome::Completed {
-            status: final_status,
+            status,
             failure_summary,
         }
-    }
-
-    async fn mark_unavailable(
-        &self,
-        step: &StepDefinition,
-        state: &RwLock<ExecutionState>,
-        reason: &str,
-    ) -> anyhow::Result<()> {
-        self.mark_skipped(step, reason).await?;
-        state.write().await.mark_unavailable(&step.name);
-        Ok(())
-    }
-
-    async fn mark_skipped(&self, step: &StepDefinition, reason: &str) -> anyhow::Result<()> {
-        let mut task_state = TaskState::new(&step.name, &step.node_type);
-        task_state.status = TaskStatus::Skipped;
-        task_state.finished = Some(Utc::now());
-        super::lease::persist_task(
-            self.store.as_ref(),
-            &self.run_id,
-            &task_state,
-            &self.lease_owner,
-        )
-        .await
-        .with_context(|| format!("Failed to persist task '{}' as skipped", step.name))?;
-        WorkflowEngine::publish_event_ref(
-            self.events.as_ref(),
-            RunEvent::task(
-                &self.run_id,
-                &step.name,
-                &step.node_type,
-                RunEventType::TaskSkipped,
-                TaskStatus::Skipped,
-                None,
-            )
-            .with_reason(reason),
-        )
-        .await;
-        Ok(())
     }
 }

@@ -39,6 +39,7 @@ pub(super) fn parse(input: &str, execution: &ExecutionControl) -> Result<Vec<Blo
     Ok(blocks)
 }
 
+#[allow(clippy::too_many_lines)] // One recursive AST visitor; each node kind is one arm.
 fn walk<'a>(
     node: Node<'a>,
     depth: usize,

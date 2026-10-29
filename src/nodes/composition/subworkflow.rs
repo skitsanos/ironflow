@@ -55,6 +55,7 @@ impl Node for SubworkflowNode {
         "Load and execute another .lua flow as a reusable module"
     }
 
+    #[allow(clippy::too_many_lines)] // One child-run lifecycle: admission, load, execution and result projection.
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let flow_file = config
             .get("flow")

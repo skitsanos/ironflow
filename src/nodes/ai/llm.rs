@@ -70,6 +70,7 @@ impl Node for LlmNode {
         "Run Chat Completions or Responses against OpenAI, OpenAI-compatible, Azure, or custom providers"
     }
 
+    #[allow(clippy::too_many_lines)] // One provider request lifecycle: config, request, response and artifacts.
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let mode = parse_mode(config, ctx)?;
         let timeout_s = parse_timeout(config, ctx)?;

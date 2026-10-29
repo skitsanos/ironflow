@@ -5,6 +5,7 @@ use crate::storage::{StorageError, StorageResult};
 
 impl SqlEventStore {
     #[allow(clippy::expect_used)] // Infallible: the legacy primary key has one constraint name.
+    #[allow(clippy::too_many_lines)] // One locked migration transaction; splitting it would break atomicity.
     pub(super) async fn ensure_postgres_run_scoped_identity(&self) -> StorageResult<()> {
         let mut transaction = self.pool.begin().await.map_err(|error| {
             StorageError::backend("Failed to start PostgreSQL event identity migration", error)

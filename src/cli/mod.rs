@@ -165,6 +165,7 @@ pub unsafe fn bootstrap_environment() -> Result<Option<PathBuf>> {
     unsafe { bootstrap::load_dotenv(cli.dotenv.as_deref()) }
 }
 
+#[allow(clippy::too_many_lines)] // One command dispatcher; each arm delegates to its command module.
 pub async fn run_cli() -> Result<()> {
     let matches = Cli::command().get_matches();
     let sources = resolution::CommandValueSources::from_matches(&matches);

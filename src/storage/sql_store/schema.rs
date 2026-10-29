@@ -3,6 +3,7 @@ use crate::storage::sql_names::SqlDialect;
 use crate::storage::{StorageError, StorageResult};
 
 impl SqlStateStore {
+    #[allow(clippy::too_many_lines)] // Declarative DDL: one statement list per table and index.
     pub(super) async fn ensure_schema(&self) -> StorageResult<()> {
         crate::storage::sql_ddl::create_if_absent(
             &self.pool,

@@ -39,6 +39,7 @@ impl Node for ParallelSubworkflowsNode {
         "Execute multiple subworkflows concurrently and collect their results"
     }
 
+    #[allow(clippy::too_many_lines)] // One bounded fan-out lifecycle over child runs and their result projection.
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let entries = resolve_flow_entries(config, ctx)?;
 

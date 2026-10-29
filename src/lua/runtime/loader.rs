@@ -1,13 +1,9 @@
 use anyhow::Result;
-use chrono::Utc;
 use mlua::prelude::*;
-use tracing::{debug, error, info, trace, warn};
-use uuid::Uuid;
 
 use crate::engine::types::FlowDefinition;
 use crate::lua::analysis::{HandlerDiagnostics, LuaDiagnostic};
-use crate::lua::conversion::{lua_to_log_string, register_json_globals};
-use crate::lua::sandbox::new_sandboxed_lua;
+use crate::lua::sandbox::{new_sandboxed_lua, register_shared_globals};
 use crate::nodes::NodeRegistry;
 use crate::util::execution::{ExecutionControl, run_blocking_step};
 use crate::util::limits::{
@@ -144,7 +140,7 @@ impl LuaRuntime {
         let lua = new_sandboxed_lua()?;
         let limits = LuaExecutionLimits::from_env();
         apply_limits(&lua, limits, execution.clone())?;
-        Self::setup_sandbox(&lua)?;
+        register_shared_globals(&lua)?;
         checkpoint(&execution)?;
         register_flow_api(&lua, registry, diagnostics.clone())?;
         checkpoint(&execution)?;
@@ -174,79 +170,6 @@ impl LuaRuntime {
             warnings.extend(validate_code_sources(&lua, &flow)?);
         }
         Ok(ValidatedFlow { flow, warnings })
-    }
-
-    fn setup_sandbox(lua: &Lua) -> Result<()> {
-        let globals = lua.globals();
-
-        // Expose a safe env(key) function to read environment variables,
-        // honoring the optional IRONFLOW_ENV_ALLOWLIST (IF-052b).
-        let env_fn = lua.create_function(|lua_ctx, key: String| {
-            match crate::lua::sandbox::env_lookup(&key) {
-                Some(val) => Ok(LuaValue::String(lua_ctx.create_string(&val)?)),
-                None => Ok(LuaValue::Nil),
-            }
-        })?;
-        globals.set("env", env_fn)?;
-
-        register_json_globals(lua)?;
-
-        // log([level], message...)
-        let log_fn = lua.create_function(|lua, args: LuaMultiValue| {
-            let values = args.into_iter().collect::<Vec<LuaValue>>();
-            if values.is_empty() {
-                return Err(LuaError::RuntimeError(
-                    "log() requires at least one argument".into(),
-                ));
-            }
-
-            let (level, start_idx) = match values.first().and_then(|v| v.as_string()) {
-                Some(level) => {
-                    let lower = level.to_str()?.to_lowercase();
-                    if matches!(
-                        lower.as_str(),
-                        "trace" | "debug" | "info" | "warn" | "error"
-                    ) {
-                        (lower, 1usize)
-                    } else {
-                        ("info".to_string(), 0usize)
-                    }
-                }
-                None => ("info".to_string(), 0usize),
-            };
-
-            let parts = values
-                .into_iter()
-                .skip(start_idx)
-                .map(|value| lua_to_log_string(lua, &value).map_err(LuaError::external))
-                .collect::<Result<Vec<_>, _>>()?;
-            let message = parts.join(" ");
-
-            match level.as_str() {
-                "trace" => trace!("<lua> {}", message),
-                "debug" => debug!("<lua> {}", message),
-                "warn" => warn!("<lua> {}", message),
-                "error" => error!("<lua> {}", message),
-                _ => info!("<lua> {}", message),
-            }
-
-            Ok(())
-        })?;
-        globals.set("log", log_fn)?;
-
-        // uuid4() -> random UUID string
-        let uuid_fn = lua.create_function(|_, ()| Ok(Uuid::new_v4().to_string()))?;
-        globals.set("uuid4", uuid_fn)?;
-
-        // now_rfc3339() -> RFC3339 timestamp
-        let now_fn = lua.create_function(|_, ()| Ok(Utc::now().to_rfc3339()))?;
-        globals.set("now_rfc3339", now_fn)?;
-
-        // now_unix_ms() -> epoch milliseconds
-        let now_unix_fn = lua.create_function(|_, ()| Ok(Utc::now().timestamp_millis()))?;
-        globals.set("now_unix_ms", now_unix_fn)?;
-
-        Ok(())
     }
 }
 

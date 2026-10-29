@@ -18,6 +18,7 @@ use krilla::{
 };
 use std::collections::BTreeMap;
 
+#[allow(clippy::too_many_lines)] // One PDF painting pass over the laid-out pages.
 pub(super) fn paint(
     config: &Config,
     pages: &[Vec<Draw>],
