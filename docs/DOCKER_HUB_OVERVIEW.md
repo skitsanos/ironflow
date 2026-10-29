@@ -20,7 +20,7 @@ Both registries receive the same build with matching tags:
 | --- | --- |
 | `latest` | Most recently published build from `main`. |
 | `develop` | Most recently published development build; may include unreleased changes. |
-| `1.20.0` | Published image for the stable 1.20.0 release. |
+| `1.21.0` | Published image for the stable 1.21.0 release. |
 | `sha-<full-commit>` | A specific published source revision. |
 
 Check the repository's Tags tab for available images. Stable `X.Y.Z` tags are
