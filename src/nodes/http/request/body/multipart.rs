@@ -6,6 +6,7 @@ use crate::engine::types::Context;
 use crate::lua::interpolate::interpolate_ctx;
 
 use super::{ArtifactUpload, RequestBody, artifact_upload, open_artifact};
+use crate::util::file_source::SourceOrigin;
 
 const MAX_MULTIPART_PARTS: usize = 100;
 const MAX_PART_METADATA_BYTES: usize = 255;
@@ -72,13 +73,19 @@ fn resolve_part(value: &Value, ctx: &Context) -> Result<MultipartField> {
         });
     }
 
-    let source = match source_key {
-        Some(key) => ctx.get(&interpolate_ctx(key, ctx)).ok_or_else(|| {
-            anyhow::anyhow!("HTTP multipart source_key '{key}' not found in context")
-        })?,
-        None => direct.expect("exclusive source validation ensures artifact exists"),
+    let (source, origin) = match source_key {
+        Some(key) => (
+            ctx.get(&interpolate_ctx(key, ctx)).ok_or_else(|| {
+                anyhow::anyhow!("HTTP multipart source_key '{key}' not found in context")
+            })?,
+            SourceOrigin::Data,
+        ),
+        None => (
+            direct.expect("exclusive source validation ensures artifact exists"),
+            SourceOrigin::Config(ctx),
+        ),
     };
-    let upload = artifact_upload(source)?;
+    let upload = artifact_upload(source, origin)?;
     let filename =
         optional_metadata(part, "filename")?.unwrap_or_else(|| upload.source.file_name());
     let configured_mime = optional_metadata(part, "content_type")?;

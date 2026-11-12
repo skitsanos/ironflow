@@ -131,20 +131,25 @@ fn resolve_artifact_body(config: &Value, ctx: &Context) -> Result<RequestBody> {
     if direct.is_some() == source_key.is_some() {
         anyhow::bail!("HTTP body_type='artifact' requires exactly one of 'body' or 'body_key'");
     }
-    let source = match source_key {
-        Some(key) => ctx
-            .get(&interpolate_ctx(key, ctx))
-            .ok_or_else(|| anyhow::anyhow!("HTTP body_key '{key}' not found in context"))?,
-        None => direct.expect("exclusive source validation ensures body exists"),
+    let (source, origin) = match source_key {
+        Some(key) => (
+            ctx.get(&interpolate_ctx(key, ctx))
+                .ok_or_else(|| anyhow::anyhow!("HTTP body_key '{key}' not found in context"))?,
+            SourceOrigin::Data,
+        ),
+        None => (
+            direct.expect("exclusive source validation ensures body exists"),
+            SourceOrigin::Config(ctx),
+        ),
     };
-    Ok(RequestBody::Artifact(artifact_upload(source)?))
+    Ok(RequestBody::Artifact(artifact_upload(source, origin)?))
 }
 
 /// An upload names stored bytes by descriptor or canonical URI, parsed by the
-/// same artifact-only parser as `write_file`. The value is used as written:
-/// neither a configured `body` nor a context value is interpolated.
-fn artifact_upload(value: &Value) -> Result<ArtifactUpload> {
-    let source = parse_artifact_source(value, SourceOrigin::Data).map_err(|error| {
+/// same artifact-only parser as `write_file`. A URI written in configuration
+/// is interpolated once; a value read from context is used as stored.
+fn artifact_upload(value: &Value, origin: SourceOrigin<'_>) -> Result<ArtifactUpload> {
+    let source = parse_artifact_source(value, origin).map_err(|error| {
         anyhow::anyhow!(
             "HTTP artifact source must be an artifact URI or descriptor object: {error}"
         )
@@ -186,78 +191,4 @@ fn optional_string<'a>(config: &'a Value, key: &str) -> Result<Option<&'a str>> 
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn artifact_body_rejects_paths_and_ambiguous_sources() {
-        let context = Context::from([("path".to_owned(), Value::String("/tmp/file".to_owned()))]);
-        for config in [
-            serde_json::json!({"body_type": "artifact", "body_key": "path"}),
-            serde_json::json!({"body_type": "artifact", "body": {}, "body_key": "path"}),
-        ] {
-            assert!(RequestBody::resolve(&config, &context).is_err());
-        }
-    }
-
-    #[test]
-    fn artifact_sources_accept_only_uris_and_descriptors() {
-        let digest = "a".repeat(64);
-        let uri = format!("artifact://sha256/{digest}");
-        let descriptor = serde_json::json!({
-            "artifact_uri": uri, "sha256": digest, "size_bytes": 7, "mime_type": "image/png"
-        });
-        let context = Context::from([("uri".to_owned(), Value::String(uri.clone()))]);
-        let upload = |source: Value| {
-            let config = serde_json::json!({"body_type": "artifact", "body": source});
-            match RequestBody::resolve(&config, &context) {
-                Ok(RequestBody::Artifact(upload)) => Ok(upload),
-                Ok(other) => panic!("unexpected body {other:?}"),
-                Err(error) => Err(error.to_string()),
-            }
-        };
-
-        for source in [
-            descriptor.clone(),
-            serde_json::json!({"artifact": descriptor.clone()}),
-        ] {
-            let upload = upload(source).unwrap();
-            assert!(matches!(upload.source, FileSource::Artifact(_)));
-            assert_eq!(upload.mime_type.as_deref(), Some("image/png"));
-        }
-        for source in [serde_json::json!(uri), serde_json::json!({"artifact": uri})] {
-            let upload = upload(source).unwrap();
-            assert!(matches!(upload.source, FileSource::ArtifactUri(_)));
-            assert_eq!(upload.mime_type, None);
-        }
-
-        let mut extra = descriptor.clone();
-        extra["artifact"] = serde_json::json!(uri);
-        for source in [
-            serde_json::json!("/tmp/file"),
-            // A body URI is data: it is not interpolated into a valid one.
-            serde_json::json!("${ctx.uri}"),
-            serde_json::json!({"artifact": "/tmp/file"}),
-            serde_json::json!({"artifact": uri, "mime_type": "image/png"}),
-            extra,
-            serde_json::json!({}),
-            serde_json::json!(7),
-        ] {
-            let error = upload(source.clone()).unwrap_err();
-            assert!(error.starts_with("HTTP "), "{source}: {error}");
-        }
-    }
-
-    #[test]
-    fn multipart_contract_is_strict() {
-        let context = Context::new();
-        for config in [
-            serde_json::json!({"body_type": "multipart", "parts": []}),
-            serde_json::json!({"body_type": "multipart", "parts": [{"name": "x"}]}),
-            serde_json::json!({"body_type": "multipart", "parts": [{"name": "x", "text": "y", "filename": "z"}]}),
-            serde_json::json!({"body_type": "multipart", "parts": [{"name": "x", "text": "y", "unknown": true}]}),
-        ] {
-            assert!(RequestBody::resolve(&config, &context).is_err());
-        }
-    }
-}
+mod tests;

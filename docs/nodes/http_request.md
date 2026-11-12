@@ -39,13 +39,18 @@ values are stringified.
 
 For `body_type = "artifact"`, provide exactly one of `body` or `body_key`.
 The value must be a canonical `artifact://sha256/...` URI or an artifact
-descriptor, never a local path. IronFlow verifies and reopens the artifact for
+descriptor, never a local path. A URI string written in `body` supports
+`${ctx.key}` interpolation, resolved once, as the `write_file` `artifact`
+parameter does; a value read through `body_key` is used as stored and is not
+interpolated. IronFlow verifies and reopens the artifact for
 each redirect or status retry, streams it with a fixed `Content-Length`, and
 uses the descriptor MIME type as `Content-Type` when the caller did not set one.
 
 For `body_type = "multipart"`, `parts` must contain 1–100 objects. Every part
 has `name` and exactly one of `text`, `source_key`, or `artifact`. Artifact parts
-may add `filename` and `content_type`; text parts may not. IronFlow generates
+may add `filename` and `content_type`; text parts may not. A part's `artifact`
+follows the same rule as `body`: a configured URI string is interpolated once,
+and a value read through `source_key` is not. IronFlow generates
 the multipart boundary, so a caller-supplied `Content-Type` header is rejected.
 Each `name`, `filename`, and `content_type` value must contain 1–255 bytes and
 must not contain CR or LF. An explicit `content_type` must be a valid MIME type

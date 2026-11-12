@@ -219,6 +219,14 @@ publication is verified separately.
 
 ## Unreleased changes
 
+- An artifact URI written in an `http_*` `body` (with
+  `body_type = "artifact"`) or in a multipart part's `artifact` now supports
+  `${ctx.key}` interpolation, resolved once, matching the `write_file`
+  `artifact` parameter (IF-186). Such a string was rejected as an invalid URI
+  before, so `body = "${ctx.report_artifact.artifact_uri}"` now uploads the
+  artifact. Values read through `body_key` and a part's `source_key` are
+  still used as stored, and a path is still rejected.
+
 - Schedules that share a minute no longer lose occurrences to
   `IRONFLOW_MAX_CONCURRENT_FLOW_LOADS` (IF-182). A scheduled start now waits
   up to 5 seconds for a flow-load permit instead of failing at once, and an
