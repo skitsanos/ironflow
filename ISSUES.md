@@ -9,7 +9,6 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 | ID | Priority | Status | Area | Summary |
 |---|---:|---|---|---|
 | [IF-189](docs/issues/IF-189.md) | P2 | Open | Resource safety | s3_list_objects, json_parse and task error text materialize without a bound |
-| [IF-190](docs/issues/IF-190.md) | P2 | Open | ZIP/admission | ZIP preflight and the archive reader can select different end records |
 | [IF-191](docs/issues/IF-191.md) | P2 | Open | Nodes/security | block_private_network passes CGNAT, NAT64 and other internal address ranges |
 | [IF-192](docs/issues/IF-192.md) | P2 | Open | S3 Vectors | s3vector_query_vectors runs unfiltered when filter_key does not resolve |
 | [IF-193](docs/issues/IF-193.md) | P2 | Open | Documents/extraction fidelity | Document extraction garbles PDF metadata and drops DOCX paragraph text around text boxes |

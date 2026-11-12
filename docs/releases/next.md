@@ -112,6 +112,20 @@ publication is verified separately.
   before): raise a platform termination window that was set to the old
   figure. See [Replica deployment](../REPLICA_DEPLOYMENT.md).
 
+- **Some unusual ZIP layouts are now refused** (IF-190). `zip_list`,
+  `zip_extract`, `extract_word`, `extract_pptx` and `extract_xlsx` accept
+  only the last end-of-central-directory record in the file, and the central
+  directory must end exactly where that record (or its ZIP64 record) begins.
+  Three shapes that could be accepted before now fail before any entry is
+  read: an archive comment that contains a second complete end record (the
+  signature `PK\x05\x06` followed by at least 18 more bytes whose own
+  comment length fits in the file), a gap between the central directory and
+  its end record, and an end record followed by further bytes that an earlier
+  record's comment covered. Ordinary archive comments, comments that merely
+  contain the signature bytes near their end, and ZIP64 archives open as
+  before. Archives with prepended data (self-extracting stubs) were already
+  rejected and still are. Rewrite an affected archive with any standard ZIP
+  tool to make it readable.
 - **`write_file` artifact inputs no longer accept a local path** (IF-186).
   `artifact = "/some/file"`, `content` with `encoding = "artifact"`, and a
   `source_key` value read with `encoding = "artifact"` were documented as an
@@ -208,6 +222,13 @@ publication is verified separately.
   16 MiB and a non-2xx body to 64 KiB, and a larger one fails the action
   instead of growing process memory until the timeout. A server that returned
   larger responses now fails.
+- **ZIP admission and the ZIP reader now read the same directory**
+  (IF-190). A crafted archive with two end records made the admission scan
+  validate a one-entry directory while the reader materialized another, so
+  the raw entry, duplicate-name and metadata budgets could be bypassed in
+  `zip_list`, `zip_extract` and OOXML/XLSX extraction. Such archives are
+  rejected, and the opened archive is checked against the validated
+  directory before use.
 - **`extract_xlsx` bounds the workbook style table** (IF-173). `calamine` is
   updated to 0.38.0 for RUSTSEC-2026-0436. That version expands `styles.xml`
   into one record per cell format when a workbook opens, so the table is now

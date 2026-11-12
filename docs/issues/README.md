@@ -7,7 +7,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts check`.
 
 - Total findings: 211
-- Active findings: 18
+- Active findings: 17
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
 | ID | Priority | Status | Area | Summary |
@@ -201,7 +201,7 @@ priority, area, and title. The registry is generated with
 | [IF-187](./IF-187.md) | P2 | Resolved | Lua DSL | step_if and if_node comparisons against true, false and nil are always false |
 | [IF-188](./IF-188.md) | P2 | Resolved | Workflow composition | Child workflows have no nesting limit and outlive a timed-out parent step |
 | [IF-189](./IF-189.md) | P2 | Open | Resource safety | s3_list_objects, json_parse and task error text materialize without a bound |
-| [IF-190](./IF-190.md) | P2 | Open | ZIP/admission | ZIP preflight and the archive reader can select different end records |
+| [IF-190](./IF-190.md) | P2 | Resolved | ZIP/admission | ZIP preflight and the archive reader can select different end records |
 | [IF-191](./IF-191.md) | P2 | Open | Nodes/security | block_private_network passes CGNAT, NAT64 and other internal address ranges |
 | [IF-192](./IF-192.md) | P2 | Open | S3 Vectors | s3vector_query_vectors runs unfiltered when filter_key does not resolve |
 | [IF-193](./IF-193.md) | P2 | Open | Documents/extraction fidelity | Document extraction garbles PDF metadata and drops DOCX paragraph text around text boxes |

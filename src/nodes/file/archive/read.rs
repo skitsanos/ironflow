@@ -43,7 +43,7 @@ pub(super) fn open_zip_archive(
     execution: &ExecutionControl,
 ) -> Result<zip::ZipArchive<File>> {
     let mut file = open_regular_file(Path::new(zip_path), operation)?;
-    let entries = crate::util::zip_preflight::check(
+    let admitted = crate::util::zip_preflight::check(
         &mut file,
         Path::new(zip_path),
         operation,
@@ -64,12 +64,7 @@ pub(super) fn open_zip_archive(
         anyhow::anyhow!("{operation}: '{zip_path}' is not a valid ZIP archive: {error}")
     })?;
     execution.checkpoint()?;
-    // Unicode path extra fields can alias otherwise distinct raw names.
-    if archive.len() as u64 != entries {
-        anyhow::bail!(
-            "{operation}: duplicate archive names or entry count changed during ZIP parsing"
-        );
-    }
+    admitted.confirm(&archive, operation)?;
     Ok(archive)
 }
 

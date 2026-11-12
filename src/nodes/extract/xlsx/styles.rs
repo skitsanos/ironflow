@@ -21,6 +21,7 @@ use quick_xml::Reader;
 use quick_xml::events::Event;
 
 use crate::util::execution::ExecutionControl;
+use crate::util::zip_preflight::Admitted;
 
 const PART_NAME: &str = "styles.xml";
 const PART_SUFFIX: &str = "/styles.xml";
@@ -40,6 +41,7 @@ const RECORD_BYTES: u64 = 320;
 pub(super) fn check<R: Read + Seek>(
     reader: R,
     path: &Path,
+    admitted: Admitted,
     max_bytes: u64,
     execution: Option<&ExecutionControl>,
 ) -> Result<()> {
@@ -49,6 +51,8 @@ pub(super) fn check<R: Read + Seek>(
             path.display()
         )
     })?;
+    // A separate open of the same bytes: hold it to the admitted directory.
+    admitted.confirm(&archive, "extract_xlsx")?;
 
     let mut parts = Vec::new();
     for index in 0..archive.len() {

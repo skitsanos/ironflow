@@ -1,6 +1,27 @@
-use std::io::{Cursor, Write};
+use std::io::{Cursor, Read, Seek, Write};
+use std::path::Path;
 
-use super::{check, inspect};
+use super::inspect;
+use crate::util::execution::ExecutionControl;
+
+/// Admit the archive with the raw preflight, as `workbook::extract` does,
+/// then run the check under test against the admitted directory.
+fn check<R: Read + Seek>(
+    mut reader: R,
+    path: &Path,
+    max_bytes: u64,
+    execution: Option<&ExecutionControl>,
+) -> anyhow::Result<()> {
+    let admitted = super::super::archive_preflight::check_xlsx(
+        &mut reader,
+        path,
+        u64::MAX,
+        u64::MAX,
+        u64::MAX,
+        execution,
+    )?;
+    super::check(reader, path, admitted, max_bytes, execution)
+}
 
 fn inspect_xml(xml: &str, max_bytes: u64) -> anyhow::Result<()> {
     inspect(Cursor::new(xml.as_bytes()), max_bytes, None)
@@ -211,4 +232,23 @@ fn parts_that_only_resemble_the_name_are_ignored() {
 #[test]
 fn a_workbook_without_a_style_part_is_accepted() {
     check_archive(&[("xl/workbook.xml", "<workbook/>")], 1).unwrap();
+}
+
+#[test]
+fn an_open_that_differs_from_the_admitted_directory_is_refused() {
+    let mut other = archive(&[("xl/a-longer-part-name.xml", "<x/>")]);
+    let admitted = super::super::archive_preflight::check_xlsx(
+        &mut other,
+        Path::new("other.xlsx"),
+        u64::MAX,
+        u64::MAX,
+        u64::MAX,
+        None,
+    )
+    .unwrap();
+    let book = archive(&[("xl/styles.xml", "<styleSheet/>")]);
+    let error = super::check(book, Path::new("book.xlsx"), admitted, 1024, None)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("different central directory"), "{error}");
 }

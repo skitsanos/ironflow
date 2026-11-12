@@ -1260,7 +1260,14 @@ running under the same OS identity from mutating the leased inode.
   writers in other processes remain last-writer-wins.
 - `zip_list`, `zip_extract`, and OOXML readers share a raw ZIP/ZIP64 scanner
   before library metadata construction. It bounds raw counts, validates central
-  headers, and rejects duplicate raw names. ZIP list/extract use the independent
+  headers, and rejects duplicate raw names. The scanner and the `zip` reader
+  are separate parsers, so admission also pins them to one directory: the
+  scanner takes the last end-record signature whose record and comment fit in
+  the file, as the reader does, and refuses the archive unless that record
+  ends at EOF and the central directory ends exactly where it (or its ZIP64
+  end record) begins. Each caller then confirms that the opened archive has
+  archive offset zero, the validated directory offset and the validated raw
+  entry count before using any entry. ZIP list/extract use the independent
   `IRONFLOW_MAX_ZIP_METADATA_BYTES` budget (8 MiB, per-node override supported)
   for names, extra fields, comments, and ZIP64 end-record extensions. XLSX keeps
   its dedicated archive-metadata budget and OOXML retains its raw input caps.

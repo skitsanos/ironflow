@@ -52,7 +52,13 @@ return flow
 Before constructing ZIP library metadata, IronFlow scans raw single-disk
 ZIP/ZIP64 headers, checking entry count, directory bounds, exact header lengths,
 duplicate raw names, and the cumulative metadata budget. The end record must
-terminate at EOF, including its archive comment. Unicode path aliases that
+terminate at EOF, including its archive comment, and it must be the last end
+record in the file: an archive with bytes after the comment, or with a comment
+that holds another complete end record, is rejected. The central directory
+must end exactly where its end record (or ZIP64 end record) begins, so
+archives with prepended data or a gap after the directory are rejected. After
+opening, the ZIP library's directory offset and raw entry count must equal the
+validated ones before any entry is used. Unicode path aliases that
 collapse during bounded ZIP construction also fail before destination changes.
 The metadata budget does not cap compressed payload size or total process
 memory; decoded names and library structures can require additional copies.

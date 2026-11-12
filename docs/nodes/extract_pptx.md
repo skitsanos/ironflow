@@ -150,7 +150,12 @@ position, in both the flat comments array and the per-slide JSON output.
   refuses to follow a final path-component symlink/reparse point; other platforms enforce the
   opened-handle regular-file check.
 - The EOCD/ZIP64 preflight validates central-directory bounds and
-  `IRONFLOW_MAX_ZIP_ENTRIES` (default `10000`). IronFlow then rejects duplicate
+  `IRONFLOW_MAX_ZIP_ENTRIES` (default `10000`). It accepts only the last end
+  record in the file, which must end at EOF with its comment, and a central
+  directory that ends exactly where that record begins; the opened archive's
+  directory offset and raw entry count must then match the validated ones.
+  Packages with trailing bytes, prepended data, or a second end record inside
+  the archive comment are rejected. IronFlow then rejects duplicate
   part names, symlink or special-file parts, and a cumulative declared
   uncompressed size above `IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES` (default
   `536870912`, 512 MiB). These archive-wide admission checks include orphan parts,

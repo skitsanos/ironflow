@@ -3,6 +3,8 @@ mod fixture;
 
 #[path = "zip_metadata/cli.rs"]
 mod cli;
+#[path = "zip_metadata/end_record.rs"]
+mod end_record;
 
 use ironflow::engine::types::Context;
 use ironflow::nodes::NodeRegistry;

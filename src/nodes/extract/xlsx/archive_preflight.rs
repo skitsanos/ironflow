@@ -6,7 +6,7 @@ use std::path::Path;
 use anyhow::Result;
 
 use crate::util::execution::ExecutionControl;
-use crate::util::zip_preflight::{self, Limits};
+use crate::util::zip_preflight::{self, Admitted, Limits};
 
 pub(in crate::nodes::extract) fn check<R: Read + Seek>(
     reader: &mut R,
@@ -16,7 +16,7 @@ pub(in crate::nodes::extract) fn check<R: Read + Seek>(
     max_raw_bytes: u64,
     raw_limit_name: &str,
     execution: Option<&ExecutionControl>,
-) -> Result<()> {
+) -> Result<Admitted> {
     zip_preflight::check(
         reader,
         path,
@@ -30,7 +30,6 @@ pub(in crate::nodes::extract) fn check<R: Read + Seek>(
         },
         execution,
     )
-    .map(|_| ())
 }
 
 pub(super) fn check_xlsx<R: Read + Seek>(
@@ -40,7 +39,7 @@ pub(super) fn check_xlsx<R: Read + Seek>(
     max_raw_bytes: u64,
     max_metadata_bytes: u64,
     execution: Option<&ExecutionControl>,
-) -> Result<()> {
+) -> Result<Admitted> {
     zip_preflight::check(
         reader,
         path,
@@ -54,7 +53,6 @@ pub(super) fn check_xlsx<R: Read + Seek>(
         },
         execution,
     )
-    .map(|_| ())
 }
 
 #[cfg(test)]

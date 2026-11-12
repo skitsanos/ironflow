@@ -49,7 +49,13 @@ The archive path must open as a regular file; on Unix, a final symlink is
 rejected without being followed. Before constructing ZIP library metadata,
 `zip_list` scans the raw single-disk ZIP/ZIP64 central directory and checks its
 entry count, bounds, exact header lengths, duplicate raw names, and metadata
-budget. The end record must terminate at EOF, including its archive comment.
+budget. The end record must terminate at EOF, including its archive comment,
+and it must be the last end record in the file: an archive with bytes after
+the comment, or with a comment that holds another complete end record, is
+rejected. The central directory must end exactly where its end record (or
+ZIP64 end record) begins, so archives with prepended data or a gap after the
+directory are rejected. After opening, the ZIP library's directory offset and
+raw entry count must equal the validated ones before any entry is listed.
 Duplicate entries are rejected even if the ZIP library would collapse them.
 Unicode path aliases that collapse during bounded ZIP construction also fail
 before a listing is returned. Total declared uncompressed bytes are checked
