@@ -37,6 +37,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 
 ## 00-showcase
 - **nightly_report.lua** — Parallel fetches with per-step retries and total timeouts, an inline Lua reduction, and a Slack notification
+- **research_source_snapshot.lua** — Fetch a cited page, save a Markdown copy, and write a manifest with the copy's SHA-256 fingerprint so the citation can be checked later. Needs `source_url`, `document_id`, and `output_dir` through `--context`; keeps `<output_dir>/<document_id>.md` and `.json`, replacing them on a rerun with the same `document_id`.
 
 ## 01-basics
 - **hello_world.lua** — Minimal flow with logging and templates

@@ -84,6 +84,7 @@
     "public_network": {
       "description": "Uses a public endpoint or local service without repository-managed credentials; excluded from deterministic CI.",
       "flows": [
+        "examples/00-showcase/research_source_snapshot.lua",
         "examples/02-data-transforms/json_extract_path.lua",
         "examples/05-http/api_call.lua",
         "examples/05-http/authenticated_request.lua",
@@ -194,6 +195,7 @@
       "description": "Contacts a public, local, or hosted service; execution is excluded from deterministic offline CI.",
       "flows": [
         "examples/00-showcase/nightly_report.lua",
+        "examples/00-showcase/research_source_snapshot.lua",
         "examples/02-data-transforms/json_extract_path.lua",
         "examples/04-file-operations/s3_copy.lua",
         "examples/04-file-operations/s3_mrap_presign.lua",
@@ -316,6 +318,7 @@
     "local_state": {
       "description": "Writes local output/cache/database state or owns a local process. Paths must be run-unique and retained effects must be documented.",
       "flows": [
+        "examples/00-showcase/research_source_snapshot.lua",
         "examples/04-file-operations/artifact_handoff.lua",
         "examples/04-file-operations/binary_file_io.lua",
         "examples/04-file-operations/copy_move_files.lua",
