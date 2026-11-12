@@ -285,15 +285,18 @@ remain under the SIL Open Font License shipped as `assets/fonts/OFL.txt`.
 Attribution for the same graph ships as `THIRD_PARTY_LICENSES.md` in every
 release archive and at `/usr/local/share/licenses/ironflow/` in the container
 image (IF-204). `scripts/third_party_notices.ts write` renders it from the
-gate's shipped-package list: one row per crate and version with its SPDX
-expression, the license IronFlow uses it under (the first allowed option in
+gate's shipped-package list: one row per crate, without a version, with its
+SPDX expression, the license IronFlow uses it under (the first allowed option in
 the preference order recorded in the script when a crate offers a choice) and
 its repository link, an MPL-2.0 section that states where the unmodified
 source is available, and each applicable canonical license text once from
 `scripts/licenses/`. The file is committed; `third_party_notices.ts check`
 runs next to the license gate in the CI `audit` job, the integration gate and
-the pre-commit hook and fails until a lockfile change is followed by a
-regeneration:
+the pre-commit hook. Because rows carry no version (IF-208), a version-only
+lockfile update leaves the file current, so a Renovate pull request for one
+passes unaided; the exact versions are those in the `Cargo.lock` of the
+revision a binary was built from. The check fails when a crate is added or
+removed or a license or source changes, until the file is regenerated:
 
 ```sh
 bun --no-env-file scripts/third_party_notices.ts write

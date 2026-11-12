@@ -1,7 +1,8 @@
 // IF-204: the notices file that ships in every release archive and in the
 // container image is rendered from the gate's own shipped-graph definition.
 // These tests run without Cargo: the real-graph freshness check is the
-// `check` command that runs next to the license gate.
+// `check` command that runs next to the license gate. IF-208: rows carry no
+// version, so a lockfile-only update leaves the committed file current.
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { ALLOWED_LICENSES, shippedPackages, type Metadata } from "../check_licenses";
@@ -77,7 +78,7 @@ function rows(notices: string): string[] {
   return notices
     .slice(start, end === -1 ? undefined : end)
     .split("\n")
-    .filter((line) => /^\| [A-Za-z0-9_-]+ \| \d/.test(line));
+    .filter((line) => line.startsWith("| ") && !line.startsWith("| Crate |") && !line.startsWith("| ---"));
 }
 
 describe("license choice", () => {
@@ -132,31 +133,67 @@ describe("rendered notices", () => {
     expect(first.endsWith("\n")).toBeTrue();
   });
 
-  test("every shipped crate appears exactly once with version, expression, applied license and source", () => {
+  test("every shipped crate appears exactly once with expression, applied license and source, and no version", () => {
     const notices = renderNotices(graph, { exceptions });
     const shipped = shippedPackages(graph);
     expect(shipped.length).toBe(7);
-    expect(rows(notices)).toHaveLength(shipped.length);
-    for (const pkg of shipped) {
-      const matching = rows(notices).filter((row) => row.startsWith(`| ${pkg.name} | ${pkg.version} |`));
-      expect(matching, `${pkg.name}@${pkg.version}`).toHaveLength(1);
+    const names = new Set(shipped.map((pkg) => pkg.name));
+    expect(names.size).toBe(6);
+    expect(rows(notices)).toHaveLength(names.size);
+    for (const name of names) {
+      expect(rows(notices).filter((row) => row.startsWith(`| ${name} |`)), name).toHaveLength(1);
     }
-    expect(notices).toContain(`${shipped.length} crates`);
+    expect(notices).toContain(`${names.size} crates`);
     expect(notices).not.toContain("devonly");
-    expect(notices).toContain("| dual | 1.0.0 | MIT OR Apache-2.0 | MIT | https://example.invalid/dual |");
-    expect(notices).toContain("| both | 1.0.0 | (MIT OR Apache-2.0) AND Unicode-3.0 | MIT, Unicode-3.0 | https://example.invalid/both |");
-    expect(notices).toContain("| bare | 1.0.0 | MIT | MIT | https://crates.io/crates/bare/1.0.0 |");
-    expect(notices).toContain("| twice | 0.1.0 |");
-    expect(notices).toContain("| twice | 0.2.0 |");
-    expect(notices).toContain("| reviewed | 1.0.0 | — | reviewed exception |");
+    expect(notices).toContain("| dual | MIT OR Apache-2.0 | MIT | https://example.invalid/dual |");
+    expect(notices).toContain("| both | (MIT OR Apache-2.0) AND Unicode-3.0 | MIT, Unicode-3.0 | https://example.invalid/both |");
+    expect(notices).toContain("| bare | MIT | MIT | https://crates.io/crates/bare |");
+    expect(notices).toContain("| twice | BSD-3-Clause | BSD-3-Clause | https://example.invalid/twice |");
+    expect(notices).toContain("| reviewed | — | reviewed exception |");
     expect(notices).toContain("`reviewed@1.0.0`: Reviewed: the license file is the ISC text.");
+    expect(notices).toContain("Rows\ncarry no version");
+    for (const row of rows(notices)) expect(row).not.toMatch(/\| \d+\.\d+\.\d+ \|/);
+  });
+
+  test("a version-only update leaves the notices unchanged; a new crate, license or source does not", () => {
+    type Edge = { from: string; to: string; kind: null | "build" | "dev" };
+    const packages: Fixture[] = [
+      { name: "dual", license: "MIT OR Apache-2.0", repository: "https://example.invalid/dual" },
+      { name: "bare", license: "MIT" },
+      { name: "twice", version: "0.1.0", license: "BSD-3-Clause", repository: "https://example.invalid/twice" },
+      { name: "twice", version: "0.2.0", license: "BSD-3-Clause", repository: "https://example.invalid/twice" },
+    ];
+    const edges: Edge[] = [
+      { from: "root", to: "dual", kind: null },
+      { from: "dual", to: "bare", kind: null },
+      { from: "dual", to: "twice", kind: null },
+    ];
+    const before = renderNotices(metadata(packages, edges));
+
+    const bumped = packages.map((pkg) => ({ ...pkg, version: pkg.name === "twice" ? `${pkg.version}-next` : "1.0.1" }));
+    expect(renderNotices(metadata(bumped, edges))).toBe(before);
+    const oneVersionLeft = packages.filter((pkg) => pkg.version !== "0.1.0");
+    expect(renderNotices(metadata(oneVersionLeft, edges))).toBe(before);
+
+    const added = [...packages, { name: "extra", license: "ISC", repository: "https://example.invalid/extra" }];
+    expect(renderNotices(metadata(added, [...edges, { from: "root", to: "extra", kind: null }]))).not.toBe(before);
+    expect(renderNotices(metadata(packages.filter((pkg) => pkg.name !== "bare"), edges))).not.toBe(before);
+    const relicensed = packages.map((pkg) => (pkg.name === "bare" ? { ...pkg, license: "ISC" } : pkg));
+    expect(renderNotices(metadata(relicensed, edges))).not.toBe(before);
+    const moved = packages.map((pkg) => (pkg.name === "dual" ? { ...pkg, repository: "https://example.invalid/moved" } : pkg));
+    expect(renderNotices(metadata(moved, edges))).not.toBe(before);
+
+    const split = packages.map((pkg) => (pkg.version === "0.2.0" ? { ...pkg, license: "MIT" } : pkg));
+    const twoTerms = rows(renderNotices(metadata(split, edges))).filter((row) => row.startsWith("| twice |"));
+    expect(twoTerms).toHaveLength(2);
   });
 
   test("MPL-2.0 crates carry a source-availability note and each applied license text appears once", () => {
     const notices = renderNotices(graph, { exceptions });
     const availability = notices.slice(notices.indexOf("## MPL-2.0 source availability"), notices.indexOf("## Reviewed exceptions"));
     expect(availability).toContain("section 3.2");
-    expect(availability).toContain("| mozilla | 1.0.0 | https://example.invalid/mozilla | https://crates.io/crates/mozilla/1.0.0 |");
+    expect(availability).toContain("| mozilla | https://example.invalid/mozilla | https://crates.io/crates/mozilla |");
+    expect(availability).toContain("for the version recorded in `Cargo.lock`");
     expect(availability).not.toContain("| dual |");
     for (const id of ["MIT", "MPL-2.0", "Unicode-3.0", "BSD-3-Clause"]) {
       expect(notices.match(new RegExp(`^### ${id.replace(/[.-]/g, "\\$&")}$`, "gm")), id).toHaveLength(1);
@@ -201,13 +238,13 @@ describe("committed notices", () => {
     const lockfile = Bun.TOML.parse(await Bun.file(join(repository, "Cargo.lock")).text()) as {
       package: { name: string; version: string }[];
     };
-    const locked = new Set(lockfile.package.map((pkg) => `${pkg.name}@${pkg.version}`));
+    const locked = new Set(lockfile.package.map((pkg) => pkg.name));
     const listed = rows(notices);
     expect(listed.length).toBeGreaterThan(100);
     expect(notices).toContain(`${listed.length} crates`);
     for (const row of listed) {
-      const [name, version, , used] = row.slice(2, -2).split(" | ");
-      expect(locked.has(`${name}@${version}`), row).toBeTrue();
+      const [name, , used] = row.slice(2, -2).split(" | ");
+      expect(locked.has(name), row).toBeTrue();
       for (const id of used.split(", ")) {
         expect(id === "reviewed exception" || ALLOWED_LICENSES.has(id), row).toBeTrue();
       }

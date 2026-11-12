@@ -77,6 +77,8 @@ publication is verified separately.
   statically linked into IronFlow, next to the bundled fonts' OFL license
   (IF-204). The file is committed, regenerated with
   `bun --no-env-file scripts/third_party_notices.ts write`, and checked
-  against `Cargo.lock` wherever the dependency license gate runs.
+  against `Cargo.lock` wherever the dependency license gate runs. Its rows
+  carry no version, so it changes only when a crate is added or removed or a
+  license changes (IF-208).
 
 Earlier changes remain in [the 1.20.0 notes](1.20.0.md).

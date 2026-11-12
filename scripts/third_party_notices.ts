@@ -4,7 +4,10 @@
 // the same shipped graph that scripts/check_licenses.ts gates, so the two can
 // never disagree about which crates are linked into IronFlow. `write` renders
 // the file; `check` fails closed when the committed file no longer matches the
-// lockfile. The canonical SPDX texts live in scripts/licenses/.
+// shipped graph. Rows carry no version (IF-208): the file changes when a crate
+// is added or removed or a license or source changes, not on a version bump,
+// so a lockfile-only dependency update leaves it current. The canonical SPDX
+// texts live in scripts/licenses/.
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -118,10 +121,22 @@ function cell(value: string): string {
 }
 
 function cratesUrl(pkg: Package): string {
-  return `https://crates.io/crates/${pkg.name}/${pkg.version}`;
+  return `https://crates.io/crates/${pkg.name}`;
 }
 
 type Entry = { pkg: Package; applied: string[]; exception?: string; source: string };
+
+/// One row per crate and license terms. Two locked versions of a crate share
+/// a row unless their license, exception or source differs.
+function distinctRows(list: Entry[]): Entry[] {
+  const seen = new Set<string>();
+  return list.filter(({ pkg, applied, exception, source }) => {
+    const key = JSON.stringify([pkg.name, exception ? `${pkg.version}:${exception}` : pkg.license, applied, source]);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
 
 function entries(metadata: Metadata, options: NoticesOptions): Entry[] {
   const preference = options.preference ?? LICENSE_PREFERENCE;
@@ -154,9 +169,10 @@ This file is generated from \`Cargo.lock\` by
 \`bun --no-env-file scripts/third_party_notices.ts write\`; do not edit it by
 hand. It covers every crate reachable from IronFlow through normal or build
 dependencies with all Cargo features enabled (${count} crates), so it also lists
-crates that only the \`-full\` archives and the container image include. Where
-a crate offers a choice of licenses, IronFlow uses the first option in this
-order:
+crates that only the \`-full\` archives and the container image include. Rows
+carry no version: the exact versions linked into a binary are those in the
+\`Cargo.lock\` of the source revision it was built from. Where a crate offers
+a choice of licenses, IronFlow uses the first option in this order:
 
 ${wrap(preference.join(", "))}
 
@@ -181,11 +197,11 @@ function wrap(text: string, width = 78): string {
 }
 
 function crateTable(list: Entry[]): string {
-  const lines = ["## Crates", "", "| Crate | Version | License | Used under | Source |", "| --- | --- | --- | --- | --- |"];
+  const lines = ["## Crates", "", "| Crate | License | Used under | Source |", "| --- | --- | --- | --- |"];
   for (const { pkg, applied, exception, source } of list) {
     const license = exception ? "—" : cell(pkg.license!);
     const used = exception ? "reviewed exception" : applied.join(", ");
-    lines.push(`| ${cell(pkg.name)} | ${cell(pkg.version)} | ${license} | ${used} | ${cell(source)} |`);
+    lines.push(`| ${cell(pkg.name)} | ${license} | ${used} | ${cell(source)} |`);
   }
   return lines.join("\n") + "\n";
 }
@@ -196,15 +212,16 @@ function mplSection(list: Entry[]): string {
   const lines = [
     "## MPL-2.0 source availability",
     "",
-    "IronFlow links the following crates unmodified. Their complete source code",
-    "is available at the listed repository and from crates.io, as section 3.2 of",
-    "the Mozilla Public License 2.0 requires for executable distributions.",
+    "IronFlow links the following crates unmodified. Their complete source code,",
+    "for the version recorded in `Cargo.lock`, is available at the listed",
+    "repository and from crates.io, as section 3.2 of the Mozilla Public License",
+    "2.0 requires for executable distributions.",
     "",
-    "| Crate | Version | Source | crates.io |",
-    "| --- | --- | --- | --- |",
+    "| Crate | Source | crates.io |",
+    "| --- | --- | --- |",
   ];
   for (const { pkg, source } of covered) {
-    lines.push(`| ${cell(pkg.name)} | ${cell(pkg.version)} | ${cell(source)} | ${cratesUrl(pkg)} |`);
+    lines.push(`| ${cell(pkg.name)} | ${cell(source)} | ${cratesUrl(pkg)} |`);
   }
   return lines.join("\n") + "\n";
 }
@@ -242,7 +259,7 @@ function textSection(list: Entry[], preference: readonly string[], textDir: stri
 /// the graph, the preference order and the stored texts, never on input order.
 export function renderNotices(metadata: Metadata, options: NoticesOptions = {}): string {
   const preference = options.preference ?? LICENSE_PREFERENCE;
-  const list = entries(metadata, options);
+  const list = distinctRows(entries(metadata, options));
   return [
     header(list.length, preference),
     crateTable(list),
