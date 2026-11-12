@@ -216,6 +216,17 @@ outside opaque content/font decoding calls.
   blocking pool rather than runtime workers. Their instruction hook observes
   both resource limits and the executor's step deadline/drop-cancellation
   signal.
+- That Lua work is tracked work of the step that runs it (IF-211): a function
+  step, a `nodes.code` step, a `foreach` transform and the top-level code of a
+  child flow loaded by a composition node register with the step's attempt
+  and run worker sets, like built-in blocking nodes. After a step timeout,
+  run cancellation or run deadline the hook stops ordinary Lua at its next
+  check, every `IRONFLOW_LUA_HOOK_INTERVAL` instructions. The hook cannot run
+  inside a single C library call such as a `string.find`, `string.gsub` or
+  `string.rep` on a large input, so the step result, its `on_error` handler,
+  dependent steps, run finalization and task and run admission wait until
+  that call returns. Flow loads started by the API, webhooks and the
+  scheduler have no step and keep their own flow-load admission.
 
 ### 4. State Store (`storage/`)
 

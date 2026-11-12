@@ -4,16 +4,23 @@
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-/// The step times out after one second and its handler recovers the run, but
-/// the Lua pattern match keeps backtracking inside a C function on a blocking
-/// worker for far longer than any test would wait.
-const STUCK_FLOW: &str = r#"
-local flow = Flow.new("stuck-worker")
+/// The parent launches a detached child and succeeds at once. The child's Lua
+/// pattern match keeps backtracking inside a C function on a blocking worker
+/// for far longer than any test would wait. A detached child is independent
+/// of the run that launched it, so nothing waits for that worker. The same
+/// call directly in a step would hold the step and the run instead (IF-211).
+const STUCK_CHILD: &str = r#"
+local flow = Flow.new("stuck-child")
 flow:step("stuck", nodes.code({ source = [[
 local subject = string.rep("a", 4000)
 return { found = string.find(subject, ".-.-.-.-.-.-.-.-x") ~= nil }
-]] })):timeout(1):on_error("recover")
-flow:step("recover", nodes.code({ source = "return { recovered = true }" }))
+]] }))
+return flow
+"#;
+
+const STUCK_FLOW: &str = r#"
+local flow = Flow.new("stuck-worker")
+flow:step("launch", nodes.subworkflow({ flow = "stuck_child.lua", wait = false }))
 return flow
 "#;
 
@@ -22,6 +29,7 @@ fn a_stuck_blocking_worker_does_not_hold_the_process_after_the_result() {
     let directory = tempfile::tempdir().unwrap();
     let flow = directory.path().join("stuck.lua");
     std::fs::write(&flow, STUCK_FLOW).unwrap();
+    std::fs::write(directory.path().join("stuck_child.lua"), STUCK_CHILD).unwrap();
     let stdout_path = directory.path().join("stdout.log");
     let mut child = Command::new(env!("CARGO_BIN_EXE_ironflow"))
         .current_dir(directory.path())
@@ -35,8 +43,8 @@ fn a_stuck_blocking_worker_does_not_hold_the_process_after_the_result() {
         .unwrap();
 
     let started = Instant::now();
-    // One second of step timeout plus the five-second runtime shutdown bound,
-    // with margin for a loaded test host.
+    // The five-second runtime shutdown bound, with margin for a loaded test
+    // host.
     let deadline = started + Duration::from_secs(20);
     let status = loop {
         if let Some(status) = child.try_wait().unwrap() {

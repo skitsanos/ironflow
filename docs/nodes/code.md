@@ -162,6 +162,17 @@ an infinite loop is interrupted without occupying a Tokio runtime worker. Hook
 checks occur every `IRONFLOW_LUA_HOOK_INTERVAL` instructions, so cancellation
 latency is cooperative rather than instruction-exact.
 
+The hook runs between Lua instructions. It cannot run inside a single C
+library call, so time spent in one `string.find`, `string.match`,
+`string.gsub`, `string.rep` or `table.concat` call is not interruptible and
+is not counted against the instruction budget until the call returns. The
+Lua call is tracked work of its step: when the step times out or its run is
+cancelled while the code is inside such a call, the step's timeout result,
+its `on_error` handler, dependent steps and the end of the run wait until the
+call returns, and task and run admission stay held, as for a built-in
+blocking node. Function handlers and `foreach` transforms behave the same.
+Avoid patterns with several unbounded repeats on untrusted input.
+
 ## Return Value Handling
 
 | Return type | Behavior                                                        |

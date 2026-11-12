@@ -93,7 +93,12 @@ Cancellation is cooperative and resource-specific:
 
 - async node work is cancelled by dropping its future;
 - `code`, `foreach`, and nested-flow parsing run away from Tokio worker threads
-  and check the step deadline/cancellation through the Lua instruction hook;
+  and check the step deadline/cancellation through the Lua instruction hook.
+  This covers function handlers, which run as `code` steps. A Lua loop stops
+  at the next hook check. The hook cannot run inside one C library call, for
+  example a `string.find` whose pattern backtracks heavily, so a step stuck
+  there ends only when the call returns: its timeout error, its `on_error`
+  handler, dependent steps and the end of the run wait for it;
 - structured child workflows are cancelled with their parent step;
 - shell children and invalidated MCP stdio sessions terminate their direct
   child on every platform, and kill the inherited process group on Unix;
@@ -521,9 +526,10 @@ end)
 The function receives `ctx` (the phase-start workflow context) as its argument
 and returns a table of key-value pairs to publish at the phase barrier. Under
 the hood, the function is compiled to bytecode at parse time and executed as a
-`code` node — so the same sandbox rules apply. Runtime helpers such as `env()`,
-`log()`, `json_parse()`, and `now_unix_ms()` work inside handlers. Loader-only
-globals such as `Flow` and `nodes` do not.
+`code` node — so the same sandbox rules, execution budgets and
+[timeout behaviour](nodes/code.md#execution-limits) apply. Runtime
+helpers such as `env()`, `log()`, `json_parse()`, and `now_unix_ms()` work
+inside handlers. Loader-only globals such as `Flow` and `nodes` do not.
 
 By default every context value is eagerly converted under one cumulative
 JSON-to-Lua budget. To exclude unused large values, declare literal top-level

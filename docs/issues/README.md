@@ -6,7 +6,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts generate` and verified with
 `bun run scripts/issues_registry.ts check`.
 
-- Total findings: 210
+- Total findings: 211
 - Active findings: 18
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
@@ -222,3 +222,4 @@ priority, area, and title. The registry is generated with
 | [IF-208](./IF-208.md) | P2 | Resolved | Supply chain | Renovate lockfile pull requests cannot pass CI because the notices file lists crate versions |
 | [IF-209](./IF-209.md) | P3 | Open | Maintainability | Follow-ups recorded while fixing IF-182, IF-183 and IF-184 |
 | [IF-210](./IF-210.md) | P3 | Open | Maintainability | Follow-ups recorded while fixing IF-186, IF-187 and IF-188 |
+| [IF-211](./IF-211.md) | P2 | Resolved | Workflow execution | Lua run by a step is not tracked work and outlives a timed-out step |

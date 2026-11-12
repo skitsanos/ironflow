@@ -280,7 +280,10 @@ be interrupted have five more, so the process exits at most
 Every command applies the same five-second bound after it returns. A step
 that timed out or was cancelled while its blocking worker was inside a call
 that cannot be interrupted no longer keeps `ironflow run` alive after the
-final status is printed; the worker ends with the process.
+final status is printed; the worker ends with the process. This bound starts
+when the command returns. A run is not finished while a tracked worker of one
+of its steps is still inside such a call, which includes Lua function steps
+(IF-211), so the final status itself is printed only after that call returns.
 
 Set `IRONFLOW_METRICS_ENABLED=true` or `metrics_enabled: true` to register
 `GET /metrics`. The OpenMetrics response uses the same API authentication

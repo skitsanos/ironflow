@@ -79,6 +79,22 @@ publication is verified separately.
   in the parent already did. `parallel_subworkflows` also builds each child's
   context only when the child starts; a flow path that cannot be resolved
   still fails the step before any child runs.
+- **A timed-out or cancelled step waits for its Lua code to return**
+  (IF-211). A function step, a `nodes.code` step or a `foreach` transform
+  that was inside one long C library call, for example a `string.find` whose
+  pattern backtracks heavily, did not hold its step: at the timeout the
+  `on_error` handler started, dependent steps ran and the run could finish
+  while the Lua call was still running, and `ironflow run` then waited out
+  the five-second exit bound. The same applied to such a function in a child
+  flow and to the top-level code of a child flow while it loads. The step now
+  ends only when the Lua call has returned, as stuck built-in blocking nodes
+  already did, so a handler no longer races the work it replaces and task and
+  run admission are not released early. The visible change is timing: a
+  step stuck in such a call reports its timeout, and its run ends, later than
+  the configured timeout by the time the call still needs. Ordinary Lua
+  loops are unaffected; they are stopped at the next instruction-hook check
+  as before, and steps that finish in time behave as before. See
+  [Execution limits](../nodes/code.md#execution-limits).
 - **New connections are answered while `serve` drains, and exit is bounded**
   (IF-183). After SIGTERM or SIGINT a new connection completed the TCP
   handshake and then received nothing until the drain ended, up to

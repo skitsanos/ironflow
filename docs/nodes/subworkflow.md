@@ -169,7 +169,9 @@ itself, and it has finalized. Until then the step's `on_error` handler does
 not start, dependent steps do not run, the run is not finalized, and its task
 and run admission stay held, exactly as for the same node placed directly in
 the parent. A worker that cannot be interrupted therefore delays the timeout
-result by the time it needs to return. A `wait = false` child is independent
+result by the time it needs to return. Lua is such work: a function step in
+the child, or the child flow's own top-level code while it loads, holds the
+step until a C library call it is inside has returned. A `wait = false` child is independent
 by contract and never holds the step that launched it.
 
 [`nesting_limit.lua`](../../examples/11-subworkflow/nesting_limit.lua) calls

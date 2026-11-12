@@ -7,7 +7,7 @@ use crate::lua::context_keys::project_context;
 use crate::lua::conversion::lua_value_to_json;
 use crate::lua::sandbox;
 use crate::nodes::Node;
-use crate::util::execution::{ExecutionControl, run_blocking_step};
+use crate::util::execution::{ExecutionControl, run_tracked_blocking_step};
 use crate::util::limits::{LuaExecutionLimits, apply_lua_limits_with_control, collect_lua_garbage};
 
 pub struct CodeNode;
@@ -25,7 +25,9 @@ impl Node for CodeNode {
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let config = config.clone();
         let ctx = project_context(&config, ctx)?;
-        run_blocking_step(move |execution| execute_code(&config, &ctx, execution)).await
+        // Tracked: a timed-out or cancelled step is not settled until the
+        // Lua call has returned (IF-211).
+        run_tracked_blocking_step(move |execution| execute_code(&config, &ctx, execution)).await
     }
 }
 

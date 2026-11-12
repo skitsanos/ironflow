@@ -32,6 +32,8 @@ reuse across the function-backed node APIs.
 
 Each `foreach` transform runs inside the Lua execution budgets configured by `IRONFLOW_LUA_MAX_INSTRUCTIONS`, `IRONFLOW_LUA_MAX_SECONDS`, `IRONFLOW_LUA_MAX_MEMORY_BYTES`, `IRONFLOW_LUA_HOOK_INTERVAL`, and `IRONFLOW_LUA_GC_AFTER_EXECUTION`.
 
+A step timeout or run cancellation stops the transform at the next instruction-hook check and between items. A transform inside a single C library call, such as a heavily backtracking `string.find`, cannot be interrupted: the step's timeout result and `on_error` handler wait until that call returns, as described for [`code`](code.md#execution-limits).
+
 ## Context Output
 
 - `{output_key}` (default `foreach_results`) — array of transformed values.

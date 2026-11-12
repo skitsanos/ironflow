@@ -12,6 +12,7 @@ use crate::storage::{StateStore, StorageResult};
 mod child_failures;
 mod child_results;
 mod child_workers;
+mod function_workers;
 
 struct HangingEventStore;
 
