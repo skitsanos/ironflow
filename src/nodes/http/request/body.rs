@@ -1,11 +1,12 @@
 use anyhow::Result;
 use serde_json::Value;
 
-use crate::artifacts::{ArtifactRef, FileSource};
+use crate::artifacts::FileSource;
 use crate::engine::types::Context;
 use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::http::helpers::{body_value_to_text, build_form_body, interpolate_json_value};
 use crate::util::execution::run_tracked_blocking_step;
+use crate::util::file_source::{SourceOrigin, parse_artifact_source};
 
 use self::multipart::MultipartField;
 
@@ -139,30 +140,20 @@ fn resolve_artifact_body(config: &Value, ctx: &Context) -> Result<RequestBody> {
     Ok(RequestBody::Artifact(artifact_upload(source)?))
 }
 
+/// An upload names stored bytes by descriptor or canonical URI, parsed by the
+/// same artifact-only parser as `write_file`. The value is used as written:
+/// neither a configured `body` nor a context value is interpolated.
 fn artifact_upload(value: &Value) -> Result<ArtifactUpload> {
-    match value {
-        Value::String(uri) => {
-            ArtifactRef::validate_uri(uri)
-                .map_err(|error| anyhow::anyhow!("HTTP invalid artifact URI: {error}"))?;
-            Ok(ArtifactUpload {
-                source: FileSource::artifact_uri(uri),
-                mime_type: None,
-            })
-        }
-        Value::Object(object) if object.len() == 1 && object.contains_key("artifact") => {
-            artifact_upload(&object["artifact"])
-        }
-        Value::Object(_) => {
-            let artifact = ArtifactRef::from_value(value)
-                .map_err(|error| anyhow::anyhow!("HTTP invalid artifact descriptor: {error}"))?;
-            let mime_type = artifact.mime_type.clone();
-            Ok(ArtifactUpload {
-                source: FileSource::artifact(artifact),
-                mime_type,
-            })
-        }
-        _ => anyhow::bail!("HTTP artifact source must be an artifact URI or descriptor object"),
-    }
+    let source = parse_artifact_source(value, SourceOrigin::Data).map_err(|error| {
+        anyhow::anyhow!(
+            "HTTP artifact source must be an artifact URI or descriptor object: {error}"
+        )
+    })?;
+    let mime_type = match &source {
+        FileSource::Artifact(artifact) => artifact.mime_type.clone(),
+        FileSource::ArtifactUri(_) | FileSource::Path(_) => None,
+    };
+    Ok(ArtifactUpload { source, mime_type })
 }
 
 struct OpenedUpload {
@@ -206,6 +197,54 @@ mod tests {
             serde_json::json!({"body_type": "artifact", "body": {}, "body_key": "path"}),
         ] {
             assert!(RequestBody::resolve(&config, &context).is_err());
+        }
+    }
+
+    #[test]
+    fn artifact_sources_accept_only_uris_and_descriptors() {
+        let digest = "a".repeat(64);
+        let uri = format!("artifact://sha256/{digest}");
+        let descriptor = serde_json::json!({
+            "artifact_uri": uri, "sha256": digest, "size_bytes": 7, "mime_type": "image/png"
+        });
+        let context = Context::from([("uri".to_owned(), Value::String(uri.clone()))]);
+        let upload = |source: Value| {
+            let config = serde_json::json!({"body_type": "artifact", "body": source});
+            match RequestBody::resolve(&config, &context) {
+                Ok(RequestBody::Artifact(upload)) => Ok(upload),
+                Ok(other) => panic!("unexpected body {other:?}"),
+                Err(error) => Err(error.to_string()),
+            }
+        };
+
+        for source in [
+            descriptor.clone(),
+            serde_json::json!({"artifact": descriptor.clone()}),
+        ] {
+            let upload = upload(source).unwrap();
+            assert!(matches!(upload.source, FileSource::Artifact(_)));
+            assert_eq!(upload.mime_type.as_deref(), Some("image/png"));
+        }
+        for source in [serde_json::json!(uri), serde_json::json!({"artifact": uri})] {
+            let upload = upload(source).unwrap();
+            assert!(matches!(upload.source, FileSource::ArtifactUri(_)));
+            assert_eq!(upload.mime_type, None);
+        }
+
+        let mut extra = descriptor.clone();
+        extra["artifact"] = serde_json::json!(uri);
+        for source in [
+            serde_json::json!("/tmp/file"),
+            // A body URI is data: it is not interpolated into a valid one.
+            serde_json::json!("${ctx.uri}"),
+            serde_json::json!({"artifact": "/tmp/file"}),
+            serde_json::json!({"artifact": uri, "mime_type": "image/png"}),
+            extra,
+            serde_json::json!({}),
+            serde_json::json!(7),
+        ] {
+            let error = upload(source.clone()).unwrap_err();
+            assert!(error.starts_with("HTTP "), "{source}: {error}");
         }
     }
 
