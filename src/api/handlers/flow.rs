@@ -68,6 +68,13 @@ pub async fn run_flow(
         }
     }
 
+    // Checked only for a run that would be created now: a replay of a request
+    // admitted earlier still returns its existing run (IF-181).
+    if let Some(context) = &context {
+        crate::util::json_depth::check_entries(context)
+            .map_err(|error| AppError::BadRequest(format!("context: {error}")))?;
+    }
+
     reject_inline_source_when_disabled(&state, source.is_some() || source_base64.is_some())?;
 
     // Resolve the confined file path before reserving scarce execution/parser

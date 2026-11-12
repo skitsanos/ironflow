@@ -5,6 +5,14 @@ use super::leases::LEASE_SUFFIX;
 use crate::engine::types::{RunStatus, TaskStatus};
 use crate::storage::StorageResult;
 
+/// What reconciliation found behind one expired lease.
+enum ExpiredRun {
+    Stalled,
+    AlreadyTerminal,
+    /// The run file was read but the decoder rejected it.
+    Undecodable,
+}
+
 impl JsonStateStore {
     pub(super) async fn reconcile_lease_files(&self, now: DateTime<Utc>) -> StorageResult<usize> {
         let mut reconciled = 0;
@@ -49,7 +57,11 @@ impl JsonStateStore {
                 Err(error) => return Err(error),
             };
             let reconciled = match store.stall_expired_run(&record.run_id, now).await {
-                Ok(reconciled) => reconciled,
+                Ok(ExpiredRun::Stalled) => true,
+                Ok(ExpiredRun::AlreadyTerminal) => false,
+                // Skipped with its lease in place: every pass reports it
+                // until `delete_run` removes the run (IF-181).
+                Ok(ExpiredRun::Undecodable) => return Ok(false),
                 Err(error) if error.is_not_found() => false,
                 Err(error) => return Err(error),
             };
@@ -63,12 +75,23 @@ impl JsonStateStore {
         &self,
         run_id: &str,
         finished: DateTime<Utc>,
-    ) -> StorageResult<bool> {
+    ) -> StorageResult<ExpiredRun> {
         let _lock = self.lock.write().await;
         let mut catalog = super::catalog::CatalogTransaction::begin(self).await?;
-        let mut info = self.read_run(run_id).await?;
+        let mut info = match self.read_run_or_decode_error(run_id).await? {
+            Ok(info) => info,
+            Err(error) => {
+                tracing::warn!(
+                    run_id,
+                    %error,
+                    "lease reconciliation skipped a run record it could not decode; \
+                     delete the run to clear it"
+                );
+                return Ok(ExpiredRun::Undecodable);
+            }
+        };
         if info.status.is_terminal() {
-            return Ok(false);
+            return Ok(ExpiredRun::AlreadyTerminal);
         }
         for task in info.tasks.values_mut() {
             if task.status.is_terminal() {
@@ -87,7 +110,7 @@ impl JsonStateStore {
         let record = self.write_existing_run(&mut catalog, run_id, &info).await?;
         self.upsert_catalog_best_effort(run_id, catalog, record)
             .await;
-        Ok(true)
+        Ok(ExpiredRun::Stalled)
     }
 
     #[cfg(test)]

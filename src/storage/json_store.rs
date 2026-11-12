@@ -78,6 +78,7 @@ pub struct JsonStateStore {
 impl StateStore for JsonStateStore {
     async fn init_run(&self, run_id: &str, flow_name: &str, ctx: &Context) -> StorageResult<()> {
         codec::validate_input_id(run_id)?;
+        crate::storage::value_depth::admit_context(run_id, ctx)?;
         let _lock = self.lock.write().await;
         self.directory.ensure_created().await?;
         self.directory
@@ -164,6 +165,7 @@ impl StateStore for JsonStateStore {
 
     async fn upsert_task(&self, run_id: &str, task: &TaskState) -> StorageResult<()> {
         codec::validate_input_id(run_id)?;
+        crate::storage::value_depth::admit_task(run_id, task)?;
         let _lock = self.lock.write().await;
         let mut catalog = catalog::CatalogTransaction::begin(self).await?;
         let mut info = self.read_run(run_id).await?;
@@ -191,6 +193,7 @@ impl StateStore for JsonStateStore {
 
     async fn update_ctx(&self, run_id: &str, ctx: &Context) -> StorageResult<()> {
         codec::validate_input_id(run_id)?;
+        crate::storage::value_depth::admit_context(run_id, ctx)?;
         let _lock = self.lock.write().await;
         let mut catalog = catalog::CatalogTransaction::begin(self).await?;
         let mut info = self.read_run(run_id).await?;

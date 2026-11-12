@@ -35,6 +35,23 @@ impl JsonStateStore {
         Ok(self.read_run_record(run_id).await?.info)
     }
 
+    /// Read a run for maintenance that must also handle a record the decoder
+    /// rejects. The outer error is a missing or unreadable file; the inner
+    /// one is the decode failure of a file that was read (IF-181).
+    pub(super) async fn read_run_or_decode_error(
+        &self,
+        run_id: &str,
+    ) -> StorageResult<Result<RunInfo, StorageError>> {
+        codec::validate_input_id(run_id)?;
+        let name = Self::run_name(run_id);
+        let data = self
+            .directory
+            .read_regular(&name)
+            .await?
+            .ok_or_else(|| StorageError::not_found(format_args!("Run '{run_id}' not found")))?;
+        Ok(codec::decode_run(&data, run_id, &name).map(|record| record.info))
+    }
+
     pub(super) async fn write_existing_run(
         &self,
         catalog: &mut CatalogTransaction<'_>,

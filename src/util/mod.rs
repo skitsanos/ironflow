@@ -4,6 +4,7 @@ pub mod bounded_read;
 pub mod duration;
 pub mod execution;
 pub(crate) mod file_source;
+pub mod json_depth;
 pub mod limits;
 pub mod listing;
 pub mod node_config;

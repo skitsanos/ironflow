@@ -19,6 +19,7 @@ pub mod sql_names;
 pub mod sql_store;
 #[cfg(any(feature = "postgres", feature = "redis"))]
 pub(crate) mod tls;
+mod value_depth;
 
 pub use error::{StorageError, StorageErrorKind, StorageResult};
 #[cfg(feature = "redis")]

@@ -17,6 +17,8 @@ mod test_api_errors;
 mod test_api_idempotency;
 #[path = "../test_api_sse.rs"]
 mod test_api_sse;
+#[path = "../test_request_context_depth.rs"]
+mod test_request_context_depth;
 #[path = "../test_run_id_api.rs"]
 mod test_run_id_api;
 #[path = "../test_webhook.rs"]

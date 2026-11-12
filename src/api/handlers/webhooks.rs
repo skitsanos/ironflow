@@ -52,6 +52,8 @@ pub async fn run_webhook(
                 AppError::BadRequest("webhook request body must be a JSON object".to_string())
             })?
     };
+    crate::util::json_depth::check_entries(&initial_ctx)
+        .map_err(|error| AppError::BadRequest(format!("webhook request body: {error}")))?;
     for reserved in ["_headers", "_webhook", "_flow_dir"] {
         if initial_ctx.contains_key(reserved) {
             return Err(AppError::BadRequest(format!(

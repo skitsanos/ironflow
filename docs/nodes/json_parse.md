@@ -13,6 +13,15 @@ Parse a JSON string from context into a value.
 
 - `{output_key}` — the parsed JSON value (object, array, number, etc.)
 
+## Limits
+
+The parsed value may nest arrays and objects at most 123 levels deep (a
+scalar has depth 0, `[[1]]` has depth 2). Deeper text fails the step with
+`JSON value is nested deeper than 123 levels of arrays and objects`, and the
+step is not retried. This is the fixed limit that every context and
+step-output value shares; see
+[JSON nesting limit](../CLI_REFERENCE.md#json-nesting-limit).
+
 ## Example
 
 ```lua

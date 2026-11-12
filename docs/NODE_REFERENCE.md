@@ -304,6 +304,12 @@ flow:step("parse", function()
 end)
 ```
 
+Text nested deeper than 123 levels of arrays and objects is refused with
+`json_parse failed: JSON value is nested deeper than 123 levels of arrays and
+objects`, the same fixed limit as the [`json_parse`](nodes/json_parse.md)
+node. Shallower text is then subject to `IRONFLOW_MAX_CONVERSION_DEPTH`
+(default `64`).
+
 ### `json_stringify(value)`
 
 Serialize a JSON-compatible Lua value to a JSON string. Tables must be either

@@ -10,7 +10,7 @@ use crate::util::execution::with_execution_deadline;
 use super::context::task_input_context;
 use super::deadline::StepDeadline;
 use super::engine::WorkflowEngine;
-use super::output::prepare_failure_output;
+use super::output::{admit_output, is_depth_refusal, prepare_failure_output};
 use super::task_attempt;
 use super::task_runtime::TaskRuntime;
 
@@ -100,7 +100,7 @@ impl WorkflowEngine {
             ));
             let mut deadline_expired = false;
             let result = match deadline.run_tracked(execution).await {
-                Ok(result) => result,
+                Ok(result) => result.and_then(admit_output),
                 Err(()) => {
                     deadline_expired = true;
                     Err(anyhow::anyhow!(deadline.error_message(&step.name)))
@@ -165,6 +165,7 @@ impl WorkflowEngine {
             };
             observation.finish(outcome);
         }
+        let depth_refusal = is_depth_refusal(&error);
         let mut failure_output = if attempt.deadline_expired {
             None
         } else {
@@ -177,7 +178,10 @@ impl WorkflowEngine {
             .await;
         warn!(task = %step.name, attempt = attempt.number, error = %err_msg, "Task attempt failed");
 
-        let final_attempt = attempt.number == attempt.max;
+        // A value the stores cannot read back is refused for good: another
+        // attempt would repeat the node's side effects and return the same
+        // shape (IF-181).
+        let final_attempt = attempt.number == attempt.max || depth_refusal;
         let buffered_output = task_attempt::record_failure(
             runtime,
             step,
@@ -204,7 +208,7 @@ impl WorkflowEngine {
                 anyhow::anyhow!(
                     "Task '{}' failed after {} attempts: {}",
                     step.name,
-                    attempt.max,
+                    attempt.number,
                     err_msg
                 ),
                 buffered_output,

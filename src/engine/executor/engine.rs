@@ -158,6 +158,10 @@ impl WorkflowEngine {
             );
         }
 
+        // A context the stores could not read back is refused before any
+        // durable state exists (IF-181).
+        crate::util::json_depth::check_entries(&initial_ctx).context("Initial context refused")?;
+
         let lease = RunLease::fresh();
         let durable_initial_ctx = execution_overlay.redact_context(&initial_ctx);
         let initialized = super::lease::initialize_run(

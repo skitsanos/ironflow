@@ -133,3 +133,25 @@ fn context_projection_keeps_engine_diagnostics_but_not_bulky_engine_payloads() {
     // Omitting the projection is unchanged: the whole context is cloned.
     assert_eq!(project_context(&json!({}), &ctx).unwrap().len(), 8);
 }
+
+/// IF-181: text nested deeper than the stores can read back is refused by the
+/// shared limit, ahead of the configurable JSON-to-Lua conversion depth.
+#[test]
+fn json_parse_global_applies_the_shared_storage_depth_limit() {
+    let lua = Lua::new();
+    super::register_json_globals(&lua).unwrap();
+    let parse = |depth: usize| {
+        let text = format!("{}{}", "[".repeat(depth), "]".repeat(depth));
+        lua.load("return json_parse(...)").call::<LuaValue>(text)
+    };
+
+    let error = parse(124).unwrap_err().to_string();
+    assert!(
+        error.contains("json_parse failed: JSON value is nested deeper than 123 levels"),
+        "{error}"
+    );
+    // At the limit the text is admitted and the conversion depth applies.
+    let error = parse(123).unwrap_err().to_string();
+    assert!(error.contains("IRONFLOW_MAX_CONVERSION_DEPTH"), "{error}");
+    assert!(parse(3).is_ok());
+}

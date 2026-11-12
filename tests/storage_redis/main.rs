@@ -10,6 +10,8 @@
 
 #[path = "../test_redis_atomicity.rs"]
 mod test_redis_atomicity;
+#[path = "../test_redis_json_depth.rs"]
+mod test_redis_json_depth;
 #[path = "../test_redis_lease_atomicity.rs"]
 mod test_redis_lease_atomicity;
 #[path = "../test_redis_store.rs"]

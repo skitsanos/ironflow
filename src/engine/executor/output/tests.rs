@@ -197,3 +197,55 @@ fn child_result_keeps_types_while_its_stored_snapshot_is_scrubbed() {
     assert!(live.is_none());
     assert_eq!(durable, snapshot);
 }
+
+fn nested(depth: usize) -> Value {
+    (0..depth).fold(Value::Null, |inner, _| Value::Array(vec![inner]))
+}
+
+#[test]
+fn output_at_the_storage_depth_limit_is_admitted_and_one_level_deeper_is_refused() {
+    let limit = crate::util::json_depth::MAX_JSON_VALUE_DEPTH;
+    let admitted = Context::from([("parsed".to_string(), nested(limit))]);
+    assert!(admit_output(admitted.clone()).unwrap() == admitted);
+
+    let error =
+        admit_output(Context::from([("parsed".to_string(), nested(limit + 1))])).unwrap_err();
+    assert_eq!(
+        format!("{error:#}"),
+        "step output refused: value 'parsed' is nested deeper than 123 levels of arrays and \
+         objects"
+    );
+    // The typed cause survives added context, which is what stops a retry.
+    assert!(is_depth_refusal(&error.context("Task 'parse' failed")));
+    assert!(!is_depth_refusal(&anyhow::anyhow!(
+        "nested deeper than 123"
+    )));
+}
+
+#[test]
+fn failure_output_deeper_than_the_storage_limit_is_dropped_from_both_halves() {
+    let limit = crate::util::json_depth::MAX_JSON_VALUE_DEPTH;
+    let failure = |depth| {
+        anyhow::Error::new(NodeFailure::new(
+            "provider rejected the request",
+            Context::from([("detail".to_string(), nested(depth))]),
+        ))
+    };
+
+    let mut kept = failure(limit);
+    let prepared = prepare_failure_output(&mut kept, &ExecutionOverlay::default()).unwrap();
+    assert!(prepared.context["detail"] == nested(limit));
+
+    let mut dropped = failure(limit + 1);
+    let prepared = prepare_failure_output(&mut dropped, &ExecutionOverlay::default()).unwrap();
+    assert!(prepared.context.is_empty());
+    assert_eq!(prepared.task_value["_truncated"], true);
+    assert_eq!(prepared.task_value["_limit_depth"], 123);
+    let note = prepared.task_value["_note"].as_str().unwrap();
+    assert!(
+        note.contains("value 'detail' is nested deeper than 123 levels"),
+        "{note}"
+    );
+    // The step's own error is untouched.
+    assert_eq!(dropped.to_string(), "provider rejected the request");
+}

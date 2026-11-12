@@ -8,7 +8,6 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 
 | ID | Priority | Status | Area | Summary |
 |---|---:|---|---|---|
-| [IF-181](docs/issues/IF-181.md) | P1 | Open | Storage | A context nested 126 levels deep makes a run record unreadable and blocks serve startup |
 | [IF-182](docs/issues/IF-182.md) | P2 | Open | Scheduler availability | Schedules due in the same tick lose occurrences to the flow-load limit |
 | [IF-183](docs/issues/IF-183.md) | P2 | Open | Deployment lifecycle | New connections hang for the whole drain and readiness never reports draining |
 | [IF-184](docs/issues/IF-184.md) | P2 | Open | API events | A deleted run's event fence mutes a re-created run with the same ID |

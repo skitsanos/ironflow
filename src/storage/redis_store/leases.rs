@@ -4,9 +4,9 @@ use chrono::{DateTime, Utc};
 
 use super::RedisStateStore;
 use super::lease_cas::LeaseGuard;
-use crate::engine::types::{Context, RunStatus, TaskState, TaskStatus};
+use crate::engine::types::{Context, RunInfo, RunStatus, TaskState, TaskStatus};
 use crate::storage::redis_config::map_redis_error;
-use crate::storage::{RunLease, StorageError, StorageResult};
+use crate::storage::{RunLease, StorageError, StorageErrorKind, StorageResult};
 
 const RENEW_SOURCE: &str = include_str!("scripts/lease_renew.lua");
 const RECONCILE_BATCH: usize = 256;
@@ -93,6 +93,9 @@ impl RedisStateStore {
 
     pub(super) async fn reconcile_owned_runs(&self, _now: DateTime<Utc>) -> StorageResult<usize> {
         let mut reconciled = 0;
+        // A record the pass cannot decode keeps its expired lease and so stays
+        // in the expiry index (IF-181); later pages start behind those.
+        let mut skipped = 0_usize;
         loop {
             let mut conn = self.conn.clone();
             let (seconds, micros): (i64, i64) = redis::cmd("TIME")
@@ -105,7 +108,7 @@ impl RedisStateStore {
                 .arg("-inf")
                 .arg(cutoff)
                 .arg("LIMIT")
-                .arg(0_u8)
+                .arg(skipped)
                 .arg(RECONCILE_BATCH)
                 .query_async(&mut conn)
                 .await
@@ -116,30 +119,34 @@ impl RedisStateStore {
                 return Ok(reconciled);
             }
             for run_id in candidates {
+                // Reading comes first so that a record this store cannot
+                // decode is told apart from a fault in the index keys, which
+                // the fencing script reports and which still fails the pass.
+                let snapshot = match self.read_snapshot(&run_id).await {
+                    Ok(snapshot) => snapshot,
+                    Err(error) if error.is_not_found() => {
+                        self.remove_stale_index_entry(&run_id).await?;
+                        continue;
+                    }
+                    Err(error) if error.kind() == StorageErrorKind::Corruption => {
+                        tracing::warn!(
+                            %run_id,
+                            %error,
+                            "lease reconciliation skipped a run record it could not decode \
+                             and left its lease in place"
+                        );
+                        skipped += 1;
+                        continue;
+                    }
+                    Err(error) => return Err(error),
+                };
                 match self
-                    .guarded_mutation(&run_id, LeaseGuard::Expired, |info| {
-                        let was_nonterminal = !info.status.is_terminal();
-                        if was_nonterminal {
-                            let finished = Utc::now();
-                            for task in info.tasks.values_mut() {
-                                if !task.status.is_terminal() {
-                                    task.status = if task.status == TaskStatus::Running {
-                                        TaskStatus::Failed
-                                    } else {
-                                        TaskStatus::Skipped
-                                    };
-                                    task.error = Some(
-                                        "task stopped after execution-owner lease expired"
-                                            .to_string(),
-                                    );
-                                    task.finished = Some(finished);
-                                }
-                            }
-                            info.status = RunStatus::Stalled;
-                            info.finished.get_or_insert(finished);
-                        }
-                        was_nonterminal
-                    })
+                    .guarded_mutation_from(
+                        &run_id,
+                        snapshot,
+                        LeaseGuard::Expired,
+                        stall_expired_run,
+                    )
                     .await
                 {
                     Ok(Some(stalled)) => reconciled += usize::from(stalled),
@@ -152,4 +159,26 @@ impl RedisStateStore {
             }
         }
     }
+}
+
+/// Stall a run whose owner lease expired. Returns whether it was still live.
+fn stall_expired_run(info: &mut RunInfo) -> bool {
+    if info.status.is_terminal() {
+        return false;
+    }
+    let finished = Utc::now();
+    for task in info.tasks.values_mut() {
+        if !task.status.is_terminal() {
+            task.status = if task.status == TaskStatus::Running {
+                TaskStatus::Failed
+            } else {
+                TaskStatus::Skipped
+            };
+            task.error = Some("task stopped after execution-owner lease expired".to_string());
+            task.finished = Some(finished);
+        }
+    }
+    info.status = RunStatus::Stalled;
+    info.finished.get_or_insert(finished);
+    true
 }

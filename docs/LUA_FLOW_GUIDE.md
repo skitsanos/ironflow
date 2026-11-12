@@ -217,6 +217,17 @@ values must coexist. If a phase is cancelled or stalls before its barrier,
 none of that phase's buffered output enters final run context, although
 already-terminal bounded task history remains available.
 
+A context value may nest arrays and objects at most 123 levels deep (a scalar
+has depth 0, `[[1]]` has depth 2). The limit is fixed and is the same for the
+initial context, for every step output and for the state stores, so a value
+that is accepted can always be stored and read back. An initial context over
+the limit is refused before the run starts. A step whose output is over the
+limit fails with `step output refused: value '<key>' is nested deeper than
+123 levels of arrays and objects`; it is not retried, and its `on_error`
+handler runs as for any other failure. Lua code meets
+`IRONFLOW_MAX_CONVERSION_DEPTH` (default 64) first. See
+[JSON nesting limit](CLI_REFERENCE.md#json-nesting-limit).
+
 Final inspection context uses the same cap per value. Waiting subworkflows,
 parallel children, repeated children, and tool handlers pass full, redacted
 results to the live parent instead of reading those inspection snapshots.

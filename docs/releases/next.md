@@ -37,6 +37,23 @@ publication is verified separately.
   and it will now fail startup until it is corrected. See
   [Field syntax](../CLI_REFERENCE.md#field-syntax).
 
+- **Context and step output nested deeper than 123 levels are refused**
+  (IF-181). A value nested 126 levels deep passed the JSON parser, and the
+  JSON and Redis stores then wrote a run record they could not read back:
+  the run stayed `pending`, `ironflow inspect` failed, and once its lease
+  expired `ironflow serve` could not start on a JSON store and Redis stopped
+  reconciling every later expired lease. A step output nested 127 levels
+  deep did the same to a SQLite or PostgreSQL run. One fixed limit now
+  applies everywhere: a context value or step-output value may nest arrays
+  and objects at most 123 levels. `ironflow run --context`, `POST /flows/run`
+  and webhook bodies refuse a deeper value before a run exists (exit status
+  1 or `400`), and a step that returns one fails without being retried.
+  Values between 124 and 126 levels that the SQL stores accepted before are
+  now refused as well. Lease reconciliation skips a record it cannot decode
+  and logs a warning that names the run; remove such a run with
+  `DELETE /runs/{id}`. See
+  [JSON nesting limit](../CLI_REFERENCE.md#json-nesting-limit).
+
 ## Security
 
 - **`mcp_client` bounds Streamable HTTP responses** (IF-173). `rmcp` is

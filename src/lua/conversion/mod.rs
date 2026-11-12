@@ -50,6 +50,8 @@ pub(crate) fn register_json_globals(lua: &Lua) -> Result<()> {
     let parse_fn = lua.create_function(|lua, data: String| {
         let json: serde_json::Value = serde_json::from_str(&data)
             .map_err(|error| LuaError::RuntimeError(format!("json_parse failed: {error}")))?;
+        crate::util::json_depth::check_value(&json)
+            .map_err(|error| LuaError::RuntimeError(format!("json_parse failed: {error}")))?;
         json_value_to_lua(lua, &json).map_err(LuaError::external)
     })?;
     globals.set("json_parse", parse_fn)?;

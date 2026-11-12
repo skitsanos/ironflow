@@ -14,6 +14,8 @@ mod test_artifact_retention;
 mod test_cache_identity;
 #[path = "../test_event_store.rs"]
 mod test_event_store;
+#[path = "../test_json_depth_stores.rs"]
+mod test_json_depth_stores;
 #[path = "../test_json_store_security.rs"]
 mod test_json_store_security;
 #[path = "../test_sql_context_concurrency.rs"]

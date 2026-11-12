@@ -5,6 +5,7 @@ use chrono::Utc;
 
 use crate::engine::types::*;
 use crate::storage::run_listing::compare_summaries;
+use crate::storage::value_depth::{admit_context, admit_task};
 use crate::storage::{RunListQuery, RunSummaryPage, StateStore, StorageResult};
 
 use super::RedisStateStore;
@@ -26,6 +27,7 @@ impl StateStore for RedisStateStore {
     }
 
     async fn init_run(&self, run_id: &str, flow_name: &str, ctx: &Context) -> StorageResult<()> {
+        admit_context(run_id, ctx)?;
         let info = RunInfo {
             id: run_id.to_string(),
             flow_name: flow_name.to_string(),
@@ -46,6 +48,7 @@ impl StateStore for RedisStateStore {
         ctx: &Context,
         lease: &crate::storage::RunLease,
     ) -> StorageResult<()> {
+        admit_context(run_id, ctx)?;
         let info = RunInfo {
             id: run_id.to_string(),
             flow_name: flow_name.to_string(),
@@ -96,6 +99,7 @@ impl StateStore for RedisStateStore {
     }
 
     async fn upsert_task(&self, run_id: &str, task: &TaskState) -> StorageResult<()> {
+        admit_task(run_id, task)?;
         self.mutate_run(run_id, |info| {
             info.tasks.insert(task.name.clone(), task.clone());
             Ok(true)
@@ -109,6 +113,7 @@ impl StateStore for RedisStateStore {
         task: &TaskState,
         owner: &str,
     ) -> StorageResult<bool> {
+        admit_task(run_id, task)?;
         self.upsert_owned_task(run_id, task, owner).await
     }
 
@@ -117,6 +122,7 @@ impl StateStore for RedisStateStore {
     }
 
     async fn update_ctx(&self, run_id: &str, ctx: &Context) -> StorageResult<()> {
+        admit_context(run_id, ctx)?;
         if ctx.is_empty() {
             self.read_run(run_id).await?;
             return Ok(());
@@ -135,6 +141,7 @@ impl StateStore for RedisStateStore {
         ctx: &Context,
         owner: &str,
     ) -> StorageResult<bool> {
+        admit_context(run_id, ctx)?;
         self.update_owned_context(run_id, ctx, owner).await
     }
 

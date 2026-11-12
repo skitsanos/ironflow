@@ -5,6 +5,7 @@ use chrono::Utc;
 
 use super::SqlStateStore;
 use crate::engine::types::{Context, RunInfo, RunStatus, RunSummary, TaskState};
+use crate::storage::value_depth::{admit_context, admit_task};
 use crate::storage::{RunListQuery, RunSummaryPage, StateStore, StorageError, StorageResult};
 
 #[async_trait]
@@ -20,6 +21,7 @@ impl StateStore for SqlStateStore {
     }
 
     async fn init_run(&self, run_id: &str, flow_name: &str, ctx: &Context) -> StorageResult<()> {
+        admit_context(run_id, ctx)?;
         let info = RunInfo {
             id: run_id.to_string(),
             flow_name: flow_name.to_string(),
@@ -39,6 +41,7 @@ impl StateStore for SqlStateStore {
         ctx: &Context,
         lease: &crate::storage::RunLease,
     ) -> StorageResult<()> {
+        admit_context(run_id, ctx)?;
         self.insert_owned_run(run_id, flow_name, ctx, lease).await
     }
 
@@ -71,6 +74,7 @@ impl StateStore for SqlStateStore {
     }
 
     async fn upsert_task(&self, run_id: &str, task: &TaskState) -> StorageResult<()> {
+        admit_task(run_id, task)?;
         self.upsert_unowned_task(run_id, task).await
     }
 
@@ -80,6 +84,7 @@ impl StateStore for SqlStateStore {
         task: &TaskState,
         owner: &str,
     ) -> StorageResult<bool> {
+        admit_task(run_id, task)?;
         self.upsert_owned_task(run_id, task, owner).await
     }
 
@@ -88,6 +93,7 @@ impl StateStore for SqlStateStore {
     }
 
     async fn update_ctx(&self, run_id: &str, ctx: &Context) -> StorageResult<()> {
+        admit_context(run_id, ctx)?;
         self.update_unowned_context(run_id, ctx).await
     }
 
@@ -97,6 +103,7 @@ impl StateStore for SqlStateStore {
         ctx: &Context,
         owner: &str,
     ) -> StorageResult<bool> {
+        admit_context(run_id, ctx)?;
         self.update_owned_context(run_id, ctx, owner).await
     }
 

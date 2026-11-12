@@ -37,6 +37,9 @@ impl Node for JsonParseNode {
             .ok_or_else(|| anyhow::anyhow!("Value at '{}' is not a string", source_key))?;
 
         let parsed: serde_json::Value = serde_json::from_str(json_str)?;
+        // The parsed value becomes step output, which the stores must be able
+        // to read back (IF-181).
+        crate::util::json_depth::check_value(&parsed)?;
 
         let mut output = NodeOutput::new();
         output.insert(output_key.to_string(), parsed);

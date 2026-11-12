@@ -38,6 +38,8 @@ mod test_node_config;
 mod test_node_config_interpolation;
 #[path = "../test_on_error_recovery.rs"]
 mod test_on_error_recovery;
+#[path = "../test_output_depth_limit.rs"]
+mod test_output_depth_limit;
 #[path = "../test_parallel_context_determinism.rs"]
 mod test_parallel_context_determinism;
 #[path = "../test_parallel_literal_inputs.rs"]

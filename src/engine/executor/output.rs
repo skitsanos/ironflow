@@ -5,6 +5,7 @@ use serde_json::Value;
 
 use crate::engine::types::Context;
 use crate::nodes::NodeFailure;
+use crate::util::json_depth;
 
 use super::overlay::ExecutionOverlay;
 
@@ -74,13 +75,41 @@ pub(super) fn prepare_output(output: Context, overlay: &ExecutionOverlay) -> Pre
     }
 }
 
+/// Refuse a node result the state stores could not read back (IF-181). The
+/// typed cause stays in the error chain, which is how the task runner knows
+/// not to retry the attempt.
+pub(super) fn admit_output(output: Context) -> anyhow::Result<Context> {
+    match json_depth::check_entries(&output) {
+        Ok(()) => Ok(output),
+        Err(refused) => Err(anyhow::Error::new(refused).context("step output refused")),
+    }
+}
+
+/// Whether `error` reports a value nested deeper than the stores can read back.
+pub(super) fn is_depth_refusal(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<json_depth::DepthExceeded>().is_some()
+}
+
 pub(super) fn prepare_failure_output(
     error: &mut anyhow::Error,
     overlay: &ExecutionOverlay,
 ) -> Option<PreparedOutput> {
-    error
-        .downcast_mut::<NodeFailure>()
-        .map(|failure| prepare_output(failure.take_output(), overlay))
+    error.downcast_mut::<NodeFailure>().map(|failure| {
+        let output = failure.take_output();
+        match json_depth::check_entries(&output) {
+            Ok(()) => prepare_output(output, overlay),
+            // The step has already failed; its detail is dropped rather than
+            // written as a record nothing can read (IF-181).
+            Err(refused) => PreparedOutput {
+                context: Context::new(),
+                task_value: serde_json::json!({
+                    "_truncated": true,
+                    "_limit_depth": json_depth::MAX_JSON_VALUE_DEPTH,
+                    "_note": format!("Failure output was omitted from task history: {refused}."),
+                }),
+            },
+        }
+    })
 }
 
 /// Cap individual oversized values in the final persisted context so a run

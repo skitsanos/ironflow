@@ -114,6 +114,20 @@ then repeats a 30-second-bounded pass every 30 seconds. An expired
 `Pending`/`Running` run becomes `Stalled`; unfinished running tasks become
 `Failed` and other unfinished tasks become `Skipped`.
 
+A pass does not stop at a run record it cannot decode. The JSON and Redis
+stores log a warning that names the run, leave the record and its expired
+lease in place, and continue with the remaining leases, so one such record
+cannot keep `serve` from starting or later runs from being reconciled. Redis
+pages past skipped records instead of re-reading the head of its expiry
+index. `delete_run` removes a record that is nested too deep: the JSON store
+treats any undecodable record as non-terminal, so only a live lease protects
+it, and the Redis delete script decodes with Lua `cjson`, which reads deeper
+than the Rust decoder. A Redis record whose `info` is not JSON or names
+another run is still refused by that script, as before, and stays until its
+key expires or is removed by hand. The SQL stores reconcile with `UPDATE`
+statements and never decode a record there. I/O errors and faults in the
+Redis index keys still fail the pass, as before.
+
 SQL uses the database clock and Redis uses `TIME` for lease creation, renewal,
 fencing, and reaping, so application-host clock skew cannot transfer ownership
 early. The JSON backend uses process UTC time and coordinates processes sharing
@@ -240,6 +254,14 @@ pub trait StateStore: Send + Sync {
     ) -> StorageResult<bool>;
 }
 ```
+
+`init_run`, `update_ctx`, `upsert_task` and their owned forms return
+`InvalidInput`, and write nothing, when a context value or a task's input or
+output nests deeper than the shared 123-level limit described under
+[Context Model](#context-model). The built-in JSON, SQL and Redis stores
+check this before they serialize, so none of them holds a record it cannot
+read back. A custom store should call `util::json_depth::check_entries` and
+`check_record` at the same points if its encoding has a nesting limit.
 
 The owned methods are the execution path used by `WorkflowEngine`. Their
 boolean result is a fencing decision: `false` means the caller no longer owns
@@ -939,6 +961,18 @@ Context is a `HashMap<String, serde_json::Value>` that flows through the entire 
   same-phase writer deterministically wins a same-key collision; later phases
   may intentionally overwrite earlier values. Initial-context overwrites are
   normal writes, not parallel collisions.
+- One nesting limit is shared by input parsing, the engine and the durable
+  stores: a context or step-output value may nest arrays and objects at most
+  123 levels (`util::json_depth::MAX_JSON_VALUE_DEPTH`). `serde_json` reads
+  back 127 nested containers and a stored run record wraps a task-output
+  value in four objects (run, task map, task, output), so anything admitted
+  can be stored and read by every backend. `ironflow run --context`,
+  `POST /flows/run` and webhook bodies refuse a deeper value before a run
+  exists; `WorkflowEngine` refuses it for every other caller. A deeper step
+  output fails its step as a workflow error that is not retried, and deeper
+  structured failure output is dropped from the task record and from the
+  recovery handler's input. The limit is a constant, not an environment
+  override, because the stores' decoders cannot follow a larger value.
 - Per-task state remains task-local, but `IRONFLOW_MAX_TASK_OUTPUT_BYTES` can
   replace an oversized output record with a truncation marker. Cancellation or
   infrastructure failure before a phase barrier discards that phase's buffered

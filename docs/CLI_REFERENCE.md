@@ -62,6 +62,13 @@ Execute a workflow from a Lua flow file.
 ironflow run flow.lua --context '{"user": "Alice"}' --verbose
 ```
 
+Each value in `--context` may nest arrays and objects at most 123 levels deep
+(a scalar has depth 0, `[[1]]` has depth 2). A deeper value is refused before
+a run record exists, with `Invalid --context JSON: value '<key>' is nested
+deeper than 123 levels of arrays and objects` and exit status 1. The same
+fixed limit applies to a `POST /flows/run` `context`, a webhook body and
+every step output; see [JSON nesting limit](#json-nesting-limit).
+
 ---
 
 ### `ironflow validate <FLOW>`
@@ -758,7 +765,11 @@ returns success when it removes an orphaned stream. A missing state record with
 no orphaned events returns `404 not_found`. JSON, SQL, and Redis atomically
 return `409 conflict` without removing state, lease, or events when the run is
 non-terminal and its execution-owner lease is still live. Terminal runs and
-abandoned non-terminal runs with an expired lease remain deletable.
+abandoned non-terminal runs with an expired lease remain deletable. A run
+record that the store can no longer decode is deletable under the same rule:
+it cannot prove it is terminal, so only a live lease protects it. Lease
+reconciliation skips such a record with a warning that names the run, and
+continues with the other expired leases; deleting the run clears it.
 
 SQL deletion fences are durable. A Redis fence is persistent without
 `REDIS_TTL` and expires with that configured TTL. The memory backend keeps
@@ -1332,6 +1343,32 @@ need separate execution identities and storage ACLs. S3 credentials and bucket
 policy are the remote authentication and namespace boundary.
 
 `IRONFLOW_MAX_XLSX_CELLS` is deliberately kept below `IRONFLOW_MAX_CONVERSION_NODES`: converting an extracted sheet into Lua costs roughly `rows * (cols + 1)` conversion nodes, so a cell ceiling that never fires before the conversion budget does would let oversized workbooks fail deep inside the JSON-to-Lua converter (an error naming a JSON path) instead of at `extract_xlsx` parse time (an error naming the sheet). Raising one of these two limits without the other may simply move where an oversized workbook fails rather than allow it through.
+
+#### JSON nesting limit
+
+One limit is fixed and has no environment override: a context value or a
+step-output value may nest arrays and objects at most **123 levels** deep. A
+scalar has depth 0 and `[[1]]` has depth 2. The object that holds the keys of
+a context, a request body or a step output is not counted.
+
+| Where a deeper value arrives | Result |
+|------------------------------|--------|
+| `ironflow run --context` | `Invalid --context JSON: value '<key>' is nested deeper than 123 levels of arrays and objects`, exit status 1, no run record |
+| `POST /flows/run` `context` and a webhook body | `400` with `bad_request`, naming the key; no run record. A replay that carries the `Idempotency-Key` of an existing run still returns that run |
+| The output of any step | The step fails with `step output refused: value '<key>' is nested deeper than 123 levels of arrays and objects`. It is not retried, because another attempt would repeat the node and return the same shape; `on_error` applies as for any failed step |
+| The `json_parse` node and the Lua `json_parse()` global | The parse fails with `JSON value is nested deeper than 123 levels of arrays and objects` |
+| Structured output attached to a node failure | Dropped: it is not published to the context or passed to the `on_error` handler, and the failed task's record carries a note in its place. The step's own error is kept |
+| A direct `StateStore` call (`init_run`, `update_ctx`, `upsert_task` and their owned forms) | `InvalidInput` from the JSON, SQLite, PostgreSQL and Redis stores; nothing is written |
+
+The number is what every store can read back. The JSON parser reads at most
+127 nested arrays and objects, and a stored run record wraps a task-output
+value in four more objects. `IRONFLOW_MAX_CONVERSION_DEPTH` (default `64`)
+still bounds what Lua reads or returns and applies first unless it is raised
+above 123. `xml_parse` keeps its own cap of 128 nested elements, so a document
+between the two limits parses and its step then fails on the output. A node
+that nests other values adds its own levels: `subworkflow` with `output_key`
+puts the child context one level deeper, so a child value already at 123
+makes the parent step fail after the child has run.
 
 ### Diagnostics
 

@@ -42,8 +42,16 @@ impl JsonStateStore {
                     "Run '{run_id}' not found"
                 )));
             }
-            let info = store.read_run(&run_id).await?;
-            if !info.status.is_terminal()
+            // A record the decoder rejects cannot prove it is terminal, so
+            // only a live lease keeps it from being deleted (IF-181).
+            let terminal = match store.read_run_or_decode_error(&run_id).await? {
+                Ok(info) => info.status.is_terminal(),
+                Err(error) => {
+                    tracing::debug!(run_id, %error, "deleting a run record that cannot be decoded");
+                    false
+                }
+            };
+            if !terminal
                 && store
                     .read_lease(&run_id)
                     .await?
@@ -80,6 +88,7 @@ impl JsonStateStore {
         lease: &RunLease,
     ) -> StorageResult<()> {
         validate_lease(run_id, lease)?;
+        crate::storage::value_depth::admit_context(run_id, ctx)?;
         let run_id = run_id.to_string();
         let flow_name = flow_name.to_string();
         let ctx = ctx.clone();
