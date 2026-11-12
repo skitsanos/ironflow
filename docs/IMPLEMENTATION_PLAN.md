@@ -271,7 +271,9 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
       to 256 names, finite string/context/grace sizes, and 64 catch-up instants
       per tick. Restricted day-of-month and weekday fields use traditional OR
       semantics, and weekday numbers are the standard 0 to 7 with 0 and 7 as
-      Sunday (IF-180). JSON and SQL retention is cadence-limited and deletes at most
+      Sunday (IF-180). Each cron token must be exactly one field, so a missing
+      space fails at startup instead of shifting the fields (IF-206). JSON and
+      SQL retention is cadence-limited and deletes at most
       256 schedule-scoped claims per pass; JSON uses digest/hour shards while
       retaining its rolling-upgrade-compatible atomic file and incrementally
       indexing legacy claims, SQL uses a covering cleanup index, and Redis

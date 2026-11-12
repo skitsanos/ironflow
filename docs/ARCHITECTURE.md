@@ -697,7 +697,10 @@ numbers are 0 to 7, where 0 and 7 are Sunday and 1 to 6 are Monday to
 Saturday. The underlying `cron` crate numbers the week 1 to 7 from Sunday, so
 `scheduler/weekday.rs` validates the weekday field and rewrites its numbers,
 ranges and steps into that numbering before the expression is parsed; other
-numbers fail at startup. A repeated
+numbers fail at startup. The crate also separates fields with optional
+whitespace and accepts a trailing year, so `scheduler/field_shape.rs` first
+requires each of the other four tokens to be exactly one field: a token such
+as `5*/2` fails at startup instead of shifting every field after it. A repeated
 fall-back wall-clock instant resolves to the earlier occurrence, while a
 spring-forward gap resolves to the first real instant after the gap.
 

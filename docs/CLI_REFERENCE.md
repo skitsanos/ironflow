@@ -1039,7 +1039,7 @@ schedules:
 | Field | Required | Default | Notes |
 |---|---|---|---|
 | `flow` | yes | — | Resolved against `flows_dir`, so a schedule cannot escape it. Maximum 1,024 UTF-8 bytes |
-| `cron` | yes | — | Maximum 256 UTF-8 bytes. Five fields: minute hour day month weekday. Seconds are fixed at zero; six- and seven-field expressions are rejected. Weekday numbers are `0` to `7`: `0` and `7` are Sunday, `1` to `6` are Monday to Saturday (see [Weekday field](#weekday-field)). If day and weekday are both restricted, either matching fires the schedule, as in traditional crontab |
+| `cron` | yes | — | Maximum 256 UTF-8 bytes. Five fields separated by spaces: minute hour day month weekday, each one token (see [Field syntax](#field-syntax)). Seconds are fixed at zero; six- and seven-field expressions are rejected, and so is a token that is not exactly one field. Weekday numbers are `0` to `7`: `0` and `7` are Sunday, `1` to `6` are Monday to Saturday (see [Weekday field](#weekday-field)). If day and weekday are both restricted, either matching fires the schedule, as in traditional crontab |
 | `timezone` | no | `UTC` | IANA name, maximum 128 UTF-8 bytes. Unknown names fail at startup |
 | `grace_seconds` | no | `300` | Maximum lateness for which a missed instant still fires. Range 60..=604,800 because the scheduler evaluates every 30 seconds and catch-up must remain bounded |
 | `context` | no | `{}` | Merged into the run's initial context, maximum 65,536 serialized JSON bytes. Must not define `_schedule` or `_flow_dir` |
@@ -1049,6 +1049,39 @@ most 48 UTF-8 bytes with no control characters. One tick considers at most 64
 due instants for each name. If a longer grace window contains more occurrences,
 the remainder are logged and skipped rather than queued. This makes
 `grace_seconds` a lateness admission window, not an unbounded replay promise.
+
+##### Field syntax
+
+Each field is one token, and tokens are separated by spaces or tabs. A field
+is a comma-separated list of items with no space inside it:
+
+| Item | Matches | Example |
+|---|---|---|
+| `*` | Every value of the field | `*` |
+| `N` | One value | `30` |
+| `N-M` | The values from `N` to `M`, both included | `9-17` |
+| `*/S` or `N-M/S` | Every `S`th value of that range, counted from its start | `*/15`, `10-40/10` |
+| `N/S` | Every `S`th value from `N` to the end of the field | `5/20` in the minute field is 5, 25 and 45 |
+| `?` | The same as `*`; day of month and weekday only | `?` |
+
+| Field | Values | Names |
+|---|---|---|
+| minute | `0` to `59` | — |
+| hour | `0` to `23` | — |
+| day of month | `1` to `31` | — |
+| month | `1` to `12` | `Jan` … `Dec` or spelled out, in any case |
+| weekday | `0` to `7` | See [Weekday field](#weekday-field) |
+
+- A month name can stand alone, in a list that may also hold numbers
+  (`1,Jul`), or in a range (`Jan-Mar`, `Feb-Jun/2`). A range cannot mix a name
+  with a number, and a step cannot follow a single name.
+- A token that is not exactly one field fails at startup with a message that
+  names the field: a missing space such as `5*/2 * * * *`, stray characters
+  such as `1*` or `Jan2030`, an empty list item, or a token that starts or
+  ends with `-`, `,` or `/`. The schedule is never loaded with its fields
+  shifted.
+- A value outside its field, a range that runs backwards, and a step that is
+  zero or larger than the field's highest value also fail at startup.
 
 ##### Weekday field
 

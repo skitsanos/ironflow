@@ -5,7 +5,7 @@ use std::str::FromStr;
 use chrono::{DateTime, Utc};
 use cron::Schedule;
 
-use super::weekday;
+use super::{field_shape, weekday};
 
 const CRON_FIELDS: usize = 5;
 
@@ -40,8 +40,10 @@ impl CronSchedule {
 
 /// Parse a bounded standard five-field cron expression.
 ///
-/// The weekday field accepts 0 to 7 (0 and 7 are Sunday) and day names, in
-/// lists, ranges and steps; any other number is an error.
+/// Each whitespace-separated token must be exactly one field: a list of `*`,
+/// numbers, ranges and steps, with `?` in the day fields and names in the
+/// month and weekday fields. The weekday field accepts 0 to 7 (0 and 7 are
+/// Sunday) and day names; any other number is an error.
 pub fn parse_cron(expression: &str) -> Result<CronSchedule, String> {
     if expression.len() > MAX_CRON_EXPRESSION_BYTES {
         return Err(format!(
@@ -59,10 +61,13 @@ pub fn parse_cron(expression: &str) -> Result<CronSchedule, String> {
         ));
     }
 
-    // The crate numbers weekdays 1 to 7 from Sunday; authors write 0 to 7.
-    let weekday = weekday::normalize(fields[4])
-        .map_err(|reason| format!("cron expression '{expression}' is not valid: {reason}"))?;
+    let invalid = |reason: String| format!("cron expression '{expression}' is not valid: {reason}");
+    // The crate separates fields with optional whitespace, so each token must
+    // be exactly one field before it is handed over.
     let [minute, hour, day, month] = [fields[0], fields[1], fields[2], fields[3]];
+    field_shape::check([minute, hour, day, month]).map_err(invalid)?;
+    // The crate numbers weekdays 1 to 7 from Sunday; authors write 0 to 7.
+    let weekday = weekday::normalize(fields[4]).map_err(invalid)?;
 
     let expressions = if restricted(day) && restricted(fields[4]) {
         vec![

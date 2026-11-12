@@ -22,6 +22,20 @@ publication is verified separately.
   Stray characters after a weekday, which the parser could read as a year
   (`Mon2030`), are rejected as well. See the weekday table under
   [Schedules](../CLI_REFERENCE.md#weekday-field).
+- **A schedule whose `cron` has a malformed field now stops `serve` at
+  startup** (IF-206). Each of the five fields must be one token. Earlier
+  releases passed the fields to a parser that separates them with optional
+  whitespace and accepts a trailing year, so a token with a missing space was
+  read as two fields and every later field shifted: `5*/2 * * * *` ran at
+  minute 5 of every second hour, and `0 2 * 1* *` ran at 02:00 daily in
+  January only. A token that starts or ends with `-`, `,` or `/` could join
+  the field beside it in the same way. These expressions are now rejected
+  with a message that names the field, for example `minute '5*/2' is not a
+  single field`. Well-formed expressions are accepted as before and fire at
+  the same times. Check every schedule in `ironflow.yaml` before deploying:
+  one that loaded with a mistyped field has been running at the wrong times,
+  and it will now fail startup until it is corrected. See
+  [Field syntax](../CLI_REFERENCE.md#field-syntax).
 
 ## Security
 

@@ -8,6 +8,8 @@
 mod test_schedule_claims;
 #[path = "../test_schedule_config.rs"]
 mod test_schedule_config;
+#[path = "../test_schedule_field_shapes.rs"]
+mod test_schedule_field_shapes;
 #[path = "../test_schedule_timing.rs"]
 mod test_schedule_timing;
 #[path = "../test_schedule_weekdays.rs"]

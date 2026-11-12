@@ -8,7 +8,8 @@
 # are Monday to Saturday. Ranges, lists and steps combine them: "1-5" is Monday
 # to Friday, "6,0" is the weekend, "1-5/2" is Monday, Wednesday and Friday.
 # Names such as "Mon-Fri" are accepted too. A number outside 0 to 7 fails at
-# startup.
+# startup, and so does a field that is not one token, such as "5*/2" with the
+# space after the minute missing.
 
 host: "127.0.0.1"
 port: 3100

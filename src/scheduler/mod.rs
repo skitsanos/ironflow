@@ -6,6 +6,7 @@ mod context;
 mod cron;
 mod evaluation;
 pub mod execution;
+mod field_shape;
 mod identity;
 mod runtime;
 pub mod startup;
