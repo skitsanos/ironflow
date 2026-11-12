@@ -173,9 +173,12 @@ impl RunCoordinator {
                 let execution_outcome = match execution {
                     Ok(outcome) => outcome,
                     Err(payload) => {
+                    let message = panic_message(payload.as_ref());
+                    drop(payload);
                     let message = self
                         .execution_overlay
-                        .redact_diagnostic(&panic_message(payload.as_ref()));
+                        .redact_diagnostic_async(message)
+                        .await;
                     error!(run_id = %self.run_id, panic = %message, "Workflow coordinator caught a panic");
                     ExecutionOutcome::Infrastructure(anyhow::anyhow!(
                         "workflow execution panicked: {message}"

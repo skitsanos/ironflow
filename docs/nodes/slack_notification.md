@@ -37,7 +37,8 @@ to received body bytes before text decoding, not total process memory or decoded
 JSON size. Charset/BOM decoding and JSON-or-text output behavior are unchanged.
 
 Non-2xx responses within the cap still fail with their status and redacted body
-detail. A size error takes precedence over provider body parsing when the cap is
+detail; the error keeps the first 64 KiB of that body (see
+[diagnostic scrubbing](../SECURITY.md#diagnostic-scrubbing)). A size error takes precedence over provider body parsing when the cap is
 exceeded. A failed response read does not prove the message was not delivered;
 retrying a notification can send it again.
 

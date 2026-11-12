@@ -8,7 +8,6 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 
 | ID | Priority | Status | Area | Summary |
 |---|---:|---|---|---|
-| [IF-177](docs/issues/IF-177.md) | P1 | Open | Runtime safety | Diagnostic redaction is quadratic on async workers and misses common credential shapes |
 | [IF-178](docs/issues/IF-178.md) | P1 | Open | PDF/resource safety | extract_pdf font decoding is unbounded for wide ToUnicode ranges and long glyph strings |
 | [IF-179](docs/issues/IF-179.md) | P1 | Open | Files/write safety | Image nodes and transcribe write outputs through symlinks without the staged writer |
 | [IF-181](docs/issues/IF-181.md) | P1 | Open | Storage | A context nested 126 levels deep makes a run record unreadable and blocks serve startup |

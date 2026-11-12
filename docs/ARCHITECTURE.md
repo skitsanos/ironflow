@@ -993,6 +993,14 @@ Context is a `HashMap<String, serde_json::Value>` that flows through the entire 
   is for text a remote party chose: a credential a node resolves itself, such
   as the `llm` node's authentication headers, is redacted from its errors at
   any length (IF-108)
+- Diagnostics pass through a pattern scrubber after exact-value redaction
+  (IF-177). It replaces URL credentials and the value of assignments whose key
+  ends with a credential name, reads its input a fixed number of times, and
+  scans and keeps only the first 64 KiB. Exact values are matched in the whole
+  text first, so a value that straddles the limit is never emitted in part;
+  the engine does that for a task error above the limit on the blocking pool
+  instead of the task's async worker. The guaranteed shapes are in
+  [SECURITY.md](SECURITY.md#diagnostic-scrubbing)
 - Documented Lua config fields can access context through `${ctx...}` path
   interpolation; configs are not rewritten globally
 - The grammar supports dotted keys, zero-based array indexes, and JSON

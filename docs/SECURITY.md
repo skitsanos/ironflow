@@ -148,6 +148,61 @@ or an upstream gateway authenticates, and keep non-confidential metadata in
 the JSON body. The full table is in the
 [CLI reference](CLI_REFERENCE.md#forwarded-header-redaction).
 
+## Diagnostic scrubbing
+
+Error text can carry a credential that no configuration names: a provider
+echoes a request header, a driver prints its connection string, a script
+raises an error that quotes an environment variable. A pattern scrubber
+therefore runs on the error of every failed task attempt before it is logged,
+stored or published, on failure summaries and panic messages, and on
+scheduler, storage, API and CLI diagnostics. Nodes that quote a provider or
+database response in an error scrub it as well. In the engine the scrubber
+runs after the exact-value redaction described above
+([IF-177](issues/IF-177.md)).
+
+Guaranteed shapes:
+
+| Shape | Example | What is replaced |
+| --- | --- | --- |
+| URL with the scheme `http`, `https`, `postgres`, `postgresql`, `redis`, `rediss`, `smtp`, `smtps` or `sqlite` | `postgres://app:pw@db/app?sslmode=require` | User information, every query value and the fragment; for `http` and `https` the path too. A URL that does not parse becomes `[REDACTED URL]`. |
+| Assignment with `=` | `db_password=pw`, `--token=pw`, `PGPASSWORD=pw` | The value up to the next whitespace or `&`, `;`, `,`, `<`, `>` or quote. |
+| `Bearer` or `Basic` after `=` | `Authorization=Bearer pw` | The scheme and the credential after it, as one value. |
+| Assignment with `:` | `X-API-Key: pw`, `Proxy-Authorization: Basic pw` | The value up to the next `&`, `;`, `,`, `<`, `>`, quote or line end. |
+| Quoted value | `"client_secret": "pw"`, `password = 'p''w'` | The content between the quotes. A backslash escape or a doubled quote does not end it. |
+| JSON inside a JSON string | `{\"password\":\"pw\"}` | The content between the escaped quotes, at any escaping depth. |
+
+A key is sensitive when it ends, in any letter case, with `access_key`,
+`api_key`, `authorization`, `credential`, `credentials`, `passphrase`,
+`passwd`, `password`, `private_key`, `pwd`, `secret`, `secret_key`,
+`signature` or `token`. An underscore in those endings also matches a hyphen
+or nothing, so `X-API-Key`, `apiKey` and `aws_secret_access_key` are covered.
+Matching by ending covers compound names without a list of them and leaves
+`token_type`, `max_tokens`, `password_policy` and `secret_name` readable.
+
+Every replaced value becomes `[REDACTED]`, and control characters become
+spaces so a diagnostic stays on one log line. Only the first 64 KiB of a
+diagnostic is scanned and kept; the rest is replaced by `...[truncated]`, and
+a URL that the limit cuts becomes `[REDACTED URL]`. The scan reads the text a
+fixed number of times, so its cost grows linearly with the input, and the
+engine redacts a task error above the limit on the blocking pool.
+
+Boundary. The scrubber is a last line of defence that recognises shapes, not
+secrets. It does not recognise:
+
+- a credential with no sensitive key or supported URL around it, including a
+  bare `Bearer pw` in prose;
+- plural keys other than `credentials` (`tokens`, `passwords`, `secrets`) and
+  keys whose sensitive word is not last;
+- more than the first word of an unquoted value after `=`, except for the two
+  schemes above;
+- a value that continues on another line, such as an unescaped PEM block;
+- a connection string without a scheme, outside IronFlow's own Redis and SQL
+  connection errors;
+- an encoded, hashed or split copy of a credential.
+
+Keep credentials out of error messages that a flow raises itself, and rely on
+forwarded-header and node credential redaction for values IronFlow knows.
+
 ## Dependency advisories
 
 `cargo audit --deny warnings` fails on every vulnerability and warning that is

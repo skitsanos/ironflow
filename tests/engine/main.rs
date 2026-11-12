@@ -12,6 +12,8 @@ mod test_child_failure_details;
 mod test_child_result_fidelity;
 #[path = "../test_context_projection_workflow.rs"]
 mod test_context_projection_workflow;
+#[path = "../test_diagnostic_redaction.rs"]
+mod test_diagnostic_redaction;
 #[path = "../test_engine.rs"]
 mod test_engine;
 #[path = "../test_engine_terminalization.rs"]

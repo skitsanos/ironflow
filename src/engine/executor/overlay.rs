@@ -6,6 +6,7 @@ use serde_json::Value;
 
 use crate::engine::types::Context;
 use crate::util::redaction::SecretRedactor;
+use crate::util::sensitive_url::MAX_DIAGNOSTIC_BYTES;
 
 tokio::task_local! {
     static CURRENT_EXECUTION_OVERLAY: ExecutionOverlay;
@@ -100,6 +101,21 @@ impl ExecutionOverlay {
         crate::util::sensitive_url::redact_sensitive_text(&self.redact_text(text))
     }
 
+    /// [`Self::redact_diagnostic`] for text of any size, from async code.
+    ///
+    /// Overlay secrets are matched in the whole text before the scrubber
+    /// keeps its bounded prefix; cutting first would emit the head of a
+    /// secret that straddles the cut. That pass is linear, but megabytes of
+    /// it would hold an async worker, so text above the scrubber's limit is
+    /// redacted on the blocking pool (IF-177). The work is bounded by the
+    /// text it owns and is not cancelled with its waiter.
+    pub(crate) async fn redact_diagnostic_async(&self, text: String) -> String {
+        let overlay = self.clone();
+        inline_or_blocking(text.len(), move || overlay.redact_diagnostic(&text))
+            .await
+            .unwrap_or_else(|| REDACTION_INCOMPLETE.to_string())
+    }
+
     pub(crate) fn strip_from_context(&self, context: &mut Context) {
         for key in self.values.keys() {
             context.remove(key);
@@ -112,6 +128,24 @@ impl ExecutionOverlay {
     {
         CURRENT_EXECUTION_OVERLAY.scope(self.clone(), future).await
     }
+}
+
+/// Stands in for a diagnostic whose redaction did not finish, so the
+/// unredacted text is never the fallback.
+const REDACTION_INCOMPLETE: &str = "diagnostic withheld: redaction did not complete";
+
+/// Run `work` inline when its input fits the scrubber's limit, otherwise on
+/// the blocking pool. `None` when the blocking task panicked or the runtime
+/// is shutting down.
+async fn inline_or_blocking<T, F>(input_bytes: usize, work: F) -> Option<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> T + Send + 'static,
+{
+    if input_bytes <= MAX_DIAGNOSTIC_BYTES {
+        return Some(work());
+    }
+    tokio::task::spawn_blocking(work).await.ok()
 }
 
 #[cfg(test)]
@@ -165,5 +199,44 @@ mod tests {
             &diagnostic,
         ));
         assert!(reversed.contains("example.com"), "{reversed}");
+    }
+
+    #[tokio::test]
+    async fn only_an_oversized_diagnostic_leaves_the_async_worker() {
+        let worker = std::thread::current().id();
+        let current_thread = || std::thread::current().id();
+
+        let inline = inline_or_blocking(MAX_DIAGNOSTIC_BYTES, current_thread).await;
+        let blocking = inline_or_blocking(MAX_DIAGNOSTIC_BYTES + 1, current_thread).await;
+
+        assert_eq!(inline, Some(worker));
+        assert!(blocking.is_some_and(|thread| thread != worker));
+    }
+
+    #[tokio::test]
+    async fn a_redaction_that_does_not_finish_yields_no_text() {
+        let outcome = inline_or_blocking::<String, _>(MAX_DIAGNOSTIC_BYTES + 1, || {
+            std::panic::resume_unwind(Box::new("redaction failed"))
+        })
+        .await;
+
+        assert_eq!(outcome, None);
+    }
+
+    #[tokio::test]
+    async fn an_overlay_secret_across_the_scrubber_limit_is_not_emitted_in_part() {
+        let secret = "overlay-secret-value-0123456789";
+        let overlay = ExecutionOverlay::new(Context::from([(
+            "_headers".to_string(),
+            serde_json::json!({"authorization": secret}),
+        )]));
+        // The secret starts ten bytes before the limit and ends after it.
+        let padding = "x".repeat(MAX_DIAGNOSTIC_BYTES - 10);
+
+        let redacted = overlay
+            .redact_diagnostic_async(format!("{padding}{secret} tail"))
+            .await;
+
+        assert_eq!(redacted, format!("{padding}[REDACTED]...[truncated]"));
     }
 }

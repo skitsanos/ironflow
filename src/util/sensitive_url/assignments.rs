@@ -1,143 +1,95 @@
-use super::REDACTED;
-use super::search::find_first_ascii_case_insensitive;
+//! Redacts the value of every `key=value` and `key: value` assignment whose
+//! key names a credential.
+//!
+//! The text is read once, word by word, so the cost is linear in its length
+//! (IF-177). A word is a run of ASCII letters, digits, `_` and `-`, and it is
+//! a sensitive key when it ends with one of [`SENSITIVE_KEY_SUFFIXES`]. That
+//! covers compound names such as `db_password`, `PGPASSWORD`, `X-API-Key` and
+//! `Proxy-Authorization` without a list of every compound, and leaves
+//! `token_type`, `max_tokens` and `password_policy` alone.
 
-const SENSITIVE_ASSIGNMENT_KEYS: &[&str] = &[
-    "access_token",
-    "api-key",
+use super::REDACTED;
+use super::values::assigned_value;
+
+/// Key endings that name a credential, in lower case. A `_` also matches `-`
+/// or nothing, so `api_key` covers `api-key`, `apikey` and `apiKey`.
+const SENSITIVE_KEY_SUFFIXES: &[&str] = &[
+    "access_key",
     "api_key",
-    "apikey",
     "authorization",
-    "client_secret",
     "credential",
     "credentials",
+    "passphrase",
     "passwd",
     "password",
+    "private_key",
     "pwd",
-    "refresh_token",
     "secret",
+    "secret_key",
     "signature",
     "token",
 ];
 
 pub(super) fn redact_sensitive_assignments(text: &str) -> String {
+    let bytes = text.as_bytes();
     let mut output = String::with_capacity(text.len());
+    // `text[..copied]` is already in `output`; `cursor` is the scan position.
+    let mut copied = 0;
     let mut cursor = 0;
-    while let Some((relative_start, key)) =
-        find_first_ascii_case_insensitive(&text[cursor..], SENSITIVE_ASSIGNMENT_KEYS)
-    {
-        let start = cursor + relative_start;
-        let key_end = start + key.len();
-        if !assignment_key_is_bounded(text, start, key_end) {
-            output.push_str(&text[cursor..key_end]);
-            cursor = key_end;
+    while cursor < bytes.len() {
+        if !is_key_byte(bytes[cursor]) {
+            cursor += 1;
             continue;
         }
-        let Some((separator_start, separator)) = assignment_separator(text, start, key_end) else {
-            output.push_str(&text[cursor..key_end]);
-            cursor = key_end;
+        let key_start = cursor;
+        let key_end = key_start
+            + bytes[key_start..]
+                .iter()
+                .take_while(|byte| is_key_byte(**byte))
+                .count();
+        cursor = key_end;
+        if !is_sensitive_key(&bytes[key_start..key_end]) {
+            continue;
+        }
+        let Some(value) = assigned_value(text, key_end) else {
             continue;
         };
-        let (content_start, value_end) = assignment_value_bounds(text, separator_start, separator);
-        output.push_str(&text[cursor..content_start]);
+        output.push_str(&text[copied..value.start]);
         output.push_str(REDACTED);
-        cursor = value_end;
+        copied = value.end;
+        cursor = value.end;
     }
-    output.push_str(&text[cursor..]);
+    output.push_str(&text[copied..]);
     output
 }
 
-fn assignment_key_is_bounded(text: &str, start: usize, key_end: usize) -> bool {
-    let before_is_boundary = start == 0
-        || text[..start]
-            .chars()
-            .next_back()
-            .is_none_or(|character| !is_assignment_key_character(character));
-    let after_is_boundary = text[key_end..]
-        .chars()
-        .next()
-        .is_none_or(|character| !is_assignment_key_character(character));
-    before_is_boundary && after_is_boundary
+fn is_sensitive_key(word: &[u8]) -> bool {
+    SENSITIVE_KEY_SUFFIXES
+        .iter()
+        .any(|suffix| ends_with_suffix(word, suffix.as_bytes()))
 }
 
-fn assignment_separator(text: &str, start: usize, key_end: usize) -> Option<(usize, char)> {
-    let enclosing_quote = text[..start]
-        .chars()
-        .next_back()
-        .filter(|character| matches!(character, '\'' | '"'));
-    let mut separator_start = key_end;
-    if let Some(quote) = enclosing_quote
-        && text[separator_start..].starts_with(quote)
-    {
-        separator_start += quote.len_utf8();
-    }
-    separator_start = skip_ascii_whitespace(text, separator_start);
-    let separator = text[separator_start..].chars().next()?;
-    matches!(separator, '=' | ':').then_some((separator_start, separator))
-}
-
-fn assignment_value_bounds(text: &str, separator_start: usize, separator: char) -> (usize, usize) {
-    let value_start = skip_ascii_whitespace(text, separator_start + separator.len_utf8());
-    let quote = text[value_start..]
-        .chars()
-        .next()
-        .filter(|character| matches!(character, '\'' | '"'));
-    let content_start = quote
-        .map(|character| value_start + character.len_utf8())
-        .unwrap_or(value_start);
-    let value_end = match quote {
-        Some(quote) => quoted_value_end(text, content_start, quote),
-        None => text[content_start..]
-            .char_indices()
-            .find_map(|(offset, character)| {
-                (character.is_control()
-                    || (separator == '=' && character.is_whitespace())
-                    || matches!(character, '&' | ';' | ',' | '\'' | '"' | '<' | '>'))
-                .then_some(content_start + offset)
-            })
-            .unwrap_or(text.len()),
-    };
-    (content_start, value_end)
-}
-
-fn quoted_value_end(text: &str, content_start: usize, quote: char) -> usize {
-    let mut cursor = content_start;
-    let mut escaped = false;
-    while let Some(character) = text[cursor..].chars().next() {
-        if character.is_control() {
-            break;
-        }
-        if escaped {
-            escaped = false;
-            cursor += character.len_utf8();
-            continue;
-        }
-        if character == '\\' {
-            escaped = true;
-            cursor += character.len_utf8();
-            continue;
-        }
-        if character == quote {
-            let next = cursor + character.len_utf8();
-            if text[next..].starts_with(quote) {
-                cursor = next + quote.len_utf8();
-                continue;
+/// Whether `word` ends with `suffix`, ignoring ASCII case. A `_` in the
+/// suffix matches `_`, `-` or nothing in the word.
+fn ends_with_suffix(word: &[u8], suffix: &[u8]) -> bool {
+    let mut rest = word;
+    for expected in suffix.iter().rev() {
+        let last = rest.split_last();
+        if *expected == b'_' {
+            if let Some((b'_' | b'-', head)) = last {
+                rest = head;
             }
-            break;
+            continue;
         }
-        cursor += character.len_utf8();
+        match last {
+            Some((actual, head)) if actual.eq_ignore_ascii_case(expected) => rest = head,
+            _ => return false,
+        }
     }
-    cursor
+    true
 }
 
-fn skip_ascii_whitespace(text: &str, mut cursor: usize) -> usize {
-    while let Some(character) = text[cursor..].chars().next()
-        && character.is_ascii_whitespace()
-    {
-        cursor += character.len_utf8();
-    }
-    cursor
-}
-
-fn is_assignment_key_character(character: char) -> bool {
-    character.is_ascii_alphanumeric() || matches!(character, '_' | '-')
+/// Key bytes are ASCII, so a word starts and ends on a character boundary.
+fn is_key_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-')
 }

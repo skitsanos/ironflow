@@ -170,9 +170,11 @@ impl WorkflowEngine {
         } else {
             prepare_failure_output(&mut error, runtime.execution_overlay)
         };
+        // Awaited so that an oversized error is redacted off this worker.
         let err_msg = runtime
             .execution_overlay
-            .redact_diagnostic(&format!("{error:#}"));
+            .redact_diagnostic_async(format!("{error:#}"))
+            .await;
         warn!(task = %step.name, attempt = attempt.number, error = %err_msg, "Task attempt failed");
 
         let final_attempt = attempt.number == attempt.max;

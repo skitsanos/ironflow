@@ -141,7 +141,9 @@ flow:step("continue", nodes.log({
 
 The handler receives three invocation-local context values for every failure:
 
-- `_error_message` — the source step's final error after retries;
+- `_error_message` — the source step's final error after retries. It is
+  scrubbed and holds at most the first 64 KiB of the step's error text, as
+  described under [diagnostic scrubbing](SECURITY.md#diagnostic-scrubbing);
 - `_error_step` — the source step name;
 - `_error_node_type` — the source node type.
 

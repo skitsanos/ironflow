@@ -67,7 +67,9 @@ the final endpoint explicitly when migrating to a different provider origin.
 Request errors hide endpoint userinfo, path, and query. Provider errors retain
 the provider and HTTP status but redact the exact authentication header values
 sent, including environment-only keys, Bearer credentials, short keys, and
-their JSON-escaped forms, before entering logs or durable history. This applies
+their JSON-escaped forms, before entering logs or durable history. The error
+then passes through [diagnostic scrubbing](../SECURITY.md#diagnostic-scrubbing),
+which keeps the first 64 KiB of the provider body. This applies
 to error diagnostics, not arbitrary successful model content; do not put secrets
 in prompts or ordinary persisted context.
 

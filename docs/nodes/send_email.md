@@ -54,7 +54,8 @@ The limit counts received body bytes before charset/BOM decoding. It is not a
 total-memory or decoded-JSON limit. The SMTP provider is unaffected.
 
 Within-limit non-2xx responses still fail with their status and redacted body
-detail. Oversized responses fail with the size error before provider body parsing.
+detail; the error keeps the first 64 KiB of that body (see
+[diagnostic scrubbing](../SECURITY.md#diagnostic-scrubbing)). Oversized responses fail with the size error before provider body parsing.
 A failed response read does not prove the email was not delivered; retrying can
 send the email again.
 

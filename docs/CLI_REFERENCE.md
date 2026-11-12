@@ -599,6 +599,15 @@ their paths. Malformed URLs fail closed to a redacted placeholder. This protects
 current diagnostics, but cannot rewrite historical logs, so rotate credentials
 and purge retained logs if an older version may have exposed a full URL.
 
+The same scrubber replaces the value of `key=value` and `key: value`
+assignments whose key ends with a credential name, such as `db_password`,
+`PGPASSWORD`, `X-API-Key` or `Authorization`. It scans and keeps the first
+64 KiB of a diagnostic and replaces the rest with `...[truncated]`, so the
+task error shown by `ironflow inspect`, stored with the run and published in
+events stays bounded however large the failing step's message was. The
+guaranteed shapes and the shapes it does not recognize are listed under
+[Diagnostic scrubbing](SECURITY.md#diagnostic-scrubbing).
+
 GitHub releases include default binaries and `-full` binaries. Use the `-full`
 artifact when you need Postgres or Redis support or the embedded CJK font
 (`postgres,redis,cjk-fonts`). Release binaries are stripped and link-time
