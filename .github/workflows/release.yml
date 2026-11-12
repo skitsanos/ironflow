@@ -69,14 +69,17 @@ jobs:
       - name: Build release binary
         run: cargo build --locked --release --target ${{ matrix.platform.target }} ${{ matrix.suffix == '-full' && '--features postgres,redis,cjk-fonts' || '' }}
 
+      # Every archive carries the generated third-party notices (IF-204) next
+      # to the fonts' OFL license; the file is committed and gated against the
+      # lockfile, so packaging needs no extra toolchain.
       - name: Package (unix)
         if: runner.os != 'Windows'
-        run: tar czf ironflow-${{ github.ref_name }}-${{ matrix.platform.target }}${{ matrix.suffix }}.tar.gz assets/fonts/OFL.txt -C target/${{ matrix.platform.target }}/release ironflow
+        run: tar czf ironflow-${{ github.ref_name }}-${{ matrix.platform.target }}${{ matrix.suffix }}.tar.gz THIRD_PARTY_LICENSES.md assets/fonts/OFL.txt -C target/${{ matrix.platform.target }}/release ironflow
 
       - name: Package (windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Compress-Archive -Path "target/${{ matrix.platform.target }}/release/ironflow.exe", "assets/fonts/OFL.txt" -DestinationPath "ironflow-${{ github.ref_name }}-${{ matrix.platform.target }}${{ matrix.suffix }}.zip"
+        run: Compress-Archive -Path "target/${{ matrix.platform.target }}/release/ironflow.exe", "THIRD_PARTY_LICENSES.md", "assets/fonts/OFL.txt" -DestinationPath "ironflow-${{ github.ref_name }}-${{ matrix.platform.target }}${{ matrix.suffix }}.zip"
 
       - name: Upload artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7

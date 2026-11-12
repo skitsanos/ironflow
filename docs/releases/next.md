@@ -25,4 +25,13 @@ publication is verified separately.
 - The dependency audit and license check also run daily in CI, so advisories
   against released code surface without a push.
 
+## Unreleased changes
+
+- Every release archive and the container image now ship
+  `THIRD_PARTY_LICENSES.md`, the generated license notices for the Rust crates
+  statically linked into IronFlow, next to the bundled fonts' OFL license
+  (IF-204). The file is committed, regenerated with
+  `bun --no-env-file scripts/third_party_notices.ts write`, and checked
+  against `Cargo.lock` wherever the dependency license gate runs.
+
 Earlier changes remain in [the 1.20.0 notes](1.20.0.md).

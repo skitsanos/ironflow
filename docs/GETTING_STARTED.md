@@ -25,6 +25,13 @@ PostgreSQL or Redis storage, choose the matching archive with `-full` before
 not bundle database servers. Linux ARM64 and Windows ARM64 native binaries
 are not currently published.
 
+Every archive contains three files: the `ironflow` binary (`ironflow.exe` on
+Windows), `THIRD_PARTY_LICENSES.md` with the license notices for the Rust
+crates statically linked into that binary, and the SIL Open Font License for
+the bundled document fonts (`assets/fonts/OFL.txt` in the `.tar.gz` archives,
+`OFL.txt` in the `.zip`). Keep the two license files with the binary when you
+redistribute it.
+
 No Rust compiler or separate Lua installation is required. Some nodes need
 additional tools or libraries: for example, PDF image rendering needs native
 Pdfium even with a full binary or the Docker image. See the
@@ -98,6 +105,8 @@ and stable release version tags.
 Docker Desktop or Docker Engine must be running. Images include PostgreSQL
 and Redis storage support and currently target **linux/amd64** only. On ARM
 hosts, Docker must support x86-64 emulation; on Windows, use Linux containers.
+The image keeps the same third-party notices and the fonts' license under
+`/usr/local/share/licenses/ironflow/`.
 
 ### Select an image
 

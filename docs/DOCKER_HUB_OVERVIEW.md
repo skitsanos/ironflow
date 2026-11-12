@@ -58,4 +58,7 @@ and follow the [deployment guide](https://github.com/skitsanos/ironflow/blob/mai
 
 ## License
 
-[MIT](https://github.com/skitsanos/ironflow/blob/main/LICENSE)
+[MIT](https://github.com/skitsanos/ironflow/blob/main/LICENSE). The image
+ships the license notices for the statically linked Rust crates as
+`/usr/local/share/licenses/ironflow/THIRD_PARTY_LICENSES.md` and the bundled
+fonts' SIL Open Font License as `fonts-OFL.txt` in the same directory.

@@ -60,6 +60,18 @@ class PreCommitRegistryTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("issues_registry.ts check", trace)
 
+    def test_license_surfaces_invoke_the_license_gate_and_the_notices_check(self) -> None:
+        # IF-204: the committed notices and their inputs are gated like the manifest;
+        # Cargo paths are not exercised here because the hook also runs real cargo fmt.
+        for path in ("THIRD_PARTY_LICENSES.md", "scripts/third_party_notices.ts", "scripts/licenses/MIT.txt"):
+            with self.subTest(path=path):
+                result, trace = self.run_fixture(path)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(
+                    trace,
+                    "--no-env-file scripts/check_licenses.ts\n--no-env-file scripts/third_party_notices.ts check\n",
+                )
+
     def test_unrelated_docs_do_not_invoke_registry_check(self) -> None:
         result, trace = self.run_fixture("docs/unrelated.md")
         self.assertEqual(result.returncode, 0, result.stderr)

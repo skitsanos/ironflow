@@ -227,6 +227,23 @@ The first run of this gate found `html2md` (GPL-3.0+) in the shipped graph; it
 was replaced by `htmd` (Apache-2.0) in IF-161. Fonts embedded for PDF generation
 remain under the SIL Open Font License shipped as `assets/fonts/OFL.txt`.
 
+Attribution for the same graph ships as `THIRD_PARTY_LICENSES.md` in every
+release archive and at `/usr/local/share/licenses/ironflow/` in the container
+image (IF-204). `scripts/third_party_notices.ts write` renders it from the
+gate's shipped-package list: one row per crate and version with its SPDX
+expression, the license IronFlow uses it under (the first allowed option in
+the preference order recorded in the script when a crate offers a choice) and
+its repository link, an MPL-2.0 section that states where the unmodified
+source is available, and each applicable canonical license text once from
+`scripts/licenses/`. The file is committed; `third_party_notices.ts check`
+runs next to the license gate in the CI `audit` job, the integration gate and
+the pre-commit hook and fails until a lockfile change is followed by a
+regeneration:
+
+```sh
+bun --no-env-file scripts/third_party_notices.ts write
+```
+
 ## Watched dependencies
 
 `noyalib` parses `IronFlowConfig` YAML and backs the `yaml_parse` /

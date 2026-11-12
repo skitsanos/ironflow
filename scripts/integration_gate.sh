@@ -62,6 +62,7 @@ bun --no-env-file scripts/test_rust_targets.ts
 cargo test --doc
 cargo audit --deny warnings
 bun --no-env-file scripts/check_licenses.ts
+bun --no-env-file scripts/third_party_notices.ts check
 
 echo "[integration] feature-enabled Rust gates"
 cargo check --all-targets --features postgres,redis,cjk-fonts

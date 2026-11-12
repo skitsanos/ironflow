@@ -50,6 +50,7 @@ RUN apt-get update \
 
 COPY --from=builder /app/target/release/ironflow /usr/local/bin/ironflow
 COPY assets/fonts/OFL.txt /usr/local/share/licenses/ironflow/fonts-OFL.txt
+COPY THIRD_PARTY_LICENSES.md /usr/local/share/licenses/ironflow/THIRD_PARTY_LICENSES.md
 
 ENV HOST=0.0.0.0 \
     PORT=3000 \

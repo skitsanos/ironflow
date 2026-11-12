@@ -84,6 +84,10 @@ jobs:
       # shipped dependency graph; the allowlist lives in scripts/check_licenses.ts.
       - name: Check dependency licenses
         run: bun --no-env-file scripts/check_licenses.ts
+      # Fails when the committed THIRD_PARTY_LICENSES.md, which ships in every
+      # release archive and in the image, no longer matches the lockfile (IF-204).
+      - name: Check third-party notices
+        run: bun --no-env-file scripts/third_party_notices.ts check
 
   fmt:
     name: Format

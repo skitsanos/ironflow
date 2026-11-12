@@ -33,6 +33,10 @@ An audit is read-only unless fixes or issue registration were requested.
   change.
 - Run `bun run scripts/issues_registry.ts check` when issue pages, issue
   indexes, repository guidance, or issue-resolution skills change.
+- Run `bun --no-env-file scripts/check_licenses.ts` and
+  `bun --no-env-file scripts/third_party_notices.ts check` after dependency
+  changes; a stale `THIRD_PARTY_LICENSES.md` is regenerated with
+  `bun --no-env-file scripts/third_party_notices.ts write` and committed.
 - Add live storage validation when Redis/PostgreSQL behavior, schemas, leases,
   claims, retention, or event stores change.
 

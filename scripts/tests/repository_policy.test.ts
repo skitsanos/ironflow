@@ -40,6 +40,8 @@ describe("repository integration policy", () => {
         ".githooks/pre-commit",
         "scripts/tests/test_codex_hooks.py",
         ".github/workflows/release.yml",
+        "THIRD_PARTY_LICENSES.md",
+        "scripts/licenses/MIT.txt",
       ]) {
         expect(ignored(path), `${event}: ${path}`).toBeFalse();
       }
@@ -51,9 +53,11 @@ describe("repository integration policy", () => {
     const lockfile = await read("Cargo.lock");
     expect(await read(".cargo/audit.toml")).not.toContain('"RUSTSEC-2026-0192"');
     // IF-161: shipped binaries are MIT; the license gate runs in CI, the local
-    // gate and the pre-commit hook for manifest changes.
+    // gate and the pre-commit hook for manifest changes. IF-204: the notices
+    // freshness check runs wherever the gate runs.
     for (const surface of [".github/workflows/ci.yml", "scripts/integration_gate.sh", ".githooks/pre-commit"]) {
       expect(await read(surface), surface).toContain("bun --no-env-file scripts/check_licenses.ts");
+      expect(await read(surface), surface).toContain("bun --no-env-file scripts/third_party_notices.ts check");
     }
     expect(manifest).not.toMatch(/^html2md\s*=/m);
     for (const removedPackage of ["html2md", "textris-pdf", "bincode", "paste", "pdf-extract", "syntect", "ttf-parser", "yaml-rust"]) {
@@ -126,6 +130,32 @@ describe("repository integration policy", () => {
     expect((await read("Dockerfile")).match(/^ARG FEATURES="postgres redis cjk-fonts"$/gm)).toHaveLength(2);
     expect(await read(".github/workflows/ci.yml")).toContain("--features postgres,redis,cjk-fonts");
     expect(await read("scripts/integration_gate.sh")).toContain("--features postgres,redis,cjk-fonts");
+  });
+
+  test("every release archive and the container image carry the third-party notices beside the fonts license", async () => {
+    // IF-204: the notices file is a committed, gated build input, so packaging
+    // and the image copy it as plain files.
+    const notices = "THIRD_PARTY_LICENSES.md";
+    expect((await read(notices)).startsWith("# Third-party licenses\n")).toBeTrue();
+    const workflow = Bun.YAML.parse(await read(".github/workflows/release.yml")) as {
+      jobs: { build: { steps: Array<{ name?: string; run?: string }> } };
+    };
+    const packaging = workflow.jobs.build.steps.filter((step) => step.name?.startsWith("Package ("));
+    expect(packaging.map((step) => step.name)).toEqual(["Package (unix)", "Package (windows)"]);
+    for (const step of packaging) {
+      expect(step.run, step.name).toContain(notices);
+      expect(step.run, step.name).toContain("assets/fonts/OFL.txt");
+    }
+    const dockerfile = await read("Dockerfile");
+    const copies = dockerfile.match(/^COPY \S+ \/usr\/local\/share\/licenses\/ironflow\/\S+$/gm) ?? [];
+    expect(copies).toEqual([
+      "COPY assets/fonts/OFL.txt /usr/local/share/licenses/ironflow/fonts-OFL.txt",
+      `COPY ${notices} /usr/local/share/licenses/ironflow/${notices}`,
+    ]);
+    const ignored = (await read(".dockerignore")).split("\n").filter((line) => line.trim() && !line.startsWith("#"));
+    for (const pattern of ignored) {
+      expect(new Bun.Glob(pattern).match(notices), pattern).toBeFalse();
+    }
   });
 
   test("third-party actions are pinned to commit SHAs with their version noted", async () => {

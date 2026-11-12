@@ -693,4 +693,6 @@ commitment.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). Release archives and the container image include
+[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md), the generated license
+notices for the Rust crates linked into the binary.
