@@ -269,7 +269,9 @@ configuration, confinement, caching, and SPA fallback contract.
 Flows can also run on a schedule. A `schedules:` block in `ironflow.yaml`
 declares bounded standard five-field cron triggers that `ironflow serve`
 evaluates—in a named time zone, with at most one replica claiming a given
-instant. If day-of-month and weekday are both restricted, either match fires
+instant. Weekday numbers follow standard crontab: `0` and `7` are Sunday and
+`1` to `6` are Monday to Saturday, so `1-5` is Monday to Friday. If
+day-of-month and weekday are both restricted, either match fires
 the schedule, as in traditional crontab. A claimed instant may still
 be skipped for lateness, overlap, or capacity; overlap suppression is a bounded
 best-effort check rather than a distributed lock. Schedule names evaluate

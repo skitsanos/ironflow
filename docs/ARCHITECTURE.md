@@ -692,7 +692,12 @@ seconds. Each scheduler keeps a local wall-clock watermark per schedule,
 enumerates only occurrences still reachable within that schedule's grace
 window, and caps one tick at 64 occurrences; excess occurrences are skipped,
 not queued. Cron expressions have five fields and traditional crontab
-day-of-month/day-of-week OR semantics; time zones use IANA names. A repeated
+day-of-month/day-of-week OR semantics; time zones use IANA names. Weekday
+numbers are 0 to 7, where 0 and 7 are Sunday and 1 to 6 are Monday to
+Saturday. The underlying `cron` crate numbers the week 1 to 7 from Sunday, so
+`scheduler/weekday.rs` validates the weekday field and rewrites its numbers,
+ranges and steps into that numbering before the expression is parsed; other
+numbers fail at startup. A repeated
 fall-back wall-clock instant resolves to the earlier occurrence, while a
 spring-forward gap resolves to the first real instant after the gap.
 

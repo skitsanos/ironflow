@@ -7,7 +7,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts check`.
 
 - Total findings: 205
-- Active findings: 27
+- Active findings: 26
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
 | ID | Priority | Status | Area | Summary |
@@ -191,7 +191,7 @@ priority, area, and title. The registry is generated with
 | [IF-177](./IF-177.md) | P1 | Open | Runtime safety | Diagnostic redaction is quadratic on async workers and misses common credential shapes |
 | [IF-178](./IF-178.md) | P1 | Open | PDF/resource safety | extract_pdf font decoding is unbounded for wide ToUnicode ranges and long glyph strings |
 | [IF-179](./IF-179.md) | P1 | Open | Files/write safety | Image nodes and transcribe write outputs through symlinks without the staged writer |
-| [IF-180](./IF-180.md) | P1 | Open | Scheduler contract | Numeric cron weekdays fire one day early |
+| [IF-180](./IF-180.md) | P1 | Resolved | Scheduler contract | Numeric cron weekdays fire one day early |
 | [IF-181](./IF-181.md) | P1 | Open | Storage | A context nested 126 levels deep makes a run record unreadable and blocks serve startup |
 | [IF-182](./IF-182.md) | P2 | Open | Scheduler availability | Schedules due in the same tick lose occurrences to the flow-load limit |
 | [IF-183](./IF-183.md) | P2 | Open | Deployment lifecycle | New connections hang for the whole drain and readiness never reports draining |

@@ -4,6 +4,25 @@ The approved 1.21.0 changes are recorded in [1.21.0.md](1.21.0.md).
 Development versions remain prereleases until release-branch finalization;
 publication is verified separately.
 
+## Upgrade Notes
+
+- **Schedules written with numeric weekdays move by one day** (IF-180). The
+  weekday field of a schedule's `cron` now uses the standard crontab
+  numbering: `0` and `7` are Sunday, `1` to `6` are Monday to Saturday.
+  Earlier releases read the numbers one day early (`1` as Sunday, `7` as
+  Saturday) and rejected `0` at startup. After the upgrade `0 9 * * 1-5` runs
+  Monday to Friday instead of Sunday to Thursday, and `0 0 * * 7` runs on
+  Sunday instead of Saturday. Review every schedule whose fifth field
+  contains a digit before deploying: one that was written for standard cron
+  now fires on the intended days, and one whose numbers were adjusted to
+  compensate must be changed back or rewritten with names. Schedules that use
+  weekday names (`Mon-Fri`), `*` or `*/N` are unaffected. A weekday outside
+  `0` to `7` or a backwards range such as `6-1` still fails at startup, now
+  with a message that names the weekday field and states the numbering.
+  Stray characters after a weekday, which the parser could read as a year
+  (`Mon2030`), are rejected as well. See the weekday table under
+  [Schedules](../CLI_REFERENCE.md#weekday-field).
+
 ## Security
 
 - **`mcp_client` bounds Streamable HTTP responses** (IF-173). `rmcp` is

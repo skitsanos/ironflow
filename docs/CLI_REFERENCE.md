@@ -1030,7 +1030,7 @@ schedules:
 | Field | Required | Default | Notes |
 |---|---|---|---|
 | `flow` | yes | — | Resolved against `flows_dir`, so a schedule cannot escape it. Maximum 1,024 UTF-8 bytes |
-| `cron` | yes | — | Maximum 256 UTF-8 bytes. Five fields: minute hour day month weekday. Seconds are fixed at zero; six- and seven-field expressions are rejected. If day and weekday are both restricted, either matching fires the schedule, as in traditional crontab |
+| `cron` | yes | — | Maximum 256 UTF-8 bytes. Five fields: minute hour day month weekday. Seconds are fixed at zero; six- and seven-field expressions are rejected. Weekday numbers are `0` to `7`: `0` and `7` are Sunday, `1` to `6` are Monday to Saturday (see [Weekday field](#weekday-field)). If day and weekday are both restricted, either matching fires the schedule, as in traditional crontab |
 | `timezone` | no | `UTC` | IANA name, maximum 128 UTF-8 bytes. Unknown names fail at startup |
 | `grace_seconds` | no | `300` | Maximum lateness for which a missed instant still fires. Range 60..=604,800 because the scheduler evaluates every 30 seconds and catch-up must remain bounded |
 | `context` | no | `{}` | Merged into the run's initial context, maximum 65,536 serialized JSON bytes. Must not define `_schedule` or `_flow_dir` |
@@ -1040,6 +1040,33 @@ most 48 UTF-8 bytes with no control characters. One tick considers at most 64
 due instants for each name. If a longer grace window contains more occurrences,
 the remainder are logged and skipped rather than queued. This makes
 `grace_seconds` a lateness admission window, not an unbounded replay promise.
+
+##### Weekday field
+
+The weekday field uses the standard crontab numbering, evaluated in the
+schedule's time zone:
+
+| Weekday field | Fires on |
+|---|---|
+| `0` or `7` | Sunday |
+| `1` … `6` | Monday … Saturday |
+| `1-5` | Monday to Friday |
+| `5-7` | Friday, Saturday and Sunday |
+| `6,0` | Saturday and Sunday |
+| `1-5/2` | Monday, Wednesday and Friday |
+| `*/2` | Sunday, Tuesday, Thursday and Saturday: a step over `*` counts from Sunday |
+| `Mon-Fri`, `sat,sun` | The named days |
+
+- A step after one number, `N/S`, runs from `N` through `7`, so `1/2` is
+  Monday, Wednesday, Friday and Sunday.
+- English names are accepted in any case, short (`Sun` … `Sat`) or spelled
+  out, alone, in lists that may also hold numbers, and in ranges. A named
+  range follows the week from Sunday to Saturday: `Mon-Fri` and `Sun-Sat` are
+  accepted, `Sat-Sun` is rejected, and `6-7` or `Sat,Sun` says the same thing.
+  A range cannot mix a name with a number.
+- A number outside `0` to `7`, a range that runs backwards such as `6-1`, a
+  step outside `1` to `7`, or an empty list item fails at startup with a
+  message that names the weekday field.
 
 A deterministic offline configuration and flow are available at
 `examples/21-schedules/ironflow.yaml` and

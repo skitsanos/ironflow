@@ -10,6 +10,7 @@ mod identity;
 mod runtime;
 pub mod startup;
 pub mod timing;
+mod weekday;
 
 use std::collections::HashMap;
 use std::sync::Arc;

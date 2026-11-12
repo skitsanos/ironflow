@@ -62,7 +62,9 @@ store_backend: "json"     # IRONFLOW_STORE: json, sqlite, postgres, or redis
 # staging and nightly in production without editing flow source.
 #
 # `cron` is standard five-field (minute hour day month weekday); seconds are
-# fixed at zero. If day and weekday are both restricted, either one matching
+# fixed at zero. Weekday numbers are 0 to 7: 0 and 7 are Sunday, 1 to 6 are
+# Monday to Saturday, so "0 9 * * 1-5" is 09:00 from Monday to Friday. If day
+# and weekday are both restricted, either one matching
 # fires the schedule. `timezone` is an IANA name and defaults to UTC.
 # `grace_seconds` is the maximum lateness for which a missed instant still
 # fires (default 300, range 60..=604800). One tick evaluates at most 64 due

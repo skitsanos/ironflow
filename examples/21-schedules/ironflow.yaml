@@ -3,6 +3,12 @@
 #
 # The scheduler evaluates immediately and catches up the most recent minute.
 # Stop it with Ctrl-C; run records are written below data/runs/schedule-example.
+#
+# Weekday numbers are the standard crontab ones: 0 and 7 are Sunday, 1 to 6
+# are Monday to Saturday. Ranges, lists and steps combine them: "1-5" is Monday
+# to Friday, "6,0" is the weekend, "1-5/2" is Monday, Wednesday and Friday.
+# Names such as "Mon-Fri" are accepted too. A number outside 0 to 7 fails at
+# startup.
 
 host: "127.0.0.1"
 port: 3100
@@ -18,3 +24,17 @@ schedules:
     grace_seconds: 60
     context:
       audience: "IronFlow operators"
+  # 09:00 UTC from Monday (1) to Friday (5).
+  hello_on_weekdays:
+    flow: "scheduled_hello.lua"
+    cron: "0 9 * * 1-5"
+    timezone: "UTC"
+    context:
+      audience: "the weekday shift"
+  # 10:30 UTC on Saturday (6) and Sunday (0; 7 means Sunday as well).
+  hello_at_the_weekend:
+    flow: "scheduled_hello.lua"
+    cron: "30 10 * * 6,0"
+    timezone: "UTC"
+    context:
+      audience: "the weekend shift"

@@ -10,6 +10,8 @@ mod test_schedule_claims;
 mod test_schedule_config;
 #[path = "../test_schedule_timing.rs"]
 mod test_schedule_timing;
+#[path = "../test_schedule_weekdays.rs"]
+mod test_schedule_weekdays;
 #[path = "../test_scheduler_availability.rs"]
 mod test_scheduler_availability;
 #[path = "../test_scheduler_decisions.rs"]

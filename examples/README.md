@@ -230,7 +230,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **date_format.lua** — Parse, format, and display dates with timezone support
 
 ## 21-schedules
-- **scheduled_hello.lua** — Deterministic offline flow used by the adjacent `ironflow.yaml` to demonstrate a minutely `serve` schedule; schedule claims are durable in the state store (SQLite by default), so one instant never fires twice. Run `cargo run -- -C examples/21-schedules/ironflow.yaml serve` from the repository root and stop it with Ctrl-C
+- **scheduled_hello.lua** — Deterministic offline flow used by the adjacent `ironflow.yaml` to demonstrate a minutely `serve` schedule plus a Monday-to-Friday (`1-5`) and a weekend (`6,0`) schedule in the standard weekday numbering, where `0` and `7` are Sunday; schedule claims are durable in the state store (SQLite by default), so one instant never fires twice. Run `cargo run -- -C examples/21-schedules/ironflow.yaml serve` from the repository root and stop it with Ctrl-C
 
 ## 23-static-website
 - **ironflow.yaml** — Runs `ironflow serve` with a public static root on `127.0.0.1:3101`

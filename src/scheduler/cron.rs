@@ -5,6 +5,8 @@ use std::str::FromStr;
 use chrono::{DateTime, Utc};
 use cron::Schedule;
 
+use super::weekday;
+
 const CRON_FIELDS: usize = 5;
 
 /// Maximum UTF-8 bytes accepted for one cron expression.
@@ -12,7 +14,9 @@ pub const MAX_CRON_EXPRESSION_BYTES: usize = 256;
 
 /// A five-field cron schedule. When day-of-month and day-of-week are both
 /// restricted, occurrences are the union of both fields, matching traditional
-/// crontab behavior rather than the underlying parser's intersection.
+/// crontab behavior rather than the underlying parser's intersection. Weekday
+/// numbers are the standard ones: 0 and 7 are Sunday, 1 to 6 are Monday to
+/// Saturday.
 #[derive(Clone, Debug)]
 pub struct CronSchedule {
     alternatives: Vec<Schedule>,
@@ -35,6 +39,9 @@ impl CronSchedule {
 }
 
 /// Parse a bounded standard five-field cron expression.
+///
+/// The weekday field accepts 0 to 7 (0 and 7 are Sunday) and day names, in
+/// lists, ranges and steps; any other number is an error.
 pub fn parse_cron(expression: &str) -> Result<CronSchedule, String> {
     if expression.len() > MAX_CRON_EXPRESSION_BYTES {
         return Err(format!(
@@ -52,13 +59,18 @@ pub fn parse_cron(expression: &str) -> Result<CronSchedule, String> {
         ));
     }
 
-    let expressions = if restricted(fields[2]) && restricted(fields[4]) {
+    // The crate numbers weekdays 1 to 7 from Sunday; authors write 0 to 7.
+    let weekday = weekday::normalize(fields[4])
+        .map_err(|reason| format!("cron expression '{expression}' is not valid: {reason}"))?;
+    let [minute, hour, day, month] = [fields[0], fields[1], fields[2], fields[3]];
+
+    let expressions = if restricted(day) && restricted(fields[4]) {
         vec![
-            format!("{} {} {} {} *", fields[0], fields[1], fields[2], fields[3]),
-            format!("{} {} * {} {}", fields[0], fields[1], fields[3], fields[4]),
+            format!("{minute} {hour} {day} {month} *"),
+            format!("{minute} {hour} * {month} {weekday}"),
         ]
     } else {
-        vec![expression.to_string()]
+        vec![format!("{minute} {hour} {day} {month} {weekday}")]
     };
 
     let alternatives = expressions
