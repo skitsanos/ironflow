@@ -75,6 +75,11 @@ Parse and validate a flow file without executing it. Checks for:
 - Invalid syntax in string-valued `code` node source
 - Reads of undefined globals inside Lua function handlers and string-valued
   `code` node source
+- A flow table that `Flow.new` and `flow:step` did not build consistently
+- More than 10,000 steps in the flow, or more than 10,000 dependencies on one
+  step
+- Flow source or string-valued `code` node source nested deeper than 1,000
+  syntax levels
 
 Undefined globals are warnings by default, so validation still exits
 successfully while reporting the source line and column. Embedded code-source
@@ -82,6 +87,21 @@ locations use `step[NAME].source:LINE:COLUMN`; their positions are relative to
 the decoded source string. Use `--strict` to treat any Lua warning as a
 validation failure. Invalid embedded syntax and function handlers that capture
 outer locals are always rejected.
+
+The step and dependency caps are fixed and apply wherever a flow is loaded,
+including `ironflow run`, the REST API, webhooks, schedules, and subworkflows.
+The loader measures the flow's step list and each step's dependency list
+itself: a list that carries a metatable, or a `_step_count` field that does not
+match the steps the flow holds, is a load error, so a script cannot make the
+loader reserve memory for a count it merely claims.
+
+The syntax-nesting cap is fixed and applies only to validation, which is the
+only path that walks the syntax tree. Lua itself refuses more than about 200
+nested constructs, well inside the cap; only operator, index, or call chains
+longer than roughly a thousand links reach it, for example a generated
+`1 + 1 + ...` expression. Such a flow fails validation with `Lua source is
+nested too deeply for validation`, naming the line, but Lua compiles those
+chains without nesting, so the execution paths still load it.
 
 Self-contained callbacks may be registered repeatedly; each source warning is
 reported once. Distinct functions with identical start/end line ranges are
@@ -1143,7 +1163,7 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_MAX_CONCURRENT_TASKS` | number of CPUs | Maximum tasks running in parallel per workflow execution. `0` is retained as a compatibility spelling for `1`; invalid values and values above Tokio's supported semaphore ceiling fail before execution. |
 | `IRONFLOW_MAX_CONCURRENT_RUNS` | unlimited | Process-wide cap on concurrently executing API-, webhook-, and scheduler-triggered runs. The permit follows a detached run until its coordinator settles. At capacity, API/webhook requests receive `503 Service Unavailable` and a scheduled instant is skipped. `0` or unset means unlimited; invalid or unsupported values fail server startup. |
 | `IRONFLOW_MAX_CONCURRENT_FLOW_LOADS` | `2` | Process-wide positive ceiling for concurrent Lua flow-definition loads by API validation/execution, webhooks, and schedules. Admission is held until detached blocking parsing actually stops. At capacity, API/webhook requests receive `503 Service Unavailable` and a scheduled instant is skipped; zero, invalid, or unsupported values fail server startup. |
-| `IRONFLOW_MAX_FLOW_SOURCE_BYTES` | `1048576` | Positive maximum UTF-8 bytes accepted for a file or inline Lua flow source, enforced before Lua VM creation. Zero or invalid values retain the safe default. |
+| `IRONFLOW_MAX_FLOW_SOURCE_BYTES` | `1048576` | Positive maximum UTF-8 bytes accepted for a file or inline Lua flow source, enforced before Lua VM creation. Zero or invalid values retain the safe default. Independently of this limit, a flow may declare at most 10,000 steps and a step at most 10,000 dependencies, and validation rejects source or embedded `code` source whose syntax nests deeper than 1,000 levels; these three caps are fixed |
 | `IRONFLOW_MAX_RUN_SECONDS` | unlimited | Run-level wall-clock deadline. A run exceeding it is cancelled (terminal status `cancelled`), reclaiming a step that hangs without its own `timeout()`. `0` or unset means no deadline; invalid values fail before execution/server startup. |
 | `IRONFLOW_LUA_MAX_INSTRUCTIONS` | `5000000` | Max Lua VM instructions per flow parse/code execution; `0` disables |
 | `IRONFLOW_LUA_MAX_SECONDS` | `10` | Max wall-clock seconds per Lua state; `0` disables |
@@ -1161,7 +1181,7 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_MAX_TRANSCRIBE_RESPONSE_BYTES` | `26214400` | Maximum transcription-provider response body. Checked while streaming even when `Content-Length` is absent or wrong; zero/invalid values retain the safe default. |
 | `IRONFLOW_MAX_HTTP_BODY_BYTES` | `52428800` | Maximum HTTP node, embedding, ArangoDB Cursor API, Slack, or Resend response body bytes, raw artifact upload, or complete multipart request size. Declared sizes are checked up front and actual sizes while streaming; multipart admission includes conservative generated-framing allowance. Response text/JSON decoding can use additional memory. Does not apply to SMTP or OAuth token responses. |
 | `IRONFLOW_MAX_EMBEDDING_VALUES` | `16777216` | Maximum total scalar values across one `ai_embed` or `ai_chunk_semantic` vector matrix, not per batch. Default equals 128 MiB of raw `f64` values; parsing, JSON, containers, and semantic processing use additional memory. Invalid or zero values retain the default. |
-| `IRONFLOW_MAX_FILE_BYTES` | `52428800` | Maximum `read_file` payload and final `write_file` size (including an existing file in append mode), streamed `s3_get_object` response body, HTML/SRT/VTT extraction input, and raw DOCX/PPTX archive size |
+| `IRONFLOW_MAX_FILE_BYTES` | `52428800` | Maximum `read_file` payload and final `write_file` size (including an existing file in append mode), streamed `s3_get_object` response body, HTML/SRT/VTT extraction input, the `html_to_markdown` input string, and raw DOCX/PPTX archive size |
 | `IRONFLOW_MAX_IMAGE_ENCODED_BYTES` | `52428800` | Maximum encoded bytes for one image path, artifact, or decoded Base64 source, checked before image pixel allocation |
 | `IRONFLOW_MAX_IMAGE_PIXELS` | `25000000` | Maximum decoded pixels in one source image or generated image transform |
 | `IRONFLOW_MAX_IMAGE_DECODE_ALLOCATION_BYTES` | `134217728` | Maximum decoder-managed allocation and admitted image working-buffer estimate, not a process-memory cap. Transforms check retained source plus known output buffers; `image_resize` also budgets the RGBA-float intermediate and filter scratch before pixel decoding/resizing. `image_to_pdf` includes encoded, conversion, and compression buffers for non-JPEG sources |
@@ -1195,7 +1215,7 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_FONT_DIR` | unset | Directory of additional `.ttf`/`.otf`/`.ttc` fonts for `markdown_to_pdf`, registered once per process after the bundled fonts and used as fallbacks for CJK scripts; at most 64 files of at most 64 MiB each, and an unreadable directory or file fails the first document with an error naming the path |
 | `IRONFLOW_MAX_PDF_MERGE_OBJECTS` | `250000` | Maximum retained merged PDF graph objects, including the merged page tree and catalog; shared objects within one source are counted once |
 | `IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES` | `52428800` | Maximum complete serialized `NodeOutput` for one `extract_html`, `extract_pdf`, `extract_word`, `extract_pptx`, `extract_srt`, or `extract_vtt` call; includes configured content/alias, metadata, comments, cues, and artifact descriptors as applicable, but not the artifact files themselves |
-| `IRONFLOW_MAX_EXTRACT_ITEMS` | `250000` | Maximum cumulative structural/work items for one non-XLSX extraction call; units are format-specific and documented on each extract node |
+| `IRONFLOW_MAX_EXTRACT_ITEMS` | `250000` | Maximum cumulative structural/work items for one non-XLSX extraction call or one `html_to_markdown` call; units are format-specific and documented on each node. Independently of this budget, `extract_html` Markdown output and `html_to_markdown` reject HTML whose elements nest deeper than a fixed 128 levels |
 | `IRONFLOW_MAX_PDF_EXTRACT_PAGES` | `1000` | Maximum pages accepted by one `extract_pdf` call before text extraction begins |
 | `IRONFLOW_MAX_PDF_RENDER_PAGES` | `25` | Maximum pages rendered by one PDF node call |
 | `IRONFLOW_MAX_PDF_SPLIT_PAGES` | `1000` | Maximum selected pages materialized by one `pdf_split` call; page specifications are rejected before collecting more indices. Also the maximum configured `pages_per_file` |

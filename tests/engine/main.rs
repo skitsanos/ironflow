@@ -18,6 +18,8 @@ mod test_engine;
 mod test_engine_terminalization;
 #[path = "../test_flow_file_disclosure.rs"]
 mod test_flow_file_disclosure;
+#[path = "../test_flow_load_limits.rs"]
+mod test_flow_load_limits;
 #[path = "../test_foreach_node.rs"]
 mod test_foreach_node;
 #[path = "../test_interpolation_validation.rs"]

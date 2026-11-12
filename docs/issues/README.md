@@ -7,7 +7,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts check`.
 
 - Total findings: 203
-- Active findings: 30
+- Active findings: 28
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
 | ID | Priority | Status | Area | Summary |
@@ -185,8 +185,8 @@ priority, area, and title. The registry is generated with
 | [IF-171](./IF-171.md) | P3 | Resolved | Supply chain | Dependency and lint hygiene: unpinned actions, duplicate crates, unguarded unwraps |
 | [IF-172](./IF-172.md) | P1 | Resolved | Validation workflow | Full pre-push gate outlives GitHub's SSH idle timeout, so a gated develop push cannot complete |
 | [IF-173](./IF-173.md) | P1 | Open | Dependency security | Three new RustSec advisories fail the audit gate; the rmcp one is reachable through mcp_client |
-| [IF-174](./IF-174.md) | P1 | Open | Runtime safety | HTML-to-Markdown conversion overflows the stack on nested markup and aborts the process |
-| [IF-175](./IF-175.md) | P1 | Open | Lua runtime safety | Flow source can abort the process during load and validation |
+| [IF-174](./IF-174.md) | P1 | Resolved | Runtime safety | HTML-to-Markdown conversion overflows the stack on nested markup and aborts the process |
+| [IF-175](./IF-175.md) | P1 | Resolved | Lua runtime safety | Flow source can abort the process during load and validation |
 | [IF-176](./IF-176.md) | P1 | Resolved | API security | Forwarded-header fragments become run-wide secrets and rewrite live step output |
 | [IF-177](./IF-177.md) | P1 | Open | Runtime safety | Diagnostic redaction is quadratic on async workers and misses common credential shapes |
 | [IF-178](./IF-178.md) | P1 | Open | PDF/resource safety | extract_pdf font decoding is unbounded for wide ToUnicode ranges and long glyph strings |

@@ -531,6 +531,20 @@ by registration order. Put those definitions on distinct lines, including
 nested functions when necessary. This is a validation-time source-analysis
 requirement; normal execution does not perform source association.
 
+### Flow size limits
+
+A flow may declare at most 10,000 steps, and one step may list at most 10,000
+dependencies. Both caps are fixed and apply wherever a flow is loaded. Build
+flows with `Flow.new`, `flow:step`, and the step builder methods: the loader
+measures the step and dependency lists itself and rejects a list that carries
+a metatable or a `_step_count` that does not match the steps the flow holds.
+
+Validation additionally rejects flow source, and string-valued
+`nodes.code.source`, whose syntax nests deeper than 1,000 levels. Lua refuses
+more than about 200 nested constructs on its own, so only an operator, index,
+or call chain of roughly a thousand links or more reaches that cap. Split such
+a generated expression into several statements.
+
 ## Complete Example
 
 ```lua

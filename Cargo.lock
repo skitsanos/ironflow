@@ -2549,6 +2549,7 @@ dependencies = [
  "futures-util",
  "hex",
  "htmd",
+ "html5ever 0.38.0",
  "http",
  "http-body-util",
  "image",

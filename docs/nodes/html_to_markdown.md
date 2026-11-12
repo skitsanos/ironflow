@@ -29,6 +29,35 @@ pipe tables) are retained; literal Markdown punctuation in prose is escaped
 content is left untouched. Conversion is best-effort: CSS, scripts, and
 external resources are never evaluated, and this is not a sanitizer.
 
+## Resource and cancellation contract
+
+The node admits its input like [`extract_html`](extract_html.md) before any
+HTML is parsed:
+
+- The HTML string may be at most `IRONFLOW_MAX_FILE_BYTES` (default
+  `52428800`, 50 MiB). A larger input fails with `html_to_markdown: input is N
+  bytes, exceeds IRONFLOW_MAX_FILE_BYTES (LIMIT)`.
+- `IRONFLOW_MAX_EXTRACT_ITEMS` (default `250000`) bounds the markup items in
+  the input, counted as `<` markers.
+- Elements may nest at most 128 levels deep. The cap is fixed, not
+  configurable, and counts the `<html>` and `<body>` elements the parser
+  supplies around a fragment, so a fragment may nest 126 elements of its own.
+  Inert `<template>` content counts as nested inside its template element. A
+  deeper input fails with `html_to_markdown: HTML element nesting exceeds 128
+  levels` as an ordinary node error; the converter recurses once per level and
+  would otherwise exhaust the worker stack and abort the process. Between
+  4 KiB pieces of input, parsing stops once an open element is more than 256
+  levels deep, and the finished tree is checked against the exact cap before
+  conversion.
+- The output is not charged against `IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES`; the
+  usual `IRONFLOW_MAX_TASK_OUTPUT_BYTES` persistence limit applies afterwards.
+
+Parsing and conversion run on a tracked blocking worker, not on the async
+runtime. HTML is fed to the parser in 4 KiB pieces with a cancellation and
+step/run deadline check between them. The third-party Markdown conversion
+cannot be interrupted internally; IronFlow checks before and after it. Task
+and run admission remain occupied until the physical worker stops.
+
 ## Example
 
 ```lua

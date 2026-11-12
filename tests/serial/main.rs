@@ -62,6 +62,8 @@ mod test_extract_text_limits;
 mod test_extract_word_safety;
 #[path = "../test_flow_source_limits.rs"]
 mod test_flow_source_limits;
+#[path = "../test_html_to_markdown_admission.rs"]
+mod test_html_to_markdown_admission;
 #[path = "../test_http_artifacts.rs"]
 mod test_http_artifacts;
 #[path = "../test_http_nodes.rs"]

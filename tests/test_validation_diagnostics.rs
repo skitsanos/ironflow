@@ -254,3 +254,81 @@ fn runtime_validation_compiles_but_does_not_execute_string_source() {
     let validated = LuaRuntime::validate_flow_from_string(FAILING_RUNTIME_FLOW, &registry).unwrap();
     assert!(validated.warnings.is_empty());
 }
+
+// IF-175: flow source that used to abort the process during load or
+// validation is reported as an invalid flow by the API and the CLI.
+
+const FORGED_STEP_COUNT: &str =
+    r#"return { _name = "x", _steps = {}, _step_count = 1000000000000000 }"#;
+
+const FORGED_DEPENDENCY_LENGTH: &str = r#"local flow = Flow.new("forged")
+flow:step("a", nodes.log({ message = "x" }))
+setmetatable(flow._steps[1].dependencies, { __len = function() return 1000000000000000 end })
+return flow
+"#;
+
+/// 200,000 chained terms: 400 KB of source, inside the default 1 MiB limit.
+fn deep_expression_flow() -> String {
+    format!(
+        "local v = 1{}\nlocal flow = Flow.new('deep')\nflow:step('a', nodes.log({{ message = 'x' }}))\nreturn flow\n",
+        "+1".repeat(200_000)
+    )
+}
+
+/// `POST /flows/validate` must answer; a dropped connection fails the request.
+async fn api_load_error(source: &str) -> String {
+    let body = validate_api(source, false).await;
+    assert_eq!(body["valid"], false, "{body}");
+    assert!(body["steps"].is_null(), "{body}");
+    body["errors"][0].as_str().unwrap().to_string()
+}
+
+/// `ironflow validate` must exit with a validation error. A signal (stack
+/// overflow or allocation failure) leaves no exit code.
+fn cli_load_error(source: &str) -> String {
+    let output = validate_cli(source, false);
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "{:?}: {stderr}",
+        output.status
+    );
+    stderr
+}
+
+#[tokio::test]
+async fn api_reports_a_forged_step_count_as_an_invalid_flow() {
+    let error = api_load_error(FORGED_STEP_COUNT).await;
+    assert!(error.contains("invalid step count"), "{error}");
+}
+
+#[tokio::test]
+async fn api_reports_a_forged_dependency_length_as_an_invalid_flow() {
+    let error = api_load_error(FORGED_DEPENDENCY_LENGTH).await;
+    assert!(error.contains("metatable"), "{error}");
+}
+
+#[tokio::test]
+async fn api_reports_a_deep_expression_as_an_invalid_flow() {
+    let error = api_load_error(&deep_expression_flow()).await;
+    assert!(error.contains("nested too deeply"), "{error}");
+}
+
+#[test]
+fn cli_reports_a_forged_step_count_as_a_validation_error() {
+    let error = cli_load_error(FORGED_STEP_COUNT);
+    assert!(error.contains("invalid step count"), "{error}");
+}
+
+#[test]
+fn cli_reports_a_forged_dependency_length_as_a_validation_error() {
+    let error = cli_load_error(FORGED_DEPENDENCY_LENGTH);
+    assert!(error.contains("metatable"), "{error}");
+}
+
+#[test]
+fn cli_reports_a_deep_expression_as_a_validation_error() {
+    let error = cli_load_error(&deep_expression_flow());
+    assert!(error.contains("nested too deeply"), "{error}");
+}

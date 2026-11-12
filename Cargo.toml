@@ -60,8 +60,11 @@ unicode-bidi = "0.3"
 unicode-script = "0.5.8"
 # HTML-to-Markdown conversion and the shared rcdom tree walked by extract_html.
 # Both are permissively licensed; the GPL html2md crate was removed in IF-161.
+# html5ever is the parser htmd already uses: IronFlow drives it directly so
+# nesting is capped while parsing (IF-174). Keep all three on one release line.
 htmd = "0.5.6"
 markup5ever_rcdom = "0.38"
+html5ever = "0.38"
 ammonia = "4.1.2"
 zip = "9.0.5"
 quick-xml = "0.42.0"

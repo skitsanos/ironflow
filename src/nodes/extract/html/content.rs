@@ -1,15 +1,17 @@
 use std::rc::Rc;
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use htmd::HtmlToMarkdown;
 use markup5ever_rcdom::{Node, NodeData};
 
 use crate::nodes::extract::resource::Budget;
 use crate::util::execution::ExecutionControl;
 
+use super::tree::{self, MAX_MARKDOWN_DEPTH};
+
 /// Non-content subtrees removed before either rendering. `html_to_markdown`
 /// skips the same set so both nodes agree on what counts as page content.
-pub(crate) const NON_CONTENT_TAGS: [&str; 6] =
+pub(super) const NON_CONTENT_TAGS: [&str; 6] =
     ["head", "title", "script", "style", "noscript", "template"];
 
 pub(super) fn extract(
@@ -18,13 +20,13 @@ pub(super) fn extract(
     execution: &ExecutionControl,
     budget: &Budget<'_>,
 ) -> Result<String> {
-    let converter = HtmlToMarkdown::new();
     budget.checkpoint()?;
+    // Only Markdown conversion recurses per element level; plain text walks
+    // the tree iteratively and keeps accepting deeper markup.
+    let depth_cap = (format != "text").then_some(MAX_MARKDOWN_DEPTH);
     // `root` owns the document for the whole call: RcDom's node destructor
     // clears descendant child lists even while handles to them remain.
-    let root = converter
-        .html_to_tree(html)
-        .map_err(|error| anyhow!("extract_html: HTML parser failed: {error}"))?;
+    let root = tree::parse(html, "extract_html", depth_cap, execution)?;
     budget.checkpoint()?;
     // Filter the parsed tree before conversion so table cells and preformatted
     // descendants follow the same rule as top-level elements.
@@ -32,10 +34,26 @@ pub(super) fn extract(
     if format == "text" {
         plain_text(root, budget)
     } else {
-        let markdown = converter.tree_to_markdown(&root);
+        let markdown = HtmlToMarkdown::new().tree_to_markdown(&root);
         budget.checkpoint()?;
         Ok(markdown)
     }
+}
+
+/// Convert `html` to Markdown for `html_to_markdown`, skipping the non-content
+/// subtrees instead of pruning them, as that node always has.
+pub(super) fn markdown_fragment(
+    html: &str,
+    operation: &str,
+    execution: &ExecutionControl,
+) -> Result<String> {
+    let root = tree::parse(html, operation, Some(MAX_MARKDOWN_DEPTH), execution)?;
+    let markdown = HtmlToMarkdown::builder()
+        .skip_tags(NON_CONTENT_TAGS.to_vec())
+        .build()
+        .tree_to_markdown(&root);
+    execution.checkpoint()?;
+    Ok(markdown)
 }
 
 fn prune(root: &Rc<Node>, execution: &ExecutionControl) -> Result<()> {
