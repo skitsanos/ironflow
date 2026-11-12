@@ -7,7 +7,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts check`.
 
 - Total findings: 208
-- Active findings: 25
+- Active findings: 24
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
 | ID | Priority | Status | Area | Summary |
@@ -189,7 +189,7 @@ priority, area, and title. The registry is generated with
 | [IF-175](./IF-175.md) | P1 | Resolved | Lua runtime safety | Flow source can abort the process during load and validation |
 | [IF-176](./IF-176.md) | P1 | Resolved | API security | Forwarded-header fragments become run-wide secrets and rewrite live step output |
 | [IF-177](./IF-177.md) | P1 | Resolved | Runtime safety | Diagnostic redaction is quadratic on async workers and misses common credential shapes |
-| [IF-178](./IF-178.md) | P1 | Open | PDF/resource safety | extract_pdf font decoding is unbounded for wide ToUnicode ranges and long glyph strings |
+| [IF-178](./IF-178.md) | P1 | Resolved | PDF/resource safety | extract_pdf font decoding is unbounded for wide ToUnicode ranges and long glyph strings |
 | [IF-179](./IF-179.md) | P1 | Resolved | Files/write safety | Image nodes and transcribe write outputs through symlinks without the staged writer |
 | [IF-180](./IF-180.md) | P1 | Resolved | Scheduler contract | Numeric cron weekdays fire one day early |
 | [IF-181](./IF-181.md) | P1 | Open | Storage | A context nested 126 levels deep makes a run record unreadable and blocks serve startup |

@@ -12,6 +12,8 @@ use super::common::{ensure_distinct_keys, optional_string, string_or, validate_f
 use super::resource::{Budget, Limits, read_file};
 use crate::util::file_source::get_file_source;
 
+mod cmap_scan;
+mod fonts;
 mod marked;
 mod resolve;
 mod text;
@@ -125,6 +127,7 @@ fn extract_pdf_text(
     budget: &mut Budget<'_>,
 ) -> Result<String> {
     let mut text = String::new();
+    let mut fonts = fonts::Fonts::new(document);
 
     for (&page, &page_id) in pages {
         budget.checkpoint()?;
@@ -136,8 +139,8 @@ fn extract_pdf_text(
             )
         })?;
         let page_limit = usize::try_from(remaining_bytes).unwrap_or(usize::MAX);
-        let page_text =
-            text::extract_page(document, page_id, page_limit, budget).map_err(|error| {
+        let page_text = text::extract_page(document, page_id, page_limit, &mut fonts, budget)
+            .map_err(|error| {
                 anyhow::anyhow!(
                     "extract_pdf: failed to extract page {page} within \
                      IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES ({max_output_bytes}): {error:#}"

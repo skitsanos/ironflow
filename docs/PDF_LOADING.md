@@ -60,6 +60,14 @@ bytes/pages/objects keep their existing limits. In particular,
 `IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES` still bounds text extraction and each page's
 content/font-mapping decompression independently of initial loading.
 
+Loading does not parse font ToUnicode CMaps, so the stream limit says nothing
+about what a small CMap expands to. `extract_pdf` scans each font's decoded
+CMap before `lopdf` parses it and charges its `bfchar` entries and `bfrange`
+code spans against `IRONFLOW_MAX_PDF_EXTRACT_CMAP_ENTRIES` (default `1048576`,
+cumulative over the fonts of one call), and admits each glyph string by its
+worst-case decoded size before decoding it. See
+[`extract_pdf`](nodes/extract_pdf.md) for the units and the rejection cases.
+
 Input reading, loading, checks, and downstream work run on tracked blocking
 workers. Cancellation is checked around synchronous parser/decoder calls and
 between retained-stream checks; it cannot interrupt an opaque call midway.

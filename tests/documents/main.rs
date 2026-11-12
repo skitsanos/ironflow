@@ -12,6 +12,8 @@
 mod test_extract_config;
 #[path = "../test_extract_html_content.rs"]
 mod test_extract_html_content;
+#[path = "../test_extract_pdf_font_bounds.rs"]
+mod test_extract_pdf_font_bounds;
 #[path = "../test_extract_xlsx.rs"]
 mod test_extract_xlsx;
 #[path = "../test_extract_xlsx_styles.rs"]

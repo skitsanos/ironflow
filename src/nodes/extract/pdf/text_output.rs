@@ -29,9 +29,14 @@ impl Output {
         }
     }
 
+    /// Bytes this page may still append.
+    pub(super) fn remaining(&self) -> usize {
+        self.limit.saturating_sub(self.text.len())
+    }
+
     fn admit(&self, bytes: usize) -> Result<()> {
         ensure!(
-            bytes <= self.limit.saturating_sub(self.text.len()),
+            bytes <= self.remaining(),
             "PDF text exceeds IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES"
         );
         Ok(())

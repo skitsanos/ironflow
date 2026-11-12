@@ -48,6 +48,8 @@ mod test_env_allowlist;
 mod test_extract_limits;
 #[path = "../test_extract_nodes.rs"]
 mod test_extract_nodes;
+#[path = "../test_extract_pdf_font_limits.rs"]
+mod test_extract_pdf_font_limits;
 #[path = "../test_extract_pdf_limits.rs"]
 mod test_extract_pdf_limits;
 #[path = "../test_extract_pptx_limits.rs"]

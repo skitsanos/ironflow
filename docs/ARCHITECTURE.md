@@ -156,8 +156,12 @@ differences.
 page at a time. A bounded marked-content walker substitutes outermost ActualText
 strings and resolves direct/named/inherited property resources without traversing
 arbitrary structure trees. Ordinary glyph text continues through lopdf font
-encodings. Shared extraction budgets cover operations, property hops and text,
-with cooperative checkpoints outside opaque content/font decoding calls.
+encodings, decoded once per font object and reused across pages. Before lopdf
+parses a ToUnicode CMap, a linear scan charges its mapping entries against
+`IRONFLOW_MAX_PDF_EXTRACT_CMAP_ENTRIES`, and each glyph string is admitted by
+its worst-case decoded size ([IF-178](issues/IF-178.md)). Shared extraction
+budgets cover operations, property hops and text, with cooperative checkpoints
+outside opaque content/font decoding calls.
 
 ### 3. Lua Runtime (`lua/`)
 

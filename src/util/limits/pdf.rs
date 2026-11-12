@@ -13,6 +13,9 @@ pub(crate) const MAX_PDF_OBJECTS: Limit = Limit::positive("IRONFLOW_MAX_PDF_OBJE
 /// Pages extracted from one document.
 pub(crate) const MAX_PDF_EXTRACT_PAGES: Limit =
     Limit::positive("IRONFLOW_MAX_PDF_EXTRACT_PAGES", 1_000);
+/// ToUnicode mapping entries admitted across the fonts of one extraction.
+pub(crate) const MAX_PDF_EXTRACT_CMAP_ENTRIES: Limit =
+    Limit::positive("IRONFLOW_MAX_PDF_EXTRACT_CMAP_ENTRIES", 1_048_576);
 /// Pages rendered from one document.
 pub(crate) const MAX_PDF_RENDER_PAGES: Limit = Limit::positive("IRONFLOW_MAX_PDF_RENDER_PAGES", 25);
 /// Pages split from one document.
@@ -49,6 +52,10 @@ pub fn max_pdf_objects() -> u64 {
 
 pub fn max_pdf_extract_pages() -> u64 {
     MAX_PDF_EXTRACT_PAGES.read()
+}
+
+pub fn max_pdf_extract_cmap_entries() -> u64 {
+    MAX_PDF_EXTRACT_CMAP_ENTRIES.read()
 }
 
 pub fn max_pdf_render_pages() -> u64 {

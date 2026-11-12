@@ -144,6 +144,7 @@ pub(crate) const ALL: &[&Limit] = &[
     &pdf::MAX_PDF_DECOMPRESSED_STREAM_BYTES,
     &pdf::MAX_PDF_OBJECTS,
     &pdf::MAX_PDF_EXTRACT_PAGES,
+    &pdf::MAX_PDF_EXTRACT_CMAP_ENTRIES,
     &pdf::MAX_PDF_RENDER_PAGES,
     &pdf::MAX_PDF_SPLIT_PAGES,
     &pdf::MAX_PDF_RENDER_PIXELS,
