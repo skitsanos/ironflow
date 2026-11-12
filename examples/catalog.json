@@ -52,6 +52,7 @@
     "offline_output": {
       "description": "Runs offline but creates files, processes, cache state, or a local database and therefore needs isolated output paths.",
       "flows": [
+        "examples/00-showcase/batch_idempotency_check.lua",
         "examples/04-file-operations/artifact_handoff.lua",
         "examples/04-file-operations/binary_file_io.lua",
         "examples/04-file-operations/copy_move_files.lua",
@@ -318,6 +319,7 @@
     "local_state": {
       "description": "Writes local output/cache/database state or owns a local process. Paths must be run-unique and retained effects must be documented.",
       "flows": [
+        "examples/00-showcase/batch_idempotency_check.lua",
         "examples/00-showcase/research_source_snapshot.lua",
         "examples/04-file-operations/artifact_handoff.lua",
         "examples/04-file-operations/binary_file_io.lua",

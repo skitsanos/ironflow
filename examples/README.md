@@ -36,6 +36,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 | Repository root as the working directory | `13-ai/pdf_gemini_rag_schema.lua`, `13-ai/pdf_gemini_reconstruct_schema.lua`, `13-ai/pptx_gemini_reconstruct.lua` |
 
 ## 00-showcase
+- **batch_idempotency_check.lua** — Idempotent batch ingestion with a one-table SQLite ledger: `INSERT OR IGNORE` registers the batch, `rows_affected` becomes an `is_new_batch` flag, and an `if_node` gate routes a first delivery to `process` and a redelivery to `skip`. Needs `db_path` (its directory must exist) and `batch` through `--context`; creates the ledger file and keeps it. A batch whose processing fails is not retried.
 - **nightly_report.lua** — Parallel fetches with per-step retries and total timeouts, an inline Lua reduction, and a Slack notification
 - **research_source_snapshot.lua** — Fetch a cited page, save a Markdown copy, and write a manifest with the copy's SHA-256 fingerprint so the citation can be checked later. Needs `source_url`, `document_id`, and `output_dir` through `--context`; keeps `<output_dir>/<document_id>.md` and `.json`, replacing them on a rerun with the same `document_id`.
 
