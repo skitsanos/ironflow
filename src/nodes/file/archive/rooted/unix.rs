@@ -1,32 +1,38 @@
-use std::ffi::{CStr, CString};
+use std::ffi::{CStr, OsStr};
 use std::fs::File;
 use std::io;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Component, Path};
 
 use anyhow::{Context, Result};
 
 use crate::util::execution::ExecutionControl;
 
+use self::staged::{DefaultMode, StagedFile};
 use self::syscalls::{
-    LeafKind, c_name, create_file_at, inspect_leaf, link_at, open_directory_path,
-    open_or_create_directory, rename_at, rename_into_directory, unlink_at,
+    LeafKind, c_name, inspect_leaf, open_directory_path, open_or_create_directory,
+    rename_into_directory,
 };
 
+mod staged;
 mod syscalls;
 
 pub(crate) struct RootedDir {
     root: File,
     operation: &'static str,
+    default_mode: DefaultMode,
 }
 
-pub(crate) struct StagedFile {
-    parent: File,
-    file: Option<File>,
-    temporary: CString,
-    leaf: CString,
-    overwrite: bool,
-    operation: &'static str,
-    armed: bool,
+/// One entry of a pinned directory, identified by the directory itself rather
+/// than by a spelling of its path, so aliases of one destination compare
+/// equal. The leaf is case-folded: two spellings of one entry on a
+/// case-insensitive volume share a key, and on a case-sensitive volume the
+/// only cost is that two such files are serialized with each other.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) struct DestinationKey {
+    device: u64,
+    inode: u64,
+    leaf: String,
 }
 
 impl RootedDir {
@@ -36,11 +42,8 @@ impl RootedDir {
         execution: &ExecutionControl,
     ) -> Result<Self> {
         execution.checkpoint()?;
-        let current = open_root(path, operation, execution, true)?;
-        Ok(Self {
-            root: current,
-            operation,
-        })
+        let root = open_root(path, operation, execution, true)?;
+        Ok(Self::pinned(root, operation))
     }
 
     /// Pin a destination directory that must already exist. Unlike
@@ -53,7 +56,26 @@ impl RootedDir {
     ) -> Result<Self> {
         execution.checkpoint()?;
         let root = open_root(path, operation, execution, false)?;
-        Ok(Self { root, operation })
+        Ok(Self::pinned(root, operation))
+    }
+
+    fn pinned(root: File, operation: &'static str) -> Self {
+        Self {
+            root,
+            operation,
+            default_mode: DefaultMode::default(),
+        }
+    }
+
+    /// The identity under which writers of `leaf` in this directory are
+    /// serialized inside the process.
+    pub(crate) fn destination_key(&self, leaf: &OsStr) -> Result<DestinationKey> {
+        let directory = self.root.metadata()?;
+        Ok(DestinationKey {
+            device: directory.dev(),
+            inode: directory.ino(),
+            leaf: leaf.to_string_lossy().to_lowercase(),
+        })
     }
 
     pub(crate) fn ensure_dir(&self, relative: &Path, execution: &ExecutionControl) -> Result<()> {
@@ -63,7 +85,7 @@ impl RootedDir {
 
     pub(crate) fn open_existing(
         &self,
-        name: &std::ffi::OsStr,
+        name: &OsStr,
         execution: &ExecutionControl,
     ) -> Result<Option<File>> {
         execution.checkpoint()?;
@@ -95,7 +117,7 @@ impl RootedDir {
     pub(crate) fn rename_into(
         &self,
         source: &Path,
-        leaf: &std::ffi::OsStr,
+        leaf: &OsStr,
         execution: &ExecutionControl,
     ) -> Result<()> {
         execution.checkpoint()?;
@@ -126,35 +148,13 @@ impl RootedDir {
         let parent = self.walk_directories(parent, execution)?;
         let leaf = c_name(leaf, self.operation)?;
         validate_leaf(&parent, &leaf, overwrite, self.operation, relative)?;
-
-        for _ in 0..16 {
-            execution.checkpoint()?;
-            let temporary = CString::new(format!(".ironflow-{}.tmp", uuid::Uuid::new_v4()))?;
-            match create_file_at(&parent, &temporary) {
-                Ok(file) => {
-                    return Ok(StagedFile {
-                        parent,
-                        file: Some(file),
-                        temporary,
-                        leaf,
-                        overwrite,
-                        operation: self.operation,
-                        armed: true,
-                    });
-                }
-                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
-                Err(error) => {
-                    return Err(anyhow::anyhow!(
-                        "{}: failed to create a temporary destination file: {}",
-                        self.operation,
-                        error
-                    ));
-                }
-            }
-        }
-        anyhow::bail!(
-            "{}: could not allocate a unique temporary destination file",
-            self.operation
+        StagedFile::create(
+            parent,
+            leaf,
+            overwrite,
+            self.operation,
+            self.default_mode.clone(),
+            execution,
         )
     }
 
@@ -172,50 +172,6 @@ impl RootedDir {
             current = open_or_create_directory(&current, name, self.operation)?;
         }
         Ok(current)
-    }
-}
-
-impl StagedFile {
-    #[allow(clippy::expect_used)] // Infallible: staged file already committed.
-    pub(crate) fn writer(&mut self) -> &mut File {
-        self.file.as_mut().expect("staged file already committed")
-    }
-
-    pub(crate) fn commit(mut self) -> Result<()> {
-        drop(self.file.take());
-        if self.overwrite {
-            match inspect_leaf(&self.parent, &self.leaf)? {
-                LeafKind::Missing | LeafKind::Regular => {}
-                LeafKind::Symlink => anyhow::bail!(
-                    "{}: destination leaf is a symlink and will not be followed",
-                    self.operation
-                ),
-                LeafKind::Other => {
-                    anyhow::bail!("{}: destination leaf is not a regular file", self.operation)
-                }
-            }
-            rename_at(&self.parent, &self.temporary, &self.leaf)?;
-        } else {
-            link_at(&self.parent, &self.temporary, &self.leaf).map_err(|error| {
-                anyhow::anyhow!(
-                    "{}: destination already exists or cannot be published: {}",
-                    self.operation,
-                    error
-                )
-            })?;
-            unlink_at(&self.parent, &self.temporary)?;
-        }
-        self.armed = false;
-        Ok(())
-    }
-}
-
-impl Drop for StagedFile {
-    fn drop(&mut self) {
-        if self.armed {
-            self.file.take();
-            let _ = unlink_at(&self.parent, &self.temporary);
-        }
     }
 }
 
@@ -251,8 +207,8 @@ fn validate_leaf(
 ) -> Result<()> {
     match inspect_leaf(parent, leaf)? {
         LeafKind::Missing => Ok(()),
-        LeafKind::Regular if overwrite => Ok(()),
-        LeafKind::Regular => anyhow::bail!(
+        LeafKind::Regular(_) if overwrite => Ok(()),
+        LeafKind::Regular(_) => anyhow::bail!(
             "{operation}: destination file already exists and overwrite=false: {}",
             relative.display()
         ),

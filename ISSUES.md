@@ -11,7 +11,6 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 | [IF-182](docs/issues/IF-182.md) | P2 | Open | Scheduler availability | Schedules due in the same tick lose occurrences to the flow-load limit |
 | [IF-183](docs/issues/IF-183.md) | P2 | Open | Deployment lifecycle | New connections hang for the whole drain and readiness never reports draining |
 | [IF-184](docs/issues/IF-184.md) | P2 | Open | API events | A deleted run's event fence mutes a re-created run with the same ID |
-| [IF-185](docs/issues/IF-185.md) | P2 | Open | Files/write_file | Staged writers publish mode 0600 and write_file append loses concurrent writes |
 | [IF-186](docs/issues/IF-186.md) | P2 | Open | Interpolation | File-source helper interpolates twice and lets write_file artifact inputs name local paths |
 | [IF-187](docs/issues/IF-187.md) | P2 | Open | Lua DSL | step_if and if_node comparisons against true, false and nil are always false |
 | [IF-188](docs/issues/IF-188.md) | P2 | Open | Workflow composition | Child workflows have no nesting limit and outlive a timed-out parent step |

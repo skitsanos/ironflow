@@ -30,6 +30,24 @@ file. A canonical artifact URI stored as a context string requires
 - Overwrite and append both use a sibling staged file. Malformed input, size
   failure, cancellation, flush/sync failure, or commit failure leaves an
   existing destination unchanged and removes the staged file.
+- On Unix a new file gets `0666` masked by the process umask (`0644` under
+  umask `022`). Overwrite and append keep the existing file's nine permission
+  bits, so an appended `0755` script stays executable; setuid, setgid and
+  sticky bits are not carried, and the replacement is owned by the IronFlow
+  process. The staged file is mode `0600` until it is published, and missing
+  parent directories are created `0755` masked by the umask. Other platforms
+  use their native permission semantics.
+- Writes to one destination are serialized inside the IronFlow process. Each
+  write, overwrite or append, including `copy_file` and the `base64_decode`
+  `output_file`, waits for the previous one to commit and observes
+  cancellation and the step deadline while it waits. Parallel appends
+  therefore keep every appended input; their order is the order in which the
+  steps reached the file. The destination is identified by its resolved
+  directory and case-folded file name.
+- Writers outside that process are not coordinated. Two IronFlow processes
+  that append to the same file, such as replicas sharing a volume, or another
+  node that replaces it during an append, are last-writer-wins: an append can
+  be discarded although its step succeeded. Give each process its own file.
 - Final links are refused. Unix uses handle-relative staging and replacement.
   Portable platforms revalidate the destination immediately before an OS-level
   atomic replacement, but cannot close a hostile parent-directory swap race;

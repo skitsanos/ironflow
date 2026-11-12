@@ -58,3 +58,7 @@ removes that temporary file and preserves any prior output; only a complete
 archive is published. The configured output parent may be a directory alias
 such as macOS `/tmp`; it is resolved before staging. An existing output symlink is rejected rather than
 followed.
+
+On Unix a new archive gets `0666` masked by the process umask (`0644` under
+umask `022`) and a replaced archive keeps its permission bits; the temporary
+file is mode `0600` until it is published.

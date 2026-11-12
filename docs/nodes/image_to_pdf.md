@@ -93,11 +93,11 @@ synchronized, then renamed over it.
   replaced.
 - An encoder or write failure, an expired step deadline or cancellation
   removes the staged file and leaves an existing destination unchanged.
-- On Unix the published file has mode `0600` (owner read and write only),
-  whatever the umask and whatever mode the replaced file had; widen it in a
-  later step when another user must read it. Other platforms use their native
-  permission semantics. This is the staged writer's mode, under review in
-  [IF-185](../issues/IF-185.md).
+- On Unix the published file has the mode a plain write would have left: a
+  new file gets `0666` masked by the process umask (`0644` under umask `022`)
+  and a replaced file keeps its permission bits, without any setuid, setgid
+  or sticky bit. The staged file is mode `0600` until it is published. Other
+  platforms use their native permission semantics.
 - Unix pins the resolved directory and stages relative to that handle. Other
   platforms revalidate the observed path immediately before an atomic
   replacement and cannot close a hostile parent-directory swap race; protect

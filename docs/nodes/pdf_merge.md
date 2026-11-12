@@ -51,7 +51,10 @@ signatures, catalog features, or a general content-redaction operation.
 The result is written to a sibling staged file, flushed and synchronized, then
 atomically committed. Parse, limit, save, and cancellation failures remove the
 partial staging file and preserve an existing destination. The output refuses
-a final link or non-regular destination.
+a final link or non-regular destination. On Unix a new output gets `0666`
+masked by the process umask (`0644` under umask `022`) and a replaced output
+keeps its permission bits; the staged file is mode `0600` until it is
+published.
 
 Configured parent-directory aliases for `output_path`, including macOS `/tmp`,
 are resolved before staging and missing parent directories are created. Unix

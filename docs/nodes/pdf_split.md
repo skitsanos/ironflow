@@ -47,6 +47,8 @@ ones), and nonregular destinations are refused. Destination checks occur per
 group, with collision protection at publication as well. Directory aliases are
 resolved using the shared rooted writer; on Unix the resolved directory is
 pinned by an open handle. Other platforms use the writer's checked-path fallback.
+On Unix each published group gets `0666` masked by the process umask (`0644`
+under umask `022`); the temporary file is mode `0600` until then.
 
 This is **per-file atomicity, not an all-or-nothing batch**: completed groups
 remain after a later collision, parse/write failure, or cancellation. Unfinished

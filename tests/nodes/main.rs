@@ -28,6 +28,8 @@ mod test_html_sanitize_node;
 mod test_nodes;
 #[path = "../test_semantic_chunk_boundaries.rs"]
 mod test_semantic_chunk_boundaries;
+#[path = "../test_staged_output_modes.rs"]
+mod test_staged_output_modes;
 #[path = "../test_xml_text_fidelity.rs"]
 mod test_xml_text_fidelity;
 #[path = "../test_xml_yaml_nodes.rs"]

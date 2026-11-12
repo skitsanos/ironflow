@@ -501,3 +501,45 @@ async fn an_existing_regular_destination_is_replaced_without_a_staging_leftover(
         );
     }
 }
+
+/// IF-185: the published file has the mode a plain write would have left.
+#[cfg(unix)]
+#[tokio::test]
+async fn every_family_publishes_the_default_mode_and_keeps_a_replaced_one() {
+    use std::os::unix::fs::PermissionsExt;
+
+    fn mode(path: &Path) -> u32 {
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o7777
+    }
+
+    let mut wrong = Vec::new();
+    for case in every_family() {
+        let (directory, work) = scratch();
+        let source = small_source(directory.path());
+        // The mode a plain create leaves here under this process's umask.
+        let plain = work.join("plain-create-probe");
+        std::fs::File::create(&plain).unwrap();
+        let expected = mode(&plain);
+        std::fs::remove_file(&plain).unwrap();
+        let created = work.join(format!("created.{}", case.extension));
+        let replaced = work.join(format!("replaced.{}", case.extension));
+        std::fs::write(&replaced, ORIGINAL).unwrap();
+        std::fs::set_permissions(&replaced, std::fs::Permissions::from_mode(0o640)).unwrap();
+
+        execute(&case, &source, &created).await.unwrap();
+        execute(&case, &source, &replaced).await.unwrap();
+
+        for (label, path, expected) in [("new", &created, expected), ("replaced", &replaced, 0o640)]
+        {
+            let actual = mode(path);
+            if actual != expected {
+                wrong.push(format!(
+                    "{} .{} {label}: mode {actual:o}, expected {expected:o}",
+                    case.node, case.extension
+                ));
+            }
+        }
+        assert_eq!(staged_leftovers(&work), 0, "{}", case.node);
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}

@@ -35,4 +35,7 @@ return flow
 
 Outputs are `pdf` (path), `pdf_success` and `pdf_metadata`, including a known
 `pages` count. Existing output files require explicit `overwrite = true`.
+On Unix a new document gets `0666` masked by the process umask (`0644` under
+umask `022`) and a replaced one keeps its permission bits; the staged file is
+mode `0600` until it is published.
 Use [markdown_to_docx](markdown_to_docx.md) for an editable Word document.

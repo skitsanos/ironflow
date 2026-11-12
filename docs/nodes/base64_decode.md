@@ -38,7 +38,10 @@ Valid directory aliases (including macOS `/tmp`) are accepted, but destination
 file symlinks and special files are refused. Missing parent directories are
 created. An existing regular file is replaced only after a complete, synced
 write; malformed input, byte-limit, cancellation or write failure preserves it
-and removes temporary output.
+and removes temporary output. On Unix a new file gets `0666` masked by the
+process umask and a replaced file keeps its permission bits, as described for
+[write_file](write_file.md); writes to one destination are serialized inside
+the process in the same way.
 
 Unix pins the resolved destination directory and uses handle-relative writes.
 Other platforms retain observed-path checks and atomic replacement; protect

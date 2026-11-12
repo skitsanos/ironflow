@@ -8,6 +8,8 @@
 // each as its own private copy, exactly as they did as separate crates.
 #![allow(clippy::duplicate_mod)]
 
+#[path = "../test_document_output_modes.rs"]
+mod test_document_output_modes;
 #[path = "../test_extract_config.rs"]
 mod test_extract_config;
 #[path = "../test_extract_html_content.rs"]

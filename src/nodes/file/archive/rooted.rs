@@ -4,9 +4,9 @@ mod portable;
 mod unix;
 
 #[cfg(not(unix))]
-pub(crate) use portable::RootedDir;
+pub(crate) use portable::{DestinationKey, RootedDir};
 #[cfg(unix)]
-pub(crate) use unix::RootedDir;
+pub(crate) use unix::{DestinationKey, RootedDir};
 
 fn missing_directory(path: &std::path::Path, operation: &str) -> anyhow::Error {
     let path = if path.as_os_str().is_empty() {

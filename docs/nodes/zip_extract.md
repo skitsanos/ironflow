@@ -76,6 +76,17 @@ platforms, IronFlow rejects symlinks observed during traversal, but the standard
 library cannot provide the same race-free `openat` guarantee. An archive entry
 cannot traverse a symlink or special-file destination component or leaf.
 
+## File modes
+
+On Unix, permission metadata stored in the archive is ignored. Every newly
+extracted file gets `0666` masked by the process umask (`0644` under umask
+`022`), so no entry becomes setuid, setgid, world-writable or executable
+because the archive says so; set executable bits in a later step when a flow
+needs them. With `overwrite = true` a replaced file keeps the permission bits
+it already had. Each file is mode `0600` while it is staged, and created
+directories are `0755` masked by the umask. Other platforms use their native
+permission semantics.
+
 ## Cancellation and partial output
 
 Extraction runs on a tracked blocking worker and checks the enclosing step/run

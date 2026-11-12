@@ -4,7 +4,7 @@ mod helpers;
 mod io;
 pub(crate) mod staged_output;
 
-pub(crate) use archive::rooted::RootedDir;
+pub(crate) use archive::rooted::{DestinationKey, RootedDir};
 pub use archive::{ZipCreateNode, ZipExtractNode, ZipListNode};
 pub use directory::ListDirectoryNode;
 pub(crate) use io::write_base64;

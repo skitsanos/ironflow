@@ -36,6 +36,24 @@ publication is verified separately.
   one that loaded with a mistyped field has been running at the wrong times,
   and it will now fail startup until it is corrected. See
   [Field syntax](../CLI_REFERENCE.md#field-syntax).
+- **Files written by staged-writer nodes are no longer owner-only on Unix**
+  (IF-185). `write_file`, `base64_decode` with `output_file`, `zip_create`,
+  `zip_extract`, `pdf_merge`, grouped `pdf_split`, `markdown_to_pdf` and
+  `markdown_to_docx` published every file as mode `0600`, whatever the umask
+  and whatever mode the replaced file had. A new file now gets `0666` masked
+  by the process umask (`0644` under umask `022`), and an overwritten or
+  appended file keeps its permission bits, so an appended `0755` script stays
+  executable. Setuid, setgid and sticky bits are not carried, `zip_extract`
+  ignores permission metadata stored in the archive, and `copy_file` still
+  publishes the source mode. A deployment that relied on these outputs being
+  private to the IronFlow user must now run IronFlow with a restrictive umask
+  such as `077`, or write into a directory other users cannot enter.
+- **Parallel `write_file` appends no longer lose lines** (IF-185). Eight
+  parallel steps appending to one file could all succeed and leave fewer
+  lines, because each append rewrote the file from the content it had read.
+  Writes to one destination are now serialized inside the IronFlow process.
+  Appends to one file from several IronFlow processes are still
+  last-writer-wins; give each process its own file.
 
 - **Context and step output nested deeper than 123 levels are refused**
   (IF-181). A value nested 126 levels deep passed the JSON parser, and the
@@ -82,10 +100,9 @@ publication is verified separately.
   symlink, FIFO or other special file is refused instead of followed, and a
   failed encode, an expired deadline or a cancelled step leaves the previous
   file in place instead of a truncated one. Output bytes are unchanged and the
-  destination directory must still exist. The published file now has mode
-  `0600` on Unix instead of the umask default, and a replaced file no longer
-  keeps its mode (IF-185 tracks that choice); a flow whose outputs are read by
-  another user must widen the mode.
+  destination directory must still exist, and the published mode is unchanged:
+  the umask default for a new file and the existing bits for a replaced one
+  (IF-185).
 
 ## Unreleased changes
 

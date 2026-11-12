@@ -200,3 +200,44 @@ async fn a_missing_parent_directory_is_still_an_error_and_nothing_is_created() {
     assert_eq!(std::fs::read_dir(&work).unwrap().count(), 0);
     provider.abort();
 }
+
+/// IF-185: the published transcript has the mode a plain write would have
+/// left: the platform default when new, the existing bits when replaced.
+#[cfg(unix)]
+#[tokio::test]
+async fn output_file_gets_the_default_mode_and_a_replaced_file_keeps_its_mode() {
+    use std::os::unix::fs::PermissionsExt;
+
+    fn mode(path: &Path) -> u32 {
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o7777
+    }
+
+    let (url, provider) = start_provider(None).await;
+    let (_directory, audio, work) = scratch();
+    // The mode a plain create leaves here under this process's umask.
+    let plain = work.join("plain-create-probe");
+    std::fs::File::create(&plain).unwrap();
+    let expected = mode(&plain);
+    std::fs::remove_file(&plain).unwrap();
+    let created = work.join("created.vtt");
+    let replaced = work.join("replaced.vtt");
+    std::fs::write(&replaced, ORIGINAL).unwrap();
+    std::fs::set_permissions(&replaced, std::fs::Permissions::from_mode(0o640)).unwrap();
+
+    transcribe(&url, &audio, &created).await.unwrap();
+    transcribe(&url, &audio, &replaced).await.unwrap();
+
+    assert_eq!(
+        format!("{:o}", mode(&created)),
+        format!("{expected:o}"),
+        "a new transcript must have the mode of a plain create"
+    );
+    assert_eq!(std::fs::read(&replaced).unwrap(), VTT.as_bytes());
+    assert_eq!(
+        format!("{:o}", mode(&replaced)),
+        "640",
+        "a replaced transcript must keep its permission bits"
+    );
+    assert_eq!(staged_leftovers(&work), 0);
+    provider.abort();
+}

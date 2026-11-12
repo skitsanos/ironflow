@@ -1188,6 +1188,18 @@ running under the same OS identity from mutating the leased inode.
   staged file. `write_file`, `copy_file`, `base64_decode`, the archive nodes,
   `pdf_merge`, grouped `pdf_split` and the Markdown document nodes use the
   same rooted writer directly and create missing parent directories.
+- On Unix the staged file is mode `0600` while it is written and receives
+  its published mode at commit, immediately before the rename (IF-185): the
+  permission bits of the regular file it replaces, or for a new file the mode
+  the platform gives a plain create in that directory (`0666` masked by the
+  umask), measured once per node execution with an empty probe file because
+  the umask cannot be read without changing it for every thread. Setuid, setgid and
+  sticky bits are never carried, `zip_extract` ignores archive permission
+  metadata, and `copy_file` publishes the source mode instead. Requests of
+  the `write_file` family (`write_file`, `copy_file`, `base64_decode`) hold a
+  per-destination lock in the process from before an append reads the
+  existing file until the commit, so parallel appends keep every input;
+  writers in other processes remain last-writer-wins.
 - `zip_list`, `zip_extract`, and OOXML readers share a raw ZIP/ZIP64 scanner
   before library metadata construction. It bounds raw counts, validates central
   headers, and rejects duplicate raw names. ZIP list/extract use the independent
