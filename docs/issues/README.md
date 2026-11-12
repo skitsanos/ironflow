@@ -6,8 +6,8 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts generate` and verified with
 `bun run scripts/issues_registry.ts check`.
 
-- Total findings: 172
-- Active findings: 0
+- Total findings: 203
+- Active findings: 31
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
 | ID | Priority | Status | Area | Summary |
@@ -184,3 +184,34 @@ priority, area, and title. The registry is generated with
 | [IF-170](./IF-170.md) | P3 | Resolved | Docs | Documentation and repository hygiene drift |
 | [IF-171](./IF-171.md) | P3 | Resolved | Supply chain | Dependency and lint hygiene: unpinned actions, duplicate crates, unguarded unwraps |
 | [IF-172](./IF-172.md) | P1 | Resolved | Validation workflow | Full pre-push gate outlives GitHub's SSH idle timeout, so a gated develop push cannot complete |
+| [IF-173](./IF-173.md) | P1 | Open | Dependency security | Three new RustSec advisories fail the audit gate; the rmcp one is reachable through mcp_client |
+| [IF-174](./IF-174.md) | P1 | Open | Runtime safety | HTML-to-Markdown conversion overflows the stack on nested markup and aborts the process |
+| [IF-175](./IF-175.md) | P1 | Open | Lua runtime safety | Flow source can abort the process during load and validation |
+| [IF-176](./IF-176.md) | P1 | Open | API security | Forwarded-header fragments become run-wide secrets and rewrite live step output |
+| [IF-177](./IF-177.md) | P1 | Open | Runtime safety | Diagnostic redaction is quadratic on async workers and misses common credential shapes |
+| [IF-178](./IF-178.md) | P1 | Open | PDF/resource safety | extract_pdf font decoding is unbounded for wide ToUnicode ranges and long glyph strings |
+| [IF-179](./IF-179.md) | P1 | Open | Files/write safety | Image nodes and transcribe write outputs through symlinks without the staged writer |
+| [IF-180](./IF-180.md) | P1 | Open | Scheduler contract | Numeric cron weekdays fire one day early |
+| [IF-181](./IF-181.md) | P1 | Open | Storage | A context nested 126 levels deep makes a run record unreadable and blocks serve startup |
+| [IF-182](./IF-182.md) | P2 | Open | Scheduler availability | Schedules due in the same tick lose occurrences to the flow-load limit |
+| [IF-183](./IF-183.md) | P2 | Open | Deployment lifecycle | New connections hang for the whole drain and readiness never reports draining |
+| [IF-184](./IF-184.md) | P2 | Open | API events | A deleted run's event fence mutes a re-created run with the same ID |
+| [IF-185](./IF-185.md) | P2 | Open | Files/write_file | Staged writers publish mode 0600 and write_file append loses concurrent writes |
+| [IF-186](./IF-186.md) | P2 | Open | Interpolation | File-source helper interpolates twice and lets write_file artifact inputs name local paths |
+| [IF-187](./IF-187.md) | P2 | Open | Lua DSL | step_if and if_node comparisons against true, false and nil are always false |
+| [IF-188](./IF-188.md) | P2 | Open | Workflow composition | Child workflows have no nesting limit and outlive a timed-out parent step |
+| [IF-189](./IF-189.md) | P2 | Open | Resource safety | s3_list_objects, json_parse and task error text materialize without a bound |
+| [IF-190](./IF-190.md) | P2 | Open | ZIP/admission | ZIP preflight and the archive reader can select different end records |
+| [IF-191](./IF-191.md) | P2 | Open | Nodes/security | block_private_network passes CGNAT, NAT64 and other internal address ranges |
+| [IF-192](./IF-192.md) | P2 | Open | S3 Vectors | s3vector_query_vectors runs unfiltered when filter_key does not resolve |
+| [IF-193](./IF-193.md) | P2 | Open | Documents/extraction fidelity | Document extraction garbles PDF metadata and drops DOCX paragraph text around text boxes |
+| [IF-194](./IF-194.md) | P2 | Open | PDF rendering | pdf_to_image and pdf_thumbnail can bind Pdfium only once per process |
+| [IF-195](./IF-195.md) | P2 | Open | Nodes | date_format ignores input offsets; date_format and html_sanitize panics stall the run |
+| [IF-196](./IF-196.md) | P2 | Open | Data transforms | xml_stringify writes keys as markup; CSV type inference and data_filter equality lose values |
+| [IF-197](./IF-197.md) | P2 | Open | AI nodes | llm sends unknown providers to OpenAI and ignores documented parameters |
+| [IF-198](./IF-198.md) | P2 | Open | API security | An empty IRONFLOW_API_KEY disables the configured API key on loopback |
+| [IF-199](./IF-199.md) | P2 | Open | CLI/SQLite store | Default SQLite store URL breaks for store directories containing spaces, percent signs or question marks |
+| [IF-200](./IF-200.md) | P2 | Open | Artifact lifecycle | artifacts prune cannot get past a first page of still-referenced digests |
+| [IF-201](./IF-201.md) | P2 | Open | Scheduler/Redis | A Redis TTL shorter than a schedule's grace window re-runs a completed occurrence |
+| [IF-202](./IF-202.md) | P2 | Open | Storage/Postgres | PostgreSQL event store takes an exclusive table lock on every startup |
+| [IF-203](./IF-203.md) | P3 | Open | Maintainability | Assorted engine, API and documentation follow-ups from the November review |
