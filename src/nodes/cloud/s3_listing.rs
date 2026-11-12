@@ -3,9 +3,9 @@ use async_trait::async_trait;
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
-use crate::util::node_config::config_u64;
 
 use super::s3_helpers::{build_s3_client, resolve_optional, resolve_output_key, resolve_required};
+use super::s3_list_pages::{ListBounds, Next, Pager};
 
 pub struct S3ListObjectsNode;
 
@@ -30,51 +30,47 @@ impl Node for S3ListObjectsNode {
             .and_then(|value| value.as_str())
             .unwrap_or("");
         let output_key = resolve_output_key(config);
-        let max_keys = config_u64(config, "max_keys", ctx);
-        let max_keys = max_keys.and_then(|value| i32::try_from(value).ok());
+        let start_token = resolve_optional(config, "continuation_token", None, ctx)
+            .filter(|token| !token.is_empty());
+        let mut pager = Pager::new(
+            ListBounds::from_config(config, ctx)?,
+            start_token.as_deref(),
+        );
 
         let client = build_s3_client(config, ctx).await?;
 
         let mut objects = Vec::new();
-        let mut continuation_token: Option<String> = None;
-        loop {
+        let mut common_prefixes = Vec::new();
+        let mut continuation_token = start_token;
+        let next_token = loop {
             let mut request = client
                 .list_objects_v2()
                 .bucket(bucket.clone())
-                .prefix(prefix.clone());
+                .prefix(prefix.clone())
+                .max_keys(pager.page_keys());
             if !delimiter.is_empty() {
                 request = request.delimiter(delimiter);
             }
-            if let Some(max_keys) = max_keys {
-                request = request.max_keys(max_keys);
-            }
-            if let Some(token) = continuation_token.clone() {
+            if let Some(token) = continuation_token.take() {
                 request = request.continuation_token(token);
             }
 
             let response = request.send().await?;
-            for item in response.contents() {
-                let storage_class = item.storage_class().map(|value| value.as_str().to_string());
-                let last_modified = item
-                    .last_modified()
-                    .map(|value| value.to_string())
-                    .unwrap_or_default();
+            pager.admit_page(response.contents().len() + response.common_prefixes().len())?;
+            objects.extend(response.contents().iter().map(object_entry));
+            common_prefixes.extend(
+                response
+                    .common_prefixes()
+                    .iter()
+                    .map(|item| serde_json::json!(item.prefix().unwrap_or_default())),
+            );
 
-                objects.push(serde_json::json!({
-                    "key": item.key().unwrap_or_default(),
-                    "size": item.size().unwrap_or_default(),
-                    "etag": item.e_tag().unwrap_or_default(),
-                    "last_modified": last_modified,
-                    "storage_class": storage_class.unwrap_or_default(),
-                }));
+            let truncated = response.is_truncated().unwrap_or(false);
+            match pager.next(truncated, response.next_continuation_token())? {
+                Next::Page(token) => continuation_token = Some(token),
+                Next::Done(token) => break token,
             }
-
-            if response.is_truncated().unwrap_or(false) {
-                continuation_token = response.next_continuation_token().map(str::to_string);
-            } else {
-                break;
-            }
-        }
+        };
 
         let mut output = NodeOutput::new();
         output.insert(
@@ -94,11 +90,40 @@ impl Node for S3ListObjectsNode {
             serde_json::Value::Array(objects),
         );
         output.insert(
+            format!("{}_common_prefixes", output_key),
+            serde_json::Value::Array(common_prefixes),
+        );
+        output.insert(
+            format!("{}_truncated", output_key),
+            serde_json::Value::Bool(next_token.is_some()),
+        );
+        output.insert(
+            format!("{}_next_continuation_token", output_key),
+            serde_json::Value::String(next_token.unwrap_or_default()),
+        );
+        output.insert(
             format!("{}_success", output_key),
             serde_json::Value::Bool(true),
         );
         Ok(output)
     }
+}
+
+fn object_entry(item: &aws_sdk_s3::types::Object) -> serde_json::Value {
+    let last_modified = item
+        .last_modified()
+        .map(|value| value.to_string())
+        .unwrap_or_default();
+    serde_json::json!({
+        "key": item.key().unwrap_or_default(),
+        "size": item.size().unwrap_or_default(),
+        "etag": item.e_tag().unwrap_or_default(),
+        "last_modified": last_modified,
+        "storage_class": item
+            .storage_class()
+            .map(|value| value.as_str())
+            .unwrap_or_default(),
+    })
 }
 
 pub struct S3ListBucketsNode;

@@ -36,6 +36,8 @@ mod test_provider_redirect_security;
 mod test_s3_copy;
 #[path = "../test_s3_header_signing.rs"]
 mod test_s3_header_signing;
+#[path = "../test_s3_list_objects.rs"]
+mod test_s3_list_objects;
 #[path = "../test_s3_nodes.rs"]
 mod test_s3_nodes;
 #[path = "../test_s3_signing_serve.rs"]

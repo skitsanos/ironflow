@@ -53,6 +53,9 @@ pub(crate) const DB_MAX_RESULT_BYTES: Limit =
 /// Directory listings and ZIP entry enumeration.
 pub(crate) const MAX_DIRECTORY_ENTRIES: Limit =
     Limit::positive("IRONFLOW_MAX_DIRECTORY_ENTRIES", 10_000);
+/// Objects and common prefixes one `s3_list_objects` call returns (IF-189).
+pub(crate) const MAX_S3_LIST_OBJECTS: Limit =
+    Limit::positive("IRONFLOW_MAX_S3_LIST_OBJECTS", 10_000);
 /// Recursive directory traversal depth.
 pub(crate) const MAX_DIRECTORY_DEPTH: Limit = Limit::positive("IRONFLOW_MAX_DIRECTORY_DEPTH", 32);
 /// ZIP archive entries.
@@ -118,6 +121,7 @@ pub(crate) const ALL: &[&Limit] = &[
     &DB_MAX_ROWS,
     &DB_MAX_RESULT_BYTES,
     &MAX_DIRECTORY_ENTRIES,
+    &MAX_S3_LIST_OBJECTS,
     &MAX_DIRECTORY_DEPTH,
     &MAX_ZIP_ENTRIES,
     &MAX_ZIP_METADATA_BYTES,
@@ -207,6 +211,10 @@ pub fn max_db_result_bytes() -> Option<u64> {
 
 pub fn max_directory_entries() -> u64 {
     MAX_DIRECTORY_ENTRIES.read()
+}
+
+pub fn max_s3_list_objects() -> usize {
+    usize::try_from(MAX_S3_LIST_OBJECTS.read()).unwrap_or(usize::MAX)
 }
 
 pub fn max_directory_depth() -> u64 {
