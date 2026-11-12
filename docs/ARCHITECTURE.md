@@ -978,6 +978,13 @@ Context is a `HashMap<String, serde_json::Value>` that flows through the entire 
 - Literal overlay keys and values are redacted before task output/error, event,
   context, and public run boundaries; redacted output is what downstream steps
   receive, preventing simple credential laundering between tasks
+- Redaction has two boundaries (IF-176). The live boundary feeds later steps
+  and parent runs: it scrubs strings and keys but keeps JSON types and the
+  top-level `_route_*` and `_condition_result_*` keys, so an overlay value
+  cannot reroute steps. The record boundary feeds task history, the stored
+  context and public responses, and also replaces a number equal to a secret.
+  Only a complete overlay value and its components of at least eight
+  non-whitespace bytes are secrets; names and object keys are not
 - Documented Lua config fields can access context through `${ctx...}` path
   interpolation; configs are not rewritten globally
 - The grammar supports dotted keys, zero-based array indexes, and JSON

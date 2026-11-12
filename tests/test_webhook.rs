@@ -6,10 +6,7 @@ use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
 use ironflow::storage::StateStore as _;
 
-#[path = "support/webhook.rs"]
-mod webhook_support;
-
-use webhook_support::{
+use crate::webhook_support::{
     PLATFORM_API_KEY, PROCESS_ADMISSION_LOCK, authenticated_json_request, authenticated_request,
     build_test_app, send_json, setup_flow_dir, webhook, write_flow,
 };

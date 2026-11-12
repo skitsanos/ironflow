@@ -898,7 +898,9 @@ webhooks:
 - Request headers are denied by default; only names in `forward_headers` are
   exposed through lowercase `ctx._headers`
 - Forwarded header values are confidential, execution-only inputs: they are
-  removed/redacted before context, task, event, and run-detail persistence
+  removed/redacted before context, task, event, and run-detail persistence.
+  [Forwarded header redaction](#forwarded-header-redaction) states exactly
+  what is matched
 - `Authorization`, `X-API-Key`, cookies, proxy credentials, and common
   platform/session credential headers cannot be forwarded to a workflow
 - A forwarded value must contain at least eight non-whitespace bytes. Repeated
@@ -935,9 +937,53 @@ add timestamp/replay protection. Schemes such as Stripe and Slack include a
 timestamp in their signed message and require a recency check; verify those in
 an upstream gateway until IronFlow exposes a dedicated policy for that scheme.
 
-`forward_headers` remains available for non-authentication business metadata.
-Values forwarded that way are execution-only and redacted, but workflow code
-must not use direct shared-secret equality as a substitute for request signing.
+`forward_headers` remains available for confidential business headers that a
+flow has to read. Values forwarded that way are execution-only and redacted,
+but workflow code must not use direct shared-secret equality as a substitute
+for request signing.
+
+##### Forwarded header redaction
+
+Every forwarded header value is confidential for the whole run, including
+child workflows. Matching is literal and case-sensitive.
+
+| Part of a forwarded header | Treated as a secret |
+| --- | --- |
+| The complete value, without surrounding whitespace | Always |
+| The credential after a `Bearer` or `Basic` scheme | With at least 8 non-whitespace bytes |
+| The value of each `key=value` pair after splitting the header on `,` or `;`, without surrounding double quotes | With at least 8 non-whitespace bytes |
+| Each string or number inside a value that parses as JSON | With at least 8 non-whitespace bytes |
+| The header name, JSON object keys, booleans, `null`, and any shorter component such as `true`, `1` or `v1` | Never |
+
+The JSON-escaped form of each secret is matched as well. Encoded, hashed,
+split, or otherwise transformed copies are not recognized.
+
+| Where a secret appears | Step output read by later steps | Stored task output and context, events, `GET /runs/{id}` |
+| --- | --- | --- |
+| The `_headers` key, at any depth | Removed | Removed |
+| Inside a string, including an error message | Each occurrence becomes `[REDACTED]` | Same |
+| Inside an object key | Key and value removed | Same |
+| A JSON number equal to it | Unchanged | Replaced by the string `"[REDACTED]"` |
+| Top-level `_route_*` and `_condition_result_*` output | Unchanged | Redacted like any other field |
+
+Live step output therefore keeps its JSON types, and a forwarded header cannot
+rewrite the routing decision of `step_if`, `if_node` or `switch_node`. For
+example, with `X-Feature-Flags: beta=true,legacy=false` forwarded, a step that
+returns the whole value stores `[REDACTED]`, while the strings `true` and
+`false` and the header name stay untouched everywhere.
+
+Consequences for flow authors:
+
+- Forward a header only when its value must stay out of run records. Send
+  metadata you want to keep in the JSON body instead. A value below eight
+  non-whitespace bytes is rejected with `400`, so short metadata cannot be
+  forwarded at all.
+- A string of eight or more bytes that a sender puts in a forwarded header is
+  blanked wherever a later step outputs it, which can change a branch that
+  compares that string. Accept forwarded headers only from senders that the
+  `signature` policy or an upstream gateway authenticates.
+- A number that equals a forwarded value, such as a timestamp header, can
+  still be computed with in later steps; only records withhold it.
 
 Runs created by older IronFlow versions may already contain request headers.
 Public run output hides legacy `_headers` values when they are still present,

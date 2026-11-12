@@ -179,3 +179,177 @@ fn public_redaction_handles_run_arrays() {
     assert_eq!(value[0]["ctx"]["copy"], REDACTED);
     assert_eq!(value[1]["ctx"]["safe"], "visible");
 }
+
+fn header_redactor(headers: Value) -> SecretRedactor {
+    SecretRedactor::from_overlay(&Context::from([("_headers".to_string(), headers)]))
+}
+
+#[test]
+fn short_components_and_header_names_are_not_secrets() {
+    // IF-176: `true`, `false` and `1` are components of these values, and the
+    // header names are not values at all.
+    let redactor = header_redactor(serde_json::json!({
+        "x-feature-flags": "beta=true,legacy=false",
+        "x-amzn-trace-id": "Root=1-67891233-abcdef012345678912345678;Parent=53995c3f42cd8ad8;Sampled=1"
+    }));
+    let unrelated = Context::from([
+        ("order1".to_string(), serde_json::json!("first")),
+        ("total".to_string(), serde_json::json!(1)),
+        ("items".to_string(), serde_json::json!([1, 2, 3])),
+        ("note".to_string(), serde_json::json!("room 101, 1 item")),
+        ("flag".to_string(), serde_json::json!("true")),
+        ("x-feature-flags".to_string(), serde_json::json!("named")),
+        (
+            "mention".to_string(),
+            serde_json::json!("read x-amzn-trace-id, got false"),
+        ),
+        (
+            "nested".to_string(),
+            serde_json::json!({"legacy1": {"beta": "false"}}),
+        ),
+    ]);
+
+    assert_eq!(redactor.redact_context(&unrelated), unrelated);
+    assert_eq!(redactor.redact_context_owned(unrelated.clone()), unrelated);
+    assert_eq!(redactor.redact_live_context(unrelated.clone()), unrelated);
+    assert_eq!(redactor.redact_text("true is 1"), "true is 1");
+}
+
+#[test]
+fn whole_values_and_long_components_are_still_redacted() {
+    let trace = "Root=1-67891233-abcdef012345678912345678;Parent=53995c3f42cd8ad8;Sampled=1";
+    let redactor = header_redactor(serde_json::json!({
+        "x-feature-flags": "beta=true,legacy=false",
+        "x-amzn-trace-id": trace
+    }));
+    let context = Context::from([
+        (
+            "flags".to_string(),
+            serde_json::json!("beta=true,legacy=false"),
+        ),
+        (
+            "trace".to_string(),
+            serde_json::json!(format!("trace {trace}")),
+        ),
+        ("parent".to_string(), serde_json::json!("53995c3f42cd8ad8")),
+        (
+            "root".to_string(),
+            serde_json::json!("id 1-67891233-abcdef012345678912345678 seen"),
+        ),
+        ("53995c3f42cd8ad8".to_string(), serde_json::json!(true)),
+    ]);
+
+    let redacted = redactor.redact_context(&context);
+
+    assert_eq!(redacted["flags"], REDACTED);
+    assert_eq!(redacted["trace"], format!("trace {REDACTED}"));
+    assert_eq!(redacted["parent"], REDACTED);
+    assert_eq!(redacted["root"], format!("id {REDACTED} seen"));
+    assert!(!redacted.contains_key("53995c3f42cd8ad8"));
+    assert_eq!(redactor.redact_live_context(context.clone()), redacted);
+    assert_eq!(redactor.redact_context_owned(context), redacted);
+}
+
+#[test]
+fn structured_header_keys_and_short_scalars_are_not_secrets() {
+    let redactor = header_redactor(serde_json::json!({
+        "x-signature": "{\"token\":\"long-secret-123\",\"code\":12345678,\"kind\":\"v1\",\"n\":7}"
+    }));
+    let unrelated = Context::from([
+        ("token".to_string(), serde_json::json!("kept")),
+        ("kind".to_string(), serde_json::json!("v1")),
+        ("code".to_string(), serde_json::json!(7)),
+        (
+            "text".to_string(),
+            serde_json::json!("token code kind n v1 7"),
+        ),
+    ]);
+
+    assert_eq!(redactor.redact_context(&unrelated), unrelated);
+    assert_eq!(
+        redactor.redact_text("got long-secret-123 and 12345678"),
+        format!("got {REDACTED} and {REDACTED}")
+    );
+}
+
+#[test]
+fn padding_and_separators_do_not_become_secrets() {
+    // `split_once('=')` on base64 padding used to register `=` as a secret.
+    let redactor = header_redactor(serde_json::json!({
+        "x-signature": "c2lnbmF0dXJlLXZhbHVl=="
+    }));
+
+    assert_eq!(redactor.redact_text("a=b, c==d"), "a=b, c==d");
+    assert_eq!(redactor.redact_text("c2lnbmF0dXJlLXZhbHVl=="), REDACTED);
+}
+
+#[test]
+fn short_whole_values_match_exactly_and_never_as_substrings() {
+    // Not reachable from a webhook, which rejects values below the floor.
+    let redactor = SecretRedactor::from_overlay(&Context::from([(
+        "_pin".to_string(),
+        serde_json::json!("1234"),
+    )]));
+    let context = Context::from([
+        ("copy".to_string(), serde_json::json!("1234")),
+        ("padded".to_string(), serde_json::json!(" 1234 ")),
+        ("order".to_string(), serde_json::json!("order 12345")),
+        ("key1234".to_string(), serde_json::json!("kept")),
+        ("count".to_string(), serde_json::json!(12345)),
+    ]);
+
+    let redacted = redactor.redact_context(&context);
+
+    assert_eq!(redacted["copy"], REDACTED);
+    assert_eq!(redacted["padded"], REDACTED);
+    assert_eq!(redacted["order"], "order 12345");
+    assert_eq!(redacted["key1234"], "kept");
+    assert_eq!(redacted["count"], 12345);
+    assert_eq!(
+        redactor.redact_text("pin 1234 rejected"),
+        "pin 1234 rejected"
+    );
+}
+
+#[test]
+fn live_boundary_keeps_json_types_and_routing_keys() {
+    let redactor = header_redactor(serde_json::json!({
+        "x-request-timestamp": "1731400000",
+        "x-feature-flags": "mode=needs_review"
+    }));
+    let output = Context::from([
+        ("_route_gate".to_string(), serde_json::json!("needs_review")),
+        (
+            "_condition_result_gate".to_string(),
+            serde_json::json!(true),
+        ),
+        ("_route_needs_review".to_string(), serde_json::json!("true")),
+        ("event_time".to_string(), serde_json::json!(1731400000)),
+        (
+            "nested".to_string(),
+            serde_json::json!({"times": [1731400000, 5], "_route_inner": "needs_review"}),
+        ),
+        ("label".to_string(), serde_json::json!("needs_review")),
+        ("_headers".to_string(), serde_json::json!({"copy": "x"})),
+    ]);
+
+    let live = redactor.redact_live_context(output.clone());
+
+    assert_eq!(live["_route_gate"], "needs_review");
+    assert_eq!(live["_condition_result_gate"], true);
+    assert_eq!(live["_route_needs_review"], "true");
+    assert_eq!(live["event_time"], 1731400000);
+    assert_eq!(live["nested"]["times"], serde_json::json!([1731400000, 5]));
+    // Only top-level routing keys are engine input; everything else is data.
+    assert_eq!(live["nested"]["_route_inner"], REDACTED);
+    assert_eq!(live["label"], REDACTED);
+    assert!(!live.contains_key("_headers"));
+
+    // The record boundary withholds what the live boundary had to keep.
+    let record = redactor.redact_context(&live);
+    assert_eq!(record["_route_gate"], REDACTED);
+    assert_eq!(record["event_time"], REDACTED);
+    assert_eq!(record["nested"]["times"], serde_json::json!([REDACTED, 5]));
+    assert!(!record.contains_key("_route_needs_review"));
+    assert_eq!(record, redactor.redact_context_owned(output));
+}

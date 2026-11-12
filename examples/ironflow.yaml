@@ -48,6 +48,8 @@ store_backend: "json"     # IRONFLOW_STORE: json, sqlite, postgres, or redis
 # Webhooks — scalar entries forward no request headers. Structured entries can
 # opt confidential business-signature headers into the execution-only
 # ctx._headers overlay. Platform auth/cookie/session headers remain reserved.
+# A forwarded value needs at least eight non-whitespace bytes; it and its
+# components of eight bytes or more are redacted from step output and records.
 # webhooks:
 #   hello: hello_world.lua
 #   signed-action:

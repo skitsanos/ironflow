@@ -111,6 +111,41 @@ deployment environment. Local results do not establish protection on other
 machines or old deployments. Review historic endpoint, proxy, and TLS logs
 separately; a patched audit cannot establish absence of past exploitation.
 
+## Forwarded webhook headers
+
+A webhook passes a request header to a flow only when `forward_headers` names
+it. The value is an invocation-only input: it is merged into `ctx._headers`
+for each step and child workflow and is never written to the stored context,
+task history, events or run-detail responses (IF-011).
+
+Redaction contract (IF-176):
+
+- Secrets are the complete header value and each component of at least eight
+  non-whitespace bytes: the credential after `Bearer` or `Basic`, the value of
+  each `key=value` pair split on `,` or `;`, and each string or number inside
+  a value that parses as JSON. The JSON-escaped form is matched too.
+- Header names, JSON object keys, booleans, `null` and shorter components are
+  not secrets. A webhook rejects a forwarded value below the same eight-byte
+  floor with `400`, so every accepted value is matched wherever it occurs.
+- In step output that later steps read, a secret inside a string becomes
+  `[REDACTED]` and an object key containing one is removed. Numbers keep their
+  JSON type and top-level `_route_*` and `_condition_result_*` keys are never
+  dropped or rewritten, so a header cannot reroute a run or change the shape
+  of live data.
+- Records are stricter: task history, the stored context, events and
+  `GET /runs/{id}` also replace a number equal to a secret with `[REDACTED]`
+  and redact routing keys like any other field.
+
+Boundary. Matching is literal: an encoded, hashed or split copy of a value is
+not recognized, so flows must validate a forwarded value in place and not
+transform or send it elsewhere. Redaction also acts on text the sender chose.
+A sender who can set a forwarded header can blank a string of eight or more
+bytes in later step output, which can change a branch that compares that
+string. Forward headers only from senders that the webhook `signature` policy
+or an upstream gateway authenticates, and keep non-confidential metadata in
+the JSON body. The full table is in the
+[CLI reference](CLI_REFERENCE.md#forwarded-header-redaction).
+
 ## Dependency licenses
 
 IronFlow is MIT licensed and ships statically linked binaries and container

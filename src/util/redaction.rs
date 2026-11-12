@@ -6,49 +6,40 @@ use serde_json::Value;
 use crate::engine::types::Context;
 
 mod owned;
+mod tokens;
+
+use tokens::SecretTokens;
+pub(crate) use tokens::{MIN_SECRET_BYTES, meets_secret_floor};
 
 pub(crate) const REDACTED: &str = "[REDACTED]";
 
 /// Redacts invocation-only values before data crosses a durable, event, or
 /// public-response boundary.
+///
+/// The overlay's own keys are removed at any depth. A complete overlay value,
+/// and any component of it of at least [`MIN_SECRET_BYTES`], is replaced
+/// wherever it occurs in a string, and an object key containing one is
+/// dropped. Names, object keys and shorter components are not secrets
+/// (IF-176). Record boundaries also replace a number that equals a secret;
+/// the live boundary in `owned` keeps JSON types and engine routing keys.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct SecretRedactor {
     protected_keys: Arc<HashSet<String>>,
-    secrets: Arc<Vec<String>>,
+    tokens: Arc<SecretTokens>,
 }
 
 impl SecretRedactor {
     pub(crate) fn from_overlay(overlay: &Context) -> Self {
-        let protected_keys = overlay.keys().cloned().collect();
-        let mut secrets = HashSet::new();
-        for value in overlay.values() {
-            collect_secret_strings(value, &mut secrets);
-        }
-        let escaped = secrets
-            .iter()
-            .filter_map(|secret| serde_json::to_string(secret).ok())
-            .filter_map(|encoded| {
-                encoded
-                    .strip_prefix('"')
-                    .and_then(|value| value.strip_suffix('"'))
-                    .map(str::to_string)
-            })
-            .collect::<Vec<_>>();
-        secrets.extend(escaped);
-        let mut secrets = secrets.into_iter().collect::<Vec<_>>();
-        secrets.sort_unstable_by_key(|secret| std::cmp::Reverse(secret.len()));
-
         Self {
-            protected_keys: Arc::new(protected_keys),
-            secrets: Arc::new(secrets),
+            protected_keys: Arc::new(overlay.keys().cloned().collect()),
+            tokens: Arc::new(SecretTokens::from_values(overlay.values())),
         }
     }
 
     pub(crate) fn redact_context(&self, context: &Context) -> Context {
         context
             .iter()
-            .filter(|(key, _)| !self.protected_keys.contains(*key))
-            .filter(|(key, _)| self.redact_text(key) == **key)
+            .filter(|(key, _)| !self.withholds_key(key))
             .map(|(key, value)| (key.clone(), self.redact_value(value)))
             .collect()
     }
@@ -61,17 +52,11 @@ impl SecretRedactor {
             }
             Value::Object(map) => Value::Object(
                 map.iter()
-                    .filter(|(key, _)| !self.protected_keys.contains(*key))
-                    .filter(|(key, _)| self.redact_text(key) == **key)
+                    .filter(|(key, _)| !self.withholds_key(key))
                     .map(|(key, value)| (key.clone(), self.redact_value(value)))
                     .collect(),
             ),
-            Value::Number(number)
-                if self
-                    .secrets
-                    .iter()
-                    .any(|secret| secret == &number.to_string()) =>
-            {
+            Value::Number(number) if self.tokens.matches_number(number) => {
                 Value::String(REDACTED.to_string())
             }
             other => other.clone(),
@@ -79,96 +64,17 @@ impl SecretRedactor {
     }
 
     pub(crate) fn redact_text(&self, text: &str) -> String {
-        let mut redacted = text.to_string();
-        for secret in self.secrets.iter() {
-            if redacted == *secret {
-                return REDACTED.to_string();
-            }
-            if redacted.contains(secret) {
-                redacted = redacted.replace(secret, REDACTED);
-            }
-        }
-        redacted
+        self.tokens.redact(text.to_string())
     }
-}
 
-fn collect_secret_strings(value: &Value, secrets: &mut HashSet<String>) {
-    match value {
-        Value::String(text) => {
-            let text = text.trim();
-            if text.is_empty() {
-                return;
-            }
-            secrets.insert(text.to_string());
-
-            if let Ok(structured) = serde_json::from_str::<Value>(text) {
-                collect_structured_secrets(&structured, secrets);
-            }
-
-            // Signature formats commonly use comma/semicolon-delimited
-            // key=value components. Track component values too, so extracting
-            // `v1` does not evade the persistence fence.
-            for component in text.split([',', ';']) {
-                if let Some((_, value)) = component.trim().split_once('=') {
-                    let value = value.trim().trim_matches('"').trim();
-                    if !value.is_empty() {
-                        secrets.insert(value.to_string());
-                    }
-                }
-            }
-
-            if let Some((scheme, credential)) = text.split_once(char::is_whitespace)
-                && matches!(scheme.to_ascii_lowercase().as_str(), "bearer" | "basic")
-                && !credential.trim().is_empty()
-            {
-                secrets.insert(credential.trim().to_string());
-            }
-        }
-        Value::Array(items) => {
-            for item in items {
-                collect_secret_strings(item, secrets);
-            }
-        }
-        Value::Object(map) => {
-            for (key, value) in map {
-                if !key.is_empty() {
-                    secrets.insert(key.clone());
-                }
-                collect_secret_strings(value, secrets);
-            }
-        }
-        Value::Number(number) => {
-            secrets.insert(number.to_string());
-        }
-        _ => {}
+    /// Whether a key is left out of scrubbed data: an overlay key, or a key
+    /// whose own text holds a secret.
+    pub(crate) fn withholds_key(&self, key: &str) -> bool {
+        self.protected_keys.contains(key) || self.tokens.occur_in(key)
     }
-}
 
-fn collect_structured_secrets(value: &Value, secrets: &mut HashSet<String>) {
-    match value {
-        Value::String(text) => {
-            let text = text.trim();
-            if !text.is_empty() {
-                secrets.insert(text.to_string());
-            }
-        }
-        Value::Number(number) => {
-            secrets.insert(number.to_string());
-        }
-        Value::Array(items) => {
-            for item in items {
-                collect_structured_secrets(item, secrets);
-            }
-        }
-        Value::Object(map) => {
-            for (key, value) in map {
-                if !key.is_empty() {
-                    secrets.insert(key.clone());
-                }
-                collect_structured_secrets(value, secrets);
-            }
-        }
-        Value::Bool(_) | Value::Null => {}
+    fn is_empty(&self) -> bool {
+        self.protected_keys.is_empty() && self.tokens.is_empty()
     }
 }
 

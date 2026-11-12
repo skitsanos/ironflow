@@ -7,7 +7,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts check`.
 
 - Total findings: 203
-- Active findings: 31
+- Active findings: 30
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
 | ID | Priority | Status | Area | Summary |
@@ -187,7 +187,7 @@ priority, area, and title. The registry is generated with
 | [IF-173](./IF-173.md) | P1 | Open | Dependency security | Three new RustSec advisories fail the audit gate; the rmcp one is reachable through mcp_client |
 | [IF-174](./IF-174.md) | P1 | Open | Runtime safety | HTML-to-Markdown conversion overflows the stack on nested markup and aborts the process |
 | [IF-175](./IF-175.md) | P1 | Open | Lua runtime safety | Flow source can abort the process during load and validation |
-| [IF-176](./IF-176.md) | P1 | Open | API security | Forwarded-header fragments become run-wide secrets and rewrite live step output |
+| [IF-176](./IF-176.md) | P1 | Resolved | API security | Forwarded-header fragments become run-wide secrets and rewrite live step output |
 | [IF-177](./IF-177.md) | P1 | Open | Runtime safety | Diagnostic redaction is quadratic on async workers and misses common credential shapes |
 | [IF-178](./IF-178.md) | P1 | Open | PDF/resource safety | extract_pdf font decoding is unbounded for wide ToUnicode ranges and long glyph strings |
 | [IF-179](./IF-179.md) | P1 | Open | Files/write safety | Image nodes and transcribe write outputs through symlinks without the staged writer |

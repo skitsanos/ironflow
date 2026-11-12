@@ -4,6 +4,11 @@
 //! (IF-162). Every module is an unchanged test file under `tests/`; run one
 //! with `cargo test --test api <module>::`.
 
+// One copy of the webhook support module for every suite in this binary: its
+// process-wide admission lock only serializes the tests that share it.
+#[path = "../support/webhook.rs"]
+mod webhook_support;
+
 #[path = "../test_api.rs"]
 mod test_api;
 #[path = "../test_api_errors.rs"]
@@ -18,5 +23,7 @@ mod test_run_id_api;
 mod test_webhook;
 #[path = "../test_webhook_composition.rs"]
 mod test_webhook_composition;
+#[path = "../test_webhook_header_redaction.rs"]
+mod test_webhook_header_redaction;
 #[path = "../test_webhook_persistence_boundaries.rs"]
 mod test_webhook_persistence_boundaries;

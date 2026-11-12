@@ -339,6 +339,13 @@ run-detail responses. Validate them in place; do not log, return, transform, or
 send their raw values elsewhere. The engine cannot recognize every derived or
 deliberately exfiltrated form of a secret.
 
+The complete value and each component of at least eight non-whitespace bytes
+are matched; header names, JSON keys and shorter components such as `true` or
+`1` are not. Step output keeps its JSON types and its `_route_*` and
+`_condition_result_*` keys, so a forwarded header cannot change which steps
+run. The exact rules are in the
+[CLI reference](CLI_REFERENCE.md#forwarded-header-redaction).
+
 `ctx._webhook` is durable workflow metadata. `ctx._headers` exists only during
 webhook execution and is inherited by nested workflow execution without being
 persisted. Flows run via CLI or `/flows/run` do not receive it.

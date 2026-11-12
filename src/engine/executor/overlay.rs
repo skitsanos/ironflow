@@ -2,6 +2,8 @@ use std::borrow::Cow;
 use std::future::Future;
 use std::sync::Arc;
 
+use serde_json::Value;
+
 use crate::engine::types::Context;
 use crate::util::redaction::SecretRedactor;
 
@@ -55,6 +57,30 @@ impl ExecutionOverlay {
 
     pub(crate) fn redact_context_owned(&self, context: Context) -> Context {
         self.redactor.redact_context_owned(context)
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.values.is_empty()
+    }
+
+    /// Scrub values that later steps or a parent run will read. Strings and
+    /// keys are redacted as for a record, but JSON types and the engine's
+    /// routing keys are kept, so an overlay value cannot change control flow
+    /// or the shape of live data (IF-176). Records get the stricter form
+    /// through `redact_context`, `redact_context_owned` or
+    /// `redact_record_value`.
+    pub(crate) fn redact_live_context(&self, context: Context) -> Context {
+        self.redactor.redact_live_context(context)
+    }
+
+    /// Whether a key is left out of stored records.
+    pub(crate) fn withholds_record_key(&self, key: &str) -> bool {
+        self.redactor.withholds_key(key)
+    }
+
+    /// Record form of one live value.
+    pub(crate) fn redact_record_value(&self, value: &Value) -> Value {
+        self.redactor.redact_value(value)
     }
 
     pub(crate) fn redact_text(&self, text: &str) -> String {
