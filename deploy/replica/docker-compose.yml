@@ -40,7 +40,7 @@ x-ironflow: &ironflow
       condition: service_healthy
     minio-init:
       condition: service_completed_successfully
-  stop_grace_period: 30s
+  stop_grace_period: 35s
   healthcheck:
     test: ["CMD", "curl", "--fail", "http://127.0.0.1:3000/health/ready"]
     interval: 2s

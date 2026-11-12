@@ -264,6 +264,19 @@ IRONFLOW_API_KEY="change-me" ironflow serve
 both configured stores answer a two-second probe. `/health` remains a liveness
 alias. SIGTERM/SIGINT closes readiness, stops scheduling and new run admission,
 then drains accepted work according to `IRONFLOW_SHUTDOWN_GRACE_SECONDS`.
+The listener stays open during that drain: new connections are answered,
+`/health/ready` returns `503` with `"status": "draining"`, `POST /flows/run`
+and webhooks return `503`, and run status and events remain readable. Once
+accepted runs have finished, or were cancelled after the grace and settled
+within 20 seconds, the listener closes and new connections are refused. Open
+connections then have five seconds to finish and blocking workers that cannot
+be interrupted have five more, so the process exits at most
+`IRONFLOW_SHUTDOWN_GRACE_SECONDS + 30` seconds after the signal.
+
+Every command applies the same five-second bound after it returns. A step
+that timed out or was cancelled while its blocking worker was inside a call
+that cannot be interrupted no longer keeps `ironflow run` alive after the
+final status is printed; the worker ends with the process.
 
 Set `IRONFLOW_METRICS_ENABLED=true` or `metrics_enabled: true` to register
 `GET /metrics`. The OpenMetrics response uses the same API authentication

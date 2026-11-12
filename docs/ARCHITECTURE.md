@@ -800,12 +800,21 @@ awaits scheduler shutdown.
 HTTP handlers and the scheduler register each accepted top-level run with one
 process `ServiceLifecycle`. Registration retains only cloneable cancellation
 authority; the ordinary `RunHandle` waiter still owns completion and admission.
-SIGTERM/SIGINT atomically closes readiness and execution admission. Axum stops
-accepting connections, the scheduler exits its tick loop, and accepted runs may
-finish for `IRONFLOW_SHUTDOWN_GRACE_SECONDS`. Remaining coordinators receive
-the same cooperative cancellation signal as explicit run cancellation. Final
-settlement and connection close are separately bounded so a defective task
-cannot hold an orchestrator termination forever.
+SIGTERM/SIGINT atomically closes readiness and execution admission. The
+scheduler exits its tick loop and accepted runs may finish for
+`IRONFLOW_SHUTDOWN_GRACE_SECONDS`. `serve_until` keeps polling the Axum server
+future for that whole drain, so the listener still accepts: a connection
+opened after the signal gets `503` from `/health/ready` and from run
+admission rather than waiting in the accept backlog (IF-183). Remaining
+coordinators receive the same cooperative cancellation signal as explicit run
+cancellation and have 20 seconds to settle. The listener closes only after
+that, and open connections have five seconds to finish. `main` then shuts the
+runtime down with a five-second timeout instead of dropping it, because a
+dropped runtime waits for every blocking closure; this bound applies to every
+command, so `ironflow run` also exits at most five seconds after printing its
+result. A worker still inside an uninterruptible call at that point ends with
+the process. Each stage is bounded so a defective task cannot hold an
+orchestrator termination forever: at most grace plus 30 seconds in total.
 
 `IRONFLOW_REPLICA_MODE=true` is an operator assertion checked before stores are
 opened. It accepts only PostgreSQL/Redis state plus PostgreSQL/Redis events;

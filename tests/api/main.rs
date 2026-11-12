@@ -21,6 +21,8 @@ mod test_api_sse;
 mod test_request_context_depth;
 #[path = "../test_run_id_api.rs"]
 mod test_run_id_api;
+#[path = "../test_serve_drain.rs"]
+mod test_serve_drain;
 #[path = "../test_webhook.rs"]
 mod test_webhook;
 #[path = "../test_webhook_composition.rs"]

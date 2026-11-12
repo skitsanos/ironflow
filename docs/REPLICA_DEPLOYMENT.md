@@ -97,11 +97,20 @@ Operator templates and alert examples are documented in
 [Operator metrics](METRICS.md).
 
 SIGTERM and SIGINT close readiness and scheduler/API execution admission first.
-HTTP listener shutdown then begins while already accepted runs retain their
-admission permits. IronFlow waits `IRONFLOW_SHUTDOWN_GRACE_SECONDS` (default 30,
-maximum 3600), cooperatively cancels remaining runs, allows up to 20 seconds for
-their durable finalization, and then bounds connection shutdown by another five
-seconds. Configure the platform termination window above that total.
+Already accepted runs retain their admission permits, and the listener stays
+open while they drain: a connection opened after the signal is answered at
+once, `/health/ready` with `503` and `"status": "draining"`, and
+`POST /flows/run` and webhooks with `503`, so a probe or a load balancer sees
+the replica leave rotation instead of timing out. Run status and event reads
+keep working for clients that follow an accepted run. IronFlow waits
+`IRONFLOW_SHUTDOWN_GRACE_SECONDS` (default 30, maximum 3600), cooperatively
+cancels remaining runs and allows up to 20 seconds for their durable
+finalization. Only then does the listener close, after which new connections
+are refused; open connections get up to five seconds to finish, and blocking
+workers that cannot be interrupted get up to five more before the process
+exits without them. The process therefore exits at most
+`IRONFLOW_SHUTDOWN_GRACE_SECONDS + 30` seconds after the signal. Configure the
+platform termination window at or above that total.
 
 ## Local Docker acceptance
 
@@ -109,7 +118,8 @@ The opt-in gate builds the production image, starts PostgreSQL, two restricted
 IronFlow containers, and an nginx round-robin proxy. It verifies simultaneous
 cold start, cross-replica state, idempotent retry, a producer-on-A and
 consumer-on-B streamed artifact handoff through disposable MinIO, schedule
-uniqueness, SIGTERM draining, real SIGKILL lease reconciliation, arbitrary UID
+uniqueness, SIGTERM draining with a `503` readiness answer on new connections,
+real SIGKILL lease reconciliation, arbitrary UID
 execution, and a read-only root filesystem.
 
 ```bash
@@ -138,7 +148,7 @@ platform-specific rollout timing. Validate those with a canary deployment.
   IronFlow service.
 - Use `/health/ready` as the deployment healthcheck.
 - Set the deployment drain window to at least
-  `IRONFLOW_SHUTDOWN_GRACE_SECONDS + 25` seconds; 60 seconds fits the default.
+  `IRONFLOW_SHUTDOWN_GRACE_SECONDS + 30` seconds; 60 seconds fits the default.
 - Use continuous external monitoring in addition to Railway's deployment-time
   healthcheck.
 - When deploying the prebuilt public GHCR image instead of a repository build,
@@ -214,8 +224,9 @@ spec:
 ```
 
 The canary uses a 5-second application shutdown grace, so the 40-second pod
-window covers cancellation finalization and bounded connection shutdown. Keep
-the platform window at least `IRONFLOW_SHUTDOWN_GRACE_SECONDS + 25` seconds when
+window covers cancellation finalization, bounded connection shutdown and the
+bounded wait for blocking workers. Keep
+the platform window at least `IRONFLOW_SHUTDOWN_GRACE_SECONDS + 30` seconds when
 using another value. `/tmp` is a size-limited memory-backed volume; the root
 filesystem remains read-only. Mount other writable data only when a node
 explicitly needs it. Shared run/event state still belongs in PostgreSQL or

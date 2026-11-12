@@ -107,6 +107,57 @@ function triggerRunRequest(key: string, file: string): void {
   }
 }
 
+/// IF-183: readiness as seen by a connection opened after the signal. Each
+/// curl process opens its own TCP connection, so a pooled keep-alive
+/// connection accepted before the signal cannot answer for it.
+function freshReadiness(base: string): { exitCode: number; status: string; body: string } {
+  const result = Bun.spawnSync(
+    [
+      "curl",
+      "--silent",
+      "--max-time",
+      "2",
+      "--write-out",
+      "\n%{http_code}",
+      `${base}/health/ready`,
+    ],
+    { stdout: "pipe", stderr: "ignore" },
+  );
+  const output = result.stdout.toString();
+  const split = output.lastIndexOf("\n");
+  return {
+    exitCode: result.exitCode,
+    status: output.slice(split + 1),
+    body: output.slice(0, Math.max(split, 0)),
+  };
+}
+
+async function assertDrainingAnswersNewConnections(base: string): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  let answered = 0;
+  while (answered < 3) {
+    const probe = freshReadiness(base);
+    if (probe.exitCode === 28) {
+      throw new Error("a new connection hung during the drain instead of receiving 503");
+    }
+    // Once draining was observed, a refusal means the replica finished its
+    // drain and exited between probes.
+    if (probe.exitCode === 7 && answered > 0) return;
+    if (probe.exitCode !== 0) {
+      throw new Error(`readiness probe during the drain exited with ${probe.exitCode}`);
+    }
+    if (probe.status === "503" && probe.body.includes('"draining"')) {
+      answered += 1;
+    } else if (probe.status !== "200" || answered > 0) {
+      // 200 is only legitimate before the signal has been delivered.
+      throw new Error(`readiness during the drain returned ${probe.status}: ${probe.body}`);
+    } else if (Date.now() > deadline) {
+      throw new Error("readiness never reported draining after SIGTERM");
+    }
+    await Bun.sleep(200);
+  }
+}
+
 async function runInfo(base: string, runId: string): Promise<any> {
   const response = await fetch(`${base}/runs/${runId}`, {
     signal: AbortSignal.timeout(2_000),
@@ -245,6 +296,8 @@ async function main(): Promise<void> {
     triggerRunRequest(termKey, "hold.lua");
     await waitForStatus(b, termRun, "running", 30_000);
     compose("kill", "--signal", "SIGTERM", "ironflow-a");
+    await assertDrainingAnswersNewConnections(a);
+    console.log("[replica] new connections during the drain received 503 draining");
     await waitForStatus(b, termRun, "cancelled", 35_000);
     await waitFor(
       "replica A process exit",
@@ -267,7 +320,7 @@ async function main(): Promise<void> {
 
     if (!(await ready(b))) throw new Error("surviving replica lost readiness");
     await assertScheduleUniqueness();
-    console.log("Replica acceptance passed: routing, durable visibility, artifact handoff, TERM drain, KILL reconciliation, and schedule uniqueness.");
+    console.log("Replica acceptance passed: routing, durable visibility, artifact handoff, TERM drain with readiness on new connections, KILL reconciliation, and schedule uniqueness.");
   } finally {
     compose("down", "--volumes", "--remove-orphans");
   }

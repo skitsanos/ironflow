@@ -54,6 +54,22 @@ publication is verified separately.
   Writes to one destination are now serialized inside the IronFlow process.
   Appends to one file from several IronFlow processes are still
   last-writer-wins; give each process its own file.
+- **New connections are answered while `serve` drains, and exit is bounded**
+  (IF-183). After SIGTERM or SIGINT a new connection completed the TCP
+  handshake and then received nothing until the drain ended, up to
+  `IRONFLOW_SHUTDOWN_GRACE_SECONDS` plus the settle window, so a readiness
+  probe timed out instead of seeing the documented `503`. The listener now
+  stays open during the drain: `/health/ready` answers `503` with
+  `"status": "draining"`, `POST /flows/run` and webhooks answer `503`, and
+  run status and events remain readable. The listener closes when accepted
+  runs have drained. The process then waits at most five seconds for open
+  connections and five more for blocking workers that cannot be interrupted,
+  where it previously waited for those workers without limit; this also
+  applies to `ironflow run`, which exits at most five seconds after printing
+  its result. The longest termination is now
+  `IRONFLOW_SHUTDOWN_GRACE_SECONDS + 30` seconds (documented as `+ 25`
+  before): raise a platform termination window that was set to the old
+  figure. See [Replica deployment](../REPLICA_DEPLOYMENT.md).
 
 - **Context and step output nested deeper than 123 levels are refused**
   (IF-181). A value nested 126 levels deep passed the JSON parser, and the

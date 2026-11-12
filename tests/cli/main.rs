@@ -12,6 +12,8 @@ mod test_cache_identity_cli;
 mod test_child_result_cli;
 #[path = "../test_cli_context_depth.rs"]
 mod test_cli_context_depth;
+#[path = "../test_cli_exit_bound.rs"]
+mod test_cli_exit_bound;
 #[path = "../test_cli_list.rs"]
 mod test_cli_list;
 #[path = "../test_cli_precedence.rs"]

@@ -10,6 +10,11 @@
 
 use tracing_subscriber::EnvFilter;
 
+/// How long detached blocking workers may keep the process alive once the
+/// command has returned. A worker inside an uninterruptible call is abandoned
+/// to process exit after this bound (IF-183).
+const RUNTIME_SHUTDOWN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 fn exit_with_error(error: anyhow::Error) -> ! {
     let diagnostic = ironflow::util::sensitive_url::redact_sensitive_text(&format!("{error:#}"));
     eprintln!("Error: {diagnostic}");
@@ -49,4 +54,6 @@ fn main() {
     if let Err(error) = runtime.block_on(ironflow::cli::run_cli()) {
         exit_with_error(error);
     }
+    // Dropping the runtime would wait for every blocking closure to return.
+    runtime.shutdown_timeout(RUNTIME_SHUTDOWN_TIMEOUT);
 }

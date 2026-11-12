@@ -8,6 +8,7 @@ use axum::middleware;
 use axum::routing::{delete, get, post};
 use tower_http::trace::TraceLayer;
 
+use self::shutdown::{CONNECTION_CLOSE_TIMEOUT, drain_while_serving, shutdown_signal};
 use super::static_files::StaticFiles;
 use super::{AppState, ServeOptions, build_api_auth, cors_layer, handlers, require_api_key};
 use crate::nodes::NodeRegistry;
@@ -102,30 +103,36 @@ impl RunningServer {
             self.prepared.bound_addr
         );
         let lifecycle = self.prepared.lifecycle.clone();
-        let graceful_lifecycle = lifecycle.clone();
+        // The listener outlives the run drain (IF-183): a connection opened
+        // after the signal is answered, with `503` from readiness and from run
+        // admission, instead of waiting in the accept backlog for the grace.
+        // Polling the server during the drain is what keeps it answering.
+        let (close_listener, listener_closed) = tokio::sync::oneshot::channel::<()>();
         let server = axum::serve(self.prepared.listener, self.prepared.app)
-            .with_graceful_shutdown(async move { graceful_lifecycle.wait_for_draining().await })
+            .with_graceful_shutdown(async move {
+                let _ = listener_closed.await;
+            })
             .into_future();
         tokio::pin!(server);
         tokio::pin!(shutdown);
 
-        let completed = tokio::select! {
-            result = &mut server => Some(result),
-            () = &mut shutdown => {
-                lifecycle.begin_draining();
-                None
-            }
+        let signalled = tokio::select! {
+            result = &mut server => Err(result),
+            () = &mut shutdown => Ok(()),
         };
-
         lifecycle.begin_draining();
-        lifecycle.drain(grace).await;
-
-        if let Some(result) = completed {
+        let stopped = match signalled {
+            Ok(()) => drain_while_serving(&lifecycle, grace, server.as_mut()).await,
+            Err(result) => Some(result),
+        };
+        if let Some(result) = stopped {
+            lifecycle.drain(grace).await;
             result?;
             return Ok(());
         }
 
-        match tokio::time::timeout(std::time::Duration::from_secs(5), &mut server).await {
+        let _ = close_listener.send(());
+        match tokio::time::timeout(CONNECTION_CLOSE_TIMEOUT, &mut server).await {
             Ok(result) => result?,
             Err(_) => tracing::warn!(
                 "HTTP connections did not close after the run drain; forcing process shutdown"
@@ -133,25 +140,6 @@ impl RunningServer {
         }
         Ok(())
     }
-}
-
-#[allow(clippy::expect_used)] // Infallible: SIGTERM handler can be installed.
-async fn shutdown_signal() {
-    #[cfg(unix)]
-    {
-        let mut terminate =
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-                .expect("SIGTERM handler can be installed");
-        tokio::select! {
-            _ = tokio::signal::ctrl_c() => {}
-            _ = terminate.recv() => {}
-        }
-    }
-
-    #[cfg(not(unix))]
-    tokio::signal::ctrl_c()
-        .await
-        .expect("shutdown signal handler can be installed");
 }
 
 pub(crate) async fn prepare(
@@ -270,5 +258,6 @@ pub(super) async fn bind_listener(host: &str, port: u16) -> Result<tokio::net::T
         .map_err(|error| anyhow::anyhow!("failed to bind API server to {host}:{port}: {error}"))
 }
 
+mod shutdown;
 #[cfg(test)]
 mod tests;
