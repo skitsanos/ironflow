@@ -7,7 +7,7 @@ Convert a single image to grayscale.
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `path` | string | one of `path` or `source_key` | — | Source image path |
-| `source_key` | string | one of `path` or `source_key` | — | Context key containing a source path, artifact URI/descriptor, or explicit Base64 object |
+| `source_key` | string | one of `path` or `source_key` | — | Context key containing a source path, artifact URI/descriptor, or explicit Base64 object. A stored path is used as it is and is not interpolated. |
 | `output_path` | string | yes | — | Destination image path |
 | `format` | string | no | inferred / `png` | `png` or `jpeg`/`jpg` |
 | `output_key` | string | no | `"grayscale_image"` | Prefix for output values |

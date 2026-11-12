@@ -9,7 +9,7 @@ The node exists only in builds with the default `pdf-render` Cargo feature;
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `path` | string | one of `path` or `source_key` | — | File path to the PDF; supports `${ctx.key}` interpolation. |
-| `source_key` | string | one of `path` or `source_key` | — | Context key whose value is a file path, artifact URI, or artifact descriptor. |
+| `source_key` | string | one of `path` or `source_key` | — | Context key whose value is a file path, artifact URI, or artifact descriptor. A stored path is used as it is and is not interpolated. |
 | `pages` | string | no | `"all"` | Page specification: `"all"`, a single page `"3"`, a range `"1-5"`, or a combination `"1-3,7,9-11"`. Pages are 1-based. |
 | `format` | string | no | `"png"` | Image format: `"png"` or `"jpeg"`; `"jpg"` is accepted as an input alias for `"jpeg"`. |
 | `dpi` | number | no | `150.0` | Resolution in dots per inch for rendering. |

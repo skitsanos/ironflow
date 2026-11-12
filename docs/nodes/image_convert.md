@@ -7,7 +7,7 @@ Convert between image formats (e.g. PNG to JPEG). Output format is inferred from
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `path` | string | one of `path` or `source_key` | — | Input image path (supports `${ctx.key}` interpolation) |
-| `source_key` | string | one of `path` or `source_key` | — | Context key containing a source path, artifact URI/descriptor, `{ artifact = ... }`, or explicit Base64 object |
+| `source_key` | string | one of `path` or `source_key` | — | Context key containing a source path, artifact URI/descriptor, `{ artifact = ... }`, or explicit Base64 object. A stored path is used as it is and is not interpolated. |
 | `output_path` | string | yes | — | Output image path (format inferred from extension) |
 | `quality` | number | no | `85` | JPEG quality (1-100), only used for JPEG output |
 | `output_key` | string | no | `"image_convert"` | Prefix for output values |

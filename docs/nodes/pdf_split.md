@@ -8,7 +8,7 @@ default, or opt into multipage slices with `pages_per_file`.
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `path` | string | one of `path` or `source_key` | — | File path to the PDF; supports `${ctx.key}` interpolation. |
-| `source_key` | string | one of `path` or `source_key` | — | Context key containing a file path, artifact URI, or artifact descriptor. |
+| `source_key` | string | one of `path` or `source_key` | — | Context key containing a file path, artifact URI, or artifact descriptor. A stored path is used as it is and is not interpolated. |
 | `output_dir` | string | yes | — | Directory for output files; supports `${ctx.key}` interpolation. |
 | `pages` | string | no | `"all"` | Page specification: `"all"`, a single page `"3"`, a range `"1-5"`, or a combination `"1-3,7,9-11"`. Pages are 1-based; supports `${ctx.key}` interpolation before parsing. |
 | `pages_per_file` | integer | no | `1` | Maximum selected pages in each output file, from `1` to `IRONFLOW_MAX_PDF_SPLIT_PAGES` (default `1000`). Values greater than `1` enable grouped output. Strings, null, fractions, zero, and negative values are errors. |

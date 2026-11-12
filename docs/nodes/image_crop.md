@@ -7,7 +7,7 @@ Crop a single image file.
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `path` | string | one of `path` or `source_key` | — | Source image path (supports `${ctx.key}` interpolation). |
-| `source_key` | string | one of `path` or `source_key` | — | Context key containing a path, artifact URI/descriptor, `{ artifact = ... }`, or an explicit `{ base64 = "..." }` object. |
+| `source_key` | string | one of `path` or `source_key` | — | Context key containing a path, artifact URI/descriptor, `{ artifact = ... }`, or an explicit `{ base64 = "..." }` object. A stored path is used as it is and is not interpolated. |
 | `output_path` | string | yes | — | Destination file path for the cropped image. |
 | `x` | number | no | `0` | Left offset in pixels. |
 | `y` | number | no | `0` | Top offset in pixels. |

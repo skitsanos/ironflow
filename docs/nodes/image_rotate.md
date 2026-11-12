@@ -7,7 +7,7 @@ Rotate a single image by 90-degree increments.
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `path` | string | one of `path` or `source_key` | — | Source image path |
-| `source_key` | string | one of `path` or `source_key` | — | Context key containing a source path, artifact URI/descriptor, or explicit Base64 object |
+| `source_key` | string | one of `path` or `source_key` | — | Context key containing a source path, artifact URI/descriptor, or explicit Base64 object. A stored path is used as it is and is not interpolated. |
 | `output_path` | string | yes | — | Destination image path |
 | `angle` | number | no | `90` | One of `90`, `180`, `270` |
 | `format` | string | no | inferred / `png` | `png` or `jpeg`/`jpg` |

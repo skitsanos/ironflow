@@ -7,7 +7,7 @@ Overlay a semi-transparent watermark band on an image at a specified position.
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `path` | string | one of `path` or `source_key` | — | Input image path (supports `${ctx.key}` interpolation) |
-| `source_key` | string | one of `path` or `source_key` | — | Context key containing a source path, artifact URI/descriptor, or explicit Base64 object |
+| `source_key` | string | one of `path` or `source_key` | — | Context key containing a source path, artifact URI/descriptor, or explicit Base64 object. A stored path is used as it is and is not interpolated. |
 | `output_path` | string | yes | — | Output image path |
 | `text` | string | no | `"watermark"` | Watermark text (supports `${ctx.key}` interpolation) |
 | `position` | string | no | `"bottom-right"` | One of `bottom-right`, `bottom-left`, `top-right`, `top-left`, `center` |

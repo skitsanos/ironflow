@@ -7,7 +7,7 @@ Extract metadata from a PDF file (document info dictionary + page count).
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `path` | string | one of `path` or `source_key` | — | PDF file path |
-| `source_key` | string | one of `path` or `source_key` | — | Context key containing a file path, artifact URI, or artifact descriptor |
+| `source_key` | string | one of `path` or `source_key` | — | Context key containing a file path, artifact URI, or artifact descriptor. A stored path is used as it is and is not interpolated. |
 | `output_key` | string | no | `"metadata"` | Prefix for output key |
 
 > Providing both `path` and `source_key` is an error.
