@@ -53,7 +53,8 @@ pub struct AppState {
 }
 
 pub(crate) use admission::{
-    acquire_flow_load_permit, acquire_run_permit, supervise_flow_load, wait_for_admitted_run,
+    acquire_flow_load_permit, acquire_flow_load_permit_within, acquire_run_permit,
+    supervise_flow_load, wait_for_admitted_run,
 };
 
 /// Configuration for the REST API server.

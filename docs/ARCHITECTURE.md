@@ -767,8 +767,12 @@ observe an existing claim still converge on that run identity; the built-in
 stores atomically allow only one initializer. A process dying after its claim
 but before initialization therefore does not permanently consume the
 occurrence. Existing or later-stalled executions are never replayed. Lateness,
-overlap, process capacity, and flow-load failures may still skip an occurrence
-instead of creating a backlog. The overlap check pages
+overlap, run capacity, and a flow that fails to load may still skip an
+occurrence instead of creating a backlog. The flow-load limit does not: a
+scheduled start waits up to five seconds for a load permit, where API requests
+fail fast, and a wait that expires defers the occurrence. Nothing was parsed
+and no run exists, so the watermark stops before it and later ticks retry it,
+in order, until it starts or falls outside grace. The overlap check pages
 through at most 256 non-terminal runs and tolerates read failures, so it is a
 bounded best-effort guard rather than a distributed per-schedule lock. A claim
 backend error is different: the watermark stops before that instant and retries

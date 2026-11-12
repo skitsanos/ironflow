@@ -60,7 +60,7 @@ Label values are stable and bounded:
 | Active-work `kind` | `run`, `task`, `flow_load` |
 | Admission `resource` | `run`, `flow_load` |
 | Admission `decision` | `accepted`, `at_capacity`, `draining` |
-| Scheduler `outcome` | `fired`, `not_claimed`, `late`, `overlapped`, `at_capacity`, `failed`, `claim_failed`, `timed_out` |
+| Scheduler `outcome` | `fired`, `not_claimed`, `late`, `overlapped`, `at_capacity`, `failed`, `claim_failed`, `deferred`, `timed_out` |
 | Lease `outcome` | `renewed`, `lost`, `timed_out`, `error`, `reconciliation_failed` |
 | Storage `store` | `state`, `event` |
 | Storage `error_kind` | `invalid_input`, `not_found`, `backend`, `corruption`, `conflict` |

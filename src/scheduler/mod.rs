@@ -8,6 +8,7 @@ mod evaluation;
 pub mod execution;
 mod field_shape;
 mod identity;
+mod overlap;
 mod runtime;
 pub mod startup;
 pub mod timing;
@@ -59,6 +60,10 @@ pub enum Outcome {
     /// no run was ever owned, so `evaluate` must not treat the instant as
     /// settled — it is retried, not burned.
     ClaimFailed { error: String },
+    /// The flow-load limit stayed full for the executor's bounded wait.
+    /// Nothing was parsed and no run exists, so like `ClaimFailed` the
+    /// instant is retried on later ticks until it starts or leaves grace.
+    Deferred { reason: String },
     /// Evaluation exceeded its budget. The claim or run-start result can be
     /// indeterminate, so the instant is burned rather than retried.
     TimedOut,
@@ -67,8 +72,17 @@ pub enum Outcome {
 /// Durable start result for one deterministic schedule occurrence.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ScheduleRun {
-    Started { run_id: String },
-    Existing { run_id: String },
+    Started {
+        run_id: String,
+    },
+    Existing {
+        run_id: String,
+    },
+    /// Nothing was started and nothing was consumed: a pre-start capacity
+    /// wait expired. The scheduler retries the occurrence on a later tick.
+    Deferred {
+        reason: String,
+    },
 }
 
 /// One evaluated instant.
@@ -91,7 +105,8 @@ pub trait ScheduleExecutor: Send + Sync {
     fn has_capacity(&self) -> bool;
 
     /// Start the schedule's flow and return its run id, without waiting for
-    /// the run to finish.
+    /// the run to finish. `ScheduleRun::Deferred` reports a pre-start
+    /// capacity refusal that left no run behind and is safe to retry.
     async fn run(
         &self,
         schedule_name: &str,

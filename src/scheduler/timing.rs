@@ -88,29 +88,30 @@ pub(super) fn grace_floor(now: DateTime<Utc>, schedule: &ScheduleConfig) -> Naiv
 }
 
 /// The local time to advance a schedule's watermark to for one evaluated
-/// window, given the earliest claim error inside it.
+/// window, given the earliest instant inside it that must be retried.
 ///
-/// A claim error means nobody owns that instant — unlike every other skip
-/// (grace, overlap, capacity), which was claimed and is deliberately burned —
-/// so the watermark must stop short of it rather than pass through it. The
-/// next tick then re-enumerates from there: instants after the errored one
-/// already claimed successfully, so they come back `NotClaimed` and are
-/// skipped harmlessly; the errored one gets one retry per tick until it
-/// succeeds or falls outside grace.
+/// An instant is retried when its claim errored, so nobody owns it, or when
+/// its start was deferred for flow-load capacity, so it is owned but nothing
+/// ran. Every other skip (grace, overlap, run capacity) is deliberately
+/// burned. The watermark must stop short of a retried instant rather than
+/// pass through it. The next tick then re-enumerates from there: instants
+/// already settled come back `NotClaimed` and are skipped harmlessly; the
+/// retried one gets one attempt per tick until it starts or falls outside
+/// grace.
 ///
 /// That cap is floored at `grace_floor`. Grace is only checked *after* a
 /// successful claim, so an instant whose claim keeps erroring never reaches
 /// that check and never ages out on its own — without the floor it would be
 /// retried every tick forever, pinning the watermark while the window in
-/// front of it grows without bound. Once the errored instant is older than
+/// front of it grows without bound. Once a retried instant is older than
 /// `grace_floor` it can no longer legitimately fire anyway, so nothing is
 /// lost by letting the watermark pass it.
 pub(super) fn watermark_target(
     through: NaiveDateTime,
     grace_floor: NaiveDateTime,
-    earliest_claim_error: Option<NaiveDateTime>,
+    earliest_retry: Option<NaiveDateTime>,
 ) -> NaiveDateTime {
-    match earliest_claim_error {
+    match earliest_retry {
         Some(errored) => through.min((errored - Duration::seconds(1)).max(grace_floor)),
         None => through,
     }

@@ -16,6 +16,7 @@ struct StubExecutor {
     at_capacity: AtomicBool,
     fail: AtomicBool,
     existing: AtomicBool,
+    defer: AtomicBool,
 }
 
 #[async_trait::async_trait]
@@ -36,6 +37,11 @@ impl ScheduleExecutor for StubExecutor {
     ) -> Result<ScheduleRun, String> {
         if self.fail.load(Ordering::SeqCst) {
             return Err("flow blew up".to_string());
+        }
+        if self.defer.load(Ordering::SeqCst) {
+            return Ok(ScheduleRun::Deferred {
+                reason: "load limit full".to_string(),
+            });
         }
         let index = self.runs.fetch_add(1, Ordering::SeqCst);
         if self.existing.load(Ordering::SeqCst) {
@@ -642,4 +648,54 @@ async fn an_instant_aged_out_of_grace_stops_pinning_the_watermark() {
         second.len(),
         third.len()
     );
+}
+
+#[tokio::test]
+async fn a_deferred_start_stops_the_window_and_every_instant_fires_on_the_retry() {
+    let dir = tempfile::tempdir().unwrap();
+    let store: Arc<dyn StateStore> = Arc::new(ironflow::storage::json_store::JsonStateStore::new(
+        dir.path(),
+    ));
+    let schedules = HashMap::from([(
+        "frequent".to_string(),
+        ScheduleConfig::new("f.lua", "* * * * *", Some("UTC"), None, Context::new()).unwrap(),
+    )]);
+    let executor = Arc::new(StubExecutor::default());
+    let start = utc(2026, 5, 1, 2, 0) + chrono::Duration::seconds(30);
+    // The default 300-second grace seeds a five-instant catch-up window.
+    let mut scheduler = Scheduler::new(schedules, store, executor.clone(), start);
+
+    // IF-182: a start deferred for flow-load capacity is claimed but never
+    // ran. It must not be burned, and the instants behind it must wait their
+    // turn rather than each spend the evaluation budget on the same limit.
+    executor.defer.store(true, Ordering::SeqCst);
+    let first = scheduler.evaluate(start).await;
+    assert_eq!(first.len(), 1, "{first:?}");
+    assert_eq!(first[0].key, "UTC@2026-05-01T01:56");
+    assert!(matches!(first[0].outcome, Outcome::Deferred { .. }));
+    assert_eq!(executor.runs.load(Ordering::SeqCst), 0);
+
+    executor.defer.store(false, Ordering::SeqCst);
+    let second = scheduler
+        .evaluate(start + chrono::Duration::seconds(30))
+        .await;
+    let keys: Vec<&str> = second.iter().map(|d| d.key.as_str()).collect();
+    assert_eq!(
+        keys,
+        [
+            "UTC@2026-05-01T01:56",
+            "UTC@2026-05-01T01:57",
+            "UTC@2026-05-01T01:58",
+            "UTC@2026-05-01T01:59",
+            "UTC@2026-05-01T02:00",
+            "UTC@2026-05-01T02:01",
+        ]
+    );
+    assert!(
+        second
+            .iter()
+            .all(|d| matches!(d.outcome, Outcome::Fired { .. })),
+        "{second:?}"
+    );
+    assert_eq!(executor.runs.load(Ordering::SeqCst), 6);
 }

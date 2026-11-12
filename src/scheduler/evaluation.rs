@@ -70,9 +70,9 @@ impl Scheduler {
         )
         .await
         {
-            Ok((decisions, earliest_claim_error)) => {
+            Ok((decisions, earliest_retry)) => {
                 let grace_floor = timing::grace_floor(now, schedule);
-                let target = timing::watermark_target(through, grace_floor, earliest_claim_error);
+                let target = timing::watermark_target(through, grace_floor, earliest_retry);
                 Evaluation {
                     name: name.to_string(),
                     target,
@@ -111,25 +111,33 @@ impl Scheduler {
         now: DateTime<Utc>,
     ) -> (Vec<Decision>, Option<NaiveDateTime>) {
         let mut decisions = Vec::with_capacity(due.len());
-        let mut earliest_claim_error = None;
+        let mut earliest_retry = None;
 
         for instant in due {
             let outcome = self.decide(name, schedule, &instant, now).await;
-            if matches!(outcome, Outcome::ClaimFailed { .. }) {
-                earliest_claim_error.get_or_insert(instant.local);
+            let deferred = matches!(outcome, Outcome::Deferred { .. });
+            if deferred || matches!(outcome, Outcome::ClaimFailed { .. }) {
+                earliest_retry.get_or_insert(instant.local);
             }
             decisions.push(Decision {
                 schedule: name.to_string(),
                 key: instant.key,
                 outcome,
             });
+            // The watermark stops before a deferred instant, so the later
+            // ones come back next tick in order; waiting for the load limit
+            // again here would only spend this schedule's evaluation budget.
+            if deferred {
+                break;
+            }
         }
 
-        (decisions, earliest_claim_error)
+        (decisions, earliest_retry)
     }
 
     /// Claim first so replicas cannot reach different post-claim decisions and
-    /// both run. Every post-claim skip deliberately consumes the instant.
+    /// both run. Every post-claim skip deliberately consumes the instant; a
+    /// start deferred for flow-load capacity does not.
     async fn decide(
         &self,
         name: &str,
@@ -242,10 +250,21 @@ impl Scheduler {
                 );
                 Outcome::NotClaimed
             }
+            Ok(super::ScheduleRun::Deferred { reason }) => deferred(name, &instant.key, reason),
             Err(error) => {
                 tracing::warn!(schedule = %name, key = %instant.key, %error, "scheduled run failed");
                 Outcome::Failed { error }
             }
         }
     }
+}
+
+fn deferred(name: &str, key: &str, reason: String) -> Outcome {
+    tracing::warn!(
+        schedule = %name,
+        %key,
+        %reason,
+        "scheduled run deferred; it is retried on the next tick within grace"
+    );
+    Outcome::Deferred { reason }
 }

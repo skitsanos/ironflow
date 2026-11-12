@@ -1157,7 +1157,9 @@ Redis claims expire independently through their atomic key TTL. Cleanup is
 best-effort and never changes whether an unexpired claim was won.
 
 **Skips are logged, never silent.** A skip states which rule caused it — grace,
-overlap, or capacity — and the instant involved, at `WARN`. Losing a claim is
+overlap, or capacity — and the instant involved, at `WARN`. A start deferred
+for flow-load capacity is logged at `WARN` too, and is a delay rather than a
+skip. Losing a claim is
 logged at `debug`, because on N replicas it is the expected outcome N-1 times.
 Schedule names evaluate concurrently under a 15-second per-name budget. If that
 budget expires, the claim or run-start result can be indeterminate, so every
@@ -1182,7 +1184,20 @@ configuration.
 **Overlap.** If a previous run of the same schedule has not finished, the new
 instant is skipped rather than queued. At `IRONFLOW_MAX_CONCURRENT_RUNS`
 capacity the instant is likewise skipped, so a saturated server does not build
-a backlog. Overlap suppression scans at most 256 non-terminal run summaries
+a backlog.
+
+**Flow-load capacity.** `IRONFLOW_MAX_CONCURRENT_FLOW_LOADS` is different: it
+delays a scheduled instant and never consumes it. Schedules due in the same
+tick queue for the load permits, each waiting up to 5 seconds, so any number
+of jobs can share a minute with the default of two permits. If the limit is
+still full after that wait, for example because API validations are parsing
+slow flows, nothing has been parsed and no run exists; the instant is logged
+as deferred, counted as scheduler outcome `deferred`, and retried on each
+30-second tick until it starts or passes its `grace_seconds`, when it is
+skipped as late. Later instants of the same schedule wait behind a deferred
+one and start in order.
+
+Overlap suppression scans at most 256 non-terminal run summaries
 and tolerates state-read failures; it is therefore a bounded best-effort check,
 not a distributed per-schedule lock.
 
@@ -1242,7 +1257,7 @@ This is resolved after dotenv loading by both `serve` and `list`.
 |----------|---------|-------------|
 | `IRONFLOW_MAX_CONCURRENT_TASKS` | number of CPUs | Maximum tasks running in parallel per workflow execution. `0` is retained as a compatibility spelling for `1`; invalid values and values above Tokio's supported semaphore ceiling fail before execution. |
 | `IRONFLOW_MAX_CONCURRENT_RUNS` | unlimited | Process-wide cap on concurrently executing API-, webhook-, and scheduler-triggered runs. The permit follows a detached run until its coordinator settles. At capacity, API/webhook requests receive `503 Service Unavailable` and a scheduled instant is skipped. `0` or unset means unlimited; invalid or unsupported values fail server startup. |
-| `IRONFLOW_MAX_CONCURRENT_FLOW_LOADS` | `2` | Process-wide positive ceiling for concurrent Lua flow-definition loads by API validation/execution, webhooks, and schedules. Admission is held until detached blocking parsing actually stops. At capacity, API/webhook requests receive `503 Service Unavailable` and a scheduled instant is skipped; zero, invalid, or unsupported values fail server startup. |
+| `IRONFLOW_MAX_CONCURRENT_FLOW_LOADS` | `2` | Process-wide positive ceiling for concurrent Lua flow-definition loads by API validation/execution, webhooks, and schedules. Admission is held until detached blocking parsing actually stops. At capacity, API/webhook requests receive `503 Service Unavailable` immediately. A scheduled instant is not skipped: it waits up to 5 seconds for a permit and is otherwise retried on later ticks within its grace window. Zero, invalid, or unsupported values fail server startup. |
 | `IRONFLOW_MAX_FLOW_SOURCE_BYTES` | `1048576` | Positive maximum UTF-8 bytes accepted for a file or inline Lua flow source, enforced before Lua VM creation. Zero or invalid values retain the safe default. Independently of this limit, a flow may declare at most 10,000 steps and a step at most 10,000 dependencies, and validation rejects source or embedded `code` source whose syntax nests deeper than 1,000 levels; these three caps are fixed |
 | `IRONFLOW_MAX_RUN_SECONDS` | unlimited | Run-level wall-clock deadline. A run exceeding it is cancelled (terminal status `cancelled`), reclaiming a step that hangs without its own `timeout()`. `0` or unset means no deadline; invalid values fail before execution/server startup. |
 | `IRONFLOW_LUA_MAX_INSTRUCTIONS` | `5000000` | Max Lua VM instructions per flow parse/code execution; `0` disables |

@@ -7,7 +7,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts check`.
 
 - Total findings: 208
-- Active findings: 22
+- Active findings: 21
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
 | ID | Priority | Status | Area | Summary |
@@ -193,7 +193,7 @@ priority, area, and title. The registry is generated with
 | [IF-179](./IF-179.md) | P1 | Resolved | Files/write safety | Image nodes and transcribe write outputs through symlinks without the staged writer |
 | [IF-180](./IF-180.md) | P1 | Resolved | Scheduler contract | Numeric cron weekdays fire one day early |
 | [IF-181](./IF-181.md) | P1 | Resolved | Storage | A context nested 126 levels deep makes a run record unreadable and blocks serve startup |
-| [IF-182](./IF-182.md) | P2 | Open | Scheduler availability | Schedules due in the same tick lose occurrences to the flow-load limit |
+| [IF-182](./IF-182.md) | P2 | Resolved | Scheduler availability | Schedules due in the same tick lose occurrences to the flow-load limit |
 | [IF-183](./IF-183.md) | P2 | Open | Deployment lifecycle | New connections hang for the whole drain and readiness never reports draining |
 | [IF-184](./IF-184.md) | P2 | Open | API events | A deleted run's event fence mutes a re-created run with the same ID |
 | [IF-185](./IF-185.md) | P2 | Resolved | Files/write_file | Staged writers publish mode 0600 and write_file append loses concurrent writes |

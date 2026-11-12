@@ -20,3 +20,5 @@ mod test_scheduler_availability;
 mod test_scheduler_decisions;
 #[path = "../test_scheduler_e2e.rs"]
 mod test_scheduler_e2e;
+#[path = "../test_scheduler_load_admission.rs"]
+mod test_scheduler_load_admission;

@@ -117,11 +117,12 @@ pub(crate) enum SchedulerOutcome {
     AtCapacity,
     Failed,
     ClaimFailed,
+    Deferred,
     TimedOut,
 }
 
 impl SchedulerOutcome {
-    pub(crate) const ALL: [Self; 8] = [
+    pub(crate) const ALL: [Self; 9] = [
         Self::Fired,
         Self::NotClaimed,
         Self::Late,
@@ -129,6 +130,7 @@ impl SchedulerOutcome {
         Self::AtCapacity,
         Self::Failed,
         Self::ClaimFailed,
+        Self::Deferred,
         Self::TimedOut,
     ];
 
@@ -141,6 +143,7 @@ impl SchedulerOutcome {
             Outcome::AtCapacity => Self::AtCapacity,
             Outcome::Failed { .. } => Self::Failed,
             Outcome::ClaimFailed { .. } => Self::ClaimFailed,
+            Outcome::Deferred { .. } => Self::Deferred,
             Outcome::TimedOut => Self::TimedOut,
         }
     }
@@ -154,6 +157,7 @@ impl SchedulerOutcome {
             Self::AtCapacity => "at_capacity",
             Self::Failed => "failed",
             Self::ClaimFailed => "claim_failed",
+            Self::Deferred => "deferred",
             Self::TimedOut => "timed_out",
         }
     }

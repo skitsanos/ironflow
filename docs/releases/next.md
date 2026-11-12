@@ -106,6 +106,15 @@ publication is verified separately.
 
 ## Unreleased changes
 
+- Schedules that share a minute no longer lose occurrences to
+  `IRONFLOW_MAX_CONCURRENT_FLOW_LOADS` (IF-182). A scheduled start now waits
+  up to 5 seconds for a flow-load permit instead of failing at once, and an
+  occurrence that still finds the limit full is retried on later ticks inside
+  its grace window rather than dropped. Such an occurrence is logged as
+  deferred and counted under the new scheduler outcome label `deferred` in
+  `ironflow_scheduler_decisions_total`. API and webhook requests still receive
+  `503` immediately at the limit.
+
 - Every release archive and the container image now ship
   `THIRD_PARTY_LICENSES.md`, the generated license notices for the Rust crates
   statically linked into IronFlow, next to the bundled fonts' OFL license
