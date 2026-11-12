@@ -6,7 +6,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts generate` and verified with
 `bun run scripts/issues_registry.ts check`.
 
-- Total findings: 204
+- Total findings: 205
 - Active findings: 27
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
@@ -216,3 +216,4 @@ priority, area, and title. The registry is generated with
 | [IF-202](./IF-202.md) | P2 | Open | Storage/Postgres | PostgreSQL event store takes an exclusive table lock on every startup |
 | [IF-203](./IF-203.md) | P3 | Open | Maintainability | Assorted engine, API and documentation follow-ups from the November review |
 | [IF-204](./IF-204.md) | P2 | Resolved | Supply chain | Release archives and the container image ship no third-party license notices |
+| [IF-205](./IF-205.md) | P2 | Resolved | Validation workflow | Pre-commit hook rejects linked-worktree commits that stage policy tests |
