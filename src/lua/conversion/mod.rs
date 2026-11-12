@@ -6,12 +6,15 @@ use crate::engine::types::Context;
 use self::json_to_lua::JsonToLuaConverter;
 use self::lua_to_json::LuaToJsonConverter;
 
+mod json_parse;
 mod json_to_lua;
 mod lua_to_json;
 mod path;
 
 #[cfg(test)]
 mod context_tests;
+#[cfg(test)]
+mod json_parse_tests;
 
 pub(super) const OBJECT_METATABLE_REGISTRY_KEY: &str = "__ironflow_json_object_metatable";
 
@@ -47,12 +50,12 @@ pub(crate) fn register_json_globals(lua: &Lua) -> Result<()> {
         }
     };
 
-    let parse_fn = lua.create_function(|lua, data: String| {
-        let json: serde_json::Value = serde_json::from_str(&data)
-            .map_err(|error| LuaError::RuntimeError(format!("json_parse failed: {error}")))?;
-        crate::util::json_depth::check_value(&json)
-            .map_err(|error| LuaError::RuntimeError(format!("json_parse failed: {error}")))?;
-        json_value_to_lua(lua, &json).map_err(LuaError::external)
+    // The text is borrowed from the Lua string and parsed straight into Lua
+    // values, so nothing the size of the document is held outside the Lua
+    // memory limit (IF-189).
+    let parse_fn = lua.create_function(|lua, data: LuaString| {
+        let text = data.to_str()?;
+        json_parse::parse(lua, &text, ConversionLimits::default())
     })?;
     globals.set("json_parse", parse_fn)?;
 

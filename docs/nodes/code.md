@@ -130,7 +130,7 @@ are unavailable:
 
 - `ctx` -- isolated table snapshot of the workflow context, optionally projected with `context_keys` (JSON values are converted to Lua types)
 - `env(key)` -- function to read environment variables; returns the value as a string or `nil` if not set
-- `json_parse(str)` -- parse JSON text into a Lua table
+- `json_parse(str)` -- parse JSON text into a Lua table. The values are built inside the Lua state while the text is read, so `IRONFLOW_MAX_CONVERSION_NODES`, `IRONFLOW_MAX_CONVERSION_DEPTH` and `IRONFLOW_LUA_MAX_MEMORY_BYTES` bound the work; text over a budget fails with the budget's error and nothing of it is kept. A syntax error is reported first, then the [JSON nesting limit](../CLI_REFERENCE.md#json-nesting-limit), then the conversion budget. For an object that repeats a key the last value is used, and every repeated value counts toward the node budget
 - `json_stringify(value)` -- serialize a Lua value to JSON text
 - `json_array(table)` -- mark a dense Lua table, including `{}`, as a JSON array
 - `json_object(table)` -- mark a string-keyed Lua table, including `{}`, as a JSON object

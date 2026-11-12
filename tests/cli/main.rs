@@ -16,6 +16,8 @@ mod test_cli_context_depth;
 mod test_cli_exit_bound;
 #[path = "../test_cli_list.rs"]
 mod test_cli_list;
+#[path = "../test_cli_materialization_bounds.rs"]
+mod test_cli_materialization_bounds;
 #[path = "../test_cli_precedence.rs"]
 mod test_cli_precedence;
 #[path = "../test_cli_run.rs"]

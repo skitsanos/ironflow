@@ -1047,6 +1047,24 @@ Context is a `HashMap<String, serde_json::Value>` that flows through the entire 
   order (128-byte names, 768-byte messages, UTF-8-safe truncation after full
   redaction). Recovered failures are omitted. Waiting, parallel, repeat and
   tool callers preserve these reasons without fetching persisted task history.
+- The Lua `json_parse()` global deserializes text straight into Lua tables
+  (IF-189). The node and depth budgets are charged per value as it is read
+  and every table and string is allocated by the Lua state, so an oversized
+  document is refused at the budget or at `IRONFLOW_LUA_MAX_MEMORY_BYTES`
+  instead of first being built as a tree outside the Lua allocator. The rest
+  of the text is still scanned, without building, so a syntax error and the
+  JSON nesting limit keep their precedence over the conversion budget.
+- `s3_list_objects` follows continuation tokens itself and is bounded per
+  call (IF-189): at most `IRONFLOW_MAX_S3_LIST_OBJECTS` objects and common
+  prefixes, with the last page cut to what the bound still admits. Without
+  `max_objects` a larger listing fails; with it the call returns the token
+  to resume from. A truncated page without a token, a repeated token, a page
+  larger than requested and 16 consecutive empty truncated pages each fail
+  the step, so an S3-compatible endpoint cannot keep a step requesting pages.
+- A task error is stored in task state, published in `TaskFailed` and copied
+  into `_error_message` only after diagnostic scrubbing, which keeps its
+  first 64 KiB and appends `...[truncated]` (IF-177, IF-189). Each attempt
+  therefore adds a bounded record however large the step's message was.
 - Code nodes and function handlers may opt into `context_keys` projection.
   Only selected literal top-level keys, plus the four small engine
   diagnostics (`_error_message`, `_error_step`, `_error_node_type`,

@@ -233,6 +233,19 @@ publication is verified separately.
     `"it's"`, not `'it's'`. An empty string is written `''`.
   See [Condition Syntax](../nodes/if_node.md#condition-syntax).
 
+- **`s3_list_objects` returns at most 10,000 entries per call** (IF-189).
+  `max_keys` was only a page size: the node followed every page and returned
+  the whole listing, whatever its size. One call now returns at most
+  `IRONFLOW_MAX_S3_LIST_OBJECTS` objects and common prefixes (default
+  `10000`). A step that lists more fails with `listing holds more than N
+  entries` rather than returning a part. Raise the variable for a trusted
+  bucket, or page with the new `max_objects` and `continuation_token`
+  parameters and the new `{output_key}_truncated` and
+  `{output_key}_next_continuation_token` outputs. Listings within the
+  ceiling return the same objects as before, plus
+  `{output_key}_common_prefixes`. See
+  [`s3_list_objects`](../nodes/s3_list_objects.md#limits).
+
 ## Security
 
 - **`mcp_client` bounds Streamable HTTP responses** (IF-173). `rmcp` is
@@ -271,6 +284,29 @@ publication is verified separately.
   destination directory must still exist, and the published mode is unchanged:
   the umask default for a new file and the existing bits for a replaced one
   (IF-185).
+- **`s3_list_objects` cannot be kept paging by an endpoint** (IF-189). A
+  truncated page without a continuation token used to restart the listing
+  from the first page without end. That response, a repeated token, a page
+  larger than requested and 16 consecutive truncated pages without an entry
+  now fail the step. These shapes come from S3-compatible services reached
+  through `endpoint_url`.
+- **The Lua `json_parse()` global is bounded while it parses** (IF-189). The
+  text was parsed into a complete tree outside the Lua memory limit before
+  the conversion budget applied: a 40 MB array of twenty million numbers
+  raised the process to about 750 MB under the default 128 MiB Lua limit.
+  Values are now built inside the Lua state as the text is read, and
+  construction stops at `IRONFLOW_MAX_CONVERSION_NODES`,
+  `IRONFLOW_MAX_CONVERSION_DEPTH` or the Lua memory limit; the same input
+  now peaks near 120 MB, most of it the text itself. Results for text within
+  the budgets are unchanged. Two details differ for text over a budget: the
+  path in the error is the first value over it in document order rather than
+  in sorted key order, and values under a repeated object key all count
+  toward the node budget.
+- **Task error text stays bounded in the store** (IF-189). Since IF-177 a
+  task error keeps its first 64 KiB and ends with `...[truncated]` before it
+  is stored, published in `TaskFailed` or passed to a recovery step as
+  `_error_message`. A regression now holds a run whose step raises an 8 MiB
+  error three times to a store under 1 MiB.
 
 ## Unreleased changes
 

@@ -32,6 +32,14 @@ pub struct DepthExceeded {
     key: Option<String>,
 }
 
+impl DepthExceeded {
+    /// The refusal for one value, for a parser that tracks nesting while it
+    /// reads instead of checking a finished value.
+    pub(crate) fn value() -> Self {
+        Self { key: None }
+    }
+}
+
 impl fmt::Display for DepthExceeded {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.key {
@@ -50,7 +58,7 @@ impl std::error::Error for DepthExceeded {}
 /// Check one value, such as the result of parsing JSON text.
 pub fn check_value(value: &Value) -> Result<(), DepthExceeded> {
     if exceeds(value, MAX_JSON_VALUE_DEPTH) {
-        return Err(DepthExceeded { key: None });
+        return Err(DepthExceeded::value());
     }
     Ok(())
 }

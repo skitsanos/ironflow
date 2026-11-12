@@ -22,6 +22,11 @@ step is not retried. This is the fixed limit that every context and
 step-output value shares; see
 [JSON nesting limit](../CLI_REFERENCE.md#json-nesting-limit).
 
+The Lua `json_parse()` global available to `code` nodes and function steps
+is a separate entry point. It builds Lua values while it reads the text and
+is bounded by the conversion budgets and the Lua memory limit; see
+[`code`](code.md#available-globals).
+
 ## Example
 
 ```lua
