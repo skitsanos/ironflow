@@ -48,6 +48,32 @@ being forwarded to another origin. Same-origin redirect chains are limited to
 Automatic `Referer` headers are disabled, including on same-origin redirects,
 so the original endpoint's path and query are not copied into that header.
 
+## Output file
+
+`output_file` is published through the same rooted, atomic writer as
+[`write_file`](write_file.md), after the provider call and inside a tracked
+blocking worker: the raw response body is written into a staged file beside
+the destination, flushed and synchronized, then renamed over it.
+
+- The destination directory must already exist. The node creates no
+  directories and fails with `transcribe: destination directory '<dir>' does
+  not exist`. Directory aliases, including macOS `/tmp`, are resolved first.
+- A destination that is a symlink (dangling or not), FIFO, device or directory
+  is refused and its target is left untouched. An existing regular file is
+  replaced.
+- A write failure, a step deadline that expired during the provider call or
+  the write, or cancellation fails the step, removes the staged file and
+  leaves an existing destination unchanged.
+- On Unix the published file has mode `0600` (owner read and write only),
+  whatever the umask and whatever mode the replaced file had; widen it in a
+  later step when another user must read it. Other platforms use their native
+  permission semantics. This is the staged writer's mode, under review in
+  [IF-185](../issues/IF-185.md).
+- Unix pins the resolved directory and stages relative to that handle. Other
+  platforms revalidate the observed path immediately before an atomic
+  replacement and cannot close a hostile parent-directory swap race; protect
+  destination trees from same-identity mutation.
+
 ## Formats
 
 | `format` | Provider `response_format` sent | Output value |

@@ -8,6 +8,18 @@ pub(crate) use portable::RootedDir;
 #[cfg(unix)]
 pub(crate) use unix::RootedDir;
 
+fn missing_directory(path: &std::path::Path, operation: &str) -> anyhow::Error {
+    let path = if path.as_os_str().is_empty() {
+        std::path::Path::new(".")
+    } else {
+        path
+    };
+    anyhow::anyhow!(
+        "{operation}: destination directory '{}' does not exist",
+        path.display()
+    )
+}
+
 // The caller chooses the root, including any directory alias. Archive entries
 // are resolved below this anchor using the platform's no-follow safeguards.
 fn destination_anchor(

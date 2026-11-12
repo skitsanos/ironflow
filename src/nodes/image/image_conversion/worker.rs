@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use anyhow::Result;
 use lopdf::{
     Document, Object, Stream,
@@ -6,6 +8,7 @@ use lopdf::{
 };
 
 use crate::engine::types::NodeOutput;
+use crate::nodes::file::staged_output;
 use crate::util::execution::ExecutionControl;
 
 use super::super::common::load_image_for_pdf;
@@ -49,14 +52,23 @@ pub(super) fn convert(request: Request, execution: &ExecutionControl) -> Result<
     }
 
     finish_document(&mut document, pages_id, &page_ids, execution)?;
-    document.save(&output_path).map_err(|error| {
-        anyhow::anyhow!(
-            "image_to_pdf: failed to save PDF '{}': {error:?}",
-            output_path
-        )
-    })?;
-    execution.checkpoint()?;
+    save(&mut document, &output_path, execution)?;
     Ok(output(&output_key, &output_path, page_ids.len()))
+}
+
+/// Serialize into the staged destination and commit it. The bytes are those
+/// of `Document::save`.
+fn save(document: &mut Document, output_path: &str, execution: &ExecutionControl) -> Result<()> {
+    staged_output::publish(
+        Path::new(output_path),
+        "image_to_pdf",
+        execution,
+        |writer| {
+            document.save_to(writer).map_err(|error| {
+                anyhow::anyhow!("image_to_pdf: failed to save PDF '{output_path}': {error:?}")
+            })
+        },
+    )
 }
 
 fn add_page(
@@ -146,3 +158,6 @@ fn output(output_key: &str, output_path: &str, image_count: usize) -> NodeOutput
     );
     output
 }
+
+#[cfg(test)]
+mod tests;

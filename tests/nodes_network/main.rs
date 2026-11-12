@@ -44,5 +44,7 @@ mod test_s3_signing_serve;
 mod test_s3vector_nodes;
 #[path = "../test_transcribe_node.rs"]
 mod test_transcribe_node;
+#[path = "../test_transcribe_output_safety.rs"]
+mod test_transcribe_output_safety;
 #[path = "../test_transcribe_redirect_security.rs"]
 mod test_transcribe_redirect_security;

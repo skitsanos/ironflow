@@ -68,8 +68,7 @@ impl Node for ImageCropNode {
             execution.checkpoint()?;
             let cropped = source_loaded.image.crop_imm(x, y, crop_w, crop_h);
             execution.checkpoint()?;
-            save_dynamic_image(cropped, &output_path, format)?;
-            execution.checkpoint()?;
+            save_dynamic_image(&cropped, &output_path, format, "image_crop", &execution)?;
 
             let mut output = NodeOutput::new();
             output.insert(output_key.clone(), serde_json::json!(output_path));

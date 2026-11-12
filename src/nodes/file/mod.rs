@@ -2,6 +2,7 @@ mod archive;
 mod directory;
 mod helpers;
 mod io;
+pub(crate) mod staged_output;
 
 pub(crate) use archive::rooted::RootedDir;
 pub use archive::{ZipCreateNode, ZipExtractNode, ZipListNode};

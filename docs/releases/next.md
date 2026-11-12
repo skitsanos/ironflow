@@ -43,6 +43,18 @@ publication is verified separately.
   `db_query` or `db_exec`; see `docs/SECURITY.md`.
 - The dependency audit and license check also run daily in CI, so advisories
   against released code surface without a push.
+- **Image nodes, `image_to_pdf` and `transcribe` no longer write through
+  symlinks** (IF-179). `image_resize`, `image_crop`, `image_rotate`,
+  `image_flip`, `image_grayscale`, `image_watermark`, `image_convert`,
+  `image_to_pdf` and the `transcribe` `output_file` now publish through the
+  staged atomic writer that `write_file` uses. A destination that is a
+  symlink, FIFO or other special file is refused instead of followed, and a
+  failed encode, an expired deadline or a cancelled step leaves the previous
+  file in place instead of a truncated one. Output bytes are unchanged and the
+  destination directory must still exist. The published file now has mode
+  `0600` on Unix instead of the umask default, and a replaced file no longer
+  keeps its mode (IF-185 tracks that choice); a flow whose outputs are read by
+  another user must widen the mode.
 
 ## Unreleased changes
 

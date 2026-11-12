@@ -33,6 +33,21 @@ impl RootedDir {
         Ok(Self { root, operation })
     }
 
+    /// Use a destination directory that must already exist. Unlike
+    /// [`Self::prepare`], a missing component is an error and nothing is
+    /// created.
+    pub(crate) fn existing(
+        path: &Path,
+        operation: &'static str,
+        execution: &ExecutionControl,
+    ) -> Result<Self> {
+        let (root, missing) = super::destination_anchor(path, operation, execution)?;
+        if !missing.is_empty() {
+            return Err(super::missing_directory(path, operation));
+        }
+        Ok(Self { root, operation })
+    }
+
     pub(crate) fn ensure_dir(&self, relative: &Path, execution: &ExecutionControl) -> Result<()> {
         ensure_observed_directories(&self.root.join(relative), self.operation, execution)
     }

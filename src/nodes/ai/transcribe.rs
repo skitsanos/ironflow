@@ -3,11 +3,14 @@ mod provider;
 mod response;
 mod response_json;
 
+use std::io::Write as _;
+
 use anyhow::Result;
 use async_trait::async_trait;
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
+use crate::nodes::file::staged_output;
 use crate::util::duration::positive_duration;
 use crate::util::limits::{max_audio_bytes, max_transcribe_response_bytes};
 
@@ -120,11 +123,15 @@ impl Node for TranscribeNode {
         let key = &resolved.output_key;
 
         if let Some(destination) = &resolved.output_file {
-            tokio::fs::write(destination, body.as_bytes())
-                .await
-                .map_err(|error| {
-                    anyhow::anyhow!("transcribe: failed to write '{}': {}", destination, error)
-                })?;
+            let path = std::path::PathBuf::from(destination);
+            crate::util::execution::run_tracked_blocking_step(move |execution| {
+                staged_output::publish(&path, "transcribe", &execution, |writer| {
+                    writer.write_all(body.as_bytes()).map_err(|error| {
+                        anyhow::anyhow!("transcribe: failed to write the output file: {error}")
+                    })
+                })
+            })
+            .await?;
             output.insert(
                 format!("{}_path", key),
                 serde_json::Value::String(destination.clone()),

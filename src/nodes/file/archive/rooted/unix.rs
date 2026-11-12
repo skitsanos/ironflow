@@ -36,11 +36,24 @@ impl RootedDir {
         execution: &ExecutionControl,
     ) -> Result<Self> {
         execution.checkpoint()?;
-        let current = open_or_create_root(path, operation, execution)?;
+        let current = open_root(path, operation, execution, true)?;
         Ok(Self {
             root: current,
             operation,
         })
+    }
+
+    /// Pin a destination directory that must already exist. Unlike
+    /// [`Self::prepare`], a missing component is an error and nothing is
+    /// created.
+    pub(crate) fn existing(
+        path: &Path,
+        operation: &'static str,
+        execution: &ExecutionControl,
+    ) -> Result<Self> {
+        execution.checkpoint()?;
+        let root = open_root(path, operation, execution, false)?;
+        Ok(Self { root, operation })
     }
 
     pub(crate) fn ensure_dir(&self, relative: &Path, execution: &ExecutionControl) -> Result<()> {
@@ -206,12 +219,16 @@ impl Drop for StagedFile {
     }
 }
 
-fn open_or_create_root(
+fn open_root(
     path: &Path,
     operation: &'static str,
     execution: &ExecutionControl,
+    create_missing: bool,
 ) -> Result<File> {
     let (anchor, missing) = super::destination_anchor(path, operation, execution)?;
+    if !create_missing && !missing.is_empty() {
+        return Err(super::missing_directory(path, operation));
+    }
     let mut current = open_directory_path(&anchor, operation).with_context(|| {
         format!(
             "{operation}: failed to open destination anchor '{}'",

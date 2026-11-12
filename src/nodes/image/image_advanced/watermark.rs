@@ -65,8 +65,13 @@ impl Node for ImageWatermarkNode {
             let mut image = source.to_rgba8();
             draw_band(&mut image, &text, &position, opacity, &execution)?;
             execution.checkpoint()?;
-            save_dynamic_image(image::DynamicImage::ImageRgba8(image), &output_path, format)?;
-            execution.checkpoint()?;
+            save_dynamic_image(
+                &image::DynamicImage::ImageRgba8(image),
+                &output_path,
+                format,
+                "image_watermark",
+                &execution,
+            )?;
             let mut output = NodeOutput::new();
             output.insert(format!("{output_key}_path"), serde_json::json!(output_path));
             output.insert(format!("{output_key}_text"), serde_json::json!(text));

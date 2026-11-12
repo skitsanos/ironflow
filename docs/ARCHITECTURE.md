@@ -1136,6 +1136,17 @@ running under the same OS identity from mutating the leased inode.
   traversal, parsing, compression, and copying use tracked blocking workers;
   they checkpoint between filesystem/archive entries and copied chunks so run
   and task admission remains held until physical work stops.
+- A node that encodes straight to a destination file publishes through
+  `nodes::file::staged_output::publish` from its tracked blocking worker
+  (IF-179): the image nodes, `image_to_pdf` and the `transcribe`
+  `output_file`. The encoder writes to a staged sibling through a writer that
+  checkpoints on every write of at most 64 KiB; the staged file is
+  synchronized and renamed over the destination only after a final
+  checkpoint. The destination directory must exist, a symlink or special file
+  at the destination is refused, and a failed or cancelled encode removes the
+  staged file. `write_file`, `copy_file`, `base64_decode`, the archive nodes,
+  `pdf_merge`, grouped `pdf_split` and the Markdown document nodes use the
+  same rooted writer directly and create missing parent directories.
 - `zip_list`, `zip_extract`, and OOXML readers share a raw ZIP/ZIP64 scanner
   before library metadata construction. It bounds raw counts, validates central
   headers, and rejects duplicate raw names. ZIP list/extract use the independent

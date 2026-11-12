@@ -18,6 +18,8 @@ mod test_extract_xlsx;
 mod test_extract_xlsx_styles;
 #[path = "../test_html_depth_limit.rs"]
 mod test_html_depth_limit;
+#[path = "../test_image_output_safety.rs"]
+mod test_image_output_safety;
 #[path = "../test_image_resize_safety.rs"]
 mod test_image_resize_safety;
 #[path = "../test_image_util_nodes.rs"]

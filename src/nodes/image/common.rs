@@ -60,14 +60,25 @@ pub(crate) fn resolve_image_output_format(
     }
 }
 
+/// Encode `image` into `output_path` through the staged, no-follow, atomic
+/// writer. The bytes are those of `DynamicImage::save_with_format`.
 pub(crate) fn save_dynamic_image(
-    image: image::DynamicImage,
+    image: &image::DynamicImage,
     output_path: &str,
     format: image::ImageFormat,
+    operation: &'static str,
+    execution: &crate::util::execution::ExecutionControl,
 ) -> Result<()> {
-    image
-        .save_with_format(output_path, format)
-        .map_err(|e| anyhow::anyhow!("{}", e))
+    crate::nodes::file::staged_output::publish(
+        std::path::Path::new(output_path),
+        operation,
+        execution,
+        |writer| {
+            image
+                .write_to(writer, format)
+                .map_err(|error| anyhow::anyhow!("{error}"))
+        },
+    )
 }
 
 #[cfg(feature = "pdf-render")]

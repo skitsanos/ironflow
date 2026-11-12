@@ -1,4 +1,4 @@
-use std::io::BufWriter;
+use std::path::Path;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
+use crate::nodes::file::staged_output;
 use crate::util::execution::run_tracked_blocking_step;
 use crate::util::node_config::config_u64_strict;
 
@@ -54,6 +55,7 @@ impl Node for ImageConvertNode {
         run_tracked_blocking_step(move |execution| {
             let image = load_image(source, limits, &execution)?.image;
             execution.checkpoint()?;
+            let destination = Path::new(&output_path);
             if format == image::ImageFormat::Jpeg {
                 let source_bytes = u64::try_from(image.as_bytes().len()).unwrap_or(u64::MAX);
                 let rgb_bytes = u64::from(image.width())
@@ -61,27 +63,23 @@ impl Node for ImageConvertNode {
                     .and_then(|pixels| pixels.checked_mul(3))
                     .unwrap_or(u64::MAX);
                 validate_combined_allocation("image_convert", source_bytes, rgb_bytes, limits)?;
-                let file = std::fs::File::create(&output_path).map_err(|error| {
-                    anyhow::anyhow!("image_convert: failed to create '{output_path}': {error}")
+                staged_output::publish(destination, "image_convert", &execution, |writer| {
+                    let encoder =
+                        image::codecs::jpeg::JpegEncoder::new_with_quality(writer, quality);
+                    image
+                        .to_rgb8()
+                        .write_with_encoder(encoder)
+                        .map_err(|error| {
+                            anyhow::anyhow!("image_convert: failed to encode JPEG: {error}")
+                        })
                 })?;
-                let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(
-                    BufWriter::new(file),
-                    quality,
-                );
-                image
-                    .to_rgb8()
-                    .write_with_encoder(encoder)
-                    .map_err(|error| {
-                        anyhow::anyhow!("image_convert: failed to encode JPEG: {error}")
-                    })?;
             } else {
-                image
-                    .save_with_format(&output_path, format)
-                    .map_err(|error| {
+                staged_output::publish(destination, "image_convert", &execution, |writer| {
+                    image.write_to(writer, format).map_err(|error| {
                         anyhow::anyhow!("image_convert: failed to save '{output_path}': {error}")
-                    })?;
+                    })
+                })?;
             }
-            execution.checkpoint()?;
             let mut output = NodeOutput::new();
             output.insert(format!("{output_key}_path"), serde_json::json!(output_path));
             output.insert(
