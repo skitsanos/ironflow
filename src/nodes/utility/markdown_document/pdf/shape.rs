@@ -151,8 +151,9 @@ impl Shaper {
         }
         let mut layout = builder.build(&source);
         execution.checkpoint()?;
+        // parley 0.13 applies alignment while breaking lines, so set it first.
+        layout.set_alignment(Alignment::Start, Default::default());
         layout.break_all_lines(Some(width));
-        layout.align(Alignment::Start, Default::default());
         let mut lines = Vec::new();
         for line in layout.lines() {
             execution.checkpoint()?;

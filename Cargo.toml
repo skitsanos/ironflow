@@ -26,7 +26,7 @@ cron = "0.17"
 async-trait = "0.1.89"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-prometheus-client = "0.25.0"
+prometheus-client = "0.26.0"
 reqwest = { version = "0.13.4", features = ["json", "stream", "multipart"] }
 url = "2.5.8"
 percent-encoding = "2.3.2"
@@ -54,7 +54,7 @@ axum = "0.8.9"
 tower-http = { version = "0.7.0", features = ["cors", "fs", "trace"] }
 base64 = "0.23.0"
 comrak = { version = "0.59", default-features = false }
-parley = { version = "0.12.0", default-features = false, features = ["std", "complex-scripts"] }
+parley = { version = "0.13.0", default-features = false, features = ["std", "complex-scripts"] }
 krilla = { version = "0.8.2", default-features = false, features = ["raster-images"] }
 unicode-bidi = "0.3"
 unicode-script = "0.5.8"
