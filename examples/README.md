@@ -329,13 +329,13 @@ duplicated, unclassified, or inconsistent entries.
 | Category | Count | Default CI execution |
 | --- | ---: | --- |
 | Offline | 43 | Fixture-backed deterministic subset |
-| Offline with outputs/processes | 24 | Fixture-backed local-output cases and MCP stdio use isolated paths; others require isolated outputs |
-| Public/local network | 9 | No |
-| Credentialed external service | 51 | No |
-| Server/manual HTTP or scheduler | 7 | No |
+| Offline with outputs/processes | 29 | Fixture-backed local-output cases and MCP stdio use isolated paths; others require isolated outputs |
+| Public/local network | 10 | No |
+| Credentialed external service | 52 | No |
+| Server/manual HTTP or scheduler | 8 | No |
 | Composition parent/helper flow | 18 | Exercised as coordinated cases where applicable |
 
-All 152 flows are still parsed by `ironflow validate`. Twelve fixture-backed
+All 160 flows are still parsed by `ironflow validate`. Twelve fixture-backed
 offline flows and the local MCP stdio example also run from a disposable
 working directory as part of:
 
