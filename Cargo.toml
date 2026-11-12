@@ -63,7 +63,7 @@ unicode-script = "0.5.8"
 # html5ever is the parser htmd already uses: IronFlow drives it directly so
 # nesting is capped while parsing (IF-174). Keep all three on one release line.
 htmd = "0.5.6"
-markup5ever_rcdom = "0.38"
+markup5ever_rcdom = "0.40"
 html5ever = "0.38"
 ammonia = "4.1.2"
 zip = "9.0.5"
