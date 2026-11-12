@@ -57,8 +57,19 @@
 - A `develop` push requires a clean worktree and a passing `scripts/integration_gate.sh` run on the exact tree being pushed. The gate cannot run inside the push itself, because GitHub closes the idle SSH session before it finishes (IF-172); instead a passing gate records `ironflow-gate-receipt.json` in the Cargo target directory, and `.githooks/pre-push` accepts only a receipt that is at most 24 hours old (`IRONFLOW_GATE_RECEIPT_MAX_AGE_SECONDS`) and whose tree matches the pushed commit (`scripts/gate_receipt.ts`). `IRONFLOW_PREPUSH_GATE=fast` replaces the receipt check with formatting, repository policy, default Clippy and the `examples` and `cli` binaries for an intermediate push, and the full gate remains mandatory before merging a release branch or tagging. CI runs for relevant pushes and pull requests to `develop` and `main`, plus manual dispatch; the tag-triggered release workflow remains separate.
 - For release promotion, create `release/X.Y.Z` from the verified `develop` candidate, run `bun run scripts/development_version.ts finalize` on that release branch, run the integration gate, merge the release branch into `main`, require green `main` CI, and tag the verified `main` commit. Never put a stable version on `develop`.
 
+## Workspace hygiene
+
+- Disk space is limited and shared. A task is not complete until everything it created outside the committed change is removed; do this before reporting completion, not as a follow-up.
+- Worktrees and branches: remove each worktree created for the task once its branch is merged or abandoned (`git worktree remove`, then `git worktree prune`) and delete merged local branches with `git branch -d`. Never remove a worktree that has uncommitted changes or belongs to a session that is still working.
+- Build output: run `cargo clean` in every checkout the task built in, including the main checkout. Build output in a linked worktree is never kept. Do not delete the shared Cargo registry or other caches that belong to the user's machine rather than to this repository.
+- Scratch data: delete probe scripts, fixtures, temporary stores, logs and downloaded files the task wrote outside the repository, and leave no untracked files in the repository other than deliverables.
+- Docker: remove the containers, volumes, networks and images the task created, by name, and prune the build cache after container builds (`docker builder prune`). Never remove a container, volume or image the task did not create.
+- Leave user-owned data alone (`data/`, `.env`, editor folders, other tools' worktrees) and report it instead when it looks stale.
+- Report what was removed, what was deliberately left, and the space reclaimed.
+
 ## Completion and review
 
+- Apply the workspace hygiene rules above before calling a task complete.
 - Update the relevant `docs/issues/IF-NNN.md` page with the implemented outcome, contract boundary, and concrete validation evidence before marking it resolved, then regenerate the indexes.
 - Distinguish focused, default, feature-enabled, live-service, and deployed validation. Do not claim one as evidence for another.
 - After completing a goal or task, propose no more than three prioritized, bounded development goals.
