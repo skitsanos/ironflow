@@ -32,6 +32,8 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 | [IF-201](docs/issues/IF-201.md) | P2 | Open | Scheduler/Redis | A Redis TTL shorter than a schedule's grace window re-runs a completed occurrence |
 | [IF-202](docs/issues/IF-202.md) | P2 | Open | Storage/Postgres | PostgreSQL event store takes an exclusive table lock on every startup |
 | [IF-203](docs/issues/IF-203.md) | P3 | Open | Maintainability | Assorted engine, API and documentation follow-ups from the November review |
+| [IF-207](docs/issues/IF-207.md) | P3 | Open | Maintainability | Follow-ups recorded while fixing IF-173 to IF-206 |
+| [IF-208](docs/issues/IF-208.md) | P2 | Open | Supply chain | Renovate lockfile pull requests cannot pass CI because the notices file lists crate versions |
 
 ## Working agreement
 

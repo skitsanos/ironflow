@@ -64,6 +64,7 @@
 - Build output: run `cargo clean` in every checkout the task built in, including the main checkout. Build output in a linked worktree is never kept. Do not delete the shared Cargo registry or other caches that belong to the user's machine rather than to this repository.
 - Scratch data: delete probe scripts, fixtures, temporary stores, logs and downloaded files the task wrote outside the repository, and leave no untracked files in the repository other than deliverables.
 - Docker: remove the containers, volumes, networks and images the task created, by name, and prune the build cache after container builds (`docker builder prune`). Never remove a container, volume or image the task did not create.
+- Hand-over notes: a note one session writes for another is transient. When that session's work has landed, move every open follow-up from the note into the issue registry (its own page or a collected follow-up page), or drop it with a stated reason, then delete the note. Issue pages never cite a hand-over note, and a page that says something is "not fixed here" is updated to name the finding that tracks or fixes it.
 - Leave user-owned data alone (`data/`, `.env`, editor folders, other tools' worktrees) and report it instead when it looks stale.
 - Report what was removed, what was deliberately left, and the space reclaimed.
 

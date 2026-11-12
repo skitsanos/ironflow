@@ -6,8 +6,8 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts generate` and verified with
 `bun run scripts/issues_registry.ts check`.
 
-- Total findings: 206
-- Active findings: 24
+- Total findings: 208
+- Active findings: 26
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
 | ID | Priority | Status | Area | Summary |
@@ -218,3 +218,5 @@ priority, area, and title. The registry is generated with
 | [IF-204](./IF-204.md) | P2 | Resolved | Supply chain | Release archives and the container image ship no third-party license notices |
 | [IF-205](./IF-205.md) | P2 | Resolved | Validation workflow | Pre-commit hook rejects linked-worktree commits that stage policy tests |
 | [IF-206](./IF-206.md) | P2 | Resolved | Scheduler contract | A five-token cron expression is accepted with its fields shifted |
+| [IF-207](./IF-207.md) | P3 | Open | Maintainability | Follow-ups recorded while fixing IF-173 to IF-206 |
+| [IF-208](./IF-208.md) | P2 | Open | Supply chain | Renovate lockfile pull requests cannot pass CI because the notices file lists crate versions |
