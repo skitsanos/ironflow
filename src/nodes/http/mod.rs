@@ -1,5 +1,8 @@
+mod address;
 mod helpers;
 mod request;
+#[cfg(test)]
+mod test_support;
 
 pub use request::{HttpDeleteNode, HttpGetNode, HttpPostNode, HttpPutNode, HttpRequestNode};
 

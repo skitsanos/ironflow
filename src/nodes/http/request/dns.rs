@@ -2,7 +2,7 @@ use std::io;
 
 use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 
-use crate::nodes::http::helpers::ip_is_internal;
+use crate::nodes::http::address::ip_is_internal;
 
 /// Resolve a hostname once, reject the complete answer when any address is
 /// internal, and return only that validated answer to reqwest's connector.
@@ -68,6 +68,41 @@ mod tests {
             address("93.184.216.34"),
             address("[2606:2800:220:1:248:1893:25c8:1946]"),
         ];
+        let actual = validate_addresses(expected.clone())
+            .unwrap()
+            .collect::<Vec<_>>();
+        assert_eq!(actual, expected);
+    }
+
+    // IF-191: a hostname whose answer contains any address in a refused
+    // range is rejected as a whole, alone or mixed with a public address.
+    #[test]
+    fn rejects_dns_answers_in_every_refused_range() {
+        use crate::nodes::http::test_support::REFUSED;
+
+        let mut accepted = Vec::new();
+        for (range, ip) in REFUSED {
+            let answer: std::net::SocketAddr = (ip.parse::<std::net::IpAddr>().unwrap(), 0).into();
+            for addresses in [vec![answer], vec![address("93.184.216.34"), answer]] {
+                if validate_addresses(addresses).is_ok() {
+                    accepted.push((range, ip));
+                }
+            }
+        }
+        assert!(accepted.is_empty(), "DNS answer accepted: {accepted:#?}");
+    }
+
+    #[test]
+    fn accepts_public_dns_answers_adjacent_to_refused_ranges() {
+        use crate::nodes::http::test_support::ALLOWED;
+
+        let expected: Vec<std::net::SocketAddr> = ALLOWED
+            .iter()
+            .map(|ip| (ip.parse::<std::net::IpAddr>().unwrap(), 0).into())
+            .collect();
+        for answer in &expected {
+            assert!(validate_addresses(vec![*answer]).is_ok(), "{answer}");
+        }
         let actual = validate_addresses(expected.clone())
             .unwrap()
             .collect::<Vec<_>>();

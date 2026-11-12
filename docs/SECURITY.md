@@ -113,6 +113,49 @@ deployment environment. Local results do not establish protection on other
 machines or old deployments. Review historic endpoint, proxy, and TLS logs
 separately; a patched audit cannot establish absence of past exploitation.
 
+## Outbound destinations
+
+A flow chooses where its nodes connect. Only the `http_request`, `http_get`,
+`http_post`, `http_put` and `http_delete` nodes can restrict that choice:
+`block_private_network = true` refuses `localhost` and every address that is
+not a public unicast destination, for the initial URL, every redirect target
+and every DNS answer, and pins the validated addresses to the connection. It
+is off by default.
+
+Refused IPv4 ranges: `0.0.0.0/8`, `10.0.0.0/8`, `100.64.0.0/10`,
+`127.0.0.0/8`, `169.254.0.0/16`, `172.16.0.0/12`, `192.0.0.0/24`,
+`192.0.2.0/24`, `192.88.99.0/24`, `192.168.0.0/16`, `198.18.0.0/15`,
+`198.51.100.0/24`, `203.0.113.0/24`, `224.0.0.0/4` and `240.0.0.0/4`.
+
+Refused IPv6 ranges: everything outside `2000::/3` (including `::`, `::1`,
+IPv4-compatible and IPv4-translated forms, `64:ff9b:1::/48`, `100::/64`,
+`5f00::/16`, `fc00::/7`, `fe80::/10`, `fec0::/10` and `ff00::/8`), plus
+`2001::/23`, `2001:db8::/32` and `3fff::/20`. IPv4-mapped (`::ffff:0:0/96`),
+NAT64 (`64:ff9b::/96`) and 6to4 (`2002::/16`) addresses are refused when the
+IPv4 address they embed is in a refused IPv4 range and allowed otherwise.
+The node reference describes each range under
+[Private-network blocking](nodes/http_request.md#private-network-blocking).
+
+No other node has this option or an equivalent address restriction:
+
+| Consumer | Destination setting | Restriction present |
+|----------|---------------------|---------------------|
+| `mcp_client` (Streamable HTTP) | `url` | None on the address. Only same-origin `307`/`308` redirects are followed. |
+| `llm`, `ai_embed`, `ai_chunk_semantic`, `transcribe` | `base_url`, `azure_endpoint`, `ollama_host`, OAuth `token_url`, and their environment variables | None on the address. Redirects are same-origin only. |
+| `slack_notification`, `send_email` with `resend` | `webhook_url`, `api_url` | None on the address. Redirects are same-origin only. |
+| `send_email` with `smtp` | `smtp_server`, `smtp_port` | None. |
+| `arangodb_aql` | `url` | Scheme must be `http` or `https`; none on the address. Redirects are same-origin only. |
+| `db_query`, `db_execute` | `connection` | None. |
+| `s3_*` and S3 Vectors nodes | `endpoint_url`, `AWS_ENDPOINT_URL` | None. |
+| `shell_command`, `mcp_client` (stdio) | the command | None; a subprocess can open any connection. |
+
+These nodes also use the system proxy when one is configured. Treat a flow
+that sets any of these values from untrusted input as able to reach the
+internal network, and confine the IronFlow process with network policy
+(egress rules, a metadata-service hop limit or block) where that matters.
+The artifact store endpoint and the state-store URLs are operator
+configuration and cannot be changed by a flow.
+
 ## Forwarded webhook headers
 
 A webhook passes a request header to a flow only when `forward_headers` names

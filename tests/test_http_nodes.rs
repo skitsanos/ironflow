@@ -834,6 +834,48 @@ async fn http_get_blocks_ipv4_mapped_ipv6_private_network_when_configured() {
     );
 }
 
+// IF-191: literals in special-purpose ranges beyond RFC 1918 are refused by
+// the guard before any connection, including forms that embed an internal
+// IPv4 address. No server or network is involved.
+#[tokio::test]
+async fn http_request_blocks_special_purpose_literals_when_configured() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("http_request").unwrap();
+    for host in [
+        "100.64.0.1",         // shared address space (carrier-grade NAT)
+        "100.100.100.200",    // provider metadata inside 100.64.0.0/10
+        "0.0.0.1",            // rest of 0.0.0.0/8
+        "192.0.0.8",          // IETF protocol assignments
+        "198.18.0.1",         // benchmarking
+        "240.0.0.1",          // reserved
+        "255.255.255.255",    // broadcast
+        "224.0.0.1",          // multicast
+        "1681915905",         // 100.64.0.1 as one decimal number
+        "[64:ff9b::a00:5]",   // NAT64 for 10.0.0.5
+        "[64:ff9b:1::a00:5]", // local-use NAT64
+        "[2002:a00:5::1]",    // 6to4 for 10.0.0.5
+        "[::10.0.0.5]",       // IPv4-compatible
+        "[2001:db8::1]",      // documentation
+        "[ff02::1]",          // multicast
+    ] {
+        let config = serde_json::json!({
+            "method": "GET",
+            "url": format!("http://{host}:1/"),
+            "block_private_network": true,
+            "timeout": 2.0
+        });
+        let err = node
+            .execute(&config, &empty_ctx())
+            .await
+            .expect_err("special-purpose target must be blocked")
+            .to_string();
+        assert!(
+            err.contains("blocked: target is a private network address"),
+            "{host}: expected an SSRF-guard error, got: {err}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn http_get_allows_private_network_by_default() {
     // Without the opt-in guard, a private target is attempted (and fails to

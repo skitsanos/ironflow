@@ -126,6 +126,24 @@ publication is verified separately.
   before. Archives with prepended data (self-extracting stubs) were already
   rejected and still are. Rewrite an affected archive with any standard ZIP
   tool to make it readable.
+
+- **`block_private_network` refuses more address ranges** (IF-191). The
+  opt-in guard on the `http_*` nodes refused RFC 1918, loopback, link-local,
+  unique-local and IPv4-mapped addresses only. It now refuses every address
+  that is not a public unicast destination: additionally `100.64.0.0/10`
+  (carrier-grade NAT, overlay networks and one provider's metadata endpoint),
+  the rest of `0.0.0.0/8`, `192.0.0.0/24`, `198.18.0.0/15`, the documentation
+  ranges, `192.88.99.0/24`, multicast and `240.0.0.0/4`; internal addresses
+  wrapped in NAT64 (`64:ff9b::/96`), 6to4 (`2002::/16`) or the
+  IPv4-compatible form; local-use NAT64, Teredo, IPv6 documentation,
+  site-local, multicast and all IPv6 space outside `2000::/3`. The check
+  applies to URL literals, redirect targets and DNS answers alike. A flow
+  that sets the option and calls a service in one of these ranges, for
+  example over a `100.64.0.0/10` overlay network, now fails with `blocked:
+  target is a private network address`; remove the option for that step.
+  Flows that do not set the option, and public destinations including those
+  reached through NAT64, are unaffected. The full list is under
+  [Private-network blocking](../nodes/http_request.md#private-network-blocking).
 - **`write_file` artifact inputs no longer accept a local path** (IF-186).
   `artifact = "/some/file"`, `content` with `encoding = "artifact"`, and a
   `source_key` value read with `encoding = "artifact"` were documented as an

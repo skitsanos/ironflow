@@ -1,5 +1,6 @@
 use std::net::IpAddr;
 
+use super::address::ip_is_internal;
 use crate::engine::types::Context;
 use crate::lua::interpolate::interpolate_value;
 use anyhow::Result;
@@ -10,30 +11,6 @@ pub(super) fn interpolate_json_value(
     ctx: &Context,
 ) -> serde_json::Value {
     interpolate_value(value, ctx)
-}
-
-/// True for IP addresses that belong to the local host or a private/internal
-/// network, used by the opt-in SSRF guard.
-pub(super) fn ip_is_internal(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(v4) => {
-            v4.is_private() || v4.is_loopback() || v4.is_link_local() || v4.is_unspecified()
-        }
-        IpAddr::V6(v6) => {
-            // IPv4-mapped IPv6 literals retain the security properties of the
-            // embedded IPv4 address. Without this normalization,
-            // `::ffff:127.0.0.1` bypasses the IPv6-only range checks below.
-            if let Some(mapped) = v6.to_ipv4_mapped() {
-                return ip_is_internal(IpAddr::V4(mapped));
-            }
-
-            let first = v6.segments()[0];
-            v6.is_loopback()
-                || v6.is_unspecified()
-                || (first & 0xfe00) == 0xfc00 // unique local fc00::/7
-                || (first & 0xffc0) == 0xfe80 // link local fe80::/10
-        }
-    }
 }
 
 /// True if a URL's host targets the local host or a private network. Literal

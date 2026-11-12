@@ -26,7 +26,7 @@ HTTP DELETE request convenience wrapper.
 | `max_redirects` | integer | no | `10` | Maximum redirects to follow; `0` disables redirects and `100` is the hard ceiling. |
 | `allow_cross_origin_redirects` | boolean | no | `false` | Allow redirects that change scheme, host, or port. Even when enabled, cross-origin redirects are refused when `auth`, credentials embedded in URL userinfo, caller-configured `headers`, or a request `body` is present, because arbitrary credentials cannot be stripped safely. Generated `Referer` headers are disabled. |
 | `proxy_mode` | string | no | `"auto"` | `auto` uses the system proxy unless private-network blocking is enabled; `system` always uses it; `direct` bypasses it. |
-| `block_private_network` | boolean | no | `false` | Refuse internal initial/redirect targets after validating and pinning every DNS answer. Incompatible with `proxy_mode = "system"`. |
+| `block_private_network` | boolean | no | `false` | Refuse initial/redirect targets that are not public unicast addresses, after validating and pinning every DNS answer; ranges are listed under [Private-network blocking](http_request.md#private-network-blocking). Incompatible with `proxy_mode = "system"`. |
 
 For `body_type = "form"`, `body` must be an object and is sent as `application/x-www-form-urlencoded`.
 For `body_type = "text"`, `body` is sent as plain text.

@@ -261,4 +261,32 @@ mod tests {
             ("HEAD".to_owned(), true)
         );
     }
+
+    // IF-191: a redirect hop is refused when its literal host is in any
+    // refused range, and a public hop on the same origin rules still passes.
+    #[test]
+    fn redirect_targets_follow_the_address_table() {
+        use crate::nodes::http::test_support::{ALLOWED, REFUSED, url_host};
+
+        let policy = RedirectPolicy {
+            max_redirects: 10,
+            allow_cross_origin: true,
+            block_private: true,
+            carries_sensitive_data: false,
+        };
+        let current = url::Url::parse("https://example.com/start").unwrap();
+        let hop = |ip: &str| {
+            let target = format!("https://{}/next", url_host(ip));
+            validate_redirect(&current, &url::Url::parse(&target).unwrap(), &policy)
+        };
+
+        let followed: Vec<_> = REFUSED.iter().filter(|(_, ip)| hop(ip).is_ok()).collect();
+        assert!(followed.is_empty(), "redirect followed: {followed:#?}");
+        for (_, ip) in REFUSED {
+            let error = hop(ip).unwrap_err().to_string();
+            assert!(error.contains("private network"), "{ip}: {error}");
+        }
+        let refused: Vec<_> = ALLOWED.iter().filter(|ip| hop(ip).is_err()).collect();
+        assert!(refused.is_empty(), "public redirect refused: {refused:#?}");
+    }
 }
