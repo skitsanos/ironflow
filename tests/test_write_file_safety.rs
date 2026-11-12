@@ -118,6 +118,93 @@ async fn artifact_source_streams_to_destination() {
     assert_eq!(std::fs::read(destination).unwrap(), b"artifact payload");
 }
 
+#[tokio::test]
+async fn artifact_uri_inputs_copy_from_the_store() {
+    let _lock = ENV_LOCK.lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let _environment = Environment::set(100, &directory.path().join("artifacts"));
+    let source = directory.path().join("source.bin");
+    std::fs::write(&source, b"artifact payload").unwrap();
+    let registry = NodeRegistry::with_builtins();
+    let read = registry
+        .get("read_file")
+        .unwrap()
+        .execute(
+            &serde_json::json!({"path": source, "encoding": "artifact"}),
+            &Context::new(),
+        )
+        .await
+        .unwrap();
+    let descriptor = read["file_artifact"].clone();
+    let uri = descriptor["artifact_uri"].clone();
+    let context = Context::from([
+        ("descriptor".to_owned(), descriptor.clone()),
+        ("uri".to_owned(), uri.clone()),
+    ]);
+    let configs = [
+        serde_json::json!({"artifact": descriptor}),
+        serde_json::json!({"artifact": uri}),
+        serde_json::json!({"artifact": {"artifact": uri}}),
+        serde_json::json!({"artifact": "${ctx.uri}"}),
+        serde_json::json!({"content": "${ctx.uri}", "encoding": "artifact"}),
+        serde_json::json!({"source_key": "uri", "encoding": "artifact"}),
+        serde_json::json!({"source_key": "descriptor", "encoding": "artifact"}),
+    ];
+    for (index, mut config) in configs.into_iter().enumerate() {
+        let destination = directory.path().join(format!("output-{index}.bin"));
+        config["path"] = serde_json::json!(destination);
+        registry
+            .get("write_file")
+            .unwrap()
+            .execute(&config, &context)
+            .await
+            .unwrap_or_else(|error| panic!("{config}: {error}"));
+        assert_eq!(
+            std::fs::read(destination).unwrap(),
+            b"artifact payload",
+            "{config}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn artifact_inputs_reject_local_paths() {
+    let _lock = ENV_LOCK.lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let _environment = Environment::set(100, &directory.path().join("artifacts"));
+    let secret = directory.path().join("secret.env");
+    std::fs::write(&secret, b"TOKEN=local-secret").unwrap();
+    let context = Context::from([
+        ("source".to_owned(), serde_json::json!(secret)),
+        (
+            "wrapped".to_owned(),
+            serde_json::json!({"artifact": secret}),
+        ),
+    ]);
+    let configs = [
+        serde_json::json!({"artifact": secret}),
+        serde_json::json!({"artifact": "${ctx.source}"}),
+        serde_json::json!({"artifact": {"artifact": secret}}),
+        serde_json::json!({"content": secret, "encoding": "artifact"}),
+        serde_json::json!({"source_key": "source", "encoding": "artifact"}),
+        serde_json::json!({"source_key": "wrapped"}),
+    ];
+    for mut config in configs {
+        let destination = directory.path().join("copied.env");
+        config["path"] = serde_json::json!(destination);
+        let error = NodeRegistry::with_builtins()
+            .get("write_file")
+            .unwrap()
+            .execute(&config, &context)
+            .await
+            .expect_err(&config.to_string())
+            .to_string();
+        assert!(error.contains("artifact"), "{config}: {error}");
+        assert!(!error.contains("local-secret"), "{config}: {error}");
+        assert!(!destination.exists(), "{config}");
+    }
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn destination_symlink_is_rejected_without_touching_target() {

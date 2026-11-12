@@ -17,7 +17,9 @@ Either `text`/`message` or `payload.text` is required.
 
 `webhook_url` is optional and may be omitted if `SLACK_WEBHOOK` is set in env.
 
-If `payload` is provided, all string values are context-interpolated (`${ctx.key}`).
+`text` and `message` support `${ctx.key}` interpolation. If `payload` is
+provided, all of its string values are interpolated once, including
+`payload.text`.
 
 ## HTTP Transport
 

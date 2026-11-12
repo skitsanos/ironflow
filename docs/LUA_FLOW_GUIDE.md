@@ -287,6 +287,13 @@ Lua string. Resolution is one pass: a placeholder contained inside a resolved
 context string is not evaluated again. Numbers, booleans, arrays, and objects
 render as compact JSON.
 
+Only strings written in a node's configuration are templates. A value that a
+node reads from context through a key parameter, such as `source_key`,
+`vectors_source_key` or `keys_source_key`, is data: a path, URI or key stored
+there is used exactly as it is, including any `${ctx...}` text it contains.
+A flow can therefore validate a value in one step and rely on a later node
+using that same value.
+
 ## Environment Variables
 
 Use `env(key)` to read the final merged process environment in Lua. Existing

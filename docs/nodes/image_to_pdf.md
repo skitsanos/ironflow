@@ -6,8 +6,8 @@ Convert one or more images into a single PDF file.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `sources` | array | one of `sources` or `source_key` | — | Array of source images. Each item may be a path, artifact URI/descriptor, `{ artifact = ... }`, or an explicit `{ base64 = "..." }` object. |
-| `source_key` | string | one of `sources` or `source_key` | — | Context key containing an array of source images (same formats as `sources`). |
+| `sources` | array | one of `sources` or `source_key` | — | Array of source images. Each item may be a path, artifact URI/descriptor, `{ artifact = ... }`, or an explicit `{ base64 = "..." }` object. Path strings support `${ctx.key}` interpolation. |
+| `source_key` | string | one of `sources` or `source_key` | — | Context key containing an array of source images (same formats as `sources`). Stored paths are used as they are and are not interpolated. |
 | `output_path` | string | yes | — | Destination path for generated PDF. Supports `${ctx.key}` interpolation. |
 | `output_key` | string | no | `pdf_path` | Context key to store generated PDF path. |
 

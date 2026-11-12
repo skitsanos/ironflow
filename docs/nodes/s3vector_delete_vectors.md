@@ -14,8 +14,8 @@ For complete teardown, run this node before `s3vector_delete_index`, then run
 | `index_name` | string | yes* | -- | Explicit target index name. |
 | `index` | string | no | no | Alias for `index_name`. |
 | `index_arn` | string | yes* | -- | Explicit self-contained alternative target. |
-| `keys` | array<string> | yes | -- | Keys to delete from the index. |
-| `keys_source_key` | string | no | -- | Context key containing string-array keys. |
+| `keys` | array<string> | yes | -- | Keys to delete from the index. Each configured key supports `${ctx.key}` interpolation. |
+| `keys_source_key` | string | no | -- | Context key containing string-array keys. Stored keys are used as they are and are not interpolated. |
 | `region` | string | no | AWS region chain | Override `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, or `AWS_DEFAULT_REGION`. |
 | `endpoint_url` | string | no | `AWS_ENDPOINT_URL` env var | Override the S3 Vectors service endpoint. |
 | `output_key` | string | no | `s3vector` | Prefix for context output keys. |

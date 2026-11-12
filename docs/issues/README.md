@@ -7,7 +7,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts check`.
 
 - Total findings: 209
-- Active findings: 18
+- Active findings: 17
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
 | ID | Priority | Status | Area | Summary |
@@ -197,7 +197,7 @@ priority, area, and title. The registry is generated with
 | [IF-183](./IF-183.md) | P2 | Resolved | Deployment lifecycle | New connections hang for the whole drain and readiness never reports draining |
 | [IF-184](./IF-184.md) | P2 | Resolved | API events | A deleted run's event fence mutes a re-created run with the same ID |
 | [IF-185](./IF-185.md) | P2 | Resolved | Files/write_file | Staged writers publish mode 0600 and write_file append loses concurrent writes |
-| [IF-186](./IF-186.md) | P2 | Open | Interpolation | File-source helper interpolates twice and lets write_file artifact inputs name local paths |
+| [IF-186](./IF-186.md) | P2 | Resolved | Interpolation | File-source helper interpolates twice and lets write_file artifact inputs name local paths |
 | [IF-187](./IF-187.md) | P2 | Resolved | Lua DSL | step_if and if_node comparisons against true, false and nil are always false |
 | [IF-188](./IF-188.md) | P2 | Resolved | Workflow composition | Child workflows have no nesting limit and outlive a timed-out parent step |
 | [IF-189](./IF-189.md) | P2 | Open | Resource safety | s3_list_objects, json_parse and task error text materialize without a bound |

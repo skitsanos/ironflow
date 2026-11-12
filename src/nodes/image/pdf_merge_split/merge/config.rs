@@ -2,25 +2,31 @@ use anyhow::Result;
 
 use crate::artifacts::FileSource;
 use crate::engine::types::Context;
-use crate::util::file_source::parse_file_source;
+use crate::util::file_source::{SourceOrigin, parse_file_source_from};
 
 pub(super) fn parse_sources(
     config: &serde_json::Value,
     ctx: &Context,
     maximum: u64,
 ) -> Result<Vec<FileSource>> {
-    let files = match (config.get("files"), config.get("source_key")) {
+    // `files` is configuration; an array read through `source_key` is data.
+    let (files, origin) = match (config.get("files"), config.get("source_key")) {
         (Some(_), Some(_)) => {
             anyhow::bail!("pdf_merge accepts either 'files' or 'source_key', not both")
         }
-        (Some(files), None) => files
-            .as_array()
-            .ok_or_else(|| anyhow::anyhow!("pdf_merge: 'files' must be an array"))?,
-        (None, Some(serde_json::Value::String(key))) => ctx
-            .get(key)
-            .ok_or_else(|| anyhow::anyhow!("Key '{key}' not found in context"))?
-            .as_array()
-            .ok_or_else(|| anyhow::anyhow!("Context key '{key}' must be an array"))?,
+        (Some(files), None) => (
+            files
+                .as_array()
+                .ok_or_else(|| anyhow::anyhow!("pdf_merge: 'files' must be an array"))?,
+            SourceOrigin::Config(ctx),
+        ),
+        (None, Some(serde_json::Value::String(key))) => (
+            ctx.get(key)
+                .ok_or_else(|| anyhow::anyhow!("Key '{key}' not found in context"))?
+                .as_array()
+                .ok_or_else(|| anyhow::anyhow!("Context key '{key}' must be an array"))?,
+            SourceOrigin::Data,
+        ),
         (None, Some(_)) => anyhow::bail!("pdf_merge: 'source_key' must be a string"),
         (None, None) => anyhow::bail!("pdf_merge requires either 'files' or 'source_key'"),
     };
@@ -34,7 +40,7 @@ pub(super) fn parse_sources(
     let mut sources = Vec::new();
     sources.try_reserve_exact(files.len())?;
     for file in files {
-        sources.push(parse_file_source(file, ctx, "pdf_merge").map_err(|error| {
+        sources.push(parse_file_source_from(file, origin).map_err(|error| {
             anyhow::anyhow!("pdf_merge: each input must be a path or artifact: {error}")
         })?);
     }

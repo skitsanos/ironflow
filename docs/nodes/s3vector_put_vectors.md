@@ -11,8 +11,8 @@ Store vectors in an Amazon S3 Vector index.
 | `index_name` | string | yes* | environment-only fallback | Target index name. Uses `S3VECTOR_INDEX_NAME` only when no target field is configured. |
 | `index` | string | no | no | Alias for `index_name`. |
 | `index_arn` | string | yes* | environment-only fallback | Self-contained alternative target. Uses `S3VECTOR_INDEX_ARN` only when no target field is configured. |
-| `vectors` | array<object> | yes | -- | Vector payload list. Each item requires `key` and `data`, optional `metadata`. |
-| `vectors_source_key` | string | no | -- | Context key containing the vector array (alternative to `vectors`). |
+| `vectors` | array<object> | yes | -- | Vector payload list. Each item requires `key` and `data`, optional `metadata`. A configured `key` supports `${ctx.key}` interpolation. |
+| `vectors_source_key` | string | no | -- | Context key containing the vector array (alternative to `vectors`). Stored keys are used as they are and are not interpolated. |
 | `region` | string | no | AWS region chain | Override `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, or `AWS_DEFAULT_REGION`. |
 | `endpoint_url` | string | no | `AWS_ENDPOINT_URL` env var | Override the S3 Vectors service endpoint. |
 | `output_key` | string | no | `s3vector` | Prefix for context output keys. |

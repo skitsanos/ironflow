@@ -10,14 +10,23 @@ regular file. The work runs on a tracked blocking worker and is bounded by
 |-----------|------|----------|---------|-------------|
 | `path` | string | yes | — | Destination path. Supports `${ctx.key}` interpolation. Missing parent directories are created. |
 | `content` | string | no | `""` | Inline text or Base64 input. Supports interpolation. Mutually exclusive with `source_key` and `artifact`. |
-| `source_key` | string | no | — | Context key containing a string or artifact descriptor. Mutually exclusive with `content` and `artifact`. |
-| `artifact` | object or string | no | — | Artifact descriptor or canonical `artifact://sha256/...` URI. Mutually exclusive with `content` and `source_key`. |
+| `source_key` | string | no | — | Context key containing a string or artifact descriptor. The stored value is used as it is and is not interpolated. Mutually exclusive with `content` and `artifact`. |
+| `artifact` | object or string | no | — | Artifact descriptor or canonical `artifact://sha256/...` URI; a URI string supports `${ctx.key}` interpolation. A local path is rejected. Mutually exclusive with `content` and `source_key`. |
 | `encoding` | string | no | `"text"` | `"text"`, `"base64"`, or `"artifact"`. An object source is recognized as an artifact without the explicit encoding. |
 | `append` | bool | no | `false` | Copy the existing regular file followed by the new input into an atomic replacement. |
 
 At most one input form may be configured. Omitting all three writes an empty
 file. A canonical artifact URI stored as a context string requires
 `encoding = "artifact"`; artifact descriptor objects are detected directly.
+
+An artifact input must name stored bytes: a descriptor object, a canonical
+`artifact://sha256/...` URI, or an `{ artifact = ... }` wrapper of either. Any
+other string fails with `write_file: artifact input must be an artifact
+descriptor or a canonical artifact://sha256/... URI`, whether it was written
+in `artifact`, in `content` with `encoding = "artifact"`, or read through
+`source_key`. This matches the `http_*` artifact body. `write_file` does not
+copy a local file named by path: use [`copy_file`](copy_file.md), or
+[`read_file`](read_file.md) with `encoding = "artifact"` to store it first.
 
 ## Safety and resource contract
 

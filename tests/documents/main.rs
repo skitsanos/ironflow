@@ -20,6 +20,8 @@ mod test_extract_pdf_font_bounds;
 mod test_extract_xlsx;
 #[path = "../test_extract_xlsx_styles.rs"]
 mod test_extract_xlsx_styles;
+#[path = "../test_file_source_interpolation.rs"]
+mod test_file_source_interpolation;
 #[path = "../test_html_depth_limit.rs"]
 mod test_html_depth_limit;
 #[path = "../test_image_output_safety.rs"]

@@ -8,7 +8,7 @@ published PDF.
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `files` | array | one of `files` / `source_key` | — | Non-empty array of paths, artifact descriptors, or canonical artifact URIs. Path strings support `${ctx.key}` interpolation. |
-| `source_key` | string | one of `files` / `source_key` | — | Context key containing the non-empty source array. Useful when prior nodes produced artifact descriptors. |
+| `source_key` | string | one of `files` / `source_key` | — | Context key containing the non-empty source array. Stored paths are used as they are and are not interpolated. Useful when prior nodes produced artifact descriptors. |
 | `output_path` | string | yes | — | Merged output path with `${ctx.key}` interpolation. |
 | `output_key` | string | no | `"pdf_merge"` | Prefix for output values. |
 

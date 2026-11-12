@@ -96,6 +96,34 @@ publication is verified separately.
   before): raise a platform termination window that was set to the old
   figure. See [Replica deployment](../REPLICA_DEPLOYMENT.md).
 
+- **`write_file` artifact inputs no longer accept a local path** (IF-186).
+  `artifact = "/some/file"`, `content` with `encoding = "artifact"`, and a
+  `source_key` value read with `encoding = "artifact"` were documented as an
+  artifact descriptor or canonical `artifact://sha256/...` URI, but any other
+  string was opened as a local file and copied to the destination. Such a
+  step now fails with `write_file: artifact input must be an artifact
+  descriptor or a canonical artifact://sha256/... URI`, as the `http_*`
+  artifact body already did. Replace a path input with `copy_file`, or store
+  the file first with `read_file` and `encoding = "artifact"`. Descriptors
+  and canonical URIs are copied as before.
+- **Source paths are interpolated once, and context values are not
+  templates** (IF-186). `path` on the `extract_*` nodes, `extract_srt`,
+  `extract_vtt`, `transcribe`, `pdf_metadata`, `pdf_split`, `pdf_to_image`
+  and `pdf_thumbnail` was expanded twice: a `${ctx...}` placeholder inside
+  the resolved context value was expanded again, and the `\${ctx...}` escape
+  produced the expanded value instead of the literal text. The same nodes,
+  the image nodes, `image_to_pdf`, `pdf_merge` and `write_file` also expanded
+  placeholders in a value read through `source_key`; `s3vector_put_vectors`
+  and `s3vector_delete_vectors` did so for keys read through
+  `vectors_source_key` and `keys_source_key`, and `slack_notification`
+  expanded `payload.text` twice. All of these now resolve configuration
+  strings once and use context values as stored, as the
+  [Lua flow guide](../LUA_FLOW_GUIDE.md#context-variable-interpolation)
+  describes. A flow that relied on the second pass, for example a context
+  value holding `"${ctx.dir}/report.pdf"` that a later node opened through
+  `source_key`, must build the final path first with `template_render` or a
+  function step.
+
 - **Context and step output nested deeper than 123 levels are refused**
   (IF-181). A value nested 126 levels deep passed the JSON parser, and the
   JSON and Redis stores then wrote a run record they could not read back:

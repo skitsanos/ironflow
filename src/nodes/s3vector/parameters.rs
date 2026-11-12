@@ -107,9 +107,13 @@ pub(super) fn resolve_string_array(
     node: &str,
     field: &str,
 ) -> Result<Vec<String>> {
+    // Items written in configuration are templates; an array read from
+    // context through the fallback key is data and is used as stored.
+    let mut interpolate = true;
     let raw = if let Some(values) = config.get(primary_key) {
         values
     } else if let Some(fallback_key) = fallback_key {
+        interpolate = false;
         let fallback = resolve_optional(config, &[fallback_key], &[], ctx)
             .ok_or_else(|| anyhow::anyhow!("{} requires '{}'", node, field))?;
         ctx.get(&fallback).ok_or_else(|| {
@@ -133,7 +137,11 @@ pub(super) fn resolve_string_array(
         let item = value.as_str().ok_or_else(|| {
             anyhow::anyhow!("{} requires each '{}' item to be a string", node, field)
         })?;
-        values.push(interpolate_ctx(item, ctx));
+        values.push(if interpolate {
+            interpolate_ctx(item, ctx)
+        } else {
+            item.to_owned()
+        });
     }
 
     if values.is_empty() {
@@ -152,6 +160,32 @@ mod tests {
         let mut ctx = Context::new();
         ctx.insert(key.to_string(), value);
         ctx
+    }
+
+    #[test]
+    fn string_arrays_read_from_context_are_not_templates() {
+        let mut ctx = ctx_with("stored", json!(["doc-${ctx.secret}"]));
+        ctx.insert("secret".to_string(), json!("s3cr3t"));
+        let resolve = |config: serde_json::Value| {
+            resolve_string_array(
+                &config,
+                "keys",
+                Some("keys_source_key"),
+                &ctx,
+                "node",
+                "keys",
+            )
+            .unwrap()
+        };
+
+        assert_eq!(
+            resolve(json!({ "keys_source_key": "stored" })),
+            ["doc-${ctx.secret}"]
+        );
+        assert_eq!(
+            resolve(json!({ "keys": ["doc-${ctx.secret}"] })),
+            ["doc-s3cr3t"]
+        );
     }
 
     #[test]
