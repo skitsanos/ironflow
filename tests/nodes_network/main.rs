@@ -22,6 +22,8 @@ mod test_http_retry_limits;
 mod test_llm_secret_errors;
 #[path = "../test_mcp_nodes.rs"]
 mod test_mcp_nodes;
+#[path = "../test_mcp_response_limits.rs"]
+mod test_mcp_response_limits;
 #[path = "../test_mcp_streamable_http.rs"]
 mod test_mcp_streamable_http;
 #[path = "../test_mcp_streamable_http_sse.rs"]

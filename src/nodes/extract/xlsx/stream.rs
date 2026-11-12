@@ -46,7 +46,7 @@ pub(super) trait CellSource {
 }
 
 /// Skip past `Data::Empty` records the same way `worksheet_range_ref`
-/// (calamine-0.36.1/src/xlsx/mod.rs:2670-2718) drops `DataRef::Empty` before
+/// (calamine-0.38.0/src/xlsx/mod.rs:2911-2963) drops `DataRef::Empty` before
 /// `Range::from_sparse` ever sees it. A formatting-only `<c r=".."
 /// s=".."/>` (or a merged span's non-anchor cells) must disappear here
 /// rather than widen a sheet's bounding box.

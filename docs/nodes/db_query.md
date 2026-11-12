@@ -83,6 +83,12 @@ return flow
 ## Notes
 
 - The `connection` string follows the sqlx URL format. For SQLite, use `sqlite:/path/to/file?mode=rwc`.
+- Open only SQLite files, and directories holding them, that IronFlow or a
+  trusted party wrote. The bundled SQLite (3.51.3) is affected by
+  CVE-2026-119375: a database opened together with a crafted sibling `-wal`
+  file can return stale process memory in query results. The fixed binding
+  cannot be resolved until `sqlx` releases support for it; see
+  [Dependency advisories](../SECURITY.md#dependency-advisories).
 - PostgreSQL requires a build with the `postgres` feature. In such builds the
   TLS modes `sslmode=require`, `verify-ca` and `verify-full` are supported, with
   `sslrootcert=/path/to/ca.pem` for a private CA; prefer `verify-full`. The

@@ -14,6 +14,8 @@ mod test_extract_config;
 mod test_extract_html_content;
 #[path = "../test_extract_xlsx.rs"]
 mod test_extract_xlsx;
+#[path = "../test_extract_xlsx_styles.rs"]
+mod test_extract_xlsx_styles;
 #[path = "../test_html_depth_limit.rs"]
 mod test_html_depth_limit;
 #[path = "../test_image_resize_safety.rs"]

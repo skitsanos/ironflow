@@ -82,6 +82,22 @@ pub fn row(index: usize, cells: &[String]) -> String {
 /// Write a valid `.xlsx` containing `sheets`, in the order given.
 #[allow(dead_code)]
 pub fn write_workbook(dir: &Path, name: &str, sheets: &[SheetSpec]) -> PathBuf {
+    // Style 0 = general, 1 = custom date code, 2 = built-in date format id 14.
+    let styles = format!(
+        r#"<styleSheet xmlns="{NS}"><numFmts count="1"><numFmt numFmtId="164" formatCode="yyyy\-mm\-dd"/></numFmts><cellXfs count="3"><xf numFmtId="0"/><xf numFmtId="164" applyNumberFormat="1"/><xf numFmtId="14" applyNumberFormat="1"/></cellXfs></styleSheet>"#
+    );
+    write_workbook_with_styles(dir, name, sheets, &styles)
+}
+
+/// As `write_workbook`, with the complete `xl/styles.xml` supplied by the
+/// caller, for workbooks whose style table is the subject of the test.
+#[allow(dead_code)]
+pub fn write_workbook_with_styles(
+    dir: &Path,
+    name: &str,
+    sheets: &[SheetSpec],
+    styles_xml: &str,
+) -> PathBuf {
     let path = dir.join(name);
     let file = std::fs::File::create(&path).unwrap();
     let mut zip = zip::ZipWriter::new(file);
@@ -156,14 +172,7 @@ pub fn write_workbook(dir: &Path, name: &str, sheets: &[SheetSpec]) -> PathBuf {
         format!(r#"<Relationships xmlns="{PNS}">{rels}</Relationships>"#),
     );
 
-    // Style 0 = general, 1 = custom date code, 2 = built-in date format id 14.
-    add(
-        &mut zip,
-        "xl/styles.xml",
-        format!(
-            r#"<styleSheet xmlns="{NS}"><numFmts count="1"><numFmt numFmtId="164" formatCode="yyyy\-mm\-dd"/></numFmts><cellXfs count="3"><xf numFmtId="0"/><xf numFmtId="164" applyNumberFormat="1"/><xf numFmtId="14" applyNumberFormat="1"/></cellXfs></styleSheet>"#
-        ),
-    );
+    add(&mut zip, "xl/styles.xml", styles_xml.to_string());
 
     for (i, sheet) in sheets.iter().enumerate() {
         let dimension_xml = sheet

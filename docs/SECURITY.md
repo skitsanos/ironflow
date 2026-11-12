@@ -31,7 +31,9 @@ that release or an already-running image as protected by this source update.
 | Website and Bun scripts | Bun's embedded trust store; update Bun and rebuild/redeploy existing images. Floating tags do not update running containers. |
 
 Repository policy tests guard the resolved Rust versions and container package
-floor. `cargo audit --deny warnings` remains mandatory without advisory ignores.
+floor. `cargo audit --deny warnings` remains mandatory; its only advisory
+ignore is the reviewed SQLite entry under
+[Dependency advisories](#dependency-advisories).
 No vendored PEM certificate bundles were found in the tracked application,
 test, script, documentation, or example trees during this assessment.
 
@@ -145,6 +147,59 @@ string. Forward headers only from senders that the webhook `signature` policy
 or an upstream gateway authenticates, and keep non-confidential metadata in
 the JSON body. The full table is in the
 [CLI reference](CLI_REFERENCE.md#forwarded-header-redaction).
+
+## Dependency advisories
+
+`cargo audit --deny warnings` fails on every vulnerability and warning that is
+not listed in `.cargo/audit.toml`. Three advisories published after the 1.21.0
+release were handled on 2026-11-12 ([IF-173](issues/IF-173.md)):
+
+| Advisory | Crate | Outcome |
+| --- | --- | --- |
+| [RUSTSEC-2026-0462](https://rustsec.org/advisories/RUSTSEC-2026-0462.html) | `rmcp` | Updated to 3.9.0 and required as the minimum. `mcp_client` over Streamable HTTP was affected: JSON and error bodies were read without a limit. They are now capped at 16 MiB and 64 KiB. |
+| [RUSTSEC-2026-0436](https://rustsec.org/advisories/RUSTSEC-2026-0436.html) | `calamine` | Updated to 0.38.0. The defect is in the `.xls`/`.xlsb`/VBA container parser, which `extract_xlsx` never calls. |
+| [RUSTSEC-2026-0459](https://rustsec.org/advisories/RUSTSEC-2026-0459.html) | `libsqlite3-sys` | Not fixable yet; one reviewed exception, described below. |
+
+Updating `calamine` was not free of risk. Version 0.38 builds a style record
+for every cell format when a workbook opens and copies the font name and
+number-format code into each one, so a workbook of a few kilobytes could hold
+gigabytes before a cell was read. `extract_xlsx` now bounds that table against
+`IRONFLOW_MAX_XLSX_OUTPUT_BYTES` before the workbook is opened; see
+[`extract_xlsx`](nodes/extract_xlsx.md#ceilings).
+
+### SQLite exception (RUSTSEC-2026-0459)
+
+The bundled SQLite is 3.51.3. Before 3.54.0, SQLite can return uninitialized
+page-cache memory when a database is opened together with a crafted sibling
+`-wal` file (CVE-2026-119375). The fix ships in `libsqlite3-sys` 0.39.0, but
+the newest published `sqlx-sqlite` (0.9.0) requires a version below 0.38, so
+no fixed version resolves. The `sqlx` development branch already accepts it.
+
+- **Exposure.** An attacker must write both the database file and its `-wal`
+  file, and IronFlow must then open them. The state and event stores live in
+  an owner-only directory (IF-163) and are not exposed by this. The exposed
+  path is a `db_query` or `db_exec` flow whose `connection` names a SQLite
+  file that a less trusted party could have written: its rows could carry
+  stale memory of the IronFlow process into workflow context.
+- **Until it is fixed.** Do not point `db_query` or `db_exec` at SQLite files,
+  or at directories, that an untrusted party can write. PostgreSQL connections
+  are not affected.
+- **Exit.** The entry is removed when a published `sqlx` release resolves
+  `libsqlite3-sys` 0.39.0 or later. A repository policy test fails as soon as
+  the lockfile holds a fixed version while the entry remains, and whenever a
+  second entry is added. The exception is reviewed again by 2026-12-12 if no
+  such release exists.
+
+### Scheduled audit
+
+Advisories are published against code that is already released, so the CI
+`audit` job (the dependency audit and the license check) also runs every day
+at 05:23 UTC, without a push. A scheduled run uses the workflow and lockfile
+of the default branch, `main`, and runs no other job. It therefore covers the
+released branch only once this workflow has reached `main`, and `develop` is
+still audited on pushes and pull requests. GitHub disables scheduled workflows
+in a public repository after 60 days without repository activity; re-enable
+the workflow if that happens.
 
 ## Dependency licenses
 

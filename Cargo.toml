@@ -31,7 +31,7 @@ reqwest = { version = "0.13.4", features = ["json", "stream", "multipart"] }
 url = "2.5.8"
 percent-encoding = "2.3.2"
 http = "1"
-rmcp = { version = "3.4.0", default-features = false, features = ["client", "transport-streamable-http-client-reqwest"] }
+rmcp = { version = "3.9.0", default-features = false, features = ["client", "transport-streamable-http-client-reqwest"] }
 aws-config = "1.8.18"
 aws-sdk-s3 = { version = "1.156.0", default-features = false, features = [
     "http-1x",
@@ -68,7 +68,7 @@ html5ever = "0.38"
 ammonia = "4.1.2"
 zip = "9.0.5"
 quick-xml = "0.42.0"
-calamine = { version = "0.37", default-features = false, features = ["dates"] }
+calamine = { version = "0.38", default-features = false, features = ["dates"] }
 lopdf = { version = "0.46", default-features = false, features = ["chrono"] }
 image = { version = "0.25.10", default-features = false, features = [
     "bmp", "ff", "gif", "hdr", "ico", "jpeg", "png", "pnm", "qoi", "tga", "tiff", "webp",

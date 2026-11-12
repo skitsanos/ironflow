@@ -12,6 +12,7 @@ use super::guard::check_archive_size;
 use super::output_budget::OutputBudget;
 use super::shared_strings;
 use super::sheets::{CellBudget, sheet_rows};
+use super::styles;
 use crate::artifacts::FileSource;
 use crate::util::execution::ExecutionControl;
 
@@ -64,11 +65,17 @@ pub(super) fn extract(
         limits.max_output_bytes,
         Some(&execution),
     )?;
+    styles::check(
+        &mut file,
+        diagnostic_path,
+        limits.max_output_bytes,
+        Some(&execution),
+    )?;
     execution.checkpoint()?;
 
     // `open_workbook` itself is a calamine call and cannot be interrupted.
-    // The shared-string preflight above bounds its eager table allocation;
-    // resume cooperative checkpoints immediately after it returns.
+    // The shared-string and style preflights above bound its eager table
+    // allocations; resume cooperative checkpoints immediately after it returns.
     let mut workbook: Xlsx<_> = open_workbook_from_rs(BufReader::new(file))
         .map_err(|error| anyhow::anyhow!("extract_xlsx: cannot read '{label}': {error}"))?;
     execution.checkpoint()?;

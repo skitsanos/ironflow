@@ -9,6 +9,11 @@ literal CDATA through Calamine's existing string decoder. Shared-string
 preflight and the XLSX cell/output budgets remain in force; no new decoder or
 configuration option is introduced for XLSX.
 
+Excel stores a character it cannot write literally as `_xHHHH_`, one escape
+per UTF-16 code unit. Every such escape is decoded, including surrogate pairs
+(`_xD83D__xDE00_` is one emoji), and `_x005F_` keeps a following sequence
+literal. Before `calamine` 0.38 only `_x00HH_` was decoded.
+
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
@@ -81,7 +86,7 @@ Four `extract_xlsx`-specific environment variables bound how much a single call 
 - `IRONFLOW_MAX_XLSX_ARCHIVE_METADATA_BYTES` (default `8388608`, 8 MiB) — maximum cumulative bytes occupied by every central-directory filename, extra field, and file comment, plus the archive comment and ZIP64 end-record extensions. IronFlow traverses each central header without allocating those fields and requires the walk to end exactly at the declared directory boundary before constructing `ZipArchive` or Calamine metadata. This is independent of the `IRONFLOW_MAX_ZIP_METADATA_BYTES` setting used by `zip_list` and `zip_extract`.
 - `IRONFLOW_MAX_XLSX_ROWS` (default `50000`) — highest row *position* accepted in one sheet (1-based; row 1 counts as 1), not a count of populated rows. Row 50,000 is accepted at the default and row 50,001 is rejected even if every row below it is empty. The reader streams cells in file order, so a position can be checked as soon as each cell arrives. Breaching the ceiling names the sheet, row position, and limit.
 - `IRONFLOW_MAX_XLSX_CELLS` (default `33000`) — maximum total cells (`height × width`) across every sheet a single call extracts, independent of `has_header`. The budget is shared across sheets, so narrowing with `sheet` lowers the cost, and a workbook too large to read whole can still be read one sheet at a time.
-- `IRONFLOW_MAX_XLSX_OUTPUT_BYTES` (default `52428800`, 50 MiB) — maximum cumulative decoded and result bytes across the workbook. It is also a conservative compressed and uncompressed ceiling for every individual workbook part, enforced before `calamine` can decode one large inline string or XML part at the broader archive limit. A decoded cell is charged when retained and its result representation is charged again while rows are built. Shared-string references are charged for every cell that uses the string rather than once for the ZIP entry.
+- `IRONFLOW_MAX_XLSX_OUTPUT_BYTES` (default `52428800`, 50 MiB) — maximum cumulative decoded and result bytes across the workbook. It is also a conservative compressed and uncompressed ceiling for every individual workbook part, enforced before `calamine` can decode one large inline string or XML part at the broader archive limit. A decoded cell is charged when retained and its result representation is charged again while rows are built. Shared-string references are charged for every cell that uses the string rather than once for the ZIP entry. The same budget bounds the style table `calamine` builds when it opens the workbook: each font, fill, border and cell format (`xf`) in `styles.xml` is charged 320 bytes, and the longest font name and number-format code in the part are charged once per cell format, because the reader copies both into every format record. A workbook at Excel's own limits (65,490 cell formats, 255-character format codes, 31-character font names) fits the default; a style table that would expand past the budget is refused before the workbook is opened, with an error that names `styles.xml` and this variable ([IF-173](../issues/IF-173.md)).
 
 The general `IRONFLOW_MAX_EXTRACT_ITEMS` and
 `IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES` settings govern the non-XLSX extractors;
@@ -102,6 +107,16 @@ to clone a borrowed `DataRef` into the owned result value.
 ceilings. This prevents a crafted count from making the parser reserve an
 attacker-sized string table before ordinary cell/output accounting begins.
 
+`styles.xml` receives its own streaming pre-flight for the same reason. Since
+`calamine` 0.38 the workbook open builds one style record per cell format and
+copies the format's font name and number-format code into it, so a few
+kilobytes of XML can expand to gigabytes. IronFlow counts the records and the
+longest strings in every part named `styles.xml`, in any directory and letter
+case, and refuses the workbook when their product exceeds
+`IRONFLOW_MAX_XLSX_OUTPUT_BYTES`. The bound is deliberately an overestimate:
+it counts formats wherever they appear and assumes each one copies the longest
+name and code.
+
 Breaching any of these ceilings raises an error naming the offending sheet (where applicable), the observed count, the limit, and the environment variable to raise.
 
 The input must resolve to a regular file; FIFOs and devices are rejected before
@@ -112,13 +127,13 @@ producing partial rows.
 
 ZIP/XML decoding and workbook parsing are synchronous library work, so the node
 runs that phase on a tracked blocking worker. It checks cancellation and the
-step/run deadline between archive chunks, shared-string XML events, worksheet
-records (including filtered empty cells), and output rows. The third-party
+step/run deadline between archive chunks, shared-string and style XML events,
+worksheet records (including filtered empty cells), and output rows. The third-party
 workbook-open and worksheet-reader calls cannot be interrupted midway. Calamine
-still eagerly builds its ZIP/path cache, shared strings, formats, and workbook
-metadata, and its public cell API requires an owned value after IronFlow's
+still eagerly builds its ZIP/path cache, shared strings, formats, styles, and
+workbook metadata, and its public cell API requires an owned value after IronFlow's
 admission checks. IronFlow checks immediately before and after those calls, while the raw, per-part,
-shared-string, row, cell, and output ceilings bound work between checkpoints.
+shared-string, style, row, cell, and output ceilings bound work between checkpoints.
 Task and run admission remain occupied until the physical worker stops.
 
 `IRONFLOW_MAX_XLSX_CELLS`'s default is kept well below `IRONFLOW_MAX_CONVERSION_NODES` (default `100000`, see `docs/CLI_REFERENCE.md`) on purpose. Extracted rows are converted from JSON into Lua after parsing, at a cost of roughly `rows * (cols + 1)` conversion nodes per sheet — worst at a single column, where it collapses to `rows * 2`, i.e. twice the cell count — so a cell ceiling that sits above (or too close to) the conversion budget can be beaten by conversion cost first, at width 1 worst of all, and the resulting failure names a JSON path deep in the converter instead of the sheet this ceiling is meant to name. Raising `IRONFLOW_MAX_XLSX_CELLS` without also raising `IRONFLOW_MAX_CONVERSION_NODES` (or the reverse) mostly just relocates where an oversized workbook fails.

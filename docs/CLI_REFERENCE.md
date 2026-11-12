@@ -1224,7 +1224,7 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_MAX_XLSX_ARCHIVE_METADATA_BYTES` | `8388608` | Maximum cumulative XLSX central-directory filename, extra-field, file/archive-comment, and ZIP64 end-record extension bytes, checked without materializing those fields before ZIP/Calamine construction |
 | `IRONFLOW_MAX_XLSX_ROWS` | `50000` | Highest one-based row position accepted in one sheet by `extract_xlsx`; sparse rows do not bypass it |
 | `IRONFLOW_MAX_XLSX_CELLS` | `33000` | Maximum total cells across every sheet one `extract_xlsx` call extracts |
-| `IRONFLOW_MAX_XLSX_OUTPUT_BYTES` | `52428800` | Maximum cumulative decoded/result bytes for one `extract_xlsx` call and maximum compressed/uncompressed size of one workbook part; repeated shared-string references are charged per use |
+| `IRONFLOW_MAX_XLSX_OUTPUT_BYTES` | `52428800` | Maximum cumulative decoded/result bytes for one `extract_xlsx` call and maximum compressed/uncompressed size of one workbook part; repeated shared-string references are charged per use, and so is the style table that opening the workbook builds from `styles.xml` |
 | `IRONFLOW_MAX_DETACHED_SUBWORKFLOWS` | `64` | Process-wide limit for detached `subworkflow` executions |
 | `IRONFLOW_MAX_REPEAT_ITERATIONS` | `128` | Maximum `repeat_subworkflow` iterations requested by one node; valid range is 1–1024 |
 | `IRONFLOW_MCP_SESSION_CACHE_SIZE` | `1024` | Maximum live MCP session handles; least-recently-used overflow sessions are closed |

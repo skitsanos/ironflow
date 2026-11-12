@@ -2,5 +2,28 @@
 # 2026-09-28 release review (IF-040). Trust-store fixes must remain in the
 # resolved dependency graph, including rustls-webpki >= 0.103.16.
 # Keep the audit fail-closed; do not reintroduce exceptions without review.
+#
+# One reviewed exception is active (IF-173, reviewed 2026-11-12):
+#
+# RUSTSEC-2026-0459 (CVE-2026-119375), libsqlite3-sys 0.37.0, bundled SQLite
+# 3.51.3. SQLite before 3.54.0 can return uninitialized page-cache memory when
+# a database is opened together with a crafted sibling `-wal` file.
+#
+# Why it is not fixed: the fix is libsqlite3-sys >= 0.39.0, and the newest
+# published sqlx-sqlite (0.9.0) requires `<0.38.0`. sqlx `main` accepts
+# `<0.40.0` but is unreleased.
+#
+# Exposure: an attacker must write both the database and its `-wal` file, and
+# IronFlow must then open them. The state and event stores live in an
+# owner-only (0700) directory (IF-163). The exposed path is a `db_query` or
+# `db_exec` flow whose `connection` names a SQLite file that a less trusted
+# party could have written; its rows could then carry stale process memory.
+# docs/SECURITY.md holds the operator guidance.
+#
+# Exit: remove this entry when a published sqlx release resolves
+# libsqlite3-sys >= 0.39.0. scripts/tests/repository_policy.test.ts fails as
+# soon as the lockfile holds a fixed version while the entry remains, and
+# whenever a second entry appears. Review again by 2026-12-12 if no such
+# release exists.
 [advisories]
-ignore = []
+ignore = ["RUSTSEC-2026-0459"]

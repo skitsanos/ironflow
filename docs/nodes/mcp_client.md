@@ -75,6 +75,16 @@ MCP `tools` capability.
 - A Streamable HTTP session retains its negotiated version, transport-managed
   headers, and server-issued session ID internally. Request responses may be
   `application/json` or `text/event-stream` as defined by MCP 2025-11-25.
+- Streamable HTTP responses are bounded before they are held in memory. One
+  `application/json` response may carry at most 16 MiB (16,777,216 bytes), the
+  body of a non-2xx response at most 64 KiB, and one `text/event-stream` event
+  at most 16 MiB. Bytes are counted while streaming, after decompression. A
+  JSON response that declares or reaches a larger size fails the action with
+  `HTTP response body exceeded the maximum size of 16777216 bytes` and is not
+  read to the end; an oversized error body is discarded and the failure
+  reports the HTTP status instead. The limits come from the MCP client library
+  (`rmcp` 3.9.0 or later) and are not configurable. See
+  [IF-173](../issues/IF-173.md).
 - Sessions are process-local. A handle persisted in run context cannot restore
   a session after IronFlow restarts.
 - Call `close` after the final operation. For stdio, shutdown closes stdin,

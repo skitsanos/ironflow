@@ -82,6 +82,35 @@ describe("repository integration policy", () => {
     expect(manifest).not.toContain("tls-native-tls");
   });
 
+  test("the one audit exception lasts only while no fixed SQLite binding resolves", async () => {
+    // IF-173: RUSTSEC-2026-0459 is fixed in libsqlite3-sys 0.39.0, which the
+    // newest published sqlx-sqlite cannot resolve. The exception must go as
+    // soon as the lockfile holds a fixed version, and no other may join it.
+    const { advisories } = Bun.TOML.parse(await read(".cargo/audit.toml")) as { advisories: { ignore: string[] } };
+    const locked = (await read("Cargo.lock")).match(/name = "libsqlite3-sys"\nversion = "(\d+)\.(\d+)\.\d+"/);
+    expect(locked).not.toBeNull();
+    const fixed = Number(locked![1]) > 0 || Number(locked![2]) >= 39;
+    expect(advisories.ignore).toEqual(fixed ? [] : ["RUSTSEC-2026-0459"]);
+  });
+
+  test("a scheduled run audits the default branch and runs no other job", async () => {
+    // IF-173: advisories are published against released code, so the audit and
+    // license gates also run on a schedule. Every other job must opt out, or a
+    // job added later would run the whole suite every night.
+    const workflow = Bun.YAML.parse(await read(".github/workflows/ci.yml")) as {
+      on: { schedule?: Array<{ cron: string }> };
+      jobs: Record<string, { if?: string; steps: Array<{ run?: string }> }>;
+    };
+    expect(workflow.on.schedule).toHaveLength(1);
+    const scheduled = Object.entries(workflow.jobs)
+      .filter(([, job]) => !job.if?.includes("github.event_name != 'schedule'"))
+      .map(([name]) => name);
+    expect(scheduled).toEqual(["audit"]);
+    const commands = workflow.jobs.audit.steps.map((step) => step.run);
+    expect(commands).toContain("cargo audit --deny warnings");
+    expect(commands).toContain("bun --no-env-file scripts/check_licenses.ts");
+  });
+
   test("optional features stay real and every full variant carries all of them", async () => {
     const { dependencies, features } = Bun.TOML.parse(await read("Cargo.toml")) as Manifest;
     // IF-164: pdf-render gates the Pdfium dependency; cjk-fonts is opt-in.
