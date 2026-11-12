@@ -340,7 +340,7 @@ offline flows and the local MCP stdio example also run from a disposable
 working directory as part of:
 
 ```bash
-cargo test --test test_example_fixtures
+cargo test --test examples test_example_fixtures::
 ```
 
 This runtime gate checks real PDF, DOCX, PPTX, image, VTT, SRT, and
