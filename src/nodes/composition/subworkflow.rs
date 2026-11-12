@@ -5,8 +5,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use tokio::sync::Semaphore;
 
-use crate::engine::executor::ExecutionOverlay;
-use crate::engine::executor::WorkflowEngine;
+use crate::engine::executor::{ChildLink, ExecutionOverlay, WorkflowEngine};
 use crate::engine::types::{Context, NodeOutput, RunStatus};
 use crate::lua::runtime::LuaRuntime;
 use crate::nodes::{Node, NodeRegistry};
@@ -57,6 +56,9 @@ impl Node for SubworkflowNode {
 
     #[allow(clippy::too_many_lines)] // One child-run lifecycle: admission, load, execution and result projection.
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
+        // Refused before the child is resolved or loaded, so a flow that
+        // calls itself stops at the ceiling instead of descending (IF-188).
+        let link = ChildLink::for_current_step("subworkflow")?;
         let flow_file = config
             .get("flow")
             .and_then(|v| v.as_str())
@@ -102,8 +104,8 @@ impl Node for SubworkflowNode {
             PathBuf::from(flow_dir).join(flow_file)
         };
 
-        let flow_path_str = flow_path
-            .canonicalize()
+        let flow_path_str = tokio::fs::canonicalize(&flow_path)
+            .await
             .map_err(|e| {
                 anyhow::anyhow!("subworkflow: cannot find '{}': {}", flow_path.display(), e)
             })?
@@ -150,7 +152,7 @@ impl Node for SubworkflowNode {
         if wait {
             let engine = WorkflowEngine::new(child_registry, store, None);
             let run_info = engine
-                .execute_child(&flow, sub_ctx, execution_overlay)
+                .execute_child(&flow, sub_ctx, execution_overlay, &link)
                 .await?;
 
             let child_succeeded = matches!(run_info.status, RunStatus::Success);
@@ -240,7 +242,7 @@ impl Node for SubworkflowNode {
                 let _permit = permit;
                 let engine = WorkflowEngine::new(child_registry, store, None);
                 let result = engine
-                    .start_with_execution_overlay(&flow, sub_ctx, execution_overlay)
+                    .start_detached_child(&flow, sub_ctx, execution_overlay, link)
                     .await;
                 let result = match result {
                     Ok(handle) => handle.wait().await.map(|_| ()),

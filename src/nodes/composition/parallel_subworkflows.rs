@@ -1,18 +1,20 @@
-use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::{Context as AnyhowContext, Result};
+use anyhow::Result;
 use async_trait::async_trait;
 
-use crate::engine::executor::ExecutionOverlay;
+use crate::engine::executor::{ChildLink, ExecutionOverlay};
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::{Node, NodeRegistry};
 
-use super::parallel_runner::{ChildRun, run_children};
+use super::parallel_runner::{FanOut, run_children};
 use crate::util::node_config::config_usize_strict;
 
 mod inputs;
+mod plan;
+pub(super) use inputs::FlowEntry;
 use inputs::resolve_flow_entries;
+use plan::plan_children;
 
 /// Hard cap on `max_concurrent` to guard against pathological config values.
 const MAX_PARALLEL_SUBWORKFLOWS_CAP: usize = 1024;
@@ -39,8 +41,8 @@ impl Node for ParallelSubworkflowsNode {
         "Execute multiple subworkflows concurrently and collect their results"
     }
 
-    #[allow(clippy::too_many_lines)] // One bounded fan-out lifecycle over child runs and their result projection.
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
+        let link = ChildLink::for_current_step("parallel_subworkflows")?;
         let entries = resolve_flow_entries(config, ctx)?;
 
         let fail_fast = match config
@@ -74,76 +76,19 @@ impl Node for ParallelSubworkflowsNode {
         }
         let max_concurrent = max_concurrent.min(MAX_PARALLEL_SUBWORKFLOWS_CAP);
 
-        let child_registry = self.child_registry();
-        let execution_overlay = ExecutionOverlay::current();
+        // Every flow path is resolved before any child starts, so a missing
+        // flow still fails the step without running its siblings.
+        let flow_dir = ctx.get("_flow_dir").and_then(|v| v.as_str());
+        let plans = plan_children(entries, flow_dir).await?;
+        let flow_count = plans.len();
 
-        // Resolve flow_dir from context
-        let flow_dir = ctx
-            .get("_flow_dir")
-            .and_then(|v| v.as_str())
-            .map(String::from);
-
-        let mut children = Vec::with_capacity(entries.len());
-        let mut flows = Vec::with_capacity(entries.len());
-
-        for (idx, entry) in entries.into_iter().enumerate() {
-            let flow_file = entry
-                .config
-                .get("flow")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "parallel_subworkflows: each flow entry requires a 'flow' field (index {})",
-                        idx
-                    )
-                })?
-                .to_string();
-
-            let (flow_cfg, mut sub_ctx) = entry.into_parts(ctx);
-
-            // Resolve flow path
-            let flow_path = if PathBuf::from(&flow_file).is_absolute() {
-                PathBuf::from(&flow_file)
-            } else {
-                let dir = flow_dir.as_deref().ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "parallel_subworkflows: cannot resolve relative path '{}' — _flow_dir not set",
-                        flow_file
-                    )
-                })?;
-                PathBuf::from(dir).join(&flow_file)
-            };
-
-            let flow_path_str = flow_path
-                .canonicalize()
-                .with_context(|| {
-                    format!(
-                        "parallel_subworkflows: cannot find '{}'",
-                        flow_path.display()
-                    )
-                })?
-                .to_string_lossy()
-                .to_string();
-
-            // Set _flow_dir for nested subworkflows
-            if let Some(parent) = PathBuf::from(&flow_path_str).parent() {
-                sub_ctx.insert(
-                    "_flow_dir".to_string(),
-                    serde_json::Value::String(parent.to_string_lossy().to_string()),
-                );
-            }
-            execution_overlay.strip_from_context(&mut sub_ctx);
-
-            flows.push(flow_cfg);
-            children.push(ChildRun {
-                index: idx,
-                flow_path: flow_path_str,
-                context: sub_ctx,
-                execution_overlay: execution_overlay.clone(),
-            });
-        }
-
-        let completed = run_children(children, &flows, child_registry, max_concurrent).await?;
+        let fan_out = FanOut {
+            parent: ctx,
+            registry: self.child_registry(),
+            overlay: ExecutionOverlay::current(),
+            link,
+        };
+        let completed = run_children(plans, &fan_out, max_concurrent).await?;
         let results = completed.results;
         let errors = completed.errors;
 
@@ -162,7 +107,7 @@ impl Node for ParallelSubworkflowsNode {
         output.insert(output_key.to_string(), serde_json::Value::Array(results));
         output.insert(
             format!("{}_count", output_key),
-            serde_json::Value::Number(flows.len().into()),
+            serde_json::Value::Number(flow_count.into()),
         );
         output.insert(
             format!("{}_errors", output_key),

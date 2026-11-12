@@ -21,7 +21,7 @@ impl ChildRunResult {
             && !summary.is_empty()
         {
             reason.push_str(": ");
-            reason.push_str(summary);
+            reason.push_str(super::nesting::refusal_in(summary).unwrap_or(summary));
         }
         reason
     }

@@ -158,6 +158,8 @@ pub(crate) const ALL: &[&Limit] = &[
     &xlsx::MAX_XLSX_OUTPUT_BYTES,
     &xlsx::MAX_XLSX_ARCHIVE_METADATA_BYTES,
     &process::MAX_DETACHED_SUBWORKFLOWS,
+    &process::MAX_SUBWORKFLOW_DEPTH,
+    &process::MAX_PARALLEL_SUBWORKFLOWS,
     &process::OAUTH_CACHE_SIZE,
     &process::CACHE_MAX_ENTRIES,
     &process::MCP_SESSION_CACHE_SIZE,

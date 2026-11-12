@@ -1,12 +1,20 @@
-//! Process-wide capacities that nodes read once into a `OnceLock` or
-//! `LazyLock`. Startup validation is what makes a typo visible for these: by
-//! the time a node reads one, the value is already baked into the process.
+//! Process-wide capacities. Most are read once into a `OnceLock` or
+//! `LazyLock`, so startup validation is what makes a typo visible: by the time
+//! a node reads one, the value is already baked into the process. The child
+//! workflow ceilings are read on each use.
 
 use super::Limit;
 
 /// Detached `subworkflow` executions admitted at once.
 pub(crate) const MAX_DETACHED_SUBWORKFLOWS: Limit =
     Limit::positive("IRONFLOW_MAX_DETACHED_SUBWORKFLOWS", 64);
+/// Child workflow levels below a top-level run (IF-188). A waiting, repeated,
+/// parallel, tool or detached child at a deeper level is refused.
+pub(crate) const MAX_SUBWORKFLOW_DEPTH: Limit =
+    Limit::positive("IRONFLOW_MAX_SUBWORKFLOW_DEPTH", 16);
+/// Child flows one `parallel_subworkflows` call may fan out to (IF-188).
+pub(crate) const MAX_PARALLEL_SUBWORKFLOWS: Limit =
+    Limit::positive("IRONFLOW_MAX_PARALLEL_SUBWORKFLOWS", 1_024);
 /// Distinct OAuth client tuples remembered across the process.
 pub(crate) const OAUTH_CACHE_SIZE: Limit = Limit::positive("IRONFLOW_OAUTH_CACHE_SIZE", 128);
 /// Entries kept in the process-global `cache_set` / `cache_get` memory backend.
@@ -24,6 +32,14 @@ fn capacity(limit: &Limit) -> usize {
 
 pub fn max_detached_subworkflows() -> usize {
     capacity(&MAX_DETACHED_SUBWORKFLOWS)
+}
+
+pub fn max_subworkflow_depth() -> usize {
+    capacity(&MAX_SUBWORKFLOW_DEPTH)
+}
+
+pub fn max_parallel_subworkflows() -> usize {
+    capacity(&MAX_PARALLEL_SUBWORKFLOWS)
 }
 
 pub fn oauth_cache_size() -> usize {

@@ -133,6 +133,49 @@ When `wait = false`:
 - `subworkflow_name` — the name of the subworkflow that was launched.
 - `subworkflow_async` — set to `true`, indicating the subworkflow is running in the background.
 
+## Nesting limit and waiting
+
+A child flow may start children of its own. Each child run is one level below
+the run that started it, and a child more than `IRONFLOW_MAX_SUBWORKFLOW_DEPTH`
+levels (default `16`) below the top-level run is refused. The limit covers
+every composition node (`subworkflow`, `parallel_subworkflows`,
+`repeat_subworkflow` and `tool_dispatch`) in any combination, and a detached
+`wait = false` child keeps the level of the step that started it, so a flow
+that calls itself, directly or through other flows, fails instead of
+descending until memory runs out. `ironflow validate` does not load child
+flows and cannot report such a cycle.
+
+The refusal is an error of the step that tried to start the child:
+
+```text
+subworkflow: child workflow nesting depth 17 exceeds the limit of 16 (IRONFLOW_MAX_SUBWORKFLOW_DEPTH); check for a flow that calls itself
+```
+
+It is raised before the child flow is resolved or loaded, and `on_error =
+"ignore"` on that step does not suppress it. The run that contains the step
+fails like any other, so a level further up may tolerate it with its own
+`on_error = "ignore"`. Each level reports the refusal alone in its error text,
+not the chain of sixteen wrapped child failures that led to it. Raise the
+limit only for a design that really nests that deeply: every level holds a
+loaded flow, its context and a run coordinator for as long as its child runs.
+The limit bounds depth, not the total number of children a nested fan-out
+starts.
+
+A waiting child is part of the step that started it. When that step times
+out, or its run is cancelled or reaches `IRONFLOW_MAX_RUN_SECONDS`, the child
+is cancelled, and the step does not end until the child run has stopped: its
+tracked blocking workers have exited, including in children it started
+itself, and it has finalized. Until then the step's `on_error` handler does
+not start, dependent steps do not run, the run is not finalized, and its task
+and run admission stay held, exactly as for the same node placed directly in
+the parent. A worker that cannot be interrupted therefore delays the timeout
+result by the time it needs to return. A `wait = false` child is independent
+by contract and never holds the step that launched it.
+
+[`nesting_limit.lua`](../../examples/11-subworkflow/nesting_limit.lua) calls
+itself, tolerates the refusal one level above the ceiling and reports it to the
+top-level run.
+
 ## Examples
 
 [`if135_child_error_details.lua`](../../examples/11-subworkflow/if135_child_error_details.lua)

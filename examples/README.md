@@ -150,6 +150,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **literal_item_child.lua** — Reusable item/index echo child for the literal-input example
 - **parallel_result_metadata.lua** — Verify authoritative status for static/dynamic children whose output uses metadata field names
 - **metadata_child.lua** — Reusable successful/failing child for the parallel metadata example
+- **nesting_limit.lua** — A flow that calls itself is refused at the child workflow nesting limit and reports the refusal
 - **repeat_subworkflow.lua** — Repeat a child flow with explicit carried state and a finite iteration bound
 - **repeat_counter_subworkflow.lua** — Reusable counter child used by the repeat example
 - **greet.lua** — Simple reusable helper flow used by the subworkflow examples

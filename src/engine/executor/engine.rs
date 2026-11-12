@@ -12,6 +12,7 @@ use crate::storage::{RunLease, StateStore};
 
 use super::coordinator::RunCoordinator;
 use super::handle::{ChildRunResult, RunHandle};
+use super::nesting::ChildLink;
 use super::overlay::ExecutionOverlay;
 
 const EVENT_PUBLISH_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(500);
@@ -87,17 +88,22 @@ impl WorkflowEngine {
         execution_overlay: ExecutionOverlay,
     ) -> Result<RunHandle> {
         let run_id = Uuid::new_v4().to_string();
-        self.start_new_with_run_id(flow, initial_ctx, execution_overlay, run_id, false)
+        self.start_new_with_run_id(flow, initial_ctx, execution_overlay, run_id, false, None)
             .await?
             .ok_or_else(|| anyhow::anyhow!("generated workflow run ID already exists"))
     }
 
     /// Return live child values only after execution, finalization and worker drain.
+    ///
+    /// The child registers with the worker sets of the step that captured
+    /// `link`, so that step's timeout or cancellation cannot release its
+    /// capacity or start a handler while the child still has physical work.
     pub(crate) async fn execute_child(
         &self,
         flow: &FlowDefinition,
         initial_ctx: Context,
         execution_overlay: ExecutionOverlay,
+        link: &ChildLink,
     ) -> Result<ChildRunResult> {
         self.start_new_with_run_id(
             flow,
@@ -105,11 +111,28 @@ impl WorkflowEngine {
             execution_overlay,
             Uuid::new_v4().to_string(),
             true,
+            Some(link.clone()),
         )
         .await?
         .ok_or_else(|| anyhow::anyhow!("generated child workflow run ID already exists"))?
         .wait_child_cancel_on_drop()
         .await
+    }
+
+    /// Start a child that the starting step does not wait for. It keeps its
+    /// nesting level, so a detached chain is bounded like a waiting one.
+    pub(crate) async fn start_detached_child(
+        &self,
+        flow: &FlowDefinition,
+        initial_ctx: Context,
+        execution_overlay: ExecutionOverlay,
+        link: ChildLink,
+    ) -> Result<RunHandle> {
+        let run_id = Uuid::new_v4().to_string();
+        let link = Some(link.detached());
+        self.start_new_with_run_id(flow, initial_ctx, execution_overlay, run_id, false, link)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("generated workflow run ID already exists"))
     }
 
     /// Atomically start a caller-identified run. `None` means another process
@@ -126,6 +149,7 @@ impl WorkflowEngine {
             ExecutionOverlay::default(),
             run_id,
             false,
+            None,
         )
         .await
     }
@@ -137,6 +161,7 @@ impl WorkflowEngine {
         execution_overlay: ExecutionOverlay,
         run_id: String,
         retain_child_result: bool,
+        child_link: Option<ChildLink>,
     ) -> Result<Option<RunHandle>> {
         // Resolve limits before validating the flow or creating durable state.
         // Embedded callers receive the same fail-closed behavior as the CLI.
@@ -204,7 +229,10 @@ impl WorkflowEngine {
         );
 
         Ok(Some(
-            coordinator.with_child_result(retain_child_result).spawn(),
+            coordinator
+                .with_child_result(retain_child_result)
+                .with_child_link(child_link)
+                .spawn(),
         ))
     }
 

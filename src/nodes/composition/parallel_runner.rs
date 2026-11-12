@@ -1,20 +1,27 @@
 //! Structured execution and result collection for parallel subworkflows.
 
-use std::collections::HashMap;
+use std::panic::AssertUnwindSafe;
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
+use futures_util::FutureExt as _;
+use futures_util::stream::{self, StreamExt as _};
 use serde_json::{Map, Value};
-use tokio::sync::Semaphore;
-use tokio::task::JoinSet;
 
-use crate::engine::executor::{ChildRunResult, ExecutionOverlay, WorkflowEngine};
+use crate::engine::executor::{ChildLink, ChildRunResult, ExecutionOverlay, WorkflowEngine};
 use crate::engine::types::{Context, RunStatus};
 use crate::lua::runtime::LuaRuntime;
 use crate::nodes::NodeRegistry;
 use crate::storage::StateStore;
 use crate::storage::null_store::NullStateStore;
-use crate::util::execution::{current_execution_deadline, with_execution_deadline};
+
+use super::parallel_subworkflows::FlowEntry;
+
+#[cfg(test)]
+mod probe;
+#[cfg(test)]
+mod tests;
 
 const RESULT_METADATA_KEYS: [&str; 3] = ["success", "flow", "error"];
 
@@ -29,11 +36,20 @@ pub(super) fn validate_child_output_key(key: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-pub(super) struct ChildRun {
+/// A child that has not started: where its flow is and how to build its
+/// context. The context itself does not exist yet.
+pub(super) struct ChildPlan {
     pub(super) index: usize,
-    pub(super) flow_path: String,
-    pub(super) context: Context,
-    pub(super) execution_overlay: ExecutionOverlay,
+    pub(super) flow_path: Arc<str>,
+    pub(super) entry: FlowEntry,
+}
+
+/// What every child of one fan-out shares.
+pub(super) struct FanOut<'a> {
+    pub(super) parent: &'a Context,
+    pub(super) registry: Arc<NodeRegistry>,
+    pub(super) overlay: ExecutionOverlay,
+    pub(super) link: ChildLink,
 }
 
 pub(super) struct ParallelRunOutput {
@@ -42,87 +58,49 @@ pub(super) struct ParallelRunOutput {
 }
 
 type ChildResult = Result<(String, ChildRunResult)>;
-type ChildTaskOutput = (usize, ChildResult);
 
+/// Run the children with at most `max_concurrent` alive at once.
+///
+/// A child future is created, and its context built, only when one of the
+/// `max_concurrent` slots is free, so live child contexts are proportional to
+/// the concurrency and not to the number of children (IF-188). The children
+/// are polled on the calling step's task: dropping this future drops every
+/// started child wait, which cancels that child.
 pub(super) async fn run_children(
-    children: Vec<ChildRun>,
-    flow_configs: &[Value],
-    registry: Arc<NodeRegistry>,
+    plans: Vec<ChildPlan>,
+    fan_out: &FanOut<'_>,
     max_concurrent: usize,
 ) -> Result<ParallelRunOutput> {
-    let semaphore = Arc::new(Semaphore::new(max_concurrent));
-    let deadline = current_execution_deadline();
-    let mut tasks: JoinSet<ChildTaskOutput> = JoinSet::new();
-    let mut task_indices = HashMap::with_capacity(children.len());
+    let flow_configs: Vec<Arc<Value>> =
+        plans.iter().map(|plan| plan.entry.config.clone()).collect();
+    let mut results: Vec<Option<Value>> = vec![None; plans.len()];
+    let mut errors: Vec<Option<String>> = vec![None; plans.len()];
 
-    for child in children {
-        let index = child.index;
-        let registry = registry.clone();
-        let semaphore = semaphore.clone();
-        let abort_handle = tasks.spawn(with_execution_deadline(deadline, async move {
-            let result = run_child(child, registry, semaphore).await;
-            (index, result)
-        }));
-        task_indices.insert(abort_handle.id(), index);
-    }
+    let mut children = stream::iter(plans)
+        .map(|plan| async move {
+            let index = plan.index;
+            let outcome = AssertUnwindSafe(run_child(plan, fan_out))
+                .catch_unwind()
+                .await;
+            (index, outcome)
+        })
+        .buffer_unordered(max_concurrent);
 
-    collect_children(&mut tasks, task_indices, flow_configs).await
-}
-
-#[allow(clippy::expect_used)] // Infallible: parallel child semaphore cannot be closed.
-async fn run_child(
-    child: ChildRun,
-    registry: Arc<NodeRegistry>,
-    semaphore: Arc<Semaphore>,
-) -> ChildResult {
-    let _permit = semaphore
-        .acquire_owned()
-        .await
-        .expect("parallel child semaphore cannot be closed");
-    let flow = LuaRuntime::load_flow_async(&child.flow_path, &registry).await?;
-    let flow_name = flow.name.clone();
-    let store: Arc<dyn StateStore> = Arc::new(NullStateStore::new());
-    let engine = WorkflowEngine::new(registry, store, None);
-    let run_info = engine
-        .execute_child(&flow, child.context, child.execution_overlay)
-        .await?;
-    Ok((flow_name, run_info))
-}
-
-async fn collect_children(
-    tasks: &mut JoinSet<ChildTaskOutput>,
-    mut task_indices: HashMap<tokio::task::Id, usize>,
-    flow_configs: &[Value],
-) -> Result<ParallelRunOutput> {
-    let mut results: Vec<Option<Value>> = vec![None; flow_configs.len()];
-    let mut errors: Vec<Option<String>> = vec![None; flow_configs.len()];
-
-    while let Some(joined) = tasks.join_next_with_id().await {
-        match joined {
-            Ok((task_id, (index, Ok((name, run_info))))) => {
-                task_indices.remove(&task_id);
-                let (entry, error) = success_entry(&flow_configs[index], index, name, run_info)?;
-                results[index] = Some(entry);
-                errors[index] = error;
-            }
-            Ok((task_id, (index, Err(error)))) => {
-                task_indices.remove(&task_id);
+    while let Some((index, outcome)) = children.next().await {
+        let flow_config = flow_configs[index].as_ref();
+        let (entry, error) = match outcome {
+            Ok(Ok((name, run_info))) => success_entry(flow_config, index, name, run_info)?,
+            Ok(Err(error)) => {
                 let message = format!("Subworkflow at index {index} failed: {error}");
-                results[index] = Some(failure_entry(&flow_configs[index], &message));
-                errors[index] = Some(message);
+                (failure_entry(flow_config, &message), Some(message))
             }
-            Err(error) => {
-                let index = task_indices.remove(&error.id()).ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "parallel_subworkflows: lost index for failed child task {}",
-                        error.id()
-                    )
-                })?;
-                let message = format!("Subworkflow task at index {index} panicked: {error}");
-                results[index] = Some(failure_entry(&flow_configs[index], &message));
-                errors[index] = Some(message);
+            Err(_) => {
+                let message = format!("Subworkflow task at index {index} panicked");
+                (failure_entry(flow_config, &message), Some(message))
             }
-        }
+        };
+        results[index] = Some(entry);
+        errors[index] = error;
     }
 
     Ok(ParallelRunOutput {
@@ -132,6 +110,30 @@ async fn collect_children(
             .collect(),
         errors: errors.into_iter().flatten().collect(),
     })
+}
+
+async fn run_child(plan: ChildPlan, fan_out: &FanOut<'_>) -> ChildResult {
+    #[cfg(test)]
+    let _started = probe::child_started();
+    let flow = LuaRuntime::load_flow_async(&plan.flow_path, &fan_out.registry).await?;
+    let flow_name = flow.name.clone();
+
+    let mut context = plan.entry.child_context(fan_out.parent);
+    // Set _flow_dir for nested subworkflows.
+    if let Some(parent) = Path::new(plan.flow_path.as_ref()).parent() {
+        context.insert(
+            "_flow_dir".to_string(),
+            Value::String(parent.to_string_lossy().to_string()),
+        );
+    }
+    fan_out.overlay.strip_from_context(&mut context);
+
+    let store: Arc<dyn StateStore> = Arc::new(NullStateStore::new());
+    let engine = WorkflowEngine::new(fan_out.registry.clone(), store, None);
+    let run_info = engine
+        .execute_child(&flow, context, fan_out.overlay.clone(), &fan_out.link)
+        .await?;
+    Ok((flow_name, run_info))
 }
 
 fn success_entry(

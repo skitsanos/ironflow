@@ -180,6 +180,7 @@
         "examples/11-subworkflow/literal_item_child.lua",
         "examples/11-subworkflow/live_child_results.lua",
         "examples/11-subworkflow/metadata_child.lua",
+        "examples/11-subworkflow/nesting_limit.lua",
         "examples/11-subworkflow/parallel_literal_inputs.lua",
         "examples/11-subworkflow/parallel_result_metadata.lua",
         "examples/11-subworkflow/parallel_subworkflows.lua",

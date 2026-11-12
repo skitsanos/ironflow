@@ -7,7 +7,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts check`.
 
 - Total findings: 209
-- Active findings: 19
+- Active findings: 18
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
 | ID | Priority | Status | Area | Summary |
@@ -199,7 +199,7 @@ priority, area, and title. The registry is generated with
 | [IF-185](./IF-185.md) | P2 | Resolved | Files/write_file | Staged writers publish mode 0600 and write_file append loses concurrent writes |
 | [IF-186](./IF-186.md) | P2 | Open | Interpolation | File-source helper interpolates twice and lets write_file artifact inputs name local paths |
 | [IF-187](./IF-187.md) | P2 | Resolved | Lua DSL | step_if and if_node comparisons against true, false and nil are always false |
-| [IF-188](./IF-188.md) | P2 | Open | Workflow composition | Child workflows have no nesting limit and outlive a timed-out parent step |
+| [IF-188](./IF-188.md) | P2 | Resolved | Workflow composition | Child workflows have no nesting limit and outlive a timed-out parent step |
 | [IF-189](./IF-189.md) | P2 | Open | Resource safety | s3_list_objects, json_parse and task error text materialize without a bound |
 | [IF-190](./IF-190.md) | P2 | Open | ZIP/admission | ZIP preflight and the archive reader can select different end records |
 | [IF-191](./IF-191.md) | P2 | Open | Nodes/security | block_private_network passes CGNAT, NAT64 and other internal address ranges |

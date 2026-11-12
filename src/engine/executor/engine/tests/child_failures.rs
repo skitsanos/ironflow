@@ -53,6 +53,7 @@ async fn child_failures_exclude_recovered_tasks_even_when_history_still_marks_th
                 ExecutionOverlay::default(),
                 id.clone(),
                 true,
+                None,
             )
             .await
             .unwrap()
@@ -141,7 +142,12 @@ async fn child_failures_are_redacted_through_every_composition_consumer() {
             }]),
         )]);
         let result = engine
-            .execute_child(&flow, ctx, overlay.clone())
+            .execute_child(
+                &flow,
+                ctx,
+                overlay.clone(),
+                &ChildLink::for_current_step("test").unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(
@@ -199,6 +205,7 @@ async fn cancelled_child_has_no_task_failure_summary() {
             ExecutionOverlay::default(),
             Uuid::new_v4().to_string(),
             true,
+            None,
         )
         .await
         .unwrap()

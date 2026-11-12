@@ -123,6 +123,16 @@ the compiled absolute ceiling of `1024`. A node may choose a lower
 current state and final child context; payload growth inside that state remains
 the workflow author's responsibility.
 
+Each iteration's child counts towards the
+[child workflow nesting limit](subworkflow.md#nesting-limit-and-waiting)
+(`IRONFLOW_MAX_SUBWORKFLOW_DEPTH`, default `16`): a child flow that repeats
+itself is refused at that depth with `repeat_subworkflow: child workflow
+nesting depth 17 exceeds the limit of 16 (IRONFLOW_MAX_SUBWORKFLOW_DEPTH);
+check for a flow that calls itself`, whatever `max_iterations` allows. When
+the step times out or its run is cancelled, the active iteration is cancelled
+and the step does not end, start its `on_error` handler or release its
+admission until that child has stopped, tracked blocking workers included.
+
 The inspection cap is not an execution-memory limit. Existing Lua
 memory/conversion limits, parent timeouts, and cancellation remain enforced;
 use artifact references when carried payloads would otherwise grow too large.

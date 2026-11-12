@@ -94,6 +94,27 @@ compatibility wrapper that starts the run and waits for the handle.
   attempts and retry backoffs. Structured child runs use cancel-on-drop waits,
   so a parent timeout does not silently detach them. Explicitly detached
   `subworkflow(wait = false)` work remains independent by contract.
+- A waiting child run is physical work of the step that started it (IF-188).
+  A child is coordinated on its own task, where the step's task-local worker
+  sets are not visible, so the composition node captures a `ChildLink` on its
+  own task and the child coordinator registers with the step's attempt and
+  run worker sets before it is spawned. It releases that registration only
+  after it has drained its own tracked workers, which include its children,
+  and finalized. A step timeout, run cancellation or run deadline therefore
+  cancels the child at once but does not record the step result, start its
+  `on_error` handler, finalize the run or release task and run admission
+  until the child has stopped, as for the same node placed directly in the
+  parent.
+- The same link carries the child's nesting level. A child more than
+  `IRONFLOW_MAX_SUBWORKFLOW_DEPTH` levels (default 16) below its top-level run
+  is refused before its flow is resolved or loaded, for all four composition
+  nodes and for detached children, which keep their level. Every level reports
+  the refusal alone, so it is not lost to the failure-summary cap.
+  `parallel_subworkflows` refuses more than `IRONFLOW_MAX_PARALLEL_SUBWORKFLOWS`
+  entries (default 1024), resolves flow paths off the async worker once per
+  distinct path, and loads a child and builds its context only inside the
+  `max_concurrent` window. The depth limit does not bound the total number of
+  children a nested fan-out starts.
 - Controlled node failures produce `Failed`. Executor panics, task-state write
   failures, and other infrastructure faults produce `Stalled`.
 - One finalizer repairs every initialized non-terminal task, persists the final

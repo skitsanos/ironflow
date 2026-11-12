@@ -4,7 +4,7 @@ use std::sync::Arc;
 use anyhow::{Context as AnyhowContext, Result};
 use serde_json::{Map, Value};
 
-use crate::engine::executor::{ExecutionOverlay, WorkflowEngine};
+use crate::engine::executor::{ChildLink, ExecutionOverlay, WorkflowEngine};
 use crate::engine::types::{Context, RunStatus};
 use crate::lua::runtime::LuaRuntime;
 use crate::nodes::NodeRegistry;
@@ -19,13 +19,29 @@ pub(super) struct CallOutcome {
     pub(super) error: Option<String>,
 }
 
-pub(super) async fn dispatch_call(
-    call: Value,
-    tools: &Map<String, Value>,
-    parent_ctx: &Context,
-    child_registry: &Arc<NodeRegistry>,
-    overlay: &ExecutionOverlay,
-) -> Result<CallOutcome> {
+/// What every call of one `tool_dispatch` step shares.
+pub(super) struct Dispatch<'a> {
+    pub(super) tools: &'a Map<String, Value>,
+    pub(super) parent_ctx: &'a Context,
+    pub(super) child_registry: Arc<NodeRegistry>,
+    pub(super) overlay: ExecutionOverlay,
+    pub(super) link: ChildLink,
+}
+
+impl Dispatch<'_> {
+    pub(super) async fn call(&self, call: Value) -> Result<CallOutcome> {
+        dispatch_call(call, self).await
+    }
+}
+
+async fn dispatch_call(call: Value, dispatch: &Dispatch<'_>) -> Result<CallOutcome> {
+    let Dispatch {
+        tools,
+        parent_ctx,
+        child_registry,
+        overlay,
+        link,
+    } = dispatch;
     let name = call
         .get("name")
         .and_then(Value::as_str)
@@ -44,7 +60,7 @@ pub(super) async fn dispatch_call(
         .get("flow")
         .and_then(Value::as_str)
         .ok_or_else(|| anyhow::anyhow!("tool_dispatch: tool '{}' mapping requires 'flow'", name))?;
-    let flow_path = resolve_flow_path(flow_file, parent_ctx)?;
+    let flow_path = resolve_flow_path(flow_file, parent_ctx).await?;
     let mut child_ctx = build_child_context(mapping, parent_ctx, &call);
     if let Some(parent) = PathBuf::from(&flow_path).parent() {
         child_ctx.insert(
@@ -59,7 +75,7 @@ pub(super) async fn dispatch_call(
     let store: Arc<dyn crate::storage::StateStore> = Arc::new(NullStateStore::new());
     let engine = WorkflowEngine::new(child_registry.clone(), store, None);
     let run_info = engine
-        .execute_child(&flow, child_ctx, overlay.clone())
+        .execute_child(&flow, child_ctx, overlay.clone(), link)
         .await?;
     let succeeded = matches!(run_info.status, RunStatus::Success);
     let result = result_from_context(&run_info.ctx);
@@ -113,7 +129,7 @@ fn unsupported_outcome(call: Value, call_id: String, name: String) -> CallOutcom
     }
 }
 
-fn resolve_flow_path(flow_file: &str, ctx: &Context) -> Result<String> {
+async fn resolve_flow_path(flow_file: &str, ctx: &Context) -> Result<String> {
     let flow_path = if PathBuf::from(flow_file).is_absolute() {
         PathBuf::from(flow_file)
     } else {
@@ -128,8 +144,8 @@ fn resolve_flow_path(flow_file: &str, ctx: &Context) -> Result<String> {
             })?;
         PathBuf::from(flow_dir).join(flow_file)
     };
-    Ok(flow_path
-        .canonicalize()
+    Ok(tokio::fs::canonicalize(&flow_path)
+        .await
         .with_context(|| format!("tool_dispatch: cannot find '{}'", flow_path.display()))?
         .to_string_lossy()
         .to_string())

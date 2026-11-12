@@ -7,7 +7,7 @@ use anyhow::{Context as AnyhowContext, Result};
 use async_trait::async_trait;
 use serde_json::{Map, Value};
 
-use crate::engine::executor::{ChildRunResult, ExecutionOverlay, WorkflowEngine};
+use crate::engine::executor::{ChildLink, ChildRunResult, ExecutionOverlay, WorkflowEngine};
 use crate::engine::types::{Context, FlowDefinition, NodeOutput, RunStatus};
 use crate::lua::runtime::LuaRuntime;
 use crate::nodes::{Node, NodeRegistry};
@@ -32,6 +32,7 @@ impl Node for RepeatSubworkflowNode {
     }
 
     async fn execute(&self, config: &Value, ctx: &Context) -> Result<NodeOutput> {
+        let link = ChildLink::for_current_step("repeat_subworkflow")?;
         let settings = RepeatConfig::resolve(config, ctx)?;
         let unresolved = settings.unresolved_flow_path(ctx)?;
         let flow_path = tokio::fs::canonicalize(&unresolved)
@@ -59,8 +60,10 @@ impl Node for RepeatSubworkflowNode {
         for iteration in 1..=settings.max_iterations {
             let child_context =
                 iteration_context(&settings, &static_context, state.as_ref(), iteration);
-            let run =
-                run_iteration(&flow, child_context, registry.clone(), overlay.clone()).await?;
+            let engine = child_engine(registry.clone());
+            let run = engine
+                .execute_child(&flow, child_context, overlay.clone(), &link)
+                .await?;
             ensure_child_succeeded(&flow, iteration, &run)?;
 
             let completed = completion_value(&settings, iteration, &run.ctx)?;
@@ -112,15 +115,9 @@ fn iteration_context(
     context
 }
 
-async fn run_iteration(
-    flow: &FlowDefinition,
-    context: Context,
-    registry: Arc<NodeRegistry>,
-    overlay: ExecutionOverlay,
-) -> Result<ChildRunResult> {
+fn child_engine(registry: Arc<NodeRegistry>) -> WorkflowEngine {
     let store: Arc<dyn StateStore> = Arc::new(NullStateStore::new());
-    let engine = WorkflowEngine::new(registry, store, None);
-    engine.execute_child(flow, context, overlay).await
+    WorkflowEngine::new(registry, store, None)
 }
 
 fn ensure_child_succeeded(

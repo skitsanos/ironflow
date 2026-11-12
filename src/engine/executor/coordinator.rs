@@ -14,6 +14,7 @@ use crate::storage::event_store::EventStore;
 use crate::util::execution::{CooperativeWorkerSet, with_run_worker_set};
 
 use super::handle::{ChildRunResult, RunHandle};
+use super::nesting::{ChildLink, with_nesting_depth};
 use super::overlay::ExecutionOverlay;
 use super::panic_payload::panic_message;
 use super::signal::{ExecutionOutcome, ExecutionSignal, request_cancellation, stop_requested};
@@ -35,6 +36,7 @@ pub(super) struct RunCoordinator {
     pub(super) metrics: Option<Arc<crate::metrics::Metrics>>,
     pub(super) run_observation: Option<Arc<crate::metrics::RunObservation>>,
     pub(super) retain_child_result: bool,
+    child_link: Option<ChildLink>,
     finalization_timeout: std::time::Duration,
     heartbeat_timing: super::lease::HeartbeatTiming,
 }
@@ -71,6 +73,7 @@ impl RunCoordinator {
             metrics,
             run_observation,
             retain_child_result: false,
+            child_link: None,
             finalization_timeout: FINALIZATION_TIMEOUT,
             heartbeat_timing: super::lease::HeartbeatTiming::new(
                 crate::storage::RUN_LEASE_REFRESH,
@@ -81,6 +84,12 @@ impl RunCoordinator {
 
     pub(super) fn with_child_result(mut self, enabled: bool) -> Self {
         self.retain_child_result = enabled;
+        self
+    }
+
+    /// Mark this run as a child of the step that captured `link`.
+    pub(super) fn with_child_link(mut self, link: Option<ChildLink>) -> Self {
+        self.child_link = link;
         self
     }
 
@@ -106,6 +115,11 @@ impl RunCoordinator {
         let cancel_owner = cancel.clone();
         let lease_cancel = cancel.clone();
         let (completion_tx, completion) = oneshot::channel();
+        // Registered before the coordinator task exists, so the starting
+        // step never observes an idle worker set while this child is alive.
+        // The child drains its own workers and finalizes before the
+        // registration is dropped (IF-188).
+        let parent_hold = self.child_link.as_ref().map(ChildLink::hold_parent);
 
         // Optional run-level deadline. When a run outlives it, the same
         // cooperative cancel signal that `RunHandle::cancel` uses is fired, so a
@@ -148,6 +162,7 @@ impl RunCoordinator {
             if let Some(timer) = deadline_timer {
                 timer.abort();
             }
+            drop(parent_hold);
             let _ = completion_tx.send(result);
         });
 
@@ -164,7 +179,11 @@ impl RunCoordinator {
         // cancellation must not strand the durable handle or admission permit.
         let mut execution_cancel = cancel.clone();
         let workers = CooperativeWorkerSet::new();
-        let execution = with_run_worker_set(workers.clone(), self.run(&mut execution_cancel));
+        let depth = self.child_link.as_ref().map_or(0, ChildLink::depth);
+        let execution = with_run_worker_set(
+            workers.clone(),
+            with_nesting_depth(depth, self.run(&mut execution_cancel)),
+        );
         let mut execution = Box::pin(AssertUnwindSafe(execution).catch_unwind());
         let outcome = tokio::select! {
             biased;

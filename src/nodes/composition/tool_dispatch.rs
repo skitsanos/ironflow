@@ -7,13 +7,13 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{Map, Value};
 
-use crate::engine::executor::ExecutionOverlay;
+use crate::engine::executor::{ChildLink, ExecutionOverlay};
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::ai::llm_response::normalize_tool_calls;
 use crate::nodes::{Node, NodeRegistry};
 use crate::util::node_config::config_usize_strict;
 
-use runner::{CallOutcome, dispatch_call};
+use runner::{CallOutcome, Dispatch};
 
 const DEFAULT_MAX_TOOL_CALLS: usize = 32;
 
@@ -39,6 +39,7 @@ impl Node for ToolDispatchNode {
     }
 
     async fn execute(&self, config: &Value, ctx: &Context) -> Result<NodeOutput> {
+        let link = ChildLink::for_current_step("tool_dispatch")?;
         let source_key = config
             .get("source_key")
             .and_then(Value::as_str)
@@ -73,11 +74,16 @@ impl Node for ToolDispatchNode {
             );
         }
 
-        let child_registry = self.child_registry();
-        let overlay = ExecutionOverlay::current();
+        let dispatch = Dispatch {
+            tools,
+            parent_ctx: ctx,
+            child_registry: self.child_registry(),
+            overlay: ExecutionOverlay::current(),
+            link,
+        };
         let mut results = DispatchResults::new(calls.len());
         for call in calls {
-            let outcome = dispatch_call(call, tools, ctx, &child_registry, &overlay).await?;
+            let outcome = dispatch.call(call).await?;
             if fail_fast && let Some(error) = &outcome.error {
                 return Err(anyhow::anyhow!(error.clone()));
             }

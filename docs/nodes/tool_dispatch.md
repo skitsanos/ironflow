@@ -123,6 +123,21 @@ runtime conversation array, then pass it to `llm` with `messages_key`. For a
 bounded multi-turn agent, place that sequence in a child flow and control it
 with [`repeat_subworkflow`](repeat_subworkflow.md).
 
+## Operational Bounds
+
+`max_calls` bounds the calls one step dispatches; they run one after another.
+Each handler flow counts towards the
+[child workflow nesting limit](subworkflow.md#nesting-limit-and-waiting)
+(`IRONFLOW_MAX_SUBWORKFLOW_DEPTH`, default `16`). A handler that reaches
+`tool_dispatch` again past that depth fails the step with `tool_dispatch:
+child workflow nesting depth 17 exceeds the limit of 16
+(IRONFLOW_MAX_SUBWORKFLOW_DEPTH); check for a flow that calls itself`. This is
+a step error raised before any call is dispatched, not a per-call result, and
+`on_error = "ignore"` does not suppress it. When the step times out or its run
+is cancelled, the active handler is cancelled and the step does not end, start
+its own `on_error` handler or release its admission until that handler run has
+stopped, tracked blocking workers included.
+
 ## Example
 
 For a credential-free runnable check of nested selection and missing-value

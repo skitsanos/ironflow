@@ -17,6 +17,9 @@ Execute multiple subworkflows concurrently and collect their results.
 | `on_error` | string | no | `"fail_fast"` | Error handling: `"fail_fast"` (fail on any error) or `"ignore"` (collect all results) |
 | `max_concurrent` | number | no | CPU count | Maximum child workflows executing at the same time. Hard-capped at `1024`. |
 
+One call fans out to at most `IRONFLOW_MAX_PARALLEL_SUBWORKFLOWS` children
+(default `1024`); see [Fan-out bounds](#fan-out-bounds).
+
 ### Flow Entry Parameters
 
 Each entry in the `flows` array:
@@ -89,6 +92,31 @@ discard values committed before that failure.
 This is an in-process handoff, not durable result recovery. Existing child
 execution limits and parent cancellation/timeouts still apply. Large results
 remain in memory while collected; prefer artifact references for bulky payloads.
+
+## Fan-out bounds
+
+- **Item ceiling.** A `flows` array or a `source_key` array with more than
+  `IRONFLOW_MAX_PARALLEL_SUBWORKFLOWS` entries (default `1024`) fails the step
+  before any child is resolved or started:
+  `parallel_subworkflows: 1025 child flows exceeds the limit of 1024
+  (IRONFLOW_MAX_PARALLEL_SUBWORKFLOWS)`. It is a configuration error and
+  `on_error = "ignore"` does not suppress it. Split a larger list into batches
+  or raise the process limit.
+- **Lazy children.** A child's flow is loaded and its context built only when
+  the child takes one of the `max_concurrent` slots, so the contexts alive at
+  one time are proportional to `max_concurrent`, not to the number of items.
+  A dynamic entry holds a reference to its item in the parent context, not a
+  copy. Collected results still grow with the number of children.
+- **Flow paths.** Every entry's flow path is resolved before the first child
+  starts, off the async worker and once per distinct path. A missing flow file
+  fails the step without running the other children.
+- **Nesting and waiting.** Children count towards the
+  [child workflow nesting limit](subworkflow.md#nesting-limit-and-waiting)
+  (`IRONFLOW_MAX_SUBWORKFLOW_DEPTH`, default `16`). When the step times out or
+  its run is cancelled, children that have not started never start, running
+  children are cancelled, and the step does not end, start its `on_error`
+  handler or release its admission until every started child has stopped,
+  tracked blocking workers included.
 
 ## Example
 

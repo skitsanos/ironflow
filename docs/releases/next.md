@@ -54,6 +54,31 @@ publication is verified separately.
   Writes to one destination are now serialized inside the IronFlow process.
   Appends to one file from several IronFlow processes are still
   last-writer-wins; give each process its own file.
+- **Deeply nested child workflows and oversized fan-outs now fail** (IF-188).
+  A child run more than 16 levels below its top-level run is refused, counted
+  across `subworkflow` (waiting or detached), `parallel_subworkflows`,
+  `repeat_subworkflow` and `tool_dispatch`. A flow that called itself used to
+  descend until the process ran out of memory; its step now fails with
+  `child workflow nesting depth 17 exceeds the limit of 16
+  (IRONFLOW_MAX_SUBWORKFLOW_DEPTH)`. One `parallel_subworkflows` call accepts
+  at most 1024 entries and fails before starting any child when given more.
+  Both refusals are step errors that `on_error = "ignore"` on the same step
+  does not suppress. A workflow that legitimately nests deeper or fans out
+  wider must set `IRONFLOW_MAX_SUBWORKFLOW_DEPTH` or
+  `IRONFLOW_MAX_PARALLEL_SUBWORKFLOWS`; both are validated at startup. See
+  [Nesting limit and waiting](../nodes/subworkflow.md#nesting-limit-and-waiting)
+  and [Fan-out bounds](../nodes/parallel_subworkflows.md#fan-out-bounds).
+- **A timed-out or cancelled step waits for its child workflows to stop**
+  (IF-188). When a step that waits for a child run timed out, its `on_error`
+  handler started and the parent run could be finalized `success` while a
+  tracked blocking worker in the child was still running. The step now ends
+  only after the child run has stopped, so a handler that cleans up or retries
+  no longer races the work it replaces, and run admission is not released
+  early. A child whose worker cannot be interrupted delays the timeout result
+  by the time that worker needs to return, as the same node placed directly
+  in the parent already did. `parallel_subworkflows` also builds each child's
+  context only when the child starts; a flow path that cannot be resolved
+  still fails the step before any child runs.
 - **New connections are answered while `serve` drains, and exit is bounded**
   (IF-183). After SIGTERM or SIGINT a new connection completed the TCP
   handshake and then received nothing until the drain ended, up to

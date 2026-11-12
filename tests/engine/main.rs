@@ -66,6 +66,8 @@ mod test_shell_failure_contract;
 mod test_step_timeout;
 #[path = "../test_structured_node_failure.rs"]
 mod test_structured_node_failure;
+#[path = "../test_subworkflow_depth.rs"]
+mod test_subworkflow_depth;
 #[path = "../test_subworkflow_node.rs"]
 mod test_subworkflow_node;
 #[path = "../test_tool_dispatch_node.rs"]

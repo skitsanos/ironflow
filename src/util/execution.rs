@@ -67,18 +67,41 @@ impl Drop for CooperativeWorkerGuard {
     }
 }
 
-struct CooperativeWorkerGuards {
+/// Registrations that keep an execution scope's worker sets busy.
+pub(crate) struct CooperativeWorkerGuards {
     _run: Option<CooperativeWorkerGuard>,
     _attempt: Option<CooperativeWorkerGuard>,
 }
 
 impl CooperativeWorkerGuards {
     fn for_current_task() -> Self {
+        ExecutionWorkerSets::for_current_task().register()
+    }
+}
+
+/// The run and attempt worker sets of the task that captured them.
+///
+/// Task-locals do not follow work onto another Tokio task. A child run is
+/// coordinated on its own task, so the step that starts it captures its sets
+/// here and the child registers with them for as long as it exists (IF-188).
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ExecutionWorkerSets {
+    run: Option<CooperativeWorkerSet>,
+    attempt: Option<CooperativeWorkerSet>,
+}
+
+impl ExecutionWorkerSets {
+    pub(crate) fn for_current_task() -> Self {
         Self {
-            _run: RUN_WORKERS.try_with(CooperativeWorkerSet::register).ok(),
-            _attempt: ATTEMPT_WORKERS
-                .try_with(CooperativeWorkerSet::register)
-                .ok(),
+            run: RUN_WORKERS.try_with(Clone::clone).ok(),
+            attempt: ATTEMPT_WORKERS.try_with(Clone::clone).ok(),
+        }
+    }
+
+    pub(crate) fn register(&self) -> CooperativeWorkerGuards {
+        CooperativeWorkerGuards {
+            _run: self.run.as_ref().map(CooperativeWorkerSet::register),
+            _attempt: self.attempt.as_ref().map(CooperativeWorkerSet::register),
         }
     }
 }

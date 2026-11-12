@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 use serde_json::{Map, Value};
 
@@ -5,13 +7,29 @@ use crate::engine::types::Context;
 
 use super::super::parallel_runner::validate_child_output_key;
 
-pub(super) struct FlowEntry {
-    pub(super) config: Value,
-    literal_input: Context,
+/// One child of the fan-out: its configuration and, in dynamic mode, where
+/// its item lives in the parent context. It holds no copy of the item or of
+/// the parent, so the entries of a large fan-out stay small (IF-188).
+pub(in super::super) struct FlowEntry {
+    pub(in super::super) config: Arc<Value>,
+    item: Option<DynamicItem>,
+}
+
+struct DynamicItem {
+    keys: Arc<DynamicKeys>,
+    index: usize,
+}
+
+struct DynamicKeys {
+    source: String,
+    item: String,
+    index: String,
 }
 
 impl FlowEntry {
-    pub(super) fn into_parts(self, parent: &Context) -> (Value, Context) {
+    /// Build the child's context. Called when the child starts, which is
+    /// after it holds its concurrency slot.
+    pub(in super::super) fn child_context(&self, parent: &Context) -> Context {
         let mut context = match self.config.get("input").and_then(Value::as_object) {
             Some(input) => input
                 .iter()
@@ -27,9 +45,29 @@ impl FlowEntry {
             None => parent.clone(),
         };
         // Runtime item/index values bypass reference lookup entirely.
-        context.extend(self.literal_input);
-        (self.config, context)
+        if let Some(item) = &self.item {
+            let value = parent
+                .get(&item.keys.source)
+                .and_then(Value::as_array)
+                .and_then(|source| source.get(item.index))
+                .cloned()
+                .unwrap_or(Value::Null);
+            context.insert(item.keys.item.clone(), value);
+            context.insert(item.keys.index.clone(), Value::from(item.index + 1));
+        }
+        context
     }
+}
+
+fn ensure_within_ceiling(count: usize) -> Result<()> {
+    let limit = crate::util::limits::max_parallel_subworkflows();
+    if count > limit {
+        anyhow::bail!(
+            "parallel_subworkflows: {count} child flows exceeds the limit of {limit} \
+             (IRONFLOW_MAX_PARALLEL_SUBWORKFLOWS)"
+        );
+    }
+    Ok(())
 }
 
 pub(super) fn resolve_flow_entries(config: &Value, ctx: &Context) -> Result<Vec<FlowEntry>> {
@@ -40,14 +78,15 @@ pub(super) fn resolve_flow_entries(config: &Value, ctx: &Context) -> Result<Vec<
         if flows.is_empty() {
             anyhow::bail!("parallel_subworkflows: 'flows' array must not be empty");
         }
+        ensure_within_ceiling(flows.len())?;
         for entry in flows {
             validate_child_output_key(entry.get("output_key").and_then(Value::as_str))?;
         }
         return Ok(flows
             .iter()
             .map(|config| FlowEntry {
-                config: config.clone(),
-                literal_input: Context::new(),
+                config: Arc::new(config.clone()),
+                item: None,
             })
             .collect());
     }
@@ -84,6 +123,7 @@ fn build_dynamic_flow_entries(config: &Value, ctx: &Context) -> Result<Vec<FlowE
                 source_key
             )
         })?;
+    ensure_within_ceiling(source.len())?;
     let item_key = config
         .get("item_key")
         .and_then(Value::as_str)
@@ -109,62 +149,23 @@ fn build_dynamic_flow_entries(config: &Value, ctx: &Context) -> Result<Vec<FlowE
     input.remove(index_key);
     // An explicit empty mapping keeps dynamic fan-out from inheriting the parent.
     child_config.insert("input".to_string(), Value::Object(input));
-    let child_config = Value::Object(child_config);
+    let child_config = Arc::new(Value::Object(child_config));
+    let keys = Arc::new(DynamicKeys {
+        source: source_key.to_string(),
+        item: item_key.to_string(),
+        index: index_key.to_string(),
+    });
 
-    Ok(source
-        .iter()
-        .enumerate()
-        .map(|(index, item)| {
-            let mut literal_input = Context::new();
-            literal_input.insert(item_key.to_string(), item.clone());
-            literal_input.insert(index_key.to_string(), Value::from(index + 1));
-            FlowEntry {
-                config: child_config.clone(),
-                literal_input,
-            }
+    Ok((0..source.len())
+        .map(|index| FlowEntry {
+            config: child_config.clone(),
+            item: Some(DynamicItem {
+                keys: keys.clone(),
+                index,
+            }),
         })
         .collect())
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn literal_payload_stays_out_of_config_and_moves_into_child_context() {
-        let parent = Context::from([
-            ("jobs".into(), json!(["x".repeat(3 * 1024 * 1024)])),
-            ("reference".into(), json!({"mapped": true})),
-        ]);
-        let config = json!({"flow": "child.lua", "source_key": "jobs", "input": {
-            "item": "reference", "index": "reference", "mapped": "reference"
-        }});
-        let entry = resolve_flow_entries(&config, &parent)
-            .unwrap()
-            .pop()
-            .unwrap();
-        assert!(entry.config["input"].get("item").is_none());
-        assert!(entry.config["input"].get("index").is_none());
-        let pointer = entry.literal_input["item"].as_str().unwrap().as_ptr();
-        let (_, child) = entry.into_parts(&parent);
-        assert_eq!(child["item"].as_str().unwrap().as_ptr(), pointer);
-        assert_eq!(child["index"], 1);
-        assert_eq!(child["mapped"], parent["reference"]);
-    }
-
-    #[test]
-    fn user_config_cannot_populate_the_internal_literal_input_field() {
-        let parent = Context::from([("customer".into(), json!("mapped-value"))]);
-        let config = json!({"flows": [{
-            "flow": "child.lua", "input": {"item": "customer"},
-            "literal_input": {"item": "not-an-input-option"}
-        }]});
-        let entry = resolve_flow_entries(&config, &parent)
-            .unwrap()
-            .pop()
-            .unwrap();
-        let (_, child) = entry.into_parts(&parent);
-        assert_eq!(child["item"], "mapped-value");
-    }
-}
+mod tests;

@@ -58,7 +58,7 @@ async fn child_completion_is_redacted_and_independent_of_json_sqlite_and_null_hi
             )]));
             let id = Uuid::new_v4().to_string();
             let result = engine
-                .start_new_with_run_id(&flow(fail), Context::new(), overlay, id.clone(), true)
+                .start_new_with_run_id(&flow(fail), Context::new(), overlay, id.clone(), true, None)
                 .await
                 .unwrap()
                 .unwrap()

@@ -520,3 +520,44 @@ async fn parallel_subworkflows_dynamic_fanout_allows_empty_source() {
             .unwrap()
     );
 }
+
+#[tokio::test]
+async fn parallel_subworkflows_refuses_a_fan_out_above_the_item_ceiling() {
+    let dir = tempfile::tempdir().unwrap();
+    write_flow(
+        &dir.path().join("child.lua"),
+        r#"flow:step("s", nodes.code({ source = "return { ran = true }" }))"#,
+    );
+    let node = NodeRegistry::with_builtins()
+        .get("parallel_subworkflows")
+        .unwrap();
+    let mut ctx = ctx_with_flow_dir(dir.path());
+    ctx.insert(
+        "jobs".to_string(),
+        serde_json::Value::Array((0..1025).map(serde_json::Value::from).collect()),
+    );
+
+    // `ignore` tolerates failed children, not a refused fan-out.
+    let config = serde_json::json!({
+        "flow": "child.lua", "source_key": "jobs", "input": {}, "on_error": "ignore"
+    });
+    let error = node.execute(&config, &ctx).await.unwrap_err().to_string();
+    assert_eq!(
+        error,
+        "parallel_subworkflows: 1025 child flows exceeds the limit of 1024 \
+         (IRONFLOW_MAX_PARALLEL_SUBWORKFLOWS)"
+    );
+
+    let flows: Vec<_> = (0..1025)
+        .map(|_| serde_json::json!({ "flow": "child.lua" }))
+        .collect();
+    let error = node
+        .execute(&serde_json::json!({ "flows": flows }), &ctx)
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("1025 child flows exceeds the limit of 1024"),
+        "{error}"
+    );
+}
