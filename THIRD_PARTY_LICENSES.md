@@ -9,7 +9,7 @@ tree, `OFL.txt` in the release archives, `fonts-OFL.txt` in the image).
 This file is generated from `Cargo.lock` by
 `bun --no-env-file scripts/third_party_notices.ts write`; do not edit it by
 hand. It covers every crate reachable from IronFlow through normal or build
-dependencies with all Cargo features enabled (578 crates), so it also lists
+dependencies with all Cargo features enabled (577 crates), so it also lists
 crates that only the `-full` archives and the container image include. Where
 a crate offers a choice of licenses, IronFlow uses the first option in this
 order:
@@ -278,7 +278,6 @@ at the listed source.
 | libbz2-rs-sys | 0.2.5 | bzip2-1.0.6 | bzip2-1.0.6 | https://github.com/trifectatechfoundation/libbzip2-rs |
 | libc | 0.2.191 | MIT OR Apache-2.0 | MIT | https://github.com/rust-lang/libc |
 | libloading | 0.9.0 | ISC | ISC | https://github.com/nagisa/rust_libloading/ |
-| libm | 0.2.16 | MIT | MIT | https://github.com/rust-lang/compiler-builtins |
 | libsqlite3-sys | 0.37.0 | MIT | MIT | https://github.com/rusqlite/rusqlite |
 | linebender_resource_handle | 0.1.1 | Apache-2.0 OR MIT | MIT | https://github.com/linebender/raw_resource_handle |
 | litemap | 0.8.3 | Unicode-3.0 | Unicode-3.0 | https://github.com/unicode-org/icu4x |
@@ -314,7 +313,7 @@ at the listed source.
 | new_debug_unreachable | 1.0.6 | MIT | MIT | https://github.com/mbrubeck/rust-debug-unreachable |
 | nix | 0.31.3 | MIT | MIT | https://github.com/nix-rust/nix |
 | nom | 8.0.0 | MIT | MIT | https://github.com/rust-bakery/nom |
-| noyalib | 0.0.58 | MIT OR Apache-2.0 | MIT | https://github.com/sebastienrousseau/noyalib |
+| noyalib | 0.0.60 | MIT OR Apache-2.0 | MIT | https://github.com/sebastienrousseau/noyalib |
 | nu-ansi-term | 0.50.3 | MIT | MIT | https://github.com/nushell/nu-ansi-term |
 | num | 0.4.3 | MIT OR Apache-2.0 | MIT | https://github.com/rust-num/num |
 | num-bigint | 0.4.8 | MIT OR Apache-2.0 | MIT | https://github.com/rust-num/num-bigint |
@@ -507,7 +506,7 @@ at the listed source.
 | tracing-core | 0.1.36 | MIT | MIT | https://github.com/tokio-rs/tracing |
 | tracing-log | 0.2.0 | MIT | MIT | https://github.com/tokio-rs/tracing |
 | tracing-subscriber | 0.3.23 | MIT | MIT | https://github.com/tokio-rs/tracing |
-| tree-sitter | 0.27.1 | MIT | MIT | https://github.com/tree-sitter/tree-sitter |
+| tree-sitter | 0.27.2 | MIT | MIT | https://github.com/tree-sitter/tree-sitter |
 | tree-sitter-language | 0.1.9 | MIT | MIT | https://github.com/tree-sitter/tree-sitter |
 | tree-sitter-lua | 0.5.0 | MIT | MIT | https://github.com/tree-sitter-grammars/tree-sitter-lua |
 | try-lock | 0.2.5 | MIT | MIT | https://github.com/seanmonstar/try-lock |
@@ -528,7 +527,7 @@ at the listed source.
 | utf16string | 0.2.0 | MIT OR Apache-2.0 | MIT | https://github.com/getsentry/utf16string |
 | utf8_iter | 1.0.4 | Apache-2.0 OR MIT | MIT | https://github.com/hsivonen/utf8_iter |
 | utf8parse | 0.2.2 | Apache-2.0 OR MIT | MIT | https://github.com/alacritty/vte |
-| uuid | 1.29.0 | Apache-2.0 OR MIT | MIT | https://github.com/uuid-rs/uuid |
+| uuid | 1.29.2 | Apache-2.0 OR MIT | MIT | https://github.com/uuid-rs/uuid |
 | uuid-simd | 0.8.0 | MIT | MIT | https://github.com/Nugine/simd |
 | valuable | 0.1.1 | MIT | MIT | https://github.com/tokio-rs/valuable |
 | vcpkg | 0.2.15 | MIT/Apache-2.0 | MIT | https://github.com/mcgoo/vcpkg-rs |
@@ -621,7 +620,7 @@ Each license below applies to the crates whose "Used under" column names it.
 
 ### MIT
 
-Used by 493 crates.
+Used by 492 crates.
 
 ```text
 MIT License
