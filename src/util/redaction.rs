@@ -36,6 +36,17 @@ impl SecretRedactor {
         }
     }
 
+    /// Redactor for credentials the caller resolved itself, such as the
+    /// authentication headers of a provider request (IF-108). Unlike an
+    /// overlay value, each credential and the credential after its `Bearer`
+    /// or `Basic` scheme is redacted wherever it occurs, however short.
+    pub(crate) fn from_credentials<'a>(credentials: impl IntoIterator<Item = &'a str>) -> Self {
+        Self {
+            protected_keys: Arc::default(),
+            tokens: Arc::new(SecretTokens::from_credentials(credentials)),
+        }
+    }
+
     pub(crate) fn redact_context(&self, context: &Context) -> Context {
         context
             .iter()

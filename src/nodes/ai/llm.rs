@@ -130,13 +130,12 @@ impl Node for LlmNode {
             .values_mut()
             .map(|value| {
                 value.set_sensitive(true);
-                Value::String(String::from_utf8_lossy(value.as_bytes()).into_owned())
+                String::from_utf8_lossy(value.as_bytes()).into_owned()
             })
-            .collect();
-        let redactor = SecretRedactor::from_overlay(&Context::from([(
-            "_provider_credentials".to_string(),
-            Value::Array(credentials),
-        )]));
+            .collect::<Vec<_>>();
+        // Resolved credentials are redacted at any length (IF-108); the
+        // length floor of overlay values (IF-176) does not apply to them.
+        let redactor = SecretRedactor::from_credentials(credentials.iter().map(String::as_str));
         let redact_error = |text: &str| redact_sensitive_text(&redactor.redact_text(text));
         let request_input = LlmBodyInput {
             mode,

@@ -984,7 +984,10 @@ Context is a `HashMap<String, serde_json::Value>` that flows through the entire 
   cannot reroute steps. The record boundary feeds task history, the stored
   context and public responses, and also replaces a number equal to a secret.
   Only a complete overlay value and its components of at least eight
-  non-whitespace bytes are secrets; names and object keys are not
+  non-whitespace bytes are secrets; names and object keys are not. That floor
+  is for text a remote party chose: a credential a node resolves itself, such
+  as the `llm` node's authentication headers, is redacted from its errors at
+  any length (IF-108)
 - Documented Lua config fields can access context through `${ctx...}` path
   interpolation; configs are not rewritten globally
 - The grammar supports dotted keys, zero-based array indexes, and JSON

@@ -4,6 +4,11 @@
 //! secret only at or above [`MIN_SECRET_BYTES`], and names and object keys
 //! never are: they describe the value instead of carrying it, and a short
 //! component such as `true` or `1` cannot be told apart from ordinary data.
+//!
+//! The floor exists because overlay values are text a remote party chose. A
+//! credential the caller resolved itself (IF-108) is a secret whatever its
+//! length, so [`SecretTokens::from_credentials`] does not apply the floor to
+//! the complete value or to the credential after its authentication scheme.
 
 use std::cmp::Reverse;
 use std::collections::HashSet;
@@ -27,8 +32,9 @@ pub(crate) fn meets_secret_floor(text: &str) -> bool {
 /// Secret text derived from a set of invocation-only values.
 #[derive(Debug, Default)]
 pub(super) struct SecretTokens {
-    /// At or above the floor, longest first so a whole value is replaced
-    /// before one of its components.
+    /// Redacted wherever they occur: overlay text at or above the floor and
+    /// resolved credentials of any length. Longest first, so a whole value
+    /// is replaced before one of its components.
     fragments: Vec<String>,
     /// Complete values below the floor: only an identical value matches.
     exact: HashSet<String>,
@@ -37,10 +43,25 @@ pub(super) struct SecretTokens {
 }
 
 impl SecretTokens {
+    /// Secrets of invocation-only values, such as forwarded webhook headers.
     pub(super) fn from_values<'a>(values: impl IntoIterator<Item = &'a Value>) -> Self {
         let mut collector = Collector::default();
         for value in values {
             collector.value(value);
+        }
+        collector.finish()
+    }
+
+    /// Secrets of credentials the caller resolved itself. Each one, and the
+    /// credential after its `Bearer` or `Basic` scheme, is redacted wherever
+    /// it occurs, however short it is.
+    pub(super) fn from_credentials<'a>(credentials: impl IntoIterator<Item = &'a str>) -> Self {
+        let mut collector = Collector {
+            resolved_credentials: true,
+            ..Collector::default()
+        };
+        for credential in credentials {
+            collector.text(credential);
         }
         collector.finish()
     }
@@ -85,6 +106,9 @@ impl SecretTokens {
 struct Collector {
     fragments: HashSet<String>,
     exact: HashSet<String>,
+    /// The values are credentials the caller resolved, not text a remote
+    /// party chose, so a short one is still matched as a substring.
+    resolved_credentials: bool,
 }
 
 impl Collector {
@@ -122,7 +146,7 @@ impl Collector {
         if let Some((scheme, credential)) = text.split_once(char::is_whitespace)
             && matches!(scheme.to_ascii_lowercase().as_str(), "bearer" | "basic")
         {
-            self.component(credential.trim());
+            self.scheme_credential(credential.trim());
         }
     }
 
@@ -136,13 +160,26 @@ impl Collector {
         }
     }
 
-    /// A complete value is never ignored; below the floor it can only match
-    /// exactly, so it cannot splice a marker into unrelated text.
+    /// A complete value is never ignored. An overlay value below the floor
+    /// can only match exactly, so it cannot splice a marker into unrelated
+    /// text; a resolved credential is matched as a substring at any length.
     fn whole(&mut self, text: &str) {
-        if meets_secret_floor(text) {
+        if text.is_empty() {
+            return;
+        }
+        if self.resolved_credentials || meets_secret_floor(text) {
             self.fragments.insert(text.to_string());
-        } else if !text.is_empty() {
+        } else {
             self.exact.insert(text.to_string());
+        }
+    }
+
+    /// The credential after a `Bearer` or `Basic` scheme.
+    fn scheme_credential(&mut self, text: &str) {
+        if self.resolved_credentials && !text.is_empty() {
+            self.fragments.insert(text.to_string());
+        } else {
+            self.component(text);
         }
     }
 

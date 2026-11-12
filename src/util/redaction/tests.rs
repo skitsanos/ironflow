@@ -353,3 +353,43 @@ fn live_boundary_keeps_json_types_and_routing_keys() {
     assert!(!record.contains_key("_route_needs_review"));
     assert_eq!(record, redactor.redact_context_owned(output));
 }
+
+#[test]
+fn resolved_credentials_are_redacted_whatever_their_length() {
+    // IF-108: the llm node resolves these itself, so the IF-176 floor for
+    // text a remote party chose does not apply.
+    let redactor = SecretRedactor::from_credentials(["Bearer k", "llm", "", "  "]);
+
+    let rejected = redactor.redact_text("Incorrect API key provided: k; rejected k");
+    assert!(!rejected.contains('k'), "{rejected}");
+    assert!(rejected.contains(REDACTED));
+    assert_eq!(
+        redactor.redact_text("header Bearer k, model llm"),
+        format!("header {REDACTED}, model {REDACTED}")
+    );
+    // An empty credential must not turn every position into a match.
+    assert_eq!(redactor.redact_text("status 401"), "status 401");
+}
+
+#[test]
+fn resolved_credentials_match_their_json_escaped_form() {
+    let key = "q\"s\\v";
+    let redactor = SecretRedactor::from_credentials([key]);
+    let echoed = serde_json::json!({ "message": format!("rejected {key}") }).to_string();
+
+    let redacted = redactor.redact_text(&echoed);
+
+    assert!(!redacted.contains("q\\\"s"), "{redacted}");
+    assert!(redacted.contains(REDACTED));
+}
+
+#[test]
+fn overlay_values_keep_the_floor_that_resolved_credentials_do_not() {
+    // The same short header value must not rewrite ordinary text when it
+    // arrives as an overlay value (IF-176).
+    let overlay = header_redactor(serde_json::json!({ "authorization": "Bearer k" }));
+    let text = "Incorrect API key provided: k; rejected k";
+
+    assert_eq!(overlay.redact_text(text), text);
+    assert_eq!(overlay.redact_text("Bearer k"), REDACTED);
+}
