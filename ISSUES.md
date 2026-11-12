@@ -9,7 +9,6 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 | ID | Priority | Status | Area | Summary |
 |---|---:|---|---|---|
 | [IF-186](docs/issues/IF-186.md) | P2 | Open | Interpolation | File-source helper interpolates twice and lets write_file artifact inputs name local paths |
-| [IF-187](docs/issues/IF-187.md) | P2 | Open | Lua DSL | step_if and if_node comparisons against true, false and nil are always false |
 | [IF-188](docs/issues/IF-188.md) | P2 | Open | Workflow composition | Child workflows have no nesting limit and outlive a timed-out parent step |
 | [IF-189](docs/issues/IF-189.md) | P2 | Open | Resource safety | s3_list_objects, json_parse and task error text materialize without a bound |
 | [IF-190](docs/issues/IF-190.md) | P2 | Open | ZIP/admission | ZIP preflight and the archive reader can select different end records |

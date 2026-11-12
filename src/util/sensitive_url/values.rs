@@ -30,7 +30,11 @@ impl Quote {
 }
 
 /// The value assigned to the key that ends at `key_end`, without its quotes.
-/// `None` when the key is not followed by `=` or `:`.
+/// `None` when the key is not followed by `=` or `:`, or when the `=` is the
+/// first half of a comparison operator: `key == value` would otherwise have
+/// its second `=` redacted, which hides nothing and breaks the expression.
+/// Only an unquoted value that is exactly `=` is read that way, so a value
+/// that merely starts with `=` is still redacted.
 pub(super) fn assigned_value(text: &str, key_end: usize) -> Option<Range<usize>> {
     let bytes = text.as_bytes();
     let mut cursor = key_end;
@@ -44,10 +48,14 @@ pub(super) fn assigned_value(text: &str, key_end: usize) -> Option<Range<usize>>
         return None;
     }
     let value_start = skip_ascii_whitespace(bytes, cursor + 1);
-    Some(match Quote::at(bytes, value_start) {
-        Some((quote, content_start)) => content_start..quoted_value_end(text, content_start, quote),
+    let value = match Quote::at(bytes, value_start) {
+        Some((quote, content_start)) => {
+            return Some(content_start..quoted_value_end(text, content_start, quote));
+        }
         None => value_start..unquoted_value_end(text, value_start, separator == b'='),
-    })
+    };
+    let comparison = separator == b'=' && &text[value.clone()] == "=";
+    (!comparison).then_some(value)
 }
 
 fn quoted_value_end(text: &str, content_start: usize, quote: Quote) -> usize {

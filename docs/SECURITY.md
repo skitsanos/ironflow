@@ -195,6 +195,10 @@ secrets. It does not recognise:
   keys whose sensitive word is not last;
 - more than the first word of an unquoted value after `=`, except for the two
   schemes above;
+- the operand of a comparison: `password == pw` is not an assignment, and a
+  sensitive key followed by `==` is left as written so an error that quotes
+  a guard condition stays readable (IF-187). A value that starts with `=`,
+  as in `password==pw`, is still replaced;
 - a value that continues on another line, such as an unescaped PEM block;
 - a connection string without a scheme, outside IronFlow's own Redis and SQL
   connection errors;

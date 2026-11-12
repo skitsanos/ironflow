@@ -24,6 +24,8 @@ mod test_flow_file_disclosure;
 mod test_flow_load_limits;
 #[path = "../test_foreach_node.rs"]
 mod test_foreach_node;
+#[path = "../test_guard_comparisons.rs"]
+mod test_guard_comparisons;
 #[path = "../test_interpolation_validation.rs"]
 mod test_interpolation_validation;
 #[path = "../test_lua_context_projection.rs"]

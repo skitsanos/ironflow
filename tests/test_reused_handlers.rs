@@ -156,7 +156,7 @@ fn reused_captured_local_is_rejected_by_loading_and_validation_at_every_entry_po
     let registry = NodeRegistry::with_builtins();
     for registration in [
         "flow:step(name, shared)",
-        "flow:step_if('true', name, shared)",
+        "flow:step_if('ctx.ready', name, shared)",
         "flow:step(name, nodes.code({ source = shared }))",
         "flow:step(name, nodes.foreach({ source_key = 'items', transform = shared }))",
     ] {

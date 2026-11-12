@@ -5,6 +5,7 @@ use crate::engine::types::FlowDefinition;
 use crate::lua::analysis::{HandlerDiagnostics, LuaDiagnostic};
 use crate::lua::sandbox::{new_sandboxed_lua, register_shared_globals};
 use crate::nodes::NodeRegistry;
+use crate::nodes::composition::validate_guard_conditions;
 use crate::util::execution::{ExecutionControl, run_blocking_step};
 use crate::util::limits::{
     LuaExecutionLimits, apply_lua_limits, apply_lua_limits_with_control, collect_lua_garbage,
@@ -161,6 +162,7 @@ impl LuaRuntime {
         checkpoint(&execution)?;
 
         let flow = extract_flow(&lua, &flow_table)?;
+        validate_guard_conditions(&flow)?;
         checkpoint(&execution)?;
         let mut warnings = diagnostics
             .map(|analysis| analysis.warnings())

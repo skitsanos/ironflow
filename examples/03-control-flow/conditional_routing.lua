@@ -1,7 +1,8 @@
 -- Demonstrates if_node conditional routing
 local flow = Flow.new("conditional_routing")
 
--- Evaluate condition: is the order amount over 100?
+-- Evaluate condition: is the order amount over 100? An ordering guard needs a
+-- number: running this flow without "amount" in the context fails the guard.
 flow:step("check_amount", nodes.if_node({
     condition = "ctx.amount > 100",
     true_route = "high_value",

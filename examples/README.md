@@ -61,6 +61,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **conditional_routing.lua** — `if_node` with true/false route branching
 - **switch_routing.lua** — `switch_node` multi-case routing
 - **step_if.lua** — `step_if` conditional step shorthand
+- **guard_literals.lua** — Guard comparisons against `true`, `false` and `nil`
 
 ## 04-file-operations
 - **read_write_files.lua** — Write, read, list, and delete files

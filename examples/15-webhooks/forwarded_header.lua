@@ -35,6 +35,8 @@ flow:step("inspect", function(ctx)
     }
 end)
 
+-- The webhook body must carry a numeric "amount": an ordering guard fails on
+-- a missing value instead of skipping the step.
 flow:step_if("ctx.amount > 100", "needs_approval", nodes.log({
     message = "Order of ${ctx.amount} needs approval (region ${ctx.region})"
 })):depends_on("inspect")

@@ -231,3 +231,32 @@ fn generated_text_never_panics_or_keeps_control_characters() {
         assert!(!redacted.chars().any(char::is_control), "input: {text:?}");
     }
 }
+
+#[test]
+fn a_comparison_operator_after_a_sensitive_key_is_not_an_assignment() {
+    // The old reading redacted only the second `=` of `==`: it hid nothing
+    // and broke the expression a guard error quotes (IF-187).
+    for text in [
+        "if_node cannot evaluate condition 'ctx.credentials == 'x''",
+        "ctx.api_token == nil",
+        "ctx.password=='x'",
+        "ctx.secret == \"x\"",
+        "token ==",
+    ] {
+        assert_eq!(redact_sensitive_text(text), text);
+    }
+}
+
+#[test]
+fn a_value_that_starts_with_an_equals_sign_is_still_redacted() {
+    for (text, secret) in [
+        ("password==hunter2 host=db", "hunter2"),
+        ("token = =hunter2", "hunter2"),
+        ("secret='=hunter2'", "hunter2"),
+        ("api_key===", "=="),
+    ] {
+        let redacted = redact_sensitive_text(text);
+        assert!(!redacted.contains(secret), "{redacted}");
+        assert!(redacted.contains("[REDACTED]"), "{redacted}");
+    }
+}

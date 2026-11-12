@@ -115,7 +115,7 @@ async fn inline_function_and_step_builders_share_projection() {
         r#"
         local flow = Flow.new("conditional")
         flow:step("prepare", nodes.code({source = "return 1"}))
-        flow:step_if("true", "inspect", function(argument)
+        flow:step_if("ctx.ready", "inspect", function(argument)
             assert(argument == ctx and ctx.unused == nil)
             return { count = argument.count }
         end):context_keys({"count"}):depends_on("prepare")
@@ -263,7 +263,7 @@ fn builder_projection_does_not_mutate_reused_descriptors_or_guards() {
         local node = nodes.code({source = "return 1", context_keys = {"original"}})
         flow:step("first", node):context_keys({"first"})
         flow:step("second", node)
-        flow:step_if("true", "third", node):context_keys({}):depends_on("first")
+        flow:step_if("ctx.ready", "third", node):context_keys({}):depends_on("first")
         return flow
         "#,
         &registry,

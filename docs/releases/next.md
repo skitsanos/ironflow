@@ -88,6 +88,50 @@ publication is verified separately.
   `DELETE /runs/{id}`. See
   [JSON nesting limit](../CLI_REFERENCE.md#json-nesting-limit).
 
+- **`step_if` and `if_node` compare with `true`, `false` and `nil`, and
+  undefined comparisons fail** (IF-187). A comparison whose context value
+  was a boolean, `null`, an object or an array returned false for every
+  operator, so `ctx.ready == true`, `ctx.ready != false`, `ctx.off == false`
+  and `ctx.missing == nil` skipped their step in a run that finished
+  `success`. `==` and `!=` now accept `true`, `false` and `nil`, where `nil`
+  matches a key that is absent or `null`, and `!=` is the exact negation of
+  `==`. Numeric and string comparisons, `exists`, truthiness and a string
+  compared with an unquoted operand are unchanged. Review guards for the
+  results that change:
+  - `ctx.missing != nil` is now false (it was true), and `ctx.missing == nil`
+    is true.
+  - `!=` between values of different types is now true where it was false:
+    a number against a non-numeric operand (`ctx.n != 'abc'`), a `null`
+    value against anything except `nil`, and a boolean against anything
+    except the same boolean.
+  - An ordering operator (`>`, `<`, `>=`, `<=`) whose right operand is not a
+    number, such as `ctx.n > nil` or `ctx.a > ctx.b`, was always false and
+    now fails flow loading with a message that names the step and condition.
+  - Ordering a context value that is not a number was always false and now
+    fails the guard step and the run with an error that names the condition.
+    This includes a missing or `null` key and a numeric string: a guard such
+    as `ctx.retries > 3` used to skip its step while `retries` was unset and
+    now fails, so give the key a default in an upstream step or in the run
+    context. Comparing an object or array with anything other than `nil`
+    fails in the same way.
+  - A condition is split at its first operator. `ctx.s != 'a==b'` used to
+    split at the `==` inside the string and route false; it now compares
+    `s` with the text `a==b`.
+  - A condition outside the grammar was read as a missing path or as one
+    long string, routed false, and now fails flow loading: `not ctx.ready`,
+    `!ctx.ready`, `ctx.a and ctx.b`, `ctx.n == 1 and ctx.s == 'x'`,
+    `(ctx.n > 0)`, `ctx.s ~= 'x'`, `ctx.n = 1`, and a missing operand.
+  - A literal in place of the context path fails flow loading. The
+    conditions `true`, `1` and `true == true` were looked up as context keys
+    named `true` and `1`, routed false, and skipped the step; use
+    `flow:step` for a step that always runs. A key with such a name is
+    still reachable as `ctx.true`.
+  - String operands are stricter. An unquoted operand must be one word, so
+    `ctx.s == hello world` must be written `ctx.s == 'hello world'`. A
+    quoted operand cannot contain its own quote character: write
+    `"it's"`, not `'it's'`. An empty string is written `''`.
+  See [Condition Syntax](../nodes/if_node.md#condition-syntax).
+
 ## Security
 
 - **`mcp_client` bounds Streamable HTTP responses** (IF-173). `rmcp` is

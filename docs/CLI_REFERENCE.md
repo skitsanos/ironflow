@@ -79,6 +79,10 @@ Parse and validate a flow file without executing it. Checks for:
 - DAG cycles
 - Duplicate step names
 - Invalid recovery targets, shared handlers, and recovery-graph cycles
+- `step_if` and `if_node` conditions outside the condition grammar, such as
+  `not ctx.ready` or `ctx.a == 1 and ctx.b == 2`, and conditions that order
+  against a non-numeric operand, such as `ctx.n > nil` (see
+  [Condition Syntax](nodes/if_node.md#condition-syntax))
 - Invalid syntax in string-valued `code` node source
 - Reads of undefined globals inside Lua function handlers and string-valued
   `code` node source

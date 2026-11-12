@@ -17,6 +17,7 @@
         "examples/02-data-transforms/json_operations.lua",
         "examples/02-data-transforms/transform_pipeline.lua",
         "examples/03-control-flow/conditional_routing.lua",
+        "examples/03-control-flow/guard_literals.lua",
         "examples/03-control-flow/step_if.lua",
         "examples/03-control-flow/switch_routing.lua",
         "examples/07-advanced/base64_encode_decode.lua",

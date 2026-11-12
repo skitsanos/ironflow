@@ -396,7 +396,48 @@ flow:step("bonus", nodes.code({ source = "return { got_bonus = true }" })):depen
 flow:step_if("ctx.score > 50", "bonus", nodes.code({ source = "return { got_bonus = true }" }))
 ```
 
-`step_if` accepts the same condition syntax as `if_node` (`ctx.key > N`, `ctx.key == "value"`, `ctx.key exists`, bare truthiness). It creates an auto-named guard step (`_if_<step_name>`) and wires the actual step to run only when the condition is true. If false, the step is skipped.
+`step_if` accepts the same condition syntax as `if_node`. It creates an auto-named guard step (`_if_<step_name>`) and wires the actual step to run only when the condition is true. If false, the step is skipped.
+
+#### Condition grammar
+
+A condition is a comparison, an existence check (`ctx.key exists`) or a bare
+path tested for truthiness (`ctx.key`, false for `false`, `null` and a
+missing key). In a comparison the left side is a context path and the right
+side is always a literal:
+
+| Literal | Written as |
+|---------|------------|
+| Number | `100`, `-2`, `1.5` |
+| String | `"active"`, `'active'`, or an unquoted word |
+| Boolean | `true`, `false` |
+| Nil | `nil`, matching a key that is absent or `null` |
+
+```lua
+flow:step_if("ctx.ready == true", "start", nodes.log({ message = "ready" }))
+flow:step_if("ctx.dry_run != true", "write", nodes.log({ message = "writing" }))
+flow:step_if("ctx.override == nil", "use_default", nodes.log({ message = "default" }))
+flow:step_if("ctx.attempts >= 3", "escalate", nodes.log({ message = "escalating" }))
+```
+
+- `==` and `!=` accept every literal, and `!=` is the exact negation of `==`.
+  Values of different types are not equal, except that a string in the
+  context is compared with the operand's text, so the string `"5"` equals
+  `5`.
+- `>`, `<`, `>=` and `<=` compare a number in the context with a number
+  literal.
+- A comparison with no defined result is an error, not a skipped step. An
+  ordering operator with a non-numeric right operand (`ctx.n > nil`,
+  `ctx.a > ctx.b`) is rejected when the flow is loaded. Ordering anything
+  but a number, including a missing key or a numeric string, or comparing an
+  object or array with anything except `nil`, fails the guard step and the
+  run. Give a key that may be missing a default before ordering it.
+- There is no `and`, `or`, `not` or grouping, and a condition that uses them
+  (`not ctx.ready`, `ctx.a == 1 and ctx.b == 2`) is rejected when the flow
+  is loaded, and so is a literal in place of the path, such as the
+  condition `true`. Chain guards or decide in a `code` step. Quote a string
+  operand that contains spaces.
+
+The full rules are in the [`if_node` reference](nodes/if_node.md#condition-syntax).
 
 Function handlers work too:
 
