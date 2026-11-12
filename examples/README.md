@@ -68,6 +68,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **artifact_handoff.lua** — Stream a DOCX to the local or S3-backed artifact store and pass its backend-neutral descriptor directly to `extract_word`
 - **binary_file_io.lua** — Contrast explicit Base64 with a disk-backed artifact restore through `write_file`
 - **copy_move_files.lua** — Copy and move files between locations
+- **write_file_artifact_inputs.lua** — Restore an artifact by canonical URI through `write_file`, show that a local path passed as `artifact` is rejected and recovered with `on_error`, and copy by path with `copy_file`
 - **[s3_put_get_list.lua](04-file-operations/s3_put_get_list.lua)** — List visible buckets, then upload, download, list, and delete one UUID-scoped object
 - **s3_copy.lua** — Copy a literal space/percent key in S3, verify downloaded content and object listing, then clean up
 - **s3_mrap_presign.lua** — Generate four SigV4a MRAP presigned URLs without S3 calls; static credentials keep signing offline

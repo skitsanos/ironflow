@@ -27,6 +27,8 @@ in `artifact`, in `content` with `encoding = "artifact"`, or read through
 `source_key`. This matches the `http_*` artifact body. `write_file` does not
 copy a local file named by path: use [`copy_file`](copy_file.md), or
 [`read_file`](read_file.md) with `encoding = "artifact"` to store it first.
+The accepted and rejected forms are shown in
+[`write_file_artifact_inputs.lua`](../../examples/04-file-operations/write_file_artifact_inputs.lua).
 
 ## Safety and resource contract
 
