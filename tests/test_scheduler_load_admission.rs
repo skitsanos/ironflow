@@ -240,7 +240,10 @@ async fn an_expired_load_wait_defers_the_instant_and_grace_bounds_the_retry() {
         fixture.executor.clone(),
         now,
     );
-    hold_both_load_permits(&fixture.router, 1_500).await;
+    // The hold is wall-clock time, so it must outlast everything up to the
+    // first evaluation even on a heavily loaded machine: at 1.5 seconds the
+    // parses finished first under a parallel build and the instant fired.
+    hold_both_load_permits(&fixture.router, 5_000).await;
 
     let first = scheduler.evaluate(now).await;
 
@@ -254,7 +257,7 @@ async fn an_expired_load_wait_defers_the_instant_and_grace_bounds_the_retry() {
     assert_eq!(run_count(&fixture.store).await, 0, "nothing ran or parsed");
 
     // Let the held parses settle so the retry meets a free limit.
-    tokio::time::timeout(Duration::from_secs(10), async {
+    tokio::time::timeout(Duration::from_secs(30), async {
         let probe = || "local flow = Flow.new('probe')\nreturn flow".to_string();
         while validate(&fixture.router, probe()).await != StatusCode::OK {
             tokio::time::sleep(Duration::from_millis(10)).await;
