@@ -346,7 +346,8 @@ portable ASCII characters (`A-Z`, `a-z`, `0-9`, `-`, `_`, `.`, `:`). The key is
 hashed rather than stored; its deterministic run ID and request fingerprint are
 created atomically. A same-key/same-body retry returns that run from any
 replica, while a different source/file/context receives `409 conflict`.
-Deleting the run releases the retained identity. See
+Deleting the run releases the retained identity: the same key then starts a
+new run under the same run ID, with its own complete event stream. See
 [Replica deployment](REPLICA_DEPLOYMENT.md) for the complete boundary.
 
 ### Configuration File
@@ -775,7 +776,8 @@ all retained events for that run and installs a fence against late event
 publication. If event cleanup fails after state deletion, retry the same
 request: IronFlow still attempts event cleanup for the now-missing state and
 returns success when it removes an orphaned stream. A missing state record with
-no orphaned events returns `404 not_found`. JSON, SQL, and Redis atomically
+no orphaned events returns `404 not_found` and fences nothing, so deleting an
+ID that never existed does not affect a run created under it later. JSON, SQL, and Redis atomically
 return `409 conflict` without removing state, lease, or events when the run is
 non-terminal and its execution-owner lease is still live. Terminal runs and
 abandoned non-terminal runs with an expired lease remain deletable. A run
@@ -783,6 +785,14 @@ record that the store can no longer decode is deletable under the same rule:
 it cannot prove it is terminal, so only a live lease protects it. Lease
 reconciliation skips such a record with a warning that names the run, and
 continues with the other expired leases; deleting the run clears it.
+
+The fence belongs to the deleted run, not to its ID. Idempotent and scheduled
+run IDs are deterministic, so the same ID can be accepted again after a
+deletion; that run publishes and streams its events normally, while a late
+event from the deleted run is still rejected. One race remains: a `DELETE`
+that overlaps a new submission of the same ID can remove the new run's first
+events and fence it, because the state and event stores are deleted in two
+steps. Wait for the `DELETE` response before reusing the key.
 
 SQL deletion fences are durable. A Redis fence is persistent without
 `REDIS_TTL` and expires with that configured TTL. The memory backend keeps

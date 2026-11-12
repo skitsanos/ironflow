@@ -4,8 +4,12 @@ use async_trait::async_trait;
 use tokio::sync::RwLock;
 
 use crate::engine::events::RunEvent;
-use crate::storage::event_store::{EventStore, validate_event_run_id, validate_publish_event};
+use crate::storage::event_store::{
+    EventStore, deleted_stream, validate_event_run_id, validate_incarnation, validate_publish_event,
+};
 use crate::storage::{StorageError, StorageResult};
+
+mod fence;
 
 /// Maximum number of events retained by the default in-memory store across
 /// all runs. Persistent backends have their own retention controls.
@@ -26,8 +30,11 @@ enum MemoryEntry {
         event: RunEvent,
         retained_bytes: usize,
     },
+    /// Deletion fence. `admitted` is the one incarnation that may publish
+    /// past it, set when the run ID is accepted again.
     Deleted {
         run_id: String,
+        admitted: Option<String>,
         retained_bytes: usize,
     },
 }
@@ -103,26 +110,16 @@ impl MemoryEventStore {
             state.retained_bytes = state.retained_bytes.saturating_sub(entry.retained_bytes());
         }
     }
-}
 
-impl Default for MemoryEventStore {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[async_trait]
-impl EventStore for MemoryEventStore {
-    async fn publish(&self, event: RunEvent) -> StorageResult<()> {
+    async fn publish_scoped(
+        &self,
+        event: RunEvent,
+        incarnation: Option<&str>,
+    ) -> StorageResult<()> {
         validate_publish_event(&event)?;
         let mut state = self.state.write().await;
-        if state.entries.iter().any(
-            |entry| matches!(entry, MemoryEntry::Deleted { run_id, .. } if run_id == &event.run_id),
-        ) {
-            return Err(StorageError::conflict(format_args!(
-                "Event stream for run '{}' was deleted",
-                event.run_id
-            )));
+        if state.fences(&event.run_id, incarnation) {
+            return Err(deleted_stream(&event.run_id));
         }
         if let Some(existing) = state
             .entries
@@ -156,51 +153,41 @@ impl EventStore for MemoryEventStore {
         self.evict_to_limits(&mut state);
         Ok(())
     }
+}
 
-    async fn delete_run(&self, run_id: &str) -> StorageResult<usize> {
-        validate_event_run_id(run_id)?;
-        let deleted_run_id = run_id.to_string();
-        let deleted_retained_bytes = std::mem::size_of::<MemoryEntry>() + deleted_run_id.capacity();
-        if deleted_retained_bytes > self.byte_capacity {
-            return Err(StorageError::invalid_input(format_args!(
-                "Run ID needs {deleted_retained_bytes} retained bytes, above the in-memory limit of {}",
-                self.byte_capacity
-            )));
-        }
-        let mut state = self.state.write().await;
-        let mut removed = 0;
-        let mut removed_bytes = 0;
-        let mut already_deleted = false;
-        state.entries.retain(|entry| match entry {
-            MemoryEntry::Event {
-                event,
-                retained_bytes,
-            } if event.run_id == run_id => {
-                removed += 1;
-                removed_bytes += *retained_bytes;
-                false
-            }
-            MemoryEntry::Deleted {
-                run_id: deleted_run_id,
-                ..
-            } if deleted_run_id == run_id => {
-                already_deleted = true;
-                true
-            }
-            _ => true,
-        });
-        state.retained_bytes = state.retained_bytes.saturating_sub(removed_bytes);
-        if !already_deleted {
-            state.retained_bytes = state.retained_bytes.saturating_add(deleted_retained_bytes);
-            state.entries.push_back(MemoryEntry::Deleted {
-                run_id: deleted_run_id,
-                retained_bytes: deleted_retained_bytes,
-            });
-        }
-        self.evict_to_limits(&mut state);
-        Ok(removed)
+impl Default for MemoryEventStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl EventStore for MemoryEventStore {
+    async fn publish(&self, event: RunEvent) -> StorageResult<()> {
+        self.publish_scoped(event, None).await
     }
 
+    async fn publish_as(&self, event: RunEvent, incarnation: &str) -> StorageResult<()> {
+        validate_incarnation(incarnation)?;
+        self.publish_scoped(event, Some(incarnation)).await
+    }
+
+    async fn begin_incarnation(&self, run_id: &str, incarnation: &str) -> StorageResult<()> {
+        validate_event_run_id(run_id)?;
+        validate_incarnation(incarnation)?;
+        let mut state = self.state.write().await;
+        state.admit(run_id, incarnation);
+        self.evict_to_limits(&mut state);
+        Ok(())
+    }
+
+    async fn delete_run(&self, run_id: &str) -> StorageResult<usize> {
+        self.delete(run_id, true).await
+    }
+
+    async fn delete_orphaned_run(&self, run_id: &str) -> StorageResult<usize> {
+        self.delete(run_id, false).await
+    }
     async fn list_since(
         &self,
         run_id: &str,

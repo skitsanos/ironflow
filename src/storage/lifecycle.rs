@@ -4,9 +4,11 @@ use super::{StateStore, StorageResult};
 /// Delete one run across independently configured state and event stores.
 ///
 /// State is removed first. Event deletion is idempotent and installs a
-/// publication fence, so retrying after an interrupted event cleanup removes
-/// any orphaned stream without allowing a late workflow event to recreate it.
-/// A missing state record is reported only when no orphaned events existed.
+/// publication fence against the deleted incarnation, so retrying after an
+/// interrupted event cleanup removes any orphaned stream without allowing a
+/// late workflow event to recreate it. A missing state record is reported
+/// only when no orphaned events existed, and in that case nothing is fenced:
+/// the ID stays usable by a run that is created later (IF-184).
 pub async fn delete_run(
     state: &dyn StateStore,
     events: &dyn EventStore,
@@ -18,7 +20,7 @@ pub async fn delete_run(
             Ok(())
         }
         Err(error) if error.is_not_found() => {
-            if events.delete_run(run_id).await? == 0 {
+            if events.delete_orphaned_run(run_id).await? == 0 {
                 Err(error)
             } else {
                 Ok(())

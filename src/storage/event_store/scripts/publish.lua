@@ -1,11 +1,11 @@
-if #KEYS ~= 5 then
+if #KEYS ~= 6 then
     return redis.error_reply('IRONFLOW_INVALID_EVENT_PUBLISH_KEYS')
 end
-if #ARGV ~= 4 then
+if #ARGV ~= 5 then
     return redis.error_reply('IRONFLOW_INVALID_EVENT_PUBLISH_ARGUMENTS')
 end
-for left = 1, 5 do
-    for right = left + 1, 5 do
+for left = 1, 6 do
+    for right = left + 1, 6 do
         if KEYS[left] == KEYS[right] then
             return redis.error_reply('IRONFLOW_EVENT_KEYS_MUST_BE_DISTINCT')
         end
@@ -38,11 +38,20 @@ end
 if fence_type ~= 'none' and fence_type ~= 'string' then
     return redis.error_reply('IRONFLOW_INVALID_EVENT_DELETION_FENCE_TYPE')
 end
+local admitted_type = redis.call('TYPE', KEYS[6]).ok
+if admitted_type ~= 'none' and admitted_type ~= 'string' then
+    return redis.error_reply('IRONFLOW_INVALID_EVENT_INCARNATION_TYPE')
+end
 if fence_type == 'string' then
     if redis.call('GET', KEYS[5]) ~= ARGV[3] then
         return redis.error_reply('IRONFLOW_EVENT_DELETION_FENCE_OWNER_MISMATCH')
     end
-    return redis.error_reply('IRONFLOW_EVENT_STREAM_DELETED')
+    -- A fence belongs to the deleted incarnation. Once the run ID has been
+    -- accepted again, KEYS[6] names the only incarnation allowed past it; a
+    -- publisher that names none (ARGV[5] == '') is always rejected.
+    if ARGV[5] == '' or admitted_type ~= 'string' or redis.call('GET', KEYS[6]) ~= ARGV[5] then
+        return redis.error_reply('IRONFLOW_EVENT_STREAM_DELETED')
+    end
 end
 
 local list_len = redis.call('LLEN', KEYS[1])

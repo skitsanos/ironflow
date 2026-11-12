@@ -14,6 +14,8 @@ pub(super) static LIST: LazyLock<Script> =
     LazyLock::new(|| Script::new(include_str!("../scripts/list.lua")));
 pub(super) static DELETE: LazyLock<Script> =
     LazyLock::new(|| Script::new(include_str!("../scripts/delete.lua")));
+pub(super) static BEGIN: LazyLock<Script> =
+    LazyLock::new(|| Script::new(include_str!("../scripts/begin.lua")));
 pub(super) static LEGACY_STATUS: LazyLock<Script> =
     LazyLock::new(|| legacy_script(include_str!("../scripts/legacy_status.lua")));
 pub(super) static LEGACY_FETCH: LazyLock<Script> =

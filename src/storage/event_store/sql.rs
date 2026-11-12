@@ -6,10 +6,13 @@ use crate::storage::{StorageError, StorageResult};
 
 mod backfill;
 mod deletion;
+mod fence;
 mod index;
 mod migration;
 mod schema;
 mod store;
+
+use fence::Fence;
 
 pub struct SqlEventStore {
     pub(super) pool: AnyPool,
@@ -188,21 +191,6 @@ impl SqlEventStore {
         transaction: &mut Transaction<'_, Any>,
         run_id: &str,
     ) -> StorageResult<bool> {
-        let sql = format!(
-            "SELECT 1 FROM {} WHERE run_id = {}",
-            self.tables.event_deletions,
-            self.placeholder(1)
-        );
-        sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.as_str()))
-            .bind(run_id)
-            .fetch_optional(&mut **transaction)
-            .await
-            .map(|row| row.is_some())
-            .map_err(|error| {
-                StorageError::backend(
-                    format_args!("Failed to inspect event deletion for run '{run_id}'"),
-                    error,
-                )
-            })
+        Ok(self.fence(transaction, run_id).await? != Fence::Absent)
     }
 }

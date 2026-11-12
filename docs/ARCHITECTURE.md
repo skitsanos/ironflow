@@ -521,7 +521,14 @@ Run execution events use a separate `EventStore` abstraction so monitoring can
 be scaled independently from run persistence. Besides publish and replay, the
 trait requires idempotent, counted `delete_run`: it removes every retained
 payload for a run, installs a late-publication fence, and returns the number of
-payloads removed. Callers must give every logical event a non-empty ID that is
+payloads removed. The fence is scoped to a run incarnation. The engine
+publishes through `publish_as` with the run's lease owner as the incarnation
+and calls `begin_incarnation` once the state store has accepted a run ID;
+past a retained fence only that admitted incarnation may publish, so a run
+re-created under a deterministic ID has a complete stream and the deleted
+run's late events stay rejected. `delete_orphaned_run` is the variant for a
+run whose state is already absent: it fences only when it removed events.
+All three have defaults for stores without a fence. Callers must give every logical event a non-empty ID that is
 never assigned to another event in the same run, even after retention or TTL
 expiry; engine-generated UUIDv4 event IDs satisfy this obligation. An exact
 publication retry is idempotent while the identity remains retained. Bounded
@@ -647,9 +654,15 @@ only the state store. It deletes state first and then calls the event store's
 idempotent deletion. If event cleanup fails after state committed, the request
 fails but a retry still calls event deletion even though state is now absent;
 the retry succeeds when it removes an orphaned event stream. An absent state
-record with no orphaned events remains `404 not_found`. A successful event
-delete fences a workflow event racing behind it, so a late publication cannot
-undo deletion while that backend retains the fence.
+record with no orphaned events remains `404 not_found` and installs no fence.
+A successful event delete fences a workflow event racing behind it, so a late
+publication cannot undo deletion while that backend retains the fence. The
+fence rejects the deleted incarnation only: SQL stores the admitted
+incarnation in the fence row's nullable `incarnation` column (added to
+existing tables at startup), Redis in an `event_incarnations:v1:` key that
+expires with the fence, and memory in the fence entry. State and event
+deletion are separate steps, so a `DELETE` that overlaps a new submission of
+the same ID can still remove and fence the new run's first events.
 
 JSON, SQL, and Redis inspect status and lease under the same backend-atomic
 deletion fence. A non-terminal run with an unexpired execution-owner lease is

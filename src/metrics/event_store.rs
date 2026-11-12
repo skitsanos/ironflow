@@ -45,8 +45,24 @@ impl EventStore for ObservedEventStore {
         self.observe(StorageOperation::PublishEvent, result)
     }
 
+    async fn publish_as(&self, event: RunEvent, incarnation: &str) -> StorageResult<()> {
+        let result = self.inner.publish_as(event, incarnation).await;
+        self.observe(StorageOperation::PublishEvent, result)
+    }
+
+    async fn begin_incarnation(&self, run_id: &str, incarnation: &str) -> StorageResult<()> {
+        let result = self.inner.begin_incarnation(run_id, incarnation).await;
+        // Admission past a deletion fence is part of publication.
+        self.observe(StorageOperation::PublishEvent, result)
+    }
+
     async fn delete_run(&self, run_id: &str) -> StorageResult<usize> {
         let result = self.inner.delete_run(run_id).await;
+        self.observe(StorageOperation::DeleteRun, result)
+    }
+
+    async fn delete_orphaned_run(&self, run_id: &str) -> StorageResult<usize> {
+        let result = self.inner.delete_orphaned_run(run_id).await;
         self.observe(StorageOperation::DeleteRun, result)
     }
 
@@ -105,5 +121,33 @@ mod tests {
             "ironflow_storage_failures_total{store=\"event\",operation=\"list_events\",error_kind=\"backend\"} 1"
         ));
         assert!(!encoded.contains("if100-secret"));
+    }
+
+    /// The engine reaches the configured store through this wrapper, so it
+    /// must forward the incarnation instead of falling back to the trait
+    /// defaults, which would publish unscoped and stay fenced (IF-184).
+    #[tokio::test]
+    async fn observed_store_forwards_the_run_incarnation() {
+        use crate::engine::events::RunEventType;
+        use crate::engine::types::RunStatus;
+        use crate::storage::StorageErrorKind;
+        use crate::storage::event_store::MemoryEventStore;
+
+        let metrics = Arc::new(Metrics::new());
+        let store = observe_event_store(Arc::new(MemoryEventStore::new()), metrics.clone());
+        let event = || RunEvent::run("run", "flow", RunEventType::RunStarted, RunStatus::Running);
+
+        assert_eq!(store.delete_orphaned_run("run").await.unwrap(), 0);
+        store.publish(event()).await.unwrap();
+        assert_eq!(store.delete_run("run").await.unwrap(), 1);
+        store.begin_incarnation("run", "second").await.unwrap();
+        store.publish_as(event(), "second").await.unwrap();
+        assert_eq!(
+            store.publish_as(event(), "first").await.unwrap_err().kind(),
+            StorageErrorKind::Conflict
+        );
+        assert!(metrics.encode().unwrap().contains(
+            "ironflow_storage_failures_total{store=\"event\",operation=\"publish_event\",error_kind=\"conflict\"} 1"
+        ));
     }
 }

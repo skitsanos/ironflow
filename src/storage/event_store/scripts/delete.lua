@@ -1,17 +1,22 @@
-if #KEYS ~= 6 then
+if #KEYS ~= 7 then
     return redis.error_reply('IRONFLOW_INVALID_EVENT_DELETE_KEYS')
 end
-if #ARGV ~= 2 then
+if #ARGV ~= 3 then
     return redis.error_reply('IRONFLOW_INVALID_EVENT_DELETE_ARGUMENTS')
 end
-for left = 1, 6 do
-    for right = left + 1, 6 do
+for left = 1, 7 do
+    for right = left + 1, 7 do
         if KEYS[left] == KEYS[right] then
             return redis.error_reply('IRONFLOW_EVENT_KEYS_MUST_BE_DISTINCT')
         end
     end
 end
 
+-- '1' fences unconditionally; '0' is an orphan sweep for a run whose state
+-- is already absent, which fences only when it removes events.
+if ARGV[3] ~= '0' and ARGV[3] ~= '1' then
+    return redis.error_reply('IRONFLOW_INVALID_EVENT_DELETE_ARGUMENTS')
+end
 local ttl = ARGV[2]
 if ttl ~= '-1' then
     if string.match(ttl, '^[1-9][0-9]*$') == nil or string.len(ttl) > 11 then
@@ -38,6 +43,10 @@ if meta_type ~= 'none' and meta_type ~= 'hash' then
 end
 if fence_type ~= 'none' and fence_type ~= 'string' then
     return redis.error_reply('IRONFLOW_INVALID_EVENT_DELETION_FENCE_TYPE')
+end
+local admitted_type = redis.call('TYPE', KEYS[7]).ok
+if admitted_type ~= 'none' and admitted_type ~= 'string' then
+    return redis.error_reply('IRONFLOW_INVALID_EVENT_INCARNATION_TYPE')
 end
 if fence_type == 'string' and redis.call('GET', KEYS[5]) ~= ARGV[1] then
     return redis.error_reply('IRONFLOW_EVENT_DELETION_FENCE_OWNER_MISMATCH')
@@ -84,10 +93,16 @@ if redis.call('UNLINK', KEYS[6]) ~= 0 then
     return redis.error_reply('IRONFLOW_EVENT_DELETE_PROBE_NOT_EMPTY')
 end
 
+if ARGV[3] == '0' and list_len == 0 then
+    -- Nothing existed: leave no fence, and keep an existing one as it is.
+    return 0
+end
+
 -- A same-owner retry preserves the original fence lifetime. Extending the TTL
 -- on every retry could turn periodic cleanup calls into an accidental
--- permanent tombstone.
-if fence_type == 'none' then
+-- permanent tombstone. Deleting a run that was accepted again past the fence
+-- is a new deletion and gets a full lifetime.
+if fence_type == 'none' or admitted_type == 'string' then
     if ttl ~= '-1' then
         redis.call('SET', KEYS[5], ARGV[1], 'EX', ttl)
     else
@@ -96,5 +111,5 @@ if fence_type == 'none' then
 end
 -- Remove the namespace atomically but reclaim large list/hash allocations on
 -- Redis' lazy-free worker instead of blocking the server event loop.
-redis.call('UNLINK', KEYS[1], KEYS[2], KEYS[3], KEYS[4])
+redis.call('UNLINK', KEYS[1], KEYS[2], KEYS[3], KEYS[4], KEYS[7])
 return list_len

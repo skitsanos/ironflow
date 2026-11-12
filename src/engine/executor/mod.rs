@@ -11,6 +11,7 @@ mod overlay;
 mod panic_payload;
 mod phase_output;
 mod placement;
+mod run_events;
 mod scheduler;
 mod signal;
 mod task_attempt;

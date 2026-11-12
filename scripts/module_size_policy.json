@@ -19,8 +19,8 @@
     },
     {
       "path": "src/storage/event_store/sql/store.rs",
-      "max_lines": 359,
-      "rationale": "IF-028 review, tightened during IF-077: one EventStore implementation covering publish, list, decode, and delete transaction boundaries; readiness and rollback helpers live in the parent SQL module."
+      "max_lines": 310,
+      "rationale": "IF-028 review, tightened during IF-077 and IF-184: one EventStore implementation covering publish, list, and decode transaction boundaries; deletion, fences, readiness and rollback helpers live in sibling SQL modules."
     },
     {
       "path": "src/storage/json_store/codec.rs",

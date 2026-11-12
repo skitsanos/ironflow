@@ -73,7 +73,12 @@ digest identifies the durable run, and a request fingerprint is committed with
 that run. Concurrent or later same-key/same-request submissions return the same
 run. Reusing the key for another source, file name, or context returns HTTP 409.
 The identity is retained for the lifetime of the run record; explicitly deleting
-the run also releases that identity.
+the run also releases that identity. A later submission with the same key
+starts a new run under the same run ID, on any replica, and its events and
+SSE stream are complete: the event store's deletion fence rejects only late
+events from the deleted run. Wait for the `DELETE` response before reusing
+the key; a deletion that overlaps the new submission can remove that run's
+first events.
 
 Scheduled occurrences derive their durable run ID from the schedule name and
 resolved instant. A replica that observes an existing claim still converges on

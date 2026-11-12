@@ -61,6 +61,15 @@ impl RedisEventStore {
         format!("{}event_deletions:v1:{}", self.prefix, run_segment(run_id))
     }
 
+    /// The incarnation admitted past the deletion fence, if any (IF-184).
+    pub(super) fn admitted_incarnation_key(&self, run_id: &str) -> String {
+        format!(
+            "{}event_incarnations:v1:{}",
+            self.prefix,
+            run_segment(run_id)
+        )
+    }
+
     pub(super) fn legacy_migration_keys(&self, run_id: &str) -> LegacyMigrationKeys {
         let exact_run = hex::encode(run_id.as_bytes());
         let migration_base = format!("{}event_migrations:v1:{exact_run}", self.prefix);

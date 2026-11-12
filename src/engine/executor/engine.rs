@@ -180,10 +180,18 @@ impl WorkflowEngine {
                 .with_context(|| format!("Failed to initialize workflow run {run_id}"));
         }
 
+        // The lease owner is unique to this incarnation of the run ID, so a
+        // deletion fence left by an earlier run with the same ID admits
+        // these events and still rejects that run's late ones (IF-184).
+        let events = match &self.events {
+            Some(events) => Some(super::run_events::begin(events, &run_id, lease.owner()).await),
+            None => None,
+        };
+
         let coordinator = RunCoordinator::new(
             self.registry.clone(),
             self.store.clone(),
-            self.events.clone(),
+            events,
             max_concurrent_tasks,
             run_id,
             flow.clone(),

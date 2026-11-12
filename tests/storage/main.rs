@@ -12,6 +12,8 @@
 mod test_artifact_retention;
 #[path = "../test_cache_identity.rs"]
 mod test_cache_identity;
+#[path = "../test_event_fence_incarnation.rs"]
+mod test_event_fence_incarnation;
 #[path = "../test_event_store.rs"]
 mod test_event_store;
 #[path = "../test_json_depth_stores.rs"]

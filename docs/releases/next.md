@@ -131,6 +131,19 @@ publication is verified separately.
   `ironflow_scheduler_decisions_total`. API and webhook requests still receive
   `503` immediately at the limit.
 
+- A run created again under the same ID after `DELETE /runs/{id}` now has
+  its events and SSE stream (IF-184). Idempotent and scheduled run IDs are
+  deterministic, and the event store's deletion fence used to reject every
+  later event for the ID: the new run finished normally with an empty
+  stream. The fence now belongs to the deleted run, on the memory, SQL and
+  Redis event backends, and a `DELETE` that returns `404` no longer fences
+  the ID. SQL event stores gain a nullable `incarnation` column on the
+  event-deletion table, added at startup; an older replica that is still
+  running during a rolling upgrade keeps rejecting events for deleted IDs
+  until it is replaced. Custom `EventStore` implementations compile
+  unchanged: the new `publish_as`, `begin_incarnation` and
+  `delete_orphaned_run` methods have defaults.
+
 - Every release archive and the container image now ship
   `THIRD_PARTY_LICENSES.md`, the generated license notices for the Rust crates
   statically linked into IronFlow, next to the bundled fonts' OFL license

@@ -47,7 +47,8 @@ impl SqlEventStore {
             format!(
                 r#"
             CREATE TABLE IF NOT EXISTS {} (
-                run_id TEXT PRIMARY KEY
+                run_id TEXT PRIMARY KEY,
+                incarnation TEXT
             )
             "#,
                 self.tables.event_deletions
@@ -55,6 +56,8 @@ impl SqlEventStore {
             "event deletion table",
         )
         .await?;
+        self.ensure_column(&self.tables.event_deletions, "incarnation", "TEXT")
+            .await?;
 
         crate::storage::sql_ddl::create_if_absent(
             &self.pool,
@@ -89,32 +92,36 @@ impl SqlEventStore {
     }
 
     async fn ensure_sequence_column(&self) -> StorageResult<()> {
-        if self.sequence_column_exists().await? {
+        self.ensure_column(&self.tables.events, "sequence", "BIGINT")
+            .await
+    }
+
+    /// Add one nullable column to a table created by an earlier release.
+    /// Table and column names are IronFlow-controlled identifiers.
+    async fn ensure_column(&self, table: &str, column: &str, sql_type: &str) -> StorageResult<()> {
+        if self.column_exists(table, column).await? {
             return Ok(());
         }
-        let sql = format!(
-            "ALTER TABLE {} ADD COLUMN sequence BIGINT",
-            self.tables.events
-        );
+        let sql = format!("ALTER TABLE {table} ADD COLUMN {column} {sql_type}");
+        // A replica starting at the same time may add the column first.
         if let Err(error) = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
             .execute(&self.pool)
             .await
-            && !self.sequence_column_exists().await?
+            && !self.column_exists(table, column).await?
         {
             return Err(StorageError::backend(
-                "Failed to add SQL event sequence column",
+                format_args!("Failed to add SQL event column '{column}'"),
                 error,
             ));
         }
         Ok(())
     }
 
-    async fn sequence_column_exists(&self) -> StorageResult<bool> {
+    async fn column_exists(&self, table: &str, column: &str) -> StorageResult<bool> {
         let row = match self.dialect {
             SqlDialect::Sqlite => {
                 let sql = format!(
-                    "SELECT 1 AS present FROM pragma_table_info('{}') WHERE name = 'sequence'",
-                    self.tables.events
+                    "SELECT 1 AS present FROM pragma_table_info('{table}') WHERE name = '{column}'"
                 );
                 sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
                     .fetch_optional(&self.pool)
@@ -124,9 +131,10 @@ impl SqlEventStore {
                 sqlx::query(
                     "SELECT 1 AS present FROM information_schema.columns \
                      WHERE table_schema = current_schema() AND table_name = $1 \
-                     AND column_name = 'sequence'",
+                     AND column_name = $2",
                 )
-                .bind(&self.tables.events)
+                .bind(table)
+                .bind(column)
                 .fetch_optional(&self.pool)
                 .await
             }
