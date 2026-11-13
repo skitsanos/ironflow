@@ -6,8 +6,8 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts generate` and verified with
 `bun run scripts/issues_registry.ts check`.
 
-- Total findings: 211
-- Active findings: 15
+- Total findings: 220
+- Active findings: 21
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
 | ID | Priority | Status | Area | Summary |
@@ -218,8 +218,17 @@ priority, area, and title. The registry is generated with
 | [IF-204](./IF-204.md) | P2 | Resolved | Supply chain | Release archives and the container image ship no third-party license notices |
 | [IF-205](./IF-205.md) | P2 | Resolved | Validation workflow | Pre-commit hook rejects linked-worktree commits that stage policy tests |
 | [IF-206](./IF-206.md) | P2 | Resolved | Scheduler contract | A five-token cron expression is accepted with its fields shifted |
-| [IF-207](./IF-207.md) | P3 | Open | Maintainability | Follow-ups recorded while fixing IF-173 to IF-206 |
+| [IF-207](./IF-207.md) | P3 | Resolved | Maintainability | Follow-ups recorded while fixing IF-173 to IF-206 |
 | [IF-208](./IF-208.md) | P2 | Resolved | Supply chain | Renovate lockfile pull requests cannot pass CI because the notices file lists crate versions |
-| [IF-209](./IF-209.md) | P3 | Open | Maintainability | Follow-ups recorded while fixing IF-182, IF-183 and IF-184 |
-| [IF-210](./IF-210.md) | P3 | Open | Maintainability | Follow-ups recorded while fixing IF-186, IF-187 and IF-188 |
+| [IF-209](./IF-209.md) | P3 | Resolved | Maintainability | Follow-ups recorded while fixing IF-182, IF-183 and IF-184 |
+| [IF-210](./IF-210.md) | P3 | Resolved | Maintainability | Follow-ups recorded while fixing IF-186, IF-187 and IF-188 |
 | [IF-211](./IF-211.md) | P2 | Resolved | Workflow execution | Lua run by a step is not tracked work and outlives a timed-out step |
+| [IF-212](./IF-212.md) | P2 | Open | Nodes/security | The outbound destination guard covers only the HTTP nodes |
+| [IF-213](./IF-213.md) | P2 | Open | Engine/cancellation | Several built-in blocking nodes are not tracked work, and Lua C calls have no time bound |
+| [IF-214](./IF-214.md) | P2 | Open | API events | Event streams can be lost when a delete overlaps a new run or incarnation admission fails |
+| [IF-215](./IF-215.md) | P2 | Open | Resource safety | Parsing, planning and fan-out paths that still do unbounded work |
+| [IF-216](./IF-216.md) | P2 | Open | Test reliability | Redis legacy-expiry tests fail intermittently on a loaded machine |
+| [IF-217](./IF-217.md) | P3 | Open | Scheduler | Scheduler follow-ups: outcome labels, catch-up losses and cron messages |
+| [IF-218](./IF-218.md) | P3 | Open | File I/O | File output and archive follow-ups |
+| [IF-219](./IF-219.md) | P3 | Open | Diagnostics | Diagnostic scrubber over-redacts and misses some key forms |
+| [IF-220](./IF-220.md) | P3 | Open | Maintainability | Operational and validation follow-ups from the 2026-11 fix batches |

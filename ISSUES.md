@@ -20,9 +20,15 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 | [IF-201](docs/issues/IF-201.md) | P2 | Open | Scheduler/Redis | A Redis TTL shorter than a schedule's grace window re-runs a completed occurrence |
 | [IF-202](docs/issues/IF-202.md) | P2 | Open | Storage/Postgres | PostgreSQL event store takes an exclusive table lock on every startup |
 | [IF-203](docs/issues/IF-203.md) | P3 | Open | Maintainability | Assorted engine, API and documentation follow-ups from the November review |
-| [IF-207](docs/issues/IF-207.md) | P3 | Open | Maintainability | Follow-ups recorded while fixing IF-173 to IF-206 |
-| [IF-209](docs/issues/IF-209.md) | P3 | Open | Maintainability | Follow-ups recorded while fixing IF-182, IF-183 and IF-184 |
-| [IF-210](docs/issues/IF-210.md) | P3 | Open | Maintainability | Follow-ups recorded while fixing IF-186, IF-187 and IF-188 |
+| [IF-212](docs/issues/IF-212.md) | P2 | Open | Nodes/security | The outbound destination guard covers only the HTTP nodes |
+| [IF-213](docs/issues/IF-213.md) | P2 | Open | Engine/cancellation | Several built-in blocking nodes are not tracked work, and Lua C calls have no time bound |
+| [IF-214](docs/issues/IF-214.md) | P2 | Open | API events | Event streams can be lost when a delete overlaps a new run or incarnation admission fails |
+| [IF-215](docs/issues/IF-215.md) | P2 | Open | Resource safety | Parsing, planning and fan-out paths that still do unbounded work |
+| [IF-216](docs/issues/IF-216.md) | P2 | Open | Test reliability | Redis legacy-expiry tests fail intermittently on a loaded machine |
+| [IF-217](docs/issues/IF-217.md) | P3 | Open | Scheduler | Scheduler follow-ups: outcome labels, catch-up losses and cron messages |
+| [IF-218](docs/issues/IF-218.md) | P3 | Open | File I/O | File output and archive follow-ups |
+| [IF-219](docs/issues/IF-219.md) | P3 | Open | Diagnostics | Diagnostic scrubber over-redacts and misses some key forms |
+| [IF-220](docs/issues/IF-220.md) | P3 | Open | Maintainability | Operational and validation follow-ups from the 2026-11 fix batches |
 
 ## Working agreement
 
