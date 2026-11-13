@@ -26,7 +26,9 @@ use ironflow::storage::json_store::JsonStateStore;
 use ironflow::util::listing::ListingPolicy;
 use tower::ServiceExt as _;
 
-static PERMITS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+// The end-to-end tests in this binary start real scheduled runs with short
+// time bounds, so they must never overlap a test here that holds the permits.
+use super::test_scheduler_e2e::PROCESS_ADMISSION_LOCK as PERMITS;
 
 /// Five seconds after the 02:00 UTC occurrence every schedule here matches.
 fn just_after_two() -> DateTime<Utc> {

@@ -18,7 +18,11 @@ use scheduler_support::{
 // production flow-load admission is intentionally process-wide. Serialize the
 // fixture lifetimes so parallel Rust test threads do not turn unrelated cases
 // into synthetic capacity competitors.
-static PROCESS_ADMISSION_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+/// Shared with `test_scheduler_load_admission`, whose tests hold both
+/// flow-load permits for seconds: a scheduled start here would wait for them
+/// past this file's four-second bound.
+pub(super) static PROCESS_ADMISSION_LOCK: tokio::sync::Mutex<()> =
+    tokio::sync::Mutex::const_new(());
 
 fn nightly(flow: &str) -> ScheduleConfig {
     let mut ctx = Context::new();
