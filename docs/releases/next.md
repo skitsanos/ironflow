@@ -283,6 +283,32 @@ publication is verified separately.
   `filter` parameter behave as before. See
   [Metadata Filter](../nodes/s3vector_query_vectors.md#metadata-filter).
 
+- **Extracted text changes for some PDF, DOCX and PPTX documents** (IF-193).
+  Review stored extractions, embeddings and assertions that depend on the
+  earlier output:
+  - `pdf_metadata` and `extract_pdf` metadata decode Info strings as PDF text
+    strings. A UTF-16 `title` such as `Müller Report` was returned as
+    replacement characters followed by NUL-separated letters and is now the
+    readable text; PDFDocEncoding accents and UTF-8 strings with a byte-order
+    mark are decoded as well. NUL and other control characters no longer
+    reach the run context, and `pdf_metadata` now reads indirect Info values.
+  - `extract_word` keeps the text of a paragraph that anchors a text box and
+    emits the box paragraphs after it, once. Before, only the box text
+    survived, and it was repeated when the document carried a fallback copy.
+  - `extract_word` no longer reports a run as bold, italic or struck through
+    when the property is switched off (`<w:b w:val="0"/>`), nor as underlined
+    for `<w:u w:val="none"/>`. Markdown loses the wrong `**`/`*` markers and
+    JSON runs lose the wrong flags. The repository's sample document changes
+    here: its table body cells are no longer bold.
+  - `extract_pptx` speaker notes contain the body placeholder only. The slide
+    number, date, header and footer of the notes page and field values are no
+    longer appended, and a slide without notes no longer reports its slide
+    number as `speaker_notes`.
+
+  See [`pdf_metadata`](../nodes/pdf_metadata.md),
+  [`extract_word`](../nodes/extract_word.md#text-boxes) and
+  [`extract_pptx`](../nodes/extract_pptx.md#text-fidelity).
+
 ## Security
 
 - **`mcp_client` bounds Streamable HTTP responses** (IF-173). `rmcp` is
