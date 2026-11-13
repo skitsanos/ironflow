@@ -7,7 +7,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts check`.
 
 - Total findings: 220
-- Active findings: 21
+- Active findings: 20
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
 | ID | Priority | Status | Area | Summary |
@@ -227,7 +227,7 @@ priority, area, and title. The registry is generated with
 | [IF-213](./IF-213.md) | P2 | Open | Engine/cancellation | Several built-in blocking nodes are not tracked work, and Lua C calls have no time bound |
 | [IF-214](./IF-214.md) | P2 | Open | API events | Event streams can be lost when a delete overlaps a new run or incarnation admission fails |
 | [IF-215](./IF-215.md) | P2 | Open | Resource safety | Parsing, planning and fan-out paths that still do unbounded work |
-| [IF-216](./IF-216.md) | P2 | Open | Test reliability | Redis legacy-expiry tests fail intermittently on a loaded machine |
+| [IF-216](./IF-216.md) | P2 | Resolved | Test reliability | Redis legacy-expiry tests fail intermittently on a loaded machine |
 | [IF-217](./IF-217.md) | P3 | Open | Scheduler | Scheduler follow-ups: outcome labels, catch-up losses and cron messages |
 | [IF-218](./IF-218.md) | P3 | Open | File I/O | File output and archive follow-ups |
 | [IF-219](./IF-219.md) | P3 | Open | Diagnostics | Diagnostic scrubber over-redacts and misses some key forms |

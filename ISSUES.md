@@ -24,7 +24,6 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 | [IF-213](docs/issues/IF-213.md) | P2 | Open | Engine/cancellation | Several built-in blocking nodes are not tracked work, and Lua C calls have no time bound |
 | [IF-214](docs/issues/IF-214.md) | P2 | Open | API events | Event streams can be lost when a delete overlaps a new run or incarnation admission fails |
 | [IF-215](docs/issues/IF-215.md) | P2 | Open | Resource safety | Parsing, planning and fan-out paths that still do unbounded work |
-| [IF-216](docs/issues/IF-216.md) | P2 | Open | Test reliability | Redis legacy-expiry tests fail intermittently on a loaded machine |
 | [IF-217](docs/issues/IF-217.md) | P3 | Open | Scheduler | Scheduler follow-ups: outcome labels, catch-up losses and cron messages |
 | [IF-218](docs/issues/IF-218.md) | P3 | Open | File I/O | File output and archive follow-ups |
 | [IF-219](docs/issues/IF-219.md) | P3 | Open | Diagnostics | Diagnostic scrubber over-redacts and misses some key forms |

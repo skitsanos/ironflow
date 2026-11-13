@@ -26,6 +26,18 @@ fn event(run_id: &str, id: impl Into<String>) -> RunEvent {
     event
 }
 
+/// A fixture connection for the 18 MB seed pipeline and `DUMP` replies of
+/// the byte-limit test, which do not fit the client's default 500 ms response
+/// timeout on a loaded machine. The store under test keeps its own defaults.
+async fn bulk_connection(fixture: &RedisTest) -> redis::aio::ConnectionManager {
+    let client = redis::Client::open(fixture.url.as_str()).unwrap();
+    let config = redis::aio::ConnectionManagerConfig::new()
+        .set_response_timeout(Some(std::time::Duration::from_secs(60)));
+    redis::aio::ConnectionManager::new_with_config(client, config)
+        .await
+        .unwrap()
+}
+
 fn migration_script(body: &str) -> redis::Script {
     redis::Script::new(&format!("{LEGACY_COMMON}\n{body}"))
 }
@@ -189,7 +201,7 @@ async fn redis_legacy_reverse_restore_respects_the_aggregate_byte_limit() {
     let run_id = "legacy-restore-bytes";
     let base = format!("{}events:{run_id}", fixture.prefix);
     let index = format!("{base}:index");
-    let mut conn = fixture.connection().await.unwrap();
+    let mut conn = bulk_connection(&fixture).await;
     let mut pipe = redis::pipe();
     for position in 0..VALID_EVENTS {
         let mut stored = event(run_id, format!("legacy-restore-byte-{position:02}"));
