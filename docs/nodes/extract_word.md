@@ -63,7 +63,20 @@ When `format = "json"`, the output is an object with a single `blocks` array. Ea
 }
 ```
 
-Run flags (`bold`, `italic`, `underline`, `strike`) are emitted only when true. `color` is the resolved hex (uppercase, no `#`) — see below. `highlight` is the OOXML highlight name when set (e.g. `"yellow"`). `style` and `list` are absent when not applicable. `colors` is a deduped union of run colors at the paragraph level, present only when at least one run has a color.
+Run flags (`bold`, `italic`, `underline`, `strike`) are emitted only when true. A toggle property counts as on when it is present without `w:val` or with `1`, `true` or `on`, and as off with `0`, `false` or `off`; `w:u` is off for `w:val="none"`. Style inheritance is not resolved, so an explicit off only cancels the flag on that run. `color` is the resolved hex (uppercase, no `#`) — see below. `highlight` is the OOXML highlight name when set (e.g. `"yellow"`). `style` and `list` are absent when not applicable. `colors` is a deduped union of run colors at the paragraph level, present only when at least one run has a color.
+
+### Text boxes
+
+A text box is stored inside a run of the paragraph that anchors it. The
+anchoring paragraph keeps all of its own text, and the paragraphs of the box
+follow it as separate blocks in every format, each with its own style and
+runs. Empty paragraphs inside a box are omitted. A table inside a box follows
+the anchoring paragraph as a table block. When the anchoring paragraph sits in
+a table cell, the box content stays in that cell as further paragraphs. Each
+box is emitted once: the `mc:Fallback` copy that word processors write next to
+the `mc:Choice` content is skipped, and with it any other fallback content.
+Boxes nested in boxes are flattened in the same order. The position of the box
+on the page is not used.
 
 ### Table block
 

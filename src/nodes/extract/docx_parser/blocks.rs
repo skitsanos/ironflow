@@ -7,11 +7,10 @@ use anyhow::Result;
 use quick_xml::events::BytesStart;
 
 use super::super::resource::Budget;
-use super::properties::apply_run_color;
-use super::xml::visit_attributes;
+use super::properties::{apply_paragraph_property, apply_run_property};
 use super::{DocxBlock, DocxCell, DocxParagraph, DocxRow, DocxRun, DocxTable};
 
-const PART: &str = "word/document.xml";
+const FALLBACK: &str = "mc:Fallback";
 
 /// Document-wide lookups resolved before the walk starts.
 pub(super) struct Lookups<'a> {
@@ -19,21 +18,35 @@ pub(super) struct Lookups<'a> {
     pub(super) theme_colors: &'a HashMap<String, String>,
 }
 
-/// Parser state for one document walk. The flags track which element kinds
-/// are open; the stacks hold partially built tables, rows and cells.
+/// One open `w:p`. A text box nests whole paragraphs inside a run of its
+/// host paragraph, so paragraph and run state is kept per open paragraph.
 #[derive(Default)]
-pub(super) struct BlockBuilder {
-    blocks: Vec<DocxBlock>,
-    in_paragraph: bool,
-    in_run: bool,
+struct Frame {
+    paragraph: DocxParagraph,
+    run: Option<DocxRun>,
     in_text: bool,
     in_run_props: bool,
     in_para_props: bool,
+    /// Text-box content anchored in this paragraph, emitted after it.
+    boxed: Vec<DocxBlock>,
+    /// Open cells and tables when the paragraph started. Anything deeper was
+    /// opened by a text box inside this paragraph.
+    cell_depth: usize,
+    table_depth: usize,
+}
+
+/// Parser state for one document walk. The stacks hold the open paragraphs
+/// and the partially built tables, rows and cells.
+#[derive(Default)]
+pub(super) struct BlockBuilder {
+    blocks: Vec<DocxBlock>,
+    frames: Vec<Frame>,
+    /// Open `mc:Fallback` elements. A fallback repeats its `mc:Choice` in an
+    /// older vocabulary, so its content is skipped.
+    fallback_depth: u64,
     table_stack: Vec<DocxTable>,
     row_stack: Vec<DocxRow>,
     cell_stack: Vec<DocxCell>,
-    current_para: DocxParagraph,
-    current_run: DocxRun,
 }
 
 impl BlockBuilder {
@@ -48,136 +61,104 @@ impl BlockBuilder {
     ) -> Result<()> {
         let name = event.name();
         let name = name.as_ref();
+        if name == FALLBACK {
+            self.fallback_depth += u64::from(!is_empty);
+            return Ok(());
+        }
+        if self.fallback_depth > 0 {
+            return Ok(());
+        }
         match name {
-            "w:tbl" | "w:tr" | "w:tc" | "w:p" | "w:r" | "w:t" | "w:tab" | "w:br" => {
-                self.open_structure(name, is_empty, budget)
+            // An empty table, row or cell has no end tag to close it.
+            "w:tbl" | "w:tr" | "w:tc" => {
+                self.open_table_part(name);
+                if is_empty {
+                    self.close(name);
+                }
+                Ok(())
             }
-            "w:pPr" | "w:pStyle" | "w:numPr" | "w:ilvl" | "w:numId" => {
-                self.open_paragraph_property(name, event, version, lookups, budget)
-            }
-            "w:rPr" | "w:b" | "w:i" | "w:u" | "w:strike" | "w:color" | "w:highlight" => {
-                self.open_run_property(name, event, version, lookups, budget)
+            "w:p" | "w:r" | "w:t" | "w:tab" | "w:br" => self.open_text(name, is_empty, budget),
+            "w:pPr" | "w:pStyle" | "w:numPr" | "w:ilvl" | "w:numId" | "w:rPr" | "w:b" | "w:i"
+            | "w:u" | "w:strike" | "w:color" | "w:highlight" => {
+                self.open_property(name, event, is_empty, version, lookups, budget)
             }
             _ => Ok(()),
         }
     }
 
-    fn open_structure(
-        &mut self,
-        name: &str,
-        is_empty: bool,
-        budget: &mut Budget<'_>,
-    ) -> Result<()> {
+    fn open_table_part(&mut self, name: &str) {
         match name {
             "w:tbl" => self.table_stack.push(DocxTable::default()),
             "w:tr" if !self.table_stack.is_empty() => self.row_stack.push(DocxRow::default()),
             "w:tc" if !self.row_stack.is_empty() => self.cell_stack.push(DocxCell::default()),
-            "w:p" => {
-                self.in_paragraph = true;
-                self.current_para = DocxParagraph::default();
+            _ => {}
+        }
+    }
+
+    /// Paragraphs, runs and run content. An empty `w:p` or `w:r` has no end
+    /// tag and no content, so it opens nothing.
+    fn open_text(&mut self, name: &str, is_empty: bool, budget: &mut Budget<'_>) -> Result<()> {
+        if name == "w:p" {
+            if !is_empty {
+                self.frames.push(Frame {
+                    cell_depth: self.cell_stack.len(),
+                    table_depth: self.table_stack.len(),
+                    ..Frame::default()
+                });
             }
-            "w:r" if self.in_paragraph => {
-                self.in_run = true;
-                self.current_run = DocxRun::default();
+            return Ok(());
+        }
+        let Some(frame) = self.frames.last_mut() else {
+            return Ok(());
+        };
+        if name == "w:r" {
+            if !is_empty {
+                frame.run = Some(DocxRun::default());
+                frame.in_run_props = false;
             }
-            "w:t" if self.in_run => self.in_text = !is_empty,
-            "w:tab" if self.in_run => {
+            return Ok(());
+        }
+        let Some(run) = frame.run.as_mut() else {
+            return Ok(());
+        };
+        match name {
+            "w:t" => frame.in_text = !is_empty,
+            "w:tab" => {
                 budget.charge_output(1, "DOCX extracted text")?;
-                self.current_run.text.push('\t');
+                run.text.push('\t');
             }
-            "w:br" if self.in_run => {
+            "w:br" => {
                 budget.charge_output(1, "DOCX extracted text")?;
-                self.current_run.text.push('\n');
+                run.text.push('\n');
             }
             _ => {}
         }
         Ok(())
     }
 
-    fn open_paragraph_property(
+    /// `w:pPr`, `w:rPr` and their children. Run properties inside `w:pPr`
+    /// describe the paragraph mark, not a run, and are ignored.
+    fn open_property(
         &mut self,
         name: &str,
         event: &BytesStart<'_>,
+        is_empty: bool,
         version: quick_xml::XmlVersion,
         lookups: &Lookups<'_>,
         budget: &mut Budget<'_>,
     ) -> Result<()> {
-        match name {
-            "w:pPr" if self.in_paragraph => self.in_para_props = true,
-            "w:pStyle" if self.in_para_props => {
-                let style = &mut self.current_para.style;
-                visit_attributes(event, PART, version, budget, |key, value, _| {
-                    if key == b"w:val" {
-                        *style = Some(String::from_utf8_lossy(value).to_string());
-                    }
-                    Ok(())
-                })?;
+        let Some(frame) = self.frames.last_mut() else {
+            return Ok(());
+        };
+        match (name, frame.run.as_mut()) {
+            ("w:pPr", _) => frame.in_para_props = !is_empty,
+            ("w:rPr", Some(_)) => frame.in_run_props = !is_empty,
+            (_, Some(run)) if frame.in_run_props => {
+                apply_run_property(name, event, run, version, lookups.theme_colors, budget)?;
             }
-            "w:numPr" if self.in_para_props => self.current_para.is_list_item = true,
-            "w:ilvl" if self.in_para_props => {
-                let list_level = &mut self.current_para.list_level;
-                visit_attributes(event, PART, version, budget, |key, value, budget| {
-                    if key == b"w:val"
-                        && let Ok(level) = String::from_utf8_lossy(value).parse::<u32>()
-                    {
-                        budget.charge_items(u64::from(level), "DOCX list indentation work")?;
-                        *list_level = level;
-                    }
-                    Ok(())
-                })?;
-            }
-            "w:numId" if self.in_para_props => {
-                let is_numbered = &mut self.current_para.is_numbered;
-                let numbering_defs = lookups.numbering_defs;
-                visit_attributes(event, PART, version, budget, |key, value, _| {
-                    if key == b"w:val" {
-                        *is_numbered = numbering_defs
-                            .get(String::from_utf8_lossy(value).as_ref())
-                            .copied()
-                            .unwrap_or(false);
-                    }
-                    Ok(())
-                })?;
-            }
-            _ => {}
-        }
-        Ok(())
-    }
-
-    fn open_run_property(
-        &mut self,
-        name: &str,
-        event: &BytesStart<'_>,
-        version: quick_xml::XmlVersion,
-        lookups: &Lookups<'_>,
-        budget: &mut Budget<'_>,
-    ) -> Result<()> {
-        match name {
-            "w:rPr" if self.in_run => self.in_run_props = true,
-            "w:b" if self.in_run_props => self.current_run.bold = true,
-            "w:i" if self.in_run_props => self.current_run.italic = true,
-            "w:u" if self.in_run_props => self.current_run.underline = true,
-            "w:strike" if self.in_run_props => self.current_run.strikethrough = true,
-            "w:color" if self.in_run_props => {
-                apply_run_color(
-                    event,
-                    &mut self.current_run,
-                    lookups.theme_colors,
-                    version,
-                    budget,
-                )?;
-            }
-            "w:highlight" if self.in_run_props => {
-                let highlight = &mut self.current_run.highlight;
-                visit_attributes(event, PART, version, budget, |key, value, _| {
-                    if key == b"w:val" {
-                        let value = String::from_utf8_lossy(value).to_string();
-                        if value != "none" && !value.is_empty() {
-                            *highlight = Some(value);
-                        }
-                    }
-                    Ok(())
-                })?;
+            _ if frame.in_para_props => {
+                let paragraph = &mut frame.paragraph;
+                apply_paragraph_property(name, event, paragraph, version, lookups, budget)?;
             }
             _ => {}
         }
@@ -186,36 +167,31 @@ impl BlockBuilder {
 
     /// Append text that belongs to an open `w:t` inside a run.
     pub(super) fn text(&mut self, text: &str) {
-        if self.in_run && self.in_text {
-            self.current_run.text.push_str(text);
+        if self.fallback_depth == 0
+            && let Some(frame) = self.frames.last_mut()
+            && frame.in_text
+            && let Some(run) = frame.run.as_mut()
+        {
+            run.text.push_str(text);
         }
     }
 
     /// Handle an end element.
     pub(super) fn close(&mut self, name: &str) {
+        if name == FALLBACK {
+            self.fallback_depth = self.fallback_depth.saturating_sub(1);
+            return;
+        }
+        if self.fallback_depth > 0 {
+            return;
+        }
         match name {
-            "w:t" => self.in_text = false,
             "w:p" => {
-                self.in_paragraph = false;
-                let finished = std::mem::take(&mut self.current_para);
-                if let Some(cell) = self.cell_stack.last_mut() {
-                    cell.paragraphs.push(finished);
-                } else {
-                    self.blocks.push(DocxBlock::Paragraph(finished));
+                if let Some(frame) = self.frames.pop() {
+                    self.finish_paragraph(frame);
                 }
             }
-            "w:r" => {
-                self.in_run = false;
-                if self.current_run.text.is_empty() {
-                    self.current_run = DocxRun::default();
-                } else {
-                    self.current_para
-                        .runs
-                        .push(std::mem::take(&mut self.current_run));
-                }
-            }
-            "w:rPr" => self.in_run_props = false,
-            "w:pPr" => self.in_para_props = false,
+            "w:t" | "w:r" | "w:rPr" | "w:pPr" => self.close_in_paragraph(name),
             "w:tc" => {
                 if let Some(cell) = self.cell_stack.pop()
                     && let Some(row) = self.row_stack.last_mut()
@@ -235,24 +211,81 @@ impl BlockBuilder {
         }
     }
 
-    /// A top-level table becomes a block; a nested table's paragraphs flatten
-    /// into the enclosing cell.
+    fn close_in_paragraph(&mut self, name: &str) {
+        let Some(frame) = self.frames.last_mut() else {
+            return;
+        };
+        match name {
+            "w:t" => frame.in_text = false,
+            "w:r" => {
+                frame.in_text = false;
+                frame.in_run_props = false;
+                if let Some(run) = frame.run.take()
+                    && !run.text.is_empty()
+                {
+                    frame.paragraph.runs.push(run);
+                }
+            }
+            "w:rPr" => frame.in_run_props = false,
+            "w:pPr" => frame.in_para_props = false,
+            _ => {}
+        }
+    }
+
+    /// A paragraph directly inside a text box follows the paragraph that
+    /// anchors the box; any other paragraph goes to its cell or the document.
+    fn finish_paragraph(&mut self, frame: Frame) {
+        let Frame {
+            paragraph, boxed, ..
+        } = frame;
+        if let Some(host) = self.frames.last_mut()
+            && host.cell_depth == self.cell_stack.len()
+        {
+            if !paragraph.runs.is_empty() {
+                host.boxed.push(DocxBlock::Paragraph(paragraph));
+            }
+            host.boxed.extend(boxed);
+        } else if let Some(cell) = self.cell_stack.last_mut() {
+            cell.paragraphs.push(paragraph);
+            for block in boxed {
+                match block {
+                    DocxBlock::Paragraph(paragraph) => cell.paragraphs.push(paragraph),
+                    DocxBlock::Table(table) => cell.paragraphs.extend(table_paragraphs(table)),
+                }
+            }
+        } else {
+            self.blocks.push(DocxBlock::Paragraph(paragraph));
+            self.blocks.extend(boxed);
+        }
+    }
+
+    /// A table inside a text box follows the paragraph that anchors the box.
+    /// Otherwise a top-level table becomes a block and a nested table's
+    /// paragraphs flatten into the enclosing cell.
     fn finish_table(&mut self) {
         let Some(table) = self.table_stack.pop() else {
             return;
         };
-        if self.table_stack.is_empty() {
+        if let Some(host) = self.frames.last_mut()
+            && host.table_depth == self.table_stack.len()
+        {
+            host.boxed.push(DocxBlock::Table(table));
+        } else if self.table_stack.is_empty() {
             self.blocks.push(DocxBlock::Table(table));
         } else if let Some(parent_cell) = self.cell_stack.last_mut() {
-            for row in table.rows {
-                for mut cell in row.cells {
-                    parent_cell.paragraphs.append(&mut cell.paragraphs);
-                }
-            }
+            parent_cell.paragraphs.extend(table_paragraphs(table));
         }
     }
 
     pub(super) fn finish(self) -> Vec<DocxBlock> {
         self.blocks
     }
+}
+
+fn table_paragraphs(table: DocxTable) -> impl Iterator<Item = DocxParagraph> {
+    table
+        .rows
+        .into_iter()
+        .flat_map(|row| row.cells)
+        .flat_map(|cell| cell.paragraphs)
 }

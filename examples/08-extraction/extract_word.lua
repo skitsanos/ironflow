@@ -3,6 +3,9 @@ local flow = Flow.new("extract_word_demo")
 -- Extract once as structured JSON with optional metadata and comments.
 -- XML references and CDATA are retained in body, metadata and comment text;
 -- splitting a word across XML events or runs does not insert spaces.
+-- A paragraph that anchors a text box keeps its text; the box paragraphs
+-- follow it as separate blocks. Run flags honour w:val, so a run with
+-- <w:b w:val="0"/> is not bold.
 flow:step("extract", nodes.extract_word({
     path = "${ctx._flow_dir}/../fixtures/ironflow-sample.docx",
     format = "json",

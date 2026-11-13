@@ -200,7 +200,9 @@ async fn extract_word_markdown_with_metadata() {
     let out = node.execute(&config, &Context::new()).await.unwrap();
     let content = out.get("content_md").unwrap().as_str().unwrap();
     assert!(content.contains("IronFlow Sample Document"));
-    assert!(content.contains("| **Engine** | **IronFlow** |"));
+    // The header row is bold; the body rows carry `<w:b w:val="0"/>` (IF-193).
+    assert!(content.contains("| **Field** | **Value** |"));
+    assert!(content.contains("| Engine | IronFlow |"));
     assert_eq!(out.get("meta").unwrap().get("author").unwrap(), "IronFlow");
 }
 
