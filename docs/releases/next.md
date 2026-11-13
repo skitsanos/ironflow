@@ -245,6 +245,30 @@ publication is verified separately.
   ceiling return the same objects as before, plus
   `{output_key}_common_prefixes`. See
   [`s3_list_objects`](../nodes/s3_list_objects.md#limits).
+- **`date_format` applies the offset in an input parsed with `input_format`**
+  (IF-195). With `input_format`, the node read the date and time and
+  discarded a parsed offset: `2024-06-15 10:30:00 +0200` with
+  `%Y-%m-%d %H:%M:%S %z` gave the instant `10:30:00Z` (unix `1718447400`). It
+  now gives `08:30:00Z` (`1718440200`), the same as the RFC 3339 form of that
+  value, for `%z`, `%:z`, `%#z` and `%+`. Without `timezone` the result keeps
+  the input's offset, so the formatted wall-clock time is unchanged and only
+  `{output_key}_unix` and `timezone` conversions move; a date-only format
+  with an offset is midnight at that offset. A zone name read with `%Z` was
+  ignored as well: `UTC`, `GMT`, `UT` and `Z` are still read as UTC, and any
+  other name (`CEST`) now fails the step unless the format also has a numeric
+  offset. Inputs without an offset are unchanged. Review flows that pass an
+  offset through `input_format` and compensate downstream. See
+  [`date_format`](../nodes/date_format.md#input-formats-and-offsets).
+- **Invalid `date_format` and `html_sanitize` parameters fail the step
+  instead of stalling the run** (IF-195). An `output_format` with an unknown
+  or incomplete specifier (`%i`, a trailing `%`, `%03d`, `%#z`), a `timezone`
+  whose hours overflow, and `allowed_tags` containing `script` or `style`
+  made the node panic: the run ended `stalled` and neither retries nor
+  `on_error` ran. Each is now a node error. Two `allowed_tags` values that
+  used to fall back silently to the default allow-list change result:
+  `allowed_tags = {}` now keeps no tags, and a value that is not a list of
+  strings (a string, a keyed table, a list with a non-string entry) fails
+  the step. See [`html_sanitize`](../nodes/html_sanitize.md#allowed-tags).
 
 - **`s3vector_query_vectors` fails when `filter_key` does not resolve to a
   filter** (IF-192). A `filter_key` naming a context key that was absent, for

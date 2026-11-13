@@ -6,6 +6,8 @@ use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
 
+use super::date_input::{format_output, offset_seconds, parse_with_format};
+
 pub struct DateFormatNode;
 
 /// Try to parse a date string using common formats, returning a DateTime<FixedOffset>.
@@ -45,11 +47,9 @@ fn parse_timezone(tz: &str) -> Result<FixedOffset> {
         let parts: Vec<&str> = rest.split(':').collect();
         if parts.len() == 2
             && let (Ok(h), Ok(m)) = (parts[0].parse::<i32>(), parts[1].parse::<i32>())
+            && let Some(offset) = offset_seconds(sign, h, m).and_then(FixedOffset::east_opt)
         {
-            let total_seconds = sign * (h * 3600 + m * 60);
-            if let Some(offset) = FixedOffset::east_opt(total_seconds) {
-                return Ok(offset);
-            }
+            return Ok(offset);
         }
     }
     anyhow::bail!(
@@ -107,21 +107,7 @@ impl Node for DateFormatNode {
         let dt: DateTime<FixedOffset> = if raw_input.eq_ignore_ascii_case("now") {
             Utc::now().fixed_offset()
         } else if let Some(input_fmt) = config.get("input_format").and_then(|v| v.as_str()) {
-            // Try with explicit format — first as naive, then assume UTC
-            let ndt = NaiveDateTime::parse_from_str(&raw_input, input_fmt)
-                .or_else(|_| {
-                    NaiveDate::parse_from_str(&raw_input, input_fmt)
-                        .map(|nd| nd.and_time(NaiveTime::MIN))
-                })
-                .map_err(|e| {
-                    anyhow::anyhow!(
-                        "Failed to parse '{}' with format '{}': {}",
-                        raw_input,
-                        input_fmt,
-                        e
-                    )
-                })?;
-            ndt.and_utc().fixed_offset()
+            parse_with_format(&raw_input, input_fmt)?
         } else {
             auto_parse(&raw_input).ok_or_else(|| {
                 anyhow::anyhow!(
@@ -140,7 +126,7 @@ impl Node for DateFormatNode {
             dt
         };
 
-        let formatted = dt.format(output_format).to_string();
+        let formatted = format_output(&dt, output_format)?;
         let unix_ts = dt.timestamp();
 
         let mut output = NodeOutput::new();

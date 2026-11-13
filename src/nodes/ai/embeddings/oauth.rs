@@ -94,7 +94,7 @@ pub(in crate::nodes::ai) async fn acquire_oauth_token(
         cache_key,
         CachedToken {
             access_token: token.access_token,
-            expires_at: Instant::now() + Duration::from_secs(token.expires_in),
+            expires_at: token_expiry(Instant::now(), token.expires_in),
         },
         None,
     );
@@ -102,9 +102,28 @@ pub(in crate::nodes::ai) async fn acquire_oauth_token(
     Ok(access_token)
 }
 
+/// When a token fetched at `now` expires.
+///
+/// `expires_in` comes from the provider's response. `Instant + Duration`
+/// panics on overflow, so a lifetime too large to represent expires at once:
+/// the token is still returned for this call and fetched again on the next.
+fn token_expiry(now: Instant, expires_in: u64) -> Instant {
+    now.checked_add(Duration::from_secs(expires_in))
+        .unwrap_or(now)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::percent_encode;
+    use std::time::{Duration, Instant};
+
+    use super::{percent_encode, token_expiry};
+
+    #[test]
+    fn token_expiry_does_not_overflow_on_a_hostile_lifetime() {
+        let now = Instant::now();
+        assert_eq!(token_expiry(now, 3600), now + Duration::from_secs(3600));
+        assert_eq!(token_expiry(now, u64::MAX), now);
+    }
 
     #[test]
     fn percent_encode_uses_form_safe_bytes() {

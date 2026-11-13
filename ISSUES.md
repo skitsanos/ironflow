@@ -10,7 +10,6 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 |---|---:|---|---|---|
 | [IF-193](docs/issues/IF-193.md) | P2 | Open | Documents/extraction fidelity | Document extraction garbles PDF metadata and drops DOCX paragraph text around text boxes |
 | [IF-194](docs/issues/IF-194.md) | P2 | Open | PDF rendering | pdf_to_image and pdf_thumbnail can bind Pdfium only once per process |
-| [IF-195](docs/issues/IF-195.md) | P2 | Open | Nodes | date_format ignores input offsets; date_format and html_sanitize panics stall the run |
 | [IF-196](docs/issues/IF-196.md) | P2 | Open | Data transforms | xml_stringify writes keys as markup; CSV type inference and data_filter equality lose values |
 | [IF-197](docs/issues/IF-197.md) | P2 | Open | AI nodes | llm sends unknown providers to OpenAI and ignores documented parameters |
 | [IF-198](docs/issues/IF-198.md) | P2 | Open | API security | An empty IRONFLOW_API_KEY disables the configured API key on loopback |

@@ -37,29 +37,58 @@ impl Node for HtmlSanitizeNode {
 
         let input = get_input(config, ctx, "html_sanitize")?;
 
-        let has_custom_tags = config
-            .get("allowed_tags")
-            .and_then(|v| v.as_array())
-            .is_some();
+        let allowed_tags = allowed_tags(config)?;
 
-        let sanitized = if has_custom_tags || !strip_comments || link_rel != "noopener noreferrer" {
-            let mut builder = Builder::default();
-            builder.strip_comments(strip_comments);
-            builder.link_rel(Some(link_rel));
+        let sanitized =
+            if allowed_tags.is_some() || !strip_comments || link_rel != "noopener noreferrer" {
+                let mut builder = Builder::default();
+                builder.strip_comments(strip_comments);
+                builder.link_rel(Some(link_rel));
 
-            if let Some(tags) = config.get("allowed_tags").and_then(|v| v.as_array()) {
-                let tag_set: HashSet<&str> = tags.iter().filter_map(|t| t.as_str()).collect();
-                builder.tags(tag_set);
-            }
+                if let Some(tags) = allowed_tags {
+                    // ammonia asserts that no allowed tag is also a tag whose
+                    // content it always removes; that assertion would panic.
+                    let always_removed = builder.clone_clean_content_tags();
+                    if let Some(tag) = tags.iter().find(|tag| always_removed.contains(*tag)) {
+                        anyhow::bail!(
+                            "html_sanitize: allowed_tags cannot contain '{tag}': the element and \
+                         its content are always removed"
+                        );
+                    }
+                    builder.tags(tags);
+                }
 
-            builder.clean(&input).to_string()
-        } else {
-            ammonia::clean(&input)
-        };
+                builder.clean(&input).to_string()
+            } else {
+                ammonia::clean(&input)
+            };
 
         let mut output = NodeOutput::new();
         output.insert(output_key.to_string(), serde_json::Value::String(sanitized));
         Ok(output)
+    }
+}
+
+/// Read `allowed_tags`: absent or null keeps ammonia's default allow-list, a
+/// list replaces it, and an empty list allows no tags.
+///
+/// An empty Lua table arrives as an empty JSON object, so that is the empty
+/// list. Any other shape is an error: falling back to the default allow-list
+/// would allow more tags than the flow asked for.
+fn allowed_tags(config: &serde_json::Value) -> Result<Option<HashSet<&str>>> {
+    match config.get("allowed_tags") {
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(serde_json::Value::Object(map)) if map.is_empty() => Ok(Some(HashSet::new())),
+        Some(serde_json::Value::Array(tags)) => tags
+            .iter()
+            .map(|tag| {
+                tag.as_str().ok_or_else(|| {
+                    anyhow::anyhow!("html_sanitize: allowed_tags entries must be strings")
+                })
+            })
+            .collect::<Result<HashSet<&str>>>()
+            .map(Some),
+        Some(_) => anyhow::bail!("html_sanitize: allowed_tags must be a list of tag names"),
     }
 }
 
