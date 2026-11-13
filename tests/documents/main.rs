@@ -46,6 +46,8 @@ mod test_markdown_fonts;
 mod test_markdown_multilingual;
 #[path = "../test_pdf_actual_text.rs"]
 mod test_pdf_actual_text;
+#[path = "../test_pdf_info_strings.rs"]
+mod test_pdf_info_strings;
 #[path = "../test_pdf_load_safety.rs"]
 mod test_pdf_load_safety;
 #[path = "../test_pdf_merge_split_nodes.rs"]

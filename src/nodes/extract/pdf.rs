@@ -11,6 +11,7 @@ use crate::util::execution::run_tracked_blocking_step;
 use super::common::{ensure_distinct_keys, optional_string, string_or, validate_format};
 use super::resource::{Budget, Limits, read_file};
 use crate::util::file_source::get_file_source;
+use crate::util::pdf_info::{INFO_FIELDS, decode_info_string};
 
 mod cmap_scan;
 mod fonts;
@@ -192,18 +193,7 @@ fn extract_pdf_metadata(
         .as_dict()
         .context("extract_pdf: PDF Info entry is not a dictionary")?;
 
-    let fields = [
-        (b"Title".as_slice(), "title"),
-        (b"Author".as_slice(), "author"),
-        (b"Subject".as_slice(), "subject"),
-        (b"Keywords".as_slice(), "keywords"),
-        (b"Creator".as_slice(), "creator"),
-        (b"Producer".as_slice(), "producer"),
-        (b"CreationDate".as_slice(), "created"),
-        (b"ModDate".as_slice(), "modified"),
-    ];
-
-    for (pdf_key, label) in fields {
+    for (pdf_key, label) in INFO_FIELDS {
         budget.checkpoint()?;
         if !dictionary.has(pdf_key) {
             continue;
@@ -215,12 +205,11 @@ fn extract_pdf_metadata(
         let (_, value) = document.dereference(value).with_context(|| {
             format!("extract_pdf: failed to resolve PDF metadata field {label}")
         })?;
-        let bytes = value
+        value
             .as_str()
             .with_context(|| format!("extract_pdf: PDF metadata field {label} is not a string"))?;
-        let value = String::from_utf8_lossy(bytes).trim().to_string();
-        if !value.is_empty() {
-            metadata.insert(label.to_string(), serde_json::Value::String(value));
+        if let Some(text) = decode_info_string(value) {
+            metadata.insert(label.to_string(), serde_json::Value::String(text));
         }
     }
 

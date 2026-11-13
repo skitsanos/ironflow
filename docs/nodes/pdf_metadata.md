@@ -35,6 +35,16 @@ metadata. These are independent limits, not a cumulative memory ceiling.
   - `pages` — page count
   - `title`, `author`, `subject`, `keywords`, `creator`, `producer`, `created`, `modified` when present
 
+The text fields are PDF text strings and are decoded as such: PDFDocEncoding,
+UTF-16BE with a byte-order mark (`<FEFF...>`, the usual form in office-exported
+PDFs) and UTF-8 with a byte-order mark. The Info dictionary and each of its
+values may be direct or indirect objects. Values are trimmed. Control
+characters other than tab, line feed and carriage return are removed, as are
+NUL terminators and language-tag escapes, so no NUL reaches the run context.
+An ill-formed UTF-16 or UTF-8 sequence becomes U+FFFD. A field that is absent,
+not a string, unresolvable or empty after decoding is omitted. `created` and
+`modified` are the raw PDF date strings (`D:YYYYMMDDHHmmSS...`).
+
 ## Example
 
 ```lua

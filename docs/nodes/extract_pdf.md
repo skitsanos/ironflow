@@ -27,6 +27,14 @@ If `metadata_key` is requested and a present PDF Info entry or supported field
 cannot be resolved as the expected type, extraction fails rather than silently
 returning incomplete metadata.
 
+Metadata text fields are decoded as PDF text strings, exactly as
+[`pdf_metadata`](pdf_metadata.md) does: PDFDocEncoding, UTF-16BE with a
+byte-order mark and UTF-8 with a byte-order mark. Values are trimmed; NUL and
+other control characters except tab, line feed and carriage return are
+removed, together with language-tag escapes. An ill-formed UTF-16 or UTF-8
+sequence becomes U+FFFD instead of failing the step, and a field that is empty
+after decoding is omitted.
+
 PDF content streams position glyphs rather than encode semantic words and
 paragraphs. Text and Markdown extraction preserve decoded characters on a
 best-effort basis, but whitespace can be introduced or omitted when positioned
