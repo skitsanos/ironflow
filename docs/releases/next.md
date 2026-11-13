@@ -246,6 +246,19 @@ publication is verified separately.
   `{output_key}_common_prefixes`. See
   [`s3_list_objects`](../nodes/s3_list_objects.md#limits).
 
+- **`s3vector_query_vectors` fails when `filter_key` does not resolve to a
+  filter** (IF-192). A `filter_key` naming a context key that was absent, for
+  example because the step that builds a tenant filter was skipped or the key
+  was misspelled, was ignored: the query ran without a filter and returned
+  the nearest vectors from the whole index. The step now fails before any
+  request is sent when the key is missing, when its value is `null`, an empty
+  object or not an object, and when `filter_key` itself is not a non-empty
+  string. A flow that relied on the fallback to run unfiltered must leave
+  `filter_key` out of that step, for example by routing to a second query
+  step without it. A key holding a non-empty filter object and the inline
+  `filter` parameter behave as before. See
+  [Metadata Filter](../nodes/s3vector_query_vectors.md#metadata-filter).
+
 ## Security
 
 - **`mcp_client` bounds Streamable HTTP responses** (IF-173). `rmcp` is

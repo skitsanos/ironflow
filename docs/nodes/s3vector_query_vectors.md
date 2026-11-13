@@ -14,8 +14,8 @@ Run vector similarity search on an Amazon S3 Vector index.
 | `top_k` | integer | yes | -- | Number of nearest neighbors to return (`> 0`). |
 | `query_vector` | array<number> | no* | -- | Query embedding vector. |
 | `query_vector_key` | string | no* | -- | Context key containing a query embedding array. |
-| `filter` | object | no | -- | Optional metadata filter. |
-| `filter_key` | string | no | -- | Context key for a JSON metadata filter object. |
+| `filter` | object | no | -- | Optional metadata filter, written in the flow. |
+| `filter_key` | string | no | -- | Context key that holds the metadata filter object. When set, the key must exist and hold a non-empty object; see [Metadata Filter](#metadata-filter). |
 | `return_metadata` | bool | no | `false` | Include vector metadata in results. |
 | `return_distance` | bool | no | `false` | Include distance values in results. |
 | `min_similarity` | number | no | -- | Optional minimum cosine similarity threshold between query vector and results. Only supported for cosine-index metrics (`min_similarity = 1 - distance`). Fewer results may be returned than `top_k`. |
@@ -39,6 +39,49 @@ non-string, incomplete, or blank targets fail before the AWS client is built.
 ## Query Vector
 
 At least one of `query_vector` or `query_vector_key` is required.
+
+## Metadata Filter
+
+Without `filter` and `filter_key` the query covers the whole index.
+
+`filter` is sent as written in the flow. `filter_key` reads the filter from
+context, and a configured `filter_key` is a requirement, not a hint: the step
+fails before the AWS client is built, and no request is sent, unless the key
+resolves to a filter.
+
+| `filter_key` case | Result |
+|-------------------|--------|
+| Names a context key holding a non-empty object | The object is sent as the request filter. |
+| Names a key that is absent from context | Fails: `requires filter_key '<key>' to exist in context`. |
+| The context value is `null`, an empty object `{}`, an array, a string, a number or a boolean | Fails: `requires filter_key '<key>' to hold a non-empty filter object`. |
+| Not a string, or empty after `${ctx.key}` interpolation | Fails: `requires 'filter_key' to be a non-empty string`. |
+
+An empty object is refused because it restricts nothing: a flow that builds a
+tenant or access filter upstream and ends up with `{}` would otherwise query
+every vector. Error messages name the context key and never include its
+value. The context value is used as stored; `${ctx.key}` placeholders inside
+it are not expanded.
+
+When both are configured, `filter` is used and `filter_key` is not read. Leave
+`filter_key` out of the step (in Lua, `nil`) for a query that is meant to be
+unfiltered.
+
+```lua
+flow:step("scope", nodes.code({
+    source = function(ctx)
+        return { tenant_filter = { tenant = ctx.tenant_id } }
+    end
+}))
+
+flow:step("query_vectors", nodes.s3vector_query_vectors({
+    vector_bucket_name = "ironflow-vectors-demo",
+    index_name = "ironflow-demo-index",
+    top_k = 5,
+    query_vector_key = "query_embedding",
+    filter_key = "tenant_filter",
+    output_key = "query"
+})):depends_on("scope")
+```
 
 ## Context Output
 

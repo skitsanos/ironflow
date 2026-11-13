@@ -2,13 +2,15 @@ use anyhow::Result;
 use async_trait::async_trait;
 use aws_sdk_s3vectors::operation::query_vectors::builders::QueryVectorsInputBuilder;
 use aws_sdk_s3vectors::types::{DistanceMetric, VectorData};
+use aws_smithy_types::Document;
 
 use crate::engine::types::{Context, NodeOutput};
+use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
 use crate::util::node_config::config_bool;
 
 use super::client::build_s3vector_client;
-use super::config::{resolve_optional, resolve_output_key};
+use super::config::resolve_output_key;
 use super::document::{document_to_json, parse_metadata};
 use super::parameters::{resolve_f64, resolve_u32};
 use super::target::{IndexTarget, TargetPolicy, resolve_index_target};
@@ -20,6 +22,31 @@ struct PreparedQueryVectors {
     return_distance: bool,
     min_similarity: Option<f64>,
     strict: bool,
+}
+
+/// Reads the filter named by `filter_key`. A configured key is a requirement:
+/// a missing key or a value that restricts nothing fails instead of widening
+/// the query to the whole index. Errors name the key, never its value.
+fn resolve_context_filter(config: &serde_json::Value, ctx: &Context) -> Result<Option<Document>> {
+    let Some(filter_key) = config.get("filter_key") else {
+        return Ok(None);
+    };
+    let key = filter_key
+        .as_str()
+        .map(|key| interpolate_ctx(key, ctx))
+        .filter(|key| !key.trim().is_empty())
+        .ok_or_else(|| {
+            anyhow::anyhow!("s3vector_query_vectors requires 'filter_key' to be a non-empty string")
+        })?;
+    let value = ctx.get(&key).ok_or_else(|| {
+        anyhow::anyhow!("s3vector_query_vectors requires filter_key '{key}' to exist in context")
+    })?;
+    if !value.as_object().is_some_and(|filter| !filter.is_empty()) {
+        anyhow::bail!(
+            "s3vector_query_vectors requires filter_key '{key}' to hold a non-empty filter object"
+        );
+    }
+    parse_metadata(value, "s3vector_query_vectors").map(Some)
 }
 
 fn prepare_query_vectors_input(
@@ -52,11 +79,7 @@ fn prepare_query_vectors_input(
     let filter = if let Some(filter_value) = config.get("filter") {
         Some(parse_metadata(filter_value, "s3vector_query_vectors")?)
     } else {
-        let source_key = resolve_optional(config, &["filter_key"], &[], ctx);
-        source_key
-            .and_then(|value| ctx.get(&value).cloned())
-            .map(|value| parse_metadata(&value, "s3vector_query_vectors"))
-            .transpose()?
+        resolve_context_filter(config, ctx)?
     };
 
     let request = QueryVectorsInputBuilder::default()

@@ -203,7 +203,7 @@ priority, area, and title. The registry is generated with
 | [IF-189](./IF-189.md) | P2 | Resolved | Resource safety | s3_list_objects, json_parse and task error text materialize without a bound |
 | [IF-190](./IF-190.md) | P2 | Resolved | ZIP/admission | ZIP preflight and the archive reader can select different end records |
 | [IF-191](./IF-191.md) | P2 | Resolved | Nodes/security | block_private_network passes CGNAT, NAT64 and other internal address ranges |
-| [IF-192](./IF-192.md) | P2 | Open | S3 Vectors | s3vector_query_vectors runs unfiltered when filter_key does not resolve |
+| [IF-192](./IF-192.md) | P2 | Resolved | S3 Vectors | s3vector_query_vectors runs unfiltered when filter_key does not resolve |
 | [IF-193](./IF-193.md) | P2 | Open | Documents/extraction fidelity | Document extraction garbles PDF metadata and drops DOCX paragraph text around text boxes |
 | [IF-194](./IF-194.md) | P2 | Open | PDF rendering | pdf_to_image and pdf_thumbnail can bind Pdfium only once per process |
 | [IF-195](./IF-195.md) | P2 | Open | Nodes | date_format ignores input offsets; date_format and html_sanitize panics stall the run |
