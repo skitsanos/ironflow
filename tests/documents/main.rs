@@ -66,5 +66,7 @@ mod test_pdf_split_group_safety;
 mod test_pdf_split_groups;
 #[path = "../test_pptx_graph_validation.rs"]
 mod test_pptx_graph_validation;
+#[path = "../test_pptx_notes_placeholders.rs"]
+mod test_pptx_notes_placeholders;
 #[path = "../test_pptx_presentation.rs"]
 mod test_pptx_presentation;

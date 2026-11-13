@@ -929,7 +929,7 @@ fn notes_xml(text: &str) -> String {
 <p:notes xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
          xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
   <p:cSld><p:spTree>
-    <p:sp><p:nvSpPr><p:nvPr/></p:nvSpPr>
+    <p:sp><p:nvSpPr><p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr>
     <p:txBody><a:p><a:r><a:t>{text}</a:t></a:r></a:p></p:txBody></p:sp>
   </p:spTree></p:cSld>
 </p:notes>"#

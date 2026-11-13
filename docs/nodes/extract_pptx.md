@@ -41,6 +41,14 @@ separated by newlines. Metadata outer whitespace is trimmed after accumulation.
 Picture descriptions, embed IDs, list levels and comment attributes use the
 part's declared XML-version normalization (1.0 by default).
 
+Speaker notes are the text runs of the notes slide's body placeholder
+(`<p:ph type="body">`). The slide-image, slide-number, date, header and footer
+placeholders, placeholders of any other type and shapes without a placeholder
+are not notes. Field runs (`a:fld`, for example a slide number or date
+inside the notes text) are generated values and are skipped, as they are in
+slide text. A slide whose body placeholder is empty has no `speaker_notes`.
+Text in a notes part that contains no shapes at all is still read.
+
 Unknown/invalid text references and DTDs return errors; no custom or external
 entities are expanded. Decoding and retained attribute values are admitted
 before allocation against existing output budgets. Table-text copies, generated

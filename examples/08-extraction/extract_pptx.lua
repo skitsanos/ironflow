@@ -3,6 +3,8 @@ local flow = Flow.new("extract_pptx_demo")
 -- Extract a PowerPoint deck as structured JSON with metadata and comments.
 -- Slide text, notes, metadata and comments retain XML references and CDATA.
 -- Notes separate paragraphs rather than individual XML text fragments.
+-- Notes are the body placeholder of the notes slide only: its slide number,
+-- date, header and footer placeholders and field values are not included.
 -- Slides follow the presentation list, including listed hidden slides.
 -- Notes/comments/images follow relationships, not matching filename numbers.
 -- Embedded media, when present, is streamed to IRONFLOW_ARTIFACT_DIR and
