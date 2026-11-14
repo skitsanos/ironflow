@@ -8,7 +8,23 @@ priority, area, and title. The registry is generated with
 
 - Total findings: 223
 - Active findings: 17
-- Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
+
+## Working agreement
+
+1. Select one issue, or one tightly coupled pair, from the highest-priority
+   active group and set its frontmatter status to `in-progress`.
+2. Confirm the live code still supports the finding, then add focused
+   regression coverage for the original defect or missing contract.
+3. Align implementation, current documentation, and Lua examples.
+4. During ordinary work, run focused tests and the required surface validators.
+   Run the complete integration gate only at branch integration, before a
+   `develop` push, during release preparation, or when explicitly requested.
+5. Set an issue to `resolved` only after its acceptance criteria pass. Record
+   the outcome, contract boundary, exact validation evidence, ISO completion
+   date, and commit or PR when applicable.
+6. Regenerate this index and run `bun run scripts/issues_registry.ts check`.
+
+## Findings
 
 | ID | Priority | Status | Area | Summary |
 |---|---:|---|---|---|

@@ -32,7 +32,7 @@ An audit is read-only unless fixes or issue registration were requested.
 - Add example validation when Lua runtime, node registration, docs, or examples
   change.
 - Run `bun run scripts/issues_registry.ts check` when issue pages, issue
-  indexes, repository guidance, or issue-resolution skills change.
+  index, repository guidance, or issue-resolution skills change.
 - Run `bun --no-env-file scripts/check_licenses.ts` and
   `bun --no-env-file scripts/third_party_notices.ts check` after dependency
   changes; a stale `THIRD_PARTY_LICENSES.md` is regenerated with

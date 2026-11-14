@@ -32,7 +32,6 @@ describe("repository integration policy", () => {
         "Cargo.lock",
         "rust-toolchain.toml",
         "AGENTS.md",
-        "ISSUES.md",
         "docs/issues/IF-133.md",
         ".agents/skills/check-ironflow/SKILL.md",
         ".claude/skills/check/SKILL.md",

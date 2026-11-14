@@ -62,7 +62,7 @@ Only after the required gates pass:
   exact validation evidence;
 - preserve the failed original regression and distinguish post-fix evidence from
   historical baseline gates; do not depend on machine-local temporary fixtures;
-- regenerate the root and documentation indexes with
+- regenerate the issue index with
   `bun run scripts/issues_registry.ts generate`, then run the matching `check`;
 - run `git diff --check` and review the complete issue-scoped diff;
 - report files changed and any remaining risks without claiming a commit,

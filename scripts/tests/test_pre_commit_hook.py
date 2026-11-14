@@ -44,7 +44,7 @@ class PreCommitRegistryTests(unittest.TestCase):
             return result, trace.read_text() if trace.exists() else ""
 
     def test_registry_surfaces_invoke_check(self) -> None:
-        for path in ("docs/issues/IF-106.md", "docs/issues/README.md", "docs/ROADMAP.md", "ISSUES.md", "AGENTS.md"):
+        for path in ("docs/issues/IF-106.md", "docs/issues/README.md", "docs/ROADMAP.md", "AGENTS.md"):
             with self.subTest(path=path):
                 result, trace = self.run_fixture(path)
                 self.assertEqual(result.returncode, 0, result.stderr)
