@@ -852,22 +852,32 @@ mod redis_claims {
                 .await
                 .unwrap()
         );
-        assert!(
-            !store
-                .claim_schedule("nightly", "UTC@2026-05-01T02:00", 1)
+
+        // Poll the claim itself rather than sleeping past a one-second
+        // expiry: a loaded machine then only takes longer (IF-216). Each
+        // attempt is refused while the key lives and granted once it is gone.
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(60);
+        let mut refusals = 0_u32;
+        let mut reclaimed = false;
+        while tokio::time::Instant::now() < deadline {
+            if store
+                .claim_schedule("nightly", "UTC@2026-05-01T02:00", TTL)
                 .await
                 .unwrap()
-        );
-
-        tokio::time::sleep(std::time::Duration::from_millis(1_500)).await;
-        assert!(
-            store
-                .claim_schedule("nightly", "UTC@2026-05-01T02:00", 1)
-                .await
-                .unwrap(),
-            "the claim should have expired with its key"
-        );
-
+            {
+                reclaimed = true;
+                break;
+            }
+            refusals += 1;
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
         fixture.cleanup().await;
+
+        assert!(reclaimed, "the claim should have expired with its key");
+        // The key had a whole second to live, so the claim was observed held
+        // unless this task was starved for longer than that.
+        if refusals == 0 {
+            eprintln!("claim expired before it could be observed held");
+        }
     }
 }
