@@ -24,6 +24,7 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 | [IF-220](docs/issues/IF-220.md) | P3 | Open | Maintainability | Operational and validation follow-ups from the 2026-11 fix batches |
 | [IF-221](docs/issues/IF-221.md) | P2 | Open | Workflow composition | Child input mappings and s3vector flags fall back silently on missing or malformed values |
 | [IF-222](docs/issues/IF-222.md) | P3 | Open | Documents/extraction fidelity | Document extraction fidelity follow-ups for DOCX, PPTX and PDF metadata |
+| [IF-223](docs/issues/IF-223.md) | P3 | Open | Data transforms | Data transform follow-ups: YAML non-finite and large numbers, CSV formula cells, neq on a missing field |
 
 ## Working agreement
 
