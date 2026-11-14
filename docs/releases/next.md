@@ -464,6 +464,37 @@ publication is verified separately.
   [`extract_word`](../nodes/extract_word.md#text-boxes) and
   [`extract_pptx`](../nodes/extract_pptx.md#text-fidelity).
 
+- **Deleting a scheduled run no longer lets its occurrence run again**
+  (IF-201). Before, a server that started or restarted inside a schedule's
+  `grace_seconds` ran an occurrence a second time when its run record was
+  gone. With the Redis state store this happened without any action whenever
+  `REDIS_TTL` was shorter than the grace window (`grace_seconds: 86400` with
+  `REDIS_TTL=3600`: the 02:00 run expired at about 03:00 and any restart
+  before 02:00 the next day ran the flow again). With every state store it
+  happened after `DELETE /runs/{id}`. The claim for an instant now records
+  that its run was created, and an instant with that record is not started
+  again. Deleting a scheduled run therefore removes the record and does not
+  release the instant, on SQLite, PostgreSQL, JSON and Redis alike; start the
+  flow with `POST /flows/run` or `ironflow run` to run it again. An instant
+  claimed by a server that stopped before creating the run is still
+  recovered within grace. Three things to know when upgrading:
+  - `ironflow serve` now logs a warning for each schedule whose
+    `grace_seconds` plus 60 seconds is not below `REDIS_TTL` (Redis state
+    store only). Startup continues; raise `REDIS_TTL` or lower
+    `grace_seconds` to clear it.
+  - SQL state stores gain a nullable `run_micros` column on the
+    `schedule_claims` table at first start. Older binaries keep working
+    against the upgraded table, but only upgraded replicas write and read
+    the record, so the guarantee holds once every replica is upgraded.
+    Occurrences that ran before the upgrade have no record.
+  - The storage metrics gain the state-store operations
+    `record_schedule_run` and `schedule_run_recorded`.
+
+  A custom `StateStore` keeps compiling: the two new trait methods have
+  defaults that record nothing, which leaves such a store fenced by the run
+  record alone, as before. See
+  [Record retention and deleted runs](../CLI_REFERENCE.md#record-retention-and-deleted-runs).
+
 ## Security
 
 - **`mcp_client` bounds Streamable HTTP responses** (IF-173). `rmcp` is

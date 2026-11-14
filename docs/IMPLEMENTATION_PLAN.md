@@ -261,7 +261,9 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
 - [x] Scheduled triggers — `schedules:` block in `ironflow.yaml`, evaluated by a
       30-second tick inside `ironflow serve`. Cross-replica at-most-one claims via
       `StateStore::claim_schedule` (SQL unique index, Redis `SET NX EX`, JSON
-      exclusive create, Null process-local always-true). A successful claim can
+      exclusive create, Null process-local always-true). The claim also
+      records that its run was created, so an occurrence is not started again
+      after its run record expires or is deleted (IF-201). A successful claim can
       still be deliberately burned by lateness, bounded best-effort overlap,
       capacity, or a start failure. Claim keys are local wall-clock, so a
       fall-back hour is claimed once; a spring-forward gap fires after the gap.

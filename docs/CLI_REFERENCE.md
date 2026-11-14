@@ -673,7 +673,7 @@ Or via environment variables (override config file):
 | `IRONFLOW_SQL_TABLE_PREFIX` | `ironflow_` | SQL table/index prefix for SQLite/Postgres state and event stores |
 | `REDIS_URL` | `redis://127.0.0.1:6379` | Redis connection URL |
 | `REDIS_PREFIX` | `ironflow:` | Key prefix for Redis keys |
-| `REDIS_TTL` | — | TTL seconds for Redis run/event keys and event-deletion fences: `1..=99,999,999,999` (no expiration if unset). State mutations and event publishes refresh their keys; the first successful event deletion sets the fence expiry, while same-owner retries preserve that original lifetime. |
+| `REDIS_TTL` | — | TTL seconds for Redis run/event keys and event-deletion fences: `1..=99,999,999,999` (no expiration if unset). State mutations and event publishes refresh their keys; the first successful event deletion sets the fence expiry, while same-owner retries preserve that original lifetime. With `schedules:` configured, keep it greater than the largest `grace_seconds` plus 60: `ironflow serve` logs a warning for each schedule it does not cover (see [Record retention and deleted runs](#record-retention-and-deleted-runs)). Schedule claims do not use this TTL. |
 
 When the state backend is `sqlite` (the default) and no URL is configured, IronFlow creates `ironflow.sqlite` under `IRONFLOW_STORE_DIR`, creating that directory with owner-only permissions on Unix and refusing a symbolic link in its place. Existing JSON store directories keep working with `IRONFLOW_STORE=json`; there is no automatic import between backends, so a deployment that switches backends starts with an empty run history unless it keeps the old selection.
 When `IRONFLOW_EVENT_STORE=sqlite` and no URL is configured, IronFlow creates `ironflow-events.sqlite` under `IRONFLOW_STORE_DIR`.
@@ -1249,6 +1249,30 @@ most 48 UTF-8 bytes with no control characters. One tick considers at most 64
 due instants for each name. If a longer grace window contains more occurrences,
 the remainder are logged and skipped rather than queued. This makes
 `grace_seconds` a lateness admission window, not an unbounded replay promise.
+
+##### Record retention and deleted runs
+
+An occurrence runs at most once, and that does not depend on its run record
+still existing. The claim for the instant records that the run was created,
+so a server that starts or restarts inside the grace window does not start
+the instant again when the record has expired through `REDIS_TTL` or was
+removed with `DELETE /runs/{id}`. This holds for the SQLite, PostgreSQL, JSON
+and Redis state stores alike: deleting a scheduled run removes its record and
+events, and does not release the instant. To run the flow again, start it
+with `POST /flows/run` or `ironflow run`. An instant that was claimed by a
+server that stopped before it created the run is still started by the next
+server that evaluates it within grace.
+
+With the Redis state store and `REDIS_TTL` set, `ironflow serve` logs one
+warning per schedule at startup when `REDIS_TTL` is not greater than that
+schedule's `grace_seconds` plus 60 seconds. For `grace_seconds: 86400` the
+smallest covering value is `REDIS_TTL=86461`. Startup continues, because the
+occurrence is still not run twice. What an uncovered schedule loses is the
+run record and history of an occurrence while it is still inside its grace
+window, and the cover for one narrow failure: a server that stops after
+creating a run but before recording it in the claim is fenced only while
+that run record exists. Claims are kept for seven days, or `grace_seconds`
+plus one day when that is longer, whatever `REDIS_TTL` is.
 
 ##### Field syntax
 

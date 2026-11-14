@@ -70,7 +70,8 @@ State-store operations are `healthcheck`, `init_run`, `init_run_owned`,
 `reconcile_expired_run_leases`, `upsert_task`, `upsert_task_owned`,
 `get_context`, `update_context`, `update_context_owned`, `get_run_info`,
 `list_runs`, `list_run_summaries`, `list_run_summaries_page`, `delete_run`,
-`prune_before`, and `claim_schedule`. Event-store operations are `healthcheck`,
+`prune_before`, `claim_schedule`, `record_schedule_run`, and
+`schedule_run_recorded`. Event-store operations are `healthcheck`,
 `publish_event`, `delete_run`, and `list_events`.
 
 The histograms use fixed second buckets from 5 ms through 5 minutes. Every

@@ -161,6 +161,22 @@ that run ID. This closes the claim-to-start crash gap while retaining exactly
 one run record. It does not replay an occurrence whose existing run later
 becomes `Stalled`.
 
+The claim also records that its occurrence produced a run. A replica that
+starts or restarts inside the grace window therefore does not start the
+instant again after its run record is gone, whether the record expired through
+`REDIS_TTL` or was removed with `DELETE /runs/{id}`. Deleting a scheduled run
+removes the record on every backend; it does not release the instant. Start
+the flow through the API or CLI to run it again. A claim whose replica died
+before creating the run carries no such record and is still recovered within
+grace.
+
+With the Redis state store, keep `REDIS_TTL` greater than the largest
+`grace_seconds` plus 60 seconds. `ironflow serve` logs a warning for each
+schedule that is not covered. The occurrence is still not run twice, but its
+run record and history expire while the instant is reachable, and a replica
+that dies between creating a run and recording it in the claim is covered
+only while that run record exists.
+
 ## Health and shutdown
 
 | Endpoint | Meaning |

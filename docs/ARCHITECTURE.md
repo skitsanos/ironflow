@@ -284,6 +284,13 @@ pub trait StateStore: Send + Sync {
         key: &str,
         ttl_seconds: u64,
     ) -> StorageResult<bool>;
+    async fn record_schedule_run(
+        &self,
+        name: &str,
+        key: &str,
+        ttl_seconds: u64,
+    ) -> StorageResult<()>;
+    async fn schedule_run_recorded(&self, name: &str, key: &str) -> StorageResult<bool>;
 }
 ```
 
@@ -828,12 +835,41 @@ retain storage but cannot invalidate a committed claim or apply one schedule's
 grace-derived TTL to another. Redis needs no sweep because expiry belongs to
 each atomic claim key.
 
-The claim is an admission/audit fence, while a deterministic run ID derived
-from `(schedule name, resolved instant)` is the execution fence. Replicas that
-observe an existing claim still converge on that run identity; the built-in
-stores atomically allow only one initializer. A process dying after its claim
-but before initialization therefore does not permanently consume the
-occurrence. Existing or later-stalled executions are never replayed. Lateness,
+Two records fence an occurrence. A deterministic run ID derived from
+`(schedule name, resolved instant)` is the execution fence while the run
+record exists: replicas that observe an existing claim converge on that run
+identity, and the built-in stores atomically allow only one initializer. The
+claim carries the second record. Once a replica has started the run, or has
+converged on it, it calls `record_schedule_run`, which marks the claim as
+having produced a run: JSON writes a marker file beside the claim file, SQL
+sets `run_micros` on the claim row, and Redis rewrites the claim key's value.
+A replica that loses the claim reads that mark with `schedule_run_recorded`
+before it loads the flow, and does not start an instant that is marked. A
+store error on that read is treated like a failed claim and retried.
+
+This is what distinguishes the two ways a claim can exist without a run. A
+process that died after its claim but before initialization left an unmarked
+claim, so the occurrence is not consumed and the next replica to evaluate it
+within grace starts it. A run record that has since disappeared, through
+`REDIS_TTL` expiry or `DELETE /runs/{id}`, left a marked claim, so the
+occurrence stays consumed for the claim's lifetime: on every backend, deleting
+a scheduled run removes the record and does not release the instant. To run
+the flow again, start it through the API or the CLI. The mark is written after
+the run is created, so a process that dies between the two leaves an unmarked
+claim; the run record fences the instant for as long as it exists, and the
+next replica that converges on it writes the mark. That window is covered
+completely when run records outlive the grace window, which is why
+`ironflow serve` warns at startup, once per schedule, when `REDIS_TTL` is not
+greater than that schedule's `grace_seconds` plus 60 seconds. It is a warning
+and not a failure because the marked claim already prevents the duplicate
+run. Claim lifetime does not depend on `REDIS_TTL`: it is the larger of seven
+days and grace plus one day, counted from the claim (Redis restarts it when
+the mark is written), so it outlasts the largest accepted grace window by at
+least a day. A custom
+store that keeps the trait defaults records nothing and is fenced by the run
+record alone.
+
+Existing or later-stalled executions are never replayed. Lateness,
 overlap, run capacity, and a flow that fails to load may still skip an
 occurrence instead of creating a backlog. The flow-load limit does not: a
 scheduled start waits up to five seconds for a load permit, where API requests
