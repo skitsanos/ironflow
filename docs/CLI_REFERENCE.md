@@ -56,7 +56,7 @@ Execute a workflow from a Lua flow file.
 | `<FLOW>` | yes | — | Path to the `.lua` flow file |
 | `-c, --context <JSON>` | no | `{}` | Initial context as a JSON string |
 | `-v, --verbose` | no | off | Show step details, per-task timing, and outputs |
-| `--store-dir <DIR>` | no | `data/runs` | Directory for state persistence (`IRONFLOW_STORE_DIR`) |
+| `--store-dir <DIR>` | no | `data/runs` | Directory for state persistence (`IRONFLOW_STORE_DIR`); any valid directory name, see [Store directory and SQLite URLs](#store-directory-and-sqlite-urls) |
 
 ```bash
 ironflow run flow.lua --context '{"user": "Alice"}' --verbose
@@ -399,7 +399,7 @@ port 123); quote a value when it must remain a string. Configuration loading and
 
 IronFlow supports these state storage backends:
 
-- **sqlite** (default) — one SQLite database, `ironflow.sqlite`, created under `store_dir`; the directory is restricted to its owner on Unix, and transactions, indexes and keyset pagination come from the database
+- **sqlite** (default) — one SQLite database, `ironflow.sqlite`, created under `store_dir`; the directory is restricted to its owner on Unix, and transactions, indexes and keyset pagination come from the database. See [Store directory and SQLite URLs](#store-directory-and-sqlite-urls)
 - **json** — file-based JSON records in `store_dir`; maintenance-only since IF-163 and kept for existing store directories, selected explicitly with `IRONFLOW_STORE=json`
 - **postgres** — SQL storage in Postgres (requires a `-full` release binary or building with `--features postgres`)
 - **redis** — Redis-backed storage (requires a `-full` release binary or building with `--features redis`)
@@ -420,6 +420,65 @@ preflights both selected SQL URLs before opening either store, in standalone
 and replica mode. SQL URL settings are ignored when their corresponding backend
 is not SQL. See [Replica deployment](REPLICA_DEPLOYMENT.md) for the shared-store
 operator contract.
+
+#### Store directory and SQLite URLs
+
+Without a store URL, the `sqlite` state store is `ironflow.sqlite` and the
+`sqlite` event store is `ironflow-events.sqlite`, both directly under the store
+directory (`--store-dir`, `IRONFLOW_STORE_DIR`, default `data/runs`). This holds
+for every command that opens the store: `run`, `list`, `inspect`, `serve` and
+`artifacts prune`.
+
+- The store directory is a filesystem path, not part of a URL. Any name the
+  filesystem accepts works, relative or absolute, including spaces, `%`, `?`,
+  `#`, `:` and non-ASCII characters, and nothing in it is decoded: `runs%41data`
+  is the directory `runs%41data`. A relative directory is resolved against the
+  working directory once, at startup, so `runs` and its absolute spelling name
+  the same store (IF-199).
+- The path must be valid UTF-8, because SQLite takes UTF-8 file names. A
+  directory that is not is refused with `Store dir must be valid UTF-8 for the
+  SQLite backend` and is not created. `IRONFLOW_STORE=json` has no such limit.
+- The directory is created, and restricted to its owner on Unix, only after
+  the table prefix and the path have been accepted. It must be a real
+  directory, not a symbolic link. A failure to open the database afterwards
+  leaves the directory in place; IronFlow never removes a store directory.
+- The startup log names the database file, for example
+  `Using SQLite state store at /srv/ironflow/My Runs/ironflow.sqlite`.
+
+An explicit `IRONFLOW_STORE_URL`, `IRONFLOW_EVENT_STORE_URL`, `store_url` or
+`event_store_url` replaces that default and is passed to the SQLite driver
+unchanged; the store directory is then neither used nor created for that
+store, and the directory that holds the database must already exist.
+
+- The URL is a URL: percent-encode a space as `%20`, `%` as `%25`, `?` as
+  `%3F` and `#` as `%23`. `sqlite:my%20runs/state.db?mode=rwc` opens
+  `my runs/state.db`.
+- Prefer the `sqlite:<path>` form. With `sqlite://`, the first component of a
+  relative path is parsed as a host name, so it accepts only host characters;
+  `sqlite://data/runs/ironflow.sqlite` works, and an absolute path is
+  `sqlite:///var/lib/ironflow/state.db`.
+- `mode=rwc` creates the file when it is missing; without it the file must
+  exist. The other accepted parameters are `mode=ro`, `mode=rw`, `cache`,
+  `immutable` and `vfs`.
+- In-memory and temporary databases are rejected at startup for both stores:
+  `sqlite::memory:`, `mode=memory`, `file::memory:` and a URL with no file
+  name. The stores use a connection pool, and each connection would open its
+  own empty database, so the schema created on one would be missing on the
+  next. The message names the setting and never the URL. Use a file in a
+  temporary directory for a disposable store, or `IRONFLOW_EVENT_STORE=memory`
+  for process-local events.
+- The diagnostic for a URL that fails to connect redacts credentials and query
+  values as before.
+
+On Windows the same rules apply to drive-letter, backslash and UNC paths
+(`C:\ironflow\runs`, `.\runs`, `\\server\share\runs`). Windows release
+binaries are built without a test job, so this is covered by a unit test of
+the path encoding with Windows-shaped paths rather than by a run on Windows.
+To check a Windows build by hand: run `ironflow run flow.lua --store-dir "My
+Runs %41"` from a directory whose own path contains a space, confirm that
+`My Runs %41\ironflow.sqlite` exists and no other directory was created, then
+run `ironflow list --store-dir` with the absolute path of that directory and
+confirm the run is listed.
 
 ### Encrypted shared stores
 
@@ -527,7 +586,8 @@ Configure via `ironflow.yaml`:
 
 ```yaml
 store_backend: sqlite
-store_url: "sqlite://data/runs/ironflow.sqlite?mode=rwc"
+# Optional. Omit store_url to use ironflow.sqlite under the store directory.
+store_url: "sqlite:data/runs/ironflow.sqlite?mode=rwc"
 event_store: memory
 event_memory_capacity: 10000
 sql_table_prefix: "ironflow_"
@@ -538,9 +598,9 @@ Or via environment variables (override config file):
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `IRONFLOW_STORE` | `sqlite` | Storage backend: `sqlite`, `json`, `postgres`, or `redis` |
-| `IRONFLOW_STORE_URL` | SQLite auto path for `sqlite`; required for `postgres` | SQL store URL |
+| `IRONFLOW_STORE_URL` | File under the store directory for `sqlite`; required for `postgres` | SQL store URL; an in-memory SQLite URL is rejected |
 | `IRONFLOW_EVENT_STORE` | `memory` | Event backend for `/runs/{id}/events`: `memory`, `sqlite`, `postgres`, or `redis` |
-| `IRONFLOW_EVENT_STORE_URL` | SQLite auto path for `sqlite`; required for `postgres` | SQL event store URL |
+| `IRONFLOW_EVENT_STORE_URL` | File under the store directory for `sqlite`; required for `postgres` | SQL event store URL; an in-memory SQLite URL is rejected |
 | `IRONFLOW_REPLICA_MODE` | `false` | Require `postgres` or `redis` for both state and events; reject process-local backends |
 | `IRONFLOW_SHUTDOWN_GRACE_SECONDS` | `30` | Seconds accepted runs may finish before cooperative cancellation (`0..=3600`) |
 | `IRONFLOW_EVENT_MEMORY_CAPACITY` | `10000` | Positive global event/fence count when the event backend is `memory`; a fixed 64 MiB retained-heap estimate is enforced independently |
@@ -1285,9 +1345,9 @@ start.
 | `PORT` | `3000` | Server listen port |
 | `IRONFLOW_STORE_DIR` | `data/runs` | State store directory |
 | `IRONFLOW_STORE` | `sqlite` | State store backend: `sqlite`, `json`, `postgres`, or `redis` |
-| `IRONFLOW_STORE_URL` | SQLite auto path for `sqlite`; required for `postgres` | SQL store URL |
+| `IRONFLOW_STORE_URL` | File under the store directory for `sqlite`; required for `postgres` | SQL store URL; an in-memory SQLite URL is rejected |
 | `IRONFLOW_EVENT_STORE` | `memory` | Event backend for `/runs/{id}/events`: `memory`, `sqlite`, `postgres`, or `redis` |
-| `IRONFLOW_EVENT_STORE_URL` | SQLite auto path for `sqlite`; required for `postgres` | SQL event store URL |
+| `IRONFLOW_EVENT_STORE_URL` | File under the store directory for `sqlite`; required for `postgres` | SQL event store URL; an in-memory SQLite URL is rejected |
 | `IRONFLOW_EVENT_MEMORY_CAPACITY` | `10000` | Positive global event/fence count when the event backend is `memory`; a fixed 64 MiB retained-heap estimate applies independently; zero or invalid values fail startup |
 | `IRONFLOW_REPLICA_MODE` | `false` | Fail startup unless state and events use PostgreSQL or Redis |
 | `IRONFLOW_SHUTDOWN_GRACE_SECONDS` | `30` | Accepted-run drain before cancellation (`0..=3600` seconds) |

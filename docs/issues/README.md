@@ -7,7 +7,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts check`.
 
 - Total findings: 223
-- Active findings: 17
+- Active findings: 16
 
 ## Working agreement
 
@@ -226,7 +226,7 @@ priority, area, and title. The registry is generated with
 | [IF-196](./IF-196.md) | P2 | Resolved | Data transforms | xml_stringify writes keys as markup; CSV type inference and data_filter equality lose values |
 | [IF-197](./IF-197.md) | P2 | Resolved | AI nodes | llm sends unknown providers to OpenAI and ignores documented parameters |
 | [IF-198](./IF-198.md) | P2 | Resolved | API security | An empty IRONFLOW_API_KEY disables the configured API key on loopback |
-| [IF-199](./IF-199.md) | P2 | Open | CLI/SQLite store | Default SQLite store URL breaks for store directories containing spaces, percent signs or question marks |
+| [IF-199](./IF-199.md) | P2 | Resolved | CLI/SQLite store | Default SQLite store URL breaks for store directories containing spaces, percent signs or question marks |
 | [IF-200](./IF-200.md) | P2 | Open | Artifact lifecycle | artifacts prune cannot get past a first page of still-referenced digests |
 | [IF-201](./IF-201.md) | P2 | Open | Scheduler/Redis | A Redis TTL shorter than a schedule's grace window re-runs a completed occurrence |
 | [IF-202](./IF-202.md) | P2 | Open | Storage/Postgres | PostgreSQL event store takes an exclusive table lock on every startup |

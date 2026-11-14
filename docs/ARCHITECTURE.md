@@ -870,6 +870,19 @@ environment/YAML precedence. PostgreSQL requires `postgres://` or
 `serve` preflights both selected SQL URLs without filesystem or connection
 side effects even outside replica mode; the individual factories also validate
 before connecting. Mismatch diagnostics identify settings, not raw URLs.
+The same resolver rejects an invalid SQL table prefix and an in-memory or
+temporary SQLite URL, which would give each pooled connection its own empty
+database; the SQL stores repeat the in-memory check for library callers.
+
+The omitted-URL SQLite default is built from the store directory as a
+filesystem path, never by formatting the path into a URL (IF-199). The stores
+share the `sqlx::Any` pool, which accepts only a URL, and the SQLite driver
+percent-decodes the database part and opens it with URI file names enabled. So
+`src/cli/sqlite_path.rs` makes the path absolute and percent-encodes every byte
+outside `[A-Za-z0-9._-]`, separators included, into `sqlite:<encoded>?mode=rwc`:
+an opaque URL path that the parser neither splits nor normalizes and the driver
+decodes back to exactly the path given. The store directory is created only
+after that URL and the table prefix are known to be usable.
 This verifies dialects, not whether separate processes target the same service.
 The detailed failure
 and platform boundary is in [Replica deployment](REPLICA_DEPLOYMENT.md).

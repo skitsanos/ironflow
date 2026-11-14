@@ -26,6 +26,28 @@ publication is verified separately.
   are unset behave as before. See
   [`ironflow serve`](../CLI_REFERENCE.md#ironflow-serve).
 
+- **The default SQLite store accepts any directory name, and in-memory
+  SQLite URLs are rejected** (IF-199). The store directory (`--store-dir`,
+  `IRONFLOW_STORE_DIR`) used to be formatted into a connection URL, so a
+  relative directory with a space failed with `invalid domain character`, a
+  `?` in the name failed as an unknown query parameter, and a percent
+  sequence was decoded: `runs%41data` opened `runsAdata`, and when that
+  directory existed the database was written there, outside the directory
+  that had been created and restricted. The directory is now used as a
+  filesystem path, for the state and event stores and every command. Stores
+  at ordinary paths open as before. If a store directory name contains a
+  percent sequence such as `%41` or `%20`, look for `ironflow.sqlite` or
+  `ironflow-events.sqlite` in the directory with the decoded name and move
+  them into the configured directory while IronFlow is stopped. A store
+  directory that is not valid UTF-8 is refused for the SQLite backend.
+  `IRONFLOW_STORE_URL` and `IRONFLOW_EVENT_STORE_URL` values such as
+  `sqlite::memory:` or `mode=memory` now stop startup with a message that
+  names the setting; they never worked, failing later with `duplicate column
+  name`, because each pooled connection opened its own empty database. An
+  invalid `IRONFLOW_SQL_TABLE_PREFIX` is also reported before the store
+  directory or a database file is created. See
+  [Store directory and SQLite URLs](../CLI_REFERENCE.md#store-directory-and-sqlite-urls).
+
 - **`llm` rejects an unknown `provider` instead of using OpenAI** (IF-197).
   Every `provider` value other than `openai_compatible`, `compatible`,
   `azure` and `custom` used to select the OpenAI configuration, so a
