@@ -4,6 +4,10 @@ use async_trait::async_trait;
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
 
+use super::json_equality::json_equal;
+
+const OPERATORS: &str = "eq, neq, gt, lt, gte, lte, contains, exists, not_exists";
+
 pub struct DataFilterNode;
 
 #[async_trait]
@@ -29,11 +33,16 @@ impl Node for DataFilterNode {
             .get("field")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("data_filter requires 'field'"))?;
-        let op = config.get("op").and_then(|v| v.as_str()).ok_or_else(|| {
-            anyhow::anyhow!(
-                "data_filter requires 'op' (eq, neq, gt, lt, gte, lte, contains, exists)"
-            )
-        })?;
+        let op = config
+            .get("op")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("data_filter requires 'op' ({OPERATORS})"))?;
+        // An unknown operator used to match nothing, which read as a filter
+        // that legitimately found no items (IF-196).
+        anyhow::ensure!(
+            OPERATORS.split(", ").any(|known| known == op),
+            "data_filter: unknown op '{op}' (expected one of {OPERATORS})"
+        );
 
         let items = ctx
             .get(source_key)
@@ -78,8 +87,8 @@ fn compare(
         return false;
     };
     match op {
-        "eq" => field_value == compare_value,
-        "neq" => field_value != compare_value,
+        "eq" => json_equal(field_value, compare_value),
+        "neq" => !json_equal(field_value, compare_value),
         "gt" => numeric_pair(field_value, compare_value).is_some_and(|(a, b)| a > b),
         "lt" => numeric_pair(field_value, compare_value).is_some_and(|(a, b)| a < b),
         "gte" => numeric_pair(field_value, compare_value).is_some_and(|(a, b)| a >= b),

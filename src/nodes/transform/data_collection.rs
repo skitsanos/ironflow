@@ -7,6 +7,8 @@ use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
 use crate::util::node_config::config_usize_strict;
 
+use super::json_equality::canonical_json;
+
 pub struct BatchNode;
 
 #[async_trait]
@@ -102,7 +104,7 @@ fn context_array<'a>(ctx: &'a Context, source_key: &str) -> Result<&'a Vec<serde
 
 fn dedup_key(item: &serde_json::Value, key_field: Option<&str>) -> String {
     match key_field {
-        Some(field) => item.get(field).map(ToString::to_string).unwrap_or_default(),
-        None => serde_json::to_string(item).unwrap_or_default(),
+        Some(field) => item.get(field).map(canonical_json).unwrap_or_default(),
+        None => canonical_json(item),
     }
 }

@@ -23,6 +23,8 @@ Parse an XML string into a JSON object.
 - Text content uses `#text` when mixed with attributes or child elements.
 - Simple text-only elements are simplified to string values.
 - Repeated sibling elements with the same tag become JSON arrays.
+- The document must have exactly one root element; a second root element is
+  an error.
 
 ## Text Fidelity and Limits
 

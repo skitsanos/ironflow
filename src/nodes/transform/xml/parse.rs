@@ -117,7 +117,7 @@ fn parse_xml_to_json(
                 } else {
                     serde_json::Value::Object(map)
                 };
-                add_element(&mut stack, &mut root, name, value);
+                add_element(&mut stack, &mut root, name, value)?;
             }
             Event::Text(text) => {
                 if let Some((_, map)) = stack.last_mut() {
@@ -133,7 +133,7 @@ fn parse_xml_to_json(
             }
             Event::End(_) => {
                 if let Some((name, map)) = stack.pop() {
-                    add_element(&mut stack, &mut root, name, simplify_element(map));
+                    add_element(&mut stack, &mut root, name, simplify_element(map))?;
                 }
             }
             Event::Eof => {
@@ -183,12 +183,18 @@ fn add_element(
     root: &mut Option<(String, serde_json::Value)>,
     name: String,
     value: serde_json::Value,
-) {
+) -> Result<()> {
     if let Some((_, parent)) = stack.last_mut() {
         insert_child(parent, &name, value);
     } else {
+        // A second root used to replace the first without a trace (IF-196).
+        anyhow::ensure!(
+            root.is_none(),
+            "XML document has more than one root element"
+        );
         *root = Some((name, value));
     }
+    Ok(())
 }
 
 fn simplify_element(mut map: serde_json::Map<String, serde_json::Value>) -> serde_json::Value {

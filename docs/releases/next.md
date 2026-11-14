@@ -302,6 +302,40 @@ publication is verified separately.
   `filter` parameter behave as before. See
   [Metadata Filter](../nodes/s3vector_query_vectors.md#metadata-filter).
 
+- **`xml_stringify` fails on keys that are not XML names, and on array
+  sources** (IF-196). Object keys were written as tag and attribute names
+  unchecked, so a key from untrusted data could add elements, and a key with
+  a space produced a document `xml_parse` rejected. A key, `root_tag` or
+  `item_tag` that is not an XML name now fails the step; `prefix:local` names
+  and `@xmlns` declarations are accepted. A source value that is an array
+  produced no root element or several and now fails unless the new `item_tag`
+  parameter names an element for each item; this includes a one-item array,
+  which used to yield a document. Number and boolean values of `@attribute`
+  and `#text` keys were dropped and are now written as text
+  (`{ ["@unit"] = 5, ["#text"] = 3 }` gives `<qty unit="5">3</qty>`, was
+  `<qty/>`); an object or array there, and a value with a character XML 1.0
+  cannot carry, fail the step. Tabs and line breaks in attribute values are
+  written as character references. See
+  [`xml_stringify`](../nodes/xml_stringify.md).
+- **`xml_parse` rejects a document with more than one root element**
+  (IF-196). It used to return the last root and discard the others.
+- **`csv_parse` type inference keeps identifiers as text** (IF-196). With
+  `infer_types = true`, a field now stays a string when it has a leading zero
+  before another digit (`02134`), a leading `+` (`+15551234567`), more than
+  15 significant digits (`12345678901234567890`, previously a rounded float;
+  16 to 19 digit integers were exact and are strings too), is `-0`, or spells
+  a non-finite number (`nan`, `inf`, `infinity`, `1e999`, previously `null`).
+  Plain decimal numbers and booleans convert as before. A flow that did
+  arithmetic on such a column now receives strings; see the rules under
+  [`csv_parse`](../nodes/csv_parse.md#type-inference).
+- **`data_filter` `eq` and `neq` compare numbers by value** (IF-196). An
+  integer field never equalled a float `value` such as `10 / 2`, so `eq`
+  returned nothing and `neq` returned every item while `gte` matched. Both
+  now compare numbers numerically, also inside arrays and objects; other
+  types stay strict. An `op` the node does not know used to return an empty
+  result and now fails the step. `deduplicate` treats `5` and `5.0` as the
+  same key for the same reason. See
+  [`data_filter`](../nodes/data_filter.md#equality).
 - **Extracted text changes for some PDF, DOCX and PPTX documents** (IF-193).
   Review stored extractions, embeddings and assertions that depend on the
   earlier output:

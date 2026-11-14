@@ -1,9 +1,14 @@
+use std::fmt::Write as _;
+
 use anyhow::Result;
 use async_trait::async_trait;
+use serde_json::Value;
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
 use crate::util::node_config::config_bool;
+
+use super::names::{NameKind, checked_name, checked_text, quoted};
 
 pub struct XmlStringifyNode;
 
@@ -17,7 +22,7 @@ impl Node for XmlStringifyNode {
         "Convert a JSON value to an XML string"
     }
 
-    async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
+    async fn execute(&self, config: &Value, ctx: &Context) -> Result<NodeOutput> {
         let source_key = config
             .get("source_key")
             .and_then(|v| v.as_str())
@@ -30,6 +35,7 @@ impl Node for XmlStringifyNode {
             .get("root_tag")
             .and_then(|v| v.as_str())
             .unwrap_or("root");
+        let item_tag = config.get("item_tag").and_then(|v| v.as_str());
         let pretty = config_bool(config, "pretty", ctx).unwrap_or(false);
         let source = ctx
             .get(source_key)
@@ -38,127 +44,207 @@ impl Node for XmlStringifyNode {
         let mut output = NodeOutput::new();
         output.insert(
             output_key.to_string(),
-            serde_json::Value::String(json_to_xml(source, root_tag, pretty)),
+            Value::String(json_to_xml(source, root_tag, item_tag, pretty)?),
         );
         Ok(output)
     }
 }
 
-fn json_to_xml(value: &serde_json::Value, root_tag: &str, pretty: bool) -> String {
-    let mut xml = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+fn json_to_xml(
+    value: &Value,
+    root_tag: &str,
+    item_tag: Option<&str>,
+    pretty: bool,
+) -> Result<String> {
+    let root_tag = checked_name(root_tag, NameKind::Element, "'root_tag'")?;
+    let item_tag = item_tag
+        .map(|tag| checked_name(tag, NameKind::Element, "'item_tag'"))
+        .transpose()?;
+    let mut writer = Writer {
+        xml: String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"),
+        pretty,
+    };
     if pretty {
-        xml.push('\n');
+        writer.xml.push('\n');
     }
-    write_element(&mut xml, root_tag, value, pretty, 0);
-    xml
+    match (value, item_tag) {
+        // One document has one root element, so the items of a top-level
+        // array need a named wrapper element each.
+        (Value::Array(items), Some(item_tag)) => {
+            writer.container(
+                root_tag,
+                "",
+                None,
+                items.iter().map(|item| (item_tag, item)),
+                0,
+            )?;
+        }
+        (Value::Array(_), None) => anyhow::bail!(
+            "xml_stringify: the value at 'source_key' is an array, which has no single root \
+             element; set 'item_tag' to write each item as a child of the root element"
+        ),
+        _ => writer.element(root_tag, value, 0)?,
+    }
+    Ok(writer.xml)
 }
 
-fn write_element(
-    xml: &mut String,
-    tag: &str,
-    value: &serde_json::Value,
+struct Writer {
+    xml: String,
     pretty: bool,
-    depth: usize,
-) {
-    let indent = if pretty {
-        "  ".repeat(depth)
-    } else {
-        String::new()
-    };
-    let newline = if pretty { "\n" } else { "" };
-
-    match value {
-        serde_json::Value::Object(map) => write_object(xml, tag, map, pretty, depth),
-        serde_json::Value::Array(values) => {
-            for value in values {
-                write_element(xml, tag, value, pretty, depth);
-            }
-        }
-        serde_json::Value::String(value) => {
-            xml.push_str(&format!(
-                "{}<{}>{}</{}>{}",
-                indent,
-                tag,
-                escape_xml(value),
-                tag,
-                newline
-            ));
-        }
-        serde_json::Value::Number(value) => {
-            xml.push_str(&format!("{indent}<{tag}>{value}</{tag}>{newline}"));
-        }
-        serde_json::Value::Bool(value) => {
-            xml.push_str(&format!("{indent}<{tag}>{value}</{tag}>{newline}"));
-        }
-        serde_json::Value::Null => {
-            xml.push_str(&format!("{indent}<{tag}/>{newline}"));
-        }
-    }
 }
 
-fn write_object(
-    xml: &mut String,
-    tag: &str,
-    map: &serde_json::Map<String, serde_json::Value>,
-    pretty: bool,
-    depth: usize,
-) {
-    let indent = if pretty {
-        "  ".repeat(depth)
-    } else {
-        String::new()
-    };
-    let newline = if pretty { "\n" } else { "" };
-    let mut attributes = String::new();
-    let mut children = Vec::new();
-    let mut text = None;
-
-    for (key, value) in map {
-        if let Some(name) = key.strip_prefix('@') {
-            if let serde_json::Value::String(value) = value {
-                attributes.push_str(&format!(" {}=\"{}\"", name, escape_xml(value)));
-            }
-        } else if key == "#text" {
-            if let serde_json::Value::String(value) = value {
-                text = Some(value.as_str());
-            }
-        } else {
-            children.push((key.as_str(), value));
-        }
-    }
-
-    if children.is_empty() && text.is_none() {
-        xml.push_str(&format!("{indent}<{tag}{attributes}/>{newline}"));
-        return;
-    }
-    if children.is_empty() {
-        xml.push_str(&format!(
-            "{indent}<{tag}{attributes}>{}</{tag}>{newline}",
-            escape_xml(text.unwrap_or(""))
-        ));
-        return;
-    }
-
-    xml.push_str(&format!("{indent}<{tag}{attributes}>{newline}"));
-    if let Some(text) = text {
-        let text_indent = if pretty {
-            "  ".repeat(depth + 1)
+impl Writer {
+    fn indent(&self, depth: usize) -> String {
+        if self.pretty {
+            "  ".repeat(depth)
         } else {
             String::new()
+        }
+    }
+
+    fn newline(&self) -> &'static str {
+        if self.pretty { "\n" } else { "" }
+    }
+
+    /// Writes `value` under an already validated `tag`.
+    fn element(&mut self, tag: &str, value: &Value, depth: usize) -> Result<()> {
+        match value {
+            Value::Object(map) => self.object(tag, map, depth),
+            Value::Array(values) => values
+                .iter()
+                .try_for_each(|value| self.element(tag, value, depth)),
+            Value::Null => {
+                self.leaf(tag, "", None, depth);
+                Ok(())
+            }
+            scalar => {
+                let text = scalar_text(scalar).unwrap_or_default();
+                let origin = format!("element {}", quoted(tag));
+                let text = escape_text(checked_text(&text, &origin)?);
+                self.leaf(tag, "", Some(&text), depth);
+                Ok(())
+            }
+        }
+    }
+
+    fn object(
+        &mut self,
+        tag: &str,
+        map: &serde_json::Map<String, Value>,
+        depth: usize,
+    ) -> Result<()> {
+        let mut attributes = String::new();
+        let mut children = Vec::new();
+        let mut text = None;
+
+        for (key, value) in map {
+            if let Some(name) = key.strip_prefix('@') {
+                let name = checked_name(name, NameKind::Attribute, "attribute key")?;
+                let origin = format!("attribute {}", quoted(key));
+                if let Some(value) = scalar_content(value, &origin)? {
+                    let value = escape_attribute(checked_text(&value, &origin)?);
+                    let _ = write!(attributes, " {name}=\"{value}\"");
+                }
+            } else if key == "#text" {
+                let origin = format!("'#text' of element {}", quoted(tag));
+                text = scalar_content(value, &origin)?
+                    .map(|text| checked_text(&text, &origin).map(escape_text))
+                    .transpose()?;
+            } else {
+                let name = checked_name(key, NameKind::Element, "key")?;
+                children.push((name, value));
+            }
+        }
+
+        if children.is_empty() {
+            self.leaf(tag, &attributes, text.as_deref(), depth);
+            return Ok(());
+        }
+        self.container(
+            tag,
+            &attributes,
+            text.as_deref(),
+            children.into_iter(),
+            depth,
+        )
+    }
+
+    /// Writes an element that has no child elements.
+    fn leaf(&mut self, tag: &str, attributes: &str, text: Option<&str>, depth: usize) {
+        let (indent, newline) = (self.indent(depth), self.newline());
+        let _ = match text {
+            Some(text) => write!(
+                self.xml,
+                "{indent}<{tag}{attributes}>{text}</{tag}>{newline}"
+            ),
+            None => write!(self.xml, "{indent}<{tag}{attributes}/>{newline}"),
         };
-        xml.push_str(&format!("{text_indent}{}{newline}", escape_xml(text)));
     }
-    for (child_tag, child_value) in children {
-        write_element(xml, child_tag, child_value, pretty, depth + 1);
+
+    /// Writes an element around child elements; with no children it is empty.
+    fn container<'a>(
+        &mut self,
+        tag: &str,
+        attributes: &str,
+        text: Option<&str>,
+        children: impl ExactSizeIterator<Item = (&'a str, &'a Value)>,
+        depth: usize,
+    ) -> Result<()> {
+        if children.len() == 0 {
+            self.leaf(tag, attributes, text, depth);
+            return Ok(());
+        }
+        let (indent, newline) = (self.indent(depth), self.newline());
+        let _ = write!(self.xml, "{indent}<{tag}{attributes}>{newline}");
+        if let Some(text) = text {
+            let text_indent = self.indent(depth + 1);
+            let _ = write!(self.xml, "{text_indent}{text}{newline}");
+        }
+        for (child_tag, child_value) in children {
+            self.element(child_tag, child_value, depth + 1)?;
+        }
+        let _ = write!(self.xml, "{indent}</{tag}>{newline}");
+        Ok(())
     }
-    xml.push_str(&format!("{indent}</{tag}>{newline}"));
 }
 
-fn escape_xml(value: &str) -> String {
+/// The text of a string, number or boolean; `None` for every other value.
+fn scalar_text(value: &Value) -> Option<String> {
+    match value {
+        Value::String(value) => Some(value.clone()),
+        Value::Number(value) => Some(value.to_string()),
+        Value::Bool(value) => Some(value.to_string()),
+        _ => None,
+    }
+}
+
+/// Attribute and `#text` content: scalars are written as text, `null` means
+/// absent, and an object or array has no text form, so it fails the step.
+fn scalar_content(value: &Value, origin: &str) -> Result<Option<String>> {
+    match value {
+        Value::Null => Ok(None),
+        Value::Object(_) | Value::Array(_) => anyhow::bail!(
+            "xml_stringify: {origin} must be a string, number, boolean or null, not an {}",
+            if value.is_object() { "object" } else { "array" }
+        ),
+        scalar => Ok(scalar_text(scalar)),
+    }
+}
+
+fn escape_text(value: &str) -> String {
     value
         .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&apos;")
+        .replace('\r', "&#13;")
+}
+
+/// Attribute values also escape tab and newline, which a parser would
+/// otherwise normalize to spaces.
+fn escape_attribute(value: &str) -> String {
+    escape_text(value)
+        .replace('\t', "&#9;")
+        .replace('\n', "&#10;")
 }

@@ -30,6 +30,8 @@ mod test_nodes;
 mod test_semantic_chunk_boundaries;
 #[path = "../test_staged_output_modes.rs"]
 mod test_staged_output_modes;
+#[path = "../test_transform_fidelity.rs"]
+mod test_transform_fidelity;
 #[path = "../test_xml_text_fidelity.rs"]
 mod test_xml_text_fidelity;
 #[path = "../test_xml_yaml_nodes.rs"]

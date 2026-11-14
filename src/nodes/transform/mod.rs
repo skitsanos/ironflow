@@ -4,6 +4,7 @@ mod data_fields;
 mod data_filter;
 mod data_mapping;
 mod json;
+mod json_equality;
 mod xml;
 mod yaml;
 

@@ -52,10 +52,10 @@ credentialed, local-state, and platform-specific flow at the same time.
 ## 02-data-transforms
 - **json_operations.lua** — Parse, select fields, stringify
 - **transform_pipeline.lua** — Filter, transform, rename, batch, deduplicate
-- **filter_and_batch.lua** — Filter by condition, deduplicate, split into batches
+- **filter_and_batch.lua** — Filter by condition and by numeric equality, deduplicate, split into batches
 - **foreach_function.lua** — Iterate over arrays with a Lua function transform
 - **json_extract_path.lua** — Extract values by JSON path from API responses and parsed JSON
-- **csv_parse_stringify.lua** — Parse CSV text and write back canonical CSV
+- **csv_parse_stringify.lua** — Parse CSV text with type inference that keeps identifiers as text, and write back canonical CSV
 
 ## 03-control-flow
 - **conditional_routing.lua** — `if_node` with true/false route branching
@@ -224,7 +224,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 
 ## 18-xml-yaml
 - **xml_parse.lua** — Parse XML into JSON and verify entity, CDATA, and attribute fidelity
-- **xml_stringify.lua** — Convert JSON-like data into XML
+- **xml_stringify.lua** — Convert JSON-like data into XML with attributes, wrap a list with `item_tag`, and read it back
 - **yaml_parse.lua** — Parse YAML into JSON and log the result
 - **yaml_stringify.lua** — Convert JSON-like data into YAML
 
