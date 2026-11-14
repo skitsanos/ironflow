@@ -314,3 +314,32 @@ async fn sql_stores_refuse_in_memory_urls_at_the_library_boundary() {
         assert!(events.contains("in-memory"), "{url}: {events}");
     }
 }
+
+/// An invalid table prefix is reported before the store directory or a
+/// database file is created for it.
+#[tokio::test]
+async fn an_invalid_table_prefix_creates_no_directory_or_database() {
+    for (event_store, kind) in [("memory", "state store"), ("sqlite", "event store")] {
+        for url in [None, Some("sqlite:explicit.db?mode=rwc")] {
+            let directory = tempfile::tempdir().unwrap();
+            let mut cmd = command(directory.path());
+            cmd.args(["serve", "--port", "0", "--store-dir", "runs"])
+                .env("IRONFLOW_ALLOW_UNAUTHENTICATED_API", "true")
+                .env("IRONFLOW_EVENT_STORE", event_store)
+                .env("IRONFLOW_SQL_TABLE_PREFIX", "bad-prefix!");
+            if let Some(url) = url {
+                cmd.env("IRONFLOW_STORE_URL", url)
+                    .env("IRONFLOW_EVENT_STORE_URL", url);
+            }
+            let result = output(&mut cmd).await;
+            let text = diagnostic(&result);
+            assert!(!result.status.success(), "{kind}: {text}");
+            assert!(text.contains("table prefix"), "{kind}: {text}");
+            assert!(
+                entries(directory.path()).is_empty(),
+                "{kind}, url {url:?}: created {:?} before rejecting the prefix",
+                entries(directory.path())
+            );
+        }
+    }
+}

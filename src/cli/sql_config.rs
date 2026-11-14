@@ -2,7 +2,7 @@ use std::path::Path;
 
 use anyhow::{Context as _, Result};
 
-use crate::storage::sql_names::SqlDialect;
+use crate::storage::sql_names::{SqlDialect, SqlEventTableNames, SqlStateTableNames};
 use crate::storage::sqlite_url;
 use crate::util::sensitive_url::Connection;
 
@@ -30,6 +30,8 @@ impl SqlStoreKind {
 }
 
 // Resolve only selected SQL backends; unrelated URL settings remain unused.
+// Everything that can be rejected from configuration alone is rejected here,
+// because `serve` calls this for both stores before either may create files.
 pub(super) fn configured_url(
     cfg: &IronFlowConfig,
     backend: &str,
@@ -45,7 +47,18 @@ pub(super) fn configured_url(
     };
     let url = environment_string(environment)?.or_else(|| fallback.clone());
     validate_url(backend, kind, url.as_deref())?;
+    validate_table_prefix(cfg, kind)?;
     Ok(url)
+}
+
+fn validate_table_prefix(cfg: &IronFlowConfig, kind: SqlStoreKind) -> Result<()> {
+    let prefix = super::store_factory::resolve_sql_table_prefix(cfg)?;
+    let (label, _, _) = kind.names();
+    match kind {
+        SqlStoreKind::State => SqlStateTableNames::new(prefix.as_deref()).map(drop),
+        SqlStoreKind::Event => SqlEventTableNames::new(prefix.as_deref()).map(drop),
+    }
+    .map_err(|error| anyhow::anyhow!("Invalid SQL {label} table prefix: {error}"))
 }
 
 fn validate_url(backend: &str, kind: SqlStoreKind, url: Option<&str>) -> Result<()> {
