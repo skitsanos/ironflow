@@ -74,11 +74,19 @@ pub(crate) fn build_body(input: &LlmBodyInput<'_>) -> Result<Value> {
                 Value::Array(resolve_chat_messages(input)),
             );
             insert_tool_config(&mut body, input);
+            if let Some(format) = resolve_response_format(input.config, input.ctx)? {
+                body.insert("response_format".to_string(), format);
+            }
         }
         LlmMode::Responses => {
+            reject_chat_only_parameters(input.config)?;
             body.insert("input".to_string(), Value::String(input.prompt.to_string()));
+            if let Some(instructions) = system_prompt(input) {
+                body.insert("instructions".to_string(), Value::String(instructions));
+            }
         }
     }
+    // `extra` is merged last, so a field given there replaces the one built above.
     merge_extra_fields(&mut body, input.config, input.ctx);
 
     Ok(Value::Object(body))
@@ -112,15 +120,10 @@ fn resolve_chat_messages(input: &LlmBodyInput<'_>) -> Vec<Value> {
     }
 
     let mut messages = Vec::new();
-    if let Some(system_prompt) = input
-        .config
-        .get("system_prompt")
-        .or_else(|| input.config.get("system"))
-        .and_then(Value::as_str)
-    {
+    if let Some(system_prompt) = system_prompt(input) {
         messages.push(json!({
             "role": "system",
-            "content": interpolate_ctx(system_prompt, input.ctx),
+            "content": system_prompt,
         }));
     }
     messages.push(json!({
@@ -128,6 +131,37 @@ fn resolve_chat_messages(input: &LlmBodyInput<'_>) -> Vec<Value> {
         "content": input.prompt,
     }));
     messages
+}
+
+fn system_prompt(input: &LlmBodyInput<'_>) -> Option<String> {
+    input
+        .config
+        .get("system_prompt")
+        .or_else(|| input.config.get("system"))
+        .and_then(Value::as_str)
+        .map(|prompt| interpolate_ctx(prompt, input.ctx))
+}
+
+fn resolve_response_format(config: &Value, ctx: &Context) -> Result<Option<Value>> {
+    match config.get("response_format") {
+        None | Some(Value::Null) => Ok(None),
+        Some(format @ Value::Object(_)) => Ok(Some(interpolate_json_value(format, ctx))),
+        Some(_) => anyhow::bail!("llm: 'response_format' must be an object"),
+    }
+}
+
+/// The Responses API shapes tools and structured output differently, so the
+/// chat-shaped parameters fail instead of being dropped from the request.
+fn reject_chat_only_parameters(config: &Value) -> Result<()> {
+    for key in ["tools", "tool_choice", "response_format"] {
+        if config.get(key).is_some_and(|value| !value.is_null()) {
+            anyhow::bail!(
+                "llm: '{key}' is a chat-mode parameter and is not sent in responses mode; \
+                 pass the Responses API field through 'extra' or use mode = \"chat\""
+            );
+        }
+    }
+    Ok(())
 }
 
 fn insert_tool_config(body: &mut Map<String, Value>, input: &LlmBodyInput<'_>) {

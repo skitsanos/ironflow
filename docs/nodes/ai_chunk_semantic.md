@@ -8,7 +8,7 @@ Split text into semantic chunks using embedding similarity to detect topic bound
 |-----------|------|----------|---------|-------------|
 | `source_key` | string | Yes | — | Context key holding the text to chunk |
 | `output_key` | string | No | `"semantic"` | Prefix for output context keys |
-| `provider` | string | No | `"openai"` | Embedding provider: `"openai"`, `"ollama"`, `"oauth"` |
+| `provider` | string | No | `"openai"` | Embedding provider: `"openai"`, `"ollama"`, `"oauth"`. Any other value, including a non-string, fails the step before a request is sent. OAuth tokens are handled as in [`ai_embed`](ai_embed.md#oauth-tokens). |
 | `model` | string | No | per provider | Model name (same defaults as `ai_embed`) |
 | `timeout` | number | No | `120` | HTTP request timeout in seconds |
 | `batch_size` | number/string | No | `512` | Maximum sentences per embedding request, `1`-`2048`; accepts context interpolation |

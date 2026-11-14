@@ -6,7 +6,7 @@ Generate text embeddings via OpenAI, Ollama, or OAuth-authenticated providers.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `provider` | string | No | `"openai"` | Embedding provider: `"openai"`, `"ollama"`, `"oauth"` |
+| `provider` | string | No | `"openai"` | Embedding provider: `"openai"`, `"ollama"`, `"oauth"`. Any other value, including a non-string, fails the step before a request is sent. |
 | `model` | string | No | per provider | Model name (see defaults below) |
 | `input_key` | string | Yes | — | Context key holding text (string or array of strings) |
 | `output_key` | string | No | `"embed"` | Prefix for output context keys |
@@ -57,8 +57,8 @@ Configure the final provider endpoint explicitly when its origin changes.
 All three providers use sequential batches, split at whichever comes first:
 `batch_size` inputs or `batch_max_bytes` combined input bytes. Small inputs still
 use one request; an empty array returns zero vectors without contacting a provider.
-OAuth token acquisition happens before the batch loop, using the existing token
-cache. Successful batches are concatenated in input order. OpenAI-compatible
+OAuth token acquisition happens before the batch loop, using the token cache
+described under [OAuth tokens](#oauth-tokens). Successful batches are concatenated in input order. OpenAI-compatible
 responses use each item's `index` when present; duplicate, missing, mixed, or
 out-of-range indices fail. Endpoints omitting all indices retain response order.
 Every batch must return exactly one nonempty, finite, same-dimension vector per
@@ -94,6 +94,27 @@ is used to reject an oversized total before requesting remaining batches. Invali
 or zero environment limits retain defaults. Response parsing, vector containers,
 JSON output, and semantic processing require additional memory; this is not an RSS
 ceiling. Existing context-conversion and persisted-output limits still apply.
+
+## OAuth tokens
+
+With `provider = "oauth"` the node requests a client-credentials token from
+`token_url` and caches it per token URL, client ID and scope until 60 seconds
+before the `expires_in` the provider reported. The cache holds at most
+`IRONFLOW_OAUTH_CACHE_SIZE` entries.
+
+- The token response is capped by `IRONFLOW_MAX_HTTP_BODY_BYTES`, checking
+  declared and streamed bytes before decoding.
+- Token errors name only the failure: `OAuth token request failed (HTTP 401);
+  provider body omitted`, a transport kind such as `connection failed`, or a
+  response that is not a token document. The token URL, the request form and
+  the provider's reply are never copied into the error. The response must be a
+  JSON object with a non-empty `access_token` string and a numeric
+  `expires_in`.
+- When the embedding endpoint answers HTTP 401, the token that was sent is
+  evicted from the cache and the request is repeated once with a newly issued
+  token, starting again at the first batch. A second 401 fails the step and
+  evicts that token as well, so the next run starts with a fresh one. The
+  `openai` and `ollama` providers do not retry a 401.
 
 ## Context Output
 

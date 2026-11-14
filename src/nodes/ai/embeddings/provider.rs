@@ -4,9 +4,9 @@ use crate::engine::types::Context;
 
 use super::batch::embed_batches;
 use super::batch_config::BatchOptions;
-use super::config::resolve_param;
-use super::oauth::acquire_oauth_token;
-use super::transport::Endpoint;
+use super::config::{provider_name, resolve_param};
+use super::oauth::{OauthClient, acquire_oauth_token, evict_oauth_token};
+use super::transport::{Endpoint, is_unauthorized};
 
 pub(in crate::nodes::ai) async fn embed_openai(
     client: &reqwest::Client,
@@ -27,6 +27,34 @@ pub(in crate::nodes::ai) async fn embed_openai(
         options,
     )
     .await
+}
+
+/// Embeds through an OpenAI-compatible endpoint with an OAuth bearer token.
+///
+/// A 401 evicts the token it was sent with and the request is repeated once
+/// with a newly issued token, restarting at the first batch.
+pub(in crate::nodes::ai) async fn embed_oauth(
+    client: &reqwest::Client,
+    oauth: &OauthClient<'_>,
+    base_url: &str,
+    model: &str,
+    texts: &[String],
+    options: &BatchOptions,
+) -> Result<Vec<Vec<f64>>> {
+    let mut retried = false;
+    loop {
+        let token = acquire_oauth_token(client, oauth).await?;
+        match embed_openai(client, base_url, &token, model, texts, options).await {
+            Err(error) if is_unauthorized(&error) => {
+                evict_oauth_token(oauth, &token);
+                if retried {
+                    return Err(error);
+                }
+                retried = true;
+            }
+            result => return result,
+        }
+    }
 }
 
 pub(in crate::nodes::ai) async fn embed_ollama(
@@ -56,15 +84,14 @@ pub(super) async fn embed_for_config(
     texts: &[String],
     options: &BatchOptions,
 ) -> Result<(Vec<Vec<f64>>, String)> {
-    match config
-        .get("provider")
-        .and_then(|value| value.as_str())
-        .unwrap_or("openai")
-    {
+    match provider_name(config, "ai_embed", "openai")? {
         "openai" => embed_with_openai(client, config, ctx, texts, options).await,
         "ollama" => embed_with_ollama(client, config, ctx, texts, options).await,
         "oauth" => embed_with_oauth(client, config, ctx, texts, options).await,
-        provider => anyhow::bail!("ai_embed: unsupported provider '{}'", provider),
+        provider => anyhow::bail!(
+            "ai_embed: unsupported provider '{}'. Use 'openai', 'ollama', or 'oauth'.",
+            provider
+        ),
     }
 }
 
@@ -118,15 +145,13 @@ async fn embed_with_oauth(
     let base_url = required_param(config, "base_url", "OAUTH_BASE_URL", ctx, "base_url")?;
     let scope = resolve_param(config, "scope", "OAUTH_SCOPE", ctx);
     let model = resolve_model(config, "openai-text-embedding-3-small");
-    let token = acquire_oauth_token(
-        client,
-        &token_url,
-        &client_id,
-        &client_secret,
-        scope.as_deref(),
-    )
-    .await?;
-    let embeddings = embed_openai(client, &base_url, &token, &model, texts, options).await?;
+    let oauth = OauthClient {
+        token_url: &token_url,
+        client_id: &client_id,
+        client_secret: &client_secret,
+        scope: scope.as_deref(),
+    };
+    let embeddings = embed_oauth(client, &oauth, &base_url, &model, texts, options).await?;
     Ok((embeddings, model))
 }
 

@@ -25,6 +25,45 @@ publication is verified separately.
   cross-origin requests, leave `IRONFLOW_CORS_ORIGINS` unset. Variables that
   are unset behave as before. See
   [`ironflow serve`](../CLI_REFERENCE.md#ironflow-serve).
+
+- **`llm` rejects an unknown `provider` instead of using OpenAI** (IF-197).
+  Every `provider` value other than `openai_compatible`, `compatible`,
+  `azure` and `custom` used to select the OpenAI configuration, so a
+  misspelling such as `"openai-compatible"` or an unsupported name such as
+  `"ollama"` sent the prompt and `OPENAI_API_KEY` to the OpenAI base URL
+  instead of the configured gateway. Such a step now fails before any request
+  with `llm: unsupported provider '<value>'. Use 'openai',
+  'openai_compatible', 'azure', or 'custom'.` Check every `nodes.llm` step
+  whose `provider` is not one of those names: it has been calling OpenAI, and
+  it now needs `openai_compatible` or `custom` with an explicit `base_url`.
+  `ai_embed`, `ai_chunk_semantic` and `transcribe` already rejected unknown
+  names and now also reject a `provider` that is not a string.
+- **`llm` fails the step when a successful response has no usable reply**
+  (IF-197). A 200 response with no text and no tool call (an empty `choices`
+  array, empty or null content, a refusal without content, a Responses result
+  holding only reasoning items, or a body that is not the expected JSON) used
+  to succeed with `{output_key}_text = "<no reply>"`. It now fails with
+  `llm: <provider> returned HTTP 200 with no usable reply`, naming the
+  `finish_reason` or response `status` when present. A flow that tested for
+  the `<no reply>` text should use `on_error` or a step retry instead.
+  Tool-call-only replies still succeed with `<tool call requested>`; in
+  responses mode `function_call` output items are now reported through the
+  `{output_key}_tool_calls*` keys, and text is no longer scraped from the
+  identifiers of typed non-message items.
+- **`llm` parameters in responses mode** (IF-197). `system_prompt` is now
+  sent as `instructions` instead of being dropped. Top-level `tools`,
+  `tool_choice` and `response_format` are chat-shaped and were dropped
+  silently; in responses mode they now fail the step before a request, and
+  the Responses-shaped fields go through `extra` as before. In chat mode the
+  documented top-level `response_format` is now sent (it was ignored); a
+  `response_format` inside `extra` still works and wins when both are given.
+- **Embedding OAuth token handling** (IF-197). A failed token request no
+  longer copies the provider's response body, the token URL or parser detail
+  into the step error; the message keeps the HTTP status. Token responses are
+  capped by `IRONFLOW_MAX_HTTP_BODY_BYTES`. When the embedding endpoint
+  answers 401, the cached token is evicted and the request is repeated once
+  with a new token, so a revoked token no longer fails every run until it
+  expires.
 - **Schedules written with numeric weekdays move by one day** (IF-180). The
   weekday field of a schedule's `cron` now uses the standard crontab
   numbering: `0` and `7` are Sunday, `1` to `6` are Monday to Saturday.

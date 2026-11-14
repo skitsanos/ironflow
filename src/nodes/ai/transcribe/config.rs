@@ -95,12 +95,11 @@ pub(super) struct TranscribeConfig {
 pub(super) fn resolve(config: &serde_json::Value, ctx: &Context) -> Result<TranscribeConfig> {
     let source = get_file_source(config, ctx, "transcribe")?;
 
-    let provider = Provider::parse(
-        config
-            .get("provider")
-            .and_then(|value| value.as_str())
-            .unwrap_or("openai"),
-    )?;
+    let provider = Provider::parse(crate::nodes::ai::embeddings::provider_name(
+        config,
+        "transcribe",
+        "openai",
+    )?)?;
 
     let format = TranscriptFormat::parse(
         config

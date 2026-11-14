@@ -2,8 +2,9 @@
 OpenAI response format demo with `nodes.llm`.
 
 Flow:
-1) Send a chat prompt with `response_format = { type = "json_object" }`.
-2) Send a chat prompt with `response_format = { type = "json_schema", ... }`.
+1) Send a chat prompt with the `response_format = { type = "json_object" }` parameter.
+2) Send a chat prompt with `response_format = { type = "json_schema", ... }` through `extra`,
+   which is merged into the request last and wins when both are given.
 3) Print both extracted JSON replies.
 
 Environment variables:
@@ -19,10 +20,8 @@ flow:step("json_object", nodes.llm({
     model = "gpt-5-mini",
     prompt = "Return a JSON object with keys `language` and `topic` for this text: 'Rust is fast and safe.'",
     output_key = "openai_json_object",
-    extra = {
-        response_format = {
-            type = "json_object"
-        }
+    response_format = {
+        type = "json_object"
     }
 }))
 

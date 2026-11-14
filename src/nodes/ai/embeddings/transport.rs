@@ -4,6 +4,28 @@ use anyhow::{Result, ensure};
 
 use super::response::{parse_ollama_response, parse_openai_response};
 
+/// An embedding failure that records whether the provider answered 401, so
+/// the OAuth path can replace a rejected token.
+#[derive(Debug)]
+pub(super) struct EmbeddingError {
+    pub message: String,
+    pub unauthorized: bool,
+}
+
+impl std::fmt::Display for EmbeddingError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for EmbeddingError {}
+
+pub(super) fn is_unauthorized(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<EmbeddingError>()
+        .is_some_and(|error| error.unauthorized)
+}
+
 pub(super) struct Endpoint<'a> {
     pub client: &'a reqwest::Client,
     pub url: String,
@@ -81,10 +103,14 @@ impl Endpoint<'_> {
                     tokio::time::sleep(delay).await;
                     continue;
                 }
-                anyhow::bail!(
-                    "embedding HTTP {status} after {} attempt(s); provider body omitted",
-                    attempt + 1
-                );
+                return Err(EmbeddingError {
+                    message: format!(
+                        "embedding HTTP {status} after {} attempt(s); provider body omitted",
+                        attempt + 1
+                    ),
+                    unauthorized: status == reqwest::StatusCode::UNAUTHORIZED,
+                }
+                .into());
             }
             let body = crate::util::provider_http::bounded_response_text(response).await?;
             return if self.api_key.is_some() {

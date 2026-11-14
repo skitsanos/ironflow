@@ -15,9 +15,9 @@ use crate::util::duration::positive_duration;
 use crate::util::node_config::config_f64_or;
 
 pub(super) use batch_config::BatchOptions;
-pub(super) use config::resolve_param;
-pub(super) use oauth::acquire_oauth_token;
-pub(super) use provider::{embed_ollama, embed_openai};
+pub(super) use config::{provider_name, resolve_param};
+pub(super) use oauth::OauthClient;
+pub(super) use provider::{embed_oauth, embed_ollama, embed_openai};
 
 pub struct AiEmbedNode;
 

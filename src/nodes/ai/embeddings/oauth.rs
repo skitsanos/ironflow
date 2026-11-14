@@ -42,18 +42,29 @@ fn percent_encode(input: &str) -> String {
     result
 }
 
+/// One OAuth client-credentials identity.
+pub(in crate::nodes::ai) struct OauthClient<'a> {
+    pub token_url: &'a str,
+    pub client_id: &'a str,
+    pub client_secret: &'a str,
+    pub scope: Option<&'a str>,
+}
+
+impl OauthClient<'_> {
+    fn cache_key(&self) -> OauthKey {
+        (
+            self.token_url.to_string(),
+            self.client_id.to_string(),
+            self.scope.map(str::to_string),
+        )
+    }
+}
+
 pub(in crate::nodes::ai) async fn acquire_oauth_token(
     client: &reqwest::Client,
-    token_url: &str,
-    client_id: &str,
-    client_secret: &str,
-    scope: Option<&str>,
+    oauth: &OauthClient<'_>,
 ) -> Result<String> {
-    let cache_key = (
-        token_url.to_string(),
-        client_id.to_string(),
-        scope.map(str::to_string),
-    );
+    let cache_key = oauth.cache_key();
 
     if let Some(cached) = OAUTH_TOKEN_CACHE.get(&cache_key)
         && Instant::now() + Duration::from_secs(60) < cached.expires_at
@@ -63,32 +74,50 @@ pub(in crate::nodes::ai) async fn acquire_oauth_token(
 
     let mut form_body = format!(
         "grant_type=client_credentials&client_id={}&client_secret={}",
-        percent_encode(client_id),
-        percent_encode(client_secret),
+        percent_encode(oauth.client_id),
+        percent_encode(oauth.client_secret),
     );
-    if let Some(scope) = scope {
+    if let Some(scope) = oauth.scope {
         form_body.push_str(&format!("&scope={}", percent_encode(scope)));
     }
 
+    // The token URL, the form and the provider's reply can all carry
+    // credentials, so errors name only the kind of failure.
     let response = client
-        .post(token_url)
+        .post(oauth.token_url)
         .header("Content-Type", "application/x-www-form-urlencoded")
         .body(form_body)
         .send()
         .await
-        .map_err(|error| anyhow::anyhow!("OAuth token request failed: {}", error))?;
+        .map_err(|error| {
+            let kind = if error.is_redirect() {
+                "redirect refused"
+            } else if error.is_timeout() {
+                "request timed out"
+            } else if error.is_connect() {
+                "connection failed"
+            } else {
+                "request failed"
+            };
+            anyhow::anyhow!("OAuth token {kind}")
+        })?;
     let status = response.status();
-    let body = response
-        .text()
-        .await
-        .map_err(|error| anyhow::anyhow!("Failed to read OAuth token response: {}", error))?;
-
     if !status.is_success() {
-        anyhow::bail!("OAuth token request failed ({}): {}", status, body);
+        anyhow::bail!("OAuth token request failed (HTTP {status}); provider body omitted");
     }
+    let body = crate::util::provider_http::bounded_response_text(response)
+        .await
+        .map_err(|error| anyhow::anyhow!("OAuth token response rejected: {error}"))?;
 
-    let token: TokenResponse = serde_json::from_str(&body)
-        .map_err(|error| anyhow::anyhow!("Failed to parse OAuth token response: {}", error))?;
+    let token = serde_json::from_str::<TokenResponse>(&body)
+        .ok()
+        .filter(|token| !token.access_token.is_empty())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "OAuth token response is not a token document with a non-empty \
+                 'access_token' string and a numeric 'expires_in'; provider body omitted"
+            )
+        })?;
     let access_token = token.access_token.clone();
     OAUTH_TOKEN_CACHE.insert(
         cache_key,
@@ -100,6 +129,19 @@ pub(in crate::nodes::ai) async fn acquire_oauth_token(
     );
 
     Ok(access_token)
+}
+
+/// Forgets `rejected` after the provider answered 401 for it.
+///
+/// A token another task has already replaced stays cached.
+pub(in crate::nodes::ai) fn evict_oauth_token(oauth: &OauthClient<'_>, rejected: &str) {
+    let cache_key = oauth.cache_key();
+    if OAUTH_TOKEN_CACHE
+        .get(&cache_key)
+        .is_some_and(|cached| cached.access_token == rejected)
+    {
+        OAUTH_TOKEN_CACHE.remove(&cache_key);
+    }
 }
 
 /// When a token fetched at `now` expires.

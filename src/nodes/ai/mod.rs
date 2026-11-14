@@ -6,6 +6,7 @@ mod chunking_semantic;
 mod chunking_semantic_engine;
 mod llm;
 mod llm_message_artifacts;
+mod llm_output;
 mod llm_providers;
 pub(crate) mod llm_response;
 mod transcribe;

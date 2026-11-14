@@ -103,3 +103,19 @@ fn temperature_enforces_the_provider_range_inclusive() {
         assert!(error.contains("between 0 and 1 inclusive"), "{error}");
     }
 }
+
+#[test]
+fn provider_must_be_a_supported_string() {
+    for (provider, expected) in [
+        (
+            serde_json::json!("open-ai"),
+            "unsupported provider 'open-ai'",
+        ),
+        (serde_json::json!(7), "'provider' must be a string"),
+    ] {
+        let mut config = base_config(serde_json::json!(0.0));
+        config["provider"] = provider;
+        let error = resolve(&config, &Context::new()).unwrap_err().to_string();
+        assert!(error.contains(expected), "{error}");
+    }
+}

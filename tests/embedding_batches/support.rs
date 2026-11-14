@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use axum::extract::State;
-use axum::http::{StatusCode, Uri};
+use axum::http::{HeaderMap, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
 use axum::{Json, Router, routing::post};
 use serde_json::{Value, json};
@@ -19,6 +19,12 @@ pub struct Fixture {
     pub retry_after: Option<&'static str>,
     pub slow: bool,
     pub streamed: bool,
+    /// Raw token-endpoint reply; the default issues a token.
+    pub token_reply: Option<(StatusCode, String)>,
+    /// Issue a distinct token per token request (`synthetic-token-N`).
+    pub rotate_tokens: bool,
+    /// Bearer tokens the embedding endpoint answers with 401; `*` rejects all.
+    pub rejected_tokens: Arc<Mutex<Vec<String>>>,
 }
 
 pub struct Server {
@@ -58,18 +64,49 @@ impl Drop for Server {
     }
 }
 
-async fn token(State(state): State<Fixture>) -> Json<Value> {
-    *state.token_calls.lock().unwrap() += 1;
-    Json(json!({"access_token": "synthetic-fixture", "expires_in": 3600}))
+async fn token(State(state): State<Fixture>) -> Response {
+    let call = {
+        let mut calls = state.token_calls.lock().unwrap();
+        *calls += 1;
+        *calls
+    };
+    if let Some((status, body)) = state.token_reply {
+        return (status, body).into_response();
+    }
+    let token = if state.rotate_tokens {
+        format!("synthetic-token-{call}")
+    } else {
+        "synthetic-fixture".to_string()
+    };
+    Json(json!({"access_token": token, "expires_in": 3600})).into_response()
 }
 
-async fn embed(State(state): State<Fixture>, uri: Uri, Json(body): Json<Value>) -> Response {
+async fn embed(
+    State(state): State<Fixture>,
+    uri: Uri,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
     let call = {
         let mut calls = state.calls.lock().unwrap();
         calls.push(body.clone());
         calls.len()
     };
     state.first_request.notify_one();
+    let bearer = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .unwrap_or_default();
+    if state
+        .rejected_tokens
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|rejected| rejected == "*" || rejected == bearer)
+    {
+        return (StatusCode::UNAUTHORIZED, "synthetic-rejection-body").into_response();
+    }
     let input = body["input"].as_array().unwrap();
     if input.len() > 2048 {
         return (StatusCode::BAD_REQUEST, "array length must be 2048 or less").into_response();

@@ -16,10 +16,6 @@ use super::llm_providers::{
     resolve_messages, resolve_model, resolve_prompt, resolve_provider_config, resolve_tool_choice,
     resolve_tools,
 };
-use super::llm_response::{
-    extract_chat_reply, extract_chat_tool_calls, extract_responses_reply, extract_tool_call_names,
-    normalize_tool_calls,
-};
 
 async fn read_capped_response_body(
     response: reqwest::Response,
@@ -72,6 +68,9 @@ impl Node for LlmNode {
 
     #[allow(clippy::too_many_lines)] // One provider request lifecycle: config, request, response and artifacts.
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
+        // The provider decides where the prompt and the credential go, so an
+        // unknown value fails before anything else is resolved or sent.
+        let provider = Provider::resolve(config)?;
         let mode = parse_mode(config, ctx)?;
         let timeout_s = parse_timeout(config, ctx)?;
         let tools = resolve_tools(config, ctx)?;
@@ -103,7 +102,6 @@ impl Node for LlmNode {
             String::new()
         };
 
-        let provider = Provider::resolve(config);
         let azure_deployment = if matches!(provider, Provider::Azure) {
             resolve_param(
                 config,
@@ -124,7 +122,8 @@ impl Node for LlmNode {
             None
         };
         let model = resolve_model(config, mode, azure_deployment.as_deref());
-        let (url, mut headers, provider_name) = resolve_provider_config(config, ctx, mode)?;
+        let (url, mut headers, provider_name) =
+            resolve_provider_config(config, ctx, mode, provider)?;
         // These headers contain resolved auth, including keys supplied only by the environment.
         let credentials = headers
             .values_mut()
@@ -196,76 +195,15 @@ impl Node for LlmNode {
         let parsed: Value =
             serde_json::from_str(&response_text).unwrap_or(Value::String(response_text));
 
-        let reply = match mode {
-            LlmMode::Chat => extract_chat_reply(&parsed),
-            LlmMode::Responses => extract_responses_reply(&parsed),
-        };
-        let tool_calls = if matches!(mode, LlmMode::Chat) {
-            extract_chat_tool_calls(&parsed)
-        } else {
-            Vec::new()
-        };
-        let has_tool_calls = !tool_calls.is_empty();
-        let tool_call_names = extract_tool_call_names(&tool_calls);
-        let normalized_tool_calls = normalize_tool_calls(&tool_calls);
-
-        let mut output = NodeOutput::new();
-        output.insert(format!("{}_model", output_key), Value::String(model));
-        output.insert(
-            format!("{}_provider", output_key),
-            Value::String(provider.name().to_string()),
-        );
-        output.insert(
-            format!("{}_mode", output_key),
-            Value::String(mode.as_str().to_string()),
-        );
-        output.insert(
-            format!("{}_status", output_key),
-            Value::Number(status.as_u16().into()),
-        );
-        output.insert(format!("{}_raw", output_key), parsed);
-        output.insert(format!("{}_success", output_key), Value::Bool(true));
-        if let Some(usage) = output
-            .get(&format!("{}_raw", output_key))
-            .and_then(|value| value.get("usage"))
-        {
-            output.insert(format!("{}_usage", output_key), usage.clone());
-        }
-        if let Some(reply) = reply {
-            output.insert(format!("{}_text", output_key), Value::String(reply));
-        } else if !tool_calls.is_empty() {
-            output.insert(
-                format!("{}_text", output_key),
-                Value::String("<tool call requested>".to_string()),
-            );
-        } else {
-            output.insert(
-                format!("{}_text", output_key),
-                Value::String("<no reply>".to_string()),
-            );
-        }
-        output.insert(
-            format!("{}_tool_calls", output_key),
-            Value::Array(tool_calls),
-        );
-        output.insert(
-            format!("{}_tool_call_needed", output_key),
-            Value::Bool(has_tool_calls),
-        );
-        output.insert(
-            format!("{}_tool_call_names", output_key),
-            Value::Array(
-                tool_call_names
-                    .into_iter()
-                    .map(serde_json::Value::String)
-                    .collect(),
-            ),
-        );
-        output.insert(
-            format!("{}_tool_calls_normalized", output_key),
-            Value::Array(normalized_tool_calls),
-        );
-
-        Ok(output)
+        super::llm_output::build(
+            parsed,
+            super::llm_output::ReplyMeta {
+                output_key: &output_key,
+                model,
+                provider: provider.name(),
+                mode,
+                status: status.as_u16(),
+            },
+        )
     }
 }

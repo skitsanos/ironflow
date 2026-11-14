@@ -18,6 +18,8 @@ mod test_embedding_batches;
 mod test_http_redirect_security;
 #[path = "../test_http_retry_limits.rs"]
 mod test_http_retry_limits;
+#[path = "../test_llm_provider_contract.rs"]
+mod test_llm_provider_contract;
 #[path = "../test_llm_secret_errors.rs"]
 mod test_llm_secret_errors;
 #[path = "../test_mcp_nodes.rs"]

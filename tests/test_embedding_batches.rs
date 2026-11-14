@@ -4,6 +4,8 @@ mod cancellation;
 mod cli;
 #[path = "embedding_batches/failures.rs"]
 mod failures;
+#[path = "embedding_batches/oauth.rs"]
+mod oauth;
 #[path = "embedding_batches/support.rs"]
 mod support;
 
