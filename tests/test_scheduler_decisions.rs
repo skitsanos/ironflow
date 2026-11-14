@@ -699,3 +699,219 @@ async fn a_deferred_start_stops_the_window_and_every_instant_fires_on_the_retry(
     );
     assert_eq!(executor.runs.load(Ordering::SeqCst), 6);
 }
+
+/// Wraps a real store and injects failures into the occurrence record
+/// (IF-201): a number of failing `schedule_run_recorded` reads, and failing
+/// `record_schedule_run` writes.
+struct FaultyRecordStore {
+    inner: Arc<ironflow::storage::json_store::JsonStateStore>,
+    failing_reads: AtomicUsize,
+    fail_writes: AtomicBool,
+}
+
+impl FaultyRecordStore {
+    fn new(dir: &std::path::Path) -> Self {
+        Self {
+            inner: Arc::new(ironflow::storage::json_store::JsonStateStore::new(dir)),
+            failing_reads: AtomicUsize::new(0),
+            fail_writes: AtomicBool::new(false),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl StateStore for FaultyRecordStore {
+    async fn init_run(
+        &self,
+        run_id: &str,
+        flow_name: &str,
+        ctx: &Context,
+    ) -> ironflow::storage::StorageResult<()> {
+        self.inner.init_run(run_id, flow_name, ctx).await
+    }
+    async fn set_run_status(
+        &self,
+        run_id: &str,
+        status: ironflow::engine::types::RunStatus,
+    ) -> ironflow::storage::StorageResult<()> {
+        self.inner.set_run_status(run_id, status).await
+    }
+    async fn upsert_task(
+        &self,
+        run_id: &str,
+        task: &ironflow::engine::types::TaskState,
+    ) -> ironflow::storage::StorageResult<()> {
+        self.inner.upsert_task(run_id, task).await
+    }
+    async fn get_ctx(&self, run_id: &str) -> ironflow::storage::StorageResult<Context> {
+        self.inner.get_ctx(run_id).await
+    }
+    async fn update_ctx(
+        &self,
+        run_id: &str,
+        ctx: &Context,
+    ) -> ironflow::storage::StorageResult<()> {
+        self.inner.update_ctx(run_id, ctx).await
+    }
+    async fn get_run_info(
+        &self,
+        run_id: &str,
+    ) -> ironflow::storage::StorageResult<ironflow::engine::types::RunInfo> {
+        self.inner.get_run_info(run_id).await
+    }
+    async fn list_runs(
+        &self,
+        status: Option<ironflow::engine::types::RunStatus>,
+    ) -> ironflow::storage::StorageResult<Vec<ironflow::engine::types::RunInfo>> {
+        self.inner.list_runs(status).await
+    }
+    async fn list_run_summaries_page(
+        &self,
+        query: &ironflow::storage::RunListQuery,
+    ) -> ironflow::storage::StorageResult<ironflow::storage::RunSummaryPage> {
+        self.inner.list_run_summaries_page(query).await
+    }
+    async fn delete_run(&self, run_id: &str) -> ironflow::storage::StorageResult<()> {
+        self.inner.delete_run(run_id).await
+    }
+    async fn claim_schedule(
+        &self,
+        name: &str,
+        key: &str,
+        ttl_seconds: u64,
+    ) -> ironflow::storage::StorageResult<bool> {
+        self.inner.claim_schedule(name, key, ttl_seconds).await
+    }
+    async fn record_schedule_run(
+        &self,
+        name: &str,
+        key: &str,
+        ttl_seconds: u64,
+    ) -> ironflow::storage::StorageResult<()> {
+        if self.fail_writes.load(Ordering::SeqCst) {
+            return Err(ironflow::storage::StorageError::backend(
+                "Record scheduled run",
+                "simulated store failure",
+            ));
+        }
+        self.inner.record_schedule_run(name, key, ttl_seconds).await
+    }
+    async fn schedule_run_recorded(
+        &self,
+        name: &str,
+        key: &str,
+    ) -> ironflow::storage::StorageResult<bool> {
+        let failing = self
+            .failing_reads
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
+                left.checked_sub(1)
+            })
+            .is_ok();
+        if failing {
+            return Err(ironflow::storage::StorageError::backend(
+                "Read scheduled run record",
+                "simulated store failure",
+            ));
+        }
+        self.inner.schedule_run_recorded(name, key).await
+    }
+}
+
+const NIGHTLY_KEY: &str = "UTC@2026-05-01T02:00";
+
+#[tokio::test]
+async fn a_recorded_occurrence_is_not_handed_to_the_executor_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(FaultyRecordStore::new(dir.path()));
+    let executor = Arc::new(StubExecutor::default());
+    let mut first = scheduler(store.clone(), executor.clone(), utc(2026, 5, 1, 1, 59));
+    let fired = first.evaluate(utc(2026, 5, 1, 2, 0)).await;
+    assert!(matches!(fired[0].outcome, Outcome::Fired { .. }));
+    assert!(
+        store
+            .schedule_run_recorded("nightly", NIGHTLY_KEY)
+            .await
+            .unwrap(),
+        "starting the run must record it in the claim"
+    );
+
+    // A restarted replica inside grace. The stub would start a second run if
+    // it were asked to, which is what a store without the run record does.
+    let mut restarted = scheduler(store, executor.clone(), utc(2026, 5, 1, 2, 3));
+    let decisions = restarted.evaluate(utc(2026, 5, 1, 2, 3)).await;
+
+    assert_eq!(decisions.len(), 1);
+    assert_eq!(decisions[0].outcome, Outcome::NotClaimed);
+    assert_eq!(
+        executor.runs.load(Ordering::SeqCst),
+        1,
+        "the flow must not even be loaded for a recorded occurrence"
+    );
+}
+
+#[tokio::test]
+async fn an_unreadable_occurrence_record_is_retried_instead_of_started() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(FaultyRecordStore::new(dir.path()));
+    // A peer claimed the instant; whether it created the run is unknown
+    // while the record cannot be read.
+    assert!(
+        store
+            .claim_schedule("nightly", NIGHTLY_KEY, 604_800)
+            .await
+            .unwrap()
+    );
+    store.failing_reads.store(1, Ordering::SeqCst);
+    let executor = Arc::new(StubExecutor::default());
+    let mut scheduler = scheduler(store, executor.clone(), utc(2026, 5, 1, 1, 59));
+
+    let first = scheduler.evaluate(utc(2026, 5, 1, 2, 0)).await;
+    assert!(
+        matches!(first[0].outcome, Outcome::ClaimFailed { .. }),
+        "got {:?}",
+        first[0].outcome
+    );
+    assert_eq!(executor.runs.load(Ordering::SeqCst), 0);
+
+    // The read works again: the claim is an orphan and is recovered.
+    let second = scheduler.evaluate(utc(2026, 5, 1, 2, 1)).await;
+    assert_eq!(second.len(), 1);
+    assert!(matches!(second[0].outcome, Outcome::Fired { .. }));
+    assert_eq!(executor.runs.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn a_failed_record_write_does_not_fail_the_started_run() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(FaultyRecordStore::new(dir.path()));
+    store.fail_writes.store(true, Ordering::SeqCst);
+    let executor = Arc::new(StubExecutor::default());
+    let mut scheduler = scheduler(store.clone(), executor.clone(), utc(2026, 5, 1, 1, 59));
+
+    let decisions = scheduler.evaluate(utc(2026, 5, 1, 2, 0)).await;
+
+    assert!(matches!(decisions[0].outcome, Outcome::Fired { .. }));
+    assert!(
+        !store
+            .schedule_run_recorded("nightly", NIGHTLY_KEY)
+            .await
+            .unwrap()
+    );
+
+    // A peer that converges on the existing run writes the missing record.
+    store.fail_writes.store(false, Ordering::SeqCst);
+    executor.existing.store(true, Ordering::SeqCst);
+    let mut peer = scheduler_for(store.clone(), executor.clone());
+    let converged = peer.evaluate(utc(2026, 5, 1, 2, 1)).await;
+    assert_eq!(converged[0].outcome, Outcome::NotClaimed);
+    assert!(
+        store
+            .schedule_run_recorded("nightly", NIGHTLY_KEY)
+            .await
+            .unwrap()
+    );
+}
+
+fn scheduler_for(store: Arc<FaultyRecordStore>, executor: Arc<StubExecutor>) -> Scheduler {
+    Scheduler::new(daily_at_two(), store, executor, utc(2026, 5, 1, 2, 1))
+}

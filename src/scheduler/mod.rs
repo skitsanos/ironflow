@@ -8,6 +8,7 @@ mod evaluation;
 pub mod execution;
 mod field_shape;
 mod identity;
+mod occurrence;
 mod overlap;
 mod runtime;
 pub mod startup;
@@ -45,7 +46,8 @@ pub const SCHEDULE_EVALUATION_TIMEOUT: Duration = Duration::from_secs(15);
 pub enum Outcome {
     /// The instant was owned and the run was started.
     Fired { run_id: String },
-    /// Another replica owns this instant.
+    /// Another replica owns this instant, or the occurrence already has (or
+    /// had) its run: nothing was started here.
     NotClaimed,
     /// Past the grace window.
     Late { lateness_seconds: i64 },

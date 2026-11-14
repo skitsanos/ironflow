@@ -138,6 +138,10 @@ impl Scheduler {
     /// Claim first so replicas cannot reach different post-claim decisions and
     /// both run. Every post-claim skip deliberately consumes the instant; a
     /// start deferred for flow-load capacity does not.
+    ///
+    /// A lost claim whose occurrence already produced a run is never started
+    /// again, even when that run's record has expired or been deleted
+    /// (IF-201). A lost claim without that record is an orphan and proceeds.
     async fn decide(
         &self,
         name: &str,
@@ -149,14 +153,22 @@ impl Scheduler {
             Ok(claimed) => claimed,
             Err(outcome) => return outcome,
         };
+        if !claimed {
+            match self.run_already_created(name, instant).await {
+                Ok(true) => return Outcome::NotClaimed,
+                Ok(false) => {}
+                Err(outcome) => return outcome,
+            }
+        }
         if let Some(skip) = self.post_claim_skip(name, schedule, instant, now).await {
             return skip;
         }
         self.start(name, schedule, instant, claimed).await
     }
 
-    /// Own the instant durably. `Ok(false)` means a peer owns it and this
-    /// replica converges on the peer's deterministic run identity.
+    /// Own the instant durably. `Ok(false)` means a peer claimed it first;
+    /// `decide` then consults the occurrence record before this replica
+    /// converges on the peer's deterministic run identity.
     async fn claim(
         &self,
         name: &str,
@@ -235,7 +247,7 @@ impl Scheduler {
         instant: &DueInstant,
         claimed: bool,
     ) -> Outcome {
-        match self.executor.run(name, &instant.key, schedule).await {
+        match self.run_and_record(name, schedule, instant).await {
             Ok(super::ScheduleRun::Started { run_id }) => {
                 tracing::info!(schedule = %name, key = %instant.key, %run_id, "scheduled run started");
                 Outcome::Fired { run_id }

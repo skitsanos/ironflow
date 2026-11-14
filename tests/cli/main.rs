@@ -34,6 +34,8 @@ mod test_pptx_presentation_cli;
 mod test_reused_handlers_cli;
 #[path = "../test_s3_signing_cli.rs"]
 mod test_s3_signing_cli;
+#[path = "../test_schedule_retention_warning.rs"]
+mod test_schedule_retention_warning;
 #[path = "../test_sql_backend_cli.rs"]
 mod test_sql_backend_cli;
 #[path = "../test_sqlite_store_path.rs"]

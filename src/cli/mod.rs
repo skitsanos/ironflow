@@ -4,6 +4,7 @@ mod config;
 mod presence;
 mod replica_config;
 mod resolution;
+mod schedule_retention;
 mod sql_config;
 mod sqlite_path;
 mod store_factory;
@@ -265,15 +266,11 @@ pub async fn run_cli() -> Result<()> {
                 metrics_enabled: server_config.metrics_enabled,
                 static_files: cfg.static_files.clone(),
             };
+            let schedules = cfg.schedules.clone().unwrap_or_default();
+            schedule_retention::warn_about_short_redis_ttl(&cfg, &schedules)?;
             let store = create_store(&cfg, &store_dir).await?;
             let event_store = create_event_store(&cfg, &store_dir).await?;
-            commands::cmd_serve(
-                store,
-                event_store,
-                options,
-                cfg.schedules.clone().unwrap_or_default(),
-            )
-            .await
+            commands::cmd_serve(store, event_store, options, schedules).await
         }
     }
 }

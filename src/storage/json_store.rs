@@ -275,4 +275,13 @@ impl StateStore for JsonStateStore {
     async fn claim_schedule(&self, name: &str, key: &str, ttl_seconds: u64) -> StorageResult<bool> {
         self.claim_schedule_file(name, key, ttl_seconds).await
     }
+
+    /// Retention follows the claim file, so `ttl_seconds` is not needed here.
+    async fn record_schedule_run(&self, name: &str, key: &str, _ttl: u64) -> StorageResult<()> {
+        self.record_schedule_run_file(name, key).await
+    }
+
+    async fn schedule_run_recorded(&self, name: &str, key: &str) -> StorageResult<bool> {
+        self.schedule_run_recorded_file(name, key).await
+    }
 }

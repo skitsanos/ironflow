@@ -4,6 +4,10 @@ use super::SqlStateStore;
 use crate::storage::schedule_cleanup::CLAIM_CLEANUP_BATCH_SIZE;
 use crate::storage::{StorageError, StorageErrorKind, StorageResult};
 
+/// Set once the claimed occurrence has a durable run (IF-201). Nullable, so a
+/// claim row written by an older binary reads as "no run recorded".
+const RUN_COLUMN: &str = "run_micros";
+
 impl SqlStateStore {
     pub(super) async fn claim_schedule_row(
         &self,
@@ -42,6 +46,63 @@ impl SqlStateStore {
                 }
             }
         }
+    }
+
+    /// Claim tables created before IF-201 have no `run_micros` column.
+    pub(super) async fn ensure_claim_run_column(&self) -> StorageResult<()> {
+        self.add_column_if_missing(
+            &self.tables.schedule_claims,
+            RUN_COLUMN,
+            "Failed to add SQL schedule-claim run column",
+        )
+        .await
+    }
+
+    /// Mark the claim row as having produced a run. An upsert, so the mark
+    /// is still written when the claim row itself is missing; it never moves
+    /// `claimed_micros`, which keeps retention counted from the claim.
+    pub(super) async fn record_schedule_run_row(&self, name: &str, key: &str) -> StorageResult<()> {
+        let sql = format!(
+            "INSERT INTO {table} (name, claim_key, claimed_micros, {RUN_COLUMN}) \
+             VALUES ({p1}, {p2}, {p3}, {p4}) \
+             ON CONFLICT (name, claim_key) DO UPDATE SET {RUN_COLUMN} = excluded.{RUN_COLUMN}",
+            table = self.tables.schedule_claims,
+            p1 = self.placeholder(1),
+            p2 = self.placeholder(2),
+            p3 = self.placeholder(3),
+            p4 = self.placeholder(4),
+        );
+        let now = chrono::Utc::now().timestamp_micros();
+        sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+            .bind(name)
+            .bind(key)
+            .bind(now)
+            .bind(now)
+            .execute(&self.pool)
+            .await
+            .map_err(|error| StorageError::backend("Record scheduled run", error))?;
+        Ok(())
+    }
+
+    pub(super) async fn schedule_run_recorded_row(
+        &self,
+        name: &str,
+        key: &str,
+    ) -> StorageResult<bool> {
+        let sql = format!(
+            "SELECT 1 AS present FROM {table} \
+             WHERE name = {p1} AND claim_key = {p2} AND {RUN_COLUMN} IS NOT NULL",
+            table = self.tables.schedule_claims,
+            p1 = self.placeholder(1),
+            p2 = self.placeholder(2),
+        );
+        let row = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+            .bind(name)
+            .bind(key)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|error| StorageError::backend("Read scheduled run record", error))?;
+        Ok(row.is_some())
     }
 
     /// Delete a bounded batch of this schedule's claims older than its TTL.

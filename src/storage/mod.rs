@@ -185,6 +185,13 @@ pub trait StateStore: Send + Sync {
     /// exceed the schedule's grace window, or a late replica could re-fire an
     /// instant whose claim has already been reaped.
     ///
+    /// The claim alone is not the execution fence. `false` only says that a
+    /// peer claimed the instant first: that peer may have died before it
+    /// created the run, so the scheduler still converges on the occurrence's
+    /// deterministic run ID (IF-078) unless
+    /// [`schedule_run_recorded`](Self::schedule_run_recorded) reports that
+    /// the run was already created (IF-201).
+    ///
     /// The default refuses. A store that cannot coordinate claims must not
     /// quietly let every replica fire — that is the duplicate this method
     /// exists to prevent — so scheduling is unavailable rather than unsafe.
@@ -194,6 +201,34 @@ pub trait StateStore: Send + Sync {
             "Claim scheduled instant",
             "this state store does not support scheduling",
         ))
+    }
+
+    /// Record in the claim that the occurrence `(name, key)` has a durable
+    /// run. Idempotent, and retained at least as long as the claim itself;
+    /// `ttl_seconds` is the claim's lifetime, for stores whose record carries
+    /// its own expiry. The record must survive the deletion or expiry of the
+    /// run itself: it is what keeps an occurrence from starting again once
+    /// its run record is gone.
+    ///
+    /// The default records nothing, which leaves a store that implements only
+    /// [`claim_schedule`](Self::claim_schedule) fenced by the run record
+    /// alone, as before IF-201.
+    async fn record_schedule_run(
+        &self,
+        name: &str,
+        key: &str,
+        ttl_seconds: u64,
+    ) -> StorageResult<()> {
+        let _ = (name, key, ttl_seconds);
+        Ok(())
+    }
+
+    /// Whether [`record_schedule_run`](Self::record_schedule_run) was called
+    /// for `(name, key)` and its record is still retained. `false` for a
+    /// claim that never produced a run, which the scheduler recovers.
+    async fn schedule_run_recorded(&self, name: &str, key: &str) -> StorageResult<bool> {
+        let _ = (name, key);
+        Ok(false)
     }
 }
 

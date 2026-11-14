@@ -158,6 +158,21 @@ impl StateStore for ObservedStateStore {
         let result = self.inner.claim_schedule(name, key, ttl_seconds).await;
         self.observe(StorageOperation::ClaimSchedule, result)
     }
+
+    async fn record_schedule_run(
+        &self,
+        name: &str,
+        key: &str,
+        ttl_seconds: u64,
+    ) -> StorageResult<()> {
+        let result = self.inner.record_schedule_run(name, key, ttl_seconds).await;
+        self.observe(StorageOperation::RecordScheduleRun, result)
+    }
+
+    async fn schedule_run_recorded(&self, name: &str, key: &str) -> StorageResult<bool> {
+        let result = self.inner.schedule_run_recorded(name, key).await;
+        self.observe(StorageOperation::ScheduleRunRecorded, result)
+    }
 }
 
 #[cfg(test)]

@@ -144,6 +144,7 @@ impl SqlStateStore {
             "schedule claims cleanup index",
         )
         .await?;
+        self.ensure_claim_run_column().await?;
 
         Ok(())
     }
@@ -171,36 +172,48 @@ impl SqlStateStore {
     }
 
     async fn ensure_started_micros_column(&self) -> StorageResult<()> {
-        if self.started_micros_column_exists().await? {
+        self.add_column_if_missing(
+            &self.tables.runs,
+            "started_micros",
+            "Failed to add SQL run-list timestamp column",
+        )
+        .await
+    }
+
+    /// Add a nullable `BIGINT` column to a table created by an older binary.
+    ///
+    /// Replicas can start together, so a failed `ALTER TABLE` is an error only
+    /// when the column is still missing afterwards. A nullable column keeps
+    /// older binaries' inserts valid during a rolling upgrade.
+    pub(super) async fn add_column_if_missing(
+        &self,
+        table: &str,
+        column: &'static str,
+        failure: &'static str,
+    ) -> StorageResult<()> {
+        if self.column_exists(table, column).await? {
             return Ok(());
         }
-        let sql = format!(
-            "ALTER TABLE {} ADD COLUMN started_micros BIGINT",
-            self.tables.runs
-        );
+        let sql = format!("ALTER TABLE {table} ADD COLUMN {column} BIGINT");
         if let Err(error) = sql_ddl::execute_schema_change(&self.pool, self.dialect, &sql).await
-            && !self.started_micros_column_exists().await?
+            && !self.column_exists(table, column).await?
         {
             if sql_ddl::is_lock_timeout(&error) {
                 return Err(sql_ddl::lock_timeout_error(
-                    &self.tables.runs,
-                    "addition of the run-list timestamp column",
+                    table,
+                    &format!("addition of the {column} column"),
                 ));
             }
-            return Err(StorageError::backend(
-                "Failed to add SQL run-list timestamp column",
-                error,
-            ));
+            return Err(StorageError::backend(failure, error));
         }
         Ok(())
     }
 
-    async fn started_micros_column_exists(&self) -> StorageResult<bool> {
+    async fn column_exists(&self, table: &str, column: &'static str) -> StorageResult<bool> {
         let row = match self.dialect {
             SqlDialect::Sqlite => {
                 let sql = format!(
-                    "SELECT 1 AS present FROM pragma_table_info('{}') WHERE name = 'started_micros'",
-                    self.tables.runs
+                    "SELECT 1 AS present FROM pragma_table_info('{table}') WHERE name = '{column}'"
                 );
                 sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
                     .fetch_optional(&self.pool)
@@ -210,14 +223,15 @@ impl SqlStateStore {
                 sqlx::query(
                     "SELECT 1 AS present FROM information_schema.columns \
                      WHERE table_schema = current_schema() AND table_name = $1 \
-                     AND column_name = 'started_micros'",
+                     AND column_name = $2",
                 )
-                .bind(&self.tables.runs)
+                .bind(table)
+                .bind(column)
                 .fetch_optional(&self.pool)
                 .await
             }
         }
-        .map_err(|error| StorageError::backend("Failed to inspect SQL runs schema", error))?;
+        .map_err(|error| StorageError::backend("Failed to inspect SQL schema", error))?;
         Ok(row.is_some())
     }
 

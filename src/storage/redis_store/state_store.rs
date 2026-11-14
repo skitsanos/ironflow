@@ -217,4 +217,17 @@ impl StateStore for RedisStateStore {
     async fn claim_schedule(&self, name: &str, key: &str, ttl_seconds: u64) -> StorageResult<bool> {
         self.claim_schedule_key(name, key, ttl_seconds).await
     }
+
+    async fn record_schedule_run(
+        &self,
+        name: &str,
+        key: &str,
+        ttl_seconds: u64,
+    ) -> StorageResult<()> {
+        self.record_schedule_run_key(name, key, ttl_seconds).await
+    }
+
+    async fn schedule_run_recorded(&self, name: &str, key: &str) -> StorageResult<bool> {
+        self.schedule_run_recorded_key(name, key).await
+    }
 }
