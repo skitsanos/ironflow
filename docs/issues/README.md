@@ -7,7 +7,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts check`.
 
 - Total findings: 222
-- Active findings: 19
+- Active findings: 18
 - Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
 
 | ID | Priority | Status | Area | Summary |
@@ -209,7 +209,7 @@ priority, area, and title. The registry is generated with
 | [IF-195](./IF-195.md) | P2 | Resolved | Nodes | date_format ignores input offsets; date_format and html_sanitize panics stall the run |
 | [IF-196](./IF-196.md) | P2 | Open | Data transforms | xml_stringify writes keys as markup; CSV type inference and data_filter equality lose values |
 | [IF-197](./IF-197.md) | P2 | Open | AI nodes | llm sends unknown providers to OpenAI and ignores documented parameters |
-| [IF-198](./IF-198.md) | P2 | Open | API security | An empty IRONFLOW_API_KEY disables the configured API key on loopback |
+| [IF-198](./IF-198.md) | P2 | Resolved | API security | An empty IRONFLOW_API_KEY disables the configured API key on loopback |
 | [IF-199](./IF-199.md) | P2 | Open | CLI/SQLite store | Default SQLite store URL breaks for store directories containing spaces, percent signs or question marks |
 | [IF-200](./IF-200.md) | P2 | Open | Artifact lifecycle | artifacts prune cannot get past a first page of still-referenced digests |
 | [IF-201](./IF-201.md) | P2 | Open | Scheduler/Redis | A Redis TTL shorter than a schedule's grace window re-runs a completed occurrence |

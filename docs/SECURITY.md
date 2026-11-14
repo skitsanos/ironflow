@@ -113,6 +113,31 @@ deployment environment. Local results do not establish protection on other
 machines or old deployments. Review historic endpoint, proxy, and TLS logs
 separately; a patched audit cannot establish absence of past exploitation.
 
+## Empty configuration values
+
+A configuration variable that is present but empty or whitespace-only stops
+startup with a message naming the variable (IF-198). It is never read as
+"unset". Before this rule an empty `IRONFLOW_API_KEY` took priority over
+`api_key` in `ironflow.yaml` and was then discarded, so a server bound to
+loopback behind a reverse proxy or sidecar served every route, including
+`POST /flows/run`, without a key.
+
+- An empty or whitespace-only `IRONFLOW_API_KEY` or `api_key` fails startup on
+  every bind address. Only `IRONFLOW_ALLOW_UNAUTHENTICATED_API=true` or
+  `allow_unauthenticated_api: true` makes an empty key mean "no key".
+- A loopback bind with no key configured anywhere still starts
+  unauthenticated for local development, and a non-loopback bind without a
+  key still fails. Do not rely on a loopback bind for isolation when other
+  local processes or a proxy can reach it: configure a key.
+- The same rule applies to `IRONFLOW_CORS_ORIGINS`, the store selectors and
+  URLs, `IRONFLOW_SQL_TABLE_PREFIX`, `REDIS_URL` and `REDIS_PREFIX`. The full
+  table is in the [CLI reference](CLI_REFERENCE.md#ironflow-serve).
+- Diagnostics name the source (the variable or the config field) and never
+  include a value.
+
+Webhook signature secrets are read from the variable named by `secret_env`
+and must contain at least 16 bytes, so an empty secret is already rejected.
+
 ## Outbound destinations
 
 A flow chooses where its nodes connect. Only the `http_request`, `http_get`,

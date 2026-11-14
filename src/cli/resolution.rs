@@ -4,7 +4,7 @@ use anyhow::{Result, bail};
 use clap::ArgMatches;
 use clap::parser::ValueSource;
 
-use super::IronFlowConfig;
+use super::{IronFlowConfig, presence};
 
 /// The origin of command-line values that also have a YAML fallback.
 ///
@@ -128,15 +128,22 @@ impl ServerConfig {
         )?;
         let _ = crate::util::runtime_config::max_concurrent_flow_loads()?;
 
+        let allow_unauthenticated_api = environment_value(
+            "IRONFLOW_ALLOW_UNAUTHENTICATED_API",
+            "either 'true' or 'false'",
+        )?
+        .or(config.allow_unauthenticated_api)
+        .unwrap_or(false);
+
         Ok(Self {
             max_concurrent_tasks: resolve_max_concurrent_tasks(config)?,
-            api_key: environment_string("IRONFLOW_API_KEY")?.or_else(|| config.api_key.clone()),
-            allow_unauthenticated_api: environment_value(
-                "IRONFLOW_ALLOW_UNAUTHENTICATED_API",
-                "either 'true' or 'false'",
-            )?
-            .or(config.allow_unauthenticated_api)
-            .unwrap_or(false),
+            // A present but blank key is an error, not "no key" (IF-198).
+            api_key: presence::resolve_api_key(
+                environment_string("IRONFLOW_API_KEY")?,
+                config.api_key.clone(),
+                allow_unauthenticated_api,
+            )?,
+            allow_unauthenticated_api,
             metrics_enabled: environment_value(
                 "IRONFLOW_METRICS_ENABLED",
                 "either 'true' or 'false'",
@@ -154,16 +161,10 @@ impl ServerConfig {
             )?
             .or(config.allow_adhoc_flows)
             .unwrap_or(true),
-            cors_origins: environment_string("IRONFLOW_CORS_ORIGINS")?
-                .map(|value| {
-                    value
-                        .split(',')
-                        .map(str::trim)
-                        .filter(|origin| !origin.is_empty())
-                        .map(str::to_string)
-                        .collect()
-                })
-                .or_else(|| config.cors_origins.clone()),
+            cors_origins: presence::cors_origins_from_environment(environment_string(
+                "IRONFLOW_CORS_ORIGINS",
+            )?)?
+            .or_else(|| config.cors_origins.clone()),
             replica_mode: environment_value("IRONFLOW_REPLICA_MODE", "either 'true' or 'false'")?
                 .or(config.replica_mode)
                 .unwrap_or(false),

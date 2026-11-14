@@ -6,6 +6,25 @@ publication is verified separately.
 
 ## Upgrade Notes
 
+- **A configuration variable that is present but empty now stops startup**
+  (IF-198). `IRONFLOW_API_KEY=` (empty or whitespace-only) used to take
+  priority over `api_key` in `ironflow.yaml` and was then discarded, so a
+  server bound to loopback started without authentication while a key was
+  configured. It now fails with a message that names the variable. The same
+  applies to an empty `api_key` in `ironflow.yaml`, and to
+  `IRONFLOW_CORS_ORIGINS`, `IRONFLOW_SQL_TABLE_PREFIX`, `IRONFLOW_STORE`,
+  `IRONFLOW_EVENT_STORE`, `REDIS_URL` and `REDIS_PREFIX`: an empty
+  `IRONFLOW_SQL_TABLE_PREFIX` previously replaced a configured prefix with the
+  default one, an empty `REDIS_PREFIX` selected unprefixed keys, and an empty
+  `IRONFLOW_CORS_ORIGINS` replaced the configured origins with none. Before
+  deploying, check compose files, `.env` files and orchestrator secrets for
+  variables that can resolve to an empty string. To fix a deployment that no
+  longer starts, remove the variable (the `ironflow.yaml` field or the
+  default then applies) or give it a value. To serve without a key on
+  purpose, set `IRONFLOW_ALLOW_UNAUTHENTICATED_API=true`; to deny
+  cross-origin requests, leave `IRONFLOW_CORS_ORIGINS` unset. Variables that
+  are unset behave as before. See
+  [`ironflow serve`](../CLI_REFERENCE.md#ironflow-serve).
 - **Schedules written with numeric weekdays move by one day** (IF-180). The
   weekday field of a schedule's `cron` now uses the standard crontab
   numbering: `0` and `7` are Sunday, `1` to `6` are Monday to Saturday.

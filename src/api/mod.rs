@@ -156,6 +156,7 @@ fn build_api_auth(
     host: &str,
 ) -> Result<Option<ApiAuth>> {
     let api_key = api_key.map(|value| value.trim().to_string());
+    let blank_key = api_key.as_deref().is_some_and(str::is_empty);
     if let Some(api_key) = api_key.filter(|value| !value.is_empty()) {
         return Ok(Some(ApiAuth::new(api_key)));
     }
@@ -163,6 +164,16 @@ fn build_api_auth(
     if allow_unauthenticated_api {
         warn!("API authentication is disabled by explicit configuration");
         return Ok(None);
+    }
+
+    // A key that is present but blank is a failed secret, not "no key": the
+    // loopback allowance below is only for a server with no key configured
+    // at all (IF-198). The CLI names the source before this point; this
+    // check covers every other caller of the library.
+    if blank_key {
+        anyhow::bail!(
+            "The API key is set but empty. Give it a value, remove it, or set IRONFLOW_ALLOW_UNAUTHENTICATED_API=true to serve without authentication on purpose."
+        );
     }
 
     if is_loopback {
@@ -218,43 +229,4 @@ fn request_has_api_key(headers: &HeaderMap, expected: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::request_has_api_key;
-    use axum::http::HeaderMap;
-
-    #[tokio::test]
-    async fn bind_listener_accepts_hostname_and_ipv4_loopback() {
-        for host in ["localhost", "127.0.0.1"] {
-            let listener = super::server::bind_listener(host, 0).await.unwrap();
-            assert!(listener.local_addr().unwrap().ip().is_loopback());
-        }
-    }
-
-    #[tokio::test]
-    async fn bind_listener_accepts_unbracketed_ipv6_loopback() {
-        let listener = super::server::bind_listener("::1", 0).await.unwrap();
-        assert!(listener.local_addr().unwrap().ip().is_loopback());
-    }
-
-    #[test]
-    fn request_has_api_key_accepts_valid_and_rejects_invalid() {
-        let expected = "s3cr3t-key";
-
-        let mut bearer = HeaderMap::new();
-        bearer.insert(
-            axum::http::header::AUTHORIZATION,
-            "Bearer s3cr3t-key".parse().unwrap(),
-        );
-        assert!(request_has_api_key(&bearer, expected));
-
-        let mut api_key = HeaderMap::new();
-        api_key.insert("x-api-key", "s3cr3t-key".parse().unwrap());
-        assert!(request_has_api_key(&api_key, expected));
-
-        let mut wrong = HeaderMap::new();
-        wrong.insert("x-api-key", "wrong-key!!".parse().unwrap());
-        assert!(!request_has_api_key(&wrong, expected));
-
-        assert!(!request_has_api_key(&HeaderMap::new(), expected));
-    }
-}
+mod tests;

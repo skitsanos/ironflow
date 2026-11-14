@@ -54,6 +54,22 @@ has the object. For immediate cross-replica visibility, use one regional bucket.
 MRAP deployments need separately qualified replication/routing and offline
 pruning coordination.
 
+## Empty variables
+
+Reference variables and secret references can resolve to an empty string: a
+Railway reference to a variable that does not exist, a compose
+`${NAME}` placeholder with `NAME` undefined, or a Kubernetes or OpenShift
+`secretKeyRef` whose key holds no data. IronFlow does not treat such a
+variable as unset. A present but empty `IRONFLOW_API_KEY`,
+`IRONFLOW_STORE_URL`, `IRONFLOW_EVENT_STORE_URL`, `IRONFLOW_STORE`,
+`IRONFLOW_EVENT_STORE`, `IRONFLOW_SQL_TABLE_PREFIX`, `IRONFLOW_CORS_ORIGINS`,
+`REDIS_URL` or `REDIS_PREFIX` stops the replica at startup with a message that
+names the variable (IF-198), so the rollout fails its readiness check instead
+of serving with a dropped key or a different table prefix. Fix the reference,
+or remove the variable from the service to use the `ironflow.yaml` value or
+the default. In compose, prefer `${NAME:?NAME is required}` for secrets so
+the failure appears before the container starts.
+
 ## Failure semantics
 
 An executing process owns its run through a fenced durable lease. A live owner

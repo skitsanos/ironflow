@@ -11,7 +11,6 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 | [IF-194](docs/issues/IF-194.md) | P2 | Open | PDF rendering | pdf_to_image and pdf_thumbnail can bind Pdfium only once per process |
 | [IF-196](docs/issues/IF-196.md) | P2 | Open | Data transforms | xml_stringify writes keys as markup; CSV type inference and data_filter equality lose values |
 | [IF-197](docs/issues/IF-197.md) | P2 | Open | AI nodes | llm sends unknown providers to OpenAI and ignores documented parameters |
-| [IF-198](docs/issues/IF-198.md) | P2 | Open | API security | An empty IRONFLOW_API_KEY disables the configured API key on loopback |
 | [IF-199](docs/issues/IF-199.md) | P2 | Open | CLI/SQLite store | Default SQLite store URL breaks for store directories containing spaces, percent signs or question marks |
 | [IF-200](docs/issues/IF-200.md) | P2 | Open | Artifact lifecycle | artifacts prune cannot get past a first page of still-referenced digests |
 | [IF-201](docs/issues/IF-201.md) | P2 | Open | Scheduler/Redis | A Redis TTL shorter than a schedule's grace window re-runs a completed occurrence |

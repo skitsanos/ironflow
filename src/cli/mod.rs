@@ -1,6 +1,7 @@
 mod bootstrap;
 mod commands;
 mod config;
+mod presence;
 mod replica_config;
 mod resolution;
 mod sql_config;

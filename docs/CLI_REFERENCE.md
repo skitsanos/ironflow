@@ -252,6 +252,31 @@ Start the REST API server.
 
 Explicit CLI flags take precedence over environment variables, which take
 precedence over matching `ironflow.yaml` fields and built-in defaults.
+
+A variable that is present but empty or whitespace-only is not treated as
+unset, and it is not a value either: `serve` (and every command that opens a
+store) stops at startup with a message that names the variable, never its
+value. This is what a compose placeholder (`IRONFLOW_API_KEY=${API_KEY}` with
+`API_KEY` undefined), an unresolved orchestrator secret or an unfilled `.env`
+line produces, and falling through would silently drop the configured setting
+(IF-198). Remove the variable to use the `ironflow.yaml` field or the default,
+or give it a value. The rule covers:
+
+| Setting | Present but empty |
+|---|---|
+| `IRONFLOW_API_KEY`, `api_key` | Startup fails. With `IRONFLOW_ALLOW_UNAUTHENTICATED_API=true` or `allow_unauthenticated_api: true` an empty key means no key, and the server starts unauthenticated on purpose. |
+| `IRONFLOW_CORS_ORIGINS` | Startup fails, also for a value with no origin in it such as `,`. Unset the variable to deny cross-origin requests; `cors_origins: []` in config stays valid. |
+| `IRONFLOW_STORE`, `IRONFLOW_EVENT_STORE` | Startup fails. |
+| `IRONFLOW_STORE_URL`, `IRONFLOW_EVENT_STORE_URL` | Startup fails when the matching backend is `sqlite` or `postgres`; the variable is not read otherwise. |
+| `IRONFLOW_SQL_TABLE_PREFIX` | Startup fails. An empty `sql_table_prefix` in config still selects the default prefix. |
+| `REDIS_URL`, `REDIS_PREFIX` | Startup fails when a Redis backend is selected. An empty `redis_prefix` in config still means unprefixed keys. |
+| Boolean and numeric variables (`IRONFLOW_ALLOW_UNAUTHENTICATED_API`, `IRONFLOW_METRICS_ENABLED`, `IRONFLOW_ALLOW_ADHOC_FLOWS`, `IRONFLOW_REPLICA_MODE`, `REDIS_TTL`, limits) | Startup fails: an empty string is not a valid boolean or number. |
+| `HOST`, `PORT`, `MAX_BODY`, `FLOWS_DIR`, `IRONFLOW_STORE_DIR` | Startup fails in argument parsing or at bind. |
+| `IRONFLOW_ARTIFACT_BACKEND`, `IRONFLOW_ARTIFACT_S3_*` | The first artifact operation fails; these are read when the artifact store is first used. |
+
+`IRONFLOW_ENV_ALLOWLIST` is the exception: an empty allowlist is a documented
+value that makes the Lua `env()` global return `nil` for every key.
+
 API authentication is required when binding to a non-loopback address. Set `IRONFLOW_API_KEY`; clients must send either `Authorization: Bearer <key>` or `X-API-Key: <key>`.
 Browser CORS access is denied by default. Set `IRONFLOW_CORS_ORIGINS` or `cors_origins` in config to allow specific frontend origins.
 
@@ -687,6 +712,8 @@ curl http://localhost:3000/runs \
 ```
 
 To intentionally run without API authentication, set `IRONFLOW_ALLOW_UNAUTHENTICATED_API=true` or `allow_unauthenticated_api: true` in config. A server whose resolved bind address is loopback (for example `127.0.0.1`, `localhost`, or `::1`) is allowed without a key for local development.
+
+The loopback allowance applies only when no key is configured anywhere. An `IRONFLOW_API_KEY` or `api_key` that is present but empty or whitespace-only stops startup on every bind address instead of disabling the key, unless unauthenticated access is enabled explicitly; see [configuration precedence](#ironflow-serve).
 
 #### Operator Metrics
 
@@ -1267,11 +1294,11 @@ start.
 | `IRONFLOW_SQL_TABLE_PREFIX` | `ironflow_` | SQL table/index prefix for SQLite/Postgres state and event stores |
 | `FLOWS_DIR` | — | Flow files directory |
 | `MAX_BODY` | `1048576` | Max request body size (bytes) |
-| `IRONFLOW_API_KEY` | — | API key required for non-loopback API servers |
+| `IRONFLOW_API_KEY` | — | API key required for non-loopback API servers. Present but empty fails startup unless unauthenticated access is enabled explicitly. |
 | `IRONFLOW_ALLOW_UNAUTHENTICATED_API` | `false` | Explicitly allow unauthenticated API access |
 | `IRONFLOW_METRICS_ENABLED` | `false` | Register process-local `GET /metrics`; accepts only `true` or `false` and follows API authentication |
 | `IRONFLOW_ALLOW_ADHOC_FLOWS` | `true` | Allow `POST /flows/run` and `POST /flows/validate` to evaluate flow source sent in the request body. `false` requires `flows_dir` and restricts both endpoints to files under it. Overrides `allow_adhoc_flows` in config. |
-| `IRONFLOW_CORS_ORIGINS` | — | Comma-separated allowed browser origins; use `*` to allow any origin |
+| `IRONFLOW_CORS_ORIGINS` | — | Comma-separated allowed browser origins; use `*` to allow any origin. Present but empty fails startup. |
 
 ### Run listing
 
