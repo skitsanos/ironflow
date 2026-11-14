@@ -300,6 +300,10 @@ publication is verified separately.
     for `<w:u w:val="none"/>`. Markdown loses the wrong `**`/`*` markers and
     JSON runs lose the wrong flags. The repository's sample document changes
     here: its table body cells are no longer bold.
+  - `extract_word` ignores the previous formatting that a tracked formatting
+    change keeps under `w:rPrChange` and `w:pPrChange`. Before, a paragraph
+    restyled with change tracking on reported its old style, list state and
+    run flags instead of the current ones.
   - `extract_pptx` speaker notes contain the body placeholder only. The slide
     number, date, header and footer of the notes page and field values are no
     longer appended, and a slide without notes no longer reports its slide

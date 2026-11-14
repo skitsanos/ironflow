@@ -63,7 +63,7 @@ When `format = "json"`, the output is an object with a single `blocks` array. Ea
 }
 ```
 
-Run flags (`bold`, `italic`, `underline`, `strike`) are emitted only when true. A toggle property counts as on when it is present without `w:val` or with `1`, `true` or `on`, and as off with `0`, `false` or `off`; `w:u` is off for `w:val="none"`. Style inheritance is not resolved, so an explicit off only cancels the flag on that run. `color` is the resolved hex (uppercase, no `#`) — see below. `highlight` is the OOXML highlight name when set (e.g. `"yellow"`). `style` and `list` are absent when not applicable. `colors` is a deduped union of run colors at the paragraph level, present only when at least one run has a color.
+Run flags (`bold`, `italic`, `underline`, `strike`) are emitted only when true. A toggle property counts as on when it is present without `w:val` or with `1`, `true` or `on`, and as off with `0`, `false` or `off`; `w:u` is off for `w:val="none"`. Style inheritance is not resolved, so an explicit off only cancels the flag on that run. Tracked formatting changes are read as accepted: the previous properties stored under `w:rPrChange` and `w:pPrChange` are ignored, so a run or paragraph reports only its current formatting, style and list state. `color` is the resolved hex (uppercase, no `#`) — see below. `highlight` is the OOXML highlight name when set (e.g. `"yellow"`). `style` and `list` are absent when not applicable. `colors` is a deduped union of run colors at the paragraph level, present only when at least one run has a color.
 
 ### Text boxes
 

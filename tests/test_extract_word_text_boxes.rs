@@ -1,4 +1,4 @@
-//! DOCX text boxes and toggle properties (IF-193). The documents are
+//! DOCX text boxes, toggle properties and tracked formatting (IF-193). The documents are
 //! hand-built `word/document.xml` parts in the shape a word processor writes:
 //! the box is a drawing inside a run of the paragraph that anchors it, with
 //! an `mc:Fallback` copy of the same content. No tool-authored file is used.
@@ -255,4 +255,45 @@ async fn empty_elements_do_not_capture_later_content() {
     assert!(cell_texts(&cells[0]).is_empty());
     assert_eq!(cell_texts(&cells[1]), ["Cell"]);
     assert_eq!(blocks[1]["text"], "After");
+}
+
+/// Tracked formatting keeps the previous properties in a nested `w:rPr` or
+/// `w:pPr` under `w:rPrChange` or `w:pPrChange`. Only the current ones apply.
+#[tokio::test]
+async fn tracked_formatting_changes_do_not_apply_the_previous_properties() {
+    let change = "w:id=\"1\" w:author=\"Reviewer\" w:date=\"2026-01-01T00:00:00Z\"";
+    let body = format!(
+        "<w:p><w:pPr><w:pStyle w:val=\"Heading1\"/><w:pPrChange {change}><w:pPr>\
+         <w:pStyle w:val=\"ListParagraph\"/><w:numPr><w:ilvl w:val=\"2\"/><w:numId w:val=\"1\"/>\
+         </w:numPr></w:pPr></w:pPrChange></w:pPr><w:r><w:rPr><w:b/><w:rPrChange {change}><w:rPr>\
+         <w:i/><w:strike/><w:u w:val=\"single\"/><w:color w:val=\"FF0000\"/></w:rPr></w:rPrChange>\
+         </w:rPr><w:t>Now a heading</w:t></w:r></w:p>\
+         <w:p><w:pPr><w:rPr><w:rPrChange {change}><w:rPr><w:b/></w:rPr></w:rPrChange></w:rPr>\
+         <w:pStyle w:val=\"Heading2\"/><w:pPrChange {change}><w:pPr/></w:pPrChange></w:pPr>\
+         <w:r><w:rPr><w:rPrChange {change}><w:rPr><w:b/></w:rPr></w:rPrChange></w:rPr>\
+         <w:t>Was bold</w:t></w:r><w:r><w:rPr><w:rPrChange {change}/><w:i/></w:rPr>\
+         <w:t> then italic</w:t></w:r></w:p>"
+    );
+    let content = extract(&body, "json").await;
+    let blocks = content["blocks"].as_array().unwrap();
+    assert_eq!(blocks.len(), 2, "{content}");
+
+    assert_eq!(blocks[0]["style"], "Heading1", "{content}");
+    assert!(blocks[0].get("list").is_none(), "{content}");
+    let run = &blocks[0]["runs"][0];
+    assert_eq!(run["bold"], true, "{run}");
+    for key in ["italic", "strike", "underline", "color"] {
+        assert!(run.get(key).is_none(), "{key}: {run}");
+    }
+
+    assert_eq!(blocks[1]["style"], "Heading2", "{content}");
+    let runs = blocks[1]["runs"].as_array().unwrap();
+    assert!(runs[0].get("bold").is_none(), "{content}");
+    assert_eq!(runs[1]["italic"], true, "{content}");
+    assert!(runs[1].get("bold").is_none(), "{content}");
+
+    assert_eq!(
+        extract(&body, "markdown").await,
+        "# **Now a heading**\n\n\n## Was bold* then italic*"
+    );
 }

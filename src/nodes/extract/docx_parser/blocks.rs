@@ -10,7 +10,10 @@ use super::super::resource::Budget;
 use super::properties::{apply_paragraph_property, apply_run_property};
 use super::{DocxBlock, DocxCell, DocxParagraph, DocxRow, DocxRun, DocxTable};
 
-const FALLBACK: &str = "mc:Fallback";
+/// Elements whose content is never live. An `mc:Fallback` repeats its
+/// `mc:Choice` in an older vocabulary, and a tracked formatting change holds
+/// the previous `w:rPr` or `w:pPr`, not the current one.
+const SKIPPED: [&str; 3] = ["mc:Fallback", "w:rPrChange", "w:pPrChange"];
 
 /// Document-wide lookups resolved before the walk starts.
 pub(super) struct Lookups<'a> {
@@ -41,9 +44,8 @@ struct Frame {
 pub(super) struct BlockBuilder {
     blocks: Vec<DocxBlock>,
     frames: Vec<Frame>,
-    /// Open `mc:Fallback` elements. A fallback repeats its `mc:Choice` in an
-    /// older vocabulary, so its content is skipped.
-    fallback_depth: u64,
+    /// Open `SKIPPED` elements; everything inside them is ignored.
+    skip_depth: u64,
     table_stack: Vec<DocxTable>,
     row_stack: Vec<DocxRow>,
     cell_stack: Vec<DocxCell>,
@@ -61,11 +63,11 @@ impl BlockBuilder {
     ) -> Result<()> {
         let name = event.name();
         let name = name.as_ref();
-        if name == FALLBACK {
-            self.fallback_depth += u64::from(!is_empty);
+        if SKIPPED.contains(&name) {
+            self.skip_depth += u64::from(!is_empty);
             return Ok(());
         }
-        if self.fallback_depth > 0 {
+        if self.skip_depth > 0 {
             return Ok(());
         }
         match name {
@@ -167,7 +169,7 @@ impl BlockBuilder {
 
     /// Append text that belongs to an open `w:t` inside a run.
     pub(super) fn text(&mut self, text: &str) {
-        if self.fallback_depth == 0
+        if self.skip_depth == 0
             && let Some(frame) = self.frames.last_mut()
             && frame.in_text
             && let Some(run) = frame.run.as_mut()
@@ -178,11 +180,11 @@ impl BlockBuilder {
 
     /// Handle an end element.
     pub(super) fn close(&mut self, name: &str) {
-        if name == FALLBACK {
-            self.fallback_depth = self.fallback_depth.saturating_sub(1);
+        if SKIPPED.contains(&name) {
+            self.skip_depth = self.skip_depth.saturating_sub(1);
             return;
         }
-        if self.fallback_depth > 0 {
+        if self.skip_depth > 0 {
             return;
         }
         match name {
