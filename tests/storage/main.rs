@@ -10,6 +10,8 @@
 
 #[path = "../test_artifact_retention.rs"]
 mod test_artifact_retention;
+#[path = "../test_artifact_retention_remote.rs"]
+mod test_artifact_retention_remote;
 #[path = "../test_cache_identity.rs"]
 mod test_cache_identity;
 #[path = "../test_event_fence_incarnation.rs"]

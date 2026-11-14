@@ -54,6 +54,30 @@ has the object. For immediate cross-replica visibility, use one regional bucket.
 MRAP deployments need separately qualified replication/routing and offline
 pruning coordination.
 
+### Scheduling artifact pruning
+
+Nothing evicts artifacts automatically, so schedule
+[`ironflow artifacts prune`](CLI_REFERENCE.md#ironflow-artifacts-prune) in a
+maintenance window. It is offline-only: stop every replica and every other
+writer of the shared state and artifact stores first, run it from one host
+with the same store and artifact configuration as the replicas, and restart
+afterwards. A referenced artifact is never deleted, but a reference written
+while the command runs is not seen.
+
+One invocation is bounded (at most `--scan` stored digests examined, default
+10,000, and at most `--limit` deletions, default 100) and prints either
+`Artifact prune complete` or `Artifact prune incomplete: … continue with
+--after <sha256>`. A single invocation per window is not enough once the store
+outgrows `--scan`: loop, passing each printed digest back, until the command
+prints `complete`, as in the script in the CLI reference. Each step resolves
+everything up to the digest it prints, so the loop finishes in at most
+⌈digests / scan⌉ + ⌈deletable / limit⌉ invocations and can be cut short and
+resumed in the next window with the last printed digest. Size the window from
+those two numbers and from the number of retained runs, which every invocation
+walks once. Alert on a non-zero exit status and on the standard-error line
+about non-canonical `artifact://` strings; `deleted 0` on its own is normal
+for a window in which every old artifact is still referenced.
+
 ## Empty variables
 
 Reference variables and secret references can resolve to an empty string: a

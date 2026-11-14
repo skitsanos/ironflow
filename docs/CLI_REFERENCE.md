@@ -217,24 +217,89 @@ store.
 
 | Flag | Required | Default | Description |
 |------|----------|---------|-------------|
-| `--before <RFC3339>` | yes | — | Consider only artifacts last modified before this instant |
-| `--limit <COUNT>` | no | `100` | Candidate batch size, strictly 1–100 |
+| `--before <RFC3339>` | yes | — | Delete only artifacts last modified before this instant |
+| `--limit <COUNT>` | no | `100` | Most artifacts deleted by this invocation, strictly 1–100 |
+| `--scan <COUNT>` | no | `10000` | Most stored artifacts examined by this invocation, strictly 1–10000 |
+| `--after <SHA256>` | no | — | Resume after this digest, as printed by an incomplete invocation |
 | `--confirm-offline` | yes | — | Assert that no process can add a reference during the scan/delete window |
 | `--store-dir <DIR>` | no | `data/runs` | JSON/SQLite state location; normal store configuration and environment overrides still apply |
 
-The command holds at most 100 candidate digests, walks run summaries in
-100-record cursor pages, and loads one full run at a time. Corrupt or unreadable
-run state fails closed before deletion. S3 listing can traverse multiple remote
-pages but retains only the requested candidate batch. The command deletes both
-the remote object and its local cache entry; local mode deletes the local
-object only.
+Invalid arguments fail before either store is opened.
+
+**What one invocation does.** It examines the next `--scan` stored digests in
+ascending digest order, starting after `--after` (or at the beginning), and
+treats those older than `--before` as candidates. It then walks every retained
+run once and deletes, in digest order, the candidates that no run context or
+task input/output references, stopping at `--limit` deletions. Candidates that
+are still referenced are skipped, not counted against `--limit`, so referenced
+artifacts at the front of the store no longer hide the orphans behind them
+(IF-200). Earlier releases applied `--limit` to the artifacts *inspected*; it
+now bounds deletions.
+
+**Output.** Two lines on standard output, exit status `0`:
+
+```text
+Artifact prune inspected 9, retained 7, deleted 2.
+Artifact prune incomplete: examined 12 stored artifacts; continue with --after <sha256>
+```
+
+| Field | Meaning |
+|---|---|
+| `inspected` | Old candidates resolved by this invocation: `retained` plus `deleted` |
+| `retained` | Resolved candidates that a retained run still references |
+| `deleted` | Candidates removed, at most `--limit` |
+| `examined` | Stored digests listed in this window, old or not, at most `--scan` |
+| `incomplete … --after <sha256>` | More of the store remains; pass the digest back to continue |
+| `complete …` | The window reached the end of the store and nothing was left over |
+
+**Progress guarantee.** Every incomplete invocation prints a digest greater
+than the one it was given, and everything up to that digest has been resolved.
+Repeating the command with the printed `--after` until it prints `complete`
+therefore covers a store of *N* digests holding *D* deletable artifacts in at
+most ⌈N / scan⌉ + ⌈D / limit⌉ invocations, whatever share of the store is still
+referenced. Without `--after` each invocation starts at the beginning again:
+that is sufficient only while the store holds no more digests than `--scan`.
+Start the next maintenance cycle without `--after`.
 
 ```bash
-ironflow artifacts prune \
-  --before 2026-07-01T00:00:00Z \
-  --limit 100 \
-  --confirm-offline
+# sh or bash: the unquoted ${after:+...} expansion must split into two words.
+after=""
+while :; do
+  out=$(ironflow artifacts prune --before 2026-07-01T00:00:00Z \
+    --confirm-offline ${after:+--after "$after"}) || exit 1
+  printf '%s\n' "$out"
+  after=$(printf '%s\n' "$out" | sed -n 's/.*--after \([0-9a-f]\{64\}\).*/\1/p')
+  [ -n "$after" ] || break
+done
 ```
+
+**Bounds of one invocation.**
+
+- Listing: S3 mode lists at most `--scan` keys under `<prefix>/sha256/`, in at
+  most ⌈scan / 1000⌉ requests. Local mode reads the names in
+  `IRONFLOW_ARTIFACT_DIR/sha256` once and reads metadata for at most `--scan`
+  files.
+- Memory: at most `--scan` digests (about 1 MB at the maximum) and one run.
+- References: one pass over run summaries in 100-record cursor pages, loading
+  one full run at a time. The pass is skipped when the window has no candidate
+  and ends early once every candidate is known to be referenced. Its cost
+  grows with the number of retained runs, not with the artifact store.
+- Deletions: at most `--limit`.
+- Time: the command sets no wall-clock limit of its own; its duration follows
+  the bounds above, so lower `--scan` to shorten an invocation.
+
+**Failure behavior.** Corrupt or unreadable run state, and a run holding more
+than 1,000,000 JSON values, fail closed before any deletion. A string that
+starts with `artifact://` but is not a canonical
+`artifact://sha256/<64 lowercase hex>` URI no longer aborts the prune: it is
+skipped and reported on standard error as a count with up to five run IDs,
+never by value. If such a string spells a stored digest in another form (upper
+case, or with a suffix), that artifact is kept. In S3 mode every listed key
+counts against `--scan`; a window that contains only keys that are not
+artifact digests fails with a message instead of reporting progress. The
+command deletes both the remote object and its local cache entry; local mode
+deletes the local object only. Deletion is idempotent, so an interrupted
+invocation can be repeated.
 
 ---
 

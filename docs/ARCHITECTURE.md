@@ -1166,9 +1166,13 @@ files, hashes the opened handle, compares that digest (and descriptor size when
 present), rewinds it, and passes that same handle to the parser or decoder. The
 store intentionally has no automatic eviction because a completed task or
 recovered run can still reference an artifact. `ironflow artifacts prune`
-performs explicit offline cleanup: it admits at most 100 old candidates, walks
-retained runs in cursor pages, loads one full run at a time, and deletes only
-digests absent from every context and task input/output. The required
+performs explicit offline cleanup: each invocation examines a bounded window of
+the store in digest order (at most 10,000 digests), walks retained runs in
+cursor pages, loads one full run at a time, and deletes at most 100 digests
+absent from every context and task input/output. Referenced candidates are
+skipped rather than counted, and an invocation that stops before the end of
+the store prints the digest to pass back with `--after`, so repeated
+invocations always reach the orphans behind long-retained artifacts. The required
 `--confirm-offline` assertion is the race boundary; every process able to add a
 reference must remain stopped for the scan/delete window. Publication is per
 artifact rather than transactional across a node, so a later parser/page

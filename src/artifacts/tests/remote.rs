@@ -156,17 +156,19 @@ async fn s3_backend_publishes_and_restores_a_verified_artifact() {
 
     state.object.lock().unwrap().as_mut().unwrap().bytes = expected;
     let candidate_store = store.clone();
-    let candidates = run_blocking_step(move |execution| {
-        candidate_store.prune_candidates(
+    let window = run_blocking_step(move |execution| {
+        candidate_store.prune_window(
             std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(4_102_444_800),
+            None,
             10,
             &execution,
         )
     })
     .await
     .unwrap();
-    assert_eq!(candidates.len(), 1);
-    assert_eq!(candidates[0].digest, artifact.sha256);
+    assert_eq!(window.candidates.len(), 1);
+    assert_eq!(window.candidates[0].digest, artifact.sha256);
+    assert_eq!((window.listed, window.next), (1, None));
     let delete_store = store.clone();
     let digest = artifact.sha256.clone();
     run_blocking_step(move |execution| delete_store.delete_unreferenced(&digest, &execution))

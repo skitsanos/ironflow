@@ -48,6 +48,28 @@ publication is verified separately.
   directory or a database file is created. See
   [Store directory and SQLite URLs](../CLI_REFERENCE.md#store-directory-and-sqlite-urls).
 
+- **`artifacts prune` reaches orphans behind referenced artifacts, and
+  `--limit` now bounds deletions** (IF-200). The command used to take the
+  first `--limit` old artifacts in listing order, skip those still referenced
+  and exit. Once that many old artifacts were referenced by retained runs,
+  every invocation printed `inspected 100, retained 100, deleted 0` and the
+  unreferenced artifacts behind them were never deleted, so storage grew while
+  pruning appeared to run. An invocation now examines up to `--scan` stored
+  digests (new, default and maximum 10,000) in digest order, skips referenced
+  ones without counting them, and deletes up to `--limit` (still 1–100)
+  unreferenced ones. It prints a second line: `Artifact prune complete: …`, or
+  `Artifact prune incomplete: … continue with --after <sha256>`. Scheduled
+  pruning must loop on that digest with the new `--after` flag until the
+  command prints `complete`; a single invocation covers the whole store only
+  while it holds no more digests than `--scan`. `inspected` in the first line
+  now counts candidates resolved, which can exceed `--limit`. A context string
+  that starts with `artifact://` without being a canonical URI no longer
+  aborts the prune: it is skipped and reported as a count on standard error.
+  The first prune after upgrading may delete a backlog that earlier releases
+  could not reach. See
+  [`ironflow artifacts prune`](../CLI_REFERENCE.md#ironflow-artifacts-prune)
+  and [scheduling artifact pruning](../REPLICA_DEPLOYMENT.md#scheduling-artifact-pruning).
+
 - **`llm` rejects an unknown `provider` instead of using OpenAI** (IF-197).
   Every `provider` value other than `openai_compatible`, `compatible`,
   `azure` and `custom` used to select the OpenAI configuration, so a

@@ -131,17 +131,8 @@ pub enum Commands {
 pub enum ArtifactCommands {
     /// Delete old artifacts not referenced by any retained run
     Prune {
-        /// Only inspect artifacts last modified before this RFC 3339 timestamp
-        #[arg(long)]
-        before: String,
-
-        /// Maximum candidate artifacts to inspect (1-100)
-        #[arg(long, default_value = "100")]
-        limit: usize,
-
-        /// Assert that every IronFlow writer sharing the stores is stopped
-        #[arg(long)]
-        confirm_offline: bool,
+        #[command(flatten)]
+        options: commands::ArtifactPruneOptions,
 
         /// State store directory
         #[arg(long, default_value = "data/runs", env = "IRONFLOW_STORE_DIR")]
@@ -225,19 +216,15 @@ pub async fn run_cli() -> Result<()> {
         }
         Commands::Nodes => commands::cmd_nodes(),
         Commands::Artifacts { command } => match command {
-            ArtifactCommands::Prune {
-                before,
-                limit,
-                confirm_offline,
-                store_dir,
-            } => {
+            ArtifactCommands::Prune { options, store_dir } => {
+                options.validate()?;
                 let store_dir = resolution::with_config(
                     store_dir,
                     sources.store_dir,
                     cfg.store_dir.as_deref().map(PathBuf::from),
                 );
                 let store = create_store(&cfg, &store_dir).await?;
-                commands::cmd_artifact_prune(store, before, limit, confirm_offline).await
+                commands::cmd_artifact_prune(store, options).await
             }
         },
         Commands::Serve {

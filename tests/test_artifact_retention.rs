@@ -147,3 +147,223 @@ async fn bounded_prune_can_resume_after_a_partial_batch() {
         assert_eq!(remaining, expected_remaining);
     }
 }
+
+/// Publish `count` distinct artifacts and return their descriptors.
+async fn publish(
+    store: &LocalArtifactStore,
+    label: &str,
+    count: usize,
+) -> Vec<ironflow::artifacts::ArtifactRef> {
+    let mut artifacts = Vec::with_capacity(count);
+    for index in 0..count {
+        let store = store.clone();
+        let bytes = format!("{label} {index}").into_bytes();
+        artifacts.push(
+            ironflow::util::execution::run_blocking_step(move |execution| {
+                store.put_reader(Cursor::new(bytes), 100, None, &execution)
+            })
+            .await
+            .unwrap(),
+        );
+    }
+    artifacts
+}
+
+async fn retain(run_dir: &std::path::Path, context: serde_json::Value) {
+    std::fs::create_dir_all(run_dir).unwrap();
+    let state = SqlStateStore::new(&format!(
+        "sqlite://{}?mode=rwc",
+        run_dir.join("ironflow.sqlite").display()
+    ))
+    .await
+    .unwrap();
+    state
+        .init_run(
+            "artifact-retention-run",
+            "retention",
+            &std::collections::HashMap::from([("held".to_owned(), context)]),
+        )
+        .await
+        .unwrap();
+}
+
+fn prune(
+    artifact_dir: &std::path::Path,
+    run_dir: &std::path::Path,
+    extra: &[&str],
+) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_ironflow"))
+        .args([
+            "artifacts",
+            "prune",
+            "--before",
+            "2999-01-01T00:00:00Z",
+            "--confirm-offline",
+        ])
+        .args(extra)
+        .arg("--store-dir")
+        .arg(run_dir)
+        .env("IRONFLOW_ARTIFACT_DIR", artifact_dir)
+        .env_remove("IRONFLOW_ARTIFACT_BACKEND")
+        .output()
+        .unwrap()
+}
+
+/// The digest the command asks to be passed back with `--after`, if any.
+fn continuation(output: &std::process::Output) -> Option<String> {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let (_, rest) = stdout.split_once("--after ")?;
+    Some(rest.chars().take(64).collect())
+}
+
+/// IF-200: retained digests used to fill every batch, so the orphans behind
+/// them were never reached and each invocation deleted nothing.
+#[tokio::test]
+async fn prune_reaches_orphans_behind_more_retained_digests_than_the_limit() {
+    let directory = tempfile::tempdir().unwrap();
+    let artifact_dir = directory.path().join("artifacts");
+    let run_dir = directory.path().join("runs");
+    let store = LocalArtifactStore::new(&artifact_dir).unwrap();
+    let retained = publish(&store, "retained", 30).await;
+    let orphans = publish(&store, "orphan", 5).await;
+    retain(&run_dir, serde_json::json!(retained)).await;
+
+    // Five orphans at two deletions per invocation need three invocations.
+    for _ in 0..3 {
+        let output = prune(&artifact_dir, &run_dir, &["--limit", "2"]);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        println!("{}", String::from_utf8_lossy(&output.stdout).trim_end());
+    }
+    let remaining = orphans
+        .iter()
+        .filter(|artifact| store.resolve(artifact).is_ok())
+        .count();
+    assert_eq!(remaining, 0, "orphans were never reached");
+    assert!(
+        retained
+            .iter()
+            .all(|artifact| store.resolve(artifact).is_ok())
+    );
+}
+
+/// IF-200: a scan budget smaller than the retained prefix still makes
+/// progress when the printed continuation digest is passed back.
+#[tokio::test]
+async fn prune_continuation_marker_passes_a_retained_prefix_larger_than_the_scan() {
+    let directory = tempfile::tempdir().unwrap();
+    let artifact_dir = directory.path().join("artifacts");
+    let run_dir = directory.path().join("runs");
+    let store = LocalArtifactStore::new(&artifact_dir).unwrap();
+    let mut artifacts = publish(&store, "mixed", 14).await;
+    artifacts.sort_by(|left, right| left.sha256.cmp(&right.sha256));
+    let orphans = artifacts.split_off(12);
+    retain(&run_dir, serde_json::json!(artifacts)).await;
+
+    // Without the marker every invocation sees the same four retained digests.
+    let stalled = prune(&artifact_dir, &run_dir, &["--scan", "4"]);
+    assert!(
+        stalled.status.success(),
+        "{}",
+        String::from_utf8_lossy(&stalled.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&stalled.stdout);
+    assert!(
+        stdout.contains("inspected 4, retained 4, deleted 0"),
+        "{stdout}"
+    );
+    assert_eq!(continuation(&stalled).as_ref(), Some(&artifacts[3].sha256));
+
+    let mut after: Option<String> = None;
+    let mut invocations = 0;
+    loop {
+        let mut extra = vec!["--scan", "4"];
+        if let Some(after) = &after {
+            extra.extend(["--after", after]);
+        }
+        let output = prune(&artifact_dir, &run_dir, &extra);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        invocations += 1;
+        after = continuation(&output);
+        if after.is_none() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert!(stdout.contains("Artifact prune complete"), "{stdout}");
+            break;
+        }
+        assert!(invocations < 4, "the listing never ended");
+    }
+    // Fourteen digests at four per invocation end in the fourth invocation.
+    assert_eq!(invocations, 4);
+    assert!(
+        orphans
+            .iter()
+            .all(|artifact| store.resolve(artifact).is_err())
+    );
+    assert!(
+        artifacts
+            .iter()
+            .all(|artifact| store.resolve(artifact).is_ok())
+    );
+}
+
+/// IF-200: a string that merely starts with `artifact://` used to abort the
+/// whole prune. It is now skipped and counted, never printed, and a
+/// malformed spelling of a real digest still keeps that artifact.
+#[tokio::test]
+async fn prune_skips_non_canonical_artifact_strings_without_printing_them() {
+    let directory = tempfile::tempdir().unwrap();
+    let artifact_dir = directory.path().join("artifacts");
+    let run_dir = directory.path().join("runs");
+    let store = LocalArtifactStore::new(&artifact_dir).unwrap();
+    let artifacts = publish(&store, "audited", 3).await;
+    let (retained, decorated, orphan) = (&artifacts[0], &artifacts[1], &artifacts[2]);
+    retain(
+        &run_dir,
+        serde_json::json!({
+            "canonical": retained,
+            "note": "artifact://customer-token-SENSITIVE",
+            "decorated": format!("{}?download=SENSITIVE", decorated.artifact_uri),
+        }),
+    )
+    .await;
+
+    let output = prune(&artifact_dir, &run_dir, &[]);
+    let diagnostic = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.status.success(), "{diagnostic}");
+    assert!(
+        diagnostic.contains("2 non-canonical") && diagnostic.contains("artifact-retention-run"),
+        "{diagnostic}"
+    );
+    assert!(!diagnostic.contains("SENSITIVE"), "{diagnostic}");
+    assert!(store.resolve(retained).is_ok());
+    assert!(store.resolve(decorated).is_ok());
+    assert!(store.resolve(orphan).is_err());
+}
+
+#[test]
+fn prune_rejects_scan_and_continuation_values_outside_their_contract() {
+    let directory = tempfile::tempdir().unwrap();
+    let artifact_dir = directory.path().join("artifacts");
+    let run_dir = directory.path().join("runs");
+    for (extra, expected) in [
+        (["--scan", "0"], "between 1 and 10000"),
+        (["--scan", "10001"], "between 1 and 10000"),
+        (["--after", "not-a-digest"], "--after"),
+    ] {
+        let output = prune(&artifact_dir, &run_dir, &extra);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(!output.status.success(), "{extra:?} was accepted");
+        assert!(stderr.contains(expected), "{stderr}");
+    }
+}
