@@ -415,6 +415,55 @@ async fn sqlite_legacy_sequence_backfill_rejects_suppressed_counter_cleanup() {
     assert_eq!(counter_count, 0, "the temporary lock row must roll back");
 }
 
+/// IF-202: the startup counter repair restores a missing counter, advances a
+/// stale one and never lowers one, with the statement both dialects share.
+#[tokio::test]
+async fn sqlite_startup_repairs_only_missing_or_stale_sequence_counters() {
+    let directory = tempfile::tempdir().unwrap();
+    let url = sqlite_url(directory.path(), "repair.sqlite");
+    let store = SqlEventStore::new(&url).await.unwrap();
+    for run in ["current", "missing", "behind", "ahead"] {
+        for index in 1..=3 {
+            let id = format!("{run}-{index}");
+            store.publish(event(run, &id)).await.unwrap();
+        }
+    }
+    drop(store);
+
+    let pool = sqlx::AnyPool::connect(&url).await.unwrap();
+    for sql in [
+        "DELETE FROM ironflow_event_sequences WHERE run_id = 'missing'",
+        "UPDATE ironflow_event_sequences SET last_sequence = 1 WHERE run_id = 'behind'",
+        "UPDATE ironflow_event_sequences SET last_sequence = 9 WHERE run_id = 'ahead'",
+    ] {
+        sqlx::query(sql).execute(&pool).await.unwrap();
+    }
+
+    let store = SqlEventStore::new(&url).await.unwrap();
+    let rows =
+        sqlx::query("SELECT run_id, last_sequence FROM ironflow_event_sequences ORDER BY run_id")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    let counters: Vec<(String, i64)> = rows
+        .iter()
+        .map(|row| (row.get("run_id"), row.get("last_sequence")))
+        .collect();
+    assert_eq!(
+        counters,
+        [
+            ("ahead".to_string(), 9),
+            ("behind".to_string(), 3),
+            ("current".to_string(), 3),
+            ("missing".to_string(), 3),
+        ]
+    );
+
+    // A repaired counter allocates the next position, not a duplicate.
+    store.publish(event("behind", "behind-4")).await.unwrap();
+    assert_eq!(store.list_since("behind", None, 10).await.unwrap().len(), 4);
+}
+
 #[cfg(feature = "postgres")]
 fn postgres_database_url() -> Option<String> {
     dotenvy::dotenv().ok();

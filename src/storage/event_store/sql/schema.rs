@@ -143,17 +143,24 @@ impl SqlEventStore {
         Ok(row.is_some())
     }
 
+    /// Restore counters that are missing or behind their stream, as left by
+    /// a release without the counter table. Current rows are filtered out
+    /// before the upsert: `ON CONFLICT DO UPDATE` locks every row it meets,
+    /// even one its `WHERE` then declines to change (IF-202). The guard on
+    /// the update keeps a counter that a concurrent publisher or a second
+    /// starting replica has advanced since the scan.
     async fn repair_sequence_counters(&self) -> StorageResult<()> {
+        let counters = &self.tables.event_sequences;
         let sql = format!(
-            "INSERT INTO {} (run_id, last_sequence) \
-             SELECT run_id, MAX(sequence) FROM {} WHERE sequence IS NOT NULL GROUP BY run_id \
-             ON CONFLICT(run_id) DO UPDATE SET last_sequence = \
-             CASE WHEN excluded.last_sequence > {}.last_sequence \
-             THEN excluded.last_sequence ELSE {}.last_sequence END",
-            self.tables.event_sequences,
+            "INSERT INTO {counters} (run_id, last_sequence) \
+             SELECT latest.run_id, latest.last_sequence FROM \
+             (SELECT run_id, MAX(sequence) AS last_sequence FROM {} \
+              WHERE sequence IS NOT NULL GROUP BY run_id) AS latest \
+             LEFT JOIN {counters} AS counter ON counter.run_id = latest.run_id \
+             WHERE counter.run_id IS NULL OR counter.last_sequence < latest.last_sequence \
+             ON CONFLICT(run_id) DO UPDATE SET last_sequence = excluded.last_sequence \
+             WHERE {counters}.last_sequence < excluded.last_sequence",
             self.tables.events,
-            self.tables.event_sequences,
-            self.tables.event_sequences,
         );
         sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
             .execute(&self.pool)

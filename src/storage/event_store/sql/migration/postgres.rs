@@ -1,23 +1,101 @@
-use sqlx::Row;
+use sqlx::{AnyConnection, Row};
 
 use super::super::SqlEventStore;
-use crate::storage::{StorageError, StorageResult};
+use crate::storage::{StorageError, StorageResult, sql_ddl};
+
+/// Primary-key shape of the events table.
+#[derive(Debug, PartialEq, Eq)]
+enum EventIdentity {
+    /// The public `(run_id, id)` contract: nothing to migrate.
+    RunScoped,
+    /// The original global `(id)` key, with the constraint to replace.
+    Legacy { constraint: String },
+}
 
 impl SqlEventStore {
-    #[allow(clippy::expect_used)] // Infallible: the legacy primary key has one constraint name.
-    #[allow(clippy::too_many_lines)] // One locked migration transaction; splitting it would break atomicity.
+    /// Every start inspects the key through the catalog, which takes no lock
+    /// on the events table. Only a table that still has the legacy key is
+    /// locked, so a migrated deployment neither waits behind sessions that
+    /// use the table nor queues live replicas behind a pending lock (IF-202).
     pub(super) async fn ensure_postgres_run_scoped_identity(&self) -> StorageResult<()> {
+        let mut connection = self.pool.acquire().await.map_err(|error| {
+            StorageError::backend("Failed to inspect PostgreSQL event primary key", error)
+        })?;
+        let identity = self.postgres_event_identity(&mut connection).await?;
+        drop(connection);
+        match identity {
+            EventIdentity::RunScoped => Ok(()),
+            EventIdentity::Legacy { .. } => self.migrate_postgres_event_identity().await,
+        }
+    }
+
+    /// Replace the legacy key under `ACCESS EXCLUSIVE`, waiting for the lock
+    /// at most the schema lock timeout. The shape is read again under the
+    /// lock because another starting replica may have migrated first.
+    async fn migrate_postgres_event_identity(&self) -> StorageResult<()> {
+        const CHANGE: &str = "one-time event identity migration";
         let mut transaction = self.pool.begin().await.map_err(|error| {
             StorageError::backend("Failed to start PostgreSQL event identity migration", error)
         })?;
+        sql_ddl::bound_lock_wait(&mut transaction)
+            .await
+            .map_err(|error| {
+                StorageError::backend("Failed to bound the PostgreSQL event schema lock", error)
+            })?;
         let lock_sql = format!("LOCK TABLE {} IN ACCESS EXCLUSIVE MODE", self.tables.events);
         sqlx::query(sqlx::AssertSqlSafe(lock_sql.as_str()))
             .execute(&mut *transaction)
             .await
             .map_err(|error| {
+                if sql_ddl::is_lock_timeout(&error) {
+                    return sql_ddl::lock_timeout_error(&self.tables.events, CHANGE);
+                }
                 StorageError::backend("Failed to lock PostgreSQL event schema", error)
             })?;
 
+        let identity = self.postgres_event_identity(&mut transaction).await?;
+        if let EventIdentity::Legacy { constraint } = identity {
+            let drop_sql = format!(
+                "ALTER TABLE {} DROP CONSTRAINT {}",
+                self.tables.events,
+                quote_identifier(&constraint)
+            );
+            sqlx::query(sqlx::AssertSqlSafe(drop_sql.as_str()))
+                .execute(&mut *transaction)
+                .await
+                .map_err(|error| {
+                    StorageError::backend(
+                        "Failed to remove the global PostgreSQL event identity",
+                        error,
+                    )
+                })?;
+            let add_sql = format!(
+                "ALTER TABLE {} ADD PRIMARY KEY (run_id, id)",
+                self.tables.events
+            );
+            sqlx::query(sqlx::AssertSqlSafe(add_sql.as_str()))
+                .execute(&mut *transaction)
+                .await
+                .map_err(|error| {
+                    StorageError::backend(
+                        "Failed to install the run-scoped PostgreSQL event identity",
+                        error,
+                    )
+                })?;
+        }
+        transaction.commit().await.map_err(|error| {
+            StorageError::backend(
+                "Failed to commit PostgreSQL event identity migration",
+                error,
+            )
+        })
+    }
+
+    /// Read and validate the primary key and the unique indexes beside it.
+    async fn postgres_event_identity(
+        &self,
+        connection: &mut AnyConnection,
+    ) -> StorageResult<EventIdentity> {
         let rows = sqlx::query(
             "SELECT constraint_row.conname::text AS constraint_name, \
                     constraint_row.condeferrable AS is_deferrable, \
@@ -35,7 +113,7 @@ impl SqlEventStore {
              ORDER BY key_column.ordinality",
         )
         .bind(&self.tables.events)
-        .fetch_all(&mut *transaction)
+        .fetch_all(&mut *connection)
         .await
         .map_err(|error| {
             StorageError::backend("Failed to inspect PostgreSQL event primary key", error)
@@ -81,7 +159,7 @@ impl SqlEventStore {
                 StorageError::corruption("Invalid PostgreSQL event schema", error)
             })?);
         }
-        self.reject_external_postgres_identity_indexes(&mut transaction)
+        self.reject_external_postgres_identity_indexes(connection)
             .await?;
         if deferrable == Some(true) {
             return Err(StorageError::conflict(
@@ -89,57 +167,20 @@ impl SqlEventStore {
             ));
         }
         if primary_key == ["run_id", "id"] {
-            transaction.commit().await.map_err(|error| {
-                StorageError::backend("Failed to finish PostgreSQL schema inspection", error)
-            })?;
-            return Ok(());
+            return Ok(EventIdentity::RunScoped);
         }
-        if primary_key != ["id"] {
-            return Err(StorageError::corruption(
+        match constraint {
+            Some(constraint) if primary_key == ["id"] => Ok(EventIdentity::Legacy { constraint }),
+            _ => Err(StorageError::corruption(
                 "Unsupported PostgreSQL event primary key",
                 format!("expected (id) or (run_id, id), found {primary_key:?}"),
-            ));
+            )),
         }
-        let constraint = constraint.expect("the legacy primary key has one constraint name");
-        let drop_sql = format!(
-            "ALTER TABLE {} DROP CONSTRAINT {}",
-            self.tables.events,
-            quote_identifier(&constraint)
-        );
-        sqlx::query(sqlx::AssertSqlSafe(drop_sql.as_str()))
-            .execute(&mut *transaction)
-            .await
-            .map_err(|error| {
-                StorageError::backend(
-                    "Failed to remove the global PostgreSQL event identity",
-                    error,
-                )
-            })?;
-        let add_sql = format!(
-            "ALTER TABLE {} ADD PRIMARY KEY (run_id, id)",
-            self.tables.events
-        );
-        sqlx::query(sqlx::AssertSqlSafe(add_sql.as_str()))
-            .execute(&mut *transaction)
-            .await
-            .map_err(|error| {
-                StorageError::backend(
-                    "Failed to install the run-scoped PostgreSQL event identity",
-                    error,
-                )
-            })?;
-        transaction.commit().await.map_err(|error| {
-            StorageError::backend(
-                "Failed to commit PostgreSQL event identity migration",
-                error,
-            )
-        })?;
-        Ok(())
     }
 
     async fn reject_external_postgres_identity_indexes(
         &self,
-        transaction: &mut sqlx::Transaction<'_, sqlx::Any>,
+        connection: &mut AnyConnection,
     ) -> StorageResult<()> {
         let rows = sqlx::query(
             "SELECT index_class.relname::text AS index_name, \
@@ -163,7 +204,7 @@ impl SqlEventStore {
              ORDER BY index_class.relname, key_column.ordinality",
         )
         .bind(&self.tables.events)
-        .fetch_all(&mut **transaction)
+        .fetch_all(&mut *connection)
         .await
         .map_err(|error| {
             StorageError::backend("Failed to inspect PostgreSQL event identity indexes", error)

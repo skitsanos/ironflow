@@ -9,6 +9,7 @@ use crate::storage::{StorageError, StorageResult};
 
 mod claims;
 mod codec;
+mod deletion;
 mod lease_reconciliation;
 mod leases;
 mod listing;

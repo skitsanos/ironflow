@@ -8,3 +8,5 @@
 mod test_db_postgres_types;
 #[path = "../test_sql_schema_concurrency.rs"]
 mod test_sql_schema_concurrency;
+#[path = "../test_sql_startup_locks.rs"]
+mod test_sql_startup_locks;
