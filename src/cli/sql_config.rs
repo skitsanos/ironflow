@@ -3,8 +3,16 @@ use std::path::Path;
 use anyhow::{Context as _, Result};
 
 use crate::storage::sql_names::SqlDialect;
+use crate::storage::sqlite_url;
+use crate::util::sensitive_url::Connection;
 
-use super::{IronFlowConfig, resolution::environment_string};
+use super::{IronFlowConfig, resolution::environment_string, sqlite_path};
+
+/// A SQL store URL and a description of where it points that is safe to log.
+pub(super) struct SqlTarget {
+    pub(super) url: String,
+    pub(super) location: String,
+}
 
 #[derive(Clone, Copy)]
 pub(super) enum SqlStoreKind {
@@ -59,28 +67,43 @@ fn validate_url(backend: &str, kind: SqlStoreKind, url: Option<&str>) -> Result<
             "{backend} {label} requires a {scheme} URL in {environment} or {field} in config"
         );
     }
+    if dialect == SqlDialect::Sqlite && sqlite_url::is_ephemeral(url) {
+        anyhow::bail!(
+            "{backend} {label} requires a {scheme} URL that names a database file in \
+             {environment} or {field} in config; {}",
+            sqlite_url::EPHEMERAL_REJECTION
+        );
+    }
     Ok(())
 }
 
+/// Resolve the URL of a selected SQL store. A configured URL is passed to the
+/// driver unchanged. Without one, SQLite uses a file under `store_dir`, which
+/// is created only after its URL is known to be usable.
 pub(super) fn resolve_url(
     cfg: &IronFlowConfig,
     store_dir: &Path,
     backend: &str,
     kind: SqlStoreKind,
-) -> Result<String> {
+) -> Result<SqlTarget> {
     if let Some(url) = configured_url(cfg, backend, kind)? {
-        return Ok(url);
+        let location = Connection::new(&url).to_string();
+        return Ok(SqlTarget { url, location });
     }
     if backend != "sqlite" {
         anyhow::bail!("Unsupported SQL backend");
     }
-    create_private_store_dir(store_dir)?;
     let filename = match kind {
         SqlStoreKind::State => "ironflow.sqlite",
         SqlStoreKind::Event => "ironflow-events.sqlite",
     };
-    let path = store_dir.join(filename);
-    Ok(format!("sqlite://{}?mode=rwc", path.to_string_lossy()))
+    let file = sqlite_path::database_file(store_dir, filename)?;
+    let url = sqlite_path::create_url(&file)?;
+    create_private_store_dir(store_dir)?;
+    Ok(SqlTarget {
+        url,
+        location: file.display().to_string(),
+    })
 }
 
 /// Create the directory that holds the default SQLite files. Run records carry
@@ -113,11 +136,7 @@ mod tests {
     #[test]
     fn supported_schemes_match_storage_dialect_detection() {
         for kind in [SqlStoreKind::State, SqlStoreKind::Event] {
-            for url in [
-                "sqlite::memory:",
-                "sqlite:relative.db",
-                "sqlite://absolute.db?mode=rwc",
-            ] {
+            for url in ["sqlite:relative.db", "sqlite://absolute.db?mode=rwc"] {
                 validate_url("sqlite", kind, Some(url)).unwrap();
             }
             for url in ["postgres://user@host/db", "postgresql://user@host/db"] {
@@ -153,6 +172,28 @@ mod tests {
                     );
                     assert!(!error.contains("secret-sentinel"));
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn sqlite_urls_without_a_database_file_are_rejected_without_echoing_them() {
+        for kind in [SqlStoreKind::State, SqlStoreKind::Event] {
+            for url in [
+                "sqlite::memory:",
+                "sqlite://?mode=memory",
+                "sqlite:secret-sentinel.db?mode=memory",
+                "sqlite:",
+            ] {
+                let error = validate_url("sqlite", kind, Some(url))
+                    .unwrap_err()
+                    .to_string();
+                let (label, environment, field) = kind.names();
+                assert!(
+                    error.contains(label) && error.contains(environment) && error.contains(field)
+                );
+                assert!(error.contains("in-memory"), "{error}");
+                assert!(!error.contains("secret-sentinel"));
             }
         }
     }

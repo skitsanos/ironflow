@@ -4,7 +4,7 @@ use std::fs;
 #[path = "support/sql_backend_postgres.rs"]
 mod postgres;
 #[path = "support/sql_backend_cli.rs"]
-mod support;
+pub(super) mod support;
 
 use support::{Server, command, output, rejected};
 

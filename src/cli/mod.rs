@@ -5,6 +5,7 @@ mod presence;
 mod replica_config;
 mod resolution;
 mod sql_config;
+mod sqlite_path;
 mod store_factory;
 
 pub use config::IronFlowConfig;

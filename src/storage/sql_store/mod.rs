@@ -45,6 +45,12 @@ impl SqlStateStore {
         crate::initialize_tls_provider();
         let dialect = SqlDialect::from_url(url)
             .map_err(|error| StorageError::backend("Invalid SQL state store URL", error))?;
+        if dialect == SqlDialect::Sqlite && crate::storage::sqlite_url::is_ephemeral(url) {
+            return Err(StorageError::invalid_input(format_args!(
+                "SQL state store requires a SQLite database file; {}",
+                crate::storage::sqlite_url::EPHEMERAL_REJECTION
+            )));
+        }
         let pool = AnyPoolOptions::new()
             .max_connections(5)
             .connect(url)

@@ -14,6 +14,7 @@ use crate::storage::json_store::JsonStateStore;
 #[cfg(feature = "redis")]
 use crate::storage::redis_store::RedisStateStore;
 use crate::storage::sql_store::SqlStateStore;
+#[cfg(feature = "redis")]
 use crate::util::sensitive_url::Connection;
 
 use super::IronFlowConfig;
@@ -106,11 +107,11 @@ fn json_state_store(store_dir: &Path) -> Arc<dyn StateStore> {
 }
 
 async fn sqlite_state_store(cfg: &IronFlowConfig, store_dir: &Path) -> Result<Arc<dyn StateStore>> {
-    let url = resolve_url(cfg, store_dir, "sqlite", SqlStoreKind::State)?;
+    let target = resolve_url(cfg, store_dir, "sqlite", SqlStoreKind::State)?;
     let table_prefix = resolve_sql_table_prefix(cfg)?;
-    info!("Using SQLite state store at {}", Connection::new(&url));
+    info!("Using SQLite state store at {}", target.location);
     Ok(Arc::new(
-        SqlStateStore::new_with_prefix(&url, table_prefix.as_deref()).await?,
+        SqlStateStore::new_with_prefix(&target.url, table_prefix.as_deref()).await?,
     ))
 }
 
@@ -119,11 +120,11 @@ async fn postgres_state_store(
     store_dir: &Path,
 ) -> Result<Arc<dyn StateStore>> {
     ensure_postgres_feature("state store")?;
-    let url = resolve_url(cfg, store_dir, "postgres", SqlStoreKind::State)?;
+    let target = resolve_url(cfg, store_dir, "postgres", SqlStoreKind::State)?;
     let table_prefix = resolve_sql_table_prefix(cfg)?;
     info!("Using Postgres state store");
     Ok(Arc::new(
-        SqlStateStore::new_with_prefix(&url, table_prefix.as_deref()).await?,
+        SqlStateStore::new_with_prefix(&target.url, table_prefix.as_deref()).await?,
     ))
 }
 
@@ -187,11 +188,11 @@ fn memory_event_store(cfg: &IronFlowConfig) -> Result<Arc<dyn EventStore>> {
 }
 
 async fn sqlite_event_store(cfg: &IronFlowConfig, store_dir: &Path) -> Result<Arc<dyn EventStore>> {
-    let url = resolve_url(cfg, store_dir, "sqlite", SqlStoreKind::Event)?;
+    let target = resolve_url(cfg, store_dir, "sqlite", SqlStoreKind::Event)?;
     let table_prefix = resolve_sql_table_prefix(cfg)?;
-    info!("Using SQLite event store at {}", Connection::new(&url));
+    info!("Using SQLite event store at {}", target.location);
     Ok(Arc::new(
-        SqlEventStore::new_with_prefix(&url, table_prefix.as_deref()).await?,
+        SqlEventStore::new_with_prefix(&target.url, table_prefix.as_deref()).await?,
     ))
 }
 
@@ -200,11 +201,11 @@ async fn postgres_event_store(
     store_dir: &Path,
 ) -> Result<Arc<dyn EventStore>> {
     ensure_postgres_feature("event store")?;
-    let url = resolve_url(cfg, store_dir, "postgres", SqlStoreKind::Event)?;
+    let target = resolve_url(cfg, store_dir, "postgres", SqlStoreKind::Event)?;
     let table_prefix = resolve_sql_table_prefix(cfg)?;
     info!("Using Postgres event store");
     Ok(Arc::new(
-        SqlEventStore::new_with_prefix(&url, table_prefix.as_deref()).await?,
+        SqlEventStore::new_with_prefix(&target.url, table_prefix.as_deref()).await?,
     ))
 }
 

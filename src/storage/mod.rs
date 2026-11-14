@@ -17,6 +17,7 @@ mod schedule_cleanup;
 pub(crate) mod sql_ddl;
 pub mod sql_names;
 pub mod sql_store;
+pub(crate) mod sqlite_url;
 #[cfg(any(feature = "postgres", feature = "redis"))]
 pub(crate) mod tls;
 mod value_depth;
