@@ -337,6 +337,7 @@ or give it a value. The rule covers:
 | `REDIS_URL`, `REDIS_PREFIX` | Startup fails when a Redis backend is selected. An empty `redis_prefix` in config still means unprefixed keys. |
 | Boolean and numeric variables (`IRONFLOW_ALLOW_UNAUTHENTICATED_API`, `IRONFLOW_METRICS_ENABLED`, `IRONFLOW_ALLOW_ADHOC_FLOWS`, `IRONFLOW_REPLICA_MODE`, `REDIS_TTL`, limits) | Startup fails: an empty string is not a valid boolean or number. |
 | `HOST`, `PORT`, `MAX_BODY`, `FLOWS_DIR`, `IRONFLOW_STORE_DIR` | Startup fails in argument parsing or at bind. |
+| `IRONFLOW_ARTIFACT_DIR` | Startup fails for `run`, `validate` and `serve`, and `artifacts prune` fails before listing. Remove the variable to use `data/artifacts`. |
 | `IRONFLOW_ARTIFACT_BACKEND`, `IRONFLOW_ARTIFACT_S3_*` | The first artifact operation fails; these are read when the artifact store is first used. |
 
 `IRONFLOW_ENV_ALLOWLIST` is the exception: an empty allowlist is a documented

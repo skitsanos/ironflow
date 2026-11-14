@@ -70,6 +70,16 @@ publication is verified separately.
   [`ironflow artifacts prune`](../CLI_REFERENCE.md#ironflow-artifacts-prune)
   and [scheduling artifact pruning](../REPLICA_DEPLOYMENT.md#scheduling-artifact-pruning).
 
+- **A blank `IRONFLOW_ARTIFACT_DIR` now stops startup.** The variable was not
+  covered by the IF-198 rule above: an empty value let the server start and
+  failed only when a step first published an artifact, and a whitespace-only
+  value created a directory with that name under the working directory.
+  `run`, `validate`, `serve` and `artifacts prune` now fail with a message
+  that names the variable. Remove it to use `data/artifacts`, or give it a
+  directory. If a deployment ran with a whitespace-only value, its artifacts
+  are in that oddly named directory: move its `sha256` folder to the intended
+  location before restarting.
+
 - **`llm` rejects an unknown `provider` instead of using OpenAI** (IF-197).
   Every `provider` value other than `openai_compatible`, `compatible`,
   `azure` and `custom` used to select the OpenAI configuration, so a

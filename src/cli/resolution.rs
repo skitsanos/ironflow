@@ -175,9 +175,11 @@ impl ServerConfig {
 /// Validate the process-wide deadline and every numeric limit before any
 /// store is opened, flow file read, or run started. Nodes read limits lazily,
 /// but CLI entry points must reject a typo instead of silently keeping a
-/// default or turning the deadline off.
+/// default or turning the deadline off. The artifact directory is read
+/// lazily in the same way, so a blank one is rejected here as well.
 pub(super) fn validate_limit_environment() -> Result<()> {
     let _ = crate::util::runtime_config::run_deadline()?;
+    crate::artifacts::validate_environment()?;
     crate::util::limits::validate_environment()
 }
 

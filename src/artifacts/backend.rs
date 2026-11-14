@@ -19,6 +19,29 @@ pub struct ArtifactStore {
     remote: Option<S3ArtifactStore>,
 }
 
+const DIRECTORY_ENV: &str = "IRONFLOW_ARTIFACT_DIR";
+
+/// The artifact directory selected by the environment, without creating it.
+///
+/// A present but blank value is neither "unset" nor a directory: the empty
+/// string used to fail only when a step first published an artifact, and a
+/// whitespace-only value created a directory of that name.
+fn configured_directory() -> Result<PathBuf> {
+    match std::env::var_os(DIRECTORY_ENV) {
+        None => Ok(PathBuf::from(DEFAULT_ARTIFACT_DIR)),
+        Some(value) if value.to_string_lossy().trim().is_empty() => bail!(
+            "environment variable {DIRECTORY_ENV} is set but empty. Give it a directory, or remove it to use the default '{DEFAULT_ARTIFACT_DIR}'."
+        ),
+        Some(value) => Ok(PathBuf::from(value)),
+    }
+}
+
+/// Reject an unusable artifact directory setting at startup, before a
+/// workflow step is the first to read it.
+pub(crate) fn validate_environment() -> Result<()> {
+    configured_directory().map(|_| ())
+}
+
 impl ArtifactStore {
     /// Create a local-only store rooted at `root`.
     pub fn new(root: impl Into<PathBuf>) -> Result<Self> {
@@ -30,10 +53,7 @@ impl ArtifactStore {
 
     /// Select `local` (default) or `s3` from `IRONFLOW_ARTIFACT_BACKEND`.
     pub fn from_env() -> Result<Self> {
-        let root = std::env::var_os("IRONFLOW_ARTIFACT_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from(DEFAULT_ARTIFACT_DIR));
-        let local = LocalArtifactStore::new(root)?;
+        let local = LocalArtifactStore::new(configured_directory()?)?;
         let backend = std::env::var(BACKEND_ENV).unwrap_or_else(|_| "local".to_owned());
         let remote = match backend.as_str() {
             "local" => None,

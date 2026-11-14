@@ -15,6 +15,7 @@ mod source;
 mod store;
 
 pub use backend::ArtifactStore;
+pub(crate) use backend::validate_environment;
 pub use lease::VerifiedPathLease;
 pub use reference::ArtifactRef;
 pub(crate) use reference::validate_mime_type;

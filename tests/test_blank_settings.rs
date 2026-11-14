@@ -207,3 +207,19 @@ async fn unset_table_prefix_variable_keeps_the_configured_prefix() {
             .any(|window| window == needle)
     );
 }
+
+/// A blank artifact directory used to be accepted at startup: the empty
+/// string failed only when a step first published an artifact, and a
+/// whitespace-only value created a directory of that name under the working
+/// directory.
+#[tokio::test]
+async fn blank_artifact_directory_variable_fails_startup() {
+    for blank in ["", "   "] {
+        assert_refused(
+            &keyed_config(),
+            &[("IRONFLOW_ARTIFACT_DIR", blank)],
+            "IRONFLOW_ARTIFACT_DIR",
+        )
+        .await;
+    }
+}
