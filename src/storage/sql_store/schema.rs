@@ -1,6 +1,6 @@
 use super::{SqlStateStore, parse_optional_datetime, row_value};
 use crate::storage::sql_names::SqlDialect;
-use crate::storage::{StorageError, StorageResult};
+use crate::storage::{StorageError, StorageResult, sql_ddl};
 
 impl SqlStateStore {
     #[allow(clippy::too_many_lines)] // Declarative DDL: one statement list per table and index.
@@ -45,8 +45,9 @@ impl SqlStateStore {
         )
         .await?;
 
-        crate::storage::sql_ddl::create_if_absent(
-            &self.pool,
+        self.ensure_index(
+            &self.tables.run_leases_expiry_idx,
+            &self.tables.run_leases,
             format!(
                 "CREATE INDEX IF NOT EXISTS {} ON {}(expires_micros)",
                 self.tables.run_leases_expiry_idx, self.tables.run_leases
@@ -83,8 +84,9 @@ impl SqlStateStore {
             SqlDialect::Sqlite => "",
             SqlDialect::Postgres => " NULLS LAST",
         };
-        crate::storage::sql_ddl::create_if_absent(
-            &self.pool,
+        self.ensure_index(
+            &self.tables.runs_started_idx,
+            &self.tables.runs,
             format!(
                 "CREATE INDEX IF NOT EXISTS {} ON {}(started_micros DESC{}, id DESC)",
                 self.tables.runs_started_idx, self.tables.runs, nulls_last
@@ -93,8 +95,9 @@ impl SqlStateStore {
         )
         .await?;
 
-        crate::storage::sql_ddl::create_if_absent(
-            &self.pool,
+        self.ensure_index(
+            &self.tables.runs_status_started_idx,
+            &self.tables.runs,
             format!(
                 "CREATE INDEX IF NOT EXISTS {} ON {}(status, started_micros DESC{}, id DESC)",
                 self.tables.runs_status_started_idx, self.tables.runs, nulls_last
@@ -103,8 +106,9 @@ impl SqlStateStore {
         )
         .await?;
 
-        crate::storage::sql_ddl::create_if_absent(
-            &self.pool,
+        self.ensure_index(
+            &self.tables.tasks_run_id_idx,
+            &self.tables.tasks,
             format!(
                 "CREATE INDEX IF NOT EXISTS {} ON {}(run_id)",
                 self.tables.tasks_run_id_idx, self.tables.tasks
@@ -130,8 +134,9 @@ impl SqlStateStore {
         )
         .await?;
 
-        crate::storage::sql_ddl::create_if_absent(
-            &self.pool,
+        self.ensure_index(
+            &self.tables.schedule_claims_cleanup_idx,
+            &self.tables.schedule_claims,
             format!(
                 "CREATE INDEX IF NOT EXISTS {} ON {}(name, claimed_micros, claim_key)",
                 self.tables.schedule_claims_cleanup_idx, self.tables.schedule_claims
@@ -143,6 +148,28 @@ impl SqlStateStore {
         Ok(())
     }
 
+    /// Create one index unless it exists (IF-202: an existing index must not
+    /// make startup request a table lock).
+    async fn ensure_index(
+        &self,
+        name: &str,
+        table: &str,
+        create_sql: String,
+        what: &str,
+    ) -> StorageResult<()> {
+        sql_ddl::create_index_if_absent(
+            &self.pool,
+            self.dialect,
+            sql_ddl::ManagedIndex {
+                name,
+                table,
+                create_sql,
+                what,
+            },
+        )
+        .await
+    }
+
     async fn ensure_started_micros_column(&self) -> StorageResult<()> {
         if self.started_micros_column_exists().await? {
             return Ok(());
@@ -151,11 +178,15 @@ impl SqlStateStore {
             "ALTER TABLE {} ADD COLUMN started_micros BIGINT",
             self.tables.runs
         );
-        if let Err(error) = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
-            .execute(&self.pool)
-            .await
+        if let Err(error) = sql_ddl::execute_schema_change(&self.pool, self.dialect, &sql).await
             && !self.started_micros_column_exists().await?
         {
+            if sql_ddl::is_lock_timeout(&error) {
+                return Err(sql_ddl::lock_timeout_error(
+                    &self.tables.runs,
+                    "addition of the run-list timestamp column",
+                ));
+            }
             return Err(StorageError::backend(
                 "Failed to add SQL run-list timestamp column",
                 error,

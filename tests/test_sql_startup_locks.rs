@@ -156,6 +156,7 @@ fn event(run_id: &str, id: &str) -> RunEvent {
 }
 
 const EVENT_TABLES: [&str; 3] = ["events", "event_sequences", "event_deletions"];
+const STATE_TABLES: [&str; 4] = ["runs", "tasks", "run_leases", "schedule_claims"];
 
 /// A reader (dump, analytics query, idle transaction) holds ACCESS SHARE.
 /// Before the fix startup requested ACCESS EXCLUSIVE and waited for it.
@@ -230,6 +231,35 @@ async fn publishing_and_reading_continue_while_a_second_replica_starts() {
         .expect("the second replica failed to start");
 }
 
+/// An open writer transaction holds ROW EXCLUSIVE. `CREATE INDEX IF NOT
+/// EXISTS` requests SHARE before it notices the index exists, so an
+/// unconditional create waits for every open writer.
+#[tokio::test]
+async fn startup_does_not_wait_for_an_open_writer_transaction() {
+    let Some(database) = Database::from_env("if202_writer").await else {
+        return;
+    };
+    database.state_store().await.expect("first state store");
+    database.event_store().await.expect("first event store");
+
+    let mut tables = EVENT_TABLES.to_vec();
+    tables.extend(STATE_TABLES);
+    let writer = database.hold_locks(&tables, "ROW EXCLUSIVE").await;
+    let events = tokio::time::timeout(UNBLOCKED, database.event_store()).await;
+    let state = tokio::time::timeout(UNBLOCKED, database.state_store()).await;
+    writer.rollback().await.unwrap();
+
+    let events = events.map(|store| store.map(|_| ()));
+    let state = state.map(|store| store.map(|_| ()));
+    database.cleanup().await;
+    events
+        .expect("event store startup waited for an open writer transaction")
+        .expect("event store startup failed beside an open writer transaction");
+    state
+        .expect("state store startup waited for an open writer transaction")
+        .expect("state store startup failed beside an open writer transaction");
+}
+
 /// The legacy `(id)` key still needs ACCESS EXCLUSIVE. The wait is bounded,
 /// fails with a clear error that changes nothing, and a later start migrates.
 #[tokio::test]
@@ -299,6 +329,44 @@ async fn legacy_identity_migration_is_bounded_by_the_lock_timeout_and_retryable(
     let events = events.expect("retried store").expect("list legacy events");
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].id, "legacy-event");
+}
+
+/// A table from a release without the `sequence` column needs `ALTER TABLE`,
+/// which also takes ACCESS EXCLUSIVE and is bounded the same way.
+#[tokio::test]
+async fn column_addition_is_bounded_by_the_lock_timeout_and_retryable() {
+    let Some(database) = Database::from_env("if202_column").await else {
+        return;
+    };
+    database
+        .execute(format!(
+            "CREATE TABLE {} (\
+             id TEXT NOT NULL, run_id TEXT NOT NULL, event_type TEXT NOT NULL, \
+             event_json TEXT NOT NULL, timestamp TEXT NOT NULL, PRIMARY KEY (run_id, id))",
+            database.table("events")
+        ))
+        .await;
+
+    let reader = database.hold_locks(&["events"], "ACCESS SHARE").await;
+    let blocked = tokio::time::timeout(BOUNDED, database.event_store()).await;
+    reader.rollback().await.unwrap();
+    let blocked = blocked.map(|store| store.map(|_| ()));
+    let retried = tokio::time::timeout(BOUNDED, database.event_store()).await;
+    let retried = retried.map(|store| store.map(|_| ()));
+    database.cleanup().await;
+
+    let error = blocked
+        .expect("the column addition waited for its lock without a bound")
+        .expect_err("the column cannot be added while a reader holds the table");
+    assert_eq!(error.kind(), StorageErrorKind::Conflict, "{error}");
+    let message = error.to_string();
+    assert!(
+        message.contains("lock") && message.contains("column 'sequence'"),
+        "the startup error must name the lock and the change: {message}"
+    );
+    retried
+        .expect("the retried start did not finish")
+        .expect("the retried start failed");
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]

@@ -1,6 +1,6 @@
 use super::SqlEventStore;
 use crate::storage::sql_names::SqlDialect;
-use crate::storage::{StorageError, StorageResult};
+use crate::storage::{StorageError, StorageResult, sql_ddl};
 
 impl SqlEventStore {
     pub(super) async fn ensure_schema(&self) -> StorageResult<()> {
@@ -59,8 +59,8 @@ impl SqlEventStore {
         self.ensure_column(&self.tables.event_deletions, "incarnation", "TEXT")
             .await?;
 
-        crate::storage::sql_ddl::create_if_absent(
-            &self.pool,
+        self.ensure_index(
+            &self.tables.events_null_sequence_idx,
             format!(
                 "CREATE INDEX IF NOT EXISTS {} ON {}(run_id, timestamp, id) \
              WHERE sequence IS NULL",
@@ -78,8 +78,8 @@ impl SqlEventStore {
         // Retain the legacy ordering index for older read/query plans. This is
         // not downgrade support: the run-scoped primary key allows duplicate
         // IDs across runs, which pre-migration writers cannot handle.
-        crate::storage::sql_ddl::create_if_absent(
-            &self.pool,
+        self.ensure_index(
+            &self.tables.events_run_time_idx,
             format!(
                 "CREATE INDEX IF NOT EXISTS {} ON {}(run_id, timestamp, id)",
                 self.tables.events_run_time_idx, self.tables.events
@@ -89,6 +89,27 @@ impl SqlEventStore {
         .await?;
 
         Ok(())
+    }
+
+    /// Create one index of the events table unless it exists (IF-202: an
+    /// existing index must not make startup request a table lock).
+    pub(super) async fn ensure_index(
+        &self,
+        name: &str,
+        create_sql: String,
+        what: &str,
+    ) -> StorageResult<()> {
+        sql_ddl::create_index_if_absent(
+            &self.pool,
+            self.dialect,
+            sql_ddl::ManagedIndex {
+                name,
+                table: &self.tables.events,
+                create_sql,
+                what,
+            },
+        )
+        .await
     }
 
     async fn ensure_sequence_column(&self) -> StorageResult<()> {
@@ -104,11 +125,15 @@ impl SqlEventStore {
         }
         let sql = format!("ALTER TABLE {table} ADD COLUMN {column} {sql_type}");
         // A replica starting at the same time may add the column first.
-        if let Err(error) = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
-            .execute(&self.pool)
-            .await
+        if let Err(error) = sql_ddl::execute_schema_change(&self.pool, self.dialect, &sql).await
             && !self.column_exists(table, column).await?
         {
+            if sql_ddl::is_lock_timeout(&error) {
+                return Err(sql_ddl::lock_timeout_error(
+                    table,
+                    &format!("addition of column '{column}'"),
+                ));
+            }
             return Err(StorageError::backend(
                 format_args!("Failed to add SQL event column '{column}'"),
                 error,
