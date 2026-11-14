@@ -109,8 +109,11 @@ before the `expires_in` the provider reported. The cache holds at most
   provider body omitted`, a transport kind such as `connection failed`, or a
   response that is not a token document. The token URL, the request form and
   the provider's reply are never copied into the error. The response must be a
-  JSON object with a non-empty `access_token` string and a numeric
-  `expires_in`.
+  JSON object with a non-empty `access_token` string.
+- `expires_in` may be a non-negative number or the same number as a string.
+  When the provider omits it or sends `null`, the token is used for that
+  execution only and is not cached, so every execution requests a new one.
+  Any other value fails the step as an invalid token document.
 - When the embedding endpoint answers HTTP 401, the token that was sent is
   evicted from the cache and the request is repeated once with a newly issued
   token, starting again at the first batch. A second 401 fails the step and

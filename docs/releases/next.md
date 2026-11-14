@@ -66,7 +66,9 @@ publication is verified separately.
   expires. The token cache is now keyed by the client secret as well as the
   token URL, client ID and scope: a step that named a cached client ID with a
   different secret used to receive the cached token without authenticating,
-  and could send it to its own `base_url`.
+  and could send it to its own `base_url`. A token response whose
+  `expires_in` is a numeric string, or is absent, is now accepted (it used to
+  fail the step); a token without a stated lifetime is not cached.
 - **Schedules written with numeric weekdays move by one day** (IF-180). The
   weekday field of a schedule's `cron` now uses the standard crontab
   numbering: `0` and `7` are Sunday, `1` to `6` are Monday to Saturday.

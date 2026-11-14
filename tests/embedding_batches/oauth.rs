@@ -256,3 +256,70 @@ async fn a_cached_token_is_not_shared_with_a_different_client_secret() {
         assert_eq!(tokens(&server), 2, "{node}: both identities stay cached");
     }
 }
+
+/// RFC 6749 makes `expires_in` optional, and some providers send it as a
+/// string. A token without a lifetime is used once and never cached.
+#[tokio::test]
+async fn expires_in_may_be_a_string_or_absent_and_garbage_is_rejected() {
+    let registry = NodeRegistry::with_builtins();
+    let run = |server: &Server| {
+        let config = server.config("oauth");
+        let registry = &registry;
+        async move {
+            registry
+                .get("ai_embed")
+                .unwrap()
+                .execute(&config, &inputs())
+                .await
+        }
+    };
+    for (lifetime, token_requests_for_two_runs) in [
+        (r#","expires_in":"3600""#, 1),
+        (r#","expires_in":3600.0"#, 1),
+        (r#","expires_in":null"#, 2),
+        ("", 2),
+    ] {
+        let server = Server::start(Fixture {
+            token_reply: Some((
+                StatusCode::OK,
+                format!(r#"{{"access_token":"synthetic-fixture"{lifetime}}}"#),
+            )),
+            ..Default::default()
+        })
+        .await;
+        for _ in 0..2 {
+            run(&server)
+                .await
+                .unwrap_or_else(|error| panic!("lifetime [{lifetime}] rejected: {error:#}"));
+        }
+        assert_eq!(
+            tokens(&server),
+            token_requests_for_two_runs,
+            "lifetime [{lifetime}]"
+        );
+    }
+    for lifetime in [
+        r#""soon""#,
+        "-5",
+        r#""-5""#,
+        "[3600]",
+        "true",
+        r#""synthetic-token-body""#,
+    ] {
+        let server = Server::start(Fixture {
+            token_reply: Some((
+                StatusCode::OK,
+                format!(r#"{{"access_token":"synthetic-fixture","expires_in":{lifetime}}}"#),
+            )),
+            ..Default::default()
+        })
+        .await;
+        let message = format!("{:#}", run(&server).await.unwrap_err());
+        assert!(message.contains("OAuth token response"), "{message}");
+        assert!(!message.contains("synthetic-token-body"), "{message}");
+        assert!(
+            server.calls().is_empty(),
+            "lifetime {lifetime} was accepted"
+        );
+    }
+}
