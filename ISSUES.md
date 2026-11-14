@@ -25,6 +25,8 @@ stable paths such as [`docs/issues/IF-001.md`](docs/issues/IF-001.md).
 | [IF-218](docs/issues/IF-218.md) | P3 | Open | File I/O | File output and archive follow-ups |
 | [IF-219](docs/issues/IF-219.md) | P3 | Open | Diagnostics | Diagnostic scrubber over-redacts and misses some key forms |
 | [IF-220](docs/issues/IF-220.md) | P3 | Open | Maintainability | Operational and validation follow-ups from the 2026-11 fix batches |
+| [IF-221](docs/issues/IF-221.md) | P2 | Open | Workflow composition | Child input mappings and s3vector flags fall back silently on missing or malformed values |
+| [IF-222](docs/issues/IF-222.md) | P3 | Open | Documents/extraction fidelity | Document extraction fidelity follow-ups for DOCX, PPTX and PDF metadata |
 
 ## Working agreement
 
