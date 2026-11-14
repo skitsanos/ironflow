@@ -528,6 +528,32 @@ publication is verified separately.
 
 ## Unreleased changes
 
+- Starting a PostgreSQL replica no longer locks tables that running replicas
+  use (IF-202). Every start used to take `ACCESS EXCLUSIVE` on the events
+  table before checking its primary key, and to issue
+  `CREATE INDEX IF NOT EXISTS` for indexes that already existed, which
+  requests `SHARE` on the table. A starting replica waited for any session
+  using those tables (a dump, a long query, an idle transaction, for the
+  indexes any open writer), and the replicas in service queued behind its
+  pending lock: events were dropped after 500 ms and SSE polls stalled. An
+  up-to-date schema is now verified through the catalog only. Changes that
+  need a table lock (the legacy event identity migration, a missing index or
+  column) wait at most 5 seconds and then stop startup with a message that
+  names the table and the change; nothing is changed and the next start
+  retries. See
+  [PostgreSQL startup and schema locks](../REPLICA_DEPLOYMENT.md#postgresql-startup-and-schema-locks).
+  The startup repair of event sequence counters also no longer rewrites
+  every counter row: on a test table with 50,000 runs it wrote 50,000 rows
+  and 15 MB of WAL per start, and now writes none when the counters are
+  current. No configuration or migration is required.
+
+- `DELETE /runs/{id}` on PostgreSQL no longer removes a run that was created
+  again under the same ID while the delete was in progress (IF-202). The
+  delete read the lease before it locked the run row, so a new run and its
+  owner's lease committed between the two statements were deleted while the
+  owner was executing. Such a delete now returns `409`, as for any run that
+  is still executing. SQLite was not affected.
+
 - An artifact URI written in an `http_*` `body` (with
   `body_type = "artifact"`) or in a multipart part's `artifact` now supports
   `${ctx.key}` interpolation, resolved once, matching the `write_file`

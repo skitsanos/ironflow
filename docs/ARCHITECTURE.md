@@ -372,7 +372,12 @@ Implementations:
   commit. Successful disjoint updates survive across store instances; duplicate
   keys use the last serialized writer's value (a shallow merge, including JSON
   null). The owned path retains its live-lease check and acquires locks in
-  lease-then-run order. A context snapshot cannot cross deletion/recreation:
+  lease-then-run order. Deletion takes the same order and, once the run row
+  is locked, reads the lease again: on PostgreSQL a run with the same ID and
+  its owner's lease can be committed between the two statements (IF-202).
+  A lease that appeared restarts the delete in lock order, so a live owner
+  gets `Conflict`; the locked run row keeps any later lease out through its
+  foreign key. A context snapshot cannot cross deletion/recreation:
   an absent run returns `NotFound`, while a first locked read after recreation
   can legitimately merge into the new run. Unowned calls do not carry an owner
   or incarnation token. These guarantees require all concurrent writers to
@@ -603,6 +608,23 @@ returns `StorageErrorKind::NotFound`.
   runs, an old binary/schema cannot be restored without offline data
   transformation; do not treat the retained legacy read index as downgrade
   support.
+
+  PostgreSQL startup stays out of the way of running replicas (IF-202). On
+  an up-to-date schema the state and event stores request no table lock:
+  the primary-key shape, the indexes and the columns are read from the
+  catalog, and an existing index is not passed to `CREATE INDEX IF NOT
+  EXISTS`, which would request `SHARE` on the table before noticing the
+  index. A pending table lock queues every later statement on that table
+  behind it, so the changes that do need one (the identity migration, a
+  missing index, a missing column) each run in a transaction with
+  `lock_timeout = 5s`. The identity migration reads the key again under the
+  lock, because another starting replica may have migrated first. When the
+  lock is not granted, startup fails with a `Conflict` that names the table
+  and the change, nothing is changed, and the next start retries. The
+  startup counter repair restores only counters that are missing or behind
+  their stream; it reads the events table but writes and locks no current
+  counter row. SQLite has one writer lock and no lock queue: startup takes
+  it briefly and waits at most the driver's busy timeout.
 - **RedisEventStore** — Redis-backed event replay (optional, `redis` feature
   flag) using a per-run list, event ID index, sequence, and owner-bound layout
   marker. One preflighted Lua script atomically appends the payload, cursor

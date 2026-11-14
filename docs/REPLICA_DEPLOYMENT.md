@@ -37,6 +37,41 @@ namespaces; two unrelated PostgreSQL databases cannot be detected from their
 URL schemes. Ordinary standalone SQLite remains supported with `sqlite:` URLs
 or its default local paths.
 
+### PostgreSQL startup and schema locks
+
+A replica that starts against an up-to-date PostgreSQL schema requests no
+table lock. It reads the schema from the catalog and repairs only event
+counters that are missing or behind, so it neither waits for a dump, a long
+query or an idle transaction, nor delays the replicas that are serving. Scale
+out, restart and roll replicas without a maintenance window.
+
+A start that has to change the schema is different: the first start after an
+upgrade that adds an index or a column, or the one-time event identity
+migration from a legacy `(id)` key. Such a change needs a table lock, and
+PostgreSQL queues every later statement on that table behind a lock request
+that is waiting. IronFlow therefore waits at most 5 seconds
+(`lock_timeout`, not configurable) and then stops with an error of this form:
+
+```text
+Timed out after 5 s waiting for a lock on PostgreSQL table 'ironflow_events'
+for the one-time event identity migration. Another session holds a
+conflicting lock (a dump, a long query or an idle transaction). Nothing was
+changed; end that session and start again
+```
+
+Nothing was changed and the next start retries, so an orchestrator restart
+loop converges once the blocking session ends. To find that session, look for
+old transactions in `pg_stat_activity` (`xact_start`, `state = 'idle in
+transaction'`) or for granted locks on the table in `pg_locks`. During each
+attempt, statements of running replicas on that table can wait up to the same
+5 seconds; event publication gives up after 500 ms, so a run that publishes
+during an attempt can lose live events while its state stays correct. Apply
+schema-changing upgrades when no long transaction is open. While one replica
+builds a missing index on a large table, another starting replica can hit
+the same timeout and succeeds on a later start. The identity migration still
+requires the coordinated writer stop described in the
+[architecture](ARCHITECTURE.md).
+
 Artifact-producing deployments must also choose one cross-replica contract.
 Either mount the same durable `IRONFLOW_ARTIFACT_DIR` on every replica, or set
 `IRONFLOW_ARTIFACT_BACKEND=s3` with one shared bucket/prefix and workload

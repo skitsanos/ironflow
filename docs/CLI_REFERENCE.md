@@ -769,6 +769,12 @@ unreadable or cursor-skipping event.
 SQLite startup refreshes and verifies index metadata on one connection, so
 stale metadata on another pooled connection cannot falsely reject a new
 event database. No migration or configuration change is required.
+On PostgreSQL an up-to-date schema is verified through the catalog without a
+table lock. A start that must change the schema (a missing index or column,
+or the legacy identity migration) waits at most 5 seconds for its table lock
+and otherwise fails with a message that names the table and the change;
+nothing is changed and the next start retries. The bound is fixed, not a
+setting. See [PostgreSQL startup and schema locks](REPLICA_DEPLOYMENT.md#postgresql-startup-and-schema-locks).
 For shared SQL databases, set `IRONFLOW_SQL_TABLE_PREFIX` or `sql_table_prefix` to isolate IronFlow tables. Prefixes are strictly validated and may contain only ASCII letters, digits, and underscores after deriving table names.
 
 Treat storage, event-store, SMTP, and webhook URLs as secrets when they contain
