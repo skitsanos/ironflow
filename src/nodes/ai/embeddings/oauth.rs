@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 
 use crate::util::bounded_cache::BoundedCache;
 
@@ -18,7 +19,11 @@ struct TokenResponse {
     expires_in: u64,
 }
 
-type OauthKey = (String, String, Option<String>);
+/// Token URL, client ID, scope and a digest of the client secret.
+///
+/// The secret is part of the identity: without it, a caller that knows only a
+/// client ID would be handed the token another caller authenticated for.
+type OauthKey = (String, String, Option<String>, [u8; 32]);
 
 /// Hard upper bound on distinct OAuth client tuples remembered across the
 /// process; `IRONFLOW_OAUTH_CACHE_SIZE` overrides it (see `util::limits`).
@@ -56,6 +61,7 @@ impl OauthClient<'_> {
             self.token_url.to_string(),
             self.client_id.to_string(),
             self.scope.map(str::to_string),
+            Sha256::digest(self.client_secret.as_bytes()).into(),
         )
     }
 }

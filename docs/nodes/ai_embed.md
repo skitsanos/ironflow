@@ -98,7 +98,8 @@ ceiling. Existing context-conversion and persisted-output limits still apply.
 ## OAuth tokens
 
 With `provider = "oauth"` the node requests a client-credentials token from
-`token_url` and caches it per token URL, client ID and scope until 60 seconds
+`token_url` and caches it per token URL, client ID, client secret and scope
+until 60 seconds
 before the `expires_in` the provider reported. The cache holds at most
 `IRONFLOW_OAUTH_CACHE_SIZE` entries.
 

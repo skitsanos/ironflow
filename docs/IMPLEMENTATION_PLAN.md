@@ -344,7 +344,7 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
   oldest-first eviction; expose a positive YAML/env count override
 - [x] `cache_set`/`cache_get` memory backend bounded by `IRONFLOW_CACHE_MAX_ENTRIES` (default 10 000)
 - [x] Stateful MCP sessions use opaque handles, capacity-bound least-recently-used eviction, and idle expiry — `IRONFLOW_MCP_SESSION_CACHE_SIZE` (default 1 024), `IRONFLOW_MCP_SESSION_TTL_SECS` (default 3 600); eviction and expiry close the owned transport
-- [x] OAuth token cache keyed by `(token_url, client_id, scope)`; bounded by `IRONFLOW_OAUTH_CACHE_SIZE` (default 128) — prevents cross-tenant token collision
+- [x] OAuth token cache keyed by `(token_url, client_id, scope, client-secret digest)`; bounded by `IRONFLOW_OAUTH_CACHE_SIZE` (default 128) — prevents cross-tenant token collision
 - [x] Executor `step_map` shared via `Arc<HashMap<String, Arc<StepDefinition>>>`; per-task step and step_map clones removed
 - [x] Task output persisted via direct `Value::Object` construction instead of `serde_json::to_value` round-trip
 - [x] Node trait migrated to `&Context`; executor wraps context in `Arc<RwLock<Arc<Context>>>` with copy-on-write via `Arc::make_mut` — per-attempt deep clone eliminated

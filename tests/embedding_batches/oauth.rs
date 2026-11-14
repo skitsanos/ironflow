@@ -217,3 +217,42 @@ return flow
     assert_eq!(tokens(&server), 1);
     assert!(server.calls().is_empty(), "an unbounded token was used");
 }
+
+/// A cached token belongs to the client that proved it knows the secret: a
+/// caller with the same client ID and another secret must authenticate itself.
+#[tokio::test]
+async fn a_cached_token_is_not_shared_with_a_different_client_secret() {
+    let registry = NodeRegistry::with_builtins();
+    for node in ["ai_embed", "ai_chunk_semantic"] {
+        let server = Server::start(Fixture {
+            rotate_tokens: true,
+            ..Default::default()
+        })
+        .await;
+        let run = |secret: &'static str| {
+            let mut config = server.config("oauth");
+            config["client_secret"] = json!(secret);
+            let registry = &registry;
+            async move {
+                registry
+                    .get(node)
+                    .unwrap()
+                    .execute(&config, &inputs())
+                    .await
+                    .unwrap()
+            }
+        };
+        run("synthetic-owner-secret").await;
+        run("synthetic-owner-secret").await;
+        assert_eq!(tokens(&server), 1, "{node}: same secret reuses the token");
+        run("synthetic-other-secret").await;
+        assert_eq!(
+            tokens(&server),
+            2,
+            "{node}: another secret received the owner's cached token"
+        );
+        run("synthetic-owner-secret").await;
+        run("synthetic-other-secret").await;
+        assert_eq!(tokens(&server), 2, "{node}: both identities stay cached");
+    }
+}

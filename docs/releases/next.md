@@ -63,7 +63,10 @@ publication is verified separately.
   capped by `IRONFLOW_MAX_HTTP_BODY_BYTES`. When the embedding endpoint
   answers 401, the cached token is evicted and the request is repeated once
   with a new token, so a revoked token no longer fails every run until it
-  expires.
+  expires. The token cache is now keyed by the client secret as well as the
+  token URL, client ID and scope: a step that named a cached client ID with a
+  different secret used to receive the cached token without authenticating,
+  and could send it to its own `base_url`.
 - **Schedules written with numeric weekdays move by one day** (IF-180). The
   weekday field of a schedule's `cron` now uses the standard crontab
   numbering: `0` and `7` are Sunday, `1` to `6` are Monday to Saturday.
