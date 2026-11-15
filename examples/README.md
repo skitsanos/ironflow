@@ -51,7 +51,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 ## 02-data-transforms
 - **json_operations.lua** — Parse, select fields, stringify
 - **transform_pipeline.lua** — Filter, transform, rename, batch, deduplicate
-- **filter_and_batch.lua** — Filter by condition and by numeric equality, deduplicate, split into batches
+- **filter_and_batch.lua** — Filter by condition (`eq`, and `neq` as its negation, which keeps items without the field) and by numeric equality, deduplicate, split into batches
 - **foreach_function.lua** — Iterate over arrays with a Lua function transform
 - **json_extract_path.lua** — Extract values by JSON path from API responses and parsed JSON
 - **csv_parse_stringify.lua** — Parse CSV text with type inference that keeps identifiers as text, and write back canonical CSV with formula-like text neutralized for spreadsheets

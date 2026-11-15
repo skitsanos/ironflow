@@ -14,6 +14,8 @@ mod test_cache_file_atomic;
 mod test_copy_move_file_safety;
 #[path = "../test_csv_formula.rs"]
 mod test_csv_formula;
+#[path = "../test_data_filter_missing.rs"]
+mod test_data_filter_missing;
 #[path = "../test_date_node.rs"]
 mod test_date_node;
 #[path = "../test_db_nodes.rs"]

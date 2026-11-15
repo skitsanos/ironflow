@@ -44,12 +44,22 @@ impl Node for DataFilterNode {
             "data_filter: unknown op '{op}' (expected one of {OPERATORS})"
         );
 
+        // A comparison without `value` matched nothing for every operator,
+        // which read as a filter that found no items; with `neq` defined as
+        // the negation of `eq` it would match everything instead (IF-223).
+        let compare_value = config.get("value");
+        let presence_only = matches!(op, "exists" | "not_exists");
+        anyhow::ensure!(
+            presence_only || compare_value.is_some(),
+            "data_filter: op '{op}' requires 'value'"
+        );
+        let compare_value = compare_value.unwrap_or(&serde_json::Value::Null);
+
         let items = ctx
             .get(source_key)
             .ok_or_else(|| anyhow::anyhow!("Key '{}' not found in context", source_key))?
             .as_array()
             .ok_or_else(|| anyhow::anyhow!("Value at '{}' is not an array", source_key))?;
-        let compare_value = config.get("value");
         let filtered: Vec<_> = items
             .iter()
             .filter(|item| filter_match(item, field, op, compare_value))
@@ -64,29 +74,21 @@ impl Node for DataFilterNode {
     }
 }
 
+/// A field that is missing, or an item that is not an object, compares as
+/// `null`: `eq` and `neq` then split every array in two, as `not_exists`
+/// and `exists` do, and `neq` is the exact negation of `eq` (IF-223).
+/// Ordering and `contains` have no result for a value of another type and
+/// exclude the item.
 fn filter_match(
     item: &serde_json::Value,
     field: &str,
     op: &str,
-    compare_value: Option<&serde_json::Value>,
+    compare_value: &serde_json::Value,
 ) -> bool {
-    let field_value = item.get(field);
+    let field_value = item.get(field).unwrap_or(&serde_json::Value::Null);
     match op {
-        "exists" => field_value.is_some_and(|value| !value.is_null()),
-        "not_exists" => field_value.is_none_or(serde_json::Value::is_null),
-        _ => compare(field_value, op, compare_value),
-    }
-}
-
-fn compare(
-    field_value: Option<&serde_json::Value>,
-    op: &str,
-    compare_value: Option<&serde_json::Value>,
-) -> bool {
-    let Some((field_value, compare_value)) = field_value.zip(compare_value) else {
-        return false;
-    };
-    match op {
+        "exists" => !field_value.is_null(),
+        "not_exists" => field_value.is_null(),
         "eq" => json_equal(field_value, compare_value),
         "neq" => !json_equal(field_value, compare_value),
         "gt" => numeric_pair(field_value, compare_value).is_some_and(|(a, b)| a > b),

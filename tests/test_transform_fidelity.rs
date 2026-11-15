@@ -394,10 +394,13 @@ async fn data_filter_equality_keeps_types_and_large_integers_apart() {
             .unwrap(),
         json!([])
     );
-    // An item without the field matches neither `eq` nor `neq`.
+    // `neq` is the negation of `eq`, so it includes the item without the
+    // field (IF-223); it used to match neither operator.
     assert_eq!(
         filter(items, "neq", json!(5)).await.unwrap(),
-        json!([{"qty": "5"}, {"qty": true}, {"qty": 9007199254740993_i64}, {"qty": null}])
+        json!([
+            {"qty": "5"}, {"qty": true}, {"qty": 9007199254740993_i64}, {"qty": null}, {}
+        ])
     );
 }
 

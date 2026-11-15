@@ -562,6 +562,18 @@ publication is verified separately.
   unchanged. `csv_parse` returns the apostrophe as part of the text. A
   consumer that needs raw cells sets the new `escape_formulas = false`. See
   [`csv_stringify`](../nodes/csv_stringify.md#formula-cells).
+- **`data_filter` `neq` now matches items that do not have the field**
+  (IF-223). An item without `field` matched neither `eq` nor `neq`. `neq` is
+  now the exact negation of `eq`, as `!=` is for guards since IF-187, and a
+  missing field compares as `null`: `op = "neq", value = "closed"` also
+  returns items that have no such field, and `eq` with `value = json_null`
+  returns the items `not_exists` does. Review `neq` filters over arrays whose
+  items may lack the field; add an `exists` filter first to keep the old
+  result. `eq`, `neq`, `gt`, `lt`, `gte`, `lte` and `contains` without a
+  `value` (a Lua `nil`) returned an empty array and now fail the step. The
+  ordering operators and `contains` still exclude an item whose field is
+  missing or of another type. See
+  [`data_filter`](../nodes/data_filter.md#items-without-the-field).
 - **Extracted text changes for some PDF, DOCX and PPTX documents** (IF-193).
   Review stored extractions, embeddings and assertions that depend on the
   earlier output:
