@@ -90,7 +90,7 @@ extracted file gets `0666` masked by the process umask (`0644` under umask
 because the archive says so; set executable bits in a later step when a flow
 needs them. With `overwrite = true` a replaced file keeps the permission bits
 it already had. Each file is mode `0600` while it is staged, and created
-directories are `0755` masked by the umask. Other platforms use their native
+directories are [`0755` masked by the process umask](write_file.md#created-directories). Other platforms use their native
 permission semantics.
 
 ## Cancellation and partial output

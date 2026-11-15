@@ -22,6 +22,8 @@ as `write_file`. The copy runs on a tracked blocking worker and is bounded by
   before staging. Unix pins the resolved directory, so retargeting the alias
   afterward cannot redirect the copy. This is not permission to follow a
   destination-file symlink.
+- On Unix, missing parent directories are created
+  [`0755` masked by the process umask](write_file.md#created-directories).
 - A destination-file symlink, dangling link or special file is refused and its
   target is never opened or truncated. An existing regular destination is
   replaced only after a complete, flushed and synced copy.

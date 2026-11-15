@@ -12,6 +12,14 @@ use anyhow::{Context, Result};
 pub(super) type Mode = libc::mode_t;
 const PERMISSION_BITS: Mode = 0o777;
 
+/// The mode requested for a parent directory a file node creates, before the
+/// process umask is applied. Deliberately `0755`, not the `0777` of a plain
+/// `mkdir` (IF-218): a permissive umask such as `002` then never yields a
+/// group-writable directory, in which a group member could replace the files
+/// the node publishes. Operators who need a wider mode create the directory
+/// themselves; an existing directory is used as it is.
+const CREATED_DIRECTORY_MODE: Mode = 0o755;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum LeafKind {
     Missing,
@@ -41,7 +49,9 @@ pub(super) fn open_or_create_directory(
     match open_directory_at(parent, &name_c) {
         Ok(directory) => Ok(directory),
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            let created = unsafe { libc::mkdirat(parent.as_raw_fd(), name_c.as_ptr(), 0o755) };
+            let created = unsafe {
+                libc::mkdirat(parent.as_raw_fd(), name_c.as_ptr(), CREATED_DIRECTORY_MODE)
+            };
             if created != 0 {
                 let create_error = io::Error::last_os_error();
                 if create_error.kind() != io::ErrorKind::AlreadyExists {

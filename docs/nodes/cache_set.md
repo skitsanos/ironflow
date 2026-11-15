@@ -31,7 +31,8 @@ different files instead of replacing each other. Rewriting the same logical key
 replaces its cached value: the record is staged in a temporary sibling file and
 renamed over the entry, so a concurrent `cache_get` never reads a partial
 record, and a symlink at the entry name fails the step instead of being
-followed.
+followed. On Unix a missing cache directory is created
+[`0755` masked by the process umask](write_file.md#created-directories).
 
 Legacy root-level sanitized filenames are left untouched. They are not migrated
 or used as a fallback; workflows repopulate the new namespace on a miss. See

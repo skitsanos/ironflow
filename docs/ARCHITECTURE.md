@@ -1460,6 +1460,11 @@ running under the same OS identity from mutating the leased inode.
   `pdf_merge`, `pdf_split` (both modes, IF-218) and the Markdown document
   nodes use the same rooted writer directly and create missing parent
   directories.
+- On Unix a parent directory created by the rooted writer is requested as
+  `0755` and masked by the umask, not as the `0777` of a plain `mkdir`
+  (IF-218, decided; first measured in IF-185). A permissive umask therefore
+  never produces a group-writable output directory. Existing directories are
+  used as they are.
 - On Unix the staged file is mode `0600` while it is written and receives
   its published mode at commit, immediately before the rename (IF-185): the
   permission bits of the regular file it replaces, or for a new file the mode

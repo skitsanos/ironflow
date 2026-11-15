@@ -61,7 +61,8 @@ followed.
 
 On Unix a new archive gets `0666` masked by the process umask (`0644` under
 umask `022`) and a replaced archive keeps its permission bits; the temporary
-file is mode `0600` until it is published.
+file is mode `0600` until it is published. Missing parent directories of
+`zip_path` are created [`0755` masked by the process umask](write_file.md#created-directories).
 
 Each archive entry records the permission bits of its source file (`rwx` for
 owner, group and other), so an executable script is stored as `0755` and a

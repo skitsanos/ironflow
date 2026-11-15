@@ -57,7 +57,8 @@ keeps its permission bits; the staged file is mode `0600` until it is
 published.
 
 Configured parent-directory aliases for `output_path`, including macOS `/tmp`,
-are resolved before staging and missing parent directories are created. Unix
+are resolved before staging and missing parent directories are created
+([`0755` masked by the process umask](write_file.md#created-directories) on Unix). Unix
 pins the resolved directory, so retargeting the alias afterward cannot redirect
 the write. This is not permission to follow a destination-file symlink.
 

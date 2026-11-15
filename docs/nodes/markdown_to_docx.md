@@ -37,5 +37,7 @@ Outputs are `docx` (path), `docx_success` and `docx_metadata`. The metadata's
 `pages` is JSON null, not a guessed page count. Existing output files require
 explicit `overwrite = true`. On Unix a new document gets `0666` masked by the
 process umask (`0644` under umask `022`) and a replaced one keeps its
-permission bits; the staged file is mode `0600` until it is published. Use [markdown_to_pdf](markdown_to_pdf.md) for
+permission bits; the staged file is mode `0600` until it is published.
+Missing parent directories are created
+[`0755` masked by the process umask](write_file.md#created-directories). Use [markdown_to_pdf](markdown_to_pdf.md) for
 fixed-layout searchable PDF output.

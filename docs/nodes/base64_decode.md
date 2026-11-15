@@ -36,7 +36,7 @@ decoded payload is never held in memory; only the text output path (no
 
 Valid directory aliases (including macOS `/tmp`) are accepted, but destination
 file symlinks and special files are refused. Missing parent directories are
-created. An existing regular file is replaced only after a complete, synced
+created ([`0755` masked by the process umask](write_file.md#created-directories) on Unix). An existing regular file is replaced only after a complete, synced
 write; malformed input, byte-limit, cancellation or write failure preserves it
 and removes temporary output. On Unix a new file gets `0666` masked by the
 process umask and a replaced file keeps its permission bits, as described for

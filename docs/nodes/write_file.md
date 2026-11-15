@@ -45,9 +45,8 @@ The accepted and rejected forms are shown in
   umask `022`). Overwrite and append keep the existing file's nine permission
   bits, so an appended `0755` script stays executable; setuid, setgid and
   sticky bits are not carried, and the replacement is owned by the IronFlow
-  process. The staged file is mode `0600` until it is published, and missing
-  parent directories are created `0755` masked by the umask. Other platforms
-  use their native permission semantics.
+  process. The staged file is mode `0600` until it is published. Other
+  platforms use their native permission semantics.
 - Writes to one destination are serialized inside the IronFlow process. Each
   write, overwrite or append, including `copy_file` and the `base64_decode`
   `output_file`, waits for the previous one to commit and observes
@@ -80,6 +79,22 @@ destination stays unchanged, and no `write_file_success` is returned. Idle body
 waits also poll cancellation every 100 ms; this is a cooperative check interval,
 not a hard latency guarantee for filesystem operations. See the
 [artifact lifecycle](../ARCHITECTURE.md#binary-artifacts) for the shared contract.
+
+## Created directories
+
+Missing parent directories are created by every node that writes through the
+rooted writer: `write_file`, `copy_file`, `move_file`, `base64_decode` with
+`output_file`, `zip_create`, `zip_extract`, `pdf_merge`, `pdf_split`,
+`markdown_to_pdf`, `markdown_to_docx` and `cache_set` with the file backend.
+On Unix each created directory gets `0755` masked by the process umask: `0755`
+under umask `022` or `002`, `0750` under `027`, `0700` under `077`. This is a
+deliberate contract (IF-218), narrower than the `0777` a plain `mkdir`
+requests: a permissive umask never yields a group- or world-writable
+directory, in which another user could replace the files a node publishes.
+Published files still get `0666` masked by the umask. A directory that already
+exists is used with the mode it has, so create it beforehand with the mode you
+need, for example a setgid group-writable directory for shared output. Other
+platforms use their native permission semantics.
 
 ## Context output
 

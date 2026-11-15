@@ -770,6 +770,16 @@ publication is verified separately.
   group- or world-readable on disk is stored that way: restrict the source,
   or the directory the archive is unpacked into, when that matters.
   `zip_extract` still ignores stored modes.
+- **Directories created by file nodes are `0755` masked by the umask, by
+  contract** (IF-218). This has been the behaviour of the staged writer since
+  it was introduced and is now documented for `write_file`, `copy_file`,
+  `move_file`, `base64_decode`, `zip_create`, `zip_extract`, `pdf_merge`,
+  `pdf_split`, `markdown_to_pdf`, `markdown_to_docx` and the file-backed
+  `cache_set`. Under umask `002` a created directory is `0755`, not `0775`:
+  a node never creates a group- or world-writable directory. Create shared
+  output directories beforehand with the mode they need; an existing
+  directory is used unchanged. See
+  [Created directories](../nodes/write_file.md#created-directories).
 - **`s3_list_objects` cannot be kept paging by an endpoint** (IF-189). A
   truncated page without a continuation token used to restart the listing
   from the first page without end. That response, a repeated token, a page

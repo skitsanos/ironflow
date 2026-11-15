@@ -69,7 +69,7 @@ a dangling one) or a nonregular file is refused and the step fails; pages
 published before it remain. Before IF-218 a symlinked destination was followed
 and its target overwritten. On Unix a new page file gets `0666` masked by the
 process umask, a replaced file keeps its permission bits, and a missing
-`output_dir` is created with `0755` masked by the umask. Each page file is
+`output_dir` is created [`0755` masked by the process umask](write_file.md#created-directories), in both modes. Each page file is
 capped by `IRONFLOW_MAX_PDF_BYTES` while it is serialized. As with groups,
 this is per-file atomicity, not an all-or-nothing batch.
 
