@@ -4,6 +4,9 @@ flows_dir: /data/flows
 allow_adhoc_flows: false
 allow_unauthenticated_api: true
 replica_mode: true
+# To confine flow-chosen destinations on every replica, set
+# IRONFLOW_BLOCK_PRIVATE_NETWORK=true (and IRONFLOW_PRIVATE_NETWORK_ALLOWLIST for
+# internal services flows may call). The state and event stores are not affected.
 # Set IRONFLOW_STORE=postgres and IRONFLOW_EVENT_STORE=postgres in the deployment.
 # Both SQL URL settings must use postgres:// or postgresql://, never sqlite:.
 

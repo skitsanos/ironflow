@@ -177,6 +177,11 @@ inside the container; the port mapping exposes it only on your host's
 `127.0.0.1:3000`. The explicit unauthenticated setting is for this local demo.
 For a hosted server, set `IRONFLOW_API_KEY` and follow the
 [authentication reference](CLI_REFERENCE.md#api-authentication).
+A hosted server that runs flows it did not write should also set
+`IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, so a flow cannot reach loopback,
+private or cloud metadata addresses, and list the internal services flows
+may call in `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST`; see
+[Outbound destinations](SECURITY.md#outbound-destinations).
 
 In a second terminal, run `curl --fail http://127.0.0.1:3000/health/ready`, then
 try the [Quick Start API request](../README.md#try-the-rest-api).

@@ -100,6 +100,12 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 - **Artifact-native HTTP** — stream verified binary uploads, multipart payloads,
   and binary responses without Base64 or lossy UTF-8 conversion, with explicit
   proxy selection and DNS-aware private-network enforcement
+- **Outbound destination policy** — `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`
+  refuses loopback, private, link-local and metadata addresses for every
+  node that connects to a flow-chosen destination (HTTP, LLM and embedding
+  providers, MCP, S3, SMTP, databases), with DNS answers validated and
+  pinned; `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` names the internal services
+  that stay reachable. See [Security](docs/SECURITY.md#outbound-destinations)
 - **REST API** — run and manage flows over HTTP (Axum-based)
 - **Optional static frontend** — serve a configured public directory from the
   same origin as the API, with streamed files, cache validators, ranges, and a
@@ -214,6 +220,13 @@ or a discovered default file that exists, must be readable and valid. The
 whole file is parsed before any values are applied, tracing, or the final
 source-aware CLI parse, so dotenv can configure `RUST_LOG`, CLI environment aliases,
 runtime limits, and Lua `env()` calls without partial startup state.
+
+A server that runs flows it did not write can be confined with
+`IRONFLOW_BLOCK_PRIVATE_NETWORK=true` (`block_private_network` in
+`ironflow.yaml`). It is off by default. With it on, a model server or
+database on a loopback or private address must be listed in
+`IRONFLOW_PRIVATE_NETWORK_ALLOWLIST`, for example `127.0.0.1:11434` for a
+local Ollama; see [Outbound destinations](docs/SECURITY.md#outbound-destinations).
 
 The repository's [`.env.example`](.env.example) contains safe starter values.
 See the [CLI reference](docs/CLI_REFERENCE.md#configuration-resolution) for the

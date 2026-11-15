@@ -35,6 +35,16 @@ store_backend: "json"     # IRONFLOW_STORE: json, sqlite, postgres, or redis
 # cors_origins:                    # IRONFLOW_CORS_ORIGINS (comma-separated)
 #   - "https://app.example.com"
 
+# Outbound destination policy. `true` refuses localhost and every address that
+# is not a public unicast destination for every node that connects to a
+# flow-chosen destination; a flow cannot turn it off. The allowlist names the
+# internal destinations that stay reachable: host names, host:port, addresses
+# and CIDR ranges. A malformed entry stops startup. See docs/SECURITY.md.
+# block_private_network: false     # IRONFLOW_BLOCK_PRIVATE_NETWORK
+# private_network_allowlist:       # IRONFLOW_PRIVATE_NETWORK_ALLOWLIST (comma-separated)
+#   - "127.0.0.1:11434"            # a model server on this host
+#   - "db.internal:5432"
+
 # Optional same-origin public frontend. Presence enables static hosting;
 # relative directories resolve from the process working directory. The root
 # index must exist before `ironflow serve` starts.

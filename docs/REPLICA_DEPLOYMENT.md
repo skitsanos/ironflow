@@ -129,6 +129,19 @@ or remove the variable from the service to use the `ironflow.yaml` value or
 the default. In compose, prefer `${NAME:?NAME is required}` for secrets so
 the failure appears before the container starts.
 
+## Outbound destination policy
+
+`IRONFLOW_BLOCK_PRIVATE_NETWORK` and `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` are
+process settings: a run is refused or allowed a destination by the replica
+that executes the step. Give every replica the same values, or a retried
+step can behave differently on another replica. The policy applies to
+destinations a flow chooses (HTTP, provider, MCP, S3, SMTP and database
+nodes); the shared state store, event store and artifact store of the
+deployment are operator configuration and are never checked, so they need
+no allowlist entry. A present but empty value of either variable stops the
+replica at startup, like the variables above. See
+[Outbound destinations](SECURITY.md#outbound-destinations).
+
 ## Failure semantics
 
 An executing process owns its run through a fenced durable lease. A live owner

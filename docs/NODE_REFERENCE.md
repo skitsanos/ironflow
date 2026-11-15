@@ -4,6 +4,12 @@ Complete reference for all 105 built-in nodes. Click any node name for full docu
 
 For adding or maintaining node implementations, see [Node Contributor Manual](NODE_CONTRIBUTING.md).
 
+Nodes that connect to a destination the flow chooses (HTTP, S3 and S3 Vectors,
+notification, database, AI and MCP nodes) are subject to the operator's
+[outbound destination policy](SECURITY.md#outbound-destinations): with
+`IRONFLOW_BLOCK_PRIVATE_NETWORK=true` they refuse private, loopback and
+metadata addresses that are not in `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST`.
+
 ---
 
 ## HTTP Nodes

@@ -317,6 +317,15 @@ to a comma-separated list of variable names to restrict it: when set, `env()`
 returns `nil` for any name not on the list, so flows cannot read (or exfiltrate)
 credentials the deployment did not explicitly expose.
 
+An operator can also restrict where nodes connect. With
+`IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, a step that names `localhost` or a
+private, loopback, link-local or metadata address fails with `blocked:
+target is a private network address` before any connection, unless the
+operator listed the destination in `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST`. A
+flow cannot change either setting; on the `http_*` nodes
+`block_private_network = true` adds the same guard for one step. See
+[Outbound destinations](SECURITY.md#outbound-destinations).
+
 ```lua
 local api_key = env("API_KEY")
 local db_url = env("DATABASE_URL") or "sqlite://default.db"
