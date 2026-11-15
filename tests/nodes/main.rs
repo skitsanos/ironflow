@@ -44,6 +44,8 @@ mod test_xml_yaml_nodes;
 mod test_yaml_nodes;
 #[path = "../test_zip_cancellation.rs"]
 mod test_zip_cancellation;
+#[path = "../test_zip_entry_modes.rs"]
+mod test_zip_entry_modes;
 #[path = "../test_zip_limits.rs"]
 mod test_zip_limits;
 #[path = "../test_zip_metadata.rs"]

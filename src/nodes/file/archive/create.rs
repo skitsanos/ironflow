@@ -55,11 +55,11 @@ pub(super) fn create_zip_archive(
         let mut writer = zip::ZipWriter::new(staged.writer());
         for entry in entries {
             execution.checkpoint()?;
+            let mut file = open_regular_file(&entry.path, "zip_create")?;
             let options = zip::write::SimpleFileOptions::default()
                 .compression_method(compression)
-                .unix_permissions(0o600);
+                .unix_permissions(entry_permissions(&file)?);
             writer.start_file(&entry.archive_name, options)?;
-            let mut file = open_regular_file(&entry.path, "zip_create")?;
             let remaining = limits
                 .max_total_uncompressed_bytes
                 .saturating_sub(actual_total);
@@ -74,6 +74,22 @@ pub(super) fn create_zip_archive(
     execution.checkpoint()?;
     staged.commit()?;
     Ok(files_count)
+}
+
+/// The permission bits recorded for one archive entry (IF-218): the nine
+/// `rwx` bits of the opened source file, read from the handle so they belong
+/// to the bytes that are copied. Setuid, setgid and sticky bits are never
+/// recorded.
+#[cfg(unix)]
+fn entry_permissions(file: &fs::File) -> Result<u32> {
+    use std::os::unix::fs::PermissionsExt;
+    Ok(file.metadata()?.permissions().mode() & 0o777)
+}
+
+/// Platforms without Unix modes keep the owner-only value recorded before.
+#[cfg(not(unix))]
+fn entry_permissions(_file: &fs::File) -> Result<u32> {
+    Ok(0o600)
 }
 
 fn collect_entries(

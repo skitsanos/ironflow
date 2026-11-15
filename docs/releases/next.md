@@ -762,6 +762,14 @@ publication is verified separately.
   instead of overwriting the link's target. The record format and file names
   are unchanged; on Unix a missing cache directory is created `0755` masked
   by the umask.
+- **`zip_create` records each source file's permission bits** (IF-218). On
+  Unix every entry was stored with mode `0600`, so scripts lost their execute
+  bit and shared files became owner-only when the archive was unpacked with
+  another tool. An entry now carries the nine permission bits of its source
+  file; setuid, setgid and sticky bits are never recorded. A file that was
+  group- or world-readable on disk is stored that way: restrict the source,
+  or the directory the archive is unpacked into, when that matters.
+  `zip_extract` still ignores stored modes.
 - **`s3_list_objects` cannot be kept paging by an endpoint** (IF-189). A
   truncated page without a continuation token used to restart the listing
   from the first page without end. That response, a repeated token, a page
