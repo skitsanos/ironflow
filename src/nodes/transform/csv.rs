@@ -1,3 +1,4 @@
+mod formula;
 mod parse;
 mod stringify;
 mod value;

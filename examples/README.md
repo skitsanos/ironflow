@@ -54,7 +54,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **filter_and_batch.lua** — Filter by condition and by numeric equality, deduplicate, split into batches
 - **foreach_function.lua** — Iterate over arrays with a Lua function transform
 - **json_extract_path.lua** — Extract values by JSON path from API responses and parsed JSON
-- **csv_parse_stringify.lua** — Parse CSV text with type inference that keeps identifiers as text, and write back canonical CSV
+- **csv_parse_stringify.lua** — Parse CSV text with type inference that keeps identifiers as text, and write back canonical CSV with formula-like text neutralized for spreadsheets
 
 ## 03-control-flow
 - **conditional_routing.lua** — `if_node` with true/false route branching

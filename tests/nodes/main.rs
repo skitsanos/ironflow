@@ -12,6 +12,8 @@ mod test_base64_write_safety;
 mod test_cache_file_atomic;
 #[path = "../test_copy_move_file_safety.rs"]
 mod test_copy_move_file_safety;
+#[path = "../test_csv_formula.rs"]
+mod test_csv_formula;
 #[path = "../test_date_node.rs"]
 mod test_date_node;
 #[path = "../test_db_nodes.rs"]

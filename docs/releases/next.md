@@ -552,6 +552,16 @@ publication is verified separately.
   string: Lua arithmetic converts it as before, a comparison does not. See
   [`yaml_parse`](../nodes/yaml_parse.md#numbers-that-json-cannot-hold) and
   [`json_parse`](../nodes/json_parse.md#numbers).
+- **`csv_stringify` neutralizes formula cells by default** (IF-223). Text
+  that begins with `=`, `+`, `-`, `@`, a tab, a carriage return or a line
+  feed (or the full-width forms of the first four) was written unchanged, so
+  exported untrusted text opened as a formula in a spreadsheet. Such a cell,
+  header names included, is now written with a leading apostrophe:
+  `=1+1` becomes `'=1+1`, and so do `-`, `@user` and `+1 (555) 0100`. Number
+  values and text that is wholly one decimal number (`-5`, `+1.5e3`) are
+  unchanged. `csv_parse` returns the apostrophe as part of the text. A
+  consumer that needs raw cells sets the new `escape_formulas = false`. See
+  [`csv_stringify`](../nodes/csv_stringify.md#formula-cells).
 - **Extracted text changes for some PDF, DOCX and PPTX documents** (IF-193).
   Review stored extractions, embeddings and assertions that depend on the
   earlier output:
