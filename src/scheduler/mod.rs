@@ -26,6 +26,7 @@ use crate::storage::StateStore;
 
 use config::ScheduleConfig;
 
+pub(crate) use context::SCHEDULER_OWNED_CONTEXT_KEYS;
 pub(crate) use runtime::spawn_with_lifecycle;
 pub use runtime::{SchedulerTask, spawn};
 

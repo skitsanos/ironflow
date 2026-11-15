@@ -939,7 +939,10 @@ fail fast, and a wait that expires defers the occurrence. Nothing was parsed
 and no run exists, so the watermark stops before it and later ticks retry it,
 in order, until it starts or falls outside grace. The overlap check pages
 through at most 256 non-terminal runs and tolerates read failures, so it is a
-bounded best-effort guard rather than a distributed per-schedule lock. A claim
+bounded best-effort guard rather than a distributed per-schedule lock. It
+recognises a schedule's run by its deterministic run ID, recomputed from the
+schedule name and the `_schedule_instant` in the run's context, and not by
+the context keys alone, which API and webhook input may not define anyway. A claim
 backend error is different: the watermark stops before that instant and retries
 it on later ticks until it succeeds or falls outside grace.
 

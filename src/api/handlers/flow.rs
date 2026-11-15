@@ -73,6 +73,8 @@ pub async fn run_flow(
     if let Some(context) = &context {
         crate::util::json_depth::check_entries(context)
             .map_err(|error| AppError::BadRequest(format!("context: {error}")))?;
+        // Only the scheduler records schedule provenance (IF-203).
+        super::reserved_keys::reject_scheduler_context_keys(context, "Request")?;
     }
 
     reject_inline_source_when_disabled(&state, source.is_some() || source_base64.is_some())?;

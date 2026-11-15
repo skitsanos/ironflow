@@ -793,6 +793,14 @@ publication is verified separately.
   failed validation` and logs the errors. See
   [Ad-hoc Flow Execution](../CLI_REFERENCE.md#ad-hoc-flow-execution).
 
+- API requests and webhook bodies can no longer make a schedule skip its
+  instants (IF-203). The overlap check recognised a schedule's running run by
+  the `_schedule` context key alone, which a caller could set. It now
+  requires the run ID the scheduler derives for the occurrence, which API and
+  webhook runs never have, and `POST /flows/run` and webhooks answer `400`
+  for a context that defines `_schedule` or `_schedule_instant`. Remove those
+  keys from request contexts and webhook payloads; no other key is affected.
+
 - Starting a PostgreSQL replica no longer locks tables that running replicas
   use (IF-202). Every start used to take `ACCESS EXCLUSIVE` on the events
   table before checking its primary key, and to issue

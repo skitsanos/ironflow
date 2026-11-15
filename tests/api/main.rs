@@ -25,6 +25,8 @@ mod test_flow_run_validation;
 mod test_request_context_depth;
 #[path = "../test_run_id_api.rs"]
 mod test_run_id_api;
+#[path = "../test_scheduler_context_keys.rs"]
+mod test_scheduler_context_keys;
 #[path = "../test_serve_drain.rs"]
 mod test_serve_drain;
 #[path = "../test_webhook.rs"]

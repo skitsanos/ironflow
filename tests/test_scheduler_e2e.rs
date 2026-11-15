@@ -166,12 +166,15 @@ async fn overlap_detection_finds_a_non_terminal_run_of_the_same_schedule() {
     wait_for_terminal(&app.store, &run_id).await;
     assert!(app.executor.active_run("nightly").await.is_none());
 
-    // A run left non-terminal is.
+    // IF-203 (c): the context keys alone do not make a run the schedule's.
+    // A run under any other id is not an overlap, even when it copies both
+    // keys of the settled occurrence; only the occurrence's own
+    // deterministic run id is, and API and webhook runs never get one.
+    let settled = app.store.get_run_info(&run_id).await.unwrap();
     let mut ctx = Context::new();
-    ctx.insert(
-        SCHEDULE_CONTEXT_KEY.to_string(),
-        serde_json::json!("nightly"),
-    );
+    for key in [SCHEDULE_CONTEXT_KEY, "_schedule_instant"] {
+        ctx.insert(key.to_string(), settled.ctx[key].clone());
+    }
     app.store
         .init_run("stuck-run", "nightly_report", &ctx)
         .await
@@ -180,10 +183,7 @@ async fn overlap_detection_finds_a_non_terminal_run_of_the_same_schedule() {
         .set_run_status("stuck-run", ironflow::engine::types::RunStatus::Running)
         .await
         .unwrap();
-    assert_eq!(
-        app.executor.active_run("nightly").await.as_deref(),
-        Some("stuck-run")
-    );
+    assert!(app.executor.active_run("nightly").await.is_none());
 
     // Another schedule's non-terminal run is not this schedule's overlap.
     assert!(app.executor.active_run("other").await.is_none());

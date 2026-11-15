@@ -1156,6 +1156,13 @@ run record is created. A webhook whose configured flow is invalid answers
 `400` with `Webhook flow failed validation` and logs the errors at `WARN`,
 because that flow is server configuration and not the caller's input.
 
+A request `context` must not define `_schedule` or `_schedule_instant`. Those
+keys record which schedule occurrence started a run and only the scheduler
+writes them; a request that carries one is answered with `400` and
+`Request context must not define reserved key '<key>'`, before a run is
+created. A replay that carries the `Idempotency-Key` of an existing run still
+returns that run.
+
 That is the intended contract for a general-purpose engine — but it means an API
 key that can reach `/flows/run` can run any node, so it can read or write any
 path the server process can and execute shell commands. If your deployment
@@ -1209,8 +1216,9 @@ webhooks:
 - A forwarded value must contain at least eight non-whitespace bytes. Repeated
   or non-text values fail the request with `400` instead of becoming ambiguous
 - Webhook name is injected as `ctx._webhook`
-- Request bodies cannot define the reserved `_headers`, `_webhook`, or
-  `_flow_dir` context keys
+- Request bodies cannot define the reserved `_headers`, `_webhook`,
+  `_flow_dir`, `_schedule`, or `_schedule_instant` context keys; a body that
+  does is answered with `400` before the flow is loaded
 - A `signature` policy verifies an HMAC-SHA256 hex digest over the exact,
   bounded request body before JSON parsing, flow loading, or run creation
 - `secret_env` is resolved at server startup and must contain at least 16
@@ -1424,6 +1432,15 @@ nobody finds out about until 02:00.
 **Scheduled runs are ordinary runs.** They appear in `ironflow list`,
 `ironflow inspect`, and the events stream, and carry the schedule's name in
 their context under `_schedule`, so a run can be traced back to its trigger.
+`_schedule_instant` holds the occurrence. API requests and webhook bodies
+cannot set either key.
+
+**Overlap is decided by run identity.** An occurrence is skipped as
+overlapped while an earlier run of the same schedule is still pending or
+running. A run counts as the schedule's only when its run ID is the one the
+scheduler derives from the schedule name and the occurrence in its context.
+API and webhook runs always have a random or `idem-` run ID, so no caller can
+make a schedule skip by starting a long run that carries the schedule's name.
 
 **Multiple replicas.** Each instant is claimed through the state store and also
 derives a deterministic durable run ID from the schedule name and resolved

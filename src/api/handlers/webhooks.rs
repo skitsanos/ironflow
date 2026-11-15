@@ -55,13 +55,12 @@ pub async fn run_webhook(
     };
     crate::util::json_depth::check_entries(&initial_ctx)
         .map_err(|error| AppError::BadRequest(format!("webhook request body: {error}")))?;
-    for reserved in ["_headers", "_webhook", "_flow_dir"] {
-        if initial_ctx.contains_key(reserved) {
-            return Err(AppError::BadRequest(format!(
-                "Webhook request context must not define reserved key '{reserved}'"
-            )));
-        }
-    }
+    super::reserved_keys::reject_reserved_context_keys(
+        &initial_ctx,
+        "Webhook request",
+        &["_headers", "_webhook", "_flow_dir"],
+    )?;
+    super::reserved_keys::reject_scheduler_context_keys(&initial_ctx, "Webhook request")?;
     let execution_overlay = webhook
         .execution_overlay(&headers)
         .map_err(AppError::BadRequest)?;

@@ -4,6 +4,7 @@ use crate::engine::types::RunStatus;
 use crate::storage::{PageSize, RunCursor, RunListQuery, RunSummaryPage, StateStore};
 
 use super::context::SCHEDULE_CONTEXT_KEY;
+use super::identity::SCHEDULE_INSTANT_CONTEXT_KEY;
 
 /// Most non-terminal runs the overlap check will inspect.
 ///
@@ -65,12 +66,19 @@ async fn list_page(
         .ok()
 }
 
-/// The schedule name lives in the run's context, so the summary alone cannot
-/// answer this. An unreadable run is skipped rather than ending the scan.
+/// A run belongs to the schedule only under the run id the scheduler derives
+/// from the schedule name and the occurrence recorded in its context. The
+/// context keys alone prove nothing: any caller can store them, but API and
+/// webhook runs get a random or `idem-` id, never this digest (IF-203). An
+/// unreadable run is skipped rather than ending the scan.
 async fn belongs_to(store: &dyn StateStore, run_id: &str, schedule_name: &str) -> bool {
     match store.get_run_info(run_id).await {
         Ok(info) => {
-            info.ctx.get(SCHEDULE_CONTEXT_KEY).and_then(|v| v.as_str()) == Some(schedule_name)
+            let text = |key: &str| info.ctx.get(key).and_then(|value| value.as_str());
+            text(SCHEDULE_CONTEXT_KEY) == Some(schedule_name)
+                && text(SCHEDULE_INSTANT_CONTEXT_KEY).is_some_and(|instant| {
+                    super::identity::run_id(schedule_name, instant) == run_id
+                })
         }
         Err(error) => {
             tracing::debug!(
