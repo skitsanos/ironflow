@@ -8,8 +8,8 @@ use chrono::Utc;
 use tracing::info;
 
 use crate::engine::events::{RunEvent, RunEventType};
+use crate::engine::step_timing::retry_delay;
 use crate::engine::types::{Context, StepDefinition, TaskState, TaskStatus};
-use crate::util::duration::nonnegative_duration;
 
 use super::context::task_duration_ms;
 use super::deadline::StepDeadline;
@@ -149,8 +149,11 @@ pub(super) async fn wait_for_retry(
     deadline: StepDeadline,
     failure_output: Option<PreparedOutput>,
 ) -> Result<(), TaskRunError> {
-    let delay = step.retry.backoff_s * 2.0_f64.powi((attempt - 1) as i32);
-    info!(task = %step.name, delay_s = delay, "Waiting before retry");
+    // Computed before the task is recorded as running again: a wait that
+    // cannot be scheduled must leave the attempt's failure record in place
+    // instead of a task that no attempt will ever finish (IF-203).
+    let delay = retry_delay(step.retry.backoff_s, attempt).map_err(TaskRunError::workflow)?;
+    info!(task = %step.name, delay_s = delay.as_secs_f64(), "Waiting before retry");
     task_state.status = TaskStatus::Running;
     task_state.finished = None;
     runtime
@@ -158,8 +161,6 @@ pub(super) async fn wait_for_retry(
         .await
         .with_context(|| format!("Failed to persist task '{}' retry wait", step.name))
         .map_err(TaskRunError::infrastructure)?;
-    let delay =
-        nonnegative_duration(delay, "step retry backoff").map_err(TaskRunError::workflow)?;
     if deadline.sleep(delay).await.is_err() {
         let timeout_error = deadline.error_message(&step.name);
         // The attempt failure was already emitted. Replace the summary error

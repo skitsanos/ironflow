@@ -76,6 +76,14 @@ with `Step '<name>' retry count is too large (max 100)` before a run starts;
 the ceiling is fixed. Each failed attempt stores one error record of at most
 64 KiB, so the ceiling also bounds what a failing step adds to the store.
 
+Every wait the step could reach must be a duration the engine can schedule.
+The wait before retry *n* is `backoff × 2^(n-1)` seconds, so with a 1 second
+backoff the wait before retry 65 is 2^64 seconds, which is out of range:
+`:retries(100, 1)` fails validation with `Step '<name>' retry backoff is too
+large to schedule: the wait before retry 65 is not representable as a
+duration`, and `:retries(64, 1)` is accepted. A backoff of `0` is valid for
+any count.
+
 ## Timeout
 
 Set a per-step timeout:
@@ -93,6 +101,11 @@ exponential retry backoff. A retry starts only if its backoff completes before
 that deadline; the timeout error is persisted when the budget expires.
 Node-local timeouts such as `shell_command.timeout` and HTTP `timeout` remain
 independent upper bounds, but the shorter enclosing step budget wins.
+
+The timeout must be a finite number of seconds greater than zero that the
+process clock can schedule. A value beyond that, such as `:timeout(1e19)`,
+fails validation with `Step '<name>' timeout is too large to schedule`. Omit
+`timeout()` for a step with no budget of its own.
 
 Cancellation is cooperative and resource-specific:
 

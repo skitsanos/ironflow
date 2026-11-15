@@ -1,8 +1,10 @@
+mod options;
 mod phases;
 
 use std::collections::{BTreeSet, HashMap};
 
 use super::types::FlowDefinition;
+use options::validate_step_options;
 use phases::topological_phases;
 
 /// Validated execution graph, including failure-triggered recovery work.
@@ -43,54 +45,6 @@ impl ExecutionPlan {
             recovery_sources,
         })
     }
-}
-
-/// Upper bound on a step's retry count. A count near `u32::MAX` combined with
-/// `backoff(0)` produces a near-infinite retry storm (each attempt writes task
-/// state and publishes events), so counts beyond this are rejected at
-/// validation. Real workflows never need more than a handful of retries.
-const MAX_RETRY_COUNT: u32 = 100;
-
-fn validate_step_options(flow: &FlowDefinition) -> Vec<String> {
-    let mut errors = Vec::new();
-
-    for step in &flow.steps {
-        for (path, error) in crate::lua::interpolate::validate_value(&step.config) {
-            errors.push(format!("Step '{}' {path}: {error}", step.name));
-        }
-
-        if step.retry.max_retries > MAX_RETRY_COUNT {
-            errors.push(format!(
-                "Step '{}' retry count is too large (max {MAX_RETRY_COUNT})",
-                step.name
-            ));
-        }
-        if !step.retry.backoff_s.is_finite() || step.retry.backoff_s < 0.0 {
-            errors.push(format!(
-                "Step '{}' retry backoff must be a finite, non-negative number of seconds",
-                step.name
-            ));
-        }
-        if let Some(timeout) = step.timeout_s
-            && (!timeout.is_finite() || timeout <= 0.0)
-        {
-            errors.push(format!(
-                "Step '{}' timeout must be a finite number greater than zero",
-                step.name
-            ));
-        }
-        // A route is matched against `_route_<dep>` keys emitted by the step's
-        // dependencies, so a routed step with no dependencies can never match
-        // and is silently always skipped (IF-052).
-        if step.route.is_some() && step.dependencies.is_empty() {
-            errors.push(format!(
-                "Step '{}' declares a route but has no dependencies; a routed step must depend on the step that emits the route decision",
-                step.name
-            ));
-        }
-    }
-
-    errors
 }
 
 fn index_steps(

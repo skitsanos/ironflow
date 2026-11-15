@@ -68,6 +68,8 @@ mod test_runtime_limit_config;
 mod test_schema_reference_safety;
 #[path = "../test_shell_failure_contract.rs"]
 mod test_shell_failure_contract;
+#[path = "../test_step_option_bounds.rs"]
+mod test_step_option_bounds;
 #[path = "../test_step_timeout.rs"]
 mod test_step_timeout;
 #[path = "../test_structured_node_failure.rs"]

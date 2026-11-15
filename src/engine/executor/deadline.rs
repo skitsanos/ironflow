@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use tokio::time::Instant;
 
-use crate::util::duration::positive_duration;
+use crate::engine::step_timing::deadline_after;
 use crate::util::execution::{CooperativeWorkerSet, with_attempt_worker_set};
 
 /// One deadline shared by every execution attempt and retry backoff for a step.
@@ -22,10 +22,7 @@ impl StepDeadline {
             });
         };
 
-        let duration = positive_duration(timeout_s, "step timeout")?;
-        let expires_at = Instant::now()
-            .checked_add(duration)
-            .ok_or_else(|| anyhow::anyhow!("step timeout is too large to schedule"))?;
+        let expires_at = deadline_after(timeout_s)?;
 
         Ok(Self {
             expires_at: Some(expires_at),

@@ -770,6 +770,19 @@ publication is verified separately.
 
 ## Unreleased changes
 
+- A step timeout or retry backoff that cannot be scheduled now fails
+  validation (IF-203). `:timeout(1e19)` and `:retries(1, 2e19)` used to pass
+  `ironflow validate` and then end the run `stalled` with `execution ended
+  with non-terminal task state`. Validation now reports `Step '<name>' timeout
+  is too large to schedule` or `Step '<name>' retry backoff is too large to
+  schedule: the wait before retry <n> is not representable as a duration`, and
+  no run starts. The wait before retry *n* is `backoff × 2^(n-1)` seconds and
+  every wait up to the retry count is checked, so `:retries(100, 1)` is
+  refused (retry 65 would wait 2^64 seconds) while `:retries(64, 1)` and any
+  count with a zero backoff are accepted. A flow that is refused by this check
+  could not have completed those retries before. See
+  [Retries](../LUA_FLOW_GUIDE.md#retries).
+
 - Starting a PostgreSQL replica no longer locks tables that running replicas
   use (IF-202). Every start used to take `ACCESS EXCLUSIVE` on the events
   table before checking its primary key, and to issue
