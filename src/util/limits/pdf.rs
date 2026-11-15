@@ -24,6 +24,10 @@ pub(crate) const MAX_PDF_SPLIT_PAGES: Limit =
 /// Pixels rendered for one page (25 megapixels).
 pub(crate) const MAX_PDF_RENDER_PIXELS: Limit =
     Limit::positive("IRONFLOW_MAX_PDF_RENDER_PIXELS", 25_000_000);
+/// Drawing operations interpreted for one rendered page, counted before any
+/// pixel is rasterized.
+pub(crate) const MAX_PDF_RENDER_OPERATIONS: Limit =
+    Limit::positive("IRONFLOW_MAX_PDF_RENDER_OPERATIONS", 1_000_000);
 /// Rendering resolution in dots per inch.
 pub(crate) const MAX_PDF_DPI: Limit = Limit::positive("IRONFLOW_MAX_PDF_DPI", 300);
 /// Sources admitted by one `pdf_merge` call.
@@ -68,6 +72,10 @@ pub fn max_pdf_split_pages() -> u64 {
 
 pub fn max_pdf_render_pixels() -> u64 {
     MAX_PDF_RENDER_PIXELS.read()
+}
+
+pub fn max_pdf_render_operations() -> u64 {
+    MAX_PDF_RENDER_OPERATIONS.read()
 }
 
 pub fn max_pdf_dpi() -> u64 {

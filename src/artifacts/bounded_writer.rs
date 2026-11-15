@@ -1,4 +1,4 @@
-// Only the Pdfium render worker streams artifacts today (`pdf-render`); the
+// Only the PDF render worker streams artifacts today (`pdf-render`); the
 // writer stays available, and tested, for the next streaming encoder.
 #![cfg_attr(not(feature = "pdf-render"), allow(dead_code))]
 

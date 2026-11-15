@@ -81,24 +81,6 @@ pub(crate) fn save_dynamic_image(
     )
 }
 
-#[cfg(feature = "pdf-render")]
-pub(crate) fn load_pdfium() -> Result<Box<dyn pdfium_render::prelude::PdfiumLibraryBindings>> {
-    use pdfium_render::prelude::*;
-    if let Ok(env_path) = std::env::var("PDFIUM_LIB_PATH") {
-        Pdfium::bind_to_library(env_path)
-            .map_err(|e| anyhow::anyhow!("Failed to load pdfium from PDFIUM_LIB_PATH: {:?}", e))
-    } else {
-        Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path("./"))
-            .or_else(|_| Pdfium::bind_to_system_library())
-            .map_err(|e| {
-                anyhow::anyhow!(
-                    "Failed to load pdfium library. Place libpdfium in the working directory or set PDFIUM_LIB_PATH. Error: {:?}",
-                    e
-                )
-            })
-    }
-}
-
 pub(crate) fn parse_positive_u32(value: u64, field: &str) -> Result<u32> {
     let n = u32::try_from(value).map_err(|_| {
         anyhow::anyhow!("{}: value {} is too large (max {})", field, value, u32::MAX)

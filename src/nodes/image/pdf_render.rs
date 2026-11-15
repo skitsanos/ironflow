@@ -1,3 +1,6 @@
+mod builtin;
+mod meter;
+mod preflight;
 mod worker;
 
 use anyhow::Result;
@@ -39,7 +42,7 @@ impl Node for PdfToImageNode {
     }
 
     fn description(&self) -> &str {
-        "Render PDF pages to disk-backed image artifacts (requires pdfium library)"
+        "Render PDF pages to disk-backed image artifacts"
     }
 
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
@@ -71,7 +74,7 @@ impl Node for PdfThumbnailNode {
     }
 
     fn description(&self) -> &str {
-        "Render one PDF page to a disk-backed image artifact (requires pdfium library)"
+        "Render one PDF page to a disk-backed image artifact"
     }
 
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {

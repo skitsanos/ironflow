@@ -156,6 +156,7 @@ pub(crate) const ALL: &[&Limit] = &[
     &pdf::MAX_PDF_RENDER_PAGES,
     &pdf::MAX_PDF_SPLIT_PAGES,
     &pdf::MAX_PDF_RENDER_PIXELS,
+    &pdf::MAX_PDF_RENDER_OPERATIONS,
     &pdf::MAX_PDF_DPI,
     &pdf::MAX_PDF_MERGE_FILES,
     &pdf::MAX_PDF_MERGE_BYTES,

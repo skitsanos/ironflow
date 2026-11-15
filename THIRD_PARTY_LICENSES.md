@@ -9,7 +9,7 @@ tree, `OFL.txt` in the release archives, `fonts-OFL.txt` in the image).
 This file is generated from `Cargo.lock` by
 `bun --no-env-file scripts/third_party_notices.ts write`; do not edit it by
 hand. It covers every crate reachable from IronFlow through normal or build
-dependencies with all Cargo features enabled (539 crates), so it also lists
+dependencies with all Cargo features enabled (548 crates), so it also lists
 crates that only the `-full` archives and the container image include. Rows
 carry no version: the exact versions linked into a binary are those in the
 `Cargo.lock` of the source revision it was built from. Where a crate offers
@@ -26,6 +26,7 @@ at the listed source.
 
 | Crate | License | Used under | Source |
 | --- | --- | --- | --- |
+| ab_glyph_rasterizer | Apache-2.0 | Apache-2.0 | https://github.com/alexheretic/ab-glyph |
 | adler2 | 0BSD OR MIT OR Apache-2.0 | MIT | https://github.com/oyvindln/adler2 |
 | aes | MIT OR Apache-2.0 | MIT | https://github.com/RustCrypto/block-ciphers |
 | ahash | MIT OR Apache-2.0 | MIT | https://github.com/tkaitchuck/ahash |
@@ -90,6 +91,7 @@ at the listed source.
 | block-buffer | MIT OR Apache-2.0 | MIT | https://github.com/RustCrypto/utils |
 | block-padding | MIT OR Apache-2.0 | MIT | https://github.com/RustCrypto/utils |
 | borrow-or-share | MIT-0 | MIT-0 | https://github.com/yescallop/borrow-or-share |
+| brotli | BSD-3-Clause AND MIT | MIT, BSD-3-Clause | https://github.com/dropbox/rust-brotli |
 | brotli-decompressor | BSD-3-Clause/MIT | MIT | https://github.com/dropbox/rust-brotli-decompressor |
 | bstr | MIT OR Apache-2.0 | MIT | https://github.com/BurntSushi/bstr |
 | bumpalo | MIT OR Apache-2.0 | MIT | https://github.com/fitzgen/bumpalo |
@@ -118,12 +120,11 @@ at the listed source.
 | cmake | MIT OR Apache-2.0 | MIT | https://github.com/rust-lang/cmake-rs |
 | cmov | Apache-2.0 OR MIT | MIT | https://github.com/RustCrypto/utils |
 | codepage | Apache-2.0 OR MIT | MIT | https://github.com/hsivonen/codepage |
+| color | Apache-2.0 OR MIT | MIT | https://github.com/linebender/color |
 | color_quant | MIT | MIT | https://github.com/image-rs/color_quant.git |
 | colorchoice | MIT OR Apache-2.0 | MIT | https://github.com/rust-cli/anstyle.git |
 | combine | MIT | MIT | https://github.com/Marwes/combine |
 | comrak | BSD-2-Clause | BSD-2-Clause | https://github.com/kivikakk/comrak |
-| console_error_panic_hook | Apache-2.0/MIT | MIT | https://github.com/rustwasm/console_error_panic_hook |
-| console_log | MIT/Apache-2.0 | MIT | https://github.com/iamcodemaker/console_log |
 | const-oid | Apache-2.0 OR MIT | MIT | https://github.com/RustCrypto/formats |
 | constant_time_eq | CC0-1.0 OR MIT-0 OR Apache-2.0 | Apache-2.0 | https://codeberg.org/cesarb/constant_time_eq |
 | core-foundation | MIT OR Apache-2.0 | MIT | https://github.com/servo/core-foundation-rs |
@@ -205,12 +206,23 @@ at the listed source.
 | generic-array | MIT | MIT | https://github.com/fizyk20/generic-array.git |
 | getrandom | MIT OR Apache-2.0 | MIT | https://github.com/rust-random/getrandom |
 | gif | MIT OR Apache-2.0 | MIT | https://github.com/image-rs/image-gif |
+| glifo | Apache-2.0 OR MIT | MIT | https://github.com/linebender/vello |
 | group | MIT/Apache-2.0 | MIT | https://github.com/zkcrypto/group |
+| guillotiere | MIT/Apache-2.0 | MIT | https://github.com/nical/guillotiere |
 | h2 | MIT | MIT | https://github.com/hyperium/h2 |
 | half | MIT OR Apache-2.0 | MIT | https://github.com/VoidStarKat/half-rs |
 | harfrust | MIT | MIT | https://github.com/harfbuzz/harfrust |
 | hashbrown | MIT OR Apache-2.0 | MIT | https://github.com/rust-lang/hashbrown |
 | hashlink | MIT OR Apache-2.0 | MIT | https://github.com/djc/hashlink |
+| hayro | Apache-2.0 OR MIT | MIT | https://github.com/LaurenzV/hayro |
+| hayro-ccitt | Apache-2.0 OR MIT | MIT | https://github.com/LaurenzV/hayro |
+| hayro-cmap | Apache-2.0 OR MIT | MIT | https://github.com/LaurenzV/hayro |
+| hayro-font | Apache-2.0 OR MIT | MIT | https://github.com/LaurenzV/hayro |
+| hayro-interpret | Apache-2.0 OR MIT | MIT | https://github.com/LaurenzV/hayro |
+| hayro-jbig2 | Apache-2.0 OR MIT | MIT | https://github.com/LaurenzV/hayro |
+| hayro-jpeg2000 | Apache-2.0 OR MIT | MIT | https://github.com/LaurenzV/hayro |
+| hayro-postscript | Apache-2.0 OR MIT | MIT | https://github.com/LaurenzV/hayro |
+| hayro-syntax | Apache-2.0 OR MIT | MIT | https://github.com/LaurenzV/hayro |
 | heck | MIT OR Apache-2.0 | MIT | https://github.com/withoutboats/heck |
 | hex | MIT OR Apache-2.0 | MIT | https://github.com/KokaKiwi/rust-hex |
 | hkdf | MIT OR Apache-2.0 | MIT | https://github.com/RustCrypto/KDFs/ |
@@ -250,7 +262,6 @@ at the listed source.
 | inout | MIT OR Apache-2.0 | MIT | https://github.com/RustCrypto/utils |
 | ipnet | MIT OR Apache-2.0 | MIT | https://github.com/krisprice/ipnet |
 | is_terminal_polyfill | MIT OR Apache-2.0 | MIT | https://github.com/polyfill-rs/is_terminal_polyfill |
-| itertools | MIT OR Apache-2.0 | MIT | https://github.com/rust-itertools/itertools |
 | itoa | MIT OR Apache-2.0 | MIT | https://github.com/dtolnay/itoa |
 | jni | MIT OR Apache-2.0 | MIT | https://github.com/jni-rs/jni-rs |
 | jni-macros | MIT OR Apache-2.0 | MIT | https://github.com/jni-rs/jni-rs |
@@ -267,7 +278,6 @@ at the listed source.
 | lettre | MIT | MIT | https://github.com/lettre/lettre |
 | libbz2-rs-sys | bzip2-1.0.6 | bzip2-1.0.6 | https://github.com/trifectatechfoundation/libbzip2-rs |
 | libc | MIT OR Apache-2.0 | MIT | https://github.com/rust-lang/libc |
-| libloading | ISC | ISC | https://github.com/nagisa/rust_libloading/ |
 | libsqlite3-sys | MIT | MIT | https://github.com/rusqlite/rusqlite |
 | linebender_resource_handle | Apache-2.0 OR MIT | MIT | https://github.com/linebender/raw_resource_handle |
 | litemap | Unicode-3.0 | Unicode-3.0 | https://github.com/unicode-org/icu4x |
@@ -284,7 +294,6 @@ at the listed source.
 | markup5ever_rcdom | MIT OR Apache-2.0 | MIT | https://github.com/servo/html5ever |
 | matchers | MIT | MIT | https://github.com/hawkw/matchers |
 | matchit | MIT AND BSD-3-Clause | MIT, BSD-3-Clause | https://github.com/ibraheemdev/matchit |
-| maybe-owned | MIT OR Apache-2.0 | MIT | https://github.com/rustonaut/maybe-owned |
 | md-5 | MIT OR Apache-2.0 | MIT | https://github.com/RustCrypto/hashes |
 | memchr | Unlicense OR MIT | MIT | https://github.com/BurntSushi/memchr |
 | memchr-n | MIT OR Apache-2.0 | MIT | https://github.com/Dr-Emann/memchr_n |
@@ -328,16 +337,16 @@ at the listed source.
 | parley_engine | Apache-2.0 OR MIT | MIT | https://github.com/linebender/parley |
 | pbkdf2 | MIT OR Apache-2.0 | MIT | https://github.com/RustCrypto/password-hashes |
 | pdf-writer | MIT OR Apache-2.0 | MIT | https://github.com/typst/pdf-writer |
-| pdfium-render | MIT OR Apache-2.0 | MIT | https://github.com/ajrcarey/pdfium-render |
 | pem-rfc7468 | Apache-2.0 OR MIT | MIT | https://github.com/RustCrypto/formats |
+| peniko | Apache-2.0 OR MIT | MIT | https://github.com/linebender/peniko |
 | percent-encoding | MIT OR Apache-2.0 | MIT | https://github.com/servo/rust-url/ |
 | phf | MIT | MIT | https://github.com/rust-phf/rust-phf |
 | phf_codegen | MIT | MIT | https://github.com/rust-phf/rust-phf |
 | phf_generator | MIT | MIT | https://github.com/rust-phf/rust-phf |
 | phf_macros | MIT | MIT | https://github.com/rust-phf/rust-phf |
 | phf_shared | MIT | MIT | https://github.com/rust-phf/rust-phf |
+| pic-scale | BSD-3-Clause OR Apache-2.0 | Apache-2.0 | https://github.com/awxkee/pic-scale |
 | pin-project-lite | Apache-2.0 OR MIT | MIT | https://github.com/taiki-e/pin-project-lite |
-| piston-float | MIT | MIT | https://github.com/pistondevelopers/float.git |
 | pkcs8 | Apache-2.0 OR MIT | MIT | https://github.com/RustCrypto/formats |
 | pkg-config | MIT OR Apache-2.0 | MIT | https://github.com/rust-lang/pkg-config-rs |
 | png | MIT OR Apache-2.0 | MIT | https://github.com/image-rs/image-png |
@@ -490,14 +499,14 @@ at the listed source.
 | untrusted | ISC | ISC | https://github.com/briansmith/untrusted |
 | url | MIT OR Apache-2.0 | MIT | https://github.com/servo/rust-url |
 | urlencoding | MIT | MIT | https://github.com/kornelski/rust_urlencoding |
-| utf16string | MIT OR Apache-2.0 | MIT | https://github.com/getsentry/utf16string |
 | utf8_iter | Apache-2.0 OR MIT | MIT | https://github.com/hsivonen/utf8_iter |
 | utf8parse | Apache-2.0 OR MIT | MIT | https://github.com/alacritty/vte |
 | uuid | Apache-2.0 OR MIT | MIT | https://github.com/uuid-rs/uuid |
 | uuid-simd | MIT | MIT | https://github.com/Nugine/simd |
 | valuable | MIT | MIT | https://github.com/tokio-rs/valuable |
 | vcpkg | MIT/Apache-2.0 | MIT | https://github.com/mcgoo/vcpkg-rs |
-| vecmath | MIT | MIT | https://github.com/pistondevelopers/vecmath.git |
+| vello_common | Apache-2.0 OR MIT | MIT | https://github.com/linebender/vello |
+| vello_cpu | Apache-2.0 OR MIT | MIT | https://github.com/linebender/vello |
 | version_check | MIT/Apache-2.0 | MIT | https://github.com/SergioBenitez/version_check |
 | vsimd | MIT | MIT | https://github.com/Nugine/simd |
 | walkdir | Unlicense/MIT | MIT | https://github.com/BurntSushi/walkdir |
@@ -584,7 +593,7 @@ Each license below applies to the crates whose "Used under" column names it.
 
 ### MIT
 
-Used by 454 crates.
+Used by 462 crates.
 
 ```text
 MIT License
@@ -609,7 +618,7 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### Apache-2.0
 
-Used by 39 crates.
+Used by 41 crates.
 
 ```text
 Apache License
@@ -705,7 +714,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 
 ### BSD-3-Clause
 
-Used by 12 crates.
+Used by 13 crates.
 
 ```text
 Copyright (c) <year> <owner>.
@@ -723,7 +732,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 
 ### ISC
 
-Used by 6 crates.
+Used by 5 crates.
 
 ```text
 ISC License

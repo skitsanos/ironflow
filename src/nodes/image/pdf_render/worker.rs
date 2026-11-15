@@ -5,7 +5,8 @@ use crate::artifacts::{ArtifactRef, LocalArtifactStore};
 use crate::engine::types::NodeOutput;
 use crate::util::execution::ExecutionControl;
 
-use crate::nodes::image::common::{load_pdfium, open_pdf_file_capped, parse_pages_spec};
+use super::builtin::{self, Document};
+use crate::nodes::image::common::parse_pages_spec;
 
 struct RenderRequest {
     page_count: usize,
@@ -29,45 +30,41 @@ pub(super) fn render_pages(
     execution: &ExecutionControl,
 ) -> Result<NodeOutput> {
     execution.checkpoint()?;
-    let file = open_pdf_file_capped(&request.source, "pdf_to_image", execution)?;
-    let bindings = load_pdfium()?;
-    let pdfium = pdfium_render::prelude::Pdfium::new(bindings);
-    let document = pdfium
-        .load_pdf_from_reader(file, None)
-        .map_err(|error| anyhow::anyhow!("Failed to open verified PDF input: {error:?}"))?;
-    let page_count = document.pages().len() as usize;
-    let page_indices = parse_pages_spec(
-        &request.pages,
-        page_count,
-        crate::util::limits::max_pdf_render_pages(),
-        "pdf_to_image",
-        "IRONFLOW_MAX_PDF_RENDER_PAGES",
-    )?;
-    let store = LocalArtifactStore::from_env()?;
-    let mut images = Vec::new();
-    images.try_reserve_exact(page_indices.len())?;
-    for page_index in page_indices {
-        execution.checkpoint()?;
-        let rendered = render_pdf_page(
-            &document,
-            RenderRequest {
-                page_count,
-                page_index,
-                format: request.format,
-                width_hint: None,
-                height_hint: None,
-                max_side: None,
-                dpi: request.dpi,
-            },
-            &store,
-            execution,
+    builtin::with_document(&request.source, "pdf_to_image", execution, |renderer| {
+        let page_count = renderer.page_count();
+        let page_indices = parse_pages_spec(
+            &request.pages,
+            page_count,
+            crate::util::limits::max_pdf_render_pages(),
+            "pdf_to_image",
+            "IRONFLOW_MAX_PDF_RENDER_PAGES",
         )?;
-        images.push(image_json(page_index + 1, rendered)?);
-    }
-    Ok(NodeOutput::from([
-        (request.output_key, serde_json::Value::Array(images)),
-        ("page_count".to_owned(), serde_json::json!(page_count)),
-    ]))
+        let store = LocalArtifactStore::from_env()?;
+        let mut images = Vec::new();
+        images.try_reserve_exact(page_indices.len())?;
+        for page_index in page_indices {
+            execution.checkpoint()?;
+            let rendered = render_pdf_page(
+                renderer,
+                RenderRequest {
+                    page_count,
+                    page_index,
+                    format: request.format,
+                    width_hint: None,
+                    height_hint: None,
+                    max_side: None,
+                    dpi: request.dpi,
+                },
+                &store,
+                execution,
+            )?;
+            images.push(image_json(page_index + 1, rendered)?);
+        }
+        Ok(NodeOutput::from([
+            (request.output_key, serde_json::Value::Array(images)),
+            ("page_count".to_owned(), serde_json::json!(page_count)),
+        ]))
+    })
 }
 
 pub(super) fn render_thumbnail(
@@ -75,37 +72,33 @@ pub(super) fn render_thumbnail(
     execution: &ExecutionControl,
 ) -> Result<NodeOutput> {
     execution.checkpoint()?;
-    let file = open_pdf_file_capped(&request.source, "pdf_thumbnail", execution)?;
-    let bindings = load_pdfium()?;
-    let pdfium = pdfium_render::prelude::Pdfium::new(bindings);
-    let document = pdfium
-        .load_pdf_from_reader(file, None)
-        .map_err(|error| anyhow::anyhow!("Failed to open verified PDF input: {error:?}"))?;
-    let page_count = document.pages().len() as usize;
-    let store = LocalArtifactStore::from_env()?;
-    let rendered = render_pdf_page(
-        &document,
-        RenderRequest {
-            page_count,
-            page_index: request.page - 1,
-            format: request.format,
-            width_hint: request.width,
-            height_hint: request.height,
-            max_side: Some(request.max_side),
-            dpi: request.dpi,
-        },
-        &store,
-        execution,
-    )?;
-    let key = request.output_key;
-    Ok(NodeOutput::from([
-        (key.clone(), image_json(request.page, rendered)?),
-        (format!("{key}_count"), serde_json::json!(1)),
-    ]))
+    builtin::with_document(&request.source, "pdf_thumbnail", execution, |renderer| {
+        let page_count = renderer.page_count();
+        let store = LocalArtifactStore::from_env()?;
+        let rendered = render_pdf_page(
+            renderer,
+            RenderRequest {
+                page_count,
+                page_index: request.page - 1,
+                format: request.format,
+                width_hint: request.width,
+                height_hint: request.height,
+                max_side: Some(request.max_side),
+                dpi: request.dpi,
+            },
+            &store,
+            execution,
+        )?;
+        let key = request.output_key;
+        Ok(NodeOutput::from([
+            (key.clone(), image_json(request.page, rendered)?),
+            (format!("{key}_count"), serde_json::json!(1)),
+        ]))
+    })
 }
 
 fn render_pdf_page(
-    document: &pdfium_render::prelude::PdfDocument<'_>,
+    renderer: &mut Document<'_>,
     request: RenderRequest,
     store: &LocalArtifactStore,
     execution: &ExecutionControl,
@@ -118,30 +111,17 @@ fn render_pdf_page(
         );
     }
     execution.checkpoint()?;
-    let page_index = i32::try_from(request.page_index)
-        .map_err(|_| anyhow::anyhow!("page index {} is too large", request.page_index + 1))?;
-    let page = document.pages().get(page_index).map_err(|error| {
-        anyhow::anyhow!("Failed to get page {}: {error:?}", request.page_index + 1)
-    })?;
-    let page_width = (page.width().to_inches() * request.dpi).max(1.0);
-    let page_height = (page.height().to_inches() * request.dpi).max(1.0);
+    let (points_width, points_height) = renderer.page_points(request.page_index)?;
+    let page_width = (points_width / 72.0 * request.dpi).max(1.0);
+    let page_height = (points_height / 72.0 * request.dpi).max(1.0);
     let (width, height) = dimensions(page_width, page_height, &request);
     validate_pixels(width, height)?;
-    let config = pdfium_render::prelude::PdfRenderConfig::new()
-        .set_target_width(width as i32)
-        .set_target_height(height as i32);
-    let bitmap = page.render_with_config(&config).map_err(|error| {
-        anyhow::anyhow!(
-            "Failed to render page {}: {error:?}",
-            request.page_index + 1
-        )
-    })?;
-    let image = bitmap.as_image().map_err(|error| {
-        anyhow::anyhow!(
-            "Failed to convert page {} to image: {error:?}",
-            request.page_index + 1
-        )
-    })?;
+    let image = image::DynamicImage::ImageRgba8(renderer.render(
+        request.page_index,
+        width,
+        height,
+        execution,
+    )?);
     execution.checkpoint()?;
     let (format, mime_type) = if request.format == image::ImageFormat::Jpeg {
         ("jpeg", "image/jpeg")

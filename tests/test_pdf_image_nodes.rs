@@ -1,5 +1,5 @@
 //! `pdf_to_image` and `pdf_thumbnail` exist only with the default `pdf-render`
-//! feature (IF-164).
+//! feature (IF-164) and render without a native library (IF-194).
 #![cfg(feature = "pdf-render")]
 
 use base64::Engine;
@@ -43,11 +43,6 @@ fn ctx_with(pairs: Vec<(&str, serde_json::Value)>) -> Context {
     pairs.into_iter().map(|(k, v)| (k.to_string(), v)).collect()
 }
 
-fn is_pdfium_error(err: &anyhow::Error) -> bool {
-    let msg = err.to_string().to_lowercase();
-    msg.contains("pdfium") || msg.contains("failed to load")
-}
-
 fn sample_root() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/fixtures")
 }
@@ -81,15 +76,7 @@ async fn pdf_to_image_generates_artifact_pages() {
         "output_key": "images"
     });
 
-    let result = match node.execute(&config, &empty_ctx()).await {
-        Ok(result) => result,
-        Err(err) => {
-            if is_pdfium_error(&err) {
-                return;
-            }
-            panic!("unexpected error: {}", err);
-        }
-    };
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
 
     let images = result.get("images").unwrap().as_array().unwrap();
     assert_eq!(images.len(), 1);
@@ -98,7 +85,9 @@ async fn pdf_to_image_generates_artifact_pages() {
     assert_eq!(artifact.mime_type.as_deref(), Some("image/png"));
     assert!(images[0].get("image_base64").is_none());
     let store = ironflow::artifacts::LocalArtifactStore::new(artifact_dir).unwrap();
-    let rendered = image::open(store.resolve(&artifact).unwrap()).unwrap();
+    // Artifacts are stored by digest without an extension, so decode by content.
+    let bytes = std::fs::read(store.resolve(&artifact).unwrap()).unwrap();
+    let rendered = image::load_from_memory(&bytes).unwrap();
     assert_eq!(
         rendered.width(),
         images[0]["width"].as_u64().unwrap() as u32
@@ -142,15 +131,7 @@ async fn pdf_thumbnail_generates_one_thumbnail() {
         "output_key": "thumb"
     });
 
-    let result = match node.execute(&config, &empty_ctx()).await {
-        Ok(result) => result,
-        Err(err) => {
-            if is_pdfium_error(&err) {
-                return;
-            }
-            panic!("unexpected error: {}", err);
-        }
-    };
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
 
     let thumb = result.get("thumb").unwrap().as_object().unwrap();
     assert_eq!(result.get("thumb_count").unwrap().as_u64().unwrap(), 1);

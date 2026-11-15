@@ -78,7 +78,8 @@ lopdf = { version = "0.47", default-features = false, features = ["chrono"] }
 image = { version = "0.25.10", default-features = false, features = [
     "bmp", "ff", "gif", "hdr", "ico", "jpeg", "png", "pnm", "qoi", "tga", "tiff", "webp",
 ] }
-pdfium-render = { version = "0.9", optional = true }
+# Pure-Rust PDF rasterizer behind `pdf_to_image` and `pdf_thumbnail` (IF-194).
+hayro = { version = "0.9.0", optional = true }
 sqlx = { version = "0.9", features = ["runtime-tokio", "any", "sqlite"] }
 futures-util = "0.3"
 lettre = { version = "0.11.22", default-features = false, features = ["builder", "hostname", "pool", "smtp-transport", "tokio1", "tokio1-rustls-tls"] }
@@ -87,9 +88,10 @@ rustls = { version = "0.23", default-features = false, features = ["std", "ring"
 
 [features]
 default = ["pdf-render"]
-# `pdf_to_image` and `pdf_thumbnail` render through the Pdfium runtime library;
-# build without this feature to drop those two nodes and the binding crate.
-pdf-render = ["dep:pdfium-render"]
+# `pdf_to_image` and `pdf_thumbnail` render with the built-in pure-Rust
+# rasterizer and need no native library; build without this feature to drop
+# those two nodes and the rasterizer.
+pdf-render = ["dep:hayro"]
 # Embed Noto Sans CJK (about 29 MiB) for `markdown_to_pdf`. Without it, CJK text
 # needs a font supplied through IRONFLOW_FONT_DIR; see docs/MARKDOWN_DOCUMENTS.md.
 cjk-fonts = []

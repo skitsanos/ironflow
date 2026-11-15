@@ -116,9 +116,12 @@ describe("repository integration policy", () => {
 
   test("optional features stay real and every full variant carries all of them", async () => {
     const { dependencies, features } = Bun.TOML.parse(await read("Cargo.toml")) as Manifest;
-    // IF-164: pdf-render gates the Pdfium dependency; cjk-fonts is opt-in.
-    expect(dependencies["pdfium-render"].optional).toBeTrue();
-    expect(features["pdf-render"]).toEqual(["dep:pdfium-render"]);
+    // IF-164, IF-194: pdf-render gates the pure-Rust rasterizer, there is no
+    // native Pdfium binding, and cjk-fonts is opt-in.
+    expect(dependencies.hayro.optional).toBeTrue();
+    expect(dependencies["pdfium-render"]).toBeUndefined();
+    expect(features["pdf-render"]).toEqual(["dep:hayro"]);
+    expect(features["pdf-render-pdfium"]).toBeUndefined();
     expect(features["cjk-fonts"]).toEqual([]);
     expect(features.default).toEqual(["pdf-render"]);
     // The -full archives, the container image, the feature job and the local
