@@ -50,6 +50,17 @@ retrying a notification can send it again.
 - `{output_key}_data` — Response body (JSON parsed if possible, otherwise raw text).
 - `{output_key}_success` — `true` on HTTP 2xx success.
 
+## Outbound destination policy
+
+When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, this node
+refuses a destination that is not a public unicast address before it
+connects: a literal private, loopback or link-local address, `localhost`,
+and a host name whose DNS answer contains such an address. The validated
+answer is the one connected to, and the node connects directly, ignoring a
+system proxy. An internal destination must be listed by the operator in
+`IRONFLOW_PRIVATE_NETWORK_ALLOWLIST`; nothing in the flow can add one. See
+[Outbound destinations](../SECURITY.md#outbound-destinations).
+
 ## Example
 
 The runnable [Slack example](../../examples/14-notifications/slack_notification.lua)

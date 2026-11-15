@@ -86,3 +86,17 @@ pub(crate) async fn an_allowlisted_name_reaches_its_validated_answer(clients: Cl
         assert_eq!(listener.hits(), before, "{node} #{index}");
     }
 }
+
+/// These clients follow same-origin redirects only, so a hop to another
+/// address was already refused before IF-212; the guard adds its own check.
+pub(crate) async fn a_redirect_to_another_address_is_not_followed(clients: Clients) {
+    let target = Listener::ok();
+    let hop = Listener::redirect("307 Temporary Redirect", &target.url("127.0.0.1"));
+    let entry = format!("127.0.0.1:{}", hop.port);
+    for (node, config) in clients(&hop.url("127.0.0.1")) {
+        let result = with_policy(true, &[&entry], &[], run(node, config)).await;
+        assert!(result.is_err(), "{node}");
+    }
+    assert!(hop.hits() > 0);
+    assert_eq!(target.hits(), 0);
+}

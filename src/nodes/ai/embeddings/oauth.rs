@@ -107,6 +107,7 @@ pub(in crate::nodes::ai) async fn acquire_oauth_token(
         form_body.push_str(&format!("&scope={}", percent_encode(scope)));
     }
 
+    crate::util::outbound::ensure_url_allowed("embedding OAuth", oauth.token_url).await?;
     // The token URL, the form and the provider's reply can all carry
     // credentials, so errors name only the kind of failure.
     let response = client

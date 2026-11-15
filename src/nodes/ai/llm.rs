@@ -148,7 +148,9 @@ impl Node for LlmNode {
         };
         let body = build_body(&request_input)?;
 
-        let client = crate::util::provider_http::client_builder()
+        // The resolved endpoint, so an absolute custom path is checked too.
+        crate::util::outbound::ensure_url_allowed("llm", &url).await?;
+        let client = crate::util::provider_http::client_builder()?
             .timeout(positive_duration(timeout_s, "llm timeout")?)
             .build()?;
 

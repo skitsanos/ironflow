@@ -136,6 +136,18 @@ The `input_key` context value can be:
 - A **string** — embedded as a single text, returns one embedding
 - An **array of strings** — batch embedded, returns one embedding per text
 
+## Outbound destination policy
+
+When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, this node
+refuses a destination that is not a public unicast address before it
+connects: a literal private, loopback or link-local address, `localhost`,
+and a host name whose DNS answer contains such an address. The validated
+answer is the one connected to, and the node connects directly, ignoring a
+system proxy. The OAuth `token_url` is checked as well as the embedding endpoint. A local
+Ollama server needs an entry such as `127.0.0.1:11434`. An internal destination must be listed by the operator in
+`IRONFLOW_PRIVATE_NETWORK_ALLOWLIST`; nothing in the flow can add one. See
+[Outbound destinations](../SECURITY.md#outbound-destinations).
+
 ## Examples
 
 ### OpenAI embeddings

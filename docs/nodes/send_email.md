@@ -76,6 +76,17 @@ send the email again.
 | `SMTP_USERNAME` | SMTP authentication username |
 | `SMTP_PASSWORD` | SMTP authentication password |
 
+## Outbound destination policy
+
+When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, the Resend
+provider refuses an `api_url` that is not a public unicast destination
+before connecting: a literal private, loopback or link-local address,
+`localhost`, and a host name whose DNS answer contains such an address. The
+validated answer is the one connected to. An internal destination must be
+listed by the operator in `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST`; nothing in
+the flow can add one. The SMTP provider is not covered. See
+[Outbound destinations](../SECURITY.md#outbound-destinations).
+
 ## Examples
 
 ### Resend API

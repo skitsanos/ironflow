@@ -35,6 +35,7 @@ pub(super) struct Endpoint<'a> {
 
 impl Endpoint<'_> {
     pub(super) async fn request(&self, texts: &[String], retries: usize) -> Result<Vec<Vec<f64>>> {
+        crate::util::outbound::ensure_url_allowed("embedding", &self.url).await?;
         let future = self.request_with_retries(texts, retries);
         match crate::util::execution::current_execution_deadline() {
             Some(deadline) => {

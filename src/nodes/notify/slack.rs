@@ -77,7 +77,8 @@ impl Node for SlackNotificationNode {
             );
         }
 
-        let client = crate::util::provider_http::client_builder()
+        crate::util::outbound::ensure_url_allowed("slack_notification", &webhook_url).await?;
+        let client = crate::util::provider_http::client_builder()?
             .timeout(timeout)
             .build()
             .map_err(|error| {

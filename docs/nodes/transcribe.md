@@ -125,6 +125,17 @@ With the default `output_key` of `"transcript"`, the keys are `transcript`, `tra
 
 Errors from this node never contain the API key: the provider's raw error text is scanned for the exact key value sent on the request and any occurrence is replaced with `[REDACTED]`, in addition to the shared pattern-based credential redaction applied to transport and parse errors.
 
+## Outbound destination policy
+
+When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, this node
+refuses a destination that is not a public unicast address before it
+connects: a literal private, loopback or link-local address, `localhost`,
+and a host name whose DNS answer contains such an address. The validated
+answer is the one connected to, and the node connects directly, ignoring a
+system proxy. An internal destination must be listed by the operator in
+`IRONFLOW_PRIVATE_NETWORK_ALLOWLIST`; nothing in the flow can add one. See
+[Outbound destinations](../SECURITY.md#outbound-destinations).
+
 ## Examples
 
 ### OpenAI, plain text

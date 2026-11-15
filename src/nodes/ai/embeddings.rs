@@ -92,7 +92,7 @@ impl Node for AiEmbedNode {
             return Ok(build_output(output_key, Vec::new(), ""));
         }
 
-        let client = crate::util::provider_http::client_builder()
+        let client = crate::util::provider_http::client_builder()?
             .timeout(positive_duration(timeout_s, "ai_embed timeout")?)
             .build()?;
         let (embeddings, model) =

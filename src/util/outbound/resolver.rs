@@ -25,6 +25,9 @@ impl Resolve for GuardedResolver {
         let guard = self.guard.clone();
         let host = name.as_str().to_owned();
         Box::pin(async move {
+            if host == super::client::BLOCKED_HOST {
+                return Err(denied(super::Refusal::PrivateAddress));
+            }
             let addresses = guard.lookup(&host, 0).await?;
             let validated = guard.validate_answer(&host, addresses).map_err(denied)?;
             Ok(Box::new(validated.into_iter()) as Addrs)

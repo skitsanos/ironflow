@@ -193,6 +193,20 @@ those process limits. Artifact blocks are chat-only; Responses mode is
 unchanged. The selected provider must support OpenAI-compatible `image_url`
 content blocks.
 
+## Outbound destination policy
+
+When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, this node
+refuses a destination that is not a public unicast address before it
+connects: a literal private, loopback or link-local address, `localhost`,
+and a host name whose DNS answer contains such an address. The validated
+answer is the one connected to, and the node connects directly, ignoring a
+system proxy. The check applies to the resolved request URL, including an absolute
+`chat_path`, `responses_path` or `path` of the `custom` provider, which
+replaces `base_url`. A local model server needs an entry such as
+`127.0.0.1:11434`. An internal destination must be listed by the operator in
+`IRONFLOW_PRIVATE_NETWORK_ALLOWLIST`; nothing in the flow can add one. See
+[Outbound destinations](../SECURITY.md#outbound-destinations).
+
 ## Examples
 
 ### OpenAI Chat (simple)

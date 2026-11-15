@@ -64,6 +64,9 @@ struct Case {
     connects: bool,
 }
 
+const EMAIL: &str =
+    r#"from = "a@example.com", to = "b@example.com", subject = "s", text = "t", timeout = 5"#;
+
 fn case(name: &'static str, step: &'static str) -> Case {
     Case {
         name,
@@ -73,7 +76,9 @@ fn case(name: &'static str, step: &'static str) -> Case {
 }
 
 fn cases() -> Vec<Case> {
-    http_cases()
+    let mut cases = http_cases();
+    cases.extend(provider_cases());
+    cases
 }
 
 /// The `http_*` nodes.
@@ -86,6 +91,74 @@ fn http_cases() -> Vec<Case> {
         case(
             "http_request",
             r#"nodes.http_request({ method = "POST", url = "%URL%/x", timeout = 5 })"#,
+        ),
+    ]
+}
+
+/// Nodes behind the shared provider client.
+fn provider_cases() -> Vec<Case> {
+    vec![
+        case(
+            "slack_notification",
+            r#"nodes.slack_notification({ webhook_url = "%URL%/hook", text = "hi", timeout = 5 })"#,
+        ),
+        case(
+            "send_email resend",
+            r#"nodes.send_email({ provider = "resend", api_key = "re_made_up_key",
+                api_url = "%URL%/emails", %EMAIL% })"#,
+        ),
+        case(
+            "llm custom base_url",
+            r#"nodes.llm({ provider = "custom", base_url = "%URL%", model = "m",
+                prompt = "hi", timeout = 5 })"#,
+        ),
+        case(
+            "llm absolute chat_path",
+            r#"nodes.llm({ provider = "custom", base_url = "https://provider.example",
+                chat_path = "%URL%/v1/chat", model = "m", prompt = "hi", timeout = 5 })"#,
+        ),
+        case(
+            "llm absolute responses_path",
+            r#"nodes.llm({ provider = "custom", mode = "responses",
+                base_url = "https://provider.example", responses_path = "%URL%/v1/responses",
+                model = "m", prompt = "hi", timeout = 5 })"#,
+        ),
+        case(
+            "llm absolute path",
+            r#"nodes.llm({ provider = "custom", base_url = "https://provider.example",
+                path = "%URL%/v1/any", model = "m", prompt = "hi", timeout = 5 })"#,
+        ),
+        case(
+            "llm openai_compatible",
+            r#"nodes.llm({ provider = "openai_compatible", base_url = "%URL%/v1",
+                api_key = "sk-made-up", model = "m", prompt = "hi", timeout = 5 })"#,
+        ),
+        case(
+            "ai_embed ollama",
+            r#"nodes.ai_embed({ provider = "ollama", ollama_host = "%URL%", model = "m",
+                input_key = "texts", timeout = 5, retries = 0 })"#,
+        ),
+        case(
+            "ai_embed oauth token_url",
+            r#"nodes.ai_embed({ provider = "oauth", token_url = "%URL%/token",
+                base_url = "https://provider.example/v1", client_id = "id-%PORT%",
+                client_secret = "made-up-secret", model = "m", input_key = "texts",
+                timeout = 5, retries = 0 })"#,
+        ),
+        case(
+            "ai_chunk_semantic",
+            r#"nodes.ai_chunk_semantic({ provider = "ollama", ollama_host = "%URL%", model = "m",
+                source_key = "text", timeout = 5, retries = 0 })"#,
+        ),
+        case(
+            "transcribe",
+            r#"nodes.transcribe({ provider = "openai", base_url = "%URL%/v1",
+                api_key = "sk-made-up", path = "%AUDIO%", timeout = 5 })"#,
+        ),
+        case(
+            "arangodb_aql",
+            r#"nodes.arangodb_aql({ url = "%URL%", database = "db", query = "RETURN 1",
+                timeout = 5 })"#,
         ),
     ]
 }
@@ -107,6 +180,7 @@ fn run_step(
     let audio = directory.path().join("audio.wav");
     std::fs::write(&audio, b"RIFF made-up audio").unwrap();
     let step = step
+        .replace("%EMAIL%", EMAIL)
         .replace("%URL%", &format!("http://{host}:{port}"))
         .replace("%HOST%", host)
         .replace("%PORT%", &port.to_string())

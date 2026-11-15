@@ -89,7 +89,7 @@ impl Node for TranscribeNode {
         })
         .await?;
 
-        let client = crate::util::provider_http::client_builder()
+        let client = crate::util::provider_http::client_builder()?
             .timeout(timeout)
             .build()
             .map_err(|error| {

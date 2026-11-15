@@ -50,6 +50,7 @@ pub(super) async fn send(
     }
 
     let url = endpoint(config);
+    crate::util::outbound::ensure_url_allowed("transcribe", &url).await?;
     let request = match config.provider {
         Provider::Azure => client.post(&url).header("api-key", &config.api_key),
         _ => client

@@ -23,6 +23,8 @@
 
 pub(crate) mod address;
 pub(crate) mod allow;
+mod client;
+mod destination;
 #[cfg(test)]
 pub(crate) mod node_checks;
 pub(crate) mod policy;
@@ -42,6 +44,7 @@ use anyhow::Result;
 
 use address::ip_is_internal;
 use allow::{AllowList, NameMatch};
+pub(crate) use destination::ensure_url_allowed;
 pub(crate) use resolver::GuardedResolver;
 
 /// Why the guard is active, for the diagnostic.
@@ -207,3 +210,6 @@ mod guard_tests;
 #[cfg(test)]
 #[path = "outbound/http_tests.rs"]
 mod http_tests;
+#[cfg(test)]
+#[path = "outbound/provider_tests.rs"]
+mod provider_tests;
