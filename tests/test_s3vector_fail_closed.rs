@@ -1,5 +1,6 @@
-//! IF-221: `s3vector_query_vectors` rejects a malformed flag and sends no
-//! request. A local endpoint records every request; the credentials are made up.
+//! IF-221: `s3vector_query_vectors` rejects a malformed flag and resolves the
+//! placeholders of an inline `filter` once, and sends no request when either
+//! fails. A local endpoint records every request; the credentials are made up.
 
 use std::sync::{Arc, Mutex};
 
@@ -199,4 +200,91 @@ async fn strict_keeps_the_cosine_requirement_for_every_accepted_spelling() {
     let output = execute(&config, &ctx).await.unwrap();
     assert_eq!(output["found_min_similarity_applied"], false);
     assert_eq!(output["found_count"], 1);
+}
+
+#[tokio::test]
+async fn inline_filter_strings_are_interpolated_once_and_keys_are_not() {
+    let _environment = FakeAwsEnvironment::install();
+    let ctx = Context::from([
+        ("tenant".to_owned(), json!("acme")),
+        ("level".to_owned(), json!(3)),
+        ("nested".to_owned(), json!("${ctx.tenant}")),
+    ]);
+    let endpoint = Endpoint::start(euclidean_response()).await;
+    let filter = json!({
+        "tenant": "${ctx.tenant}",
+        "${ctx.tenant}": "key stays as written",
+        "$and": [{"label": "tier-${ctx.level}"}, {"raw": "${ctx.nested}"}],
+        "escaped": "\\${ctx.tenant}",
+        "shell": "${HOME}",
+        "level": 3, "active": true
+    });
+    execute(&query(&endpoint, json!({"filter": filter})), &ctx)
+        .await
+        .unwrap();
+    let requests = endpoint.requests();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(
+        requests[0]["filter"],
+        json!({
+            "tenant": "acme",
+            "${ctx.tenant}": "key stays as written",
+            "$and": [{"label": "tier-3"}, {"raw": "${ctx.tenant}"}],
+            "escaped": "${ctx.tenant}",
+            "shell": "${HOME}",
+            "level": 3, "active": true
+        })
+    );
+}
+
+#[tokio::test]
+async fn an_inline_filter_placeholder_that_does_not_resolve_sends_no_request() {
+    let _environment = FakeAwsEnvironment::install();
+    let ctx = Context::from([
+        ("tenant".to_owned(), json!("acme-secret-tenant")),
+        ("nothing".to_owned(), Value::Null),
+        ("profile".to_owned(), json!({"id": 7})),
+    ]);
+    for (filter, entry) in [
+        (json!({"tenant": "${ctx.tenant_id}"}), "tenant"),
+        (json!({"tenant": "${ctx.nothing}"}), "tenant"),
+        (json!({"tenant": "${ctx.profile.missing}"}), "tenant"),
+        (json!({"tenant": "${ctx.profile}"}), "tenant"),
+        (
+            json!({"$or": [{"a": "${ctx.tenant}"}, {"b": "x-${ctx.absent}"}]}),
+            "$or.1.b",
+        ),
+        (json!({"tenant": "${ctx.tenant"}), "tenant"),
+    ] {
+        let endpoint = Endpoint::start(euclidean_response()).await;
+        let error = execute(&query(&endpoint, json!({"filter": filter})), &ctx)
+            .await
+            .expect_err(entry)
+            .to_string();
+        assert!(
+            error.starts_with(&format!(
+                "s3vector_query_vectors could not interpolate 'filter.{entry}':"
+            )),
+            "{filter}: {error}"
+        );
+        assert!(!error.contains("acme-secret-tenant"), "{error}");
+        assert_eq!(endpoint.requests(), Vec::<Value>::new(), "{filter}");
+    }
+}
+
+#[tokio::test]
+async fn a_filter_read_through_filter_key_is_data_and_is_not_interpolated() {
+    let _environment = FakeAwsEnvironment::install();
+    let ctx = Context::from([
+        ("tenant".to_owned(), json!("acme")),
+        ("stored".to_owned(), json!({"note": "${ctx.tenant}"})),
+    ]);
+    let endpoint = Endpoint::start(euclidean_response()).await;
+    execute(&query(&endpoint, json!({"filter_key": "stored"})), &ctx)
+        .await
+        .unwrap();
+    assert_eq!(
+        endpoint.requests()[0]["filter"],
+        json!({"note": "${ctx.tenant}"})
+    );
 }

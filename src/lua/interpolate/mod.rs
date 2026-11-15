@@ -64,6 +64,19 @@ pub fn try_interpolate_ctx(
     template::render(template, context)
 }
 
+/// Interpolate `${ctx...}` placeholders in one pass and fail when one does
+/// not resolve to text, a number or a boolean.
+///
+/// Use it for a value that selects or scopes, where the empty string that
+/// [`try_interpolate_ctx`] produces for a missing value would widen the
+/// selection. The error names the expression, never a context value.
+pub(crate) fn interpolate_ctx_required(
+    template: &str,
+    context: &Context,
+) -> Result<String, InterpolationError> {
+    template::render_required(template, context)
+}
+
 pub(crate) fn interpolate_ctx_bounded(
     template: &str,
     context: &Context,

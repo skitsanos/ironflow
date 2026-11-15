@@ -411,6 +411,17 @@ publication is verified separately.
   them are accepted as before. See
   [Boolean Flags](../nodes/s3vector_query_vectors.md#boolean-flags).
 
+- **`s3vector_query_vectors` interpolates the inline `filter`** (IF-221).
+  String values inside `filter` were sent as written, so
+  `filter = { tenant = "${ctx.tenant_id}" }` asked for the literal text
+  `${ctx.tenant_id}` and matched nothing. They are now interpolated once, at
+  any depth; object keys are not. A placeholder whose value is missing,
+  `null`, an object or an array fails the step before any request is sent,
+  instead of becoming an empty string. A filter that must contain a literal
+  `${ctx.key}` needs the escape `\${ctx.key}`. A filter read through
+  `filter_key` is data and is still used as stored. See
+  [Metadata Filter](../nodes/s3vector_query_vectors.md#metadata-filter).
+
 - **A child `input` mapping fails when its parent key is absent** (IF-221).
   In `subworkflow`, `parallel_subworkflows` and `repeat_subworkflow` a string
   in `input` names a parent context key. When the key was absent,

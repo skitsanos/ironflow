@@ -149,7 +149,7 @@ fn filter_error_does_not_echo_the_context_value() {
 }
 
 #[test]
-fn inline_filter_is_unchanged_and_wins_over_filter_key() {
+fn inline_filter_without_placeholders_is_unchanged_and_wins_over_filter_key() {
     let request = prepare_query_vectors_input(
         &filter_config(serde_json::json!({
             "filter": { "source": "vtt" },
@@ -223,5 +223,62 @@ fn flags_default_to_false_only_when_absent() {
                 format!("s3vector_query_vectors requires '{flag}' to be a boolean")
             );
         }
+    }
+}
+
+#[test]
+fn inline_filter_placeholders_resolve_once_and_keys_stay_as_written() {
+    let ctx = Context::from([
+        ("tenant".to_owned(), serde_json::json!("acme")),
+        ("indirect".to_owned(), serde_json::json!("${ctx.tenant}")),
+        ("count".to_owned(), serde_json::json!(2)),
+    ]);
+    let request = prepare_query_vectors_input(
+        &filter_config(serde_json::json!({ "filter": {
+            "tenant": "${ctx.tenant}", "${ctx.tenant}": ["a-${ctx.count}", "${ctx.indirect}"],
+            "escaped": "\\${ctx.tenant}", "limit": 2
+        }})),
+        &ctx,
+    )
+    .unwrap()
+    .request
+    .build()
+    .unwrap();
+    assert_eq!(
+        document_to_json(request.filter().unwrap()),
+        serde_json::json!({
+            "tenant": "acme", "${ctx.tenant}": ["a-2", "${ctx.tenant}"],
+            "escaped": "${ctx.tenant}", "limit": 2
+        })
+    );
+}
+
+#[test]
+fn an_inline_filter_placeholder_that_does_not_resolve_builds_no_request() {
+    let ctx = Context::from([
+        ("tenant".to_owned(), serde_json::json!("acme-secret")),
+        ("nothing".to_owned(), serde_json::Value::Null),
+        ("object".to_owned(), serde_json::json!({ "id": 1 })),
+    ]);
+    for (filter, expected) in [
+        (
+            serde_json::json!({ "tenant": "${ctx.tenant_id}" }),
+            "s3vector_query_vectors could not interpolate 'filter.tenant': invalid context \
+             interpolation `ctx.tenant_id`: the value is missing from context",
+        ),
+        (
+            serde_json::json!({ "$and": [{ "a": "${ctx.tenant}" }, { "b": "${ctx.nothing}" }] }),
+            "s3vector_query_vectors could not interpolate 'filter.$and.1.b': invalid context \
+             interpolation `ctx.nothing`: the value is missing from context",
+        ),
+        (
+            serde_json::json!("${ctx.object}"),
+            "s3vector_query_vectors could not interpolate 'filter': invalid context \
+             interpolation `ctx.object`: the value is an object or array, not text",
+        ),
+    ] {
+        let error = filter_error(serde_json::json!({ "filter": filter }), &ctx);
+        assert_eq!(error, expected);
+        assert!(!error.contains("acme-secret"));
     }
 }

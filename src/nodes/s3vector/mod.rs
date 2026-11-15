@@ -2,6 +2,7 @@ mod bucket;
 mod client;
 mod config;
 mod document;
+mod filter;
 mod index;
 mod lifecycle;
 mod parameters;

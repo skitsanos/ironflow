@@ -14,7 +14,7 @@ Run vector similarity search on an Amazon S3 Vector index.
 | `top_k` | integer | yes | -- | Number of nearest neighbors to return (`> 0`). |
 | `query_vector` | array<number> | no* | -- | Query embedding vector. |
 | `query_vector_key` | string | no* | -- | Context key containing a query embedding array. |
-| `filter` | object | no | -- | Optional metadata filter, written in the flow. |
+| `filter` | object | no | -- | Optional metadata filter, written in the flow. String values support `${ctx.key}` interpolation, and a placeholder that does not resolve fails the step; see [Metadata Filter](#metadata-filter). |
 | `filter_key` | string | no | -- | Context key that holds the metadata filter object. When set, the key must exist and hold a non-empty object; see [Metadata Filter](#metadata-filter). |
 | `return_metadata` | bool | no | `false` | Include vector metadata in results. See [Boolean Flags](#boolean-flags). |
 | `return_distance` | bool | no | `false` | Include distance values in results. See [Boolean Flags](#boolean-flags). |
@@ -56,10 +56,37 @@ no longer turn off the cosine requirement for `min_similarity`.
 
 Without `filter` and `filter_key` the query covers the whole index.
 
-`filter` is sent as written in the flow. `filter_key` reads the filter from
-context, and a configured `filter_key` is a requirement, not a hint: the step
-fails before the AWS client is built, and no request is sent, unless the key
-resolves to a filter.
+`filter` is written in the flow, so its string values are templates:
+
+```lua
+filter = {
+    tenant = "${ctx.tenant_id}",            -- resolved before the request
+    ["$and"] = { { kind = "note-${ctx.kind}" } }
+}
+```
+
+- Every string value is interpolated once, at any depth, in objects and
+  arrays. Object keys are structural and are sent as written. A placeholder
+  inside a resolved value is not read again, and `\${ctx.key}` keeps a
+  literal `${ctx.key}`.
+- A placeholder must resolve to a string, number or boolean. When the value
+  is missing from context, is JSON `null`, or is an object or array, the step
+  fails with `s3vector_query_vectors could not interpolate
+  'filter.<entry>': ...` before the AWS client is built, and no request is
+  sent. Unlike other parameters, a missing value does not become an empty
+  string, because an empty or literal value would change what the query
+  returns. The message names the filter entry and the expression, never a
+  context value.
+- Interpolation produces text: `"${ctx.year}"` sends the string `"2026"`.
+  For a typed number or boolean, or a whole sub-filter, build the filter in a
+  step and pass it with `filter_key`.
+
+In earlier releases the inline filter was not interpolated and
+`"${ctx.tenant_id}"` was sent as that literal text.
+
+`filter_key` reads the filter from context, and a configured `filter_key` is
+a requirement, not a hint: the step fails before the AWS client is built, and
+no request is sent, unless the key resolves to a filter.
 
 | `filter_key` case | Result |
 |-------------------|--------|

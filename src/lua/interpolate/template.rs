@@ -12,6 +12,30 @@ pub(super) fn render(template: &str, context: &Context) -> Result<String, Interp
     })
 }
 
+/// Render a template whose placeholders select or scope something: each one
+/// must resolve to text, a number or a boolean. The lenient renderer turns a
+/// missing value into an empty string, which would widen such a selection.
+pub(super) fn render_required(
+    template: &str,
+    context: &Context,
+) -> Result<String, InterpolationError> {
+    visit(template, None, |expression| {
+        let segments = path::parse(expression)?;
+        match path::resolve(&segments, context) {
+            Some(Value::String(value)) => Ok(value.clone()),
+            Some(value @ (Value::Number(_) | Value::Bool(_))) => Ok(value.to_string()),
+            Some(Value::Null) | None => Err(InterpolationError::new(
+                expression,
+                "the value is missing from context",
+            )),
+            Some(_) => Err(InterpolationError::new(
+                expression,
+                "the value is an object or array, not text",
+            )),
+        }
+    })
+}
+
 pub(super) fn validate(template: &str) -> Result<(), InterpolationError> {
     visit(template, None, |expression| {
         path::parse(expression)?;
