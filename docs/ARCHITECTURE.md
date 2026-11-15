@@ -16,7 +16,10 @@ IronFlow ships as a single binary and does not require a Python, Node.js, or con
 4. **Async-first** — The engine uses `tokio` for async execution. Synchronous
    CPU/blocking work is isolated from runtime workers and must cooperate with
    cancellation.
-5. **Pluggable persistence** — State storage is trait-based. JSON file storage ships by default; Redis is optional.
+5. **Pluggable persistence** — State storage is trait-based. SQLite is the
+   default backend; JSON file storage is a maintenance-only backend selected
+   with `IRONFLOW_STORE=json`, and PostgreSQL and Redis are optional build
+   features.
 6. **Bounded responsibilities** — Keep modules cohesive and small enough to
    review independently: target at most 300 physical lines and split distinct
    responsibilities rather than let a file exceed 400 lines. CI treats 301–400-line
