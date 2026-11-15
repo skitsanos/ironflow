@@ -6,11 +6,12 @@ Execute inline Lua code with access to the workflow context.
 
 | Parameter      | Type   | Required | Default | Description                                                         |
 |----------------|--------|----------|---------|---------------------------------------------------------------------|
-| `source`       | string/function | No* | --      | Lua source code string **or inline function** to evaluate              |
-| `bytecode_b64` | string | No*      | --      | Base64-encoded Lua bytecode for function handler mode               |
+| `source`       | string/function | Yes | --      | Lua source code string **or inline function** to evaluate              |
 | `context_keys` | array of strings | No | Full context | Literal top-level context keys to expose to Lua. An empty list keeps only `_error_message`, `_error_step`, `_error_node_type` and `_flow_dir`, when present |
 
-*Exactly one of `source` or `bytecode_b64` must be provided.
+`source` is the only way to supply code. `bytecode_b64` is an internal step
+field, not a parameter: it is how IronFlow carries a function handler from the
+flow file to the step. See [Function handler mode](#function-handler-mode).
 
 ### Source mode
 
@@ -24,9 +25,22 @@ invalid syntax. Undefined global reads produce warnings with the step name and
 line/column positions relative to the decoded source string. Use
 `ironflow validate --strict` to reject those warnings.
 
-### Function handler (bytecode) mode
+### Function handler mode
 
-When `bytecode_b64` is provided, the base64-encoded Lua bytecode is decoded and loaded as a function. The function is called with the `ctx` table as its sole argument, and its return value becomes the node output.
+When `source` is a Lua function, or a function is passed directly as a step
+handler (`flow:step("name", function(ctx) ... end)`), IronFlow compiles it to
+bytecode while the flow file loads and stores it in the step as `bytecode_b64`,
+signed with a key that exists only inside the running process. At execution
+the signature is checked, the function is loaded in a fresh sandbox and called
+with the `ctx` table as its sole argument, and its return value becomes the
+node output.
+
+A flow author cannot supply `bytecode_b64`. Loading Lua bytecode that the
+process did not compile is memory-unsafe, so a value written into a flow file,
+or copied from another process or an earlier start of the same server, fails
+the step with `Function bytecode failed authentication (only handlers compiled
+by this process may run)` (or `Function bytecode is not authenticated by this
+process` for a value too short to carry a signature). Pass the function itself.
 
 Inline function handlers must not capture locals from the enclosing flow file;
 IronFlow rejects such handlers because captured upvalues cannot survive
@@ -86,7 +100,7 @@ end):context_keys({}):depends_on("inspect")
   direct node execution rather than silently exposing the full context.
 - A builder's projection belongs only to that step, even when multiple steps
   reuse the same `nodes.code` descriptor.
-- Both the global `ctx` and the bytecode function's argument refer to the same
+- Both the global `ctx` and the handler function's argument refer to the same
   isolated snapshot. Projection does not remove data from the workflow context,
   and Lua mutations do not modify stored input values. Outputs merge normally.
 - Conversion remains eager for selected values. The object root and **all**
@@ -268,23 +282,16 @@ flow:step("done", nodes.log({
 return flow
 ```
 
-Function handler mode with base64-encoded bytecode:
+Function handler mode, where the function receives `ctx` as its argument:
 
 ```lua
-local flow = Flow.new("bytecode_demo")
+local flow = Flow.new("handler_demo")
 
 flow:step("run", nodes.code({
-    bytecode_b64 = "G0x1YVIAAQQEBAgAGZM..."
+    source = function(ctx)
+        return { greeting = "Hello, " .. ctx.name }
+    end
 }))
 
 return flow
-```
-
-The bytecode function receives `ctx` as its argument:
-
-```lua
--- Original source that was compiled to bytecode:
-function(ctx)
-    return { greeting = "Hello, " .. ctx.name }
-end
 ```
