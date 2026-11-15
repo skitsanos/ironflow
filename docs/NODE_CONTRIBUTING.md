@@ -177,6 +177,14 @@ render as an empty string. Non-`ctx` forms such as `${HOME}` remain literal.
 The runtime escape `\${ctx.foo}` emits `${ctx.foo}`; Lua source must spell it
 `"\\${ctx.foo}"`.
 
+A value that selects or scopes what a node acts on (a filter, a tenant, a
+target) must not fall back to something wider. Interpolate it with
+`crate::lua::interpolate::interpolate_ctx_required`, which fails when a
+placeholder is missing, `null`, an object or an array, and reject a malformed
+flag or number instead of using the default (`config_bool_or`,
+`config_*_strict`). `s3vector_query_vectors` shows both for its inline
+`filter` and its boolean flags.
+
 Add tests and parameter documentation for every field you opt in. Include
 nested object/array coverage when using the recursive helper.
 
