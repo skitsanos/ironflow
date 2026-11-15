@@ -225,6 +225,9 @@ impl RunCoordinator {
     }
 
     async fn persist_terminal_status(&self, status: RunStatus) -> Result<()> {
+        // From here a refused lease renewal can be this write taking effect.
+        self.finalizing
+            .store(true, std::sync::atomic::Ordering::Release);
         let mut last_error = None;
         for attempt in 1..=TERMINAL_STATUS_ATTEMPTS {
             match self

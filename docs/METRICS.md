@@ -48,7 +48,7 @@ credentials, or other caller-controlled data as labels.
 | `ironflow_active_work` | gauge | `kind` | Work currently owned by this process |
 | `ironflow_admission_decisions_total` | counter | `resource`, `decision` | Run and flow-loader admission results |
 | `ironflow_scheduler_decisions_total` | counter | `outcome` | Final decision for each due schedule occurrence evaluated by this process |
-| `ironflow_lease_events_total` | counter | `outcome` | Run-owner lease renewal and loss events |
+| `ironflow_lease_events_total` | counter | `outcome` | Run-owner lease renewal and loss events. A run that finishes normally releases its lease and adds nothing to `lost`; `lost` counts leases taken away while the run was still executing or before its terminal status was stored |
 | `ironflow_storage_failures_total` | counter | `store`, `operation`, `error_kind` | Errors returned by state and event-store operations |
 | `ironflow_event_admissions_total` | counter | `outcome` | Runs admitted to their event stream at start; `failed` runs execute but may publish no events |
 

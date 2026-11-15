@@ -801,6 +801,13 @@ publication is verified separately.
   for a context that defines `_schedule` or `_schedule_instant`. Remove those
   keys from request contexts and webhook payloads; no other key is affected.
 
+- A run that finishes normally is no longer reported as a lost lease
+  (IF-203). A lease renewal between the terminal status write and the end of
+  finalization logged `workflow run ownership lease expired or was lost`,
+  incremented `ironflow_lease_events_total{outcome="lost"}` and started a
+  reconciliation pass, on every store. Run state was not affected. Alerts on
+  that series no longer see these false positives.
+
 - Starting a PostgreSQL replica no longer locks tables that running replicas
   use (IF-202). Every start used to take `ACCESS EXCLUSIVE` on the events
   table before checking its primary key, and to issue

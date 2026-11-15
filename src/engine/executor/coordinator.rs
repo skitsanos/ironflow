@@ -1,5 +1,6 @@
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use anyhow::Result;
 use futures_util::FutureExt as _;
@@ -42,6 +43,9 @@ pub(super) struct RunCoordinator {
     live_child: Option<LiveChildRun>,
     finalization_timeout: std::time::Duration,
     heartbeat_timing: super::lease::HeartbeatTiming,
+    /// Set once finalization starts writing the terminal status; read by the
+    /// lease heartbeat.
+    pub(super) finalizing: Arc<AtomicBool>,
 }
 
 impl RunCoordinator {
@@ -83,6 +87,7 @@ impl RunCoordinator {
                 crate::storage::RUN_LEASE_REFRESH,
                 crate::storage::RUN_LEASE_REFRESH,
             ),
+            finalizing: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -155,7 +160,10 @@ impl RunCoordinator {
                 self.run_id.clone(),
                 self.lease_owner.clone(),
                 lease_cancel,
-                lease_stopped,
+                super::lease::HeartbeatStop {
+                    stopped: lease_stopped,
+                    finalizing: self.finalizing.clone(),
+                },
                 self.heartbeat_timing,
                 self.metrics.clone(),
             ));

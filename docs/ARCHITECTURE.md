@@ -142,6 +142,15 @@ then repeats a 30-second-bounded pass every 30 seconds. An expired
 `Pending`/`Running` run becomes `Stalled`; unfinished running tasks become
 `Failed` and other unfinished tasks become `Skipped`.
 
+Storing the terminal status releases the lease in every store, and the
+coordinator stops its heartbeat only after finalization has also published
+the last event. A renewal in between is refused. The heartbeat treats that
+refusal as the end of the run, without a lost-lease log line, metric or
+reconciliation pass, only when finalization has begun the terminal write and
+the stored run is terminal. A refusal while work is still executing is a lost
+lease whatever the store says, because another replica may already have
+stalled the run and local work must stop.
+
 A pass does not stop at a run record it cannot decode. The JSON and Redis
 stores log a warning that names the run, leave the record and its expired
 lease in place, and continue with the remaining leases, so one such record
