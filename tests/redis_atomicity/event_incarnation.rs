@@ -96,3 +96,18 @@ async fn redis_delete_is_scoped_to_the_removed_incarnation() {
     }
     fixture.cleanup().await;
 }
+
+#[tokio::test]
+async fn redis_failed_admission_is_retried_then_surfaced() {
+    let Some(fixture) = RedisTest::connect("event_incarnation").await else {
+        return;
+    };
+    for ttl in [None, Some(60)] {
+        fence_contract::assert_failed_admission_is_retried_then_surfaced(
+            Arc::new(fixture.event_store(ttl).await),
+            &format!("redis-admission-{}", ttl.is_some()),
+        )
+        .await;
+    }
+    fixture.cleanup().await;
+}

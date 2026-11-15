@@ -1,11 +1,11 @@
 mod event_store;
 mod labels;
 mod observation;
+mod recording;
 mod state_store;
 mod storage_labels;
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use prometheus_client::encoding::EncodeLabelSet;
 use prometheus_client::encoding::text::encode;
@@ -18,12 +18,12 @@ use prometheus_client::registry::{Registry, Unit};
 pub(crate) use event_store::observe_event_store;
 use labels::RunOutcome;
 pub(crate) use labels::{
-    ActiveWorkKind, AdmissionDecision, AdmissionResource, LeaseOutcome, SchedulerOutcome,
-    TaskOutcome,
+    ActiveWorkKind, AdmissionDecision, AdmissionResource, EventAdmissionOutcome, LeaseOutcome,
+    SchedulerOutcome, TaskOutcome,
 };
 pub(crate) use observation::{ActiveWorkGuard, RunObservation, TaskAttemptObservation};
 pub(crate) use state_store::observe_state_store;
-use storage_labels::{STORAGE_ERROR_KINDS, storage_error_kind};
+use storage_labels::STORAGE_ERROR_KINDS;
 pub(crate) use storage_labels::{StorageOperation, StoreKind};
 
 const DURATION_BUCKETS: [f64; 14] = [
@@ -77,6 +77,7 @@ pub struct Metrics {
     scheduler_decisions: Family<OutcomeLabels, Counter>,
     lease_events: Family<OutcomeLabels, Counter>,
     storage_failures: Family<StorageLabels, Counter>,
+    event_admissions: Family<OutcomeLabels, Counter>,
 }
 
 impl Metrics {
@@ -91,6 +92,7 @@ impl Metrics {
         let scheduler_decisions = Family::default();
         let lease_events = Family::default();
         let storage_failures = Family::default();
+        let event_admissions = Family::default();
 
         registry.register("runs", "Terminal workflow runs by outcome", runs.clone());
         registry.register_with_unit(
@@ -135,6 +137,11 @@ impl Metrics {
             "State and event store operation failures by bounded category",
             storage_failures.clone(),
         );
+        registry.register(
+            "event_admissions",
+            "Admissions of a run to its event stream by bounded outcome",
+            event_admissions.clone(),
+        );
 
         let metrics = Self {
             registry,
@@ -147,6 +154,7 @@ impl Metrics {
             scheduler_decisions,
             lease_events,
             storage_failures,
+            event_admissions,
         };
         metrics.initialize_bounded_series();
         metrics
@@ -190,6 +198,11 @@ impl Metrics {
                 outcome: outcome.as_str(),
             });
         }
+        for outcome in EventAdmissionOutcome::ALL {
+            let _ = self.event_admissions.get_or_create(&OutcomeLabels {
+                outcome: outcome.as_str(),
+            });
+        }
         for operation in StorageOperation::STATE {
             self.initialize_storage_series(StoreKind::State, operation);
         }
@@ -229,66 +242,6 @@ impl Metrics {
             })
             .inc();
         ActiveWorkGuard::new(self.clone(), kind)
-    }
-
-    pub(crate) fn admission(&self, resource: AdmissionResource, decision: AdmissionDecision) {
-        self.admission_decisions
-            .get_or_create(&AdmissionLabels {
-                resource: resource.as_str(),
-                decision: decision.as_str(),
-            })
-            .inc();
-    }
-
-    pub(crate) fn scheduler(&self, outcome: SchedulerOutcome) {
-        self.scheduler_decisions
-            .get_or_create(&OutcomeLabels {
-                outcome: outcome.as_str(),
-            })
-            .inc();
-    }
-
-    pub(crate) fn lease(&self, outcome: LeaseOutcome) {
-        self.lease_events
-            .get_or_create(&OutcomeLabels {
-                outcome: outcome.as_str(),
-            })
-            .inc();
-    }
-
-    pub(crate) fn storage_failure(
-        &self,
-        store: StoreKind,
-        operation: StorageOperation,
-        kind: crate::storage::StorageErrorKind,
-    ) {
-        self.storage_failures
-            .get_or_create(&StorageLabels {
-                store: store.as_str(),
-                operation: operation.as_str(),
-                error_kind: storage_error_kind(kind),
-            })
-            .inc();
-    }
-
-    fn record_run(&self, outcome: RunOutcome, duration: Duration) {
-        let labels = OutcomeLabels {
-            outcome: outcome.as_str(),
-        };
-        self.runs.get_or_create(&labels).inc();
-        self.run_duration
-            .get_or_create(&labels)
-            .observe(duration.as_secs_f64());
-    }
-
-    fn record_task_attempt(&self, outcome: TaskOutcome, duration: Duration) {
-        let labels = OutcomeLabels {
-            outcome: outcome.as_str(),
-        };
-        self.task_attempts.get_or_create(&labels).inc();
-        self.task_attempt_duration
-            .get_or_create(&labels)
-            .observe(duration.as_secs_f64());
     }
 }
 

@@ -191,3 +191,23 @@ impl LeaseOutcome {
         }
     }
 }
+
+/// How a run was admitted to its event stream (IF-214).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum EventAdmissionOutcome {
+    Admitted,
+    AdmittedAfterRetry,
+    Failed,
+}
+
+impl EventAdmissionOutcome {
+    pub(crate) const ALL: [Self; 3] = [Self::Admitted, Self::AdmittedAfterRetry, Self::Failed];
+
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Admitted => "admitted",
+            Self::AdmittedAfterRetry => "admitted_after_retry",
+            Self::Failed => "failed",
+        }
+    }
+}

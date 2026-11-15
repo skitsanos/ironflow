@@ -967,6 +967,17 @@ retried `DELETE` that finds the state absent while a newer run already owns
 the stream returns `404 not_found`, because the events it would have removed
 were replaced when that run started.
 
+The owner record is the run's first write to the event store. It is attempted
+up to three times, each attempt bounded to one second, with pauses of 50 ms
+and 200 ms. If it still fails, the run executes and its state is recorded
+normally, but its events are rejected when an earlier run with the same ID
+was deleted or left a record, so `GET /runs/{id}/events` and the SSE stream
+can be empty. That is counted in
+`ironflow_event_admissions_total{outcome="failed"}` and recorded on the run
+as the context key `_event_stream_warning`, visible through `GET /runs/{id}`
+and to the run's own steps. The text names the failure category (`store
+error` or `timed out`), never the store's error message.
+
 SQL deletion fences are durable. A Redis fence is persistent without
 `REDIS_TTL` and expires with that configured TTL. The memory backend keeps
 events and fences in one oldest-first queue bounded by both the configured

@@ -693,6 +693,16 @@ publication is verified separately.
   `delete_incarnation` and `delete_orphaned_incarnation` have defaults that
   keep the previous behaviour.
 
+- A run whose event stream cannot be opened no longer runs silently
+  (IF-214). Opening the stream was attempted once with a 2-second bound and
+  a failure was only logged: a run created again under a deleted ID then
+  executed with no events and a silent SSE stream. It is now attempted up to
+  three times, one second each. The new counter
+  `ironflow_event_admissions_total` has the outcomes `admitted`,
+  `admitted_after_retry` and `failed`, and a run that was not admitted
+  carries the context key `_event_stream_warning`, visible through
+  `GET /runs/{id}`. See [metrics](../METRICS.md).
+
 - Every release archive and the container image now ship
   `THIRD_PARTY_LICENSES.md`, the generated license notices for the Rust crates
   statically linked into IronFlow, next to the bundled fonts' OFL license

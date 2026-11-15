@@ -740,6 +740,13 @@ read before the state delete; the same read guards the sweep of orphaned
 events when state is already absent. With neither value the event delete is
 unconditional, as before.
 
+Admission is attempted up to three times, each attempt bounded to one
+second, with pauses of 50 ms and 200 ms, before the run's first task starts. A run whose
+admission still fails executes normally, counts as `failed` in
+`ironflow_event_admissions_total` and carries the context key
+`_event_stream_warning`; its events are rejected only if a fence or another
+incarnation's record exists for the ID.
+
 JSON, SQL, and Redis inspect status and lease under the same backend-atomic
 deletion fence. A non-terminal run with an unexpired execution-owner lease is
 not removed and the API returns `409 conflict`; its state, lease, and events

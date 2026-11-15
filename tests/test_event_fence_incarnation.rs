@@ -129,6 +129,25 @@ async fn sqlite_delete_is_scoped_to_the_removed_incarnation() {
     .await;
 }
 
+#[tokio::test]
+async fn memory_failed_admission_is_retried_then_surfaced() {
+    fence_contract::assert_failed_admission_is_retried_then_surfaced(
+        Arc::new(MemoryEventStore::new()),
+        "memory-admission",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn sqlite_failed_admission_is_retried_then_surfaced() {
+    let directory = tempfile::tempdir().unwrap();
+    fence_contract::assert_failed_admission_is_retried_then_surfaced(
+        Arc::new(sqlite_events(directory.path()).await),
+        "sqlite-admission",
+    )
+    .await;
+}
+
 /// A fence table written by an earlier release has no `incarnation` column.
 /// Opening the store adds it, keeps the existing fence closed and lets the
 /// run ID be admitted again.
@@ -257,8 +276,13 @@ mod postgres {
         )
         .await;
         fence_contract::assert_orphan_sweep_overlapping_resubmission_keeps_new_events(
-            store,
+            store.clone(),
             "postgres-orphan-overlap",
+        )
+        .await;
+        fence_contract::assert_failed_admission_is_retried_then_surfaced(
+            store,
+            "postgres-admission",
         )
         .await;
         drop_tables(&url, &prefix).await;

@@ -50,6 +50,7 @@ credentials, or other caller-controlled data as labels.
 | `ironflow_scheduler_decisions_total` | counter | `outcome` | Final decision for each due schedule occurrence evaluated by this process |
 | `ironflow_lease_events_total` | counter | `outcome` | Run-owner lease renewal and loss events |
 | `ironflow_storage_failures_total` | counter | `store`, `operation`, `error_kind` | Errors returned by state and event-store operations |
+| `ironflow_event_admissions_total` | counter | `outcome` | Runs admitted to their event stream at start; `failed` runs execute but may publish no events |
 
 Label values are stable and bounded:
 
@@ -62,6 +63,7 @@ Label values are stable and bounded:
 | Admission `decision` | `accepted`, `at_capacity`, `draining` |
 | Scheduler `outcome` | `fired`, `not_claimed`, `late`, `overlapped`, `at_capacity`, `failed`, `claim_failed`, `deferred`, `timed_out` |
 | Lease `outcome` | `renewed`, `lost`, `timed_out`, `error`, `reconciliation_failed` |
+| Event-admission `outcome` | `admitted`, `admitted_after_retry`, `failed` |
 | Storage `store` | `state`, `event` |
 | Storage `error_kind` | `invalid_input`, `not_found`, `backend`, `corruption`, `conflict` |
 
@@ -123,6 +125,7 @@ IronFlow.
 
 [`deploy/metrics/prometheusrule.yaml`](../deploy/metrics/prometheusrule.yaml)
 provides starting alerts for run failure ratio, sustained admission rejection,
-lease problems, and storage failures. Alert thresholds are examples, not
+lease problems, storage failures, and runs that started without an event
+stream. Alert thresholds are examples, not
 universal service-level objectives; tune them against the workload and route
 them through the deployment's existing notification policy.

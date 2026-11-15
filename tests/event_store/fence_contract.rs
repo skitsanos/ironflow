@@ -624,3 +624,165 @@ pub async fn assert_delete_is_scoped_to_the_removed_incarnation(
         StorageErrorKind::InvalidInput
     );
 }
+
+/// Event store whose next `failing` admissions fail before reaching the
+/// backend (IF-214).
+struct FailingAdmission {
+    inner: Arc<dyn EventStore>,
+    failing: std::sync::atomic::AtomicUsize,
+    attempts: std::sync::atomic::AtomicUsize,
+}
+
+impl FailingAdmission {
+    fn new(inner: Arc<dyn EventStore>) -> Arc<Self> {
+        Arc::new(Self {
+            inner,
+            failing: std::sync::atomic::AtomicUsize::new(0),
+            attempts: std::sync::atomic::AtomicUsize::new(0),
+        })
+    }
+
+    /// Fail the next `count` admissions and restart the attempt counter.
+    fn fail_next(&self, count: usize) {
+        use std::sync::atomic::Ordering;
+        self.failing.store(count, Ordering::SeqCst);
+        self.attempts.store(0, Ordering::SeqCst);
+    }
+
+    fn attempts(&self) -> usize {
+        self.attempts.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+#[async_trait::async_trait]
+impl EventStore for FailingAdmission {
+    async fn publish(&self, event: RunEvent) -> ironflow::storage::StorageResult<()> {
+        self.inner.publish(event).await
+    }
+
+    async fn publish_as(
+        &self,
+        event: RunEvent,
+        incarnation: &str,
+    ) -> ironflow::storage::StorageResult<()> {
+        self.inner.publish_as(event, incarnation).await
+    }
+
+    async fn begin_incarnation(
+        &self,
+        run_id: &str,
+        incarnation: &str,
+    ) -> ironflow::storage::StorageResult<()> {
+        use std::sync::atomic::Ordering;
+        self.attempts.fetch_add(1, Ordering::SeqCst);
+        let fail = self
+            .failing
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
+                left.checked_sub(1)
+            })
+            .is_ok();
+        if fail {
+            return Err(ironflow::storage::StorageError::backend(
+                "Injected event admission failure",
+                "test fault",
+            ));
+        }
+        self.inner.begin_incarnation(run_id, incarnation).await
+    }
+
+    async fn admitted_incarnation(
+        &self,
+        run_id: &str,
+    ) -> ironflow::storage::StorageResult<Option<String>> {
+        self.inner.admitted_incarnation(run_id).await
+    }
+
+    async fn delete_run(&self, run_id: &str) -> ironflow::storage::StorageResult<usize> {
+        self.inner.delete_run(run_id).await
+    }
+
+    async fn delete_incarnation(
+        &self,
+        run_id: &str,
+        incarnation: &str,
+    ) -> ironflow::storage::StorageResult<usize> {
+        self.inner.delete_incarnation(run_id, incarnation).await
+    }
+
+    async fn delete_orphaned_run(&self, run_id: &str) -> ironflow::storage::StorageResult<usize> {
+        self.inner.delete_orphaned_run(run_id).await
+    }
+
+    async fn delete_orphaned_incarnation(
+        &self,
+        run_id: &str,
+        seen: Option<&str>,
+    ) -> ironflow::storage::StorageResult<usize> {
+        self.inner.delete_orphaned_incarnation(run_id, seen).await
+    }
+
+    async fn list_since(
+        &self,
+        run_id: &str,
+        after: Option<&str>,
+        limit: usize,
+    ) -> ironflow::storage::StorageResult<Vec<RunEvent>> {
+        self.inner.list_since(run_id, after, limit).await
+    }
+}
+
+/// The context key that records a failed admission on the run.
+const WARNING_KEY: &str = "_event_stream_warning";
+
+/// A run submitted again after its ID was deleted depends on admission to
+/// publish past the fence. One failed attempt is retried and the stream is
+/// complete; when every attempt fails the run still finishes, publishes
+/// nothing and says so on its record (IF-214).
+pub async fn assert_failed_admission_is_retried_then_surfaced(
+    events: Arc<dyn EventStore>,
+    key: &str,
+) {
+    let directory = tempfile::tempdir().unwrap();
+    let store = sqlite_state(directory.path()).await;
+    let failing = FailingAdmission::new(events.clone());
+    let app = app(store.clone(), failing.clone());
+
+    let run_id = submit(&app, key).await;
+    let first = finished_stream(events.as_ref(), &run_id).await;
+    wait_terminal(store.as_ref(), &run_id).await;
+    assert_eq!(delete_status(&app, &run_id).await, StatusCode::OK);
+
+    // One transient failure: the retry admits the run.
+    failing.fail_next(1);
+    assert_eq!(submit(&app, key).await, run_id);
+    wait_terminal(store.as_ref(), &run_id).await;
+    assert_eq!(failing.attempts(), 2, "admission was not retried");
+    let second = events.list_since(&run_id, None, 1_000).await.unwrap();
+    assert_eq!(shape(&second), shape(&first), "the retried run lost events");
+    let info = store.get_run_info(&run_id).await.unwrap();
+    assert!(!info.ctx.contains_key(WARNING_KEY), "{:?}", info.ctx);
+    assert_eq!(delete_status(&app, &run_id).await, StatusCode::OK);
+
+    // Every attempt fails: the run executes, and its record says why the
+    // stream is empty.
+    failing.fail_next(usize::MAX);
+    assert_eq!(submit(&app, key).await, run_id);
+    wait_terminal(store.as_ref(), &run_id).await;
+    assert_eq!(failing.attempts(), 3, "admission attempts are bounded");
+    let info = store.get_run_info(&run_id).await.unwrap();
+    assert_eq!(info.status, RunStatus::Success);
+    assert_eq!(info.tasks.len(), 2);
+    let warning = info.ctx.get(WARNING_KEY).and_then(|value| value.as_str());
+    assert!(
+        warning.is_some_and(|warning| warning.contains("3 attempts")),
+        "{:?}",
+        info.ctx
+    );
+    assert!(
+        events
+            .list_since(&run_id, None, 10)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}

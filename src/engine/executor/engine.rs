@@ -157,7 +157,7 @@ impl WorkflowEngine {
     async fn start_new_with_run_id(
         &self,
         flow: &FlowDefinition,
-        initial_ctx: Context,
+        mut initial_ctx: Context,
         execution_overlay: ExecutionOverlay,
         run_id: String,
         retain_child_result: bool,
@@ -209,7 +209,22 @@ impl WorkflowEngine {
         // deletion fence left by an earlier run with the same ID admits
         // these events and still rejects that run's late ones (IF-184).
         let events = match &self.events {
-            Some(events) => Some(super::run_events::begin(events, &run_id, lease.owner()).await),
+            Some(events) => {
+                let admission =
+                    super::run_events::begin(events, &run_id, lease.owner(), self.metrics.as_ref())
+                        .await;
+                if let Some(warning) = admission.warning {
+                    super::run_events::record_warning(
+                        self.store.as_ref(),
+                        &run_id,
+                        lease.owner(),
+                        &mut initial_ctx,
+                        warning,
+                    )
+                    .await;
+                }
+                Some(admission.events)
+            }
             None => None,
         };
 
