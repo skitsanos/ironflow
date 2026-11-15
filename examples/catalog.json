@@ -368,8 +368,6 @@
       "flows": [
         "examples/04-file-operations/zip_workflow.lua",
         "examples/06-shell/run_commands.lua",
-        "examples/08-extraction/pdf_thumbnail.lua",
-        "examples/08-extraction/pdf_to_image.lua",
         "examples/13-ai/pdf_gemini_rag_schema.lua",
         "examples/13-ai/pdf_gemini_reconstruct_schema.lua",
         "examples/13-ai/pptx_gemini_reconstruct.lua",
@@ -388,13 +386,6 @@
         "examples/13-ai/pdf_gemini_reconstruct_schema.lua",
         "examples/13-ai/pptx_gemini_reconstruct.lua",
         "examples/13-ai/pptx_gemini_reconstruct_schema.lua"
-      ]
-    },
-    "pdfium": {
-      "description": "Requires a loadable Pdfium native library, commonly configured through PDFIUM_LIB_PATH.",
-      "flows": [
-        "examples/08-extraction/pdf_thumbnail.lua",
-        "examples/08-extraction/pdf_to_image.lua"
       ]
     },
     "poppler_pdftoppm": {
@@ -438,6 +429,8 @@
       "examples/08-extraction/extract_word.lua",
       "examples/08-extraction/image_metadata.lua",
       "examples/08-extraction/pdf_metadata.lua",
+      "examples/08-extraction/pdf_thumbnail.lua",
+      "examples/08-extraction/pdf_to_image.lua",
       "examples/08-extraction/xlsx_workbook.lua",
       "examples/13-ai/chunk_fixed.lua",
       "examples/13-ai/chunk_merge.lua",

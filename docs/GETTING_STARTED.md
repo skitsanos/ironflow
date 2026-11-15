@@ -32,9 +32,9 @@ the bundled document fonts (`assets/fonts/OFL.txt` in the `.tar.gz` archives,
 `OFL.txt` in the `.zip`). Keep the two license files with the binary when you
 redistribute it.
 
-No Rust compiler or separate Lua installation is required. Some nodes need
-additional tools or libraries: for example, PDF image rendering needs native
-Pdfium even with a full binary or the Docker image. See the
+No Rust compiler, separate Lua installation or native library is required:
+PDF pages are rendered to images by a built-in renderer. A few examples call
+external tools such as a POSIX shell or Python; see the
 [example requirements](../examples/README.md#requirements-and-effects).
 
 ### Linux and macOS

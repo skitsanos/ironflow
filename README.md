@@ -6,7 +6,7 @@ TLS trust-store incident assessment and rebuild guidance: [Security](docs/SECURI
 
 IronFlow is a DAG-based workflow orchestration engine designed for CI/CD pipelines, data processing, ETL jobs, API integrations, document extraction, and task automation. Define workflows in simple Lua scripts — a language with only ~20 keywords — and run them on a sandboxed, async Rust runtime with parallel step execution, retry logic, conditional routing, and a built-in REST API.
 
-No Python. No Node.js. No Docker required. Most workflows need only the IronFlow binary; the `pdf_to_image` and `pdf_thumbnail` nodes additionally require a native Pdfium library. IronFlow runs on Linux, macOS, edge servers, and air-gapped environments.
+No Python. No Node.js. No Docker required. Workflows need only the IronFlow binary; every built-in node, including PDF page rendering, works without a native library. IronFlow runs on Linux, macOS, edge servers, and air-gapped environments.
 
 ```lua
 local flow = Flow.new("process_order")
@@ -49,7 +49,7 @@ ironflow run process_order.lua --context '{"order": {"order_id": "ORD-42", "amou
 
 IronFlow gives you a workflow engine that:
 
-- **Ships as a single binary** — no Python, Node.js, package manager, or container runtime required; PDF rendering nodes require Pdfium
+- **Ships as a single binary** — no Python, Node.js, package manager, or container runtime required
 - **Runs anywhere** — Linux, macOS, CI/CD pipelines, edge servers, embedded systems
 - **Is fast** — Rust-powered execution with parallel step scheduling via DAG resolution
 - **Is safe** — Sandboxed Lua can't access the filesystem or OS unless you explicitly allow it

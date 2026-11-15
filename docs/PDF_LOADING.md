@@ -1,9 +1,13 @@
 # PDF loading limits
 
-`extract_pdf`, `pdf_metadata`, `pdf_split`, and `pdf_merge` share a bounded
-`lopdf` loading policy. It applies equally to file paths and verified artifact
-handles. These settings do not govern native PDFium rendering (`pdf_to_image`
-and `pdf_thumbnail`), which has its own rendering limits.
+`extract_pdf`, `pdf_metadata`, `pdf_split`, `pdf_merge`, `pdf_to_image` and
+`pdf_thumbnail` share a bounded `lopdf` loading policy. It applies equally to
+file paths and verified artifact handles. The two render nodes load the
+document under this policy before the built-in renderer sees it, then apply
+their own [rendering limits](nodes/pdf_to_image.md#limits): the streams a
+rendered page can reach (content, forms, patterns, fonts, images) are decoded
+under the per-stream ceiling below, with eight times that ceiling as the total
+for one node call.
 
 | Environment variable | Default | Boundary |
 |----------------------|---------|----------|

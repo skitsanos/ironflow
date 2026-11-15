@@ -1,5 +1,4 @@
--- Requirements: native Pdfium must be installed system-wide, available in the
--- working directory, or selected with PDFIUM_LIB_PATH.
+-- Requirements: none; pages are drawn by the built-in renderer.
 -- Effects: rendered images are stored under IRONFLOW_ARTIFACT_DIR; context
 -- receives page metadata plus content-addressed descriptors. Artifacts are not
 -- automatically pruned.

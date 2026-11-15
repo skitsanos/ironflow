@@ -476,7 +476,7 @@ IronFlow supports these state storage backends:
 - **redis** — Redis-backed storage (requires a `-full` release binary or building with `--features redis`)
 
 Two further Cargo features shape the binary: `pdf-render` (default) provides
-`pdf_to_image` and `pdf_thumbnail` through the Pdfium runtime library, and
+`pdf_to_image` and `pdf_thumbnail` with a built-in pure-Rust renderer, and
 `cjk-fonts` (off by default, on in `-full` binaries and the container image)
 embeds the Noto CJK font for `markdown_to_pdf`; see `IRONFLOW_FONT_DIR` below
 for loading fonts at runtime instead.
@@ -1601,6 +1601,7 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_MAX_PDF_RENDER_PAGES` | `25` | Maximum pages rendered by one PDF node call |
 | `IRONFLOW_MAX_PDF_SPLIT_PAGES` | `1000` | Maximum selected pages materialized by one `pdf_split` call; page specifications are rejected before collecting more indices. Also the maximum configured `pages_per_file` |
 | `IRONFLOW_MAX_PDF_RENDER_PIXELS` | `25000000` | Maximum pixels in one rendered PDF page |
+| `IRONFLOW_MAX_PDF_RENDER_OPERATIONS` | `1000000` | Maximum drawing operations in one page rendered by `pdf_to_image` or `pdf_thumbnail`, counted before the page is drawn: one per path, clip, transparency group, glyph and image, plus one per 1024 image pixels, with a tiling pattern counted once per tile copy. A page over the budget fails the node |
 | `IRONFLOW_MAX_PDF_DPI` | `300` | Maximum PDF rendering DPI |
 | `IRONFLOW_MAX_XLSX_ARCHIVE_METADATA_BYTES` | `8388608` | Maximum cumulative XLSX central-directory filename, extra-field, file/archive-comment, and ZIP64 end-record extension bytes, checked without materializing those fields before ZIP/Calamine construction |
 | `IRONFLOW_MAX_XLSX_ROWS` | `50000` | Highest one-based row position accepted in one sheet by `extract_xlsx`; sparse rows do not bypass it |

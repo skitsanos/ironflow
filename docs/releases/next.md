@@ -654,6 +654,33 @@ publication is verified separately.
     3,200 in an optimized build). An order at or above the window still
     disables smoothing, as before; only values above the ceilings fail.
 
+- **`pdf_to_image` and `pdf_thumbnail` no longer need Pdfium** (IF-194). Both
+  nodes now draw pages with a built-in pure-Rust renderer, so they work in
+  every default build and in the container image with no native library.
+  Previously they needed a Pdfium shared library and, with the `pdfium-render`
+  0.9 binding, could render only once per process: every later render failed
+  with `PdfiumLibraryBindingsAlreadyInitialized`. Parameters, outputs and the
+  DPI, page and pixel limits are unchanged. What changes for existing
+  deployments:
+  - Pixels differ from Pdfium output (anti-aliasing, hinting, image
+    resampling), so do not compare artifacts byte for byte across the upgrade.
+    The known rendering gaps are listed under
+    [Renderer](../nodes/pdf_to_image.md#renderer).
+  - The shared [PDF loading limits](../PDF_LOADING.md) now apply to both
+    nodes: a password-protected file fails with `PDF requires a password`, and
+    a file that strict parsing rejects fails with `failed to parse PDF`
+    instead of being repaired by Pdfium.
+  - A page is admitted before it is drawn. The new
+    `IRONFLOW_MAX_PDF_RENDER_OPERATIONS` (default `1000000`) bounds its drawing
+    operations, `IRONFLOW_MAX_IMAGE_PIXELS` bounds each embedded image, and
+    the streams a page uses are bounded by
+    `IRONFLOW_MAX_PDF_DECOMPRESSED_STREAM_BYTES`. A dense vector page (a large
+    map or drawing) that fails with the operations message needs the limit
+    raised.
+  - Pdfium support is removed, not kept as an option: the `pdfium-render`
+    dependency is gone and `PDFIUM_LIB_PATH` is ignored. A Pdfium library
+    installed only for IronFlow can be uninstalled.
+
 ## Security
 
 - **The outbound destination guard can be forced on for the whole process,

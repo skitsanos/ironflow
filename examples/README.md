@@ -30,7 +30,6 @@ credentialed, local-state, and platform-specific flow at the same time.
 | --- | --- |
 | POSIX shell or utilities | `04-file-operations/zip_workflow.lua`, `06-shell/run_commands.lua`, `13-ai/pdf_gemini_rag_schema.lua`, `13-ai/pdf_gemini_reconstruct_schema.lua`, `13-ai/pptx_gemini_reconstruct.lua`, `13-ai/pptx_gemini_reconstruct_schema.lua` |
 | Python 3 on `PATH` | `17-mcp/mcp_stdio.lua` |
-| Native Pdfium (`PDFIUM_LIB_PATH` or system installation) | `08-extraction/pdf_to_image.lua`, `08-extraction/pdf_thumbnail.lua` |
 | Poppler `pdftoppm` on `PATH` | `13-ai/pdf_gemini_rag_schema.lua`, `13-ai/pdf_gemini_reconstruct_schema.lua` |
 | macOS Quick Look `qlmanage` | `13-ai/pptx_gemini_reconstruct.lua` |
 | Repository root as the working directory | `13-ai/pdf_gemini_rag_schema.lua`, `13-ai/pdf_gemini_reconstruct_schema.lua`, `13-ai/pptx_gemini_reconstruct.lua` |
@@ -346,7 +345,7 @@ working directory as part of:
 cargo test --test examples test_example_fixtures::
 ```
 
-This runtime gate checks real PDF, DOCX, PPTX, image, VTT, SRT, and
-artifact-to-extractor handoff behavior.
-It deliberately excludes network calls, credentials, remote mutations, native
-Pdfium rendering, and the macOS-only Quick Look preview path.
+This runtime gate checks real PDF, DOCX, PPTX, image, VTT, SRT, PDF page
+rendering, and artifact-to-extractor handoff behavior.
+It deliberately excludes network calls, credentials, remote mutations, and the
+macOS-only Quick Look preview path.

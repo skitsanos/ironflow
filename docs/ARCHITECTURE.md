@@ -6,7 +6,7 @@ IronFlow is a lightweight, high-performance workflow engine that combines a Rust
 
 The engine provides DAG-based task scheduling with parallel execution, dependency management, retries with exponential backoff, conditional routing, and pluggable state persistence. Flows are defined in plain Lua scripts, loaded at runtime without recompilation, and executed in a sandboxed environment where scripts cannot access the filesystem or network unless explicitly granted through nodes.
 
-IronFlow ships as a single binary and does not require a Python, Node.js, or container runtime. Most nodes need only that binary; `pdf_to_image` and `pdf_thumbnail` additionally require a native Pdfium library. It runs in CI/CD pipelines, edge servers, air-gapped environments, or as a long-running API service behind Docker, Railway, or Fly.io.
+IronFlow ships as a single binary and does not require a Python, Node.js, or container runtime. Every built-in node runs from that binary; none needs a native library. It runs in CI/CD pipelines, edge servers, air-gapped environments, or as a long-running API service behind Docker, Railway, or Fly.io.
 
 ## Design Principles
 
@@ -193,6 +193,16 @@ script-specific font, language and bidi properties. Both
 publish through the shared staged-file boundary and require no external
 converter. See [Markdown Documents](MARKDOWN_DOCUMENTS.md) for limits and format
 differences.
+
+`pdf_to_image` and `pdf_thumbnail` render with a built-in pure-Rust rasterizer
+([IF-194](issues/IF-194.md)). It has no cancellation hook and no work limit,
+so the nodes bound it from outside: the document passes the shared PDF loading
+policy, the streams a page can reach are decoded under the stream ceiling, and
+the page is interpreted once against a metering device that draws nothing. The
+meter counts drawing operations against `IRONFLOW_MAX_PDF_RENDER_OPERATIONS`,
+refuses oversized embedded images, and checks the execution control every 256
+operations; only an admitted page is rasterized, and a renderer panic fails
+the step. The Pdfium binding was removed.
 
 `extract_pdf` reuses the shared single-parse PDF loading boundary and decodes one
 page at a time. A bounded marked-content walker substitutes outermost ActualText
