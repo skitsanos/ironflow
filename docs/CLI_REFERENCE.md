@@ -719,8 +719,13 @@ deadline and immediately aligns every quarantined component to it; renames and
 rotations never refresh it, and restoration or finalization cannot extend
 retention. Complete quarantine persisted past that deadline is expired, and
 the next access removes its progress record after the governed namespaces are
-gone. Partial families remain fail-closed. Capability probes use absent keys
-and create no probe records.
+gone. A quarantined stream that expires while a migration call is in
+progress is not corruption: the step that finds it gone returns the empty
+stream when the recorded deadline has passed, and otherwise `409 conflict`
+("is expiring; retry the operation") until it has. A stream that carried no
+TTL cannot expire, so its missing quarantine still blocks migration. Partial
+families remain fail-closed. Capability probes use absent keys and create no
+probe records.
 
 Stop pre-protocol Redis event writers before migration. Recreation or mutation
 of the source or destination while deterministic quarantine exists blocks

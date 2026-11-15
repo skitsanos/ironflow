@@ -10,6 +10,7 @@ use crate::storage::{StorageError, StorageResult};
 
 mod keys;
 mod legacy;
+mod legacy_errors;
 mod protocol;
 mod scripts;
 

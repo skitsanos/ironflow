@@ -1,6 +1,10 @@
 use uuid::Uuid;
 
 use super::RedisEventStore;
+use super::legacy_errors::{
+    blocked_migration, invalid_protocol_response, legacy_validation_failed,
+    manual_migration_required, migration_in_progress, orphaned_snapshot, stream_expiring,
+};
 use super::protocol::{
     LEGACY_BATCH_BYTES, LEGACY_BATCH_SIZE, LEGACY_STEPS_PER_OPERATION, LegacyCommit, LegacyFetch,
     LegacyProgress, LegacyStatus, LegacyTransition, MAX_MIGRATION_CONTROL_ATTEMPTS,
@@ -14,6 +18,14 @@ impl RedisEventStore {
         let proposed_token = Uuid::new_v4().simple().to_string();
         let mut progress = None;
         let mut completed_steps = 0_usize;
+        // A step that finds the quarantined stream expired re-reads the
+        // status once: it reports an empty stream as soon as the captured
+        // deadline has passed. Until then the caller retries (IF-214).
+        let mut expired = false;
+        let mut expire = |progress: &mut Option<LegacyProgress>| {
+            *progress = None;
+            std::mem::replace(&mut expired, true)
+        };
 
         for _ in 0..MAX_MIGRATION_CONTROL_ATTEMPTS {
             let current = match progress.take() {
@@ -47,13 +59,12 @@ impl RedisEventStore {
                     LegacyTransition::Failed(code) => {
                         return Err(legacy_validation_failed(run_id, &code));
                     }
-                    LegacyTransition::Expiring => {
-                        return Err(StorageError::conflict(format_args!(
-                            "Redis legacy event stream for run '{run_id}' is expiring; retry the operation"
-                        )));
-                    }
+                    LegacyTransition::Expiring => return Err(stream_expiring(run_id)),
                     LegacyTransition::Blocked => return Err(blocked_migration(run_id)),
-                    LegacyTransition::Stale => {}
+                    LegacyTransition::Expired if expire(&mut progress) => {
+                        return Err(stream_expiring(run_id));
+                    }
+                    LegacyTransition::Expired | LegacyTransition::Stale => {}
                 }
                 continue;
             }
@@ -70,6 +81,10 @@ impl RedisEventStore {
                 }
                 LegacyFetch::Done | LegacyFetch::Stale => continue,
                 LegacyFetch::Blocked => return Err(blocked_migration(run_id)),
+                LegacyFetch::Expired if expire(&mut progress) => {
+                    return Err(stream_expiring(run_id));
+                }
+                LegacyFetch::Expired => continue,
             };
             if self
                 .validate_legacy_chunk(run_id, &current, &chunk)
@@ -87,6 +102,10 @@ impl RedisEventStore {
                     progress = self.begin_legacy_restore(run_id, &current, &code).await?;
                 }
                 LegacyCommit::Blocked => return Err(blocked_migration(run_id)),
+                LegacyCommit::Expired if expire(&mut progress) => {
+                    return Err(stream_expiring(run_id));
+                }
+                LegacyCommit::Expired => {}
             }
         }
 
@@ -224,7 +243,9 @@ impl RedisEventStore {
             })?;
         match LegacyTransition::parse(response)? {
             LegacyTransition::Progress(progress) => Ok(Some(progress)),
-            LegacyTransition::Stale => Ok(None),
+            // An expired stream is found again, and reported, by the next
+            // fetch of the control loop.
+            LegacyTransition::Stale | LegacyTransition::Expired => Ok(None),
             LegacyTransition::Blocked => Err(blocked_migration(run_id)),
             _ => Err(invalid_protocol_response(
                 run_id,
@@ -260,46 +281,4 @@ fn should_defer_transition(progress: &LegacyProgress, completed_steps: usize) ->
     completed_steps >= LEGACY_STEPS_PER_OPERATION
         && matches!(progress.phase, super::protocol::LegacyPhase::Restore)
         && progress.cursor > 0
-}
-
-fn migration_in_progress(run_id: &str, progress: &LegacyProgress) -> StorageError {
-    StorageError::conflict(format_args!(
-        "Redis legacy event migration for run '{run_id}' made bounded progress through event {} of {}; retry the operation",
-        progress.cursor, progress.sequence
-    ))
-}
-
-fn manual_migration_required(run_id: &str) -> StorageError {
-    StorageError::corruption(
-        format_args!("Ambiguous Redis legacy event keys for run '{run_id}'"),
-        "the physical namespace can alias another run; add an exact run_id owner marker or migrate it manually",
-    )
-}
-
-fn orphaned_snapshot(run_id: &str) -> StorageError {
-    StorageError::corruption(
-        format_args!("Orphaned Redis legacy event snapshot for run '{run_id}'"),
-        "migration state is missing; the deterministic snapshot was preserved for manual recovery",
-    )
-}
-
-fn blocked_migration(run_id: &str) -> StorageError {
-    StorageError::corruption(
-        format_args!("Blocked Redis legacy event migration for run '{run_id}'"),
-        "the source, destination, or quarantined snapshot changed; no data was overwritten or deleted",
-    )
-}
-
-fn legacy_validation_failed(run_id: &str, code: &str) -> StorageError {
-    StorageError::corruption(
-        format_args!("Invalid stored Redis event for run '{run_id}'"),
-        format_args!("legacy validation failed ({code}); the original key family was restored"),
-    )
-}
-
-fn invalid_protocol_response(run_id: &str, detail: &str) -> StorageError {
-    StorageError::corruption(
-        format_args!("Invalid Redis legacy event migration for run '{run_id}'"),
-        detail,
-    )
 }

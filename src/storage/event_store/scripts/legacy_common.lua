@@ -321,6 +321,16 @@ local function ironflow_sources_absent(progress)
     return true
 end
 
+-- A quarantined stream that carried an expiry and is gone, with nothing in
+-- its source or destination, has expired: no data was lost and nothing is
+-- corrupt (IF-214). A stream without an expiry cannot vanish this way, so
+-- its absence stays a blocked migration.
+local function ironflow_snapshot_expired(progress)
+    return progress.expiry_at >= 0
+        and ironflow_family_absent(9)
+        and ironflow_sources_absent(progress)
+end
+
 local function ironflow_read_batch(progress, owner, from_tail, forced_count)
     local snapshot, status = ironflow_snapshot(progress)
     if snapshot == nil then

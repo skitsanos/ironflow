@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exception_budget": 7,
+  "exception_budget": 6,
   "exceptions": [
     {
       "path": "src/engine/recovery.rs",
@@ -11,11 +11,6 @@
       "path": "src/nodes/cloud/s3_objects.rs",
       "max_lines": 321,
       "rationale": "IF-028/036 review: four closely related S3 object operations share one client and payload contract, plus a content-length size pre-flight on get_object; split when a fifth operation or new helper responsibility appears."
-    },
-    {
-      "path": "src/storage/event_store/redis/legacy.rs",
-      "max_lines": 305,
-      "rationale": "IF-028 review: one bounded legacy-event migration state machine; splitting its ordered protocol would obscure progress and failure invariants."
     },
     {
       "path": "src/storage/json_store/codec.rs",

@@ -460,3 +460,159 @@ async fn expired_current_collision_scenario(expiry_ms: u64) -> Setup {
     fixture.cleanup().await;
     Setup::Complete
 }
+
+/// Seed a legacy stream that expires in a minute and run one bounded
+/// migration call, which leaves it quarantined in the snapshot family with
+/// its migration state. Returns the state key and the snapshot keys.
+async fn quarantined_expiring_stream(
+    fixture: &RedisTest,
+    conn: &mut redis::aio::ConnectionManager,
+    store: &dyn EventStore,
+    run_id: &str,
+    count: usize,
+) -> (String, [String; 4]) {
+    let base = format!("{}events:{run_id}", fixture.prefix);
+    seed_legacy(conn, &base, run_id, count).await;
+    for key in [base.clone(), format!("{base}:index"), format!("{base}:seq")] {
+        assert!(
+            redis::cmd("PEXPIRE")
+                .arg(key)
+                .arg(60_000)
+                .query_async::<bool>(conn)
+                .await
+                .unwrap()
+        );
+    }
+    let error = store.list_since(run_id, None, 1).await.unwrap_err();
+    assert_eq!(error.kind(), StorageErrorKind::Conflict, "{error}");
+    let migration = migration_key(&fixture.prefix, run_id);
+    let snapshot = snapshot_family(&format!("{migration}:snapshot"));
+    (migration, snapshot)
+}
+
+async fn redis_now_ms(conn: &mut redis::aio::ConnectionManager) -> i64 {
+    let (seconds, micros): (i64, i64) = redis::cmd("TIME").query_async(conn).await.unwrap();
+    seconds * 1_000 + micros / 1_000
+}
+
+/// IF-214 (c): a quarantined stream that expires between the steps of one
+/// migration call is not corrupt. The step that finds it gone reports a
+/// retryable conflict until the captured deadline has passed, and an empty
+/// stream afterwards. The expiry is applied to the keys directly, so the
+/// test waits for no deadline.
+#[tokio::test]
+async fn redis_legacy_stream_expiring_between_migration_steps_is_not_corruption() {
+    let Some(fixture) = RedisTest::connect("event_legacy_expiry_mid_call").await else {
+        return;
+    };
+    let run_id = "legacy-expiry-mid-call";
+    let mut conn = fixture.connection().await.unwrap();
+    let store = fixture.event_store(None).await;
+    let (migration, snapshot) =
+        quarantined_expiring_stream(&fixture, &mut conn, &store, run_id, 4_200).await;
+
+    // The snapshot expires. The state still holds the deadline captured a
+    // moment ago, so the next call starts as if the stream were live and
+    // finds it expired at its second step.
+    for key in &snapshot[..3] {
+        assert!(
+            redis::cmd("PEXPIRE")
+                .arg(key)
+                .arg(1)
+                .query_async::<bool>(&mut conn)
+                .await
+                .unwrap()
+        );
+    }
+    wait_until_absent(&mut conn, &snapshot).await;
+    for _ in 0..3 {
+        let error = store.list_since(run_id, None, 1).await.unwrap_err();
+        assert_eq!(error.kind(), StorageErrorKind::Conflict, "{error}");
+        assert!(error.to_string().contains("expiring"), "{error}");
+    }
+    let phase: String = redis::cmd("HGET")
+        .arg(&migration)
+        .arg("phase")
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    assert_ne!(phase, "blocked", "an expiry must not block the migration");
+
+    // Once the captured deadline has passed the stream is simply empty and
+    // the run ID is usable again.
+    let passed = redis_now_ms(&mut conn).await - 1;
+    redis::cmd("HSET")
+        .arg(&migration)
+        .arg("expiry_at_ms")
+        .arg(passed)
+        .query_async::<()>(&mut conn)
+        .await
+        .unwrap();
+    assert!(store.list_since(run_id, None, 10).await.unwrap().is_empty());
+    assert!(
+        !redis::cmd("EXISTS")
+            .arg(&migration)
+            .query_async::<bool>(&mut conn)
+            .await
+            .unwrap()
+    );
+    let fresh = event(run_id, "after-expiry");
+    store.publish(fresh.clone()).await.unwrap();
+    assert_eq!(
+        store.list_since(run_id, None, 10).await.unwrap(),
+        vec![fresh]
+    );
+    fixture.cleanup().await;
+}
+
+/// The same expiry in real time: the stream and its captured deadline expire
+/// together while a migration that needs many calls is in flight. Every
+/// call is a retryable conflict or a successful read, never corruption, and
+/// the stream ends empty. A call that spans the expiry returns the empty
+/// stream directly, so no particular number of conflicts is expected. The
+/// loop polls; nothing sleeps past a fixed deadline.
+#[tokio::test]
+async fn redis_legacy_stream_expiring_during_migration_calls_ends_empty() {
+    const EXPIRY_MS: i64 = 100;
+    let Some(fixture) = RedisTest::connect("event_legacy_expiry_in_flight").await else {
+        return;
+    };
+    let run_id = "legacy-expiry-in-flight";
+    let mut conn = fixture.connection().await.unwrap();
+    let store = fixture.event_store(None).await;
+    let (migration, snapshot) =
+        quarantined_expiring_stream(&fixture, &mut conn, &store, run_id, 40_000).await;
+
+    let mut pipe = redis::pipe();
+    pipe.atomic();
+    for key in &snapshot[..3] {
+        pipe.cmd("PEXPIRE").arg(key).arg(EXPIRY_MS).ignore();
+    }
+    let deadline = redis_now_ms(&mut conn).await + EXPIRY_MS;
+    pipe.cmd("HSET")
+        .arg(&migration)
+        .arg("expiry_at_ms")
+        .arg(deadline)
+        .ignore();
+    pipe.query_async::<()>(&mut conn).await.unwrap();
+
+    let limit = Instant::now() + EXPIRY_POLL_LIMIT;
+    loop {
+        match store.list_since(run_id, None, 1).await {
+            Ok(events) if events.is_empty() => break,
+            // Migrated before the expiry: the current stream expires next.
+            Ok(_) => tokio::time::sleep(EXPIRY_POLL).await,
+            Err(error) => assert_eq!(error.kind(), StorageErrorKind::Conflict, "{error}"),
+        }
+        assert!(Instant::now() < limit, "the stream never expired");
+    }
+    wait_until_absent(&mut conn, &snapshot).await;
+    assert!(
+        !redis::cmd("EXISTS")
+            .arg(&migration)
+            .query_async::<bool>(&mut conn)
+            .await
+            .unwrap()
+    );
+    fixture.cleanup().await;
+}

@@ -703,6 +703,13 @@ publication is verified separately.
   carries the context key `_event_stream_warning`, visible through
   `GET /runs/{id}`. See [metrics](../METRICS.md).
 
+- A Redis legacy event stream that expires while it is being migrated is no
+  longer reported as corrupt (IF-214). The call that found the quarantined
+  stream gone used to fail once with `Blocked Redis legacy event migration`;
+  the next call returned an empty stream. The call now returns the empty
+  stream itself, or `409 conflict` with retry guidance while the recorded
+  expiry is still ahead. No data was lost before and none is now.
+
 - Every release archive and the container image now ship
   `THIRD_PARTY_LICENSES.md`, the generated license notices for the Rust crates
   statically linked into IronFlow, next to the bundled fonts' OFL license

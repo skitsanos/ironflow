@@ -689,8 +689,16 @@ returns `StorageErrorKind::NotFound`.
   IronFlow expires it instead of restoring or adopting it. Once the governed
   source and snapshot namespaces are absent after the deadline, the next access
   removes the persistent progress record and treats the retained stream as
-  expired. Partial families still fail closed. Command-capability probes
-  operate only on absent keys and never create probe data.
+  expired. The same holds when the deadline passes between two steps of one
+  operation: a fetch, commit, restore or transition step that finds the
+  snapshot of a stream with a captured deadline gone, with nothing in the
+  source or destination, answers `expired` and records nothing. The operation
+  then re-reads the status once and returns the empty stream, or `Conflict`
+  with retry guidance while the deadline is still ahead; it is never reported
+  as a blocked migration. A stream captured without a TTL cannot expire, so
+  its missing snapshot remains blocked. Partial families still fail closed.
+  Command-capability probes operate only on absent keys and never create
+  probe data.
 
   Migration requires a coordinated stop of pre-protocol event writers. If one
   recreates the source or destination while quarantine exists, migration is

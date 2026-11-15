@@ -29,6 +29,9 @@ ironflow_assert_key_layout(progress.mode)
 if not ironflow_sources_absent(progress) then
     return {'blocked'}
 end
+if ironflow_snapshot_expired(progress) then
+    return {'expired'}
+end
 
 local batch, status = ironflow_read_batch(progress, owner, false)
 if batch == nil then
