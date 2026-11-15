@@ -1460,6 +1460,12 @@ running under the same OS identity from mutating the leased inode.
   `pdf_merge`, `pdf_split` (both modes, IF-218) and the Markdown document
   nodes use the same rooted writer directly and create missing parent
   directories.
+- Platforms other than Unix use a checked-path fallback of the rooted writer
+  (`rooted/portable.rs`): it refuses symlinked components and leaves by
+  inspecting paths, without a pinned directory handle. Its unit tests run in
+  Unix test builds, and `--cfg ironflow_portable_writer` compiles the whole
+  library against it in CI (IF-218); see
+  [NODE_CONTRIBUTING.md](NODE_CONTRIBUTING.md#portable-rooted-writer).
 - On Unix a parent directory created by the rooted writer is requested as
   `0755` and masked by the umask, not as the `0777` of a plain `mkdir`
   (IF-218, decided; first measured in IF-185). A permissive umask therefore

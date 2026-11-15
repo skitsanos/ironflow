@@ -151,6 +151,7 @@ impl RootedDir {
 }
 
 impl StagedFile {
+    #[allow(clippy::expect_used)] // Infallible: staged file already committed.
     pub(crate) fn writer(&mut self) -> &mut File {
         self.file.as_mut().expect("staged file already committed")
     }
@@ -284,3 +285,6 @@ fn validate_leaf(path: &Path, overwrite: bool, operation: &str) -> Result<()> {
         Err(error) => Err(error.into()),
     }
 }
+
+#[cfg(test)]
+mod tests;

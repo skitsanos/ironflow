@@ -58,6 +58,8 @@ actionlint .github/workflows/*.yml
 echo "[integration] default Rust gates"
 cargo check --all-targets
 cargo clippy --all-targets -- -D warnings
+# The non-Unix rooted writer and its callers, compiled on this host (IF-218).
+cargo clippy --lib -- --cfg ironflow_portable_writer -D warnings
 bun --no-env-file scripts/test_rust_targets.ts
 cargo test --doc
 cargo audit --deny warnings

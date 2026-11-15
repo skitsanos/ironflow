@@ -317,6 +317,31 @@ establish good modularity: reviewers must still examine responsibility
 boundaries, cognitive complexity, and whether moving tests or helpers improves
 cohesion.
 
+### Portable rooted writer
+
+File-writing nodes publish through `nodes::file::RootedDir`. Unix builds use
+the handle-pinned implementation (`rooted/unix.rs`); every other platform uses
+the checked-path fallback (`rooted/portable.rs`), which no Unix build links.
+Two checks keep the fallback from rotting (IF-218):
+
+- Its unit tests (`rooted/portable/tests.rs`) are compiled into Unix test
+  builds and run with `cargo test --lib rooted::portable`.
+- `cargo clippy --lib -- --cfg ironflow_portable_writer -D warnings` selects
+  the fallback for the whole library, so every caller is compiled and linted
+  against its API. CI and `scripts/integration_gate.sh` run it after the
+  default Clippy step; the flag reaches only the IronFlow crate, so nothing
+  else is rebuilt. Run it after changing `RootedDir`, `StagedFile` or a node
+  that uses them. Never ship a build made with that flag.
+
+Neither check compiles for Windows. A `cargo check --target
+x86_64-pc-windows-msvc` from Linux or macOS is not available without new
+toolchain cost: the build scripts of the bundled SQLite and of the TLS and
+Lua crates compile C for the target and need the MSVC toolchain and Windows
+SDK. Windows-only code (`#[cfg(windows)]`, such as the `MoveFileExW` call in
+the fallback) is first compiled by the `x86_64-pc-windows-msvc` job of the
+release workflow; when such code changes, build on a Windows host before
+tagging.
+
 ## 14) Common mistakes to avoid
 
 - returning `NodeOutput` with missing defaults when config is invalid

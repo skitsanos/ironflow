@@ -118,6 +118,11 @@ jobs:
         with:
           cache-targets: false
       - run: cargo clippy --all-targets -- -D warnings
+      # Compile and lint the non-Unix rooted writer and its callers on this
+      # host (IF-218). The flag reaches only the IronFlow crate, so the
+      # dependency artifacts of the step above are reused.
+      - name: Lint the portable rooted writer
+        run: cargo clippy --lib -- --cfg ironflow_portable_writer -D warnings
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.4
