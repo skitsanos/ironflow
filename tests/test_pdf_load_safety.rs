@@ -9,6 +9,16 @@ use tokio::process::Command;
 const STREAM_LIMIT: &str = "IRONFLOW_MAX_PDF_DECOMPRESSED_STREAM_BYTES";
 const OBJECT_LIMIT: &str = "IRONFLOW_MAX_PDF_OBJECTS";
 
+/// Every node that loads a PDF; the two render nodes exist only with the
+/// default `pdf-render` feature.
+fn loaders() -> Vec<&'static str> {
+    let mut nodes = vec!["extract_pdf", "pdf_metadata", "pdf_split", "pdf_merge"];
+    if cfg!(feature = "pdf-render") {
+        nodes.extend(["pdf_to_image", "pdf_thumbnail"]);
+    }
+    nodes
+}
+
 async fn run(
     path: &Path,
     node: &str,
@@ -36,6 +46,7 @@ async fn run_with_source(
         "pdf_metadata" => "",
         "pdf_split" => "output_dir = 'pages'",
         "pdf_merge" => "output_path = 'merged.pdf'",
+        "pdf_to_image" | "pdf_thumbnail" => "dpi = 36",
         _ => panic!("unexpected node"),
     };
     let mut prefix = String::new();
@@ -87,7 +98,7 @@ fn output_text(output: &std::process::Output) -> String {
 async fn oversized_object_stream_is_rejected_by_every_loader() {
     let bytes = fixture::encoded(64 * 1024);
     assert!(bytes.len() < 32768);
-    for node in ["extract_pdf", "pdf_metadata", "pdf_split", "pdf_merge"] {
+    for node in loaders() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path();
         std::fs::write(path.join("source.pdf"), &bytes).unwrap();
@@ -117,7 +128,7 @@ async fn valid_object_streams_preserve_text_metadata_and_page_outputs() {
             .map(|stream| stream.get_plain_content().unwrap().len() as u64)
             .max()
             .unwrap();
-        for node in ["extract_pdf", "pdf_metadata", "pdf_split", "pdf_merge"] {
+        for node in loaders() {
             let directory = tempfile::tempdir().unwrap();
             let path = directory.path();
             std::fs::write(path.join("source.pdf"), &bytes).unwrap();
@@ -151,7 +162,7 @@ async fn valid_object_streams_preserve_text_metadata_and_page_outputs() {
 
 #[tokio::test]
 async fn loaded_object_ceiling_applies_before_downstream_work() {
-    for node in ["extract_pdf", "pdf_metadata", "pdf_split", "pdf_merge"] {
+    for node in loaders() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path();
         std::fs::write(path.join("source.pdf"), fixture::encoded(0)).unwrap();
@@ -184,7 +195,7 @@ async fn xref_and_encrypted_streams_do_not_hide_limit_failures() {
         if kind != "xref" {
             baseline.unwrap();
         }
-        for node in ["extract_pdf", "pdf_metadata", "pdf_split", "pdf_merge"] {
+        for node in loaders() {
             let directory = tempfile::tempdir().unwrap();
             let path = directory.path();
             std::fs::write(path.join("source.pdf"), &bytes).unwrap();
@@ -204,7 +215,7 @@ async fn xref_and_encrypted_streams_do_not_hide_limit_failures() {
 
 #[tokio::test]
 async fn artifact_inputs_use_the_same_loading_policy() {
-    for node in ["extract_pdf", "pdf_metadata", "pdf_split", "pdf_merge"] {
+    for node in loaders() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path();
         std::fs::write(path.join("source.pdf"), fixture::encoded(8192)).unwrap();
@@ -219,7 +230,7 @@ async fn artifact_inputs_use_the_same_loading_policy() {
 
 #[tokio::test]
 async fn password_protected_inputs_fail_instead_of_returning_partial_documents() {
-    for node in ["extract_pdf", "pdf_metadata", "pdf_split", "pdf_merge"] {
+    for node in loaders() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path();
         std::fs::write(

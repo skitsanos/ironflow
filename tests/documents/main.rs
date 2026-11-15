@@ -60,6 +60,8 @@ mod test_pdf_merge_split_nodes;
 mod test_pdf_page_graph;
 #[path = "../test_pdf_page_rendering.rs"]
 mod test_pdf_page_rendering;
+#[path = "../test_pdf_render_nodes.rs"]
+mod test_pdf_render_nodes;
 #[path = "../test_pdf_split_group_runtime.rs"]
 mod test_pdf_split_group_runtime;
 #[path = "../test_pdf_split_group_safety.rs"]
