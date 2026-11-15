@@ -6,6 +6,9 @@ local flow = Flow.new("extract_word_demo")
 -- A paragraph that anchors a text box keeps its text; the box paragraphs
 -- follow it as separate blocks. Run flags honour w:val, so a run with
 -- <w:b w:val="0"/> is not bold.
+-- Bold, italic and strikethrough are resolved through word/styles.xml
+-- (paragraph and character styles, w:basedOn chains, document defaults), so
+-- a run that is bold only through its style reports bold = true.
 flow:step("extract", nodes.extract_word({
     path = "${ctx._flow_dir}/../fixtures/ironflow-sample.docx",
     format = "json",

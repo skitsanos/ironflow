@@ -63,7 +63,36 @@ When `format = "json"`, the output is an object with a single `blocks` array. Ea
 }
 ```
 
-Run flags (`bold`, `italic`, `underline`, `strike`) are emitted only when true. A toggle property counts as on when it is present without `w:val` or with `1`, `true` or `on`, and as off with `0`, `false` or `off`; `w:u` is off for `w:val="none"`. Style inheritance is not resolved, so an explicit off only cancels the flag on that run. Tracked formatting changes are read as accepted: the previous properties stored under `w:rPrChange` and `w:pPrChange` are ignored, so a run or paragraph reports only its current formatting, style and list state. `color` is the resolved hex (uppercase, no `#`) — see below. `highlight` is the OOXML highlight name when set (e.g. `"yellow"`). `style` and `list` are absent when not applicable. `colors` is a deduped union of run colors at the paragraph level, present only when at least one run has a color.
+Run flags (`bold`, `italic`, `underline`, `strike`) are emitted only when true. A toggle property counts as on when it is present without `w:val` or with `1`, `true` or `on`, and as off with `0`, `false` or `off`; `w:u` is off for `w:val="none"`. Tracked formatting changes are read as accepted: the previous properties stored under `w:rPrChange` and `w:pPrChange` are ignored, so a run or paragraph reports only its current formatting, style and list state. `color` is the resolved hex (uppercase, no `#`) — see below. `highlight` is the OOXML highlight name when set (e.g. `"yellow"`). `style` and `list` are absent when not applicable. `colors` is a deduped union of run colors at the paragraph level, present only when at least one run has a color.
+
+### Style inheritance of bold, italic and strikethrough
+
+`bold`, `italic` and `strike` are toggle properties and are resolved through
+`word/styles.xml` as WordprocessingML defines them:
+
+1. Along each `w:basedOn` chain the nearest value wins, so a derived style
+   with `<w:i w:val="0"/>` switches off the italic of its base.
+2. The result for the paragraph style (`w:pStyle`, or the default paragraph
+   style) and for the character style (`w:rStyle`, or the default character
+   style) are combined by exclusive or: a bold character style inside a bold
+   paragraph style is not bold.
+3. A toggle that the document defaults (`w:docDefaults`) turn on stays on
+   whatever the styles say.
+4. A toggle set directly on the run (`<w:b/>`, `<w:b w:val="0"/>`) replaces
+   all of the above.
+
+A style reference that names no style of the right kind falls back to the
+default style. A `w:basedOn` cycle ends the chain. Table styles and their
+conditional formatting (for example a bold first row) are not resolved, and
+neither are `underline`, `color` and `highlight`, which are reported from the
+run's own properties only. The styles part is parsed under the same
+`IRONFLOW_MAX_EXTRACT_ITEMS` and output budgets as the document. A package
+without `word/styles.xml` reports direct formatting only.
+
+In Markdown a heading does not repeat the emphasis of its own style: a run in
+a `Heading1` paragraph whose style is bold renders as `# Title`, not
+`# **Title**`, while emphasis that differs from the style (an italic run in
+that heading) keeps its markers. JSON reports the resolved flags on every run.
 
 ### Text boxes
 

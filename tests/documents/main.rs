@@ -18,6 +18,8 @@ mod test_extract_html_content;
 mod test_extract_pdf_font_bounds;
 #[path = "../test_extract_word_comment_anchors.rs"]
 mod test_extract_word_comment_anchors;
+#[path = "../test_extract_word_style_toggles.rs"]
+mod test_extract_word_style_toggles;
 #[path = "../test_extract_word_text_boxes.rs"]
 mod test_extract_word_text_boxes;
 #[path = "../test_extract_xlsx.rs"]

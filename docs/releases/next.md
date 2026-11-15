@@ -610,8 +610,16 @@ publication is verified separately.
   - `extract_word` comment anchors no longer read the `mc:Fallback` copy of a
     text box. `anchored_text` for a comment range around or inside a text box
     repeated the box text (`ANCHOREDANCHORED`); it now holds it once.
+  - `extract_word` resolves bold, italic and strikethrough through
+    `word/styles.xml`: paragraph and character styles, their `w:basedOn`
+    chains and the document defaults. A run that is bold only through its
+    style (a `Strong` character style, a bold paragraph style) was reported
+    as plain and now carries `bold` in JSON and `**` in Markdown; a run that
+    switches a style's toggle off stays plain. Markdown headings do not
+    repeat the emphasis of their own style, so `# Title` stays as it is.
+    Table styles are not resolved.
 
-  See [`extract_word`](../nodes/extract_word.md).
+  See [`extract_word`](../nodes/extract_word.md#style-inheritance-of-bold-italic-and-strikethrough).
 
 - **Deleting a scheduled run no longer lets its occurrence run again**
   (IF-201). Before, a server that started or restarted inside a schedule's

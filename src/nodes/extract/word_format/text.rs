@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use anyhow::Result;
 
 use self::output::TextOutput;
-use super::super::docx_parser::{DocxBlock, DocxParagraph};
+use super::super::docx_parser::{DocxBlock, DocxParagraph, Flags};
 use super::super::resource::Budget;
 
 pub(in crate::nodes::extract) fn blocks_to_text(
@@ -48,7 +48,8 @@ pub(in crate::nodes::extract) fn blocks_to_markdown(
                     output.start_line()?;
                     output.append_repeat('#', level, "DOCX markdown heading")?;
                     output.append(" ", "DOCX markdown heading")?;
-                    output.append_markdown_runs(&paragraph.runs, false)?;
+                    let inherited = paragraph.style_emphasis;
+                    output.append_markdown_runs(&paragraph.runs, false, inherited)?;
                     output.start_line()?;
                     continue;
                 }
@@ -65,13 +66,13 @@ pub(in crate::nodes::extract) fn blocks_to_markdown(
                     } else {
                         output.append("- ", "DOCX markdown list marker")?;
                     }
-                    output.append_markdown_runs(&paragraph.runs, false)?;
+                    output.append_markdown_runs(&paragraph.runs, false, Flags::default())?;
                     continue;
                 }
 
                 numbered_counters.clear();
                 output.start_line()?;
-                output.append_markdown_runs(&paragraph.runs, false)?;
+                output.append_markdown_runs(&paragraph.runs, false, Flags::default())?;
             }
             DocxBlock::Table(table) => {
                 numbered_counters.clear();

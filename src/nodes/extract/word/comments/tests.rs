@@ -30,6 +30,7 @@ async fn comment_anchor_fan_out_is_charged_before_expansion() {
             xml.as_bytes(),
             &std::collections::HashMap::new(),
             &std::collections::HashMap::new(),
+            &crate::nodes::extract::docx_parser::StyleSheet::default(),
             Some(&comment_ids),
             &mut budget,
         )

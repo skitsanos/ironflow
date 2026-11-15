@@ -7,8 +7,11 @@ use anyhow::Result;
 use quick_xml::events::BytesStart;
 
 use super::super::resource::Budget;
-use super::properties::{apply_paragraph_property, apply_run_property};
+use super::properties::{RunFormat, apply_paragraph_property, apply_run_property};
+use super::styles::StyleSheet;
 use super::{DocxBlock, DocxCell, DocxParagraph, DocxRow, DocxRun, DocxTable};
+
+mod placement;
 
 /// Elements whose content is never live. An `mc:Fallback` repeats its
 /// `mc:Choice` in an older vocabulary, and a tracked formatting change holds
@@ -20,6 +23,7 @@ pub(super) const FALLBACK: &str = "mc:Fallback";
 pub(super) struct Lookups<'a> {
     pub(super) numbering_defs: &'a HashMap<String, bool>,
     pub(super) theme_colors: &'a HashMap<String, String>,
+    pub(super) styles: &'a StyleSheet,
 }
 
 /// One open `w:p`. A text box nests whole paragraphs inside a run of its
@@ -28,6 +32,8 @@ pub(super) struct Lookups<'a> {
 struct Frame {
     paragraph: DocxParagraph,
     run: Option<DocxRun>,
+    /// Toggles and character style set directly on the open run.
+    format: RunFormat,
     in_text: bool,
     in_run_props: bool,
     in_para_props: bool,
@@ -76,13 +82,13 @@ impl BlockBuilder {
             "w:tbl" | "w:tr" | "w:tc" => {
                 self.open_table_part(name);
                 if is_empty {
-                    self.close(name);
+                    self.close(name, lookups.styles);
                 }
                 Ok(())
             }
             "w:p" | "w:r" | "w:t" | "w:tab" | "w:br" => self.open_text(name, is_empty, budget),
-            "w:pPr" | "w:pStyle" | "w:numPr" | "w:ilvl" | "w:numId" | "w:rPr" | "w:b" | "w:i"
-            | "w:u" | "w:strike" | "w:color" | "w:highlight" => {
+            "w:pPr" | "w:pStyle" | "w:numPr" | "w:ilvl" | "w:numId" | "w:rPr" | "w:rStyle"
+            | "w:b" | "w:i" | "w:u" | "w:strike" | "w:color" | "w:highlight" => {
                 self.open_property(name, event, is_empty, version, lookups, budget)
             }
             _ => Ok(()),
@@ -117,6 +123,7 @@ impl BlockBuilder {
         if name == "w:r" {
             if !is_empty {
                 frame.run = Some(DocxRun::default());
+                frame.format = RunFormat::default();
                 frame.in_run_props = false;
             }
             return Ok(());
@@ -157,7 +164,8 @@ impl BlockBuilder {
             ("w:pPr", _) => frame.in_para_props = !is_empty,
             ("w:rPr", Some(_)) => frame.in_run_props = !is_empty,
             (_, Some(run)) if frame.in_run_props => {
-                apply_run_property(name, event, run, version, lookups.theme_colors, budget)?;
+                let format = &mut frame.format;
+                apply_run_property(name, event, run, format, version, lookups, budget)?;
             }
             _ if frame.in_para_props => {
                 let paragraph = &mut frame.paragraph;
@@ -180,7 +188,7 @@ impl BlockBuilder {
     }
 
     /// Handle an end element.
-    pub(super) fn close(&mut self, name: &str) {
+    pub(super) fn close(&mut self, name: &str, styles: &StyleSheet) {
         if SKIPPED.contains(&name) {
             self.skip_depth = self.skip_depth.saturating_sub(1);
             return;
@@ -194,7 +202,7 @@ impl BlockBuilder {
                     self.finish_paragraph(frame);
                 }
             }
-            "w:t" | "w:r" | "w:rPr" | "w:pPr" => self.close_in_paragraph(name),
+            "w:t" | "w:r" | "w:rPr" | "w:pPr" => self.close_in_paragraph(name, styles),
             "w:tc" => {
                 if let Some(cell) = self.cell_stack.pop()
                     && let Some(row) = self.row_stack.last_mut()
@@ -214,7 +222,7 @@ impl BlockBuilder {
         }
     }
 
-    fn close_in_paragraph(&mut self, name: &str) {
+    fn close_in_paragraph(&mut self, name: &str, styles: &StyleSheet) {
         let Some(frame) = self.frames.last_mut() else {
             return;
         };
@@ -223,9 +231,10 @@ impl BlockBuilder {
             "w:r" => {
                 frame.in_text = false;
                 frame.in_run_props = false;
-                if let Some(run) = frame.run.take()
+                if let Some(mut run) = frame.run.take()
                     && !run.text.is_empty()
                 {
+                    frame.format.resolve(&mut run, &frame.paragraph, styles);
                     frame.paragraph.runs.push(run);
                 }
             }
@@ -235,60 +244,7 @@ impl BlockBuilder {
         }
     }
 
-    /// A paragraph directly inside a text box follows the paragraph that
-    /// anchors the box; any other paragraph goes to its cell or the document.
-    fn finish_paragraph(&mut self, frame: Frame) {
-        let Frame {
-            paragraph, boxed, ..
-        } = frame;
-        if let Some(host) = self.frames.last_mut()
-            && host.cell_depth == self.cell_stack.len()
-        {
-            if !paragraph.runs.is_empty() {
-                host.boxed.push(DocxBlock::Paragraph(paragraph));
-            }
-            host.boxed.extend(boxed);
-        } else if let Some(cell) = self.cell_stack.last_mut() {
-            cell.paragraphs.push(paragraph);
-            for block in boxed {
-                match block {
-                    DocxBlock::Paragraph(paragraph) => cell.paragraphs.push(paragraph),
-                    DocxBlock::Table(table) => cell.paragraphs.extend(table_paragraphs(table)),
-                }
-            }
-        } else {
-            self.blocks.push(DocxBlock::Paragraph(paragraph));
-            self.blocks.extend(boxed);
-        }
-    }
-
-    /// A table inside a text box follows the paragraph that anchors the box.
-    /// Otherwise a top-level table becomes a block and a nested table's
-    /// paragraphs flatten into the enclosing cell.
-    fn finish_table(&mut self) {
-        let Some(table) = self.table_stack.pop() else {
-            return;
-        };
-        if let Some(host) = self.frames.last_mut()
-            && host.table_depth == self.table_stack.len()
-        {
-            host.boxed.push(DocxBlock::Table(table));
-        } else if self.table_stack.is_empty() {
-            self.blocks.push(DocxBlock::Table(table));
-        } else if let Some(parent_cell) = self.cell_stack.last_mut() {
-            parent_cell.paragraphs.extend(table_paragraphs(table));
-        }
-    }
-
     pub(super) fn finish(self) -> Vec<DocxBlock> {
         self.blocks
     }
-}
-
-fn table_paragraphs(table: DocxTable) -> impl Iterator<Item = DocxParagraph> {
-    table
-        .rows
-        .into_iter()
-        .flat_map(|row| row.cells)
-        .flat_map(|cell| cell.paragraphs)
 }
