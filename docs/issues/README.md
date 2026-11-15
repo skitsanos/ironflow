@@ -250,4 +250,4 @@ priority, area, and title. The registry is generated with
 | [IF-220](./IF-220.md) | P3 | Open | Maintainability | Operational and validation follow-ups from the 2026-11 fix batches |
 | [IF-221](./IF-221.md) | P2 | Resolved | Workflow composition | Child input mappings and s3vector flags fall back silently on missing or malformed values |
 | [IF-222](./IF-222.md) | P3 | Open | Documents/extraction fidelity | Document extraction fidelity follow-ups for DOCX, PPTX and PDF metadata |
-| [IF-223](./IF-223.md) | P3 | Open | Data transforms | Data transform follow-ups: YAML non-finite and large numbers, CSV formula cells, neq on a missing field |
+| [IF-223](./IF-223.md) | P3 | Resolved | Data transforms | Data transform follow-ups: YAML non-finite and large numbers, CSV formula cells, neq on a missing field |
