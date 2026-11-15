@@ -158,8 +158,33 @@ fails like any other, so a level further up may tolerate it with its own
 not the chain of sixteen wrapped child failures that led to it. Raise the
 limit only for a design that really nests that deeply: every level holds a
 loaded flow, its context and a run coordinator for as long as its child runs.
-The limit bounds depth, not the total number of children a nested fan-out
-starts.
+The limit bounds depth, not the number of children; the
+[live child run limit](#live-child-run-limit) bounds that.
+
+## Live child run limit
+
+At most `IRONFLOW_MAX_LIVE_CHILD_RUNS` child runs (default `4096`) are alive
+at once in the process. The count covers every composition node, waiting
+and detached children, all nesting levels and all top-level runs together:
+a wide `parallel_subworkflows` at each of several levels multiplies, and
+neither the nesting limit nor the fan-out limit of one step bounds the
+product. A child run holds its slot from the moment it is admitted until it
+has finalized.
+
+A child that finds no free slot is not started:
+
+```text
+child workflow run limit reached: 4096 child runs are live (IRONFLOW_MAX_LIVE_CHILD_RUNS)
+```
+
+It counts as a failed child of the step that asked for it, so the step
+fails, or records the failure where it tolerates failed children
+(`on_error = "ignore"`, `output_key`). The step does not wait for a slot: it
+keeps its own run alive while it waits, and that run may itself be a child
+holding a slot, so waiting parents could never free one. Lower
+`max_concurrent` on the fan-out steps, or raise the limit when the host has
+the memory for more loaded flows, contexts and coordinators. Top-level runs
+do not take a slot.
 
 A waiting child is part of the step that started it. When that step times
 out, or its run is cancelled or reaches `IRONFLOW_MAX_RUN_SECONDS`, the child

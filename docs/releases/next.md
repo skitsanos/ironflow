@@ -639,6 +639,13 @@ publication is verified separately.
   - The retry ceiling of 100 per step, which validation already enforced,
     is now documented and covered by a regression. With one error record
     of at most 64 KiB per failed attempt, a step adds at most 101 of them.
+  - At most `IRONFLOW_MAX_LIVE_CHILD_RUNS` child runs (default 4096) are
+    alive at once in the process, across all composition nodes, nesting
+    levels and top-level runs. Wide `parallel_subworkflows` at several
+    levels multiplied without a bound before. A child that finds no free
+    slot is refused with `child workflow run limit reached` and fails its
+    step; lower `max_concurrent` or raise the limit for a deployment that
+    really runs more children at once.
 
 ## Security
 

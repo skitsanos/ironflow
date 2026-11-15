@@ -174,6 +174,7 @@ pub(crate) const ALL: &[&Limit] = &[
     &process::MCP_SESSION_TTL_SECS,
     &work::MAX_JSON_PARSE_NODES,
     &work::MAX_HTML_TEXT_DEPTH,
+    &work::MAX_LIVE_CHILD_RUNS,
     &work::MAX_MCP_RESULT_BYTES,
     &work::MAX_S3_LIST_PAGE_BYTES,
 ];

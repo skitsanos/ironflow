@@ -1,3 +1,4 @@
+mod child_runs;
 mod context;
 mod coordinator;
 mod deadline;
@@ -20,6 +21,7 @@ mod task_runner;
 mod task_runtime;
 mod workflow;
 
+pub use child_runs::LiveChildRunLimit;
 pub use engine::WorkflowEngine;
 pub use handle::RunHandle;
 pub(crate) use handle::{ChildRunResult, RunCancellation};

@@ -30,6 +30,8 @@ mod test_guard_comparisons;
 mod test_input_mapping_contract;
 #[path = "../test_interpolation_validation.rs"]
 mod test_interpolation_validation;
+#[path = "../test_live_child_runs.rs"]
+mod test_live_child_runs;
 #[path = "../test_lua_context_projection.rs"]
 mod test_lua_context_projection;
 #[path = "../test_lua_runtime.rs"]

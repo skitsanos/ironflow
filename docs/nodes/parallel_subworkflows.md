@@ -118,6 +118,13 @@ remain in memory while collected; prefer artifact references for bulky payloads.
   handler or release its admission until every started child has stopped,
   tracked blocking workers included. The children's steps observe this step's
   deadline; see [Parent deadline](subworkflow.md#parent-deadline).
+- **Live child runs.** Every running child holds one of the process's
+  `IRONFLOW_MAX_LIVE_CHILD_RUNS` slots (default `4096`), shared with every
+  other composition step at every nesting level. A child that finds none
+  free fails with `child workflow run limit reached`; see
+  [Live child run limit](subworkflow.md#live-child-run-limit). Nested
+  fan-out multiplies `max_concurrent` per level, so keep the product of
+  the levels below the limit.
 
 ## Example
 

@@ -113,8 +113,15 @@ compatibility wrapper that starts the run and waits for the handle.
   `parallel_subworkflows` refuses more than `IRONFLOW_MAX_PARALLEL_SUBWORKFLOWS`
   entries (default 1024), resolves flow paths off the async worker once per
   distinct path, and loads a child and builds its context only inside the
-  `max_concurrent` window. The depth limit does not bound the total number of
-  children a nested fan-out starts.
+  `max_concurrent` window.
+- Neither limit bounds the product of a fan-out at several levels, so every
+  child run also takes one process-wide slot before any durable state exists
+  and holds it until its coordinator has finished (IF-215):
+  `IRONFLOW_MAX_LIVE_CHILD_RUNS`, default 4096, waiting and detached
+  children alike. A child without a free slot is refused with a typed
+  `LiveChildRunLimit` error and fails like any other child. Admission does
+  not wait: a waiting parent keeps its own slot, so a tree of waiting
+  parents could never release one.
 - Controlled node failures produce `Failed`. Executor panics, task-state write
   failures, and other infrastructure faults produce `Stalled`.
 - One finalizer repairs every initialized non-terminal task, persists the final

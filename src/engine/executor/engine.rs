@@ -10,6 +10,7 @@ use crate::nodes::NodeRegistry;
 use crate::storage::event_store::EventStore;
 use crate::storage::{RunLease, StateStore};
 
+use super::child_runs::LiveChildRun;
 use super::coordinator::RunCoordinator;
 use super::handle::{ChildRunResult, RunHandle};
 use super::nesting::ChildLink;
@@ -166,6 +167,12 @@ impl WorkflowEngine {
         // Resolve limits before validating the flow or creating durable state.
         // Embedded callers receive the same fail-closed behavior as the CLI.
         crate::util::limits::validate_environment()?;
+        // A child run takes its process-wide slot before anything durable
+        // exists; a refusal fails the step that asked for it (IF-215).
+        let live_child = child_link
+            .as_ref()
+            .map(|_| LiveChildRun::admit())
+            .transpose()?;
         let max_concurrent_tasks =
             crate::util::runtime_config::max_concurrent_tasks(self.max_concurrent_tasks)?;
         let run_deadline = crate::util::runtime_config::run_deadline()?;
@@ -246,7 +253,7 @@ impl WorkflowEngine {
         Ok(Some(
             coordinator
                 .with_child_result(retain_child_result)
-                .with_child_link(child_link)
+                .with_child_link(child_link, live_child)
                 .spawn(),
         ))
     }

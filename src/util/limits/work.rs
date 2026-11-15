@@ -24,6 +24,10 @@ pub(crate) const MAX_MCP_RESULT_BYTES: Limit =
 /// longest key S3 allows is well under half of this.
 pub(crate) const MAX_S3_LIST_PAGE_BYTES: Limit =
     Limit::positive("IRONFLOW_MAX_S3_LIST_PAGE_BYTES", 16 * super::MIB);
+/// Child runs alive at once in the process, waiting and detached, at every
+/// nesting level together. A child that finds no free slot is refused.
+pub(crate) const MAX_LIVE_CHILD_RUNS: Limit =
+    Limit::positive("IRONFLOW_MAX_LIVE_CHILD_RUNS", 4_096);
 
 fn count(limit: &Limit) -> usize {
     usize::try_from(limit.read()).unwrap_or(usize::MAX)
@@ -43,4 +47,8 @@ pub fn max_mcp_result_bytes() -> u64 {
 
 pub fn max_s3_list_page_bytes() -> u64 {
     MAX_S3_LIST_PAGE_BYTES.read()
+}
+
+pub fn max_live_child_runs() -> usize {
+    count(&MAX_LIVE_CHILD_RUNS)
 }

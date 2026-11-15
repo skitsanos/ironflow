@@ -13,6 +13,7 @@ use crate::storage::StateStore;
 use crate::storage::event_store::EventStore;
 use crate::util::execution::{CooperativeWorkerSet, with_run_worker_set};
 
+use super::child_runs::LiveChildRun;
 use super::handle::{ChildRunResult, RunHandle};
 use super::nesting::{ChildLink, with_inherited_deadline, with_nesting_depth};
 use super::overlay::ExecutionOverlay;
@@ -37,6 +38,8 @@ pub(super) struct RunCoordinator {
     pub(super) run_observation: Option<Arc<crate::metrics::RunObservation>>,
     pub(super) retain_child_result: bool,
     child_link: Option<ChildLink>,
+    /// The process-wide slot a child run holds until it has finished.
+    live_child: Option<LiveChildRun>,
     finalization_timeout: std::time::Duration,
     heartbeat_timing: super::lease::HeartbeatTiming,
 }
@@ -74,6 +77,7 @@ impl RunCoordinator {
             run_observation,
             retain_child_result: false,
             child_link: None,
+            live_child: None,
             finalization_timeout: FINALIZATION_TIMEOUT,
             heartbeat_timing: super::lease::HeartbeatTiming::new(
                 crate::storage::RUN_LEASE_REFRESH,
@@ -88,8 +92,15 @@ impl RunCoordinator {
     }
 
     /// Mark this run as a child of the step that captured `link`.
-    pub(super) fn with_child_link(mut self, link: Option<ChildLink>) -> Self {
+    /// Make this a child run: `link` places it below its starting step and
+    /// `live_child` is the slot it occupies among the process's child runs.
+    pub(super) fn with_child_link(
+        mut self,
+        link: Option<ChildLink>,
+        live_child: Option<LiveChildRun>,
+    ) -> Self {
         self.child_link = link;
+        self.live_child = live_child;
         self
     }
 
@@ -109,7 +120,7 @@ impl RunCoordinator {
         self
     }
 
-    pub(super) fn spawn(self) -> RunHandle {
+    pub(super) fn spawn(mut self) -> RunHandle {
         let run_id = self.run_id.clone();
         let (cancel, cancel_rx) = watch::channel(ExecutionSignal::Running);
         let cancel_owner = cancel.clone();
@@ -120,6 +131,8 @@ impl RunCoordinator {
         // The child drains its own workers and finalizes before the
         // registration is dropped (IF-188).
         let parent_hold = self.child_link.as_ref().map(ChildLink::hold_parent);
+        // Held until the run has finalized and drained, like the parent hold.
+        let live_child = self.live_child.take();
 
         // Optional run-level deadline. When a run outlives it, the same
         // cooperative cancel signal that `RunHandle::cancel` uses is fired, so a
@@ -163,6 +176,7 @@ impl RunCoordinator {
                 timer.abort();
             }
             drop(parent_hold);
+            drop(live_child);
             let _ = completion_tx.send(result);
         });
 
