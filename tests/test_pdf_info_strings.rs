@@ -170,3 +170,50 @@ async fn the_sample_fixture_metadata_is_unchanged() {
     assert_eq!(from_metadata, from_extract);
     assert_eq!(from_metadata["pages"], 3);
 }
+
+fn utf16le(text: &str) -> Object {
+    let mut bytes = vec![0xFF, 0xFE];
+    bytes.extend(text.encode_utf16().flat_map(u16::to_le_bytes));
+    Object::String(bytes, StringFormat::Hexadecimal)
+}
+
+/// IF-222 (d): a little-endian byte-order mark, a language tag in a
+/// PDFDocEncoding string, and the language tag written as raw code bytes
+/// inside a UTF-16 string (`ESC "en" ESC` as the single code unit 0x656E).
+#[tokio::test]
+async fn little_endian_marks_and_language_tags_are_decoded() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("tags.pdf");
+    write_pdf(&path, |_| {
+        Object::Dictionary(dictionary! {
+            "Title" => utf16le("Müller Report 報告 😀\0"),
+            "Author" => utf16le("\u{1b}enUS\u{1b}Tagged Author"),
+            // PDFDocEncoding: o-diaeresis and sharp s after a German tag.
+            "Subject" => literal(b"\x1Bde\x1BGr\xF6\xDFe"),
+            "Keywords" => literal(b"\x1BenUS\x1Bplain, tagged"),
+            "Creator" => Object::String(
+                b"\xFE\xFF\x00\x1Ben\x00\x1B\x00P\x00a\x00c\x00k\x00e\x00d".to_vec(),
+                StringFormat::Hexadecimal,
+            ),
+            "Producer" => Object::String(
+                b"\xFF\xFE\x1B\x00enUS\x1B\x00L\x00E\x00".to_vec(),
+                StringFormat::Hexadecimal,
+            ),
+        })
+    });
+
+    for metadata in metadata(&path).await {
+        assert_eq!(
+            metadata,
+            json!({
+                "pages": 1,
+                "title": "Müller Report 報告 😀",
+                "author": "Tagged Author",
+                "subject": "Größe",
+                "keywords": "plain, tagged",
+                "creator": "Packed",
+                "producer": "LE",
+            })
+        );
+    }
+}

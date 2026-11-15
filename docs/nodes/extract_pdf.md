@@ -29,9 +29,10 @@ returning incomplete metadata.
 
 Metadata text fields are decoded as PDF text strings, exactly as
 [`pdf_metadata`](pdf_metadata.md) does: PDFDocEncoding, UTF-16BE with a
-byte-order mark and UTF-8 with a byte-order mark. Values are trimmed; NUL and
-other control characters except tab, line feed and carriage return are
-removed, together with language-tag escapes. An ill-formed UTF-16 or UTF-8
+byte-order mark, UTF-8 with a byte-order mark, and UTF-16LE when a string
+starts with the little-endian mark. Values are trimmed; NUL and other control
+characters except tab, line feed and carriage return are removed, together
+with language-tag escapes in every form described for `pdf_metadata`. An ill-formed UTF-16 or UTF-8
 sequence becomes U+FFFD instead of failing the step, and a field that is empty
 after decoding is omitted.
 

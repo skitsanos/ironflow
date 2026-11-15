@@ -618,8 +618,14 @@ publication is verified separately.
     switches a style's toggle off stays plain. Markdown headings do not
     repeat the emphasis of their own style, so `# Title` stays as it is.
     Table styles are not resolved.
+  - `pdf_metadata` and `extract_pdf` metadata decode an Info string that
+    starts with the UTF-16LE byte-order mark (it was returned as `ÿþ` followed
+    by mis-decoded text) and remove a language tag from a PDFDocEncoding
+    string (`˙de˙Größe` is now `Größe`) and from a UTF-16 string that stores
+    the tag as raw code bytes (`敮Packed` is now `Packed`).
 
-  See [`extract_word`](../nodes/extract_word.md#style-inheritance-of-bold-italic-and-strikethrough).
+  See [`extract_word`](../nodes/extract_word.md#style-inheritance-of-bold-italic-and-strikethrough)
+  and [`pdf_metadata`](../nodes/pdf_metadata.md).
 
 - **Deleting a scheduled run no longer lets its occurrence run again**
   (IF-201). Before, a server that started or restarted inside a schedule's
