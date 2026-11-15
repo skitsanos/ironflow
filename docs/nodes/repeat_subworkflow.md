@@ -140,6 +140,8 @@ check for a flow that calls itself`, whatever `max_iterations` allows. When
 the step times out or its run is cancelled, the active iteration is cancelled
 and the step does not end, start its `on_error` handler or release its
 admission until that child has stopped, tracked blocking workers included.
+The child's steps observe this step's deadline; see
+[Parent deadline](subworkflow.md#parent-deadline).
 
 The inspection cap is not an execution-memory limit. Existing Lua
 memory/conversion limits, parent timeouts, and cancellation remain enforced;

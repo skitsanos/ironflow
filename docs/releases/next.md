@@ -236,6 +236,17 @@ publication is verified separately.
   `table.insert`/`table.remove` on a table with a metatable, run as Lua
   loops under the instruction and time budgets instead of looping in C. See
   [Execution limits](../nodes/code.md#execution-limits).
+- **Child steps observe the deadline of the parent step that waits for them**
+  (IF-213). With `nodes.subworkflow(...)`:`timeout(30)`, a child step without
+  a `timeout` of its own used to see no deadline and was stopped only by the
+  cancellation that follows the parent's timeout. The deadline visible to a
+  child step's work is now the earlier of its own and the parent step's, at
+  every nesting level and for all four composition nodes; a `wait = false`
+  child inherits none. Timeout results are unchanged: the parent step still
+  reports its own timeout and cancels the child. Work in a child that reads
+  the deadline, such as `ai_embed` requests, cooperative blocking workers and
+  Lua code, now stops or bounds itself at the parent's deadline. See
+  [Parent deadline](../nodes/subworkflow.md#parent-deadline).
 - **`markdown_to_html` converts off the async runtime thread** (IF-213). The
   Markdown parser and the optional sanitizer ran on a runtime worker thread,
   where a large input delayed unrelated runs and a step timeout could not

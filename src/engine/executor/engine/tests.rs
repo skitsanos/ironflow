@@ -10,6 +10,7 @@ use crate::storage::null_store::NullStateStore;
 use crate::storage::{StateStore, StorageResult};
 
 mod builtin_workers;
+mod child_deadline;
 mod child_failures;
 mod child_results;
 mod child_workers;

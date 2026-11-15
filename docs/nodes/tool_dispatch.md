@@ -165,7 +165,8 @@ a step error raised before any call is dispatched, not a per-call result, and
 `on_error = "ignore"` does not suppress it. When the step times out or its run
 is cancelled, the active handler is cancelled and the step does not end, start
 its own `on_error` handler or release its admission until that handler run has
-stopped, tracked blocking workers included.
+stopped, tracked blocking workers included. The handler's steps observe this
+step's deadline; see [Parent deadline](subworkflow.md#parent-deadline).
 
 ## Example
 

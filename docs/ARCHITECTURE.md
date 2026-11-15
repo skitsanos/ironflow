@@ -238,6 +238,10 @@ outside opaque content/font decoding calls.
   worker sets of its step, so the step result, its `on_error` handler,
   dependent steps, run finalization and task and run admission wait until
   the worker has physically stopped.
+- The steps of a child run observe the deadline of the parent step that
+  waits for it (IF-213): the deadline visible to a child step's work is the
+  earlier of its own and the inherited one, at every nesting level. A
+  `wait = false` child inherits none.
 
 ### 4. State Store (`storage/`)
 

@@ -14,7 +14,7 @@ use crate::storage::event_store::EventStore;
 use crate::util::execution::{CooperativeWorkerSet, with_run_worker_set};
 
 use super::handle::{ChildRunResult, RunHandle};
-use super::nesting::{ChildLink, with_nesting_depth};
+use super::nesting::{ChildLink, with_inherited_deadline, with_nesting_depth};
 use super::overlay::ExecutionOverlay;
 use super::panic_payload::panic_message;
 use super::signal::{ExecutionOutcome, ExecutionSignal, request_cancellation, stop_requested};
@@ -180,9 +180,13 @@ impl RunCoordinator {
         let mut execution_cancel = cancel.clone();
         let workers = CooperativeWorkerSet::new();
         let depth = self.child_link.as_ref().map_or(0, ChildLink::depth);
+        let deadline = self.child_link.as_ref().and_then(ChildLink::deadline);
         let execution = with_run_worker_set(
             workers.clone(),
-            with_nesting_depth(depth, self.run(&mut execution_cancel)),
+            with_nesting_depth(
+                depth,
+                with_inherited_deadline(deadline, self.run(&mut execution_cancel)),
+            ),
         );
         let mut execution = Box::pin(AssertUnwindSafe(execution).catch_unwind());
         let outcome = tokio::select! {

@@ -8,11 +8,42 @@ use std::future::Future;
 
 use anyhow::{Result, bail};
 
-use crate::util::execution::{CooperativeWorkerGuards, ExecutionWorkerSets};
+use tokio::time::Instant;
+
+use crate::util::execution::{
+    CooperativeWorkerGuards, ExecutionWorkerSets, current_execution_deadline,
+};
 
 tokio::task_local! {
     /// Child levels between this run and its top-level run; unset at level 0.
     static NESTING_DEPTH: usize;
+    /// Deadline of the step that waits for this child run, if it has one.
+    static INHERITED_DEADLINE: Option<Instant>;
+}
+
+/// Run a child's steps under the deadline of the step that waits for it.
+pub(super) async fn with_inherited_deadline<F>(deadline: Option<Instant>, future: F) -> F::Output
+where
+    F: Future,
+{
+    INHERITED_DEADLINE.scope(deadline, future).await
+}
+
+/// The deadline a step's work observes: its own, or the earlier deadline of
+/// a step further up that waits for this run (IF-213).
+///
+/// Only the deadline that nested work reads is shortened. A step still times
+/// out on its own `timeout` alone; a parent deadline ends it by cancelling
+/// its run.
+pub(super) fn step_deadline(own: Option<Instant>) -> Option<Instant> {
+    let inherited = INHERITED_DEADLINE
+        .try_with(|deadline| *deadline)
+        .ok()
+        .flatten();
+    match (own, inherited) {
+        (Some(own), Some(inherited)) => Some(own.min(inherited)),
+        (own, inherited) => own.or(inherited),
+    }
 }
 
 /// Run `future` as a workflow `depth` child levels below its top-level run.
@@ -42,12 +73,13 @@ fn current_depth() -> usize {
     NESTING_DEPTH.try_with(|depth| *depth).unwrap_or(0)
 }
 
-/// The nesting level of a child run and the worker sets of the step that
-/// starts it.
+/// The nesting level of a child run, and the worker sets and deadline of the
+/// step that starts it.
 #[derive(Clone, Debug)]
 pub(crate) struct ChildLink {
     depth: usize,
     parent_workers: ExecutionWorkerSets,
+    deadline: Option<Instant>,
 }
 
 impl ChildLink {
@@ -57,11 +89,15 @@ impl ChildLink {
     /// `IRONFLOW_MAX_SUBWORKFLOW_DEPTH`, which is what stops a flow that
     /// calls itself, directly or through other flows.
     pub(crate) fn for_current_step(node: &str) -> Result<Self> {
-        Self::below(
+        let link = Self::below(
             node,
             current_depth(),
             ExecutionWorkerSets::for_current_task(),
-        )
+        )?;
+        Ok(Self {
+            deadline: current_execution_deadline(),
+            ..link
+        })
     }
 
     fn below(node: &str, parent_depth: usize, parent_workers: ExecutionWorkerSets) -> Result<Self> {
@@ -76,16 +112,23 @@ impl ChildLink {
         Ok(Self {
             depth,
             parent_workers,
+            deadline: None,
         })
     }
 
     /// The link of a child nobody waits for: it keeps its nesting level but
-    /// does not hold the starting step open.
+    /// neither holds the starting step open nor inherits its deadline.
     pub(crate) fn detached(self) -> Self {
         Self {
             depth: self.depth,
             parent_workers: ExecutionWorkerSets::default(),
+            deadline: None,
         }
+    }
+
+    /// Deadline of the step that waits for this child, if it has one.
+    pub(super) fn deadline(&self) -> Option<Instant> {
+        self.deadline
     }
 
     pub(super) fn depth(&self) -> usize {

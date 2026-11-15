@@ -116,7 +116,8 @@ remain in memory while collected; prefer artifact references for bulky payloads.
   its run is cancelled, children that have not started never start, running
   children are cancelled, and the step does not end, start its `on_error`
   handler or release its admission until every started child has stopped,
-  tracked blocking workers included.
+  tracked blocking workers included. The children's steps observe this step's
+  deadline; see [Parent deadline](subworkflow.md#parent-deadline).
 
 ## Example
 

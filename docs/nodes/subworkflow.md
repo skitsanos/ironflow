@@ -169,10 +169,23 @@ itself, and it has finalized. Until then the step's `on_error` handler does
 not start, dependent steps do not run, the run is not finalized, and its task
 and run admission stay held, exactly as for the same node placed directly in
 the parent. A worker that cannot be interrupted therefore delays the timeout
-result by the time it needs to return. Lua is such work: a function step in
-the child, or the child flow's own top-level code while it loads, holds the
-step until a C library call it is inside has returned. A `wait = false` child is independent
+result by the time it needs to return. A `wait = false` child is independent
 by contract and never holds the step that launched it.
+
+### Parent deadline
+
+The steps of a waiting child observe the deadline of the parent step. A child
+step without a `timeout` of its own sees the parent step's deadline; a child
+step with one sees whichever comes first; a child of that child inherits the
+same deadline, at every level. This is the deadline that work inside a step
+reads: cooperative blocking workers and Lua code stop with `step deadline
+exceeded` when it passes, and deadline-aware requests do not plan past it.
+It does not change which step reports the timeout: the parent step times out
+on its own `timeout` and cancels the child, and a child step still fails with
+its own timeout message only when its own `timeout` elapses. A parent step
+without a `timeout` adds no deadline, and a `wait = false` child inherits
+none. `IRONFLOW_MAX_RUN_SECONDS` is enforced by cancelling the run, not
+through this deadline.
 
 [`nesting_limit.lua`](../../examples/11-subworkflow/nesting_limit.lua) calls
 itself, tolerates the refusal one level above the ceiling and reports it to the

@@ -95,7 +95,7 @@ impl WorkflowEngine {
 
             let attempt_observation = runtime.metrics.map(|metrics| metrics.task_attempt());
             let execution = runtime.execution_overlay.scope(with_execution_deadline(
-                deadline.instant(),
+                super::nesting::step_deadline(deadline.instant()),
                 node.execute(&step.config, &current_ctx),
             ));
             let mut deadline_expired = false;
