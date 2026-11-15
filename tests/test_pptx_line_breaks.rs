@@ -81,6 +81,10 @@ fn notes() -> String {
 }
 
 async fn extract(format: &str) -> serde_json::Value {
+    extract_slide(&slide(), format).await
+}
+
+async fn extract_slide(slide: &str, format: &str) -> serde_json::Value {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("breaks.pptx");
     write(
@@ -91,7 +95,7 @@ async fn extract(format: &str) -> serde_json::Value {
                 "ppt/_rels/presentation.xml.rels",
                 &relationships(&[("s1", "slide", "slides/slide1.xml")]),
             ),
-            ("ppt/slides/slide1.xml", &slide()),
+            ("ppt/slides/slide1.xml", slide),
             (
                 "ppt/slides/_rels/slide1.xml.rels",
                 &relationships(&[("n", "notesSlide", "../notesSlides/notesSlide1.xml")]),
@@ -154,6 +158,45 @@ async fn line_breaks_render_in_text_and_markdown() {
         "## Slide 1\n\n### Quarterly Review\n\nline one\nline two\nline three\n  \
          - ends with a break\nlast\n\n| cell top cell bottom | plain cell |\n| --- | --- |\n\n\
          **Speaker notes:**\nFirst note line\nafter a break\nSecond paragraph"
+    );
+}
+
+/// The paragraphs of a table cell are separate lines in the deck. A cell is
+/// one line in every format, so they are joined by a space, like a break.
+#[tokio::test]
+async fn table_cell_paragraphs_are_separated_by_a_space() {
+    let cell = |paragraphs: &str| {
+        format!("<a:tc><a:txBody><a:bodyPr/><a:lstStyle/>{paragraphs}</a:txBody><a:tcPr/></a:tc>")
+    };
+    let paragraph = |text: &str| format!("<a:p>{}</a:p>", run(text));
+    let table = format!(
+        "<p:graphicFrame><a:graphic><a:graphicData><a:tbl><a:tr>{}{}{}</a:tr></a:tbl>\
+         </a:graphicData></a:graphic></p:graphicFrame>",
+        cell(&format!("{}{}", paragraph("first"), paragraph("second"))),
+        // Empty paragraphs around text add no separators of their own.
+        cell(&format!(
+            "<a:p><a:endParaRPr lang=\"en-US\"/></a:p>{}<a:p/>{}<a:p><a:br/></a:p>",
+            paragraph("alpha"),
+            paragraph("beta")
+        )),
+        cell(&paragraph("single"))
+    );
+    let slide = format!(
+        "<p:sld xmlns:p=\"{PML}\" xmlns:a=\"{DML}\"><p:cSld><p:spTree>{table}</p:spTree></p:cSld></p:sld>"
+    );
+    let content = extract_slide(&slide, "json").await;
+    assert_eq!(
+        content["slides"][0]["elements"][0]["rows"][0],
+        json!(["first second", "alpha beta", "single"]),
+        "{content}"
+    );
+    let markdown = extract_slide(&slide, "markdown").await;
+    let markdown = markdown.as_str().unwrap();
+    assert!(
+        markdown.starts_with(
+            "## Slide 1\n\n| first second | alpha beta | single |\n| --- | --- | --- |\n"
+        ),
+        "{markdown}"
     );
 }
 

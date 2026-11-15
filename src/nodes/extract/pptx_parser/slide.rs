@@ -24,7 +24,8 @@ struct State {
     /// `a:br` elements seen since the last text of the open paragraph. They
     /// become line breaks only when more text follows in the same paragraph.
     pending_breaks: usize,
-    /// The open table cell has a break to render before its next text.
+    /// The open table cell has a line break or a paragraph end to render as
+    /// a space before its next text.
     cell_break: bool,
     current_paragraphs: Vec<PptxTextPara>,
     in_run: bool,
@@ -211,6 +212,8 @@ fn push_text(text: &str, state: &mut State, budget: &mut Budget<'_>) -> Result<(
 
 fn finish_paragraph(state: &mut State, budget: &mut Budget<'_>) -> Result<()> {
     state.pending_breaks = 0;
+    // The next paragraph of a table cell continues the cell's single line.
+    state.cell_break = state.in_cell;
     if !state.current_text.trim().is_empty() {
         budget.charge_item("PPTX paragraphs")?;
         state.current_paragraphs.push(PptxTextPara {

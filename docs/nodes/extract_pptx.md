@@ -51,7 +51,8 @@ Text in a notes part that contains no shapes at all is still read.
 
 A DrawingML line break (`a:br`) between two runs of a paragraph is a newline
 in that paragraph's `text` and in `speaker_notes`. It is a single space in a
-table cell and in the slide `title`, which are one line in every format. A
+table cell and in the slide `title`, which are one line in every format; the
+paragraphs of a table cell are joined by a single space in the same way. A
 break with no text after it in its paragraph adds nothing, and a paragraph
 that holds only breaks is empty. In Markdown the text after a break continues
 on the next line of the same paragraph or list item.

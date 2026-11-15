@@ -628,6 +628,9 @@ publication is verified separately.
     (`line oneline two`); it is now a newline in paragraph text and speaker
     notes, and a space in a table cell and in the slide title
     (`QuarterlyReview` is now `Quarterly Review`).
+  - `extract_pptx` separates the paragraphs of a table cell with a space. A
+    cell holding the paragraphs `first` and `second` was returned as
+    `firstsecond` and is now `first second`.
 
   See [`extract_word`](../nodes/extract_word.md#style-inheritance-of-bold-italic-and-strikethrough),
   [`pdf_metadata`](../nodes/pdf_metadata.md) and
