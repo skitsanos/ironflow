@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{Result, anyhow};
 use chrono::Utc;
@@ -34,7 +35,15 @@ impl SchedulerTask {
     /// Run the API server and scheduler as one availability unit. An
     /// unexpected scheduler exit stops `serve`; normal server completion
     /// shuts the scheduler down deliberately.
-    pub(crate) async fn supervise<F>(mut self, server: F) -> Result<()>
+    pub(crate) async fn supervise<F>(self, server: F) -> Result<()>
+    where
+        F: Future<Output = Result<()>>,
+    {
+        let grace = crate::util::runtime_config::shutdown_grace()?;
+        self.supervise_with_grace(server, grace).await
+    }
+
+    async fn supervise_with_grace<F>(mut self, server: F, grace: Duration) -> Result<()>
     where
         F: Future<Output = Result<()>>,
     {
@@ -59,6 +68,13 @@ impl SchedulerTask {
                 };
                 tracing::error!(%error, "scheduler task stopped; stopping API server");
                 self.lifecycle.begin_draining();
+                // Accepted runs get the same bounded drain as on a shutdown
+                // signal, with the server still answering (IF-203). A server
+                // that stops first has run its own drain.
+                tokio::select! {
+                    _ = self.lifecycle.drain(grace) => {}
+                    _ = &mut server => {}
+                }
                 Err(error)
             }
         }
@@ -154,56 +170,4 @@ pub(crate) fn spawn_with_lifecycle(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn task(handle: JoinHandle<()>, shutdown: oneshot::Sender<()>) -> SchedulerTask {
-        SchedulerTask {
-            shutdown: Some(shutdown),
-            handle,
-            lifecycle: crate::api::ServiceLifecycle::default(),
-        }
-    }
-
-    #[tokio::test]
-    async fn an_unexpected_task_exit_fails_supervision() {
-        let (shutdown, _receiver) = oneshot::channel();
-        let scheduler = task(tokio::spawn(async {}), shutdown);
-        let result = scheduler
-            .supervise(std::future::pending::<Result<()>>())
-            .await;
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("stopped unexpectedly")
-        );
-    }
-
-    #[tokio::test]
-    async fn server_completion_requests_and_awaits_scheduler_shutdown() {
-        let (shutdown, receiver) = oneshot::channel();
-        let handle = tokio::spawn(async move {
-            receiver.await.unwrap();
-        });
-        task(handle, shutdown)
-            .supervise(async { Ok(()) })
-            .await
-            .unwrap();
-    }
-
-    #[tokio::test]
-    async fn a_panicking_task_fails_supervision() {
-        let (shutdown, _receiver) = oneshot::channel();
-        let scheduler = task(
-            tokio::spawn(async { panic!("injected scheduler panic") }),
-            shutdown,
-        );
-        let error = scheduler
-            .supervise(std::future::pending::<Result<()>>())
-            .await
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("panicked"), "{error}");
-    }
-}
+mod tests;

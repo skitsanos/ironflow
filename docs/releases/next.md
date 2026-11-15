@@ -808,6 +808,12 @@ publication is verified separately.
   reconciliation pass, on every store. Run state was not affected. Alerts on
   that series no longer see these false positives.
 
+- `serve` drains accepted runs before it exits for a dead scheduler task
+  (IF-203). It used to exit at once, abandoning runs in progress until their
+  leases expired. It now closes admission, waits up to
+  `IRONFLOW_SHUTDOWN_GRACE_SECONDS`, cancels what remains and then exits
+  with the scheduler error, as it does on a shutdown signal.
+
 - Starting a PostgreSQL replica no longer locks tables that running replicas
   use (IF-202). Every start used to take `ACCESS EXCLUSIVE` on the events
   table before checking its primary key, and to issue

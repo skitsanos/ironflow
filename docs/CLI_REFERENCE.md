@@ -1471,7 +1471,11 @@ due instant in that schedule's window is logged as timed out and burned rather
 than retried. Unrelated schedule names continue. If the scheduler task itself
 returns or panics, `serve` stops with an error so `/health` cannot remain green
 while scheduled execution is dead; normal server shutdown also waits for the
-scheduler loop to stop.
+scheduler loop to stop. Before it exits for a dead scheduler, `serve` drains
+exactly as it does on a shutdown signal: readiness and run admission answer
+`503`, accepted runs get `IRONFLOW_SHUTDOWN_GRACE_SECONDS` to finish, and
+what is still running is then cancelled. The process still exits with the
+scheduler error.
 
 See [Replica deployment](REPLICA_DEPLOYMENT.md) for liveness/readiness,
 SIGTERM drain, idempotent API submission, Docker acceptance, and platform
