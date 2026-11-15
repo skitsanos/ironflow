@@ -11,7 +11,7 @@ Extract a nested JSON value from a context field and write it to a new context k
 | `output_key` | string | Yes | -- | Context key where the extracted value is written |
 | `required` | bool | No | `false` | If `true`, missing path causes a node failure |
 | `default` | any | No | `null` | Value to write when path is missing and `required = false` |
-| `parse_json` | bool | No | `false` | If source is a JSON string, parse it before extraction |
+| `parse_json` | bool | No | `false` | If source is a JSON string, parse it before extraction. The text may hold at most `IRONFLOW_MAX_JSON_PARSE_NODES` values (default `1000000`), counted before anything is built, as for [`json_parse`](json_parse.md#limits) |
 
 ## Context Output
 

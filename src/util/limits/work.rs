@@ -4,6 +4,12 @@
 
 use super::Limit;
 
+/// Values the `json_parse` node, or `json_extract_path` with `parse_json`,
+/// builds from one text. Native values may exceed the Lua conversion budget
+/// (IF-136), so this is a separate and larger ceiling: about 32 bytes of
+/// tree per value besides the strings.
+pub(crate) const MAX_JSON_PARSE_NODES: Limit =
+    Limit::positive("IRONFLOW_MAX_JSON_PARSE_NODES", 1_000_000);
 /// Element nesting `extract_html` accepts for `format = "text"`, counting
 /// the `<html>` and `<body>` the parser supplies. HTML parsing is quadratic
 /// in nesting depth, so this is a time bound and not only a shape rule.
@@ -17,6 +23,10 @@ pub(crate) const MAX_MCP_RESULT_BYTES: Limit =
 
 fn count(limit: &Limit) -> usize {
     usize::try_from(limit.read()).unwrap_or(usize::MAX)
+}
+
+pub fn max_json_parse_nodes() -> usize {
+    count(&MAX_JSON_PARSE_NODES)
 }
 
 pub fn max_html_text_depth() -> usize {

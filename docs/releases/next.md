@@ -624,6 +624,13 @@ publication is verified separately.
     16 MiB reply was written to context under up to four keys. A flow that
     relies on larger `initialize`, `list_tools` or `call_tool` results must
     raise the limit.
+  - The `json_parse` node and `json_extract_path` with `parse_json` count
+    the values in their text against `IRONFLOW_MAX_JSON_PARSE_NODES`
+    (default 1,000,000) before building anything. A document used to be
+    built whole whatever its size, at many times the size of its text. The
+    budget is separate from the Lua conversion budget, so a native value
+    may still be larger than a handler can convert. A flow that parses
+    larger documents with these nodes must raise the limit.
 
 ## Security
 

@@ -24,6 +24,8 @@ mod test_file_alias_roots;
 mod test_file_nodes;
 #[path = "../test_html_sanitize_node.rs"]
 mod test_html_sanitize_node;
+#[path = "../test_json_node_budget.rs"]
+mod test_json_node_budget;
 #[path = "../test_nodes.rs"]
 mod test_nodes;
 #[path = "../test_semantic_chunk_boundaries.rs"]
