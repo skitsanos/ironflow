@@ -52,8 +52,17 @@ endpoint returns a truncated page without a continuation token, repeats a
 token already used in the call, returns more entries than the page asked
 for, or returns 16 consecutive truncated pages that hold no entry. These
 shapes come from S3-compatible services reached through `endpoint_url`.
-The response body of one page is read by the AWS SDK and is not bounded by
-these limits.
+
+One page's response body may be at most `IRONFLOW_MAX_S3_LIST_PAGE_BYTES`
+(default `16777216`, 16 MiB). The AWS SDK reads a page whole before it parses
+it, so the entry checks above only run on a page that is already in memory;
+this limit applies before that. A response that declares a larger
+`Content-Length` is refused without being read, and a response without a
+length is cut off while it streams. Either way the step fails with
+`s3_list_objects: a list page exceeds IRONFLOW_MAX_S3_LIST_PAGE_BYTES
+(16777216)`. A page of 1,000 keys of the longest key S3 allows is under
+half of the default, so the limit only matters for an endpoint that ignores
+`max_keys` or pads its response.
 
 ## Example
 

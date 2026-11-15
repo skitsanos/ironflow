@@ -271,3 +271,93 @@ async fn a_page_larger_than_requested_fails_the_step() {
         "{failure}"
     );
 }
+
+/// Default `IRONFLOW_MAX_S3_LIST_PAGE_BYTES` (IF-215).
+const PAGE_BYTE_LIMIT: usize = 16 * 1024 * 1024;
+
+/// One page with a single entry whose key pads the body past `bytes`. The
+/// entry count is within any page size, so only the byte ceiling applies.
+fn page_of_at_least(bytes: usize) -> String {
+    Page {
+        keys: vec!["k".repeat(bytes)],
+        ..Page::default()
+    }
+    .xml()
+}
+
+fn assert_page_refusal(failure: &str, limit: usize) {
+    assert!(
+        failure.contains(&format!(
+            "s3_list_objects: a list page exceeds IRONFLOW_MAX_S3_LIST_PAGE_BYTES ({limit})"
+        )),
+        "{}",
+        &failure[..failure.len().min(2_000)]
+    );
+    assert!(failure.len() < 64 * 1024, "{} bytes", failure.len());
+}
+
+#[tokio::test]
+async fn a_page_declared_larger_than_the_byte_ceiling_is_refused() {
+    let server = ListServer::start(|_| page_of_at_least(PAGE_BYTE_LIMIT)).await;
+
+    let failure = server.run(&flow(json!({})), &[]).await.failure();
+
+    assert_page_refusal(&failure, PAGE_BYTE_LIMIT);
+    assert_eq!(server.queries().len(), 1);
+}
+
+#[tokio::test]
+async fn a_streamed_page_larger_than_the_byte_ceiling_is_refused() {
+    let server = ListServer::start_streamed(|_| page_of_at_least(256 * 1024)).await;
+
+    let failure = server
+        .run(
+            &flow(json!({})),
+            &[("IRONFLOW_MAX_S3_LIST_PAGE_BYTES", "65536")],
+        )
+        .await
+        .failure();
+
+    assert_page_refusal(&failure, 65_536);
+    assert_eq!(server.queries().len(), 1);
+}
+
+#[tokio::test]
+async fn pages_within_the_byte_ceiling_are_listed_with_or_without_a_length() {
+    for streamed in [false, true] {
+        let server = if streamed {
+            ListServer::start_streamed(bucket_of(5)).await
+        } else {
+            ListServer::start(bucket_of(5)).await
+        };
+
+        let context = server
+            .run(
+                &flow(json!({ "max_keys": 2 })),
+                &[("IRONFLOW_MAX_S3_LIST_PAGE_BYTES", "4096")],
+            )
+            .await
+            .context();
+
+        assert_eq!(context["listing_count"], 5, "streamed: {streamed}");
+    }
+}
+
+#[tokio::test]
+async fn a_malformed_page_byte_ceiling_is_rejected_at_startup() {
+    let server = ListServer::start(bucket_of(1)).await;
+
+    let failure = server
+        .run(
+            &flow(json!({})),
+            &[("IRONFLOW_MAX_S3_LIST_PAGE_BYTES", "16MiB")],
+        )
+        .await
+        .failure();
+
+    assert!(
+        failure.contains("IRONFLOW_MAX_S3_LIST_PAGE_BYTES must be a positive integer"),
+        "{failure}"
+    );
+    assert!(server.queries().is_empty());
+}

@@ -1178,6 +1178,9 @@ Context is a `HashMap<String, serde_json::Value>` that flows through the entire 
   to resume from. A truncated page without a token, a repeated token, a page
   larger than requested and 16 consecutive empty truncated pages each fail
   the step, so an S3-compatible endpoint cannot keep a step requesting pages.
+  One list response is also bounded in bytes before the SDK buffers it
+  (IF-215): `IRONFLOW_MAX_S3_LIST_PAGE_BYTES`, checked against a declared
+  length and enforced while a response without one streams.
 - A task error is stored in task state, published in `TaskFailed` and copied
   into `_error_message` only after diagnostic scrubbing, which keeps its
   first 64 KiB and appends `...[truncated]` (IF-177, IF-189). Each attempt

@@ -20,6 +20,10 @@ pub(crate) const MAX_HTML_TEXT_DEPTH: Limit =
 /// wire; this one bounds what the workflow keeps.
 pub(crate) const MAX_MCP_RESULT_BYTES: Limit =
     Limit::positive("IRONFLOW_MAX_MCP_RESULT_BYTES", 4 * super::MIB);
+/// Bytes of one S3 list response (16 MiB). A page of 1,000 keys of the
+/// longest key S3 allows is well under half of this.
+pub(crate) const MAX_S3_LIST_PAGE_BYTES: Limit =
+    Limit::positive("IRONFLOW_MAX_S3_LIST_PAGE_BYTES", 16 * super::MIB);
 
 fn count(limit: &Limit) -> usize {
     usize::try_from(limit.read()).unwrap_or(usize::MAX)
@@ -35,4 +39,8 @@ pub fn max_html_text_depth() -> usize {
 
 pub fn max_mcp_result_bytes() -> u64 {
     MAX_MCP_RESULT_BYTES.read()
+}
+
+pub fn max_s3_list_page_bytes() -> u64 {
+    MAX_S3_LIST_PAGE_BYTES.read()
 }

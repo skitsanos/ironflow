@@ -631,6 +631,11 @@ publication is verified separately.
     budget is separate from the Lua conversion budget, so a native value
     may still be larger than a handler can convert. A flow that parses
     larger documents with these nodes must raise the limit.
+  - One `s3_list_objects` page and one `s3_list_buckets` response may be at
+    most `IRONFLOW_MAX_S3_LIST_PAGE_BYTES` (default 16 MiB). The SDK reads a
+    list response whole, so an S3-compatible endpoint could send one very
+    large page; it is now refused before it is buffered. Real S3 pages are
+    far below the default.
 
 ## Security
 

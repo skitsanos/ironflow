@@ -6,6 +6,7 @@ use crate::nodes::Node;
 
 use super::s3_helpers::{build_s3_client, resolve_optional, resolve_output_key, resolve_required};
 use super::s3_list_pages::{ListBounds, Next, Pager};
+use super::s3_page_limit::{PageByteLimit, refusal};
 
 pub struct S3ListObjectsNode;
 
@@ -55,7 +56,16 @@ impl Node for S3ListObjectsNode {
                 request = request.continuation_token(token);
             }
 
-            let response = request.send().await?;
+            let page_limit = PageByteLimit::current();
+            let page_bytes = page_limit.limit();
+            let response = request
+                .customize()
+                .interceptor(page_limit)
+                .send()
+                .await
+                .map_err(|error| {
+                    refusal("s3_list_objects", &error, page_bytes).unwrap_or_else(|| error.into())
+                })?;
             pager.admit_page(response.contents().len() + response.common_prefixes().len())?;
             objects.extend(response.contents().iter().map(object_entry));
             common_prefixes.extend(
@@ -141,7 +151,17 @@ impl Node for S3ListBucketsNode {
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let output_key = resolve_output_key(config);
         let client = build_s3_client(config, ctx).await?;
-        let response = client.list_buckets().send().await?;
+        let page_limit = PageByteLimit::current();
+        let page_bytes = page_limit.limit();
+        let response = client
+            .list_buckets()
+            .customize()
+            .interceptor(page_limit)
+            .send()
+            .await
+            .map_err(|error| {
+                refusal("s3_list_buckets", &error, page_bytes).unwrap_or_else(|| error.into())
+            })?;
 
         let mut buckets = Vec::new();
         for item in response.buckets() {

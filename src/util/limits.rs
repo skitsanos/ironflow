@@ -175,6 +175,7 @@ pub(crate) const ALL: &[&Limit] = &[
     &work::MAX_JSON_PARSE_NODES,
     &work::MAX_HTML_TEXT_DEPTH,
     &work::MAX_MCP_RESULT_BYTES,
+    &work::MAX_S3_LIST_PAGE_BYTES,
 ];
 
 /// Every boolean switch, checked by [`validate_environment`] at startup.

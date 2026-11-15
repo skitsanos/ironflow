@@ -22,6 +22,8 @@ type Responder = dyn Fn(&ListQuery) -> String + Send + Sync;
 
 struct Shared {
     responder: Box<Responder>,
+    /// Send the body in chunks without a `Content-Length`.
+    streamed: bool,
     queries: Mutex<Vec<ListQuery>>,
 }
 
@@ -33,8 +35,23 @@ pub struct ListServer {
 
 impl ListServer {
     pub async fn start(responder: impl Fn(&ListQuery) -> String + Send + Sync + 'static) -> Self {
+        Self::serve(responder, false).await
+    }
+
+    /// Like [`ListServer::start`], but every page is sent without a length.
+    pub async fn start_streamed(
+        responder: impl Fn(&ListQuery) -> String + Send + Sync + 'static,
+    ) -> Self {
+        Self::serve(responder, true).await
+    }
+
+    async fn serve(
+        responder: impl Fn(&ListQuery) -> String + Send + Sync + 'static,
+        streamed: bool,
+    ) -> Self {
         let shared = Arc::new(Shared {
             responder: Box::new(responder),
+            streamed,
             queries: Mutex::new(Vec::new()),
         });
         let app = Router::new().fallback(handle).with_state(shared.clone());
@@ -132,10 +149,20 @@ async fn handle(State(shared): State<Arc<Shared>>, request: Request) -> Response
     };
     let body = (shared.responder)(&query);
     shared.queries.lock().unwrap().push(query);
+    let body = if shared.streamed {
+        let chunks: Vec<Result<Vec<u8>, std::io::Error>> = body
+            .as_bytes()
+            .chunks(64 * 1024)
+            .map(|chunk| Ok(chunk.to_vec()))
+            .collect();
+        Body::from_stream(futures_util::stream::iter(chunks))
+    } else {
+        Body::from(body)
+    };
     Response::builder()
         .status(200)
         .header("content-type", "application/xml")
-        .body(Body::from(body))
+        .body(body)
         .unwrap()
 }
 

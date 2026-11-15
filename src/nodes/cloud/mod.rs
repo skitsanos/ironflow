@@ -3,6 +3,7 @@ mod s3_helpers;
 mod s3_list_pages;
 mod s3_listing;
 mod s3_objects;
+mod s3_page_limit;
 mod s3_presign;
 
 pub use s3_listing::{S3ListBucketsNode, S3ListObjectsNode};

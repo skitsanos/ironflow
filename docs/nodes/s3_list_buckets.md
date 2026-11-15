@@ -29,6 +29,13 @@ object behind.
 - `{output_key}_buckets` — Array of buckets (`name`, `creation_date`).
 - `{output_key}_success` — `true` on success.
 
+## Limits
+
+The response body may be at most `IRONFLOW_MAX_S3_LIST_PAGE_BYTES` (default
+`16777216`, 16 MiB), the limit one `s3_list_objects` page has. A larger
+response fails the step with `s3_list_buckets: a list page exceeds
+IRONFLOW_MAX_S3_LIST_PAGE_BYTES (16777216)` before the SDK reads it whole.
+
 ## Example
 
 See the linked workflow for the executable, cataloged example. Minimal use:
