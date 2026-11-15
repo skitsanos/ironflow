@@ -744,6 +744,16 @@ publication is verified separately.
   destination directory must still exist, and the published mode is unchanged:
   the umask default for a new file and the existing bits for a replaced one
   (IF-185).
+- **Single-page `pdf_split` no longer writes through symlinks** (IF-218).
+  Without `pages_per_file`, each page was saved with a plain create that
+  followed a symlink at `<stem>_<page>.pdf` and truncated an existing file in
+  place. Pages now go through the staged atomic writer the grouped mode uses:
+  a symlink or special file at a page destination fails the step and leaves
+  its target alone, and an existing regular file is still replaced, as a
+  whole. File names, output keys and repeated selections are unchanged. Each
+  page file is now capped by `IRONFLOW_MAX_PDF_BYTES`, and on Unix a missing
+  `output_dir` is created `0755` masked by the umask (it was `0777` masked,
+  which differs only under a umask that keeps group or other write).
 - **`s3_list_objects` cannot be kept paging by an endpoint** (IF-189). A
   truncated page without a continuation token used to restart the listing
   from the first page without end. That response, a repeated token, a page

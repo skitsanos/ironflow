@@ -50,7 +50,8 @@ When `pdf_split` uses `pages_per_file > 1`, it additionally applies
 `IRONFLOW_MAX_PDF_OBJECTS` during each output group's graph collection, including
 the new page tree and catalog, and `IRONFLOW_MAX_PDF_BYTES` while serializing each
 staged output file. These are per-group limits, not cumulative output-directory
-limits. Legacy single-page output is unchanged. See
+limits. Single-page output applies only the `IRONFLOW_MAX_PDF_BYTES` cap to
+each staged page file. See
 [`pdf_split`](nodes/pdf_split.md) for collision and partial-output behavior.
 
 ## Memory and cancellation boundaries
