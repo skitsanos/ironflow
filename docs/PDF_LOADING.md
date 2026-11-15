@@ -15,8 +15,10 @@ for one node call.
 | `IRONFLOW_MAX_PDF_DECOMPRESSED_STREAM_BYTES` | `67108864` (64 MiB) | Decoded bytes per object or cross-reference stream loaded by `lopdf` |
 | `IRONFLOW_MAX_PDF_OBJECTS` | `250000` | Loaded document objects, checked after parsing and before downstream work |
 
-Zero, invalid, or missing values retain the defaults. The stream ceiling is
-also clamped to the platform's addressable allocation size.
+An unset variable uses its default. A zero or invalid value fails startup
+with an error that names the variable, as for every numeric limit (see the
+[environment reference](CLI_REFERENCE.md#environment-variables)). The stream
+ceiling is also clamped to the platform's addressable allocation size.
 
 ## Admission and failure behavior
 

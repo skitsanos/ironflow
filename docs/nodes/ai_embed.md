@@ -90,8 +90,8 @@ Each successful embedding response is capped by `IRONFLOW_MAX_HTTP_BODY_BYTES`
 (default 50 MiB), checking declared and streamed bytes before decoding.
 `IRONFLOW_MAX_EMBEDDING_VALUES` (default `16777216`, 128 MiB of raw `f64` values)
 caps the complete vector matrix, not each batch. The first response's dimension
-is used to reject an oversized total before requesting remaining batches. Invalid
-or zero environment limits retain defaults. Response parsing, vector containers,
+is used to reject an oversized total before requesting remaining batches. A zero
+or invalid value for either variable fails startup. Response parsing, vector containers,
 JSON output, and semantic processing require additional memory; this is not an RSS
 ceiling. Existing context-conversion and persisted-output limits still apply.
 
