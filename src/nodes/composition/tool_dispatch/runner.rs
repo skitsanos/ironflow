@@ -61,7 +61,7 @@ async fn dispatch_call(call: Value, dispatch: &Dispatch<'_>) -> Result<CallOutco
         .and_then(Value::as_str)
         .ok_or_else(|| anyhow::anyhow!("tool_dispatch: tool '{}' mapping requires 'flow'", name))?;
     let flow_path = resolve_flow_path(flow_file, parent_ctx).await?;
-    let mut child_ctx = build_child_context(mapping, parent_ctx, &call);
+    let mut child_ctx = build_child_context(&name, mapping, parent_ctx, &call)?;
     if let Some(parent) = PathBuf::from(&flow_path).parent() {
         child_ctx.insert(
             "_flow_dir".to_string(),

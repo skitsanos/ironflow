@@ -74,6 +74,10 @@ impl Node for ToolDispatchNode {
             );
         }
 
+        // A mapping that cannot resolve is a step error, raised before any
+        // handler runs and not subject to `on_error` (IF-221).
+        call_context::validate_inputs(tools, &calls, ctx)?;
+
         let dispatch = Dispatch {
             tools,
             parent_ctx: ctx,

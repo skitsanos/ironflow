@@ -416,6 +416,19 @@ publication is verified separately.
   an object is rejected instead of giving the child the whole parent
   context. See [Input mapping](../nodes/subworkflow.md#input-mapping).
 
+- **`tool_dispatch` fails when a handler `input` references a missing
+  parent value** (IF-221). A `ctx.<path>` reference that did not resolve was
+  passed to the handler as JSON `null`, and a bare string that named no
+  parent key was passed as literal text, so a handler could run without the
+  user, tenant or account it was meant to act for. Both now fail the step,
+  with a message that names the tool and the mapping entry, before the first
+  handler of the batch runs; `on_error = "ignore"` does not suppress it.
+  Write `{ optional = "ctx.user.id" }` to keep `null` for a value that may be
+  absent, and `{ literal = "metric" }` to pass text. References into the
+  tool call (`arguments.*`, `call.*`) still resolve to `null` when the model
+  did not supply the field. See
+  [Tool Handler Mapping](../nodes/tool_dispatch.md#tool-handler-mapping).
+
 - **`xml_stringify` fails on keys that are not XML names, and on array
   sources** (IF-196). Object keys were written as tag and attribute names
   unchecked, so a key from untrusted data could add elements, and a key with

@@ -27,6 +27,8 @@ tools = {
             call_id = "tool_call_id",
             full_call = "call",
             user_id = "ctx.user.id",
+            locale = { optional = "ctx.user.locale" },
+            units = { literal = "metric" },
         },
     },
 }
@@ -42,33 +44,60 @@ Input values can reference:
 | `call.id`, `call.name`, etc. | Dotted path inside the normalized call. |
 | `tool_name` | Tool function name. |
 | `tool_call_id` | Tool call ID. |
-| `ctx.key` | Dotted path from the parent workflow context. |
-| any other string | Parent context key if present, otherwise literal string. |
+| `ctx.key` | Dotted path from the parent workflow context. Must exist. |
+| any other string | Top-level parent context key. Must exist. |
+| `{ optional = "<reference>" }` | Any reference above; JSON `null` when it does not resolve. |
+| `{ literal = <value> }` | The value as written, of any type. Use it for a literal string. |
 
-References resolve the **complete** dotted path. Missing roots or fields,
-out-of-range array indices, traversal through a scalar, and empty path segments
-resolve to JSON `null`, never the parent object. For example, if `user` contains
-`{ profile = { name = "Ada" }, private_note = "internal" }`, `ctx.user.id`
-selects `null`, while `ctx.user.profile.name` selects `"Ada"`. `ctx.user.` is
-malformed and also selects `null`. The same rule applies to `arguments.*` and
-`call.*`, including a trailing dot with no field.
+References resolve the **complete** dotted path and never fall back to the
+parent object. What a reference that does not resolve means depends on who
+supplies the value:
+
+- **Parent context** (`ctx.<path>` and bare keys): the flow author controls
+  it, so a missing root or field, an out-of-range array index, traversal
+  through a scalar or an empty path segment **fails the step** with
+  `tool_dispatch: tool '<name>': input '<entry>' references a parent context
+  value that does not exist; ...`. `<entry>` is the dotted position inside
+  `input`, for example `payload.user_id`; the configured string and context
+  values are never printed. A key or field holding JSON `null` exists.
+- **Tool call** (`arguments.*`, `call.*`, `tool_name`, `tool_call_id`): the
+  model supplies it, so a missing field resolves to JSON `null` and the
+  handler decides.
+
+For example, if `user` contains `{ profile = { name = "Ada" }, private_note =
+"internal" }`, `ctx.user.profile.name` selects `"Ada"`, `ctx.user.id` and the
+malformed `ctx.user.` fail the step, and `{ optional = "ctx.user.id" }`
+selects `null`.
+
+The mappings of every tool named by the calls in `source_key` are checked
+before the first handler runs, so a failing mapping starts no handler, even
+when the call that uses it is not the first. It is a step error, not a
+per-call result, and `on_error = "ignore"` does not suppress it. A mapping
+for a tool that no call names is not checked. In earlier releases a missing
+`ctx.` path resolved to `null` and a bare string that named no parent key was
+passed as literal text.
+
+Only an object with exactly one key, `optional` or `literal`, is a form;
+wrap such an object in `literal` to pass it as data. `optional` must be a
+non-empty string, and a handler `input` that is not an object is rejected.
 
 Array selectors use zero-based dotted indices such as `ctx.users.0.id`; these
 selectors are not `${ctx...}` interpolation and do not use bracket syntax.
 Mapping objects and arrays resolve their values recursively. Numbers, booleans,
 and JSON null remain unchanged. A value selected from context is copied as-is,
-not reinterpreted as another reference.
+not reinterpreted as another reference, and a `literal` value is not resolved.
 
-Missing values do not fail dispatch by themselves. Lua handlers receive the
-`json_null` sentinel, not `nil`, and can reject required values explicitly:
+A missing tool argument or `optional` reference does not fail dispatch by
+itself. Lua handlers receive the `json_null` sentinel, not `nil`, and can
+reject required values explicitly:
 
 ```lua
 assert(ctx.user_id ~= json_null, "user_id is required")
 ```
 
 If the handler fails, the existing `on_error` policy applies. To select an entire
-object intentionally, use `ctx.user`, `arguments`, or `call`. The legacy bare
-string `user` still selects the parent key if present. These explicit selections
+object intentionally, use `ctx.user`, `arguments`, or `call`. The bare
+string `user` also selects the parent key. These explicit selections
 are not redacted; avoid copying whole objects that contain private fields.
 
 Every child subworkflow also receives:
@@ -140,8 +169,8 @@ stopped, tracked blocking workers included.
 
 ## Example
 
-For a credential-free runnable check of nested selection and missing-value
-isolation, see [`tool_dispatch_input_projection.lua`](../../examples/13-ai/tool_dispatch_input_projection.lua)
+For a credential-free runnable check of nested selection, the `optional` and
+`literal` forms and missing-value isolation, see [`tool_dispatch_input_projection.lua`](../../examples/13-ai/tool_dispatch_input_projection.lua)
 and its [`tool_input_projection_subworkflow.lua`](../../examples/13-ai/tool_input_projection_subworkflow.lua)
 handler.
 

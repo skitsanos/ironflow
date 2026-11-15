@@ -72,6 +72,8 @@ mod test_structured_node_failure;
 mod test_subworkflow_depth;
 #[path = "../test_subworkflow_node.rs"]
 mod test_subworkflow_node;
+#[path = "../test_tool_dispatch_input_contract.rs"]
+mod test_tool_dispatch_input_contract;
 #[path = "../test_tool_dispatch_node.rs"]
 mod test_tool_dispatch_node;
 #[path = "../test_tool_input_isolation.rs"]

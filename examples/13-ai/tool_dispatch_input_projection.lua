@@ -1,4 +1,6 @@
 -- Offline tool dispatch with explicit nested parent-context selection.
+-- A parent reference must exist; `{ optional = ... }` marks one that may be
+-- absent (the handler then sees JSON null) and `{ literal = ... }` passes text.
 -- The private field is synthetic and remains in parent history. It must not
 -- enter the selected child payload or the tool results sent to a model.
 
@@ -30,9 +32,10 @@ flow:step("dispatch", nodes.tool_dispatch({
             flow = "tool_input_projection_subworkflow.lua",
             input = {
                 payload = {
-                    user_id = "ctx.user.id",
+                    user_id = { optional = "ctx.user.id" },
                     display_name = "ctx.user.profile.name",
                     city = "arguments.city",
+                    source = { literal = "user" },
                 },
             },
         },
@@ -45,6 +48,7 @@ flow:step("verify", function(ctx)
     assert(result.user_id == json_null, "missing user ID must be JSON null")
     assert(result.display_name == "Ada", "nested name must be preserved")
     assert(result.city == "Berlin", "tool argument must be preserved")
+    assert(result.source == "user", "a literal must not be read as the parent key")
     local output = json_stringify({
         results = ctx.tool_results,
         messages = ctx.tool_results_messages,
