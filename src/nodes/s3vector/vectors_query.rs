@@ -7,12 +7,11 @@ use aws_smithy_types::Document;
 use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
-use crate::util::node_config::config_bool;
 
 use super::client::build_s3vector_client;
 use super::config::resolve_output_key;
 use super::document::{document_to_json, parse_metadata};
-use super::parameters::{resolve_f64, resolve_u32};
+use super::parameters::{resolve_f64, resolve_flag, resolve_u32};
 use super::target::{IndexTarget, TargetPolicy, resolve_index_target};
 use super::vectors::resolve_query_vector;
 
@@ -64,8 +63,8 @@ fn prepare_query_vectors_input(
         anyhow::bail!("s3vector_query_vectors requires 'top_k' to be greater than zero");
     }
     let query_vector = resolve_query_vector(config, ctx, "s3vector_query_vectors")?;
-    let return_metadata = config_bool(config, "return_metadata", ctx).unwrap_or(false);
-    let return_distance = config_bool(config, "return_distance", ctx).unwrap_or(false);
+    let return_metadata = resolve_flag(config, ctx, "s3vector_query_vectors", "return_metadata")?;
+    let return_distance = resolve_flag(config, ctx, "s3vector_query_vectors", "return_distance")?;
     let min_similarity = if config.get("min_similarity").is_some() {
         let value = resolve_f64(config, ctx, "s3vector_query_vectors", "min_similarity")?;
         if !(0.0..=1.0).contains(&value) {
@@ -75,7 +74,7 @@ fn prepare_query_vectors_input(
     } else {
         None
     };
-    let strict = config_bool(config, "strict", ctx).unwrap_or(false);
+    let strict = resolve_flag(config, ctx, "s3vector_query_vectors", "strict")?;
     let filter = if let Some(filter_value) = config.get("filter") {
         Some(parse_metadata(filter_value, "s3vector_query_vectors")?)
     } else {

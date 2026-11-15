@@ -16,10 +16,10 @@ Run vector similarity search on an Amazon S3 Vector index.
 | `query_vector_key` | string | no* | -- | Context key containing a query embedding array. |
 | `filter` | object | no | -- | Optional metadata filter, written in the flow. |
 | `filter_key` | string | no | -- | Context key that holds the metadata filter object. When set, the key must exist and hold a non-empty object; see [Metadata Filter](#metadata-filter). |
-| `return_metadata` | bool | no | `false` | Include vector metadata in results. |
-| `return_distance` | bool | no | `false` | Include distance values in results. |
+| `return_metadata` | bool | no | `false` | Include vector metadata in results. See [Boolean Flags](#boolean-flags). |
+| `return_distance` | bool | no | `false` | Include distance values in results. See [Boolean Flags](#boolean-flags). |
 | `min_similarity` | number | no | -- | Optional minimum cosine similarity threshold between query vector and results. Only supported for cosine-index metrics (`min_similarity = 1 - distance`). Fewer results may be returned than `top_k`. |
-| `strict` | bool | no | `false` | When `true`, require a cosine index for `min_similarity`; otherwise `min_similarity` is ignored for non-cosine indexes. |
+| `strict` | bool | no | `false` | When `true`, require a cosine index for `min_similarity`; otherwise `min_similarity` is ignored for non-cosine indexes. See [Boolean Flags](#boolean-flags). |
 | `region` | string | no | AWS region chain | Override `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, or `AWS_DEFAULT_REGION`. |
 | `endpoint_url` | string | no | `AWS_ENDPOINT_URL` env var | Override the S3 Vectors service endpoint. |
 | `output_key` | string | no | `s3vector` | Prefix for context output keys. |
@@ -39,6 +39,18 @@ non-string, incomplete, or blank targets fail before the AWS client is built.
 ## Query Vector
 
 At least one of `query_vector` or `query_vector_key` is required.
+
+## Boolean Flags
+
+`strict`, `return_metadata` and `return_distance` default to `false` only
+when the parameter is absent (in Lua, `nil`). A present value must be a
+boolean, one of the strings `true`/`yes`/`on`/`1` or `false`/`no`/`off`/`0`
+(case-insensitive), or a `${ctx.key}` template that resolves to one of them.
+Anything else, including a number, JSON `null`, a misspelling such as
+`"tru"` and a template whose key is missing, fails the step with
+`s3vector_query_vectors requires '<flag>' to be a boolean` before the AWS
+client is built, so no request is sent. A malformed `strict` therefore can
+no longer turn off the cosine requirement for `min_similarity`.
 
 ## Metadata Filter
 

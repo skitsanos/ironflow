@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::engine::types::Context;
 use crate::lua::interpolate::interpolate_ctx;
-use crate::util::node_config::config_f64;
+use crate::util::node_config::{config_bool, config_f64};
 
 use super::config::resolve_optional;
 
@@ -97,6 +97,21 @@ pub(super) fn resolve_f64(
     }
 
     Ok(number)
+}
+
+/// Read an optional flag that defaults to `false` only when it is absent. A
+/// value that cannot be read as a boolean fails instead of disabling the flag.
+pub(super) fn resolve_flag(
+    config: &serde_json::Value,
+    ctx: &Context,
+    node: &str,
+    field: &str,
+) -> Result<bool> {
+    if config.get(field).is_none() {
+        return Ok(false);
+    }
+    config_bool(config, field, ctx)
+        .ok_or_else(|| anyhow::anyhow!("{} requires '{}' to be a boolean", node, field))
 }
 
 pub(super) fn resolve_string_array(

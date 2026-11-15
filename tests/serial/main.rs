@@ -90,6 +90,8 @@ mod test_pdf_merge_safety;
 mod test_read_file_special;
 #[path = "../test_run_deadline.rs"]
 mod test_run_deadline;
+#[path = "../test_s3vector_fail_closed.rs"]
+mod test_s3vector_fail_closed;
 #[path = "../test_send_email_node.rs"]
 mod test_send_email_node;
 #[path = "../test_shell_markdown_nodes.rs"]

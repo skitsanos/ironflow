@@ -400,6 +400,17 @@ publication is verified separately.
   `filter` parameter behave as before. See
   [Metadata Filter](../nodes/s3vector_query_vectors.md#metadata-filter).
 
+- **`s3vector_query_vectors` rejects a flag that is not a boolean**
+  (IF-221). `strict`, `return_metadata` and `return_distance` were read as
+  `false` when the value could not be understood, for example `"tru"`, a
+  number or a `${ctx.key}` template whose key was missing. A malformed
+  `strict` therefore dropped the cosine requirement for `min_similarity`,
+  and the query returned unfiltered results from a non-cosine index. Such a
+  value now fails the step before any request is sent. Booleans, the strings
+  `true`/`yes`/`on`/`1` and `false`/`no`/`off`/`0`, and templates resolving to
+  them are accepted as before. See
+  [Boolean Flags](../nodes/s3vector_query_vectors.md#boolean-flags).
+
 - **A child `input` mapping fails when its parent key is absent** (IF-221).
   In `subworkflow`, `parallel_subworkflows` and `repeat_subworkflow` a string
   in `input` names a parent context key. When the key was absent,

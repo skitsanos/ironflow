@@ -183,3 +183,45 @@ async fn execute_fails_on_a_missing_filter_key_before_any_request() {
         "s3vector_query_vectors requires filter_key 'tenant_filter' to exist in context"
     );
 }
+
+#[test]
+fn flags_default_to_false_only_when_absent() {
+    let ctx = Context::from([("on".to_owned(), serde_json::json!(true))]);
+    let prepared =
+        prepare_query_vectors_input(&filter_config(serde_json::json!({})), &ctx).unwrap();
+    assert!(!prepared.strict && !prepared.return_metadata && !prepared.return_distance);
+
+    for accepted in [
+        serde_json::json!(true),
+        serde_json::json!("yes"),
+        serde_json::json!("${ctx.on}"),
+    ] {
+        let prepared = prepare_query_vectors_input(
+            &filter_config(serde_json::json!({
+                "strict": accepted, "return_metadata": accepted, "return_distance": accepted
+            })),
+            &ctx,
+        )
+        .unwrap();
+        assert!(prepared.strict && prepared.return_metadata && prepared.return_distance);
+    }
+
+    for flag in ["strict", "return_metadata", "return_distance"] {
+        for rejected in [
+            serde_json::json!("tru"),
+            serde_json::json!(1),
+            serde_json::json!(null),
+        ] {
+            let mut extra = serde_json::json!({});
+            extra[flag] = rejected;
+            let error = prepare_query_vectors_input(&filter_config(extra), &ctx)
+                .err()
+                .expect(flag)
+                .to_string();
+            assert_eq!(
+                error,
+                format!("s3vector_query_vectors requires '{flag}' to be a boolean")
+            );
+        }
+    }
+}
