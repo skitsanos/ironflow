@@ -91,6 +91,13 @@ HTML/Markdown security sanitizer.
   complete serialized `NodeOutput`, including the configured content key and
   optional metadata object. This is a logical result limit, not a process-RSS
   limit and not the later `IRONFLOW_MAX_TASK_OUTPUT_BYTES` persistence limit.
+  With `format = "markdown"` the same limit is charged while converting:
+  nested block quotes and list items repeat a prefix on every line and a
+  table with a header row pads every cell to its column's widest cell, so a
+  small document could otherwise produce Markdown far above the limit
+  before the result is checked. Such a document fails with `extract_html:
+  Markdown output exceeds IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES (LIMIT)`; see
+  [`html_to_markdown`](html_to_markdown.md#resource-and-cancellation-contract).
 - File reading, structural inspection, tree filtering, plain-text rendering,
   metadata scanning, and result serialization run on a tracked blocking worker and check cancellation and
   the step/run deadline cooperatively. HTML is fed to the parser in 4 KiB

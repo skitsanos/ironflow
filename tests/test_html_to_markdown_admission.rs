@@ -70,3 +70,37 @@ async fn html_to_markdown_rejects_input_above_the_file_byte_limit() {
         "{error}"
     );
 }
+
+#[tokio::test]
+async fn html_to_markdown_charges_its_output_against_the_extract_output_limit() {
+    // IF-215: the Markdown is 13 bytes.
+    let html = "<p>sixteen bytes</p>";
+    let _limit = EnvOverride::set("IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES", "13");
+    assert_eq!(html_to_markdown(html).await.unwrap(), "sixteen bytes");
+
+    let _limit = EnvOverride::set("IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES", "12");
+    let error = html_to_markdown(html).await.unwrap_err().to_string();
+    assert_eq!(
+        error,
+        "html_to_markdown: Markdown output exceeds IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES (12)"
+    );
+}
+
+#[tokio::test]
+async fn html_to_markdown_charges_repeated_prefixes_before_the_output_exists() {
+    // Four lines under three quote levels: 16 bytes of text and line breaks,
+    // 24 bytes of prefixes. The prefixes alone pass a 20-byte limit.
+    let html = "<blockquote><blockquote><blockquote><pre>a\nb\nc\nd\n</pre></blockquote></blockquote></blockquote>";
+    let _limit = EnvOverride::set("IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES", "64");
+    assert_eq!(
+        html_to_markdown(html).await.unwrap(),
+        "> > > a\n> > > b\n> > > c\n> > > d"
+    );
+
+    let _limit = EnvOverride::set("IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES", "20");
+    let error = html_to_markdown(html).await.unwrap_err().to_string();
+    assert_eq!(
+        error,
+        "html_to_markdown: Markdown output exceeds IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES (20)"
+    );
+}

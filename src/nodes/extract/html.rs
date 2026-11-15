@@ -1,4 +1,6 @@
 mod content;
+mod markdown;
+mod markdown_meter;
 mod tree;
 
 use std::collections::BTreeMap;
@@ -81,7 +83,7 @@ fn extract_html(
 }
 
 /// Convert an in-memory HTML string for `html_to_markdown` under the same
-/// input-byte and markup-item admission as `extract_html`.
+/// input-byte, markup-item and output-byte limits as `extract_html`.
 pub(crate) fn html_to_markdown(html: &str, execution: &ExecutionControl) -> Result<String> {
     const OPERATION: &str = "html_to_markdown";
     let max_bytes = crate::util::limits::max_file_bytes();
@@ -91,9 +93,10 @@ pub(crate) fn html_to_markdown(html: &str, execution: &ExecutionControl) -> Resu
             html.len()
         );
     }
-    let mut budget = Budget::new(OPERATION, Limits::current(), execution);
+    let limits = Limits::current();
+    let mut budget = Budget::new(OPERATION, limits, execution);
     budget.inspect_html(html)?;
-    content::markdown_fragment(html, OPERATION, execution)
+    content::markdown_fragment(html, OPERATION, limits.max_output_bytes, execution)
 }
 
 fn extract_html_metadata(html: &str, budget: &Budget<'_>) -> Result<BTreeMap<String, String>> {

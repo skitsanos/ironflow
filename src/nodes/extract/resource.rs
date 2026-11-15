@@ -119,6 +119,12 @@ impl<'a> Budget<'a> {
         self.execution.checkpoint()
     }
 
+    /// The output ceiling, for work that must stop before it materializes
+    /// more than the result may hold.
+    pub(super) fn max_output_bytes(&self) -> u64 {
+        self.max_output_bytes
+    }
+
     pub(super) fn charge_item(&mut self, what: &str) -> Result<()> {
         self.charge_items(1, what)
     }

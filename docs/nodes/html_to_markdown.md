@@ -49,8 +49,17 @@ HTML is parsed:
   4 KiB pieces of input, parsing stops once an open element is more than 256
   levels deep, and the finished tree is checked against the exact cap before
   conversion.
-- The output is not charged against `IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES`; the
-  usual `IRONFLOW_MAX_TASK_OUTPUT_BYTES` persistence limit applies afterwards.
+- The Markdown may be at most `IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES` (default
+  `52428800`, 50 MiB). The limit is charged while converting, because the
+  Markdown form repeats bytes that are not in the input: a block quote or
+  list item prefixes every line of its content once per nesting level, and
+  a table with a header row pads every cell to the widest cell of its
+  column. A document whose repeated prefixes, table padding or finished
+  Markdown pass the limit fails with `html_to_markdown: Markdown output
+  exceeds IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES (LIMIT)`. Padding is estimated
+  from the cells before the table is written (rows × the sum of the column
+  widths), so a table can be refused slightly below the limit. The usual
+  `IRONFLOW_MAX_TASK_OUTPUT_BYTES` persistence limit applies afterwards.
 
 Parsing and conversion run on a tracked blocking worker, not on the async
 runtime. HTML is fed to the parser in 4 KiB pieces with a cancellation and

@@ -26,6 +26,8 @@ mod test_extract_xlsx_styles;
 mod test_file_source_interpolation;
 #[path = "../test_html_depth_limit.rs"]
 mod test_html_depth_limit;
+#[path = "../test_html_markdown_output_budget.rs"]
+mod test_html_markdown_output_budget;
 #[path = "../test_image_output_safety.rs"]
 mod test_image_output_safety;
 #[path = "../test_image_resize_safety.rs"]

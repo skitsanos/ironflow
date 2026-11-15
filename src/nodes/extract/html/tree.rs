@@ -153,7 +153,7 @@ fn ancestor_elements(node: &Handle, limit: usize) -> usize {
     depth
 }
 
-fn parent(node: &Node) -> Option<Handle> {
+pub(super) fn parent(node: &Node) -> Option<Handle> {
     let weak = node.parent.take()?;
     let parent = weak.upgrade();
     node.parent.set(Some(weak));

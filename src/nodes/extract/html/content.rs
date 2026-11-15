@@ -1,12 +1,12 @@
 use std::rc::Rc;
 
 use anyhow::Result;
-use htmd::HtmlToMarkdown;
 use markup5ever_rcdom::{Node, NodeData};
 
 use crate::nodes::extract::resource::Budget;
 use crate::util::execution::ExecutionControl;
 
+use super::markdown;
 use super::tree::{self, DepthCap};
 
 /// Non-content subtrees removed before either rendering. `html_to_markdown`
@@ -38,7 +38,7 @@ pub(super) fn extract(
     if format == "text" {
         plain_text(root, budget)
     } else {
-        let markdown = HtmlToMarkdown::new().tree_to_markdown(&root);
+        let markdown = markdown::convert(&root, &[], "extract_html", budget.max_output_bytes())?;
         budget.checkpoint()?;
         Ok(markdown)
     }
@@ -49,13 +49,11 @@ pub(super) fn extract(
 pub(super) fn markdown_fragment(
     html: &str,
     operation: &str,
+    max_output_bytes: u64,
     execution: &ExecutionControl,
 ) -> Result<String> {
     let root = tree::parse(html, operation, DepthCap::markdown(), execution)?;
-    let markdown = HtmlToMarkdown::builder()
-        .skip_tags(NON_CONTENT_TAGS.to_vec())
-        .build()
-        .tree_to_markdown(&root);
+    let markdown = markdown::convert(&root, &NON_CONTENT_TAGS, operation, max_output_bytes)?;
     execution.checkpoint()?;
     Ok(markdown)
 }

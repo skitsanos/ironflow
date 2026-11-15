@@ -610,6 +610,14 @@ publication is verified separately.
     dependencies. A 10,000-step dependency chain took about 10 s to
     validate in an unoptimized build and now takes milliseconds; phases and
     cycle errors are unchanged, so this needs no limit.
+  - `html_to_markdown` and `extract_html` with `format = "markdown"` charge
+    their Markdown against `IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES` (default
+    50 MiB) while converting. Nested block quotes and lists repeat a prefix
+    on every line and a table with a header row pads every cell to its
+    column's widest cell: 600 KB of nested quotes produced 73 MB and a
+    1 MiB header cell above 200 rows produced 212 MB. `html_to_markdown`
+    output was not limited at all before. Such a document now fails with
+    `Markdown output exceeds IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES`.
 
 ## Security
 
