@@ -3,7 +3,6 @@ use std::path::PathBuf;
 
 use tokio::fs::OpenOptions;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
-use uuid::Uuid;
 
 use crate::storage::{StorageError, StorageResult};
 
@@ -242,7 +241,7 @@ impl SecureStoreDir {
 
     async fn write_temporary(&self, name: &str, data: &[u8]) -> StorageResult<TempFile> {
         for _ in 0..8 {
-            let temporary_name = format!(".{name}.{}.tmp", Uuid::new_v4().simple());
+            let temporary_name = TempFile::unique_name();
             let temporary_path = self.path(&temporary_name);
             let (temporary, file) = match TempFile::create(temporary_path).await {
                 Ok(Ok(created)) => created,

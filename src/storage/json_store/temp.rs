@@ -19,6 +19,16 @@ impl TempFile {
         &self.path
     }
 
+    /// A fresh 50-byte name for a file that is linked or renamed into place.
+    /// It is deliberately independent of the final name: a claim file name
+    /// can be 223 bytes, which leaves no room for a suffix under the common
+    /// 255-byte component limit (IF-203). No directory scan matches it: runs
+    /// end in `.json`, leases in `.lease`, and claims start with their own
+    /// prefixes.
+    pub fn unique_name() -> String {
+        format!(".ironflow-tmp.{}.tmp", uuid::Uuid::new_v4().simple())
+    }
+
     pub async fn create(
         path: PathBuf,
     ) -> Result<io::Result<(Self, std::fs::File)>, tokio::task::JoinError> {

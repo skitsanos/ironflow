@@ -150,6 +150,38 @@ async fn longest_public_schedule_name_has_a_portable_json_claim_filename() {
     );
 }
 
+/// IF-203 (f): the claim's temporary file is named independently of the claim,
+/// so the longest schedule name with the longest IANA zone name still claims.
+/// The final name is 223 bytes; a temporary name derived from it was 261.
+#[tokio::test]
+async fn longest_schedule_and_zone_names_still_claim_in_the_json_store() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = JsonStateStore::new(dir.path());
+    let name = "n".repeat(ironflow::scheduler::config::MAX_SCHEDULE_NAME_BYTES);
+    let zone = chrono_tz::TZ_VARIANTS
+        .iter()
+        .map(|zone| zone.name())
+        .max_by_key(|zone| zone.len())
+        .unwrap();
+    assert_eq!(zone.len(), 32, "{zone}");
+    let key = format!("{zone}@2026-05-01T02:00");
+
+    assert!(store.claim_schedule(&name, &key, TTL).await.unwrap());
+    assert!(!store.claim_schedule(&name, &key, TTL).await.unwrap());
+    store.record_schedule_run(&name, &key, TTL).await.unwrap();
+    assert!(store.schedule_run_recorded(&name, &key).await.unwrap());
+
+    // Nothing but the claim and its run marker is left in the claim directory.
+    let mut names: Vec<String> = std::fs::read_dir(dir.path().join(".ironflow-schedule-claims-v1"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .filter(|name| name.starts_with(".ironflow-schedule-"))
+        .collect();
+    names.sort();
+    assert_eq!(names.len(), 2, "{names:?}");
+    assert_eq!(names[0].len(), 223);
+}
+
 #[tokio::test]
 async fn json_claims_are_scoped_by_name_and_key() {
     let dir = tempfile::tempdir().unwrap();

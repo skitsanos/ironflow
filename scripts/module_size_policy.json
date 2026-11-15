@@ -14,7 +14,7 @@
     },
     {
       "path": "src/storage/json_store/fs.rs",
-      "max_lines": 345,
+      "max_lines": 344,
       "rationale": "IF-028 review: one secure no-follow and durable-directory abstraction; split by responsibility before adding another filesystem operation family."
     },
     {

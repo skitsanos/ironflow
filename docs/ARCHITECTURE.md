@@ -895,7 +895,11 @@ lock and writes separate SHA-256 schedule shards with hourly cleanup buckets.
 Pre-index flat claims are indexed across all schedule shards in batches of 256;
 a durable global completion marker removes that transitional scan once
 migration reaches the end of the legacy namespace. The authoritative claim file
-is never moved or renamed during migration.
+is never moved or renamed during migration. A claim file name is at most 223
+bytes (the 48-byte schedule name limit with the longest IANA zone name), and
+the temporary file a claim is committed from has a fixed 50-byte name that
+does not depend on it, so every valid schedule can claim on a filesystem with
+a 255-byte name limit.
 
 SQL has a covering `(name, claimed_micros, claim_key)` retention index. For
 both backends, each process sweeps a schedule at most once per

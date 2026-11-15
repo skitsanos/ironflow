@@ -814,6 +814,12 @@ publication is verified separately.
   `IRONFLOW_SHUTDOWN_GRACE_SECONDS`, cancels what remains and then exits
   with the scheduler error, as it does on a shutdown signal.
 
+- A schedule with a 48-byte name in a zone with a long IANA name can claim
+  on the JSON store (IF-203). The temporary file for a claim was named after
+  the claim and exceeded the 255-byte file name limit (`File name too long`),
+  so such a schedule never fired. Temporary files now have a fixed short
+  name. Other stores were not affected.
+
 - Starting a PostgreSQL replica no longer locks tables that running replicas
   use (IF-202). Every start used to take `ACCESS EXCLUSIVE` on the events
   table before checking its primary key, and to issue
