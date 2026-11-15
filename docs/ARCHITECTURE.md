@@ -1184,7 +1184,9 @@ Context is a `HashMap<String, serde_json::Value>` that flows through the entire 
 - A task error is stored in task state, published in `TaskFailed` and copied
   into `_error_message` only after diagnostic scrubbing, which keeps its
   first 64 KiB and appends `...[truncated]` (IF-177, IF-189). Each attempt
-  therefore adds a bounded record however large the step's message was.
+  therefore adds a bounded record however large the step's message was,
+  and a step has at most 101 attempts: validation refuses a retry count
+  above 100 (IF-215).
 - Code nodes and function handlers may opt into `context_keys` projection.
   Only selected literal top-level keys, plus the four small engine
   diagnostics (`_error_message`, `_error_step`, `_error_node_type`,

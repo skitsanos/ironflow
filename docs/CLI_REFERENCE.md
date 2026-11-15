@@ -1606,6 +1606,14 @@ policy are the remote authentication and namespace boundary.
 
 `IRONFLOW_MAX_XLSX_CELLS` is deliberately kept below `IRONFLOW_MAX_CONVERSION_NODES`: converting an extracted sheet into Lua costs roughly `rows * (cols + 1)` conversion nodes, so a cell ceiling that never fires before the conversion budget does would let oversized workbooks fail deep inside the JSON-to-Lua converter (an error naming a JSON path) instead of at `extract_xlsx` parse time (an error naming the sheet). Raising one of these two limits without the other may simply move where an oversized workbook fails rather than allow it through.
 
+#### Fixed work limits
+
+These ceilings are constants and have no environment override.
+
+| Limit | Value | Result above it |
+|-------|-------|-----------------|
+| Retries of one step (`:retries(max, backoff)`) | `100` | The flow fails validation with `Step '<name>' retry count is too large (max 100)`; no run starts. A failed attempt stores one error record of at most 64 KiB, so one step adds at most 101 of them |
+
 #### JSON nesting limit
 
 One limit is fixed and has no environment override: a context value or a

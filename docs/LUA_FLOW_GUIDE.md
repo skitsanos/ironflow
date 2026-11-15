@@ -71,6 +71,11 @@ flow:step("call_api", nodes.http_post({
 
 The backoff is exponential: 1s → 2s → 4s.
 
+A step may be retried at most 100 times. A larger count fails validation
+with `Step '<name>' retry count is too large (max 100)` before a run starts;
+the ceiling is fixed. Each failed attempt stores one error record of at most
+64 KiB, so the ceiling also bounds what a failing step adds to the store.
+
 ## Timeout
 
 Set a per-step timeout:

@@ -636,6 +636,9 @@ publication is verified separately.
     list response whole, so an S3-compatible endpoint could send one very
     large page; it is now refused before it is buffered. Real S3 pages are
     far below the default.
+  - The retry ceiling of 100 per step, which validation already enforced,
+    is now documented and covered by a regression. With one error record
+    of at most 64 KiB per failed attempt, a step adds at most 101 of them.
 
 ## Security
 

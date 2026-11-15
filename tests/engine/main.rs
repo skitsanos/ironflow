@@ -56,6 +56,8 @@ mod test_parallel_subworkflows_node;
 mod test_process_cancellation;
 #[path = "../test_repeat_subworkflow_node.rs"]
 mod test_repeat_subworkflow_node;
+#[path = "../test_retry_ceiling.rs"]
+mod test_retry_ceiling;
 #[path = "../test_reused_handlers.rs"]
 mod test_reused_handlers;
 #[path = "../test_runtime_limit_config.rs"]
