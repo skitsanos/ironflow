@@ -7,7 +7,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts check`.
 
 - Total findings: 223
-- Active findings: 12
+- Active findings: 10
 
 ## Working agreement
 
@@ -240,7 +240,7 @@ priority, area, and title. The registry is generated with
 | [IF-210](./IF-210.md) | P3 | Resolved | Maintainability | Follow-ups recorded while fixing IF-186, IF-187 and IF-188 |
 | [IF-211](./IF-211.md) | P2 | Resolved | Workflow execution | Lua run by a step is not tracked work and outlives a timed-out step |
 | [IF-212](./IF-212.md) | P2 | Open | Nodes/security | The outbound destination guard covers only the HTTP nodes |
-| [IF-213](./IF-213.md) | P2 | Open | Engine/cancellation | Several built-in blocking nodes are not tracked work, and Lua C calls have no time bound |
+| [IF-213](./IF-213.md) | P2 | Resolved | Engine/cancellation | Several built-in blocking nodes are not tracked work, and Lua C calls have no time bound |
 | [IF-214](./IF-214.md) | P2 | Resolved | API events | Event streams can be lost when a delete overlaps a new run or incarnation admission fails |
 | [IF-215](./IF-215.md) | P2 | Open | Resource safety | Parsing, planning and fan-out paths that still do unbounded work |
 | [IF-216](./IF-216.md) | P2 | Resolved | Test reliability | Redis legacy-expiry tests fail intermittently on a loaded machine |
