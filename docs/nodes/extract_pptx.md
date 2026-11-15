@@ -142,7 +142,7 @@ deadline, and final serialized-output checks are unchanged.
 
 ### Element types
 
-- `text_block` — a non-title shape's text. `placeholder` carries the OOXML placeholder type (`subTitle`, `body`, etc.) when present and is omitted otherwise. `paragraphs[]` carry `text` and optional `list_level` (0-based indent for bulleted items).
+- `text_block` — a non-title shape's text. `placeholder` carries the OOXML placeholder type (`subTitle`, `body`, etc.) when present and is omitted otherwise. `paragraphs[]` carry `text` and optional `list_level` (0-based indent for bulleted items). `list_level` is the paragraph's `lvl` attribute; a paragraph that switches its bullet off with `a:buNone` has none and is plain text in Markdown, and a paragraph without `lvl` is not reported as a list item even when its layout would bullet it.
 - `table` — rendered as `rows: [[string]]`.
 - `image` — picture shape metadata. `alt_text` and `embed_id` are included when available. `embedded_path` is included only when that ID resolves through an internal OOXML image relationship. With `media_mode = "artifact"`, a resolved embedded image also has an `artifact` object containing its canonical URI, SHA-256 digest, decoded byte size, and MIME type. Binary bytes are not placed in `NodeOutput`.
 

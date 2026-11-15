@@ -631,6 +631,10 @@ publication is verified separately.
   - `extract_pptx` separates the paragraphs of a table cell with a space. A
     cell holding the paragraphs `first` and `second` was returned as
     `firstsecond` and is now `first second`.
+  - `extract_pptx` no longer reports a paragraph that switches its bullet off
+    (`a:buNone`) as a list item. Tools that write a level on every paragraph
+    (pandoc writes `lvl="0"` with `a:buNone`) had their plain text rendered
+    as `- ` bullets in Markdown and with `list_level` in JSON.
 
   See [`extract_word`](../nodes/extract_word.md#style-inheritance-of-bold-italic-and-strikethrough),
   [`pdf_metadata`](../nodes/pdf_metadata.md) and

@@ -227,6 +227,49 @@ async fn a_pandoc_authored_slide_and_notes_part_extract_with_their_breaks() {
     );
 }
 
+/// pandoc writes `lvl="0"` with `a:buNone` on every plain paragraph. A level
+/// alone marked a list item, so plain text was rendered as a bullet.
+#[tokio::test]
+async fn paragraphs_that_switch_bullets_off_are_not_list_items() {
+    let content = extract_parts(PANDOC_SLIDE, PANDOC_NOTES, "json").await;
+    let paragraph = &content["slides"][0]["elements"][0]["paragraphs"][0];
+    assert!(paragraph.get("list_level").is_none(), "{paragraph}");
+    let markdown = extract_parts(PANDOC_SLIDE, PANDOC_NOTES, "markdown").await;
+    assert!(
+        markdown.as_str().unwrap().starts_with(
+            "## Slide 1\n\n### Second slide\n\nBody text line one\nline two after break\n\n"
+        ),
+        "{markdown}"
+    );
+
+    let body = shape(
+        "<p:ph type=\"body\" idx=\"1\"/>",
+        &format!(
+            "<a:p><a:pPr lvl=\"1\"><a:buNone/></a:pPr>{}</a:p>\
+             <a:p><a:pPr lvl=\"1\"><a:buChar char=\"-\"/></a:pPr>{}</a:p>\
+             <a:p><a:pPr lvl=\"2\"/>{}</a:p><a:p><a:pPr/>{}</a:p>",
+            run("plain"),
+            run("bullet"),
+            run("inherited"),
+            run("no level")
+        ),
+    );
+    let slide = format!(
+        "<p:sld xmlns:p=\"{PML}\" xmlns:a=\"{DML}\"><p:cSld><p:spTree>{body}</p:spTree></p:cSld></p:sld>"
+    );
+    let content = extract_slide(&slide, "json").await;
+    assert_eq!(
+        content["slides"][0]["elements"][0]["paragraphs"],
+        json!([
+            {"text": "plain"},
+            {"text": "bullet", "list_level": 1},
+            {"text": "inherited", "list_level": 2},
+            {"text": "no level"}
+        ]),
+        "{content}"
+    );
+}
+
 /// `extract_word` reads no DrawingML text: a text box holds WordprocessingML
 /// paragraphs, whose `w:br` was already a line break. This pins it next to
 /// the DrawingML cases; it passed before the `a:br` change.

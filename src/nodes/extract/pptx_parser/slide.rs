@@ -121,6 +121,8 @@ fn start_element(
         }
         b"t" if state.in_run => state.in_text = true,
         b"pPr" if state.in_paragraph => collect_list_level(event, state, version, budget)?,
+        // `a:buNone` switches the bullet off: a level alone is not a list item.
+        b"buNone" if state.in_paragraph => state.current_list_level = None,
         b"tbl" => {
             state.in_table = true;
             state.table_rows.clear();
