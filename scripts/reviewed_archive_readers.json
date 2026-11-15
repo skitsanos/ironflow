@@ -1,0 +1,7 @@
+{
+  "comment": "Versions of the archive readers whose end-record selection and metadata allocation were re-read against src/util/zip_preflight. Change a version only after doing the checklist in docs/SECURITY.md (Archive reader updates) and recording the result in the issue registry.",
+  "readers": {
+    "zip": { "version": "9.6.0", "reviewed": "2026-11-15", "record": "docs/issues/IF-218.md" },
+    "calamine": { "version": "0.38.0", "reviewed": "2026-11-15", "record": "docs/issues/IF-218.md" }
+  }
+}

@@ -471,6 +471,47 @@ release, or if an advisory is published against it. The dependency audit in
 CI (`cargo audit --deny warnings`) and the Renovate cohort both surface those
 events.
 
+### Archive reader updates
+
+`zip` and `calamine` are reviewed on every version change, including
+lockfile-only ones ([IF-190](issues/IF-190.md), [IF-218](issues/IF-218.md)).
+The raw preflight in `src/util/zip_preflight` and the `zip` reader are
+separate parsers: the limits on entries, duplicate names and metadata hold
+only while both select the same central directory, and `calamine` opens its
+own archive, which IronFlow cannot confirm afterwards.
+`scripts/reviewed_archive_readers.json` records the reviewed versions; a
+repository policy test fails when `Cargo.lock` holds another one, and
+Renovate adds a note to the update pull request. Before changing that file:
+
+1. Diff the new `zip` source against the reviewed version (both are in the
+   Cargo registry cache after a build). If
+   `src/format/find_central_directory.rs`, `src/format/blocks.rs`,
+   `src/read/magic_finder.rs` and `src/read/config.rs` are unchanged, the
+   selection is unchanged.
+2. Otherwise re-read `find_central_directory_end`,
+   `ZipArchive::get_metadata`, `CentralDirectoryInfo::try_from` and
+   `CentralDirectoryEndInfo::central_directory_abuts_end`, and check each
+   point at which the reader skips an end record and looks for an earlier
+   one. The preflight must refuse every archive for which the reader would
+   skip the last record: the ZIP64 markers honoured
+   (`Zip32CentralDirectoryEnd::may_be_zip64`), the multi-disk checks, the
+   locator and ZIP64 record bounds, and the abutment rule.
+3. Check what the reader allocates from archive fields before
+   `Admitted::confirm` runs: the ZIP64 extensible data sector in
+   `Zip64CentralDirectoryEnd::parse` (bounded by the record size the
+   preflight charges to the metadata budget), the entry table capacity in
+   `read_central_header`, and the per-entry name, extra-field and comment
+   buffers in `read/mod.rs`.
+4. For `calamine`, read `Xlsx::new` in `src/xlsx/mod.rs`: it must still open
+   the archive with `ZipArchive::new` on the bytes IronFlow validated, and
+   anything it parses before that (today the compound-file probe in
+   `check_for_password_protected`) must be unreachable or bounded for a file
+   the XLSX preflight admits.
+5. Run `cargo test --lib zip_preflight`, `cargo test --test nodes zip` and
+   `cargo test --test documents xlsx`, record what was read and the
+   conclusion in the issue registry, then update the version, date and record
+   in `scripts/reviewed_archive_readers.json`.
+
 GitHub Actions in every workflow are pinned to commit SHAs with the version
 noted in a comment; Renovate's `helpers:pinGitHubActionDigests` preset keeps
 the digests current. The only exception is `dtolnay/rust-toolchain`, whose tag

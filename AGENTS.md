@@ -44,6 +44,7 @@
 - Run `actionlint .github/workflows/*.yml` after workflow changes when `actionlint` is available.
 - Run `bun run scripts/validate_skills.ts` after changing repository skills or their Claude shims. Repository-owned YAML validation must use Bun and must not add a Python YAML dependency.
 - Storage integration tests are destructive. Use disposable, explicitly named Redis/PostgreSQL instances with required-test flags; never use a shared or production service and remove only the containers created for the test.
+- A `zip` or `calamine` version change in `Cargo.lock`, including a lockfile-only one, requires the re-read in `docs/SECURITY.md` (Archive reader updates); `scripts/tests/repository_policy.test.ts` fails until `scripts/reviewed_archive_readers.json` names the reviewed version.
 - Never expose values from `.env`. Treat `.env`, `.env.*` other than `.env.example`, private keys, `secrets/`, and `.git/` as protected paths.
 
 ## Integration and release boundaries

@@ -47,6 +47,36 @@ describe("repository integration policy", () => {
     }
   });
 
+  test("the locked archive readers are the versions whose selection code was re-read", async () => {
+    // IF-218: the ZIP preflight and these readers are separate parsers that
+    // must pick the same central directory. `zip` moved from 9.5.1 to 9.6.0
+    // in a lockfile-only change without the re-read; this pin makes any
+    // version change fail until the review is recorded.
+    const lockfile = await read("Cargo.lock");
+    const reviewed = (JSON.parse(await read("scripts/reviewed_archive_readers.json")) as {
+      readers: Record<string, { version: string; reviewed: string; record: string }>;
+    }).readers;
+    expect(Object.keys(reviewed).sort()).toEqual(["calamine", "zip"]);
+    for (const [name, entry] of Object.entries(reviewed)) {
+      const locked = [...lockfile.matchAll(new RegExp(`name = "${name}"\\nversion = "([^"]+)"`, "g"))].map(
+        (match) => match[1],
+      );
+      expect(
+        locked,
+        `${name} changed in Cargo.lock: do the re-read in docs/SECURITY.md (Archive reader updates), ` +
+          "record it, then update scripts/reviewed_archive_readers.json",
+      ).toEqual([entry.version]);
+      expect(entry.reviewed).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(await Bun.file(join(repository, entry.record)).exists(), entry.record).toBeTrue();
+    }
+    const renovate = JSON.parse(await read("renovate.json")) as {
+      packageRules: { matchPackageNames?: string[]; prBodyNotes?: string[] }[];
+    };
+    const notes = renovate.packageRules.filter((rule) => rule.prBodyNotes !== undefined);
+    expect(notes.map((rule) => rule.matchPackageNames)).toEqual([["zip", "calamine"]]);
+    expect(notes[0].prBodyNotes!.join(" ")).toContain("scripts/reviewed_archive_readers.json");
+  });
+
   test("the shipped dependency surface stays bounded, copyleft-free and TLS-verified", async () => {
     const manifest = await read("Cargo.toml");
     const lockfile = await read("Cargo.lock");
