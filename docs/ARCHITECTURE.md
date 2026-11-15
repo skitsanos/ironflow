@@ -1490,7 +1490,10 @@ running under the same OS identity from mutating the leased inode.
   scanner takes the last end-record signature whose record and comment fit in
   the file, as the reader does, and refuses the archive unless that record
   ends at EOF and the central directory ends exactly where it (or its ZIP64
-  end record) begins. Each caller then confirms that the opened archive has
+  end record) begins. It follows the ZIP64 record only for the markers the
+  reader honours (entry count, directory size, directory offset) and refuses
+  a record marked in a disk field alone, which the reader would skip in
+  favour of an earlier end record (IF-218). Each caller then confirms that the opened archive has
   archive offset zero, the validated directory offset and the validated raw
   entry count before using any entry. ZIP list/extract use the independent
   `IRONFLOW_MAX_ZIP_METADATA_BYTES` budget (8 MiB, per-node override supported)

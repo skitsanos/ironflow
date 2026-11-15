@@ -54,7 +54,10 @@ and it must be the last end record in the file: an archive with bytes after
 the comment, or with a comment that holds another complete end record, is
 rejected. The central directory must end exactly where its end record (or
 ZIP64 end record) begins, so archives with prepended data or a gap after the
-directory are rejected. After opening, the ZIP library's directory offset and
+directory are rejected. An end record that marks a
+split archive, or whose only ZIP64 marker is a disk-number field, is rejected
+as multi-disk (IF-218): the ZIP library would skip it and look for an earlier
+end record. After opening, the ZIP library's directory offset and
 raw entry count must equal the validated ones before any entry is listed.
 Duplicate entries are rejected even if the ZIP library would collapse them.
 Unicode path aliases that collapse during bounded ZIP construction also fail

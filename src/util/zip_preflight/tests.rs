@@ -113,3 +113,78 @@ fn the_reader_is_confirmed_against_the_admitted_directory() {
         .to_string();
     assert!(error.contains("entry count changed"), "{error}");
 }
+
+/// `[hidden archive][visible entry][directory][ZIP64 record][locator][end
+/// record]`, where the end record's only ZIP64 marker is the given field.
+fn archive_with_marker(hidden: &[u8], marker: std::ops::Range<usize>) -> Vec<u8> {
+    let visible = archive(&["benign.txt"], b"");
+    let end = visible.len() - 22;
+    let size = u32::from_le_bytes(visible[end + 12..end + 16].try_into().unwrap());
+    let offset = u32::from_le_bytes(visible[end + 16..end + 20].try_into().unwrap());
+    let shift = hidden.len() as u32;
+
+    let mut bytes = hidden.to_vec();
+    bytes.extend_from_slice(&visible[..end]);
+    // The visible entry's local header moved by the hidden archive's length.
+    let header = (shift + offset) as usize;
+    bytes[header + 42..header + 46].copy_from_slice(&shift.to_le_bytes());
+    let record_offset = bytes.len() as u64;
+
+    bytes.extend_from_slice(b"PK\x06\x06");
+    bytes.extend_from_slice(&44_u64.to_le_bytes());
+    bytes.extend_from_slice(&[45, 0, 45, 0]);
+    bytes.extend_from_slice(&[0; 8]); // disk, directory disk
+    bytes.extend_from_slice(&1_u64.to_le_bytes());
+    bytes.extend_from_slice(&1_u64.to_le_bytes());
+    bytes.extend_from_slice(&u64::from(size).to_le_bytes());
+    bytes.extend_from_slice(&u64::from(shift + offset).to_le_bytes());
+
+    bytes.extend_from_slice(b"PK\x06\x07");
+    bytes.extend_from_slice(&0_u32.to_le_bytes());
+    bytes.extend_from_slice(&record_offset.to_le_bytes());
+    bytes.extend_from_slice(&1_u32.to_le_bytes());
+
+    let mut end_record = visible[end..].to_vec();
+    end_record[16..20].copy_from_slice(&(shift + offset).to_le_bytes());
+    end_record[marker].fill(0xff);
+    bytes.extend_from_slice(&end_record);
+    bytes
+}
+
+#[test]
+fn a_disk_field_marker_cannot_send_the_reader_to_an_unvalidated_directory() {
+    // IF-218: the reader treats an end record as ZIP64 only for a marker in
+    // the entry count, directory size or directory offset. With a marker in
+    // a disk field alone it reads the record as classic, rejects it as
+    // multi-disk and falls back to an earlier end record. The preflight must
+    // not validate the ZIP64 directory in that case.
+    let names: Vec<String> = (0..40).map(|index| format!("hidden-{index}.txt")).collect();
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    let hidden = archive(&names, b"");
+    // Disk number, directory disk, entries on this disk.
+    for marker in [4..6, 6..8, 8..10] {
+        let bytes = archive_with_marker(&hidden, marker.clone());
+
+        let reader = zip::ZipArchive::new(Cursor::new(&bytes)).unwrap();
+        assert_eq!(
+            reader.len(),
+            40,
+            "{marker:?}: the reader opens the hidden directory"
+        );
+
+        let error = admit(&bytes)
+            .expect_err("the preflight must not admit a directory the reader skips")
+            .to_string();
+        assert!(error.contains("multi-disk"), "{marker:?}: {error}");
+    }
+}
+
+#[test]
+fn a_zip64_archive_marked_in_the_fields_the_reader_checks_is_still_admitted() {
+    // Entry count marker: both parsers use the ZIP64 record.
+    let bytes = archive_with_marker(&[], 10..12);
+    let admitted = admit(&bytes).unwrap();
+    let reader = zip::ZipArchive::new(Cursor::new(&bytes)).unwrap();
+    admitted.confirm(&reader, "zip_list").unwrap();
+    assert_eq!(reader.len(), 1);
+}

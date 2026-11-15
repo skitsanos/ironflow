@@ -720,6 +720,14 @@ publication is verified separately.
   `zip_list`, `zip_extract` and OOXML/XLSX extraction. Such archives are
   rejected, and the opened archive is checked against the validated
   directory before use.
+- **A ZIP end record marked as ZIP64 only in a disk field is refused**
+  (IF-218). Admission followed the ZIP64 record for such an archive while the
+  ZIP reader rejected the end record as multi-disk and fell back to an
+  earlier one, so the reader built a directory that admission had not
+  bounded before the archive was refused as mismatched. `zip_list`,
+  `zip_extract` and OOXML/XLSX extraction now reject it before the reader
+  runs, with a multi-disk error. Found while re-reading `zip` 9.6.0; the
+  behaviour was the same in 9.5.1.
 - **`extract_xlsx` bounds the workbook style table** (IF-173). `calamine` is
   updated to 0.38.0 for RUSTSEC-2026-0436. That version expands `styles.xml`
   into one record per cell format when a workbook opens, so the table is now

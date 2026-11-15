@@ -107,12 +107,14 @@ fn parse_directory<R: Read + Seek>(
         size: le_u32(&eocd[12..16]),
         offset: le_u32(&eocd[16..20]),
     };
-    let uses_zip64 = classic.disk == u16::MAX
-        || classic.directory_disk == u16::MAX
-        || classic.entries_on_disk == u16::MAX
-        || classic.entries == u16::MAX
-        || classic.size == u32::MAX
-        || classic.offset == u32::MAX;
+    // Exactly the reader's test (`Zip32CentralDirectoryEnd::may_be_zip64`).
+    // A marker in a disk field alone leaves the reader on the classic path,
+    // where it rejects the record as multi-disk and falls back to an earlier
+    // end record; treating that marker as ZIP64 here would validate a
+    // directory the reader never uses (IF-218). Such a record is refused
+    // below instead.
+    let uses_zip64 =
+        classic.entries == u16::MAX || classic.size == u32::MAX || classic.offset == u32::MAX;
 
     if !uses_zip64 {
         if classic.disk != 0

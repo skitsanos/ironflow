@@ -48,6 +48,8 @@ mod test_zip_cancellation;
 mod test_zip_entry_modes;
 #[path = "../test_zip_limits.rs"]
 mod test_zip_limits;
+#[path = "../test_zip_marker_fallback.rs"]
+mod test_zip_marker_fallback;
 #[path = "../test_zip_metadata.rs"]
 mod test_zip_metadata;
 #[path = "../test_zip_security.rs"]
