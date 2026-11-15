@@ -78,6 +78,7 @@ fn case(name: &'static str, step: &'static str) -> Case {
 fn cases() -> Vec<Case> {
     let mut cases = http_cases();
     cases.extend(provider_cases());
+    cases.extend(mcp_cases());
     cases
 }
 
@@ -161,6 +162,15 @@ fn provider_cases() -> Vec<Case> {
                 timeout = 5 })"#,
         ),
     ]
+}
+
+/// `mcp_client` over Streamable HTTP.
+fn mcp_cases() -> Vec<Case> {
+    vec![case(
+        "mcp_client streamable_http",
+        r#"nodes.mcp_client({ transport = "streamable_http", url = "%URL%/mcp",
+                action = "initialize", timeout = 5 })"#,
+    )]
 }
 
 struct Outcome {

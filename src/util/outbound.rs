@@ -211,5 +211,8 @@ mod guard_tests;
 #[path = "outbound/http_tests.rs"]
 mod http_tests;
 #[cfg(test)]
+#[path = "outbound/mcp_tests.rs"]
+mod mcp_tests;
+#[cfg(test)]
 #[path = "outbound/provider_tests.rs"]
 mod provider_tests;

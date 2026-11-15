@@ -11,6 +11,7 @@ use serde_json::Value;
 use tokio::process::Command;
 
 use crate::nodes::child_process::{ChildProcessGuard, configure_command};
+use crate::util::outbound::{Guard, ensure_url_allowed};
 
 use super::config::McpTransport;
 use super::session::McpSession;
@@ -106,7 +107,14 @@ async fn initialize_streamable_http(
         .ok_or_else(|| anyhow!("mcp_client streamable_http requires 'url'"))?;
     let transport_config = StreamableHttpClientTransportConfig::with_uri(url.to_string())
         .custom_headers(custom_headers(config)?);
-    let transport = StreamableHttpClientTransport::from_config(transport_config);
+    // Without the guard the transport keeps its own default client.
+    let transport = match Guard::resolve(false)? {
+        Some(guard) => {
+            ensure_url_allowed("mcp_client", url).await?;
+            StreamableHttpClientTransport::with_client(guarded_client(guard)?, transport_config)
+        }
+        None => StreamableHttpClientTransport::from_config(transport_config),
+    };
     let service = tokio::time::timeout(timeout, rmcp::serve_client(client_info, transport))
         .await
         .map_err(|_| {
@@ -118,6 +126,43 @@ async fn initialize_streamable_http(
         .map_err(|error| anyhow!("mcp_client: Streamable HTTP initialization failed: {error}"))?;
 
     Ok(McpSession::new(service, McpTransport::StreamableHttp, None))
+}
+
+/// The transport's default client with the outbound destination guard
+/// installed (IF-212): direct connections, validated and pinned DNS answers,
+/// and the same redirect rule, which follows only same-origin `307` and `308`
+/// hops and so never leaves the checked host.
+fn guarded_client(guard: Guard) -> Result<reqwest::Client> {
+    const MAX_REDIRECTS: usize = 10;
+
+    let redirect_guard = guard.clone();
+    let redirects = reqwest::redirect::Policy::custom(move |attempt| {
+        let preserves_body = matches!(
+            attempt.status(),
+            reqwest::StatusCode::TEMPORARY_REDIRECT | reqwest::StatusCode::PERMANENT_REDIRECT
+        );
+        let same_origin = attempt
+            .previous()
+            .first()
+            .is_some_and(|original| original.origin() == attempt.url().origin());
+        if !preserves_body || !same_origin {
+            attempt.stop()
+        } else if attempt.previous().len() > MAX_REDIRECTS {
+            attempt.error(format!("exceeded {MAX_REDIRECTS} redirects"))
+        } else if let Err(refusal) = redirect_guard.check_url(attempt.url()) {
+            attempt.error(refusal)
+        } else {
+            attempt.follow()
+        }
+    });
+    guard
+        .install(
+            reqwest::Client::builder()
+                .pool_max_idle_per_host(0)
+                .redirect(redirects),
+        )
+        .build()
+        .map_err(|_| anyhow!("mcp_client: failed to build the Streamable HTTP client"))
 }
 
 fn custom_headers(config: &Value) -> Result<HashMap<HeaderName, HeaderValue>> {

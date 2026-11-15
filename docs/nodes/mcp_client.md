@@ -145,6 +145,18 @@ Action-specific output:
 Raw JSON-RPC request IDs, request and response envelopes, and server-issued
 HTTP session IDs are intentionally not exposed.
 
+## Outbound destination policy
+
+When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, this node
+refuses a destination that is not a public unicast address before it
+connects: a literal private, loopback or link-local address, `localhost`,
+and a host name whose DNS answer contains such an address. The validated
+answer is the one connected to, and the node connects directly, ignoring a
+system proxy. This covers the Streamable HTTP transport and its same-origin `307`/`308`
+redirects. The stdio transport starts a subprocess and is not covered. An internal destination must be listed by the operator in
+`IRONFLOW_PRIVATE_NETWORK_ALLOWLIST`; nothing in the flow can add one. See
+[Outbound destinations](../SECURITY.md#outbound-destinations).
+
 ## Example: persistent stdio session
 
 ```lua

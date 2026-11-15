@@ -1335,11 +1335,12 @@ Clients take the guard in the form their driver allows:
   policy for each lookup and check every redirect hop themselves.
 - The provider client (`util::provider_http`, behind `llm`, `ai_embed`,
   `ai_chunk_semantic`, `transcribe`, `slack_notification`, Resend
-  `send_email` and `arangodb_aql`) is built per execution with the guard
-  installed: no proxy, the pinning resolver, and a refusal hook that reqwest
-  consults for every request URL, so a literal internal address is refused
-  even where a call site adds no check of its own. Nodes also check the
-  resolved URL first to report a readable error.
+  `send_email` and `arangodb_aql`) and the `mcp_client` Streamable HTTP
+  transport are built per execution with the guard installed: no proxy, the
+  pinning resolver, and a refusal hook that reqwest consults for every
+  request URL, so a literal internal address is refused even where a call
+  site adds no check of its own. Nodes also check the resolved URL first to
+  report a readable error.
 
 The policy is read from the environment on each use, with the
 `ironflow.yaml` keys installed by the CLI as a fallback, so an embedding
