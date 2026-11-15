@@ -249,7 +249,10 @@ where
     let guards = CooperativeWorkerGuards::for_current_task();
     let handle = tokio::task::spawn_blocking(move || {
         let _guards = guards;
-        operation(worker_control)
+        let outcome = operation(worker_control);
+        #[cfg(test)]
+        test_support::hold_worker();
+        outcome
     });
     let mut cancel_on_drop = CancelOnDrop::new(control);
     let outcome = handle.await;
@@ -258,5 +261,7 @@ where
     outcome.map_err(|error| anyhow::anyhow!("blocking step worker failed: {error}"))?
 }
 
+#[cfg(test)]
+pub(crate) mod test_support;
 #[cfg(test)]
 mod tests;

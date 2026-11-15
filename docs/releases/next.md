@@ -212,6 +212,11 @@ publication is verified separately.
   loops are unaffected; they are stopped at the next instruction-hook check
   as before, and steps that finish in time behave as before. See
   [Execution limits](../nodes/code.md#execution-limits).
+- **`markdown_to_html` converts off the async runtime thread** (IF-213). The
+  Markdown parser and the optional sanitizer ran on a runtime worker thread,
+  where a large input delayed unrelated runs and a step timeout could not
+  take effect until the conversion returned. They now run as tracked work on
+  the blocking pool like `html_to_markdown`. Output is unchanged.
 - **New connections are answered while `serve` drains, and exit is bounded**
   (IF-183). After SIGTERM or SIGINT a new connection completed the TCP
   handshake and then received nothing until the drain ended, up to

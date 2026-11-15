@@ -31,19 +31,25 @@ impl Node for MarkdownToHtmlNode {
 
         let input = get_input(config, ctx, "markdown_to_html")?;
 
-        let mut options = Options::default();
-        options.extension.strikethrough = true;
-        options.extension.table = true;
-        options.extension.autolink = true;
-        options.extension.tasklist = true;
+        // Parsing and sanitizing are synchronous and have no cancellation
+        // checkpoint, so they run as tracked work off the async thread: a
+        // step that times out holds its handler until they return (IF-213).
+        let html = run_tracked_blocking_step(move |execution| {
+            let mut options = Options::default();
+            options.extension.strikethrough = true;
+            options.extension.table = true;
+            options.extension.autolink = true;
+            options.extension.tasklist = true;
 
-        let html = markdown_to_html(&input, &options);
-
-        let html = if sanitize {
-            ammonia::clean(&html)
-        } else {
-            html
-        };
+            let html = markdown_to_html(&input, &options);
+            execution.checkpoint()?;
+            Ok(if sanitize {
+                ammonia::clean(&html)
+            } else {
+                html
+            })
+        })
+        .await?;
 
         let mut output = NodeOutput::new();
         output.insert(output_key.to_string(), serde_json::Value::String(html));
