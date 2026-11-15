@@ -7,7 +7,7 @@ use markup5ever_rcdom::{Node, NodeData};
 use crate::nodes::extract::resource::Budget;
 use crate::util::execution::ExecutionControl;
 
-use super::tree::{self, MAX_MARKDOWN_DEPTH};
+use super::tree::{self, DepthCap};
 
 /// Non-content subtrees removed before either rendering. `html_to_markdown`
 /// skips the same set so both nodes agree on what counts as page content.
@@ -22,8 +22,12 @@ pub(super) fn extract(
 ) -> Result<String> {
     budget.checkpoint()?;
     // Only Markdown conversion recurses per element level; plain text walks
-    // the tree iteratively and keeps accepting deeper markup.
-    let depth_cap = (format != "text").then_some(MAX_MARKDOWN_DEPTH);
+    // the tree iteratively and accepts deeper markup, up to its own limit.
+    let depth_cap = if format == "text" {
+        DepthCap::text()
+    } else {
+        DepthCap::markdown()
+    };
     // `root` owns the document for the whole call: RcDom's node destructor
     // clears descendant child lists even while handles to them remain.
     let root = tree::parse(html, "extract_html", depth_cap, execution)?;
@@ -47,7 +51,7 @@ pub(super) fn markdown_fragment(
     operation: &str,
     execution: &ExecutionControl,
 ) -> Result<String> {
-    let root = tree::parse(html, operation, Some(MAX_MARKDOWN_DEPTH), execution)?;
+    let root = tree::parse(html, operation, DepthCap::markdown(), execution)?;
     let markdown = HtmlToMarkdown::builder()
         .skip_tags(NON_CONTENT_TAGS.to_vec())
         .build()

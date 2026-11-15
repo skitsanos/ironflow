@@ -595,6 +595,18 @@ publication is verified separately.
   record alone, as before. See
   [Record retention and deleted runs](../CLI_REFERENCE.md#record-retention-and-deleted-runs).
 
+- **Parsing, planning and fan-out paths have explicit work budgets**
+  (IF-215). Each of these was unbounded, or bounded only by a library
+  constant, and now fails the step with an error that names the limit. The
+  defaults are listed under
+  [Resource limits](../CLI_REFERENCE.md#environment-variables); a malformed
+  value stops startup.
+  - `extract_html` with `format = "text"` accepts at most
+    `IRONFLOW_MAX_HTML_TEXT_DEPTH` levels of element nesting (default
+    `1024`). Deeper markup was accepted before and parsed in time that grows
+    with the square of the depth. Raise the limit for documents that
+    legitimately nest deeper.
+
 ## Security
 
 - **`mcp_client` bounds Streamable HTTP responses** (IF-173). `rmcp` is

@@ -139,12 +139,47 @@ async fn every_block_kind_converts_at_the_cap() {
     }
 }
 
+/// Default `IRONFLOW_MAX_HTML_TEXT_DEPTH`, counting `<html>` and `<body>`.
+const MAX_TEXT_DEPTH: usize = 1_024;
+
+fn assert_text_nesting_error(levels: usize, result: anyhow::Result<String>) {
+    let error = result
+        .expect_err(&format!("text: {levels} nested levels must be rejected"))
+        .to_string();
+    assert_eq!(
+        error,
+        "extract_html: HTML element nesting exceeds 1024 levels (IRONFLOW_MAX_HTML_TEXT_DEPTH)",
+        "at {levels} levels"
+    );
+}
+
 #[tokio::test]
-async fn extract_html_text_format_is_not_capped() {
-    // Plain-text extraction walks the tree iteratively and keeps accepting
-    // markup that Markdown conversion rejects.
+async fn extract_html_text_accepts_deeper_markup_than_markdown_up_to_its_own_cap() {
+    // Plain-text extraction walks the tree iteratively, so it accepts markup
+    // that Markdown conversion rejects, up to its own nesting limit (IF-215).
     let html = nested_divs(MAX_DEPTH * 4);
     assert_eq!(extract_html(&html, "text").await.unwrap(), "leaf");
+
+    let at_cap = nested_divs(MAX_TEXT_DEPTH - IMPLIED_LEVELS);
+    assert_eq!(extract_html(&at_cap, "text").await.unwrap(), "leaf");
+
+    let above = MAX_TEXT_DEPTH - IMPLIED_LEVELS + 1;
+    assert_text_nesting_error(above, extract_html(&nested_divs(above), "text").await);
+}
+
+#[tokio::test]
+async fn extract_html_text_rejects_pathological_nesting_quickly() {
+    // Parsing is quadratic in nesting depth: 100,000 levels took about 16 s
+    // in an optimized build before the cap stopped the parse early (IF-215).
+    let started = std::time::Instant::now();
+    assert_text_nesting_error(100_000, extract_html(&nested_divs(100_000), "text").await);
+    let html = format!("<table>{}", nested_divs(100_000));
+    assert_text_nesting_error(100_000, extract_html(&html, "text").await);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(10),
+        "took {:?}",
+        started.elapsed()
+    );
 }
 
 #[tokio::test]

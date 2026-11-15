@@ -10,6 +10,7 @@ mod image;
 mod lua;
 mod pdf;
 mod process;
+mod work;
 mod xlsx;
 
 pub use env::{Limit, Toggle, Zero, validate_environment};
@@ -20,6 +21,7 @@ pub use lua::{
 };
 pub use pdf::*;
 pub use process::*;
+pub use work::*;
 pub use xlsx::{
     max_xlsx_archive_metadata_bytes, max_xlsx_cells, max_xlsx_output_bytes, max_xlsx_rows,
 };
@@ -170,6 +172,7 @@ pub(crate) const ALL: &[&Limit] = &[
     &process::CACHE_MAX_ENTRIES,
     &process::MCP_SESSION_CACHE_SIZE,
     &process::MCP_SESSION_TTL_SECS,
+    &work::MAX_HTML_TEXT_DEPTH,
 ];
 
 /// Every boolean switch, checked by [`validate_environment`] at startup.

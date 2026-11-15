@@ -17,7 +17,7 @@ Extract text and metadata from an HTML file.
 > The `format` parameter only accepts `"text"` or `"markdown"`; any other value is rejected.
 > Present `format`, `output_key`, and `metadata_key` values must be strings; a value of the wrong type is rejected instead of being treated as absent.
 > When `metadata_key` is set, it must differ from `output_key`; key collisions are rejected before extraction begins.
-> `"markdown"` rejects HTML whose elements nest deeper than 128 levels; `"text"` has no nesting cap. See the resource contract below.
+> `"markdown"` rejects HTML whose elements nest deeper than 128 levels; `"text"` accepts up to `IRONFLOW_MAX_HTML_TEXT_DEPTH` levels (default `1024`). See the resource contract below.
 
 ## Context Output
 
@@ -78,9 +78,15 @@ HTML/Markdown security sanitizer.
   parsed, because parse time grows with the square of the nesting depth:
   between 4 KiB pieces of input, parsing stops once an open element is more
   than 256 levels deep, and the finished tree is checked against the exact
-  128-level cap before conversion. `format = "text"` walks the tree without
-  recursion and is not capped; a deeply nested document is still slow to
-  parse there, but the parse observes cancellation and the deadline.
+  128-level cap before conversion.
+- `format = "text"` walks the tree without recursion, so it accepts deeper
+  markup: at most `IRONFLOW_MAX_HTML_TEXT_DEPTH` levels (default `1024`,
+  counted like the Markdown cap). The limit bounds parse time, which grows
+  with the square of the nesting depth: 100,000 nested `<div>` took about
+  16 s in an optimized build before the limit existed. Parsing stops once an
+  open element is more than twice the limit deep, and a deeper document
+  fails with `extract_html: HTML element nesting exceeds 1024 levels
+  (IRONFLOW_MAX_HTML_TEXT_DEPTH)`.
 - `IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES` (default `52428800`, 50 MiB) bounds the
   complete serialized `NodeOutput`, including the configured content key and
   optional metadata object. This is a logical result limit, not a process-RSS

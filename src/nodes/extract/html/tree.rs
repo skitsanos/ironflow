@@ -18,7 +18,34 @@ use crate::util::execution::ExecutionControl;
 
 /// Deepest element nesting accepted before Markdown conversion, counting the
 /// `<html>` and `<body>` elements the parser always supplies.
-pub(super) const MAX_MARKDOWN_DEPTH: usize = 128;
+const MAX_MARKDOWN_DEPTH: usize = 128;
+
+/// The deepest element nesting one parse accepts.
+#[derive(Clone, Copy)]
+pub(super) struct DepthCap {
+    levels: usize,
+    /// The environment limit that sets `levels`, named in the refusal.
+    limit: Option<&'static str>,
+}
+
+impl DepthCap {
+    /// The fixed cap Markdown conversion needs: it recurses per level.
+    pub(super) fn markdown() -> Self {
+        Self {
+            levels: MAX_MARKDOWN_DEPTH,
+            limit: None,
+        }
+    }
+
+    /// The configurable cap for plain text, which walks the tree
+    /// iteratively but still pays the quadratic parse (IF-215).
+    pub(super) fn text() -> Self {
+        Self {
+            levels: crate::util::limits::max_html_text_depth(),
+            limit: Some("IRONFLOW_MAX_HTML_TEXT_DEPTH"),
+        }
+    }
+}
 
 /// Input reaches the parser in pieces so cancellation is observed and the
 /// open elements are inspected between them.
@@ -26,14 +53,14 @@ const PARSE_CHUNK_BYTES: usize = 4 * 1024;
 
 /// Parse `html` with the HTML5 recovery rules.
 ///
-/// With `depth_cap`, a document whose elements nest deeper than the cap is a
-/// node error. The finished tree decides the exact boundary; parsing only
-/// stops early once an open element is twice as deep, because tree
-/// construction can still move a node after opening it.
+/// A document whose elements nest deeper than `cap` is a node error. The
+/// finished tree decides the exact boundary; parsing only stops early once
+/// an open element is twice as deep, because tree construction can still
+/// move a node after opening it.
 pub(super) fn parse(
     html: &str,
     operation: &str,
-    depth_cap: Option<usize>,
+    cap: DepthCap,
     execution: &ExecutionControl,
 ) -> Result<Rc<Node>> {
     let mut parser = parse_document(
@@ -52,24 +79,27 @@ pub(super) fn parse(
         let (chunk, tail) = rest.split_at(chunk_end(rest));
         parser.process(StrTendril::from_slice(chunk));
         rest = tail;
-        if let Some(cap) = depth_cap {
-            let open = OpenElements::new(cap.saturating_mul(2));
-            parser.tokenizer.sink.trace_handles(&open);
-            if open.exceeded.get() {
-                bail!(too_deep(operation, cap));
-            }
+        let open = OpenElements::new(cap.levels.saturating_mul(2));
+        parser.tokenizer.sink.trace_handles(&open);
+        if open.exceeded.get() {
+            bail!(too_deep(operation, cap));
         }
     }
     execution.checkpoint()?;
     let document = parser.finish().document;
-    if let Some(cap) = depth_cap {
-        ensure_depth(&document, operation, cap, execution)?;
-    }
+    ensure_depth(&document, operation, cap, execution)?;
     Ok(document)
 }
 
-fn too_deep(operation: &str, cap: usize) -> String {
-    format!("{operation}: HTML element nesting exceeds {cap} levels")
+fn too_deep(operation: &str, cap: DepthCap) -> String {
+    let limit = cap
+        .limit
+        .map(|name| format!(" ({name})"))
+        .unwrap_or_default();
+    format!(
+        "{operation}: HTML element nesting exceeds {} levels{limit}",
+        cap.levels
+    )
 }
 
 /// Largest prefix of `text` within the chunk size that ends on a character.
@@ -135,7 +165,7 @@ fn parent(node: &Node) -> Option<Handle> {
 fn ensure_depth(
     document: &Handle,
     operation: &str,
-    cap: usize,
+    cap: DepthCap,
     execution: &ExecutionControl,
 ) -> Result<()> {
     let mut pending = vec![(document.clone(), 0_usize)];
@@ -151,7 +181,7 @@ fn ensure_depth(
         } = &node.data
         {
             depth += 1;
-            if depth > cap {
+            if depth > cap.levels {
                 bail!(too_deep(operation, cap));
             }
             if let Some(contents) = template_contents.borrow().as_ref() {
@@ -197,7 +227,7 @@ mod tests {
         let (chunked, one_shot) =
             crate::util::execution::run_tracked_blocking_step(move |execution| {
                 let converter = HtmlToMarkdown::new();
-                let chunked = parse(&html, "test", Some(MAX_MARKDOWN_DEPTH), &execution)?;
+                let chunked = parse(&html, "test", DepthCap::markdown(), &execution)?;
                 let one_shot = converter.html_to_tree(&html)?;
                 Ok((
                     converter.tree_to_markdown(&chunked),
