@@ -984,8 +984,11 @@ and to the run's own steps. The text names the failure category (`store
 error` or `timed out`), never the store's error message.
 
 SQL deletion fences are durable. A Redis fence is persistent without
-`REDIS_TTL` and expires with that configured TTL. The memory backend keeps
-events and fences in one oldest-first queue bounded by both the configured
+`REDIS_TTL` and expires with that configured TTL. The owner record of a run
+that was not deleted is one row in the SQL event-deletion table, one Redis
+key that follows the stream's `REDIS_TTL`, or one entry of the memory queue;
+deleting the run turns it into the fence. The memory backend keeps events,
+owner records and fences in one oldest-first queue bounded by both the configured
 entry count and a fixed 64 MiB retained-heap estimate, so they disappear on
 restart or eviction. Current-layout Redis deletion atomically fences and
 unlinks its list/index/sequence/layout keys after preflighting the command.

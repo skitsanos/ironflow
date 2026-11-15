@@ -367,8 +367,8 @@ while the prior identity remains retained. Unknown, expired, and cross-run
 event cursors return storage `NotFound` and become `410 event_cursor_gone` at
 the HTTP boundary.
 
-The default in-memory event backend retains events and deletion fences in one
-oldest-first queue across all runs. It enforces both a 10,000-entry limit and a
+The default in-memory event backend retains events, one owner record per run
+and deletion fences in one oldest-first queue across all runs. It enforces both a 10,000-entry limit and a
 fixed 64 MiB retained-heap estimate so large metadata cannot bypass the count
 bound; set `IRONFLOW_EVENT_MEMORY_CAPACITY` or `event_memory_capacity` to
 another positive entry limit. `DELETE /runs/{id}` removes state first, then
