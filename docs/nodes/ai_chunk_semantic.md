@@ -14,9 +14,9 @@ Split text into semantic chunks using embedding similarity to detect topic bound
 | `batch_size` | number/string | No | `512` | Maximum sentences per embedding request, `1`-`2048`; accepts context interpolation |
 | `batch_max_bytes` | number/string | No | `262144` | Maximum combined UTF-8 sentence bytes per batch, `1`-`52428800`; accepts context interpolation |
 | `batch_retries` | number/string | No | `2` | Additional transient-error attempts per batch, `0`-`5`; accepts context interpolation |
-| `sim_window` | number | No | `3` | Window for averaging adjacent sentence cosine distances (odd, >= 3) |
-| `sg_window` | number | No | `11` | Savitzky-Golay smoothing window (odd) |
-| `poly_order` | number | No | `3` | Savitzky-Golay polynomial order |
+| `sim_window` | number | No | `3` | Window for averaging adjacent sentence cosine distances (odd, >= 3, at most `101`) |
+| `sg_window` | number | No | `11` | Savitzky-Golay smoothing window (odd, at most `1001`) |
+| `poly_order` | number | No | `3` | Savitzky-Golay polynomial order (at most `16`). Smoothing is skipped when the order is not below the window |
 | `threshold` | number | No | `0.5` | Relative peak admission level (clamped to 0.0-1.0); higher admits weaker candidate splits |
 | `min_distance` | number | No | `2` | Minimum sentence-index gap between accepted split points; `0` disables spacing |
 
@@ -70,6 +70,16 @@ it admits weaker peaks, while `min_distance` can suppress later nearby candidate
 - Higher `threshold` admits more candidates, generally producing smaller chunks.
 - Larger `sg_window` smooths the curve more and can merge or shift transitions.
 - Smaller `min_distance` permits accepted splits closer together.
+
+`sim_window`, `sg_window` and `poly_order` have fixed ceilings (`101`, `1001`
+and `16`). A larger value fails the step before any sentence is embedded,
+for example `ai_chunk_semantic: 'poly_order' must be at most 16, got 3200`.
+The boundary computation runs after the embeddings arrive and its cost
+grows with sentences × window, and with the cube of the order: without the
+ceilings, a smoothing window as long as a 50,000-sentence document took 5 s
+and order 3,200 took 330 s in an optimized build. Values this large have no
+use for smoothing a distance curve; an even window is still raised to the
+next odd number.
 
 `min_distance` is not a minimum size for the first or last chunk. This node has
 no hard minimum/maximum character, byte, or token budget. For byte-budgeted

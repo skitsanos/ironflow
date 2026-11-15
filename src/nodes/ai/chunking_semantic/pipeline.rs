@@ -239,4 +239,33 @@ mod tests {
             "ai_chunk_semantic: embedding 1 has dimension 1, expected 2"
         );
     }
+
+    #[test]
+    fn the_largest_accepted_windows_and_order_stay_cheap_on_a_long_document() {
+        // IF-215: the cost is sentences x window for the windows and cubic
+        // in the order. Before the ceilings, 2,000 sentences with a window
+        // of 1,999 and order 1,600 took 19 s in an optimized build.
+        let (sentences, embeddings) = topics(&[5_000, 5_000, 5_000, 5_000]);
+        let params = SemanticChunkParams {
+            sim_window: 101,
+            sg_window: 1_001,
+            poly_order: 16,
+            ..params()
+        };
+
+        let started = std::time::Instant::now();
+        let chunks = build_chunks(&sentences, &embeddings, &params)
+            .unwrap()
+            .unwrap();
+
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(10),
+            "took {:?}",
+            started.elapsed()
+        );
+        assert_eq!(
+            chunks.concat().len(),
+            sentences.concat().len() + 20_000 - chunks.len()
+        );
+    }
 }

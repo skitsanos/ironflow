@@ -646,6 +646,12 @@ publication is verified separately.
     slot is refused with `child workflow run limit reached` and fails its
     step; lower `max_concurrent` or raise the limit for a deployment that
     really runs more children at once.
+  - `ai_chunk_semantic` refuses `sim_window` above 101, `sg_window` above
+    1001 and `poly_order` above 16, before any embedding request. Larger
+    values were accepted and cost CPU time on the async runtime that grows
+    with sentences × window and with the cube of the order (330 s for order
+    3,200 in an optimized build). An order at or above the window still
+    disables smoothing, as before; only values above the ceilings fail.
 
 ## Security
 

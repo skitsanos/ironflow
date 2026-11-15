@@ -1614,6 +1614,7 @@ These ceilings are constants and have no environment override.
 | Limit | Value | Result above it |
 |-------|-------|-----------------|
 | Retries of one step (`:retries(max, backoff)`) | `100` | The flow fails validation with `Step '<name>' retry count is too large (max 100)`; no run starts. A failed attempt stores one error record of at most 64 KiB, so one step adds at most 101 of them |
+| `ai_chunk_semantic` `sim_window`, `sg_window`, `poly_order` | `101`, `1001`, `16` | The step fails before any embedding request with `ai_chunk_semantic: '<parameter>' must be at most <ceiling>, got <value>`. The boundary computation costs sentences × window, and the cube of the order |
 
 #### JSON nesting limit
 

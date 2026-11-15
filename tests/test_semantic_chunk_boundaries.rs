@@ -81,3 +81,35 @@ async fn empty_and_single_sentence_inputs_still_skip_embedding_requests() {
     }
     assert!(server.calls().is_empty());
 }
+
+#[tokio::test]
+async fn windows_and_order_above_their_ceilings_fail_before_any_provider_call() {
+    // IF-215: the smoothing cost grows with the window and with the cube of
+    // the order, so both are validated before sentences are embedded.
+    let server = Server::start(orthogonal_topics()).await;
+    let text = (0..16)
+        .map(|i| format!("Topic {} sentence {i}.", i / 8))
+        .collect::<Vec<_>>()
+        .join(" ");
+    for (parameter, value, ceiling) in [
+        ("sim_window", 1_001, 101),
+        ("sg_window", 100_001, 1_001),
+        ("poly_order", 3_200, 16),
+    ] {
+        let mut config = json!({"source_key": "text", "provider": "openai",
+            "api_key": "synthetic-key", "base_url": server.base});
+        config[parameter] = json!(value);
+        let error = NodeRegistry::with_builtins()
+            .get("ai_chunk_semantic")
+            .unwrap()
+            .execute(&config, &Context::from([("text".to_string(), json!(text))]))
+            .await
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            error,
+            format!("ai_chunk_semantic: '{parameter}' must be at most {ceiling}, got {value}")
+        );
+    }
+    assert!(server.calls().is_empty());
+}
