@@ -55,8 +55,11 @@ async fn assert_both_refuse(html: &str) {
     let started = Instant::now();
     assert_output_refusal("html_to_markdown", html_to_markdown(html).await);
     assert_output_refusal("extract_html", extract_html(html).await);
+    // Each node writes up to the limit before it refuses, which took 30 s on
+    // a loaded CI runner in an unoptimized build. The bound only shows the
+    // conversion stops; the refusal above is the property under test.
     assert!(
-        started.elapsed() < Duration::from_secs(20),
+        started.elapsed() < Duration::from_secs(180),
         "took {:?}",
         started.elapsed()
     );
