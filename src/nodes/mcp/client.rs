@@ -12,6 +12,7 @@ use super::config::{
     tool_call, transport,
 };
 use super::output;
+use super::result_limit;
 use super::session::SessionManager;
 use super::transport as mcp_transport;
 
@@ -47,6 +48,12 @@ impl Node for McpClientNode {
                     return Err(error);
                 }
                 let info = session.server_info()?;
+                // The server's own description becomes context like any
+                // other result, so an oversized one ends the session.
+                if let Err(error) = result_limit::admit(action, &info) {
+                    let _ = session.close(timeout).await;
+                    return Err(error);
+                }
                 let handle = self.sessions.insert(session)?;
                 Ok(output::initialized(&output_key, transport, &handle, &info))
             }
@@ -59,6 +66,8 @@ impl Node for McpClientNode {
                 let result = session.list_tools(timeout).await?;
                 drop(session);
                 lease.disarm();
+                // The reply was complete, so the session stays usable.
+                result_limit::admit(action, &result)?;
                 Ok(output::tools(&output_key, transport, &handle, &result))
             }
             McpAction::CallTool => {
@@ -73,6 +82,7 @@ impl Node for McpClientNode {
                     .await?;
                 drop(session);
                 lease.disarm();
+                result_limit::admit(action, &result)?;
                 Ok(output::tool_call(
                     &output_key,
                     transport,

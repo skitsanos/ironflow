@@ -618,6 +618,12 @@ publication is verified separately.
     1 MiB header cell above 200 rows produced 212 MB. `html_to_markdown`
     output was not limited at all before. Such a document now fails with
     `Markdown output exceeds IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES`.
+  - `mcp_client` refuses a result larger than
+    `IRONFLOW_MAX_MCP_RESULT_BYTES` (default 4 MiB) before it enters
+    workflow context. Until now only the transport limits applied, so a
+    16 MiB reply was written to context under up to four keys. A flow that
+    relies on larger `initialize`, `list_tools` or `call_tool` results must
+    raise the limit.
 
 ## Security
 

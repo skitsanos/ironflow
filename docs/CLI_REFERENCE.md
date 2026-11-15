@@ -1569,6 +1569,7 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_MAX_REPEAT_ITERATIONS` | `128` | Maximum `repeat_subworkflow` iterations requested by one node; valid range is 1–1024 |
 | `IRONFLOW_MCP_SESSION_CACHE_SIZE` | `1024` | Maximum live MCP session handles; least-recently-used overflow sessions are closed |
 | `IRONFLOW_MCP_SESSION_TTL_SECS` | `3600` | Idle TTL for live MCP sessions; expired sessions are closed when another session is inserted or leased |
+| `IRONFLOW_MAX_MCP_RESULT_BYTES` | `4194304` | Maximum JSON size of the result one `mcp_client` action (`initialize`, `list_tools`, `call_tool`) may write to workflow context. The transports bound a reply on the wire (16 MiB for a Streamable HTTP JSON response, `IRONFLOW_MAX_SHELL_OUTPUT_BYTES` for a stdio frame); a result above this limit fails the step instead of entering context |
 | `IRONFLOW_OAUTH_CACHE_SIZE` | `128` | Maximum cached OAuth client token tuples |
 
 Lua limits apply to flow parsing, `code` nodes, and `foreach` transform functions. For trusted dedicated-server workloads that intentionally run long Lua computations, raise the budgets or set the relevant budget to `0`.

@@ -447,8 +447,51 @@ async fn list_tools_applies_the_same_cap_to_an_established_session() {
     );
 }
 
+/// Default `IRONFLOW_MAX_MCP_RESULT_BYTES`: the serialized result one action
+/// may put into workflow context (IF-215).
+const RESULT_LIMIT: usize = 4 * 1024 * 1024;
+
+fn assert_result_refusal(error: &anyhow::Error, action: &str) {
+    let message = format!("{error:#}");
+    assert!(
+        message.len() < 512,
+        "error text was {} bytes",
+        message.len()
+    );
+    assert_eq!(
+        message,
+        format!(
+            "mcp_client: {action} result exceeds IRONFLOW_MAX_MCP_RESULT_BYTES ({RESULT_LIMIT})"
+        )
+    );
+}
+
+async fn initialized_session(url: &str) -> (std::sync::Arc<dyn ironflow::nodes::Node>, String) {
+    let registry = NodeRegistry::with_builtins();
+    let node = registry.get("mcp_client").expect("mcp_client node");
+    let initialized = node
+        .execute(
+            &json!({
+                "transport": "streamable_http",
+                "url": url,
+                "action": "initialize",
+                "output_key": "init"
+            }),
+            &empty_context(),
+        )
+        .await
+        .expect("a normal initialize response is accepted");
+    let session = initialized["init_session"]
+        .as_str()
+        .expect("session handle")
+        .to_string();
+    (node, session)
+}
+
 #[tokio::test]
-async fn a_json_body_exactly_at_the_cap_is_still_accepted() {
+async fn a_json_body_at_the_transport_cap_is_read_but_not_put_into_context() {
+    // The transport accepts a body of exactly 16 MiB. Its result is far
+    // above what one action may put into workflow context (IF-215).
     let server = OversizedServer::start(Oversized {
         method: "initialize",
         status: "200 OK",
@@ -457,10 +500,64 @@ async fn a_json_body_exactly_at_the_cap_is_still_accepted() {
     })
     .await;
 
-    let initialized = initialize(&server.url)
-        .await
-        .expect("a body at the cap is within the contract");
+    let error = rejected(
+        initialize(&server.url).await,
+        "a 16 MiB initialize result must not enter workflow context",
+    );
 
-    assert_eq!(initialized["init_transport"], json!("streamable_http"));
+    assert_result_refusal(&error, "initialize");
     assert_eq!(server.delivered(), (JSON_RESPONSE_LIMIT, true));
+}
+
+#[tokio::test]
+async fn a_tools_list_result_below_the_transport_cap_is_refused_above_the_result_limit() {
+    let server = OversizedServer::start(Oversized {
+        method: "tools/list",
+        status: "200 OK",
+        body_bytes: RESULT_LIMIT + 512 * 1024,
+        declare_length: true,
+    })
+    .await;
+    let (node, session) = initialized_session(&server.url).await;
+
+    let listed = node
+        .execute(
+            &json!({ "action": "list_tools", "session": session, "timeout": 60 }),
+            &empty_context(),
+        )
+        .await;
+    let error = rejected(listed, "a result above the limit must not be accepted");
+
+    assert_result_refusal(&error, "list_tools");
+    // The reply was complete and well formed, so the session stays usable.
+    let closed = node
+        .execute(
+            &json!({ "action": "close", "session": session }),
+            &empty_context(),
+        )
+        .await
+        .expect("the session survives a refused result");
+    assert_eq!(closed["mcp_closed"], json!(true));
+}
+
+#[tokio::test]
+async fn a_tools_list_result_within_the_result_limit_is_accepted() {
+    let server = OversizedServer::start(Oversized {
+        method: "tools/list",
+        status: "200 OK",
+        body_bytes: RESULT_LIMIT - 512 * 1024,
+        declare_length: true,
+    })
+    .await;
+    let (node, session) = initialized_session(&server.url).await;
+
+    let listed = node
+        .execute(
+            &json!({ "action": "list_tools", "session": session, "timeout": 60 }),
+            &empty_context(),
+        )
+        .await
+        .expect("a result within the limit is accepted");
+
+    assert_eq!(listed["mcp_tool_count"], json!(1));
 }

@@ -85,6 +85,19 @@ MCP `tools` capability.
   reports the HTTP status instead. The limits come from the MCP client library
   (`rmcp` 3.9.0 or later) and are not configurable. See
   [IF-173](../issues/IF-173.md).
+- The result of one action may be at most `IRONFLOW_MAX_MCP_RESULT_BYTES`
+  in its JSON form (default `4194304`, 4 MiB). The limits above bound a reply
+  on the wire; this one bounds what enters workflow context, where a result
+  is written under several keys (`call_tool` stores it as
+  `{output_key}_result` and `{output_key}_tool_result`, and its content again
+  as `{output_key}_tool_content` and `{output_key}_tool_text`). It applies to
+  the server description returned by `initialize`, to `list_tools` and to
+  `call_tool`, on both transports. A larger result fails the step with
+  `mcp_client: call_tool result exceeds IRONFLOW_MAX_MCP_RESULT_BYTES
+  (4194304)` and nothing is written to context. After `list_tools` or
+  `call_tool` the session stays usable, because the reply itself was
+  complete; after `initialize` the session is closed. A tool's side effect
+  has already happened when its result is refused.
 - Sessions are process-local. A handle persisted in run context cannot restore
   a session after IronFlow restarts.
 - Call `close` after the final operation. For stdio, shutdown closes stdin,

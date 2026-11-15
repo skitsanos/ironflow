@@ -173,6 +173,7 @@ pub(crate) const ALL: &[&Limit] = &[
     &process::MCP_SESSION_CACHE_SIZE,
     &process::MCP_SESSION_TTL_SECS,
     &work::MAX_HTML_TEXT_DEPTH,
+    &work::MAX_MCP_RESULT_BYTES,
 ];
 
 /// Every boolean switch, checked by [`validate_environment`] at startup.
