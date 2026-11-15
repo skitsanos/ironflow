@@ -1,6 +1,9 @@
-use std::collections::{BTreeSet, HashMap, HashSet};
+mod phases;
+
+use std::collections::{BTreeSet, HashMap};
 
 use super::types::FlowDefinition;
+use phases::topological_phases;
 
 /// Validated execution graph, including failure-triggered recovery work.
 #[derive(Debug, Clone)]
@@ -223,52 +226,6 @@ fn add_edge(graph: &mut HashMap<String, BTreeSet<String>>, from: &str, to: &str)
         .insert(to.to_string());
 }
 
-fn topological_phases(
-    graph: HashMap<String, BTreeSet<String>>,
-    declaration_order: &HashMap<String, usize>,
-) -> Result<Vec<Vec<String>>, Vec<String>> {
-    let mut in_degree: HashMap<String, usize> =
-        graph.keys().map(|name| (name.clone(), 0)).collect();
-    for dependents in graph.values() {
-        for dependent in dependents {
-            *in_degree.entry(dependent.clone()).or_insert(0) += 1;
-        }
-    }
-
-    let mut remaining: HashSet<String> = graph.keys().cloned().collect();
-    let mut phases = Vec::new();
-
-    while !remaining.is_empty() {
-        let mut ready: Vec<String> = remaining
-            .iter()
-            .filter(|name| in_degree.get(*name).copied().unwrap_or(0) == 0)
-            .cloned()
-            .collect();
-        ready.sort_by_key(|name| declaration_order[name]);
-
-        if ready.is_empty() {
-            let mut cycle_steps: Vec<String> = remaining.into_iter().collect();
-            cycle_steps.sort_by_key(|name| declaration_order[name]);
-            return Err(vec![format!(
-                "Cycle detected in flow DAG involving steps: {}",
-                cycle_steps.join(", ")
-            )]);
-        }
-
-        for name in &ready {
-            remaining.remove(name);
-            for dependent in &graph[name] {
-                if let Some(degree) = in_degree.get_mut(dependent) {
-                    *degree = degree.saturating_sub(1);
-                }
-            }
-        }
-        phases.push(ready);
-    }
-
-    Ok(phases)
-}
-
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -312,5 +269,30 @@ mod tests {
                 vec!["m_after".to_string()],
             ]
         );
+    }
+
+    #[test]
+    fn a_ten_thousand_step_chain_builds_its_plan_quickly() {
+        // Validation, graph construction and phase planning together.
+        let steps: Vec<_> = (0..10_000)
+            .map(|index| match index {
+                0 => step("s0", &[]),
+                _ => step(&format!("s{index}"), &[&format!("s{}", index - 1)]),
+            })
+            .collect();
+        let flow = FlowDefinition {
+            name: "chain".to_string(),
+            steps,
+        };
+
+        let started = std::time::Instant::now();
+        let plan = ExecutionPlan::build(&flow).unwrap();
+
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(2),
+            "took {:?}",
+            started.elapsed()
+        );
+        assert_eq!(plan.phases.len(), 10_000);
     }
 }

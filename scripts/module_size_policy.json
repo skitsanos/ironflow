@@ -1,12 +1,7 @@
 {
   "version": 1,
-  "exception_budget": 6,
+  "exception_budget": 5,
   "exceptions": [
-    {
-      "path": "src/engine/recovery.rs",
-      "max_lines": 316,
-      "rationale": "IF-046/052 review: one execution-plan validator and recovery-DAG builder covering dependency, cycle, on_error, retry-count, timeout, and route validation; split validation from graph construction before adding another planning phase."
-    },
     {
       "path": "src/nodes/cloud/s3_objects.rs",
       "max_lines": 321,

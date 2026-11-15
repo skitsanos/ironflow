@@ -606,6 +606,10 @@ publication is verified separately.
     `1024`). Deeper markup was accepted before and parsed in time that grows
     with the square of the depth. Raise the limit for documents that
     legitimately nest deeper.
+  - Flow validation plans phases in time linear in the number of steps and
+    dependencies. A 10,000-step dependency chain took about 10 s to
+    validate in an unoptimized build and now takes milliseconds; phases and
+    cycle errors are unchanged, so this needs no limit.
 
 ## Security
 

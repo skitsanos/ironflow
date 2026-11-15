@@ -1082,7 +1082,8 @@ Features:
 3. Lua script calls step()/depends_on() → builds FlowDefinition
 4. Engine validates: duplicate names, unknown nodes, dependencies, dedicated
    recovery targets, and cycles in the combined normal/recovery graph
-5. Topological sort of normal and recovery edges → execution phases
+5. Topological sort of normal and recovery edges → execution phases, in
+   one pass over the steps and edges (IF-215)
 6. For each phase, preserve flow declaration order and capture one immutable
    phase-start context snapshot
 7. Run ready tasks concurrently:
