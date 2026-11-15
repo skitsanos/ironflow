@@ -6,6 +6,8 @@ use serde_json::Value;
 use crate::engine::types::Context;
 use crate::util::node_config::{config_f64_strict, config_usize_strict};
 
+use super::super::input_mapping::{input_object, map_parent_input};
+
 const DEFAULT_MAX_REPEAT_ITERATIONS: usize = 128;
 const ABSOLUTE_MAX_REPEAT_ITERATIONS: usize = 1024;
 const DEFAULT_MAX_DELAY_SECONDS: f64 = 60.0;
@@ -76,19 +78,8 @@ impl RepeatConfig {
     }
 
     pub(super) fn initial_context(&self, config: &Value, parent: &Context) -> Result<Context> {
-        let mut context = match config.get("input") {
-            Some(Value::Object(input)) => input
-                .iter()
-                .map(|(child_key, source)| {
-                    let value = source
-                        .as_str()
-                        .and_then(|parent_key| parent.get(parent_key))
-                        .cloned()
-                        .unwrap_or_else(|| source.clone());
-                    (child_key.clone(), value)
-                })
-                .collect(),
-            Some(_) => anyhow::bail!("repeat_subworkflow: 'input' must be an object"),
+        let mut context = match input_object("repeat_subworkflow", config)? {
+            Some(input) => map_parent_input("repeat_subworkflow", input, parent)?,
             None => parent.clone(),
         };
         context.remove(&self.next_state_key);

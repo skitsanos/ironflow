@@ -400,6 +400,22 @@ publication is verified separately.
   `filter` parameter behave as before. See
   [Metadata Filter](../nodes/s3vector_query_vectors.md#metadata-filter).
 
+- **A child `input` mapping fails when its parent key is absent** (IF-221).
+  In `subworkflow`, `parallel_subworkflows` and `repeat_subworkflow` a string
+  in `input` names a parent context key. When the key was absent,
+  `subworkflow` dropped the entry and ran the child without it, and the other
+  two nodes passed the string itself to the child as text. The step now fails
+  before any child run starts, with a message that names the mapping entry.
+  Two forms state the exceptions: `{ optional = "key" }` omits the entry when
+  the key is absent, and `{ literal = value }` passes a value as written.
+  **Check every `input` that passes text**, for example
+  `input = { name = "Alice" }` in a `parallel_subworkflows` entry: write
+  `input = { name = { literal = "Alice" } }`. Numbers, booleans, arrays and
+  other objects are still passed as written; only an object with the single
+  key `optional` or `literal` is now read as a form. An `input` that is not
+  an object is rejected instead of giving the child the whole parent
+  context. See [Input mapping](../nodes/subworkflow.md#input-mapping).
+
 - **`xml_stringify` fails on keys that are not XML names, and on array
   sources** (IF-196). Object keys were written as tag and attribute names
   unchecked, so a key from untrusted data could add elements, and a key with

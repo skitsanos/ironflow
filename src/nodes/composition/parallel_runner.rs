@@ -118,7 +118,7 @@ async fn run_child(plan: ChildPlan, fan_out: &FanOut<'_>) -> ChildResult {
     let flow = LuaRuntime::load_flow_async(&plan.flow_path, &fan_out.registry).await?;
     let flow_name = flow.name.clone();
 
-    let mut context = plan.entry.child_context(fan_out.parent);
+    let mut context = plan.entry.child_context(fan_out.parent)?;
     // Set _flow_dir for nested subworkflows.
     if let Some(parent) = Path::new(plan.flow_path.as_ref()).parent() {
         context.insert(

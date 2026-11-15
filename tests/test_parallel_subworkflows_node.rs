@@ -274,7 +274,7 @@ async fn parallel_subworkflows_input_mapping_string_literal() {
 
     let config = serde_json::json!({
         "flows": [
-            { "flow": "echo.lua", "input": { "text": "hello from parent?" } }
+            { "flow": "echo.lua", "input": { "text": { "literal": "hello from parent?" } } }
         ],
         "on_error": "ignore"
     });

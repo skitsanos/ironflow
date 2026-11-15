@@ -10,7 +10,7 @@ The subworkflow node allows you to compose workflows by calling one flow from an
 |-----------|------|----------|---------|-------------|
 | `flow` | string | yes | — | Path to the `.lua` flow file to execute. Resolved relative to the parent flow's directory. |
 | `wait` | bool | no | `true` | When `true`, the parent blocks until the subworkflow completes. When `false`, the subworkflow is launched in the background (fire-and-forget). |
-| `input` | object | no | `nil` | Key mapping from parent context to child context. Each entry maps `child_key = "parent_key"`. |
+| `input` | object | no | `nil` | Key mapping from parent context to child context. Each entry maps `child_key = "parent_key"`; the parent key must exist. See [Input mapping](#input-mapping). Without `input` the child inherits the parent context. |
 | `output_key` | string | no | `nil` | If set, the child's output context is namespaced under this key instead of being merged directly into the parent context. Recommended for parallel subworkflows. |
 | `on_error` | string | no | see below | `"fail_fast"` fails the parent step when the child run fails; `"ignore"` continues with the child's partial context. |
 
@@ -246,11 +246,40 @@ Map specific parent context keys into the child flow's context:
 flow:step("call_child", nodes.subworkflow({
     flow = "process_order.lua",
     input = {
-        order_id = "current_order_id",   -- child sees ctx.order_id
-        customer = "user_info"            -- child sees ctx.customer
+        order_id = "current_order_id",          -- child sees ctx.order_id
+        customer = "user_info",                 -- child sees ctx.customer
+        coupon = { optional = "coupon_code" },  -- omitted when absent
+        channel = { literal = "web" },          -- the text "web"
+        retries = 3                             -- non-string values are literals
     }
 }))
 ```
+
+`subworkflow`, [`parallel_subworkflows`](parallel_subworkflows.md) and
+[`repeat_subworkflow`](repeat_subworkflow.md) share one mapping contract:
+
+| Mapping value | Meaning |
+|---|---|
+| `"parent_key"` | The top-level parent context key. It must exist; a key holding JSON `null` exists. |
+| `{ optional = "parent_key" }` | The parent key when it exists; otherwise the child key is omitted (`nil` in the child). |
+| `{ literal = <value> }` | The value as written, of any type. Use it for a literal string. |
+| number, boolean, array, any other object | Passed as written. Strings nested inside are not looked up. |
+
+A string that names no parent key **fails the step** with
+`subworkflow: input '<child_key>' references a parent context value that does
+not exist; ...`. The check runs before the child flow is loaded, so no child
+run is created, for `wait = false` as well. It is a step error: `on_error =
+"ignore"` on the node does not suppress it, and the message names the mapping
+entry, never the configured string or a context value. In earlier releases a
+missing key was dropped silently here, and passed as a literal string by the
+other two nodes.
+
+Only an object with exactly one key, `optional` or `literal`, is a form. To
+pass such an object as data, wrap it: `{ literal = { literal = 1 } }`.
+`optional` must be a non-empty string. An `input` that is not an object is
+rejected; it used to be ignored, which gave the child the whole parent
+context. [`input_mapping_forms.lua`](../../examples/11-subworkflow/input_mapping_forms.lua)
+runs every form.
 
 ### Output namespacing with output_key
 

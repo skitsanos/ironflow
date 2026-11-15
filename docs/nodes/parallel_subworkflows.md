@@ -9,7 +9,7 @@ Execute multiple subworkflows concurrently and collect their results.
 | `flows` | array | conditional | — | Static array of flow configurations to execute in parallel. Use either `flows` or dynamic `flow` + `source_key`. |
 | `flow` | string | conditional | — | Dynamic fan-out child flow path. Required when `flows` is omitted. |
 | `source_key` | string | conditional | — | Context key containing the runtime array to fan out over. Required when `flows` is omitted. |
-| `input` | object | no | — | In dynamic mode, authored base input mapping applied to every child run; string values select a matching parent key or remain literals. |
+| `input` | object | no | — | In dynamic mode, authored base input mapping applied to every child run. A string value names a parent key that must exist; see [Input mapping contract](#input-mapping-contract). |
 | `item_key` | string | no | `"item"` | Dynamic mode child context key that receives the current source item as a literal value, never a parent-key reference. |
 | `index_key` | string | no | `"index"` | Dynamic mode child context key that receives the 1-based source item index. |
 | `child_output_key` | string | no | — | Dynamic mode namespace for each child context inside its result entry; cannot be `success`, `flow`, or `error`. |
@@ -27,7 +27,7 @@ Each entry in the `flows` array:
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `flow` | string | yes | Path to the `.lua` flow file (relative to `_flow_dir`) |
-| `input` | object | no | Context mapping — keys are child context keys, values are parent context keys or literals. String values are treated as a parent context key when present, otherwise kept as string literals. |
+| `input` | object | no | Context mapping — keys are child context keys. A string value names a parent context key that must exist; `{ optional = "key" }` and `{ literal = value }` state the exceptions. See [Input mapping contract](#input-mapping-contract). |
 | `output_key` | string | no | Namespace the child's output under this key in the result entry; cannot be `success`, `flow`, or `error`. |
 
 ## Context Output
@@ -161,13 +161,31 @@ return flow
 ```lua
 flow:step("process", nodes.parallel_subworkflows({
     flows = {
-        { flow = "worker.lua", input = { job_id = "job_1" } },
-        { flow = "worker.lua", input = { job_id = "job_2" } },
-        { flow = "worker.lua", input = { job_id = "job_3" } }
+        { flow = "worker.lua", input = { job_id = { literal = "job_1" } } },
+        { flow = "worker.lua", input = { job_id = { literal = "job_2" } } },
+        { flow = "worker.lua", input = { job_id = "current_job_id" } }
     },
     on_error = "ignore"
 }))
 ```
+
+The first two entries pass text; the third copies the parent key
+`current_job_id`, which must exist.
+
+### Input mapping contract
+
+The mapping forms are those of [`subworkflow`](subworkflow.md#input-mapping):
+a string is a top-level parent key that must exist, `{ optional = "key" }`
+omits the child key when the parent key is absent, `{ literal = value }`
+passes the value as written, and any other non-string value is a literal.
+
+A string that names no parent key fails the step with `parallel_subworkflows:
+input '<child_key>' references a parent context value that does not exist;
+...`. Every entry of `flows`, or the shared dynamic `input`, is checked before
+any child starts, so no sibling runs. This is a step error and `on_error =
+"ignore"` does not turn it into a per-child result. In earlier releases such a
+string was passed to the child as literal text. An `input` that is not an
+object is rejected.
 
 ### Dynamic fan-out from context
 
@@ -207,8 +225,8 @@ Items are copied without key lookup or interpolation, preserving strings,
 objects, arrays, booleans, nulls, and numbers within the existing Lua conversion
 limits. A JSON null reaches a Lua handler as `json_null`, not `nil`.
 
-Mapped strings resolve once against a top-level parent key; a selected string
-is not resolved again. Non-string mapping values are copied without recursively
+Mapped strings resolve once against a top-level parent key, which must exist;
+a selected string is not resolved again. Non-string mapping values are copied without recursively
 interpreting strings inside objects or arrays. Dynamic mode does not inherit
 unmapped parent fields. Static entries without `input` retain their existing
 parent-context inheritance; `input = {}` selects no parent fields.

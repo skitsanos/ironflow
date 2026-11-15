@@ -12,6 +12,8 @@ use crate::nodes::{Node, NodeRegistry};
 use crate::storage::null_store::NullStateStore;
 use crate::util::node_config::config_bool;
 
+use super::input_mapping::{input_object, map_parent_input};
+
 /// Keys this node writes to describe its own child. A child that itself ran a
 /// subworkflow carries the same keys about *its* child; without `output_key`
 /// they must not merge into the parent as if they described this call.
@@ -112,22 +114,12 @@ impl Node for SubworkflowNode {
             .to_string_lossy()
             .to_string();
 
-        // Build subworkflow context from input mapping or full parent context
-        let mut sub_ctx = if let Some(input_map) = config.get("input").and_then(|v| v.as_object()) {
-            let mut mapped = Context::new();
-            for (sub_key, parent_key_val) in input_map {
-                if let Some(parent_key) = parent_key_val.as_str() {
-                    if let Some(value) = ctx.get(parent_key) {
-                        mapped.insert(sub_key.clone(), value.clone());
-                    }
-                } else {
-                    // Direct value (not a key reference)
-                    mapped.insert(sub_key.clone(), parent_key_val.clone());
-                }
-            }
-            mapped
-        } else {
-            ctx.clone()
+        // Build the child context from the input mapping, or inherit the
+        // parent. A mapping whose source is absent fails here, before the
+        // child is loaded or started (IF-221).
+        let mut sub_ctx = match input_object("subworkflow", config)? {
+            Some(input) => map_parent_input("subworkflow", input, ctx)?,
+            None => ctx.clone(),
         };
 
         // Set _flow_dir for the subworkflow (enables nested subworkflows)

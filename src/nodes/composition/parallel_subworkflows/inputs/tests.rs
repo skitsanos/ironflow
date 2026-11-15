@@ -19,7 +19,7 @@ fn a_dynamic_entry_holds_no_item_and_reads_it_when_the_child_starts() {
     // The entry is a reference into the parent, not a copy of the payload.
     assert!(serde_json::to_string(entry.config.as_ref()).unwrap().len() < 256);
 
-    let child = entry.child_context(&parent);
+    let child = entry.child_context(&parent).unwrap();
     assert_eq!(child["item"], parent["jobs"][0]);
     assert_eq!(child["index"], 1);
     assert_eq!(child["mapped"], parent["reference"]);
@@ -34,8 +34,8 @@ fn dynamic_entries_share_one_configuration() {
 
     assert_eq!(entries.len(), 3);
     assert!(Arc::ptr_eq(&entries[0].config, &entries[2].config));
-    assert_eq!(entries[2].child_context(&parent)["item"], 3);
-    assert_eq!(entries[2].child_context(&parent)["index"], 3);
+    assert_eq!(entries[2].child_context(&parent).unwrap()["item"], 3);
+    assert_eq!(entries[2].child_context(&parent).unwrap()["index"], 3);
 }
 
 #[test]
@@ -49,7 +49,7 @@ fn user_config_cannot_populate_the_internal_literal_input_field() {
         .unwrap()
         .pop()
         .unwrap();
-    let child = entry.child_context(&parent);
+    let child = entry.child_context(&parent).unwrap();
     assert_eq!(child["item"], "mapped-value");
 }
 

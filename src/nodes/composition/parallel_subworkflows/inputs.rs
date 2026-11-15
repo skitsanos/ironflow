@@ -5,7 +5,10 @@ use serde_json::{Map, Value};
 
 use crate::engine::types::Context;
 
+use super::super::input_mapping::{input_object, map_parent_input, validate_parent_input};
 use super::super::parallel_runner::validate_child_output_key;
+
+const NODE: &str = "parallel_subworkflows";
 
 /// One child of the fan-out: its configuration and, in dynamic mode, where
 /// its item lives in the parent context. It holds no copy of the item or of
@@ -29,19 +32,9 @@ struct DynamicKeys {
 impl FlowEntry {
     /// Build the child's context. Called when the child starts, which is
     /// after it holds its concurrency slot.
-    pub(in super::super) fn child_context(&self, parent: &Context) -> Context {
-        let mut context = match self.config.get("input").and_then(Value::as_object) {
-            Some(input) => input
-                .iter()
-                .map(|(key, source)| {
-                    let value = source
-                        .as_str()
-                        .and_then(|parent_key| parent.get(parent_key))
-                        .unwrap_or(source)
-                        .clone();
-                    (key.clone(), value)
-                })
-                .collect(),
+    pub(in super::super) fn child_context(&self, parent: &Context) -> Result<Context> {
+        let mut context = match input_object(NODE, &self.config)? {
+            Some(input) => map_parent_input(NODE, input, parent)?,
             None => parent.clone(),
         };
         // Runtime item/index values bypass reference lookup entirely.
@@ -55,7 +48,7 @@ impl FlowEntry {
             context.insert(item.keys.item.clone(), value);
             context.insert(item.keys.index.clone(), Value::from(item.index + 1));
         }
-        context
+        Ok(context)
     }
 }
 
@@ -81,6 +74,10 @@ pub(super) fn resolve_flow_entries(config: &Value, ctx: &Context) -> Result<Vec<
         ensure_within_ceiling(flows.len())?;
         for entry in flows {
             validate_child_output_key(entry.get("output_key").and_then(Value::as_str))?;
+            // Refused here, before any sibling starts (IF-221).
+            if let Some(input) = input_object(NODE, entry)? {
+                validate_parent_input(NODE, input, ctx)?;
+            }
         }
         return Ok(flows
             .iter()
@@ -140,13 +137,10 @@ fn build_dynamic_flow_entries(config: &Value, ctx: &Context) -> Result<Vec<FlowE
     if let Some(key) = child_output_key {
         child_config.insert("output_key".to_string(), Value::String(key.to_string()));
     }
-    let mut input = config
-        .get("input")
-        .and_then(Value::as_object)
-        .cloned()
-        .unwrap_or_default();
+    let mut input = input_object(NODE, config)?.cloned().unwrap_or_default();
     input.remove(item_key);
     input.remove(index_key);
+    validate_parent_input(NODE, &input, ctx)?;
     // An explicit empty mapping keeps dynamic fan-out from inheriting the parent.
     child_config.insert("input".to_string(), Value::Object(input));
     let child_config = Arc::new(Value::Object(child_config));

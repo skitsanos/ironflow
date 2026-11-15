@@ -146,6 +146,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **live_child_results.lua** — Verify a full 3 MiB child result in a downstream step while CLI inspection remains truncated
 - **large_result_child.lua** — Reusable payload-producing child for the live result example
 - **on_error_example.lua** — Planned `on_error` recovery with a handler dependency
+- **input_mapping_forms.lua** — Required, `optional` and `literal` child input mappings, and the step error for a missing parent key
 - **parallel_subworkflows.lua** — Run multiple subworkflows concurrently and collect results
 - **parallel_literal_inputs.lua** — Preserve literal source items while explicit input mappings still select parent values
 - **literal_item_child.lua** — Reusable item/index echo child for the literal-input example

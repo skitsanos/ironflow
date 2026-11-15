@@ -177,6 +177,7 @@
         "examples/11-subworkflow/greet.lua",
         "examples/11-subworkflow/if135_child_error_details.lua",
         "examples/11-subworkflow/if135_error_child.lua",
+        "examples/11-subworkflow/input_mapping_forms.lua",
         "examples/11-subworkflow/large_result_child.lua",
         "examples/11-subworkflow/literal_item_child.lua",
         "examples/11-subworkflow/live_child_results.lua",

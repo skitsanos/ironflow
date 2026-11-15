@@ -26,6 +26,8 @@ mod test_flow_load_limits;
 mod test_foreach_node;
 #[path = "../test_guard_comparisons.rs"]
 mod test_guard_comparisons;
+#[path = "../test_input_mapping_contract.rs"]
+mod test_input_mapping_contract;
 #[path = "../test_interpolation_validation.rs"]
 mod test_interpolation_validation;
 #[path = "../test_lua_context_projection.rs"]

@@ -14,7 +14,7 @@ exactly-once side-effect mechanism.
 |-----------|------|----------|---------|-------------|
 | `flow` | string | yes | - | Child `.lua` flow, resolved relative to the parent flow directory. |
 | `max_iterations` | positive integer | yes | - | Maximum child runs before the step fails. Cannot exceed `IRONFLOW_MAX_REPEAT_ITERATIONS`. |
-| `input` | object | no | parent context | Static child input mapping. A string value selects the parent key when that key exists; otherwise it remains a literal. |
+| `input` | object | no | parent context | Static child input mapping. A string value names a parent key that must exist; `{ optional = "key" }` omits the entry when the key is absent and `{ literal = value }` passes a value as written. |
 | `output_key` | string | no | `"repeat_result"` | Namespace for the final public child context and output metadata. |
 | `state_key` | string | no | `"repeat_state"` | Child input key containing the current carried state. |
 | `next_state_key` | string | no | `"repeat_next_state"` | Child output key containing the state for the next iteration. |
@@ -26,6 +26,14 @@ exactly-once side-effect mechanism.
 
 `state_key`, `next_state_key`, `until_key`, and `iteration_key` must be
 distinct. Explicit `input` cannot set the latter three runtime-owned keys.
+
+`input` follows the [`subworkflow` input mapping](subworkflow.md#input-mapping)
+contract. A string that names no parent key fails the step with
+`repeat_subworkflow: input '<child_key>' references a parent context value
+that does not exist; ...` before the child flow is loaded, so no iteration
+runs. In earlier releases such a string was passed to the child as literal text.
+Map the initial state with `{ optional = "key" }` when a first run may start
+without one.
 
 ## Child Contract
 
