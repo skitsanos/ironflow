@@ -152,6 +152,7 @@ Lua execution runs on Tokio's blocking pool and uses process-wide budgets:
 - `IRONFLOW_LUA_MAX_INSTRUCTIONS` — default `5000000`; `0` disables.
 - `IRONFLOW_LUA_MAX_SECONDS` — default `10`; `0` disables.
 - `IRONFLOW_LUA_MAX_MEMORY_BYTES` — default `134217728`; `0` disables.
+- `IRONFLOW_LUA_MAX_PATTERN_STEPS` — default `50000000`; `0` disables.
 - `IRONFLOW_LUA_HOOK_INTERVAL` — default `10000`.
 - `IRONFLOW_LUA_GC_AFTER_EXECUTION` — default `true`.
 
@@ -162,16 +163,49 @@ an infinite loop is interrupted without occupying a Tokio runtime worker. Hook
 checks occur every `IRONFLOW_LUA_HOOK_INTERVAL` instructions, so cancellation
 latency is cooperative rather than instruction-exact.
 
-The hook runs between Lua instructions. It cannot run inside a single C
-library call, so time spent in one `string.find`, `string.match`,
-`string.gsub`, `string.rep` or `table.concat` call is not interruptible and
-is not counted against the instruction budget until the call returns. The
-Lua call is tracked work of its step: when the step times out or its run is
-cancelled while the code is inside such a call, the step's timeout result,
-its `on_error` handler, dependent steps and the end of the run wait until the
-call returns, and task and run admission stay held, as for a built-in
-blocking node. Function handlers and `foreach` transforms behave the same.
-Avoid patterns with several unbounded repeats on untrusted input.
+The hook runs between Lua instructions and cannot run inside a library call.
+The library calls that could do unbounded work inside one call are therefore
+replaced in the sandbox:
+
+- **Pattern matching** (`string.find`, `string.match`, `string.gmatch`,
+  `string.gsub`, also as methods such as `s:find(...)`) runs on a matcher
+  that counts one step per pattern item it tries. It accepts the Lua 5.4
+  pattern syntax and returns the same results. A Lua state may spend
+  `IRONFLOW_LUA_MAX_PATTERN_STEPS` steps in total; beyond that the call fails
+  with `Lua pattern matching exceeded step budget of 50000000
+  (IRONFLOW_LUA_MAX_PATTERN_STEPS)`. Matching that is linear in its subject
+  costs a few steps per byte, so the default covers tens of megabytes; a
+  pattern with several unbounded repeats, such as `^.-.-.-b`, can need
+  billions of steps for a few thousand bytes and runs out. Every few
+  thousand steps the matcher also checks the step timeout, run cancellation
+  and `IRONFLOW_LUA_MAX_SECONDS`, so those end a match in progress even when
+  the step budget is disabled. A `string.gsub` result is limited by
+  `IRONFLOW_LUA_MAX_MEMORY_BYTES`.
+- **`string.rep`** with an empty string and an empty or absent separator
+  returns `""` at once instead of counting to `n`.
+- **`table.move`** over more than 100,000 positions, and **`table.insert`**
+  and **`table.remove`** on a table that has a metatable (where `__len` can
+  claim any length), run as Lua loops, which the instruction budget, the time
+  budget, a step timeout and cancellation stop.
+
+These errors are ordinary Lua errors: `pcall` catches them, but a spent
+pattern budget stays spent for that Lua state. An error raised by one of the
+replaced functions names the calling line unless the call is in tail
+position (`return s:find(p)`).
+
+Every other library call (`table.concat`, `table.sort`, `table.unpack`,
+`string.format`, `string.upper`, `string.pack`, `utf8.len` and so on) does
+work proportional to data that `IRONFLOW_LUA_MAX_MEMORY_BYTES` already
+bounds. Such a call cannot be interrupted, but with the default memory cap it
+takes a fraction of a second. If the memory cap is disabled, those calls are
+bounded only by the memory of the host.
+
+Lua is tracked work of its step: when the step times out or its run is
+cancelled, the step's timeout result, its `on_error` handler, dependent
+steps and the end of the run wait until the Lua worker has returned, and task
+and run admission stay held, as for a built-in blocking node. Function
+handlers and `foreach` transforms behave the same. See
+[`lua_pattern_budget.lua`](../../examples/07-advanced/lua_pattern_budget.lua).
 
 ## Return Value Handling
 

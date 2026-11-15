@@ -1,7 +1,11 @@
 //! IF-211: user Lua run by a step (a function step, a `foreach` transform,
 //! the top-level code of a child flow) is tracked work. A timed-out or
-//! cancelled step stays open, with its handler unstarted, until the Lua call
-//! has physically returned.
+//! cancelled step stays open, with its handler unstarted, until the worker
+//! that runs the Lua has physically returned.
+//!
+//! Since IF-213 no Lua library call runs long enough to stand in for a stuck
+//! worker, so the worker is held after its Lua returned by the test gate of
+//! the blocking-step bridge.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -9,47 +13,11 @@ use std::time::{Duration, Instant};
 use super::*;
 use crate::engine::types::{RunStatus, TaskStatus};
 use crate::lua::runtime::LuaRuntime;
+use crate::util::execution::test_support::{ReleaseOnDrop, StallGate};
 use serde_json::json;
 
-/// How long the uninterruptible call must take at least.
-const STUCK_FOR: Duration = Duration::from_millis(1200);
-/// Observation window: past the 0.2 s step deadline, inside the stuck call.
+/// Observation window: past the 0.2 s step deadline, with the worker held.
 const EARLY: Duration = Duration::from_millis(600);
-
-/// A Lua statement that spends at least [`STUCK_FOR`] inside one C library
-/// call, where the instruction hook cannot run. The cost of an anchored
-/// pattern with three lazy repeats grows with the cube of the subject length,
-/// so the length is measured once instead of assumed for the build profile.
-async fn stuck_statement() -> String {
-    static LENGTH: tokio::sync::OnceCell<usize> = tokio::sync::OnceCell::const_new();
-    let length = LENGTH
-        .get_or_init(|| async {
-            tokio::task::spawn_blocking(|| {
-                let lua = mlua::Lua::new();
-                let mut length = 200_usize;
-                loop {
-                    let started = Instant::now();
-                    lua.load(statement(length)).exec().unwrap();
-                    let took = started.elapsed();
-                    if took >= STUCK_FOR {
-                        return length;
-                    }
-                    let scale = (1.5 * STUCK_FOR.as_secs_f64() / took.as_secs_f64().max(1e-4))
-                        .cbrt()
-                        .clamp(1.1, 3.0);
-                    length = (length as f64 * scale).ceil() as usize;
-                }
-            })
-            .await
-            .unwrap()
-        })
-        .await;
-    statement(*length)
-}
-
-fn statement(length: usize) -> String {
-    format!("string.find(string.rep('a', {length}), '^.-.-.-b')")
-}
 
 struct HandlerNode(Arc<AtomicBool>);
 
@@ -104,8 +72,7 @@ impl Fixture {
         let source = format!(
             r#"
             local flow = Flow.new("if211")
-            flow:step("seed", function(ctx) return {{ items = {{ 1 }} }} end)
-            flow:step("call", {call}):depends_on("seed"){timeout}:on_error("handler")
+            flow:step("call", {call}){timeout}:on_error("handler")
             flow:step("handler", nodes.if211_handler({{}}))
             return flow
             "#
@@ -114,48 +81,45 @@ impl Fixture {
     }
 
     fn ctx(&self) -> Context {
-        Context::from([(
-            "_flow_dir".to_string(),
-            json!(self.dir.path().to_string_lossy()),
-        )])
+        Context::from([
+            (
+                "_flow_dir".to_string(),
+                json!(self.dir.path().to_string_lossy()),
+            ),
+            ("items".to_string(), json!([1])),
+        ])
     }
 }
 
-/// Every way a step runs user Lua, each stuck in one uninterruptible call.
-async fn stuck_calls(fixture: &Fixture) -> Vec<(&'static str, String)> {
-    let stuck = stuck_statement().await;
+/// Every way a step runs user Lua.
+fn lua_calls(fixture: &Fixture) -> Vec<(&'static str, String)> {
     fixture.write(
         "function_child.lua",
-        &format!(
-            r#"
-            local flow = Flow.new("function-child")
-            flow:step("spin", function(ctx) {stuck} return {{ spun = true }} end)
-            return flow
-            "#
-        ),
+        r#"
+        local flow = Flow.new("function-child")
+        flow:step("spin", function(ctx) return { spun = true } end)
+        return flow
+        "#,
     );
     fixture.write(
         "loading_child.lua",
-        &format!(
-            r#"
-            {stuck}
-            local flow = Flow.new("loading-child")
-            flow:step("noop", function(ctx) return {{}} end)
-            return flow
-            "#
-        ),
+        r#"
+        local loaded = string.rep("a", 10)
+        local flow = Flow.new("loading-child")
+        flow:step("noop", nodes.log({ message = "loaded" }))
+        return flow
+        "#,
     );
     vec![
         (
             "function step",
-            format!("function(ctx) {stuck} return {{ spun = true }} end"),
+            "function(ctx) return { spun = true } end".to_string(),
         ),
         (
             "foreach transform",
-            format!(
-                r#"nodes.foreach({{ source_key = "items",
-                    transform = function(item) {stuck} return item end }})"#
-            ),
+            r#"nodes.foreach({ source_key = "items",
+                transform = function(item) return item end })"#
+                .to_string(),
         ),
         (
             "function step in a child flow",
@@ -186,73 +150,90 @@ async fn call_is_running(fixture: &Fixture, run_id: &str) {
     .expect("the call step never started");
 }
 
-#[tokio::test]
-async fn a_timed_out_step_starts_no_handler_until_its_lua_call_returns() {
-    let fixture = Fixture::new();
-    for (case, call) in stuck_calls(&fixture).await {
-        fixture.handler_started.store(false, Ordering::SeqCst);
-        let flow = fixture.flow(&call, Some("0.2"));
-        let handle = fixture.engine.start(&flow, fixture.ctx()).await.unwrap();
-        let run_id = handle.id().to_string();
-        let mut finished = Box::pin(handle.wait());
-
-        call_is_running(&fixture, &run_id).await;
-        let early = tokio::time::timeout(EARLY, &mut finished).await;
-        assert!(
-            early.is_err(),
-            "{case}: the run settled while its Lua call was running"
-        );
-        assert!(
-            !fixture.handler_started.load(Ordering::SeqCst),
-            "{case}: the handler started while the Lua call was running"
-        );
-        let info = fixture.store.get_run_info(&run_id).await.unwrap();
-        assert_eq!(info.status, RunStatus::Running, "{case}");
-        assert_eq!(info.tasks["call"].status, TaskStatus::Running, "{case}");
-
-        tokio::time::timeout(Duration::from_secs(60), finished)
-            .await
-            .unwrap_or_else(|_| panic!("{case}: the run did not settle"))
-            .unwrap();
-        assert!(fixture.handler_started.load(Ordering::SeqCst), "{case}");
-        let info = fixture.store.get_run_info(&run_id).await.unwrap();
-        assert_eq!(info.status, RunStatus::Success, "{case}");
-        assert_eq!(
-            info.tasks["call"].error.as_deref(),
-            Some("Task 'call' timed out after 0.2s total"),
-            "{case}"
-        );
-    }
+/// Run `test` on a runtime whose blocking-step workers the gate can hold.
+fn gated<F>(test: impl FnOnce(Arc<StallGate>, Fixture) -> F)
+where
+    F: std::future::Future<Output = ()>,
+{
+    let gate = Arc::new(StallGate::default());
+    let runtime = gate.runtime();
+    // Declared after the runtime, so it is dropped first: a runtime waits
+    // for its blocking threads when it is dropped.
+    let _release = ReleaseOnDrop(gate.clone());
+    runtime.block_on(test(gate.clone(), Fixture::new()));
 }
 
-#[tokio::test]
-async fn a_cancelled_run_is_not_finalized_until_its_lua_call_returns() {
-    let fixture = Fixture::new();
-    for (case, call) in stuck_calls(&fixture).await {
-        let flow = fixture.flow(&call, None);
-        let handle = fixture.engine.start(&flow, fixture.ctx()).await.unwrap();
-        let run_id = handle.id().to_string();
+#[test]
+fn a_timed_out_step_starts_no_handler_until_its_lua_worker_returns() {
+    gated(|gate, fixture| async move {
+        for (case, call) in lua_calls(&fixture) {
+            fixture.handler_started.store(false, Ordering::SeqCst);
+            gate.arm();
+            let flow = fixture.flow(&call, Some("0.2"));
+            let handle = fixture.engine.start(&flow, fixture.ctx()).await.unwrap();
+            let run_id = handle.id().to_string();
+            let mut finished = Box::pin(handle.wait());
 
-        call_is_running(&fixture, &run_id).await;
-        // Let the worker enter the stuck call before it is cancelled.
-        tokio::time::sleep(Duration::from_millis(150)).await;
-        let mut cancelled = Box::pin(handle.cancel());
-        let early = tokio::time::timeout(EARLY, &mut cancelled).await;
-        assert!(
-            early.is_err(),
-            "{case}: cancellation returned while the Lua call was running"
-        );
-        let info = fixture.store.get_run_info(&run_id).await.unwrap();
-        assert_eq!(info.status, RunStatus::Running, "{case}");
+            gate.worker_held().await;
+            let early = tokio::time::timeout(EARLY, &mut finished).await;
+            assert!(
+                early.is_err(),
+                "{case}: the run settled while its Lua worker was running"
+            );
+            assert!(
+                !fixture.handler_started.load(Ordering::SeqCst),
+                "{case}: the handler started while the Lua worker was running"
+            );
+            let info = fixture.store.get_run_info(&run_id).await.unwrap();
+            assert_eq!(info.status, RunStatus::Running, "{case}");
+            assert_eq!(info.tasks["call"].status, TaskStatus::Running, "{case}");
 
-        tokio::time::timeout(Duration::from_secs(60), cancelled)
-            .await
-            .unwrap_or_else(|_| panic!("{case}: the run did not settle"))
-            .unwrap();
-        assert!(!fixture.handler_started.load(Ordering::SeqCst), "{case}");
-        let info = fixture.store.get_run_info(&run_id).await.unwrap();
-        assert_eq!(info.status, RunStatus::Cancelled, "{case}");
-    }
+            gate.release();
+            tokio::time::timeout(Duration::from_secs(60), finished)
+                .await
+                .unwrap_or_else(|_| panic!("{case}: the run did not settle"))
+                .unwrap();
+            assert!(fixture.handler_started.load(Ordering::SeqCst), "{case}");
+            let info = fixture.store.get_run_info(&run_id).await.unwrap();
+            assert_eq!(info.status, RunStatus::Success, "{case}");
+            assert_eq!(
+                info.tasks["call"].error.as_deref(),
+                Some("Task 'call' timed out after 0.2s total"),
+                "{case}"
+            );
+        }
+    });
+}
+
+#[test]
+fn a_cancelled_run_is_not_finalized_until_its_lua_worker_returns() {
+    gated(|gate, fixture| async move {
+        for (case, call) in lua_calls(&fixture) {
+            gate.arm();
+            let flow = fixture.flow(&call, None);
+            let handle = fixture.engine.start(&flow, fixture.ctx()).await.unwrap();
+            let run_id = handle.id().to_string();
+
+            gate.worker_held().await;
+            let mut cancelled = Box::pin(handle.cancel());
+            let early = tokio::time::timeout(EARLY, &mut cancelled).await;
+            assert!(
+                early.is_err(),
+                "{case}: cancellation returned while the Lua worker was running"
+            );
+            let info = fixture.store.get_run_info(&run_id).await.unwrap();
+            assert_eq!(info.status, RunStatus::Running, "{case}");
+
+            gate.release();
+            tokio::time::timeout(Duration::from_secs(60), cancelled)
+                .await
+                .unwrap_or_else(|_| panic!("{case}: the run did not settle"))
+                .unwrap();
+            assert!(!fixture.handler_started.load(Ordering::SeqCst), "{case}");
+            let info = fixture.store.get_run_info(&run_id).await.unwrap();
+            assert_eq!(info.status, RunStatus::Cancelled, "{case}");
+        }
+    });
 }
 
 #[tokio::test]

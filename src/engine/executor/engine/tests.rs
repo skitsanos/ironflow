@@ -14,6 +14,7 @@ mod child_failures;
 mod child_results;
 mod child_workers;
 mod function_workers;
+mod lua_library_bounds;
 
 struct HangingEventStore;
 

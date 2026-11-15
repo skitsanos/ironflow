@@ -402,5 +402,6 @@ and dropped-future cancellation signal:
 | `IRONFLOW_LUA_MAX_INSTRUCTIONS` | `5000000` | Max Lua VM instructions per Lua state; `0` disables. |
 | `IRONFLOW_LUA_MAX_SECONDS` | `10` | Max wall-clock seconds per Lua state; `0` disables. |
 | `IRONFLOW_LUA_MAX_MEMORY_BYTES` | `134217728` | Max Lua VM memory per Lua state; `0` disables. |
+| `IRONFLOW_LUA_MAX_PATTERN_STEPS` | `50000000` | Max pattern-matching steps (`string.find`, `string.match`, `string.gmatch`, `string.gsub`) per Lua state; `0` disables. |
 | `IRONFLOW_LUA_HOOK_INTERVAL` | `10000` | Instruction interval for checking budgets. |
 | `IRONFLOW_LUA_GC_AFTER_EXECUTION` | `true` | Run Lua garbage collection after parsing/execution. |

@@ -49,6 +49,7 @@ async fn dropped_lua_waiter_cancels_the_blocking_vm_without_starving_tokio() {
                 max_instructions: None,
                 max_seconds: None,
                 max_memory_bytes: None,
+                max_pattern_steps: None,
                 hook_interval: 1_000,
                 gc_after_execution: false,
             },

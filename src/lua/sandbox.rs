@@ -56,6 +56,9 @@ pub(crate) fn new_sandboxed_lua() -> Result<Lua> {
     if let Ok(string_library) = globals.get::<LuaTable>("string") {
         string_library.set("dump", LuaValue::Nil)?;
     }
+    // Pattern matching and a few table functions can loop without bound
+    // inside one C call; replace them before any user code runs (IF-213).
+    crate::lua::library::install(&lua)?;
 
     Ok(lua)
 }

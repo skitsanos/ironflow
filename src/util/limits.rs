@@ -16,6 +16,7 @@ pub use env::{Limit, Toggle, Zero, validate_environment};
 pub use image::*;
 pub use lua::{
     LuaExecutionLimits, apply_lua_limits, apply_lua_limits_with_control, collect_lua_garbage,
+    max_lua_pattern_steps,
 };
 pub use pdf::*;
 pub use process::*;
@@ -137,6 +138,7 @@ pub(crate) const ALL: &[&Limit] = &[
     &LUA_MAX_MEMORY_BYTES,
     &MAX_FLOW_SOURCE_BYTES,
     &LUA_HOOK_INTERVAL,
+    &lua::LUA_MAX_PATTERN_STEPS,
     &MAX_TASK_OUTPUT_BYTES,
     &image::MAX_IMAGE_ENCODED_BYTES,
     &image::MAX_IMAGE_PIXELS,

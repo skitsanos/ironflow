@@ -221,12 +221,18 @@ outside opaque content/font decoding calls.
   child flow loaded by a composition node register with the step's attempt
   and run worker sets, like built-in blocking nodes. After a step timeout,
   run cancellation or run deadline the hook stops ordinary Lua at its next
-  check, every `IRONFLOW_LUA_HOOK_INTERVAL` instructions. The hook cannot run
-  inside a single C library call such as a `string.find`, `string.gsub` or
-  `string.rep` on a large input, so the step result, its `on_error` handler,
-  dependent steps, run finalization and task and run admission wait until
-  that call returns. Flow loads started by the API, webhooks and the
-  scheduler have no step and keep their own flow-load admission.
+  check, every `IRONFLOW_LUA_HOOK_INTERVAL` instructions. Flow loads started
+  by the API, webhooks and the scheduler have no step and keep their own
+  flow-load admission.
+- The hook cannot run inside a library call, so the sandbox replaces the
+  calls that could do unbounded work there (IF-213, `lua/library/`).
+  `string.find`, `string.match`, `string.gmatch` and `string.gsub` run on a
+  Rust port of the reference matcher that counts its steps against
+  `IRONFLOW_LUA_MAX_PATTERN_STEPS` and checks the step deadline, cancellation
+  and the Lua time budget every few thousand steps. `string.rep` of nothing,
+  long `table.move` ranges and `table.insert`/`table.remove` on tables with a
+  metatable no longer loop in C. The remaining library calls do work
+  proportional to data the Lua memory cap bounds.
 - `run_tracked_blocking_step` is the only bridge from step work to the
   blocking pool (IF-213). Every worker registers with the attempt and run
   worker sets of its step, so the step result, its `on_error` handler,

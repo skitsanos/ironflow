@@ -26,6 +26,7 @@
         "examples/07-advanced/function_handler.lua",
         "examples/07-advanced/hashing.lua",
         "examples/07-advanced/json_validate.lua",
+        "examples/07-advanced/lua_pattern_budget.lua",
         "examples/07-advanced/markdown_conversion.lua",
         "examples/07-advanced/reused_callbacks.lua",
         "examples/07-advanced/schema_validation.lua",

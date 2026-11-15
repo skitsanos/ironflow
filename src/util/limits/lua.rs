@@ -10,16 +10,32 @@ use mlua::prelude::*;
 
 use crate::util::execution::ExecutionControl;
 
+use super::env::Limit;
 use super::{
     lua_gc_after_execution, lua_hook_interval, max_lua_instructions, max_lua_memory_bytes,
     max_lua_seconds,
 };
+
+/// Pattern-matching steps per Lua state; `0` disables the budget (IF-213).
+///
+/// `string.find`, `string.match`, `string.gmatch` and `string.gsub` count
+/// one step per pattern item they try. Fifty million steps take well under a
+/// second and cover linear passes over tens of megabytes; a pattern that
+/// backtracks polynomially or worse runs out of them instead of holding its
+/// step, its run and their admission.
+pub(crate) const LUA_MAX_PATTERN_STEPS: Limit =
+    Limit::optional("IRONFLOW_LUA_MAX_PATTERN_STEPS", 50_000_000);
+
+pub fn max_lua_pattern_steps() -> Option<u64> {
+    LUA_MAX_PATTERN_STEPS.read_optional()
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct LuaExecutionLimits {
     pub max_instructions: Option<u64>,
     pub max_seconds: Option<u64>,
     pub max_memory_bytes: Option<u64>,
+    pub max_pattern_steps: Option<u64>,
     pub hook_interval: u32,
     pub gc_after_execution: bool,
 }
@@ -30,6 +46,7 @@ impl LuaExecutionLimits {
             max_instructions: max_lua_instructions(),
             max_seconds: max_lua_seconds(),
             max_memory_bytes: max_lua_memory_bytes(),
+            max_pattern_steps: max_lua_pattern_steps(),
             hook_interval: lua_hook_interval().min(u32::MAX as u64) as u32,
             gc_after_execution: lua_gc_after_execution(),
         }
@@ -59,6 +76,18 @@ pub fn apply_lua_limits_with_control(
     if let Some(max_memory_bytes) = limits.max_memory_bytes {
         lua.set_memory_limit(max_memory_bytes as usize)?;
     }
+
+    // The hook below cannot run inside a library call; the calls that can
+    // do unbounded work consult these budgets themselves (IF-213).
+    crate::lua::library::set_budget(
+        lua,
+        crate::lua::library::LibraryBudget::new(
+            execution.clone(),
+            limits.max_seconds,
+            limits.max_pattern_steps,
+            limits.max_memory_bytes,
+        ),
+    );
 
     let hook_interval = limits.hook_interval.max(1);
     if limits.max_instructions.is_none() && limits.max_seconds.is_none() && execution.is_none() {

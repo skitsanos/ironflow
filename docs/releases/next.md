@@ -212,6 +212,30 @@ publication is verified separately.
   loops are unaffected; they are stopped at the next instruction-hook check
   as before, and steps that finish in time behave as before. See
   [Execution limits](../nodes/code.md#execution-limits).
+- **Lua pattern matching is bounded and can be interrupted** (IF-213). One
+  `string.find`, `string.match`, `string.gmatch` or `string.gsub` call whose
+  pattern backtracks without bound, for example `^.-.-.-.-b` on 1,500
+  characters, ran for minutes inside the C matcher, where neither
+  `:timeout(...)`, `IRONFLOW_LUA_MAX_SECONDS` nor `IRONFLOW_MAX_RUN_SECONDS`
+  could end it, and since IF-211 it held its step, its run and their
+  admission for that long. These four functions now run on a matcher that
+  counts its steps. A Lua state may spend `IRONFLOW_LUA_MAX_PATTERN_STEPS`
+  steps (default `50000000`, `0` disables, a malformed value stops startup);
+  beyond that the call fails with `Lua pattern matching exceeded step budget
+  of 50000000 (IRONFLOW_LUA_MAX_PATTERN_STEPS)`. A step timeout, a
+  cancellation and the Lua time budget now end a match in progress, so the
+  delay described for IF-211 above no longer applies to pattern matching.
+  The pattern syntax and results are those of Lua 5.4. What can change for an
+  existing flow: code that matches patterns over more than a few tens of
+  megabytes in one step, or uses heavily backtracking patterns that used to
+  finish, can reach the budget and needs a higher
+  `IRONFLOW_LUA_MAX_PATTERN_STEPS` or a simpler pattern; and an error raised
+  by one of these functions in tail position (`return s:find(p)`) no longer
+  names the calling line. `string.rep("", n)` returns at once instead of
+  counting to `n`; `table.move` over more than 100,000 positions, and
+  `table.insert`/`table.remove` on a table with a metatable, run as Lua
+  loops under the instruction and time budgets instead of looping in C. See
+  [Execution limits](../nodes/code.md#execution-limits).
 - **`markdown_to_html` converts off the async runtime thread** (IF-213). The
   Markdown parser and the optional sanitizer ran on a runtime worker thread,
   where a large input delayed unrelated runs and a step timeout could not

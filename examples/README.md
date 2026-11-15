@@ -100,6 +100,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **data_pipeline.lua** — Full pipeline: filter → transform → dedup → hash → batch
 - **code_node_extract.lua** — Inline Lua code node to extract fields from API responses
 - **function_handler.lua** — Pass Lua functions directly as step handlers
+- **lua_pattern_budget.lua** — A pattern that backtracks without bound fails with the `IRONFLOW_LUA_MAX_PATTERN_STEPS` budget error instead of holding its run, and an `on_error` handler reports it
 - **reused_callbacks.lua** — Reuse one self-contained callback across steps, conditional steps, code nodes, and foreach transforms
 - **markdown_conversion.lua** — Markdown ↔ HTML conversion with GFM support
 - **markdown_documents.lua** — Generate searchable PDF and editable DOCX from one Markdown source, with tables and an explicitly bound local image. Creates `data/output/markdown/report.pdf` and `report.docx`; override `pdf_path` and `docx_path` for isolated runs. Existing files are not overwritten.
