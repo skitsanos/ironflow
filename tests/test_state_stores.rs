@@ -520,6 +520,64 @@ async fn postgres_run_leases_protect_live_peers_and_reconcile_expired_owners() {
     fixture.cleanup().await.unwrap();
 }
 
+#[path = "support/deleted_run.rs"]
+mod deleted_run;
+
+#[tokio::test]
+async fn json_delete_keeps_the_default_and_reports_no_incarnation() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = JsonStateStore::new(dir.path());
+    deleted_run::assert_delete_reports_the_removed_incarnation(&store, "json", false).await;
+}
+
+#[tokio::test]
+async fn sql_delete_reports_the_removed_incarnation() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = SqlStateStore::new(&sqlite_store_url(dir.path()))
+        .await
+        .unwrap();
+    deleted_run::assert_delete_reports_the_removed_incarnation(&store, "sql", true).await;
+}
+
+/// A runs table written by an earlier release has no `incarnation` column.
+/// Opening the store adds it; a run from before the upgrade reports none.
+#[tokio::test]
+async fn sql_runs_table_from_an_earlier_release_gains_the_incarnation_column() {
+    let dir = tempfile::tempdir().unwrap();
+    let url = sqlite_store_url(dir.path());
+    sqlx::any::install_default_drivers();
+    let pool = sqlx::AnyPool::connect(&url).await.unwrap();
+    for sql in [
+        "CREATE TABLE ironflow_runs (id TEXT PRIMARY KEY, flow_name TEXT NOT NULL, \
+         status TEXT NOT NULL, started TEXT, started_micros BIGINT, finished TEXT, \
+         ctx TEXT NOT NULL)",
+        "INSERT INTO ironflow_runs (id, flow_name, status, ctx) \
+         VALUES ('before-upgrade', 'flow', 'success', '{}')",
+    ] {
+        sqlx::query(sql).execute(&pool).await.unwrap();
+    }
+    pool.close().await;
+
+    let store = SqlStateStore::new(&url).await.unwrap();
+    // A second open finds the column and changes nothing.
+    drop(SqlStateStore::new(&url).await.unwrap());
+    let deleted = store.delete_run_reporting("before-upgrade").await.unwrap();
+    assert_eq!(deleted.incarnation, None);
+    deleted_run::assert_delete_reports_the_removed_incarnation(&store, "upgraded", true).await;
+}
+
+#[cfg(feature = "postgres")]
+#[tokio::test]
+async fn postgres_delete_reports_the_removed_incarnation() {
+    let Some(fixture) = postgres_support::PostgresStateTest::from_env("pg_deleted_run") else {
+        return;
+    };
+    let store = fixture.state_store().await.unwrap();
+    deleted_run::assert_delete_reports_the_removed_incarnation(&store, "postgres", true).await;
+    drop(store);
+    fixture.cleanup().await.unwrap();
+}
+
 #[tokio::test]
 async fn sql_run_lease_reconciliation_drains_more_than_one_batch() {
     const RUN_COUNT: usize = 300;

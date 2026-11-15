@@ -4,7 +4,9 @@ use async_trait::async_trait;
 
 use super::{Metrics, StorageOperation, StoreKind};
 use crate::engine::types::{Context, RunInfo, RunStatus, RunSummary, TaskState};
-use crate::storage::{RunLease, RunListQuery, RunSummaryPage, StateStore, StorageResult};
+use crate::storage::{
+    DeletedRun, RunLease, RunListQuery, RunSummaryPage, StateStore, StorageResult,
+};
 
 pub(crate) fn observe_state_store(
     inner: Arc<dyn StateStore>,
@@ -142,6 +144,11 @@ impl StateStore for ObservedStateStore {
     async fn list_run_summaries_page(&self, query: &RunListQuery) -> StorageResult<RunSummaryPage> {
         let result = self.inner.list_run_summaries_page(query).await;
         self.observe(StorageOperation::ListRunSummariesPage, result)
+    }
+
+    async fn delete_run_reporting(&self, run_id: &str) -> StorageResult<DeletedRun> {
+        let result = self.inner.delete_run_reporting(run_id).await;
+        self.observe(StorageOperation::DeleteRun, result)
     }
 
     async fn delete_run(&self, run_id: &str) -> StorageResult<()> {

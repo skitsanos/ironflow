@@ -30,8 +30,9 @@ enum MemoryEntry {
         event: RunEvent,
         retained_bytes: usize,
     },
-    /// Deletion fence. `admitted` is the one incarnation that may publish
-    /// past it, set when the run ID is accepted again.
+    /// Stream ownership record: the fence of a deleted run while `admitted`
+    /// is `None`, and otherwise the one incarnation that may publish, set
+    /// when the state store accepts the run ID.
     Deleted {
         run_id: String,
         admitted: Option<String>,
@@ -175,19 +176,35 @@ impl EventStore for MemoryEventStore {
     async fn begin_incarnation(&self, run_id: &str, incarnation: &str) -> StorageResult<()> {
         validate_event_run_id(run_id)?;
         validate_incarnation(incarnation)?;
-        let mut state = self.state.write().await;
-        state.admit(run_id, incarnation);
-        self.evict_to_limits(&mut state);
-        Ok(())
+        self.admit(run_id, incarnation).await
+    }
+
+    async fn admitted_incarnation(&self, run_id: &str) -> StorageResult<Option<String>> {
+        validate_event_run_id(run_id)?;
+        Ok(self.state.read().await.admitted(run_id).map(str::to_string))
     }
 
     async fn delete_run(&self, run_id: &str) -> StorageResult<usize> {
-        self.delete(run_id, true).await
+        self.delete(run_id, true, None).await
+    }
+
+    async fn delete_incarnation(&self, run_id: &str, incarnation: &str) -> StorageResult<usize> {
+        validate_incarnation(incarnation)?;
+        self.delete(run_id, true, Some(Some(incarnation))).await
     }
 
     async fn delete_orphaned_run(&self, run_id: &str) -> StorageResult<usize> {
-        self.delete(run_id, false).await
+        self.delete(run_id, false, None).await
     }
+
+    async fn delete_orphaned_incarnation(
+        &self,
+        run_id: &str,
+        seen: Option<&str>,
+    ) -> StorageResult<usize> {
+        self.delete(run_id, false, Some(seen)).await
+    }
+
     async fn list_since(
         &self,
         run_id: &str,

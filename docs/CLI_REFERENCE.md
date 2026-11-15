@@ -955,10 +955,17 @@ continues with the other expired leases; deleting the run clears it.
 The fence belongs to the deleted run, not to its ID. Idempotent and scheduled
 run IDs are deterministic, so the same ID can be accepted again after a
 deletion; that run publishes and streams its events normally, while a late
-event from the deleted run is still rejected. One race remains: a `DELETE`
-that overlaps a new submission of the same ID can remove the new run's first
-events and fence it, because the state and event stores are deleted in two
-steps. Wait for the `DELETE` response before reusing the key.
+event from the deleted run is still rejected. State and events are deleted
+in two steps, and a run with the same ID can be accepted between them, for
+example a scheduled occurrence or a retried idempotent request. The event
+step therefore removes only the run whose state was deleted: every event
+backend records which run currently owns a stream when the run starts, the
+SQL and Redis state stores report which run a delete removed, and an event
+delete that finds the stream owned by a newer run changes nothing. Callers
+do not need to wait for the `DELETE` response before reusing the key. A
+retried `DELETE` that finds the state absent while a newer run already owns
+the stream returns `404 not_found`, because the events it would have removed
+were replaced when that run started.
 
 SQL deletion fences are durable. A Redis fence is persistent without
 `REDIS_TTL` and expires with that configured TTL. The memory backend keeps

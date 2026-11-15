@@ -151,9 +151,14 @@ The identity is retained for the lifetime of the run record; explicitly deleting
 the run also releases that identity. A later submission with the same key
 starts a new run under the same run ID, on any replica, and its events and
 SSE stream are complete: the event store's deletion fence rejects only late
-events from the deleted run. Wait for the `DELETE` response before reusing
-the key; a deletion that overlaps the new submission can remove that run's
-first events.
+events from the deleted run. The key can be reused without waiting for the
+`DELETE` response: a deletion that overlaps the new submission, on this or
+another replica, removes only the events of the run whose state it deleted.
+Every event backend records the run that owns a stream when the run starts,
+and an event delete that finds a newer owner changes nothing. During a
+rolling upgrade a replica that predates this release still deletes and
+fences in the old way, so the guarantee holds once every replica is
+upgraded.
 
 Scheduled occurrences derive their durable run ID from the schedule name and
 resolved instant. A replica that observes an existing claim still converges on

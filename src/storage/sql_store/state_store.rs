@@ -6,7 +6,9 @@ use chrono::Utc;
 use super::SqlStateStore;
 use crate::engine::types::{Context, RunInfo, RunStatus, RunSummary, TaskState};
 use crate::storage::value_depth::{admit_context, admit_task};
-use crate::storage::{RunListQuery, RunSummaryPage, StateStore, StorageError, StorageResult};
+use crate::storage::{
+    DeletedRun, RunListQuery, RunSummaryPage, StateStore, StorageError, StorageResult,
+};
 
 #[async_trait]
 impl StateStore for SqlStateStore {
@@ -177,6 +179,10 @@ impl StateStore for SqlStateStore {
     }
 
     async fn delete_run(&self, run_id: &str) -> StorageResult<()> {
+        self.delete_run_transactional(run_id).await.map(|_| ())
+    }
+
+    async fn delete_run_reporting(&self, run_id: &str) -> StorageResult<DeletedRun> {
         self.delete_run_transactional(run_id).await
     }
 

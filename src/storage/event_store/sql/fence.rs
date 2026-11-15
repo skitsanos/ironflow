@@ -1,8 +1,10 @@
-//! Deletion fences of the SQL event store (IF-184).
+//! Stream ownership records of the SQL event store (IF-184, IF-214).
 //!
-//! One row per deleted run. `incarnation` is `NULL` while the fence rejects
-//! every publisher, and names the one admitted incarnation once the run ID
-//! has been accepted again.
+//! One row per run in the event-deletion table. `incarnation` is `NULL`
+//! while the row is the fence of a deleted run and rejects every publisher.
+//! Otherwise it names the one incarnation that may publish: it is written
+//! when the state store accepts the run ID, deleted run or not, so a delete
+//! aimed at an earlier incarnation can tell that the stream has moved on.
 
 use sqlx::{Any, Row, Transaction};
 
@@ -12,11 +14,11 @@ use crate::storage::{StorageError, StorageResult};
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Fence {
-    /// The run was never deleted, or its fence was cleaned up.
+    /// No incarnation was admitted and the run was never deleted.
     Absent,
     /// Deleted and not accepted again: nobody may publish.
     Closed,
-    /// Accepted again: only this incarnation may publish.
+    /// Accepted by the state store: only this incarnation may publish.
     Admitted(String),
 }
 
@@ -84,8 +86,34 @@ impl SqlEventStore {
         Ok(())
     }
 
-    /// Admit `incarnation` past a retained fence. One guarded statement, so
-    /// it needs no stream lock and writes nothing for a never-deleted run.
+    /// The incarnation admitted for `run_id`, read outside a transaction.
+    pub(super) async fn read_admitted(&self, run_id: &str) -> StorageResult<Option<String>> {
+        validate_event_run_id(run_id)?;
+        let sql = format!(
+            "SELECT incarnation FROM {} WHERE run_id = {}",
+            self.tables.event_deletions,
+            self.placeholder(1)
+        );
+        let inspect = |error: sqlx::Error| {
+            StorageError::backend(
+                format_args!("Failed to inspect event admission for run '{run_id}'"),
+                error,
+            )
+        };
+        let row = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+            .bind(run_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(inspect)?;
+        match row {
+            Some(row) => row.try_get("incarnation").map_err(inspect),
+            None => Ok(None),
+        }
+    }
+
+    /// Record `incarnation` as the stream's publisher, under the stream
+    /// lock. Events an earlier incarnation left behind are orphans, because
+    /// the state store accepted the run ID again, and are removed (IF-214).
     pub(super) async fn admit_incarnation(
         &self,
         run_id: &str,
@@ -93,23 +121,36 @@ impl SqlEventStore {
     ) -> StorageResult<()> {
         validate_event_run_id(run_id)?;
         validate_incarnation(incarnation)?;
+        let failed = |error: sqlx::Error| {
+            StorageError::backend(
+                format_args!("Failed to open the event stream for run '{run_id}'"),
+                error,
+            )
+        };
+        let mut transaction = self.pool.begin().await.map_err(failed)?;
+        self.lock_stream(&mut transaction, run_id).await?;
+        match self.fence(&mut transaction, run_id).await? {
+            Fence::Admitted(admitted) if admitted == incarnation => {
+                return transaction.rollback().await.map_err(failed);
+            }
+            Fence::Closed => {}
+            Fence::Absent | Fence::Admitted(_) => {
+                self.remove_stream_rows(&mut transaction, run_id).await?;
+            }
+        }
         let sql = format!(
-            "UPDATE {} SET incarnation = {} WHERE run_id = {}",
+            "INSERT INTO {} (run_id, incarnation) VALUES ({}, {}) \
+             ON CONFLICT(run_id) DO UPDATE SET incarnation = excluded.incarnation",
             self.tables.event_deletions,
             self.placeholder(1),
             self.placeholder(2)
         );
         sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
-            .bind(incarnation)
             .bind(run_id)
-            .execute(&self.pool)
+            .bind(incarnation)
+            .execute(&mut *transaction)
             .await
-            .map_err(|error| {
-                StorageError::backend(
-                    format_args!("Failed to reopen the event stream for run '{run_id}'"),
-                    error,
-                )
-            })?;
-        Ok(())
+            .map_err(failed)?;
+        transaction.commit().await.map_err(failed)
     }
 }

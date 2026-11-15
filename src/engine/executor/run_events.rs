@@ -75,8 +75,24 @@ impl EventStore for IncarnationEvents {
         self.inner.begin_incarnation(run_id, incarnation).await
     }
 
+    async fn admitted_incarnation(&self, run_id: &str) -> StorageResult<Option<String>> {
+        self.inner.admitted_incarnation(run_id).await
+    }
+
     async fn delete_run(&self, run_id: &str) -> StorageResult<usize> {
         self.inner.delete_run(run_id).await
+    }
+
+    async fn delete_incarnation(&self, run_id: &str, incarnation: &str) -> StorageResult<usize> {
+        self.inner.delete_incarnation(run_id, incarnation).await
+    }
+
+    async fn delete_orphaned_incarnation(
+        &self,
+        run_id: &str,
+        seen: Option<&str>,
+    ) -> StorageResult<usize> {
+        self.inner.delete_orphaned_incarnation(run_id, seen).await
     }
 
     async fn delete_orphaned_run(&self, run_id: &str) -> StorageResult<usize> {

@@ -72,7 +72,9 @@ State-store operations are `healthcheck`, `init_run`, `init_run_owned`,
 `list_runs`, `list_run_summaries`, `list_run_summaries_page`, `delete_run`,
 `prune_before`, `claim_schedule`, `record_schedule_run`, and
 `schedule_run_recorded`. Event-store operations are `healthcheck`,
-`publish_event`, `delete_run`, and `list_events`.
+`publish_event`, `delete_run`, and `list_events`. Admission of a run to its
+event stream counts as `publish_event`, and the admission read that precedes
+a run deletion as `delete_run`.
 
 The histograms use fixed second buckets from 5 ms through 5 minutes. Every
 valid series is initialized at startup, so absent activity is represented by

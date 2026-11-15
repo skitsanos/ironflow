@@ -16,7 +16,8 @@ impl SqlStateStore {
                 started TEXT,
                 started_micros BIGINT,
                 finished TEXT,
-                ctx TEXT NOT NULL
+                ctx TEXT NOT NULL,
+                incarnation TEXT
             )
             "#,
                 self.tables.runs
@@ -26,6 +27,14 @@ impl SqlStateStore {
         .await?;
 
         self.ensure_started_micros_column().await?;
+        // Runs tables created before IF-214 do not record the incarnation.
+        self.add_column_if_missing(
+            &self.tables.runs,
+            "incarnation",
+            "TEXT",
+            "Failed to add SQL run incarnation column",
+        )
+        .await?;
         self.backfill_started_micros().await?;
 
         crate::storage::sql_ddl::create_if_absent(
@@ -175,12 +184,13 @@ impl SqlStateStore {
         self.add_column_if_missing(
             &self.tables.runs,
             "started_micros",
+            "BIGINT",
             "Failed to add SQL run-list timestamp column",
         )
         .await
     }
 
-    /// Add a nullable `BIGINT` column to a table created by an older binary.
+    /// Add a nullable column to a table created by an older binary.
     ///
     /// Replicas can start together, so a failed `ALTER TABLE` is an error only
     /// when the column is still missing afterwards. A nullable column keeps
@@ -189,12 +199,13 @@ impl SqlStateStore {
         &self,
         table: &str,
         column: &'static str,
+        column_type: &'static str,
         failure: &'static str,
     ) -> StorageResult<()> {
         if self.column_exists(table, column).await? {
             return Ok(());
         }
-        let sql = format!("ALTER TABLE {table} ADD COLUMN {column} BIGINT");
+        let sql = format!("ALTER TABLE {table} ADD COLUMN {column} {column_type}");
         if let Err(error) = sql_ddl::execute_schema_change(&self.pool, self.dialect, &sql).await
             && !self.column_exists(table, column).await?
         {

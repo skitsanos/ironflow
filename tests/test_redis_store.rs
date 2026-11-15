@@ -762,6 +762,17 @@ async fn redis_delete_run() {
     assert!(!runs.iter().any(|r| r.id == "run-d1"));
 }
 
+#[path = "support/deleted_run.rs"]
+mod deleted_run;
+
+#[tokio::test]
+async fn redis_delete_reports_the_removed_incarnation() {
+    let Some(store) = test_store("deleted_run").await else {
+        return;
+    };
+    deleted_run::assert_delete_reports_the_removed_incarnation(store.as_ref(), "redis", true).await;
+}
+
 #[tokio::test]
 async fn redis_run_not_found() {
     let Some(store) = test_store("notfound").await else {

@@ -85,15 +85,27 @@ pub trait EventStore: Send + Sync {
         self.publish(event).await
     }
 
-    /// Admit `incarnation` as the sole publisher past a retained deletion
-    /// fence for `run_id`.
+    /// Admit `incarnation` as the sole named publisher of `run_id`'s stream.
     ///
-    /// Call it once the state store has accepted the run ID again. It records
-    /// nothing for a run that has no fence, and a later
-    /// [`delete_run`](Self::delete_run) closes the stream to this incarnation
-    /// too.
+    /// Call it once the state store has accepted the run ID, before the
+    /// run's first event. The built-in stores record the admission whether
+    /// or not a deletion fence exists (IF-214): from then on a publisher
+    /// that names another incarnation, or none, is a conflict, and
+    /// [`delete_incarnation`](Self::delete_incarnation) for an earlier
+    /// incarnation leaves this stream alone. Events that an earlier
+    /// incarnation left behind are orphans, because the state store accepted
+    /// the ID again, and are removed here. Admitting the same incarnation
+    /// again changes nothing. A later [`delete_run`](Self::delete_run)
+    /// closes the stream to this incarnation too.
     async fn begin_incarnation(&self, _run_id: &str, _incarnation: &str) -> StorageResult<()> {
         Ok(())
+    }
+
+    /// The incarnation [`begin_incarnation`](Self::begin_incarnation) last
+    /// admitted for `run_id`, while the backend retains that record. `None`
+    /// for a stream that is closed by a deletion fence or was never admitted.
+    async fn admitted_incarnation(&self, _run_id: &str) -> StorageResult<Option<String>> {
+        Ok(None)
     }
 
     /// Delete every retained event for `run_id` and fence later publication.
@@ -105,6 +117,17 @@ pub trait EventStore: Send + Sync {
     /// removed.
     async fn delete_run(&self, run_id: &str) -> StorageResult<usize>;
 
+    /// Delete the events of one run incarnation whose state was removed.
+    ///
+    /// Identical to [`delete_run`](Self::delete_run) unless the stream has
+    /// since admitted another incarnation: a run accepted again under the
+    /// same ID between the state delete and this call keeps its events and
+    /// stays open, and the call returns zero (IF-214). The default suits
+    /// stores that do not record admissions.
+    async fn delete_incarnation(&self, run_id: &str, _incarnation: &str) -> StorageResult<usize> {
+        self.delete_run(run_id).await
+    }
+
     /// Remove events whose run state is already absent.
     ///
     /// Unlike [`delete_run`](Self::delete_run), this installs a fence only
@@ -114,6 +137,21 @@ pub trait EventStore: Send + Sync {
     /// run from orphaned events left by an interrupted earlier deletion.
     async fn delete_orphaned_run(&self, run_id: &str) -> StorageResult<usize> {
         self.delete_run(run_id).await
+    }
+
+    /// [`delete_orphaned_run`](Self::delete_orphaned_run) for a caller that
+    /// read [`admitted_incarnation`](Self::admitted_incarnation) as `seen`
+    /// before it found the state absent.
+    ///
+    /// It removes nothing when the stream has since admitted an incarnation
+    /// other than `seen`: those events belong to a run that was accepted
+    /// after the caller looked, not to the absent one (IF-214).
+    async fn delete_orphaned_incarnation(
+        &self,
+        run_id: &str,
+        _seen: Option<&str>,
+    ) -> StorageResult<usize> {
+        self.delete_orphaned_run(run_id).await
     }
 
     /// Lists at most `limit` events after an opaque event-ID cursor.

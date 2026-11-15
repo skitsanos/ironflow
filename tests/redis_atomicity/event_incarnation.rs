@@ -51,3 +51,48 @@ async fn redis_fence_is_scoped_to_one_incarnation() {
     }
     fixture.cleanup().await;
 }
+
+#[tokio::test]
+async fn redis_delete_overlapping_resubmission_keeps_new_events() {
+    let Some(fixture) = RedisTest::connect("event_incarnation").await else {
+        return;
+    };
+    for ttl in [None, Some(60)] {
+        fence_contract::assert_delete_overlapping_resubmission_keeps_new_events(
+            Arc::new(fixture.event_store(ttl).await),
+            &format!("redis-delete-overlap-{}", ttl.is_some()),
+        )
+        .await;
+    }
+    fixture.cleanup().await;
+}
+
+#[tokio::test]
+async fn redis_orphan_sweep_overlapping_resubmission_keeps_new_events() {
+    let Some(fixture) = RedisTest::connect("event_incarnation").await else {
+        return;
+    };
+    for ttl in [None, Some(60)] {
+        fence_contract::assert_orphan_sweep_overlapping_resubmission_keeps_new_events(
+            Arc::new(fixture.event_store(ttl).await),
+            &format!("redis-orphan-overlap-{}", ttl.is_some()),
+        )
+        .await;
+    }
+    fixture.cleanup().await;
+}
+
+#[tokio::test]
+async fn redis_delete_is_scoped_to_the_removed_incarnation() {
+    let Some(fixture) = RedisTest::connect("event_incarnation").await else {
+        return;
+    };
+    for ttl in [None, Some(60)] {
+        fence_contract::assert_delete_is_scoped_to_the_removed_incarnation(
+            &fixture.event_store(ttl).await,
+            &format!("redis-scoped-delete-{}", ttl.is_some()),
+        )
+        .await;
+    }
+    fixture.cleanup().await;
+}

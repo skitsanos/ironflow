@@ -675,6 +675,24 @@ publication is verified separately.
   unchanged: the new `publish_as`, `begin_incarnation` and
   `delete_orphaned_run` methods have defaults.
 
+- A `DELETE /runs/{id}` that overlaps a new run with the same ID no longer
+  removes that run's events (IF-214). State and events are deleted in two
+  steps; a scheduled occurrence or a retried idempotent request accepted
+  between them used to lose its first events and be fenced, and the
+  documents told callers to wait for the `DELETE` response. Every event
+  backend now records which run owns a stream when the run starts, the SQL
+  and Redis state stores report which run a delete removed, and the event
+  delete leaves a stream owned by a newer run alone. Once a run has started,
+  only that run may publish to its stream: a publisher that names another
+  run, or none, is rejected even if the ID was never deleted. SQL state
+  stores gain a nullable `incarnation` column on the runs table, added at
+  startup; SQL event stores write one row per run to the event-deletion
+  table, and Redis keeps one `event_incarnations:v1:` key per run for the
+  stream's retention. Custom stores compile unchanged: the new
+  `StateStore::delete_run_reporting` and `EventStore::admitted_incarnation`,
+  `delete_incarnation` and `delete_orphaned_incarnation` have defaults that
+  keep the previous behaviour.
+
 - Every release archive and the container image now ship
   `THIRD_PARTY_LICENSES.md`, the generated license notices for the Rust crates
   statically linked into IronFlow, next to the bundled fonts' OFL license

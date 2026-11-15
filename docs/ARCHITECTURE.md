@@ -718,12 +718,27 @@ the retry succeeds when it removes an orphaned event stream. An absent state
 record with no orphaned events remains `404 not_found` and installs no fence.
 A successful event delete fences a workflow event racing behind it, so a late
 publication cannot undo deletion while that backend retains the fence. The
-fence rejects the deleted incarnation only: SQL stores the admitted
-incarnation in the fence row's nullable `incarnation` column (added to
-existing tables at startup), Redis in an `event_incarnations:v1:` key that
-expires with the fence, and memory in the fence entry. State and event
-deletion are separate steps, so a `DELETE` that overlaps a new submission of
-the same ID can still remove and fence the new run's first events.
+fence rejects the deleted incarnation only. Every run is one incarnation of
+its ID, named by its lease owner, and the event store records the incarnation
+that owns a stream when the run starts (`begin_incarnation`), deleted ID or
+not: SQL in the nullable `incarnation` column of the event-deletion table
+(added to existing tables at startup), Redis in an `event_incarnations:v1:`
+key that follows the stream's retention or, past a fence, expires with it,
+and memory in a queue entry. From then on only that incarnation may publish,
+and events left by an earlier incarnation, which are orphans because the
+state store accepted the ID again, are removed.
+
+State and event deletion are separate steps, so a run with the same ID can
+be accepted between them. The coordinator closes that window by naming the
+incarnation it deletes: the SQL and Redis state stores record the lease owner
+with the run (`incarnation` column, `event_incarnation` hash field) and
+report it from the transaction or script that removes the run, and
+`delete_incarnation` is a no-op when the stream has admitted another one.
+For a state store that reports nothing (JSON, a third-party store, a run
+created before the upgrade) the coordinator uses the admitted incarnation it
+read before the state delete; the same read guards the sweep of orphaned
+events when state is already absent. With neither value the event delete is
+unconditional, as before.
 
 JSON, SQL, and Redis inspect status and lease under the same backend-atomic
 deletion fence. A non-terminal run with an unexpired execution-owner lease is

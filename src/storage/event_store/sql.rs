@@ -9,6 +9,7 @@ mod deletion;
 mod fence;
 mod index;
 mod migration;
+mod row;
 mod schema;
 mod store;
 

@@ -56,8 +56,28 @@ impl EventStore for ObservedEventStore {
         self.observe(StorageOperation::PublishEvent, result)
     }
 
+    async fn admitted_incarnation(&self, run_id: &str) -> StorageResult<Option<String>> {
+        let result = self.inner.admitted_incarnation(run_id).await;
+        // Read only by the delete coordinator, before it removes state.
+        self.observe(StorageOperation::DeleteRun, result)
+    }
+
     async fn delete_run(&self, run_id: &str) -> StorageResult<usize> {
         let result = self.inner.delete_run(run_id).await;
+        self.observe(StorageOperation::DeleteRun, result)
+    }
+
+    async fn delete_incarnation(&self, run_id: &str, incarnation: &str) -> StorageResult<usize> {
+        let result = self.inner.delete_incarnation(run_id, incarnation).await;
+        self.observe(StorageOperation::DeleteRun, result)
+    }
+
+    async fn delete_orphaned_incarnation(
+        &self,
+        run_id: &str,
+        seen: Option<&str>,
+    ) -> StorageResult<usize> {
+        let result = self.inner.delete_orphaned_incarnation(run_id, seen).await;
         self.observe(StorageOperation::DeleteRun, result)
     }
 

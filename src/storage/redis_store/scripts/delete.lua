@@ -51,7 +51,7 @@ if run_type == 'none' then
     redis.call('SREM', KEYS[2], ARGV[1])
     if lease_index_enabled then redis.call('ZREM', KEYS[11], ARGV[1]) end
     remove_catalog_entry()
-    return 0
+    return {0, ''}
 end
 if run_type ~= 'hash' then
     return redis.error_reply('IRONFLOW_INVALID_RUN_TYPE')
@@ -75,11 +75,14 @@ if lease_expiry ~= false then
     local now = (tonumber(time[1]) * 1000000) + tonumber(time[2])
     if (info['status'] == 'pending' or info['status'] == 'running') and
        tonumber(lease_expiry) > now then
-        return 2
+        return {2, ''}
     end
 end
+-- Reported with the delete so the caller removes that incarnation's events
+-- and no newer one's (IF-214).
+local event_incarnation = redis.call('HGET', KEYS[1], 'event_incarnation')
 redis.call('DEL', KEYS[1])
 redis.call('SREM', KEYS[2], ARGV[1])
 if lease_index_enabled then redis.call('ZREM', KEYS[11], ARGV[1]) end
 remove_catalog_entry()
-return 1
+return {1, event_incarnation or ''}

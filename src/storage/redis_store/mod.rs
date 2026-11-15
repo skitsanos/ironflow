@@ -1,6 +1,7 @@
 mod atomic;
 mod catalog;
 mod claims;
+mod deletion;
 mod initialization;
 mod lease_cas;
 mod leases;

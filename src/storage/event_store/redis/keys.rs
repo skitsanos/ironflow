@@ -61,7 +61,7 @@ impl RedisEventStore {
         format!("{}event_deletions:v1:{}", self.prefix, run_segment(run_id))
     }
 
-    /// The incarnation admitted past the deletion fence, if any (IF-184).
+    /// The incarnation admitted as the stream's publisher (IF-184, IF-214).
     pub(super) fn admitted_incarnation_key(&self, run_id: &str) -> String {
         format!(
             "{}event_incarnations:v1:{}",

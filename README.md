@@ -373,7 +373,8 @@ fixed 64 MiB retained-heap estimate so large metadata cannot bypass the count
 bound; set `IRONFLOW_EVENT_MEMORY_CAPACITY` or `event_memory_capacity` to
 another positive entry limit. `DELETE /runs/{id}` removes state first, then
 idempotently removes retained events and fences late event publication from
-the deleted run; a run created again under the same ID has its own stream.
+the deleted run; a run created again under the same ID has its own stream,
+also when it is accepted while the delete is still in progress.
 Repeating the request can finish event cleanup left by an interrupted first
 attempt. A non-terminal run with an unexpired execution-owner lease is left
 intact and returns `409 conflict`; terminal and expired-lease runs are

@@ -26,6 +26,7 @@ pub use error::{StorageError, StorageErrorKind, StorageResult};
 #[cfg(feature = "redis")]
 pub use event_store::RedisEventStore;
 pub use event_store::{EventStore, MemoryEventStore, SqlEventStore};
+pub use lifecycle::DeletedRun;
 pub use run_id::{MAX_RUN_ID_BYTES, RunIdError, validate_run_id};
 pub use run_lease::{RUN_LEASE_REFRESH, RUN_LEASE_TTL, RunLease};
 pub use run_listing::{PageSize, RunCursor, RunListQuery, RunSummaryPage};
@@ -158,6 +159,18 @@ pub trait StateStore: Send + Sync {
     /// live execution-owner lease; terminal and abandoned runs remain
     /// deletable.
     async fn delete_run(&self, run_id: &str) -> StorageResult<()>;
+
+    /// [`delete_run`](Self::delete_run) that also reports what it removed.
+    ///
+    /// The built-in SQL and Redis stores return the incarnation recorded by
+    /// [`init_run_owned`](Self::init_run_owned) in the same atomic step that
+    /// removes the run, so the caller can delete that incarnation's events
+    /// and no newer one's (IF-214). The default reports none.
+    async fn delete_run_reporting(&self, run_id: &str) -> StorageResult<DeletedRun> {
+        self.delete_run(run_id)
+            .await
+            .map(|()| DeletedRun::default())
+    }
 
     /// Delete runs older than the given cutoff (UTC). Returns the number
     /// removed. Default implementation scans via `list_runs`; stores that

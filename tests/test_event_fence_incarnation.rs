@@ -72,6 +72,63 @@ async fn sqlite_fence_is_scoped_to_one_incarnation() {
     .await;
 }
 
+#[tokio::test]
+async fn memory_delete_overlapping_resubmission_keeps_new_events() {
+    fence_contract::assert_delete_overlapping_resubmission_keeps_new_events(
+        Arc::new(MemoryEventStore::new()),
+        "memory-delete-overlap",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn sqlite_delete_overlapping_resubmission_keeps_new_events() {
+    let directory = tempfile::tempdir().unwrap();
+    fence_contract::assert_delete_overlapping_resubmission_keeps_new_events(
+        Arc::new(sqlite_events(directory.path()).await),
+        "sqlite-delete-overlap",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn memory_orphan_sweep_overlapping_resubmission_keeps_new_events() {
+    fence_contract::assert_orphan_sweep_overlapping_resubmission_keeps_new_events(
+        Arc::new(MemoryEventStore::new()),
+        "memory-orphan-overlap",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn sqlite_orphan_sweep_overlapping_resubmission_keeps_new_events() {
+    let directory = tempfile::tempdir().unwrap();
+    fence_contract::assert_orphan_sweep_overlapping_resubmission_keeps_new_events(
+        Arc::new(sqlite_events(directory.path()).await),
+        "sqlite-orphan-overlap",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn memory_delete_is_scoped_to_the_removed_incarnation() {
+    fence_contract::assert_delete_is_scoped_to_the_removed_incarnation(
+        &MemoryEventStore::new(),
+        "memory-scoped-delete",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn sqlite_delete_is_scoped_to_the_removed_incarnation() {
+    let directory = tempfile::tempdir().unwrap();
+    fence_contract::assert_delete_is_scoped_to_the_removed_incarnation(
+        &sqlite_events(directory.path()).await,
+        "sqlite-scoped-delete",
+    )
+    .await;
+}
+
 /// A fence table written by an earlier release has no `incarnation` column.
 /// Opening the store adds it, keeps the existing fence closed and lets the
 /// run ID be admitted again.
@@ -184,8 +241,26 @@ mod postgres {
             "postgres-missing-run",
         )
         .await;
-        fence_contract::assert_resubmitted_run_has_complete_events(store, "postgres-resubmit")
-            .await;
+        fence_contract::assert_delete_is_scoped_to_the_removed_incarnation(
+            store.as_ref(),
+            "postgres-scoped-delete",
+        )
+        .await;
+        fence_contract::assert_resubmitted_run_has_complete_events(
+            store.clone(),
+            "postgres-resubmit",
+        )
+        .await;
+        fence_contract::assert_delete_overlapping_resubmission_keeps_new_events(
+            store.clone(),
+            "postgres-delete-overlap",
+        )
+        .await;
+        fence_contract::assert_orphan_sweep_overlapping_resubmission_keeps_new_events(
+            store,
+            "postgres-orphan-overlap",
+        )
+        .await;
         drop_tables(&url, &prefix).await;
     }
 }

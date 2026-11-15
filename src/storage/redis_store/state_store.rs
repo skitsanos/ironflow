@@ -6,7 +6,7 @@ use chrono::Utc;
 use crate::engine::types::*;
 use crate::storage::run_listing::compare_summaries;
 use crate::storage::value_depth::{admit_context, admit_task};
-use crate::storage::{RunListQuery, RunSummaryPage, StateStore, StorageResult};
+use crate::storage::{DeletedRun, RunListQuery, RunSummaryPage, StateStore, StorageResult};
 
 use super::RedisStateStore;
 
@@ -205,6 +205,10 @@ impl StateStore for RedisStateStore {
     }
 
     async fn delete_run(&self, run_id: &str) -> StorageResult<()> {
+        self.delete_run_atomic(run_id).await.map(|_| ())
+    }
+
+    async fn delete_run_reporting(&self, run_id: &str) -> StorageResult<DeletedRun> {
         self.delete_run_atomic(run_id).await
     }
 

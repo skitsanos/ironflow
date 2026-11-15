@@ -100,8 +100,15 @@ impl RedisEventStore {
         Ok(())
     }
 
-    /// `always_fence` is false for a run whose state was already absent.
-    async fn delete(&self, run_id: &str, always_fence: bool) -> StorageResult<usize> {
+    /// `always_fence` is false for a run whose state was already absent. A
+    /// `guard` of `Some(expected)` skips the delete when the stream has
+    /// admitted an incarnation other than `expected` (IF-214).
+    async fn delete(
+        &self,
+        run_id: &str,
+        always_fence: bool,
+        guard: Option<Option<&str>>,
+    ) -> StorageResult<usize> {
         validate_event_run_id(run_id)?;
         // Legacy validation establishes an owner-bound layout before deletion;
         // the delete script rechecks that owner atomically with removing the
@@ -125,6 +132,8 @@ impl RedisEventStore {
             .arg(run_id)
             .arg(self.ttl.unwrap_or(-1))
             .arg(if always_fence { "1" } else { "0" })
+            .arg(if guard.is_some() { "1" } else { "0" })
+            .arg(guard.flatten().unwrap_or(""))
             .invoke_async(&mut conn)
             .await
             .map_err(|error| {
@@ -161,29 +170,66 @@ impl EventStore for RedisEventStore {
     async fn begin_incarnation(&self, run_id: &str, incarnation: &str) -> StorageResult<()> {
         validate_event_run_id(run_id)?;
         validate_incarnation(incarnation)?;
+        // Admission removes events an earlier incarnation left behind, so
+        // the stream must be in the validated layout first.
+        self.ensure_layout(run_id).await?;
+        let keys = self.event_keys(run_id);
         let mut conn = self.conn.clone();
         let _: i64 = BEGIN
+            .key(&keys.list)
+            .key(&keys.index)
+            .key(&keys.sequence)
+            .key(&keys.meta)
             .key(self.deletion_fence_key(run_id))
             .key(self.admitted_incarnation_key(run_id))
             .arg(run_id)
             .arg(incarnation)
+            .arg(self.ttl.unwrap_or(-1))
             .invoke_async(&mut conn)
             .await
             .map_err(|error| {
                 map_redis_error(
-                    format_args!("Failed to reopen the Redis event stream for run '{run_id}'"),
+                    format_args!("Failed to open the Redis event stream for run '{run_id}'"),
                     error,
                 )
             })?;
         Ok(())
     }
 
+    async fn admitted_incarnation(&self, run_id: &str) -> StorageResult<Option<String>> {
+        validate_event_run_id(run_id)?;
+        let mut conn = self.conn.clone();
+        redis::cmd("GET")
+            .arg(self.admitted_incarnation_key(run_id))
+            .query_async(&mut conn)
+            .await
+            .map_err(|error| {
+                map_redis_error(
+                    format_args!("Failed to inspect Redis event admission for run '{run_id}'"),
+                    error,
+                )
+            })
+    }
+
     async fn delete_run(&self, run_id: &str) -> StorageResult<usize> {
-        self.delete(run_id, true).await
+        self.delete(run_id, true, None).await
+    }
+
+    async fn delete_incarnation(&self, run_id: &str, incarnation: &str) -> StorageResult<usize> {
+        validate_incarnation(incarnation)?;
+        self.delete(run_id, true, Some(Some(incarnation))).await
     }
 
     async fn delete_orphaned_run(&self, run_id: &str) -> StorageResult<usize> {
-        self.delete(run_id, false).await
+        self.delete(run_id, false, None).await
+    }
+
+    async fn delete_orphaned_incarnation(
+        &self,
+        run_id: &str,
+        seen: Option<&str>,
+    ) -> StorageResult<usize> {
+        self.delete(run_id, false, Some(seen)).await
     }
 
     async fn list_since(

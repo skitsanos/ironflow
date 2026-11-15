@@ -1,7 +1,7 @@
 if #KEYS ~= 7 then
     return redis.error_reply('IRONFLOW_INVALID_EVENT_DELETE_KEYS')
 end
-if #ARGV ~= 3 then
+if #ARGV ~= 5 then
     return redis.error_reply('IRONFLOW_INVALID_EVENT_DELETE_ARGUMENTS')
 end
 for left = 1, 7 do
@@ -15,6 +15,12 @@ end
 -- '1' fences unconditionally; '0' is an orphan sweep for a run whose state
 -- is already absent, which fences only when it removes events.
 if ARGV[3] ~= '0' and ARGV[3] ~= '1' then
+    return redis.error_reply('IRONFLOW_INVALID_EVENT_DELETE_ARGUMENTS')
+end
+-- ARGV[4] == '1' guards the delete: it is skipped when the stream has
+-- admitted an incarnation other than ARGV[5] ('' expects none), because it
+-- then belongs to a run accepted after the one being deleted (IF-214).
+if ARGV[4] ~= '0' and ARGV[4] ~= '1' then
     return redis.error_reply('IRONFLOW_INVALID_EVENT_DELETE_ARGUMENTS')
 end
 local ttl = ARGV[2]
@@ -93,6 +99,9 @@ if redis.call('UNLINK', KEYS[6]) ~= 0 then
     return redis.error_reply('IRONFLOW_EVENT_DELETE_PROBE_NOT_EMPTY')
 end
 
+if ARGV[4] == '1' and admitted_type == 'string' and redis.call('GET', KEYS[7]) ~= ARGV[5] then
+    return 0
+end
 if ARGV[3] == '0' and list_len == 0 then
     -- Nothing existed: leave no fence, and keep an existing one as it is.
     return 0

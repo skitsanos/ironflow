@@ -89,7 +89,10 @@ if lease_index_enabled and ARGV[9] ~= '' then
     local time = redis.call('TIME')
     local now = (tonumber(time[1]) * 1000000) + tonumber(time[2])
     local expiry = string.format('%.0f', now + tonumber(ARGV[10]))
-    redis.call('HSET', KEYS[1], 'lease_owner', ARGV[9], 'lease_expires_micros', expiry)
+    -- event_incarnation outlives the lease so a delete can report which
+    -- incarnation of the run ID it removed (IF-214).
+    redis.call('HSET', KEYS[1], 'lease_owner', ARGV[9], 'lease_expires_micros', expiry,
+        'event_incarnation', ARGV[9])
     redis.call('ZADD', KEYS[12], expiry, ARGV[5])
 end
 if catalog_enabled then

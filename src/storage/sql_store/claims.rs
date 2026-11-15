@@ -53,6 +53,7 @@ impl SqlStateStore {
         self.add_column_if_missing(
             &self.tables.schedule_claims,
             RUN_COLUMN,
+            "BIGINT",
             "Failed to add SQL schedule-claim run column",
         )
         .await

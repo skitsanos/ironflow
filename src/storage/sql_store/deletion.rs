@@ -1,7 +1,9 @@
 //! Deletion of one run from the SQL state store.
 
+use sqlx::Row as _;
+
 use super::{SqlStateStore, parse_run_status};
-use crate::storage::{StorageError, StorageResult};
+use crate::storage::{DeletedRun, StorageError, StorageResult};
 
 /// A delete restarts only when a lease appears between its two lock
 /// statements, which needs a new run with the same ID each time.
@@ -9,17 +11,20 @@ const DELETE_ATTEMPTS: usize = 3;
 
 #[derive(Debug, PartialEq, Eq)]
 enum DeleteAttempt {
-    Deleted,
+    Deleted(DeletedRun),
     /// A lease was committed after the lease lock and before the run lock.
     LeaseAppeared,
 }
 
 impl SqlStateStore {
     /// Delete one run unless a live owner is still executing it (IF-062).
-    pub(super) async fn delete_run_transactional(&self, run_id: &str) -> StorageResult<()> {
+    ///
+    /// The incarnation is read from the locked row that the same transaction
+    /// removes, so it names exactly the run that was deleted (IF-214).
+    pub(super) async fn delete_run_transactional(&self, run_id: &str) -> StorageResult<DeletedRun> {
         for _ in 0..DELETE_ATTEMPTS {
-            if self.try_delete_run(run_id).await? == DeleteAttempt::Deleted {
-                return Ok(());
+            if let DeleteAttempt::Deleted(deleted) = self.try_delete_run(run_id).await? {
+                return Ok(deleted);
             }
         }
         Err(StorageError::conflict(format_args!(
@@ -54,9 +59,7 @@ impl SqlStateStore {
             })?;
             return Ok(DeleteAttempt::LeaseAppeared);
         }
-        let status = self
-            .read_locked_run_status(&mut transaction, run_id)
-            .await?;
+        let (status, incarnation) = self.read_locked_run(&mut transaction, run_id).await?;
         if !status.is_terminal()
             && let Some(expires_micros) = lease_expiry
             && expires_micros > self.database_now_micros(&mut transaction).await?
@@ -110,7 +113,7 @@ impl SqlStateStore {
                 error,
             )
         })?;
-        Ok(DeleteAttempt::Deleted)
+        Ok(DeleteAttempt::Deleted(DeletedRun { incarnation }))
     }
 
     async fn run_lease_exists(
@@ -161,27 +164,30 @@ impl SqlStateStore {
             })
     }
 
-    async fn read_locked_run_status(
+    async fn read_locked_run(
         &self,
         transaction: &mut sqlx::Transaction<'_, sqlx::Any>,
         run_id: &str,
-    ) -> StorageResult<crate::engine::types::RunStatus> {
+    ) -> StorageResult<(crate::engine::types::RunStatus, Option<String>)> {
         let sql = format!(
-            "SELECT status FROM {} WHERE id = {}",
+            "SELECT status, incarnation FROM {} WHERE id = {}",
             self.tables.runs,
             self.placeholder(1),
         );
-        let status = sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(sql.as_str()))
+        let inspect = |error: sqlx::Error| {
+            StorageError::backend(
+                format_args!("Failed to inspect run '{run_id}' for deletion"),
+                error,
+            )
+        };
+        let row = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
             .bind(run_id)
             .fetch_one(&mut **transaction)
             .await
-            .map_err(|error| {
-                StorageError::backend(
-                    format_args!("Failed to inspect run '{run_id}' for deletion"),
-                    error,
-                )
-            })?;
-        parse_run_status(&status)
+            .map_err(inspect)?;
+        let status: String = row.try_get("status").map_err(inspect)?;
+        let incarnation: Option<String> = row.try_get("incarnation").map_err(inspect)?;
+        Ok((parse_run_status(&status)?, incarnation))
     }
 
     async fn database_now_micros(
