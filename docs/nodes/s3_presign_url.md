@@ -45,6 +45,15 @@ signing network-free; other credential providers may contact their identity
 service. Presigning does not verify that the MRAP exists or that its policy
 permits the eventual request.
 
+## Outbound destination policy
+
+Presigning sends no request, but the client is built the same way as for the
+other S3 nodes: when the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`,
+an `endpoint_url` (or `AWS_ENDPOINT_URL`) that is `localhost` or not a public
+unicast address is refused unless the operator lists it in
+`IRONFLOW_PRIVATE_NETWORK_ALLOWLIST`. See
+[Outbound destinations](../SECURITY.md#outbound-destinations).
+
 ## Example
 
 ```lua

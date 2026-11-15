@@ -205,7 +205,7 @@ also applies when only the per-node option turned the guard on.
 | `llm`, `ai_embed`, `ai_chunk_semantic`, `transcribe` | `base_url`, `azure_endpoint`, `ollama_host`, OAuth `token_url`, their environment variables, and an absolute `chat_path`, `responses_path` or `path` of a custom `llm` provider | The same, on the resolved request URL. Redirects are same-origin only. |
 | `slack_notification`, `send_email` with `resend`, `arangodb_aql` | `webhook_url`, `api_url`, `url` | The same. Redirects are same-origin only. |
 | `mcp_client` (Streamable HTTP) | `url` | The same; only same-origin `307`/`308` redirects are followed. |
-| `s3_*` and S3 Vectors nodes | `endpoint_url`, `AWS_ENDPOINT_URL` | Not covered. |
+| `s3_*` and S3 Vectors nodes | `endpoint_url`, `AWS_ENDPOINT_URL` | Literal endpoint address and every DNS answer of the service client checked and pinned. A virtual-hosted bucket (`<bucket>.<endpoint host>`) is judged as the endpoint host. The SDK credential providers keep their own client. |
 | `send_email` with `smtp` | `smtp_server`, `smtp_port` | Not covered. |
 | `db_query`, `db_exec` | `connection` | Not covered. |
 | `shell_command`, `mcp_client` (stdio) | the command | Not covered; a subprocess can open any connection. |

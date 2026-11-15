@@ -2534,6 +2534,8 @@ dependencies = [
  "aws-config",
  "aws-sdk-s3",
  "aws-sdk-s3vectors",
+ "aws-smithy-http-client",
+ "aws-smithy-runtime-api",
  "aws-smithy-types",
  "axum",
  "base64 0.23.1",

@@ -1341,6 +1341,8 @@ Clients take the guard in the form their driver allows:
   request URL, so a literal internal address is refused even where a call
   site adds no check of its own. Nodes also check the resolved URL first to
   report a readable error.
+- The S3 and S3 Vectors service clients get the AWS SDK HTTPS client with
+  the guard's resolver; the SDK credential providers keep their own client.
 
 The policy is read from the environment on each use, with the
 `ironflow.yaml` keys installed by the CLI as a fallback, so an embedding

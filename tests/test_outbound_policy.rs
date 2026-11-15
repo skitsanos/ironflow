@@ -79,6 +79,7 @@ fn cases() -> Vec<Case> {
     let mut cases = http_cases();
     cases.extend(provider_cases());
     cases.extend(mcp_cases());
+    cases.extend(s3_cases());
     cases
 }
 
@@ -171,6 +172,22 @@ fn mcp_cases() -> Vec<Case> {
         r#"nodes.mcp_client({ transport = "streamable_http", url = "%URL%/mcp",
                 action = "initialize", timeout = 5 })"#,
     )]
+}
+
+/// S3 and S3 Vectors service clients.
+fn s3_cases() -> Vec<Case> {
+    vec![
+        case(
+            "s3_list_objects",
+            r#"nodes.s3_list_objects({ bucket = "b", endpoint_url = "%URL%",
+                region = "us-east-1", force_path_style = true })"#,
+        ),
+        case(
+            "s3vector_get_bucket",
+            r#"nodes.s3vector_get_bucket({ vector_bucket_name = "made-up-bucket",
+                endpoint_url = "%URL%", region = "us-east-1" })"#,
+        ),
+    ]
 }
 
 struct Outcome {

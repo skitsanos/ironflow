@@ -23,6 +23,7 @@
 
 pub(crate) mod address;
 pub(crate) mod allow;
+pub(crate) mod aws;
 mod client;
 mod destination;
 #[cfg(test)]
