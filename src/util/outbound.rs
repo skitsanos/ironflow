@@ -26,6 +26,7 @@ pub(crate) mod allow;
 pub(crate) mod aws;
 mod client;
 mod destination;
+mod host;
 #[cfg(test)]
 pub(crate) mod node_checks;
 pub(crate) mod policy;
@@ -46,6 +47,7 @@ use anyhow::Result;
 use address::ip_is_internal;
 use allow::{AllowList, NameMatch};
 pub(crate) use destination::ensure_url_allowed;
+pub(crate) use host::resolve_host_allowed;
 pub(crate) use resolver::GuardedResolver;
 
 /// Why the guard is active, for the diagnostic.
@@ -208,6 +210,9 @@ impl Guard {
 #[cfg(test)]
 #[path = "outbound/guard_tests.rs"]
 mod guard_tests;
+#[cfg(test)]
+#[path = "outbound/host_tests.rs"]
+mod host_tests;
 #[cfg(test)]
 #[path = "outbound/http_tests.rs"]
 mod http_tests;

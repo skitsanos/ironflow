@@ -78,13 +78,16 @@ send the email again.
 
 ## Outbound destination policy
 
-When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, the Resend
-provider refuses an `api_url` that is not a public unicast destination
-before connecting: a literal private, loopback or link-local address,
-`localhost`, and a host name whose DNS answer contains such an address. The
-validated answer is the one connected to. An internal destination must be
-listed by the operator in `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST`; nothing in
-the flow can add one. The SMTP provider is not covered. See
+When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, both providers
+refuse a destination that is not a public unicast address before connecting:
+a literal private, loopback or link-local address, `localhost`, and a host
+name whose DNS answer contains such an address. The Resend `api_url` is
+checked like any HTTP destination and its validated DNS answer is pinned.
+For SMTP the `smtp_server` name is resolved and checked once and the
+transport connects to the first validated address, so the name is not
+resolved a second time; TLS still verifies the configured name. An internal
+relay must be listed by the operator in `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST`
+(for example `mail.internal:587`); nothing in the flow can add one. See
 [Outbound destinations](../SECURITY.md#outbound-destinations).
 
 ## Examples

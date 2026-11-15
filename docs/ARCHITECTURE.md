@@ -1343,6 +1343,10 @@ Clients take the guard in the form their driver allows:
   report a readable error.
 - The S3 and S3 Vectors service clients get the AWS SDK HTTPS client with
   the guard's resolver; the SDK credential providers keep their own client.
+- SMTP resolves the relay through the guard and connects to that address
+  while TLS verifies the configured name.
+- `db_query` and `db_exec` get a host check only, because the SQL driver
+  resolves the URL host itself.
 
 The policy is read from the environment on each use, with the
 `ironflow.yaml` keys installed by the CLI as a fallback, so an embedding

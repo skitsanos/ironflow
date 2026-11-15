@@ -58,6 +58,19 @@ SQL when those consumers need exact large integer identifiers. Binary output
 does not add binary parameter binding: arrays and objects in `params` remain
 unsupported.
 
+## Outbound destination policy
+
+When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, every network
+host the `connection` URL names (the URL host and the PostgreSQL `host` and
+`hostaddr` query parameters) is resolved and refused when it is `localhost`
+or not a public unicast address. This is a host check only: the database
+driver resolves the name again when it connects, so it is weaker than the
+DNS pinning of the HTTP nodes. A database on a private address must be
+listed by the operator in `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` (for example
+`db.internal:5432`). SQLite files and Unix sockets are not network
+destinations and are unaffected. See
+[Outbound destinations](../SECURITY.md#outbound-destinations).
+
 ## Example
 
 ```lua

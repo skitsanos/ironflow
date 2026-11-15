@@ -206,8 +206,8 @@ also applies when only the per-node option turned the guard on.
 | `slack_notification`, `send_email` with `resend`, `arangodb_aql` | `webhook_url`, `api_url`, `url` | The same. Redirects are same-origin only. |
 | `mcp_client` (Streamable HTTP) | `url` | The same; only same-origin `307`/`308` redirects are followed. |
 | `s3_*` and S3 Vectors nodes | `endpoint_url`, `AWS_ENDPOINT_URL` | Literal endpoint address and every DNS answer of the service client checked and pinned. A virtual-hosted bucket (`<bucket>.<endpoint host>`) is judged as the endpoint host. The SDK credential providers keep their own client. |
-| `send_email` with `smtp` | `smtp_server`, `smtp_port` | Not covered. |
-| `db_query`, `db_exec` | `connection` | Not covered. |
+| `send_email` with `smtp` | `smtp_server`, `smtp_port` | The relay name is resolved and checked once, and the transport connects to the first validated address; TLS still verifies the configured name. |
+| `db_query`, `db_exec` | `connection` | **Host check only.** Every host the URL names (including the PostgreSQL `host` and `hostaddr` query parameters) is resolved and checked before connecting. The driver resolves the name again itself, so a name whose answer changes between the two lookups is not caught. Prefer a literal address or a CIDR entry where that matters. SQLite files and Unix sockets are not network destinations. |
 | `shell_command`, `mcp_client` (stdio) | the command | Not covered; a subprocess can open any connection. |
 
 The refusal reads `blocked: target is a private network address` or
@@ -219,6 +219,17 @@ With the guard on these clients connect directly and ignore a system proxy,
 because a proxy would resolve the destination outside the guard;
 `proxy_mode = "system"` on an `http_*` node is refused. A deployment that
 requires an egress proxy should enforce destinations there instead.
+
+Common local setups under the policy:
+
+- A model server on the same host (`OLLAMA_HOST=http://127.0.0.1:11434`, or
+  an OpenAI-compatible `base_url` on loopback): add `127.0.0.1:11434`, or
+  `localhost:11434` when the URL says `localhost`.
+- A model server, ArangoDB, MinIO or mail relay on a private network: add
+  its host name with the port (`minio.internal:9000`) or its address.
+- A PostgreSQL server on a private address: add `db.internal:5432` or the
+  address. An environment-supplied destination (`OLLAMA_HOST`,
+  `AWS_ENDPOINT_URL`, `PGHOST`) is checked like one written in the flow.
 
 ### Out of scope
 

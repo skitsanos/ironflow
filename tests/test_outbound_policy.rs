@@ -80,6 +80,7 @@ fn cases() -> Vec<Case> {
     cases.extend(provider_cases());
     cases.extend(mcp_cases());
     cases.extend(s3_cases());
+    cases.extend(host_cases());
     cases
 }
 
@@ -187,6 +188,29 @@ fn s3_cases() -> Vec<Case> {
             r#"nodes.s3vector_get_bucket({ vector_bucket_name = "made-up-bucket",
                 endpoint_url = "%URL%", region = "us-east-1" })"#,
         ),
+    ]
+}
+
+/// Destinations given as a host and port: SMTP pinned, databases host-checked.
+fn host_cases() -> Vec<Case> {
+    vec![
+        case(
+            "send_email smtp",
+            r#"nodes.send_email({ provider = "smtp", smtp_server = "%HOST%", smtp_port = %PORT%,
+                smtp_tls = "none", %EMAIL% })"#,
+        ),
+        Case {
+            name: "db_query",
+            step: r#"nodes.db_query({ connection = "postgres://u:made-up@%HOST%:%PORT%/db",
+                query = "SELECT 1" })"#,
+            connects: cfg!(feature = "postgres"),
+        },
+        Case {
+            name: "db_exec",
+            step: r#"nodes.db_exec({ connection = "postgres://u:made-up@%HOST%:%PORT%/db",
+                query = "SELECT 1" })"#,
+            connects: cfg!(feature = "postgres"),
+        },
     ]
 }
 
