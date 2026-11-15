@@ -169,3 +169,32 @@ async fn remote_prune_counts_foreign_keys_and_refuses_a_window_without_a_digest(
     assert!(String::from_utf8_lossy(&output.stdout).contains("deleted 2"));
     assert!(orphans.iter().all(|digest| !bucket.contains(digest)));
 }
+
+/// IF-215: one listing page is bounded in bytes before the SDK buffers it,
+/// as for `s3_list_objects`. The default limit is 16 MiB.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn remote_prune_refuses_a_listing_page_above_the_byte_ceiling() {
+    let directory = tempfile::tempdir().unwrap();
+    let bucket = ArtifactBucket::start(3).await;
+    // One key within the page size whose name alone is 17 MiB.
+    bucket.insert_foreign(&"k".repeat(17 * 1024 * 1024));
+    let orphans = digests(2);
+    for digest in &orphans {
+        bucket.insert(digest);
+    }
+    retain(&directory.path().join("runs"), &[]).await;
+
+    let refused = run_prune(&bucket, directory.path(), &[]).await;
+
+    assert!(!refused.status.success());
+    let stderr = String::from_utf8_lossy(&refused.stderr);
+    assert!(
+        stderr.contains(
+            "artifacts prune: a list page exceeds IRONFLOW_MAX_S3_LIST_PAGE_BYTES (16777216)"
+        ),
+        "{}",
+        &stderr[..stderr.len().min(2_000)]
+    );
+    assert!(stderr.len() < 64 * 1024, "{} bytes", stderr.len());
+    assert!(orphans.iter().all(|digest| bucket.contains(digest)));
+}

@@ -6,6 +6,7 @@ use super::remote::{S3ArtifactStore, wait_for};
 use super::remote_config::runtime;
 use super::retention::{ArtifactCandidate, PruneWindow, validate_digest_name};
 use crate::util::execution::ExecutionControl;
+use crate::util::s3_page_limit::{PageByteLimit, refusal};
 
 /// S3 never returns more keys than this in one listing page.
 const MAX_PAGE_KEYS: usize = 1000;
@@ -34,19 +35,26 @@ impl S3ArtifactStore {
             loop {
                 execution.checkpoint()?;
                 let page_keys = i32::try_from((scan - listed).min(MAX_PAGE_KEYS))?;
-                let page = wait_for(
-                    client
-                        .list_objects_v2()
-                        .bucket(&bucket)
-                        .prefix(&prefix)
-                        .max_keys(page_keys)
-                        .set_start_after(start_after.clone().filter(|_| continuation.is_none()))
-                        .set_continuation_token(continuation)
-                        .send(),
-                    execution,
-                )
-                .await
-                .context("failed to list S3 artifacts for retention")?;
+                // The SDK buffers a page before parsing it, so the page is
+                // bounded in bytes first (IF-215).
+                let page_limit = PageByteLimit::current();
+                let page_bytes = page_limit.limit();
+                let request = client
+                    .list_objects_v2()
+                    .bucket(&bucket)
+                    .prefix(&prefix)
+                    .max_keys(page_keys)
+                    .set_start_after(start_after.clone().filter(|_| continuation.is_none()))
+                    .set_continuation_token(continuation)
+                    .customize()
+                    .interceptor(page_limit)
+                    .send();
+                let page = wait_for(request, execution)
+                    .await
+                    .map_err(|error| {
+                        refusal("artifacts prune", error.as_ref(), page_bytes).unwrap_or(error)
+                    })
+                    .context("failed to list S3 artifacts for retention")?;
                 for object in page.contents().iter().take(scan - listed) {
                     listed += 1;
                     let Some(digest) = object.key().and_then(|key| key.strip_prefix(&prefix))

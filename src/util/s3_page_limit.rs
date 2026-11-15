@@ -5,6 +5,7 @@
 //! endpoint could therefore send one very large page. The ceiling is applied
 //! to the response before the SDK reads it: a declared length above it is
 //! refused at once, and a body without a length is cut off while streaming.
+//! The S3 list nodes and the artifact store's retention listing share it.
 
 use std::error::Error;
 use std::fmt;
@@ -17,19 +18,19 @@ use http_body_util::{LengthLimitError, Limited};
 
 /// Refuses a response body larger than `limit` bytes.
 #[derive(Debug)]
-pub(super) struct PageByteLimit {
+pub(crate) struct PageByteLimit {
     limit: u64,
 }
 
 impl PageByteLimit {
     /// The ceiling from `IRONFLOW_MAX_S3_LIST_PAGE_BYTES`.
-    pub(super) fn current() -> Self {
+    pub(crate) fn current() -> Self {
         Self {
             limit: crate::util::limits::max_s3_list_page_bytes(),
         }
     }
 
-    pub(super) fn limit(&self) -> u64 {
+    pub(crate) fn limit(&self) -> u64 {
         self.limit
     }
 }
@@ -72,10 +73,10 @@ impl Intercept for PageByteLimit {
     }
 }
 
-/// The node error for a failure this ceiling caused, or `None` when `error`
-/// has another cause.
-pub(super) fn refusal(
-    node: &str,
+/// The error for a failure this ceiling caused, naming the `operation` that
+/// listed, or `None` when `error` has another cause.
+pub(crate) fn refusal(
+    operation: &str,
     error: &(dyn Error + 'static),
     limit: u64,
 ) -> Option<anyhow::Error> {
@@ -83,7 +84,7 @@ pub(super) fn refusal(
     while let Some(error) = cause {
         if error.is::<DeclaredTooLarge>() || error.is::<LengthLimitError>() {
             return Some(anyhow::anyhow!(
-                "{node}: a list page exceeds IRONFLOW_MAX_S3_LIST_PAGE_BYTES ({limit})"
+                "{operation}: a list page exceeds IRONFLOW_MAX_S3_LIST_PAGE_BYTES ({limit})"
             ));
         }
         cause = error.source();
