@@ -656,6 +656,31 @@ publication is verified separately.
 
 ## Security
 
+- **The outbound destination guard can be forced on for the whole process,
+  and covers every node that connects to a flow-chosen destination**
+  (IF-212). `IRONFLOW_BLOCK_PRIVATE_NETWORK=true` (or
+  `block_private_network: true` in `ironflow.yaml`) refuses `localhost` and
+  every address that is not a public unicast destination, before any
+  connection, for the `http_*` nodes, `llm` (including an absolute
+  `chat_path`, `responses_path` or `path` of a custom provider), `ai_embed`
+  and `ai_chunk_semantic` (including the OAuth `token_url`), `transcribe`,
+  `slack_notification`, `send_email` (Resend and SMTP), `arangodb_aql`,
+  `mcp_client` over Streamable HTTP and the S3 and S3 Vectors nodes, with
+  every DNS answer validated and pinned. `db_query` and `db_exec` get a host
+  check only, because the SQL driver resolves the name again. The policy is
+  one-way: `block_private_network = false` on an `http_*` node cannot turn
+  it off. It is off by default, and with it off nothing changes.
+  `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` (or `private_network_allowlist`)
+  names the internal destinations that stay reachable, as host names,
+  `host:port`, addresses and CIDR ranges; only the operator can set it. With
+  the policy on, a local model server (`OLLAMA_HOST`, a loopback
+  `base_url`), MinIO, ArangoDB, a mail relay or a database on a private
+  address needs an entry, for example `127.0.0.1:11434`, and the covered
+  nodes connect directly, ignoring a system proxy. A malformed value of
+  either setting stops `run`, `validate` and `serve` at startup. The
+  operator endpoints (artifact store, state and event stores, metrics) are
+  not checked. See
+  [Outbound destinations](../SECURITY.md#outbound-destinations).
 - **`mcp_client` bounds Streamable HTTP responses** (IF-173). `rmcp` is
   updated to 3.9.0 for RUSTSEC-2026-0462: a JSON response is limited to
   16 MiB and a non-2xx body to 64 KiB, and a larger one fails the action
