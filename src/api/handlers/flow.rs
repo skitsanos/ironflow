@@ -127,6 +127,16 @@ pub async fn run_flow(
         .map_err(|e| flow_file_load_error(&path, &e))?
     };
 
+    // The engine refuses the same flow, but as an internal error: report what
+    // `POST /flows/validate` reports, before a run exists (IF-203).
+    let errors = super::admission::flow_validation_errors(&flow, &state.registry);
+    if !errors.is_empty() {
+        return Err(AppError::BadRequest(format!(
+            "Flow validation failed: {}",
+            errors.join("; ")
+        )));
+    }
+
     let mut initial_ctx = context.unwrap_or_default();
     let flow_name = flow.name.clone();
 

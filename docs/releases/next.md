@@ -783,6 +783,16 @@ publication is verified separately.
   could not have completed those retries before. See
   [Retries](../LUA_FLOW_GUIDE.md#retries).
 
+- `POST /flows/run` answers an invalid flow with `400` and the validation
+  errors (IF-203). A flow whose step depends on an undefined step, names an
+  unknown node type or has a step option out of range used to reach the
+  engine, which answered a broken graph with `500 internal_error`. The
+  response is now `400 bad_request` with `Flow validation failed: ` and the
+  errors `POST /flows/validate` reports, and no run record is created. A
+  webhook whose configured flow is invalid answers `400` with `Webhook flow
+  failed validation` and logs the errors. See
+  [Ad-hoc Flow Execution](../CLI_REFERENCE.md#ad-hoc-flow-execution).
+
 - Starting a PostgreSQL replica no longer locks tables that running replicas
   use (IF-202). Every start used to take `ACCESS EXCLUSIVE` on the events
   table before checking its primary key, and to issue

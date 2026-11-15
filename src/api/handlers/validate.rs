@@ -94,18 +94,7 @@ pub async fn validate_flow(
     Ok(Json(match flow_result {
         Ok(validated) => {
             let flow = validated.flow;
-            let mut errors = flow
-                .steps
-                .iter()
-                .filter(|step| state.registry.get(&step.node_type).is_none())
-                .map(|step| {
-                    format!(
-                        "Step '{}' uses unknown node type '{}'",
-                        step.name, step.node_type
-                    )
-                })
-                .collect::<Vec<_>>();
-            errors.extend(flow.validate_dag());
+            let mut errors = super::admission::flow_validation_errors(&flow, &state.registry);
             if strict && !validated.warnings.is_empty() {
                 errors.push(format!(
                     "Strict validation rejected {} Lua handler warning(s)",

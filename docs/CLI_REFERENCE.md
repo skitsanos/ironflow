@@ -1147,6 +1147,15 @@ syntax, captured outer locals, and ambiguous function source ranges are errors
 in both modes. Reused callbacks are supported and their source warnings are
 deduplicated, with the same behavior as CLI validation.
 
+`POST /flows/run` applies the same validation before it creates a run. A flow
+that loads but is invalid (a step that depends on an undefined step, an
+unknown node type, a step option out of range) is answered with `400` and
+`bad_request`; the `error` text is `Flow validation failed: ` followed by the
+errors `POST /flows/validate` reports for that flow, separated by `; `. No
+run record is created. A webhook whose configured flow is invalid answers
+`400` with `Webhook flow failed validation` and logs the errors at `WARN`,
+because that flow is server configuration and not the caller's input.
+
 That is the intended contract for a general-purpose engine — but it means an API
 key that can reach `/flows/run` can run any node, so it can read or write any
 path the server process can and execute shell commands. If your deployment

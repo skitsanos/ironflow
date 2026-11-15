@@ -7,6 +7,7 @@ use axum::extract::{Path, State};
 use crate::engine::WorkflowEngine;
 use crate::engine::types::Context;
 use crate::lua::LuaRuntime;
+use crate::util::sensitive_url::redact_sensitive_text;
 
 use super::super::AppState;
 use super::super::errors::AppError;
@@ -81,6 +82,20 @@ pub async fn run_webhook(
     )
     .await
     .map_err(|e| flow_file_load_error(&path, &e))?;
+
+    // The flow is server configuration: the caller learns that it is
+    // unusable, the operator reads why in the log (IF-203).
+    let errors = super::admission::flow_validation_errors(&flow, &state.registry);
+    if !errors.is_empty() {
+        tracing::warn!(
+            webhook = %name,
+            errors = %redact_sensitive_text(&errors.join("; ")),
+            "webhook flow failed validation"
+        );
+        return Err(AppError::BadRequest(
+            "Webhook flow failed validation".to_string(),
+        ));
+    }
 
     // Inject webhook name
     initial_ctx.insert("_webhook".to_string(), serde_json::Value::String(name));

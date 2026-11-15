@@ -19,6 +19,8 @@ mod test_api_idempotency;
 mod test_api_sse;
 #[path = "../test_blank_settings.rs"]
 mod test_blank_settings;
+#[path = "../test_flow_run_validation.rs"]
+mod test_flow_run_validation;
 #[path = "../test_request_context_depth.rs"]
 mod test_request_context_depth;
 #[path = "../test_run_id_api.rs"]
