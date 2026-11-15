@@ -728,6 +728,15 @@ publication is verified separately.
   `zip_extract` and OOXML/XLSX extraction now reject it before the reader
   runs, with a multi-disk error. Found while re-reading `zip` 9.6.0; the
   behaviour was the same in 9.5.1.
+- **`extract_xlsx` refuses files that start with an OLE compound-file
+  header** (IF-218). `calamine` probes every workbook for a compound file
+  before opening the ZIP, and in 0.38.0 that probe follows a sector chain
+  without a cycle check: an input of a few kilobytes with a looping chain
+  allocated past 256 MiB in a capped test harness. A ZIP package can carry
+  such a header in front of its first entry and still pass every archive
+  check, so the file is now rejected before the workbook is opened. Legacy
+  `.xls` files and password-protected workbooks were already unreadable; they
+  now fail with a message that says why.
 - **`extract_xlsx` bounds the workbook style table** (IF-173). `calamine` is
   updated to 0.38.0 for RUSTSEC-2026-0436. That version expands `styles.xml`
   into one record per cell format when a workbook opens, so the table is now

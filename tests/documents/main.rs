@@ -20,6 +20,8 @@ mod test_extract_pdf_font_bounds;
 mod test_extract_word_text_boxes;
 #[path = "../test_extract_xlsx.rs"]
 mod test_extract_xlsx;
+#[path = "../test_extract_xlsx_compound_prefix.rs"]
+mod test_extract_xlsx_compound_prefix;
 #[path = "../test_extract_xlsx_styles.rs"]
 mod test_extract_xlsx_styles;
 #[path = "../test_file_source_interpolation.rs"]

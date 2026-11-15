@@ -94,6 +94,13 @@ The general `IRONFLOW_MAX_EXTRACT_ITEMS` and
 
 `IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES` and `IRONFLOW_MAX_ZIP_ENTRIES` also apply. A bounded EOCD/ZIP64 pre-flight validates the raw workbook size, central-directory bounds, and entry count before the ZIP library can allocate metadata from those fields. The pre-flight accepts only the last end record in the file, which must end at EOF with its comment, and a central directory that ends exactly where that record begins; the opened archive's directory offset and raw entry count must then match the validated ones. Workbooks with trailing bytes, prepended data, or a second end record inside the archive comment are rejected. IronFlow then streams every part, checking its declared and actual uncompressed bytes. For XLSX, the uncompressed-byte setting also caps the raw archive itself; this prevents compressed input and central-directory work from escaping the process ceiling.
 
+A file that starts with an OLE compound-file header is rejected before the
+workbook is opened (IF-218): a legacy `.xls`, a password-protected workbook,
+or a ZIP package with such a header in front of its first entry. Calamine
+probes every workbook for a compound file before it opens the ZIP, and that
+probe is not bounded against a looping sector chain. Convert legacy or
+encrypted workbooks to a plain `.xlsx` first.
+
 Sheet selection reads borrowed Calamine metadata and clones only the selected
 name (or all names only when all sheets are requested). Invalid selectors show
 at most four available name previews, each truncated to 160 UTF-8 bytes, so an

@@ -360,7 +360,7 @@ release were handled on 2026-11-12 ([IF-173](issues/IF-173.md)):
 | Advisory | Crate | Outcome |
 | --- | --- | --- |
 | [RUSTSEC-2026-0462](https://rustsec.org/advisories/RUSTSEC-2026-0462.html) | `rmcp` | Updated to 3.9.0 and required as the minimum. `mcp_client` over Streamable HTTP was affected: JSON and error bodies were read without a limit. They are now capped at 16 MiB and 64 KiB. |
-| [RUSTSEC-2026-0436](https://rustsec.org/advisories/RUSTSEC-2026-0436.html) | `calamine` | Updated to 0.38.0. The defect is in the `.xls`/`.xlsb`/VBA container parser, which `extract_xlsx` never calls. |
+| [RUSTSEC-2026-0436](https://rustsec.org/advisories/RUSTSEC-2026-0436.html) | `calamine` | Updated to 0.38.0. The defect is in the `.xls`/`.xlsb`/VBA container parser. `extract_xlsx` does not read those formats, but see the note below on the compound-file probe. |
 | [RUSTSEC-2026-0459](https://rustsec.org/advisories/RUSTSEC-2026-0459.html) | `libsqlite3-sys` | Not fixable yet; one reviewed exception, described below. |
 
 Updating `calamine` was not free of risk. Version 0.38 builds a style record
@@ -369,6 +369,16 @@ number-format code into each one, so a workbook of a few kilobytes could hold
 gigabytes before a cell was read. `extract_xlsx` now bounds that table against
 `IRONFLOW_MAX_XLSX_OUTPUT_BYTES` before the workbook is opened; see
 [`extract_xlsx`](nodes/extract_xlsx.md#ceilings).
+
+The compound-file (OLE) parser is not entirely out of reach of
+`extract_xlsx`, as first recorded here. `calamine::Xlsx::new` probes every
+input for a compound file, to report password protection, before it opens the
+ZIP. In 0.38.0 that probe follows the directory sector chain without a cycle
+check, so a file of a few kilobytes with a looping chain grows a buffer until
+memory is exhausted, and a ZIP package may begin with such a header.
+`extract_xlsx` therefore refuses any file that starts with the compound-file
+signature before the workbook is opened ([IF-218](issues/IF-218.md)). This has
+not been reported upstream.
 
 ### SQLite exception (RUSTSEC-2026-0459)
 
