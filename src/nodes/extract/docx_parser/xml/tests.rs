@@ -1,10 +1,10 @@
 use super::*;
 use crate::nodes::extract::resource::Limits;
-use crate::util::execution::run_blocking_step;
+use crate::util::execution::run_tracked_blocking_step;
 
 #[tokio::test]
 async fn decoded_references_and_cdata_consume_real_extraction_budget() {
-    run_blocking_step(|execution| {
+    run_tracked_blocking_step(|execution| {
         for content in ["&#x1F680;&#x1F680;", "<![CDATA[12345678]]>"] {
             let limits = Limits {
                 max_output_bytes: 7,
@@ -39,7 +39,7 @@ async fn decoded_references_and_cdata_consume_real_extraction_budget() {
 
 #[tokio::test]
 async fn temporary_attribute_decoding_is_admitted_before_normalization() {
-    run_blocking_step(|execution| {
+    run_tracked_blocking_step(|execution| {
         let limits = Limits {
             max_output_bytes: 4,
             max_items: 100,

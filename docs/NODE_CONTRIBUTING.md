@@ -144,10 +144,13 @@ dropping that future cancels pending I/O. Do not detach background work unless
 the node's documented contract is explicitly fire-and-forget.
 
 CPU-heavy or synchronous work must not run directly on a Tokio runtime worker.
-Use `crate::util::execution::run_blocking_step` and call the supplied
+Use `crate::util::execution::run_tracked_blocking_step` and call the supplied
 `ExecutionControl::checkpoint()` between meaningful units of work. The helper
 propagates the enclosing step deadline and signals cancellation when the async
-waiter is dropped. A third-party blocking call that never returns cannot be
+waiter is dropped. It is the only bridge to the blocking pool for step work:
+the worker registers with its step, so a step that times out or is cancelled
+keeps its `on_error` handler, its run and their admission until the worker has
+returned. Do not call `tokio::task::spawn_blocking` from a node. A third-party blocking call that never returns cannot be
 forcibly unwound, so document that boundary and avoid starting irreversible
 side effects before a checkpoint when possible.
 

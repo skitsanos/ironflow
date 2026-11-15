@@ -211,33 +211,20 @@ impl Drop for CancelOnDrop {
     }
 }
 
-/// Run synchronous node work on Tokio's blocking pool.
+/// Run synchronous work on Tokio's blocking pool as tracked work of the
+/// step that starts it.
 ///
-/// Dropping this future signals cooperative cancellation to `operation`.
-pub async fn run_blocking_step<T, F>(operation: F) -> Result<T>
-where
-    T: Send + 'static,
-    F: FnOnce(ExecutionControl) -> Result<T> + Send + 'static,
-{
-    let control = ExecutionControl::for_current_task();
-    control.checkpoint()?;
-
-    let worker_control = control.clone();
-    let handle = tokio::task::spawn_blocking(move || operation(worker_control));
-    let mut cancel_on_drop = CancelOnDrop::new(control);
-    let outcome = handle.await;
-    cancel_on_drop.disarm();
-
-    outcome.map_err(|error| anyhow::anyhow!("blocking step worker failed: {error}"))?
-}
-
-/// Run cooperative blocking work whose physical lifetime must be retained by
-/// the surrounding task and run admission scopes.
+/// Dropping this future signals cooperative cancellation to `operation`,
+/// which must check its [`ExecutionControl`] between bounded units of work.
+/// The worker registers with the attempt and run worker sets of the calling
+/// task, so a step that times out or is cancelled keeps its handler, its run
+/// and their admission until the worker has physically stopped (IF-211,
+/// IF-213). A caller outside a step has no worker sets and only gets the
+/// cancellation signal.
 ///
-/// This is intentionally separate from [`run_blocking_step`]: only operations
-/// with bounded, well-placed cancellation checkpoints are safe to retain
-/// during executor shutdown.
-pub(crate) async fn run_tracked_blocking_step<T, F>(operation: F) -> Result<T>
+/// This is the only bridge to the blocking pool for step work: an untracked
+/// variant would let a stalled worker outlive its step.
+pub async fn run_tracked_blocking_step<T, F>(operation: F) -> Result<T>
 where
     T: Send + 'static,
     F: FnOnce(ExecutionControl) -> Result<T> + Send + 'static,

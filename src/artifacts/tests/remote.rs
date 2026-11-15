@@ -13,7 +13,7 @@ use axum::routing::{get, put};
 
 use crate::artifacts::ArtifactStore;
 use crate::artifacts::remote::S3ArtifactStore;
-use crate::util::execution::run_blocking_step;
+use crate::util::execution::run_tracked_blocking_step;
 
 #[derive(Clone, Default)]
 struct ObjectState {
@@ -68,7 +68,7 @@ async fn s3_backend_publishes_and_restores_a_verified_artifact() {
 
     let publish_store = store.clone();
     let publish_bytes = expected.clone();
-    let artifact = run_blocking_step(move |execution| {
+    let artifact = run_tracked_blocking_step(move |execution| {
         publish_store.put_reader(
             Cursor::new(publish_bytes),
             1024,
@@ -88,10 +88,10 @@ async fn s3_backend_publishes_and_restores_a_verified_artifact() {
     let bytes_a = expected.clone();
     let bytes_b = expected.clone();
     let (artifact_a, artifact_b) = tokio::join!(
-        run_blocking_step(move |execution| {
+        run_tracked_blocking_step(move |execution| {
             concurrent_a.put_reader(Cursor::new(bytes_a), 1024, None, &execution)
         }),
-        run_blocking_step(move |execution| {
+        run_tracked_blocking_step(move |execution| {
             concurrent_b.put_reader(Cursor::new(bytes_b), 1024, None, &execution)
         })
     );
@@ -101,10 +101,11 @@ async fn s3_backend_publishes_and_restores_a_verified_artifact() {
     std::fs::remove_file(store.resolve(&artifact).unwrap()).unwrap();
     let restore_store = store.clone();
     let restore_artifact = artifact.clone();
-    let mut restored =
-        run_blocking_step(move |execution| restore_store.open(&restore_artifact, &execution))
-            .await
-            .unwrap();
+    let mut restored = run_tracked_blocking_step(move |execution| {
+        restore_store.open(&restore_artifact, &execution)
+    })
+    .await
+    .unwrap();
     let mut restored_bytes = Vec::new();
     restored.read_to_end(&mut restored_bytes).unwrap();
     assert_eq!(restored_bytes, expected);
@@ -119,7 +120,7 @@ async fn s3_backend_publishes_and_restores_a_verified_artifact() {
     let repair_store = store.clone();
     let repair_artifact = artifact.clone();
     let mut repaired =
-        run_blocking_step(move |execution| repair_store.open(&repair_artifact, &execution))
+        run_tracked_blocking_step(move |execution| repair_store.open(&repair_artifact, &execution))
             .await
             .unwrap();
     let mut repaired_bytes = Vec::new();
@@ -131,7 +132,8 @@ async fn s3_backend_publishes_and_restores_a_verified_artifact() {
     let cancel_store = store.clone();
     let cancel_artifact = artifact.clone();
     let cancelled = tokio::spawn(async move {
-        run_blocking_step(move |execution| cancel_store.open(&cancel_artifact, &execution)).await
+        run_tracked_blocking_step(move |execution| cancel_store.open(&cancel_artifact, &execution))
+            .await
     });
     tokio::time::timeout(Duration::from_secs(1), state.download_started.notified())
         .await
@@ -144,10 +146,11 @@ async fn s3_backend_publishes_and_restores_a_verified_artifact() {
     state.object.lock().unwrap().as_mut().unwrap().bytes[0] ^= 0xff;
     let corrupt_store = store.clone();
     let corrupt_artifact = artifact.clone();
-    let error =
-        run_blocking_step(move |execution| corrupt_store.open(&corrupt_artifact, &execution))
-            .await
-            .unwrap_err();
+    let error = run_tracked_blocking_step(move |execution| {
+        corrupt_store.open(&corrupt_artifact, &execution)
+    })
+    .await
+    .unwrap_err();
     assert!(
         format!("{error:#}").contains("digest verification"),
         "{error:#}"
@@ -156,7 +159,7 @@ async fn s3_backend_publishes_and_restores_a_verified_artifact() {
 
     state.object.lock().unwrap().as_mut().unwrap().bytes = expected;
     let candidate_store = store.clone();
-    let window = run_blocking_step(move |execution| {
+    let window = run_tracked_blocking_step(move |execution| {
         candidate_store.prune_window(
             std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(4_102_444_800),
             None,
@@ -171,13 +174,15 @@ async fn s3_backend_publishes_and_restores_a_verified_artifact() {
     assert_eq!((window.listed, window.next), (1, None));
     let delete_store = store.clone();
     let digest = artifact.sha256.clone();
-    run_blocking_step(move |execution| delete_store.delete_unreferenced(&digest, &execution))
-        .await
-        .unwrap();
+    run_tracked_blocking_step(move |execution| {
+        delete_store.delete_unreferenced(&digest, &execution)
+    })
+    .await
+    .unwrap();
     assert!(state.object.lock().unwrap().is_none());
     let retry_delete_store = store.clone();
     let retry_digest = artifact.sha256.clone();
-    run_blocking_step(move |execution| {
+    run_tracked_blocking_step(move |execution| {
         retry_delete_store.delete_unreferenced(&retry_digest, &execution)
     })
     .await

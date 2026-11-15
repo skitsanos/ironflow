@@ -6,7 +6,7 @@ use crate::lua::analysis::{HandlerDiagnostics, LuaDiagnostic};
 use crate::lua::sandbox::{new_sandboxed_lua, register_shared_globals};
 use crate::nodes::NodeRegistry;
 use crate::nodes::composition::validate_guard_conditions;
-use crate::util::execution::{ExecutionControl, run_blocking_step, run_tracked_blocking_step};
+use crate::util::execution::{ExecutionControl, run_tracked_blocking_step};
 use crate::util::limits::{
     LuaExecutionLimits, apply_lua_limits, apply_lua_limits_with_control, collect_lua_garbage,
     max_flow_source_bytes,
@@ -57,7 +57,7 @@ impl LuaRuntime {
     pub async fn validate_flow_async(path: &str, registry: &NodeRegistry) -> Result<ValidatedFlow> {
         let path = path.to_owned();
         let registry = registry.snapshot();
-        run_blocking_step(move |execution| {
+        run_tracked_blocking_step(move |execution| {
             Self::load_flow_controlled(&path, &registry, Some(execution), true)
         })
         .await
@@ -90,7 +90,7 @@ impl LuaRuntime {
         source::validate(source, max_flow_source_bytes())?;
         let source = source.to_owned();
         let registry = registry.snapshot();
-        run_blocking_step(move |execution| {
+        run_tracked_blocking_step(move |execution| {
             Self::load_flow_from_string_controlled(&source, &registry, Some(execution), false)
                 .map(|loaded| loaded.flow)
         })
@@ -113,7 +113,7 @@ impl LuaRuntime {
         source::validate(source, max_flow_source_bytes())?;
         let source = source.to_owned();
         let registry = registry.snapshot();
-        run_blocking_step(move |execution| {
+        run_tracked_blocking_step(move |execution| {
             Self::load_flow_from_string_controlled(&source, &registry, Some(execution), true)
         })
         .await

@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use super::*;
 use crate::nodes::file::RootedDir;
-use crate::util::execution::run_blocking_step;
+use crate::util::execution::run_tracked_blocking_step;
 
 fn key(directory: &Path, leaf: &str, execution: &ExecutionControl) -> Result<DestinationKey> {
     RootedDir::prepare(directory, "test", execution)?.destination_key(OsStr::new(leaf))
@@ -14,9 +14,11 @@ fn key(directory: &Path, leaf: &str, execution: &ExecutionControl) -> Result<Des
 
 async fn hold(directory: &Path, leaf: &'static str) -> DestinationGuard {
     let directory = directory.to_path_buf();
-    run_blocking_step(move |execution| acquire(key(&directory, leaf, &execution)?, &execution))
-        .await
-        .unwrap()
+    run_tracked_blocking_step(move |execution| {
+        acquire(key(&directory, leaf, &execution)?, &execution)
+    })
+    .await
+    .unwrap()
 }
 
 async fn wait_for(flag: &AtomicBool) {
@@ -36,7 +38,7 @@ async fn a_waiter_gets_the_destination_only_after_the_holder_releases_it() {
     let acquired = Arc::new(AtomicBool::new(false));
     let worker_acquired = Arc::clone(&acquired);
     let path = directory.path().to_path_buf();
-    let waiter = tokio::spawn(run_blocking_step(move |execution| {
+    let waiter = tokio::spawn(run_tracked_blocking_step(move |execution| {
         // The same entry spelled in another case must wait as well.
         let guard = acquire(key(&path, "Events.LOG", &execution)?, &execution)?;
         worker_acquired.store(true, Ordering::Release);
@@ -67,7 +69,7 @@ async fn a_cancelled_waiter_stops_waiting_and_does_not_take_the_destination() {
         Arc::clone(&outcome),
     );
     let path = directory.path().to_path_buf();
-    let waiter = tokio::spawn(run_blocking_step(move |execution| {
+    let waiter = tokio::spawn(run_tracked_blocking_step(move |execution| {
         let key = key(&path, "events.log", &execution)?;
         worker_started.store(true, Ordering::Release);
         let result = acquire(key, &execution);
@@ -109,7 +111,7 @@ async fn a_directory_alias_names_the_same_destination() {
     std::fs::create_dir(&real).unwrap();
     std::os::unix::fs::symlink(&real, &alias).unwrap();
 
-    run_blocking_step(move |execution| {
+    run_tracked_blocking_step(move |execution| {
         let direct = key(&real, "events.log", &execution)?;
         assert_eq!(direct, key(&alias, "events.log", &execution)?);
         assert_ne!(direct, key(&real, "other.log", &execution)?);

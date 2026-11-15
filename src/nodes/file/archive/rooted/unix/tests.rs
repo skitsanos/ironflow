@@ -67,7 +67,7 @@ async fn pinned_root_does_not_follow_a_replacement_symlink() {
     let destination_for_worker = destination.clone();
     let pinned_for_worker = pinned.clone();
     let outside_for_worker = outside.clone();
-    crate::util::execution::run_blocking_step(move |execution| {
+    crate::util::execution::run_tracked_blocking_step(move |execution| {
         let root = RootedDir::prepare(&destination_for_worker, "test", &execution)?;
         std::fs::rename(&destination_for_worker, &pinned_for_worker)?;
         symlink(&outside_for_worker, &destination_for_worker)?;
@@ -225,7 +225,7 @@ async fn staged_file_is_private_until_commit_then_takes_the_published_mode() {
     std::fs::set_permissions(&replaced, std::fs::Permissions::from_mode(0o664)).unwrap();
 
     let worker_path = path.clone();
-    crate::util::execution::run_blocking_step(move |execution| {
+    crate::util::execution::run_tracked_blocking_step(move |execution| {
         let root = RootedDir::prepare(&worker_path, "test", &execution)?;
         for (name, overwrite) in [
             ("replaced.txt", true),
@@ -263,7 +263,7 @@ async fn explicit_permissions_win_over_the_replaced_mode() {
     std::fs::write(&destination, b"before").unwrap();
     std::fs::set_permissions(&destination, std::fs::Permissions::from_mode(0o600)).unwrap();
 
-    crate::util::execution::run_blocking_step(move |execution| {
+    crate::util::execution::run_tracked_blocking_step(move |execution| {
         let root = RootedDir::prepare(&path, "test", &execution)?;
         let mut staged = root.stage_file(Path::new("tool.sh"), true, &execution)?;
         staged.writer().write_all(b"after")?;

@@ -217,7 +217,7 @@ mod tests {
 
     #[tokio::test]
     async fn output_limit_is_checked_without_materializing_an_extra_buffer() {
-        crate::util::execution::run_blocking_step(|execution| {
+        crate::util::execution::run_tracked_blocking_step(|execution| {
             let limits = Limits {
                 max_output_bytes: 8,
                 max_items: 10,

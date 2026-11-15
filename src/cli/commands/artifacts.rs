@@ -13,7 +13,7 @@ use anyhow::{Context as _, Result, bail};
 
 use crate::artifacts::{ArtifactStore, MAX_PRUNE_SCAN, validate_deletions};
 use crate::storage::StateStore;
-use crate::util::execution::run_blocking_step;
+use crate::util::execution::run_tracked_blocking_step;
 
 use references::audit_references;
 
@@ -86,7 +86,7 @@ pub(crate) async fn cmd_artifact_prune(
     options.validate()?;
     let cutoff = options.cutoff()?;
     let (scan, after) = (options.scan, options.after.clone());
-    let (artifacts, window) = run_blocking_step(move |execution| {
+    let (artifacts, window) = run_tracked_blocking_step(move |execution| {
         let artifacts = ArtifactStore::from_env()?;
         let window = artifacts.prune_window(cutoff, after.as_deref(), scan, &execution)?;
         Ok((artifacts, window))
@@ -110,8 +110,10 @@ pub(crate) async fn cmd_artifact_prune(
             break;
         } else {
             let (artifacts, digest) = (artifacts.clone(), candidate.digest.clone());
-            run_blocking_step(move |execution| artifacts.delete_unreferenced(&digest, &execution))
-                .await?;
+            run_tracked_blocking_step(move |execution| {
+                artifacts.delete_unreferenced(&digest, &execution)
+            })
+            .await?;
             outcome.deleted += 1;
         }
         outcome.inspected += 1;

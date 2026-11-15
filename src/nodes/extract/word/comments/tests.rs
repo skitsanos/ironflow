@@ -15,7 +15,7 @@ async fn comment_anchor_fan_out_is_charged_before_expansion() {
     );
     let ids = (0..8).map(|id| id.to_string()).collect::<Vec<_>>();
 
-    let error = crate::util::execution::run_blocking_step(move |execution| {
+    let error = crate::util::execution::run_tracked_blocking_step(move |execution| {
         let limits = crate::nodes::extract::resource::Limits {
             max_output_bytes: 1024,
             max_items: 55,

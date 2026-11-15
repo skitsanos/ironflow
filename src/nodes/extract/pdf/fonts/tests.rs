@@ -1,6 +1,6 @@
 use super::*;
 use crate::nodes::extract::resource::Limits;
-use crate::util::execution::run_blocking_step;
+use crate::util::execution::run_tracked_blocking_step;
 use lopdf::{Stream, dictionary};
 
 const OUTPUT_LIMIT: &str = "IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES";
@@ -16,7 +16,7 @@ fn cmap(section: &str) -> String {
 
 /// Decode `operand` with the font's decoder into a page limited to `limit`.
 async fn show(font: Dictionary, doc: Document, operand: Vec<u8>, limit: usize) -> Result<String> {
-    run_blocking_step(move |execution| {
+    run_tracked_blocking_step(move |execution| {
         let budget = Budget::new("test", Limits::current(), &execution);
         let longest_target = font
             .get_deref(b"ToUnicode", &doc)

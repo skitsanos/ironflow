@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::{SlowReader, store_bytes, wait_for_flag};
 use crate::artifacts::LocalArtifactStore;
-use crate::util::execution::run_blocking_step;
+use crate::util::execution::run_tracked_blocking_step;
 
 #[tokio::test]
 async fn same_size_replacement_fails_read_verification() {
@@ -17,7 +17,7 @@ async fn same_size_replacement_fails_read_verification() {
     make_writable(&path);
     std::fs::write(&path, b"hostile").unwrap();
 
-    let error = run_blocking_step(move |execution| store.open(&artifact, &execution))
+    let error = run_tracked_blocking_step(move |execution| store.open(&artifact, &execution))
         .await
         .unwrap_err()
         .to_string();
@@ -37,7 +37,7 @@ async fn verified_open_keeps_the_hashed_inode_after_path_replacement() {
     let open_store = store.clone();
     let open_artifact = artifact.clone();
     let mut verified =
-        run_blocking_step(move |execution| open_store.open(&open_artifact, &execution))
+        run_tracked_blocking_step(move |execution| open_store.open(&open_artifact, &execution))
             .await
             .unwrap();
 
@@ -56,7 +56,7 @@ async fn verified_path_lease_is_read_only_private_and_removed_on_drop() {
         .await
         .unwrap();
     let lease_store = store.clone();
-    let lease = run_blocking_step(move |execution| {
+    let lease = run_tracked_blocking_step(move |execution| {
         lease_store.verified_path_lease(&artifact, 100, &execution)
     })
     .await
@@ -86,7 +86,7 @@ async fn verified_open_rejects_a_symlink_at_a_valid_digest_path() {
     symlink(&outside, store.root().join("sha256").join(&digest)).unwrap();
 
     let uri = format!("artifact://sha256/{digest}");
-    let error = run_blocking_step(move |execution| store.open_uri(&uri, &execution))
+    let error = run_tracked_blocking_step(move |execution| store.open_uri(&uri, &execution))
         .await
         .unwrap_err()
         .to_string();
@@ -100,7 +100,7 @@ async fn read_verification_observes_cancellation() {
     let worker_started = Arc::clone(&started);
     let worker_finished = Arc::clone(&finished);
     let task = tokio::spawn(async move {
-        run_blocking_step(move |execution| {
+        run_tracked_blocking_step(move |execution| {
             let result = super::super::integrity::hash_reader(
                 &mut SlowReader(worker_started),
                 u64::MAX,

@@ -194,17 +194,18 @@ mod tests {
         let html = block.repeat(300);
         assert!(html.len() > 8 * PARSE_CHUNK_BYTES && block.len() % 2 == 1);
 
-        let (chunked, one_shot) = crate::util::execution::run_blocking_step(move |execution| {
-            let converter = HtmlToMarkdown::new();
-            let chunked = parse(&html, "test", Some(MAX_MARKDOWN_DEPTH), &execution)?;
-            let one_shot = converter.html_to_tree(&html)?;
-            Ok((
-                converter.tree_to_markdown(&chunked),
-                converter.tree_to_markdown(&one_shot),
-            ))
-        })
-        .await
-        .unwrap();
+        let (chunked, one_shot) =
+            crate::util::execution::run_tracked_blocking_step(move |execution| {
+                let converter = HtmlToMarkdown::new();
+                let chunked = parse(&html, "test", Some(MAX_MARKDOWN_DEPTH), &execution)?;
+                let one_shot = converter.html_to_tree(&html)?;
+                Ok((
+                    converter.tree_to_markdown(&chunked),
+                    converter.tree_to_markdown(&one_shot),
+                ))
+            })
+            .await
+            .unwrap();
         assert!(chunked.contains("caf\u{e9} & \u{1F600} \u{1F600} **bold**"));
         assert_eq!(chunked, one_shot);
     }

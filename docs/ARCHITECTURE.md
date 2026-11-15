@@ -227,6 +227,11 @@ outside opaque content/font decoding calls.
   dependent steps, run finalization and task and run admission wait until
   that call returns. Flow loads started by the API, webhooks and the
   scheduler have no step and keep their own flow-load admission.
+- `run_tracked_blocking_step` is the only bridge from step work to the
+  blocking pool (IF-213). Every worker registers with the attempt and run
+  worker sets of its step, so the step result, its `on_error` handler,
+  dependent steps, run finalization and task and run admission wait until
+  the worker has physically stopped.
 
 ### 4. State Store (`storage/`)
 

@@ -117,7 +117,7 @@ async fn cancellation_is_checked_between_central_headers() {
     let (started_tx, started_rx) = mpsc::channel();
     let (finished_tx, finished_rx) = mpsc::channel();
 
-    let waiter = tokio::spawn(crate::util::execution::run_blocking_step(
+    let waiter = tokio::spawn(crate::util::execution::run_tracked_blocking_step(
         move |execution| {
             let mut reader = SlowCentralReader {
                 inner: Cursor::new(bytes),

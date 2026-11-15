@@ -2,7 +2,7 @@ use std::time::{Duration, SystemTime};
 
 use super::store_bytes;
 use crate::artifacts::LocalArtifactStore;
-use crate::util::execution::run_blocking_step;
+use crate::util::execution::run_tracked_blocking_step;
 
 async fn window(
     store: &LocalArtifactStore,
@@ -11,7 +11,7 @@ async fn window(
     scan: usize,
 ) -> crate::artifacts::retention::PruneWindow {
     let (store, after) = (store.clone(), after.map(str::to_owned));
-    run_blocking_step(move |execution| {
+    run_tracked_blocking_step(move |execution| {
         store.prune_window(cutoff, after.as_deref(), scan, &execution)
     })
     .await
@@ -59,7 +59,7 @@ async fn window_rejects_a_scan_or_cursor_outside_the_contract() {
     let store = LocalArtifactStore::new(directory.path()).unwrap();
     for (after, scan) in [(None, 0), (None, 10_001), (Some("../escape"), 10)] {
         let (store, after) = (store.clone(), after.map(str::to_owned));
-        let result = run_blocking_step(move |execution| {
+        let result = run_tracked_blocking_step(move |execution| {
             store.prune_window(SystemTime::now(), after.as_deref(), scan, &execution)
         })
         .await;

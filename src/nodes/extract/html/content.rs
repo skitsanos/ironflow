@@ -201,7 +201,7 @@ mod tests {
     use crate::nodes::extract::resource::Limits;
 
     async fn text(html: &'static str) -> String {
-        crate::util::execution::run_blocking_step(move |execution| {
+        crate::util::execution::run_tracked_blocking_step(move |execution| {
             let budget = Budget::new("extract_html", Limits::current(), &execution);
             extract(html, "text", &execution, &budget)
         })
