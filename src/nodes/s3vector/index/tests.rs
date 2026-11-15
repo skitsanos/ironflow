@@ -74,3 +74,18 @@ fn get_index_arn_input_sets_only_arn_form() {
     assert_eq!(request.index_name(), None);
     assert_eq!(request.index_arn(), Some(arn));
 }
+
+#[test]
+fn create_index_dimension_above_the_request_range_is_refused() {
+    let mut config =
+        create_index_config(serde_json::json!({ "vector_bucket_name": "demo-bucket" }));
+    config["dimension"] = serde_json::json!(4_294_967_295_u64);
+    let error = prepare_create_index_input(&config, &Context::new())
+        .err()
+        .expect("dimension out of range")
+        .to_string();
+    assert_eq!(
+        error,
+        "s3vector_create_index requires 'dimension' to be at most 2147483647"
+    );
+}

@@ -16,8 +16,8 @@ can still skip that success-dependent cleanup.
 | `vector_bucket_name` | string | yes* | environment-only fallback | Bucket name to query. Uses `S3VECTOR_BUCKET_NAME`, then legacy `S3_BUCKET`, only when no target field is configured. |
 | `bucket` | string | no | no | Alias for `vector_bucket_name`. |
 | `vector_bucket_arn` | string | yes* | environment-only fallback | Bucket ARN to query. Uses `S3VECTOR_BUCKET_ARN` only when no target field is configured. |
-| `region` | string | no | AWS region chain | Override `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, or `AWS_DEFAULT_REGION`. |
-| `endpoint_url` | string | no | `AWS_ENDPOINT_URL` env var | Override the S3 Vectors service endpoint. |
+| `region` | string | no | AWS region chain | Override `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, or `AWS_DEFAULT_REGION`. The environment is used only when the parameter is absent: a value that is not a string, or is empty after interpolation, fails the step before the client is built. |
+| `endpoint_url` | string | no | `AWS_ENDPOINT_URL` env var | Override the S3 Vectors service endpoint. A value that is not a string, or is empty after interpolation, fails the step instead of falling back to the environment or the default AWS endpoint. |
 | `output_key` | string | no | `s3vector` | Prefix for context output keys. |
 
 ## Target Resolution

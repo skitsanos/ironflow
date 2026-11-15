@@ -13,9 +13,9 @@ Create an Amazon S3 Vector index inside a bucket.
 | `index` | string | no | no | Alias for `index_name`. |
 | `data_type` | string | yes | -- | Vector type (for example: `float32`). |
 | `distance_metric` | string | yes | -- | Similarity metric (for example: `euclidean`, `cosine`). |
-| `dimension` | integer | yes | -- | Vector dimension (must be > 0). |
-| `region` | string | no | AWS region chain | Override `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, or `AWS_DEFAULT_REGION`. |
-| `endpoint_url` | string | no | `AWS_ENDPOINT_URL` env var | Override the S3 Vectors service endpoint. |
+| `dimension` | integer | yes | -- | Vector dimension (must be > 0 and at most 2147483647; a larger value is refused, not wrapped). |
+| `region` | string | no | AWS region chain | Override `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, or `AWS_DEFAULT_REGION`. The environment is used only when the parameter is absent: a value that is not a string, or is empty after interpolation, fails the step before the client is built. |
+| `endpoint_url` | string | no | `AWS_ENDPOINT_URL` env var | Override the S3 Vectors service endpoint. A value that is not a string, or is empty after interpolation, fails the step instead of falling back to the environment or the default AWS endpoint. |
 | `output_key` | string | no | `s3vector` | Prefix for context output keys. |
 
 ## Target Resolution

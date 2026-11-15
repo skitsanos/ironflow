@@ -10,8 +10,8 @@ pub(super) async fn build_s3vector_client(
     config: &serde_json::Value,
     ctx: &Context,
 ) -> Result<Client> {
-    let region = resolve_region(config, ctx);
-    let endpoint_url = resolve_endpoint_url(config, ctx);
+    let region = resolve_region(config, ctx)?;
+    let endpoint_url = resolve_endpoint_url(config, ctx)?;
 
     let mut loader = aws_config::defaults(aws_config::BehaviorVersion::latest());
     if let Some(region) = region {

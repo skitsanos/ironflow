@@ -15,8 +15,8 @@ delete known vectors first when they need auditable per-vector cleanup output.
 | `index_name` | string | yes* | -- | Explicit index name to delete; requires a bucket name. |
 | `index` | string | no | no | Alias for `index_name`. |
 | `index_arn` | string | yes* | -- | Explicit alternative that identifies the index without a bucket name. |
-| `region` | string | no | AWS region chain | Override `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, or `AWS_DEFAULT_REGION`. |
-| `endpoint_url` | string | no | `AWS_ENDPOINT_URL` env var | Override the S3 Vectors service endpoint. |
+| `region` | string | no | AWS region chain | Override `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, or `AWS_DEFAULT_REGION`. The environment is used only when the parameter is absent: a value that is not a string, or is empty after interpolation, fails the step before the client is built. |
+| `endpoint_url` | string | no | `AWS_ENDPOINT_URL` env var | Override the S3 Vectors service endpoint. A value that is not a string, or is empty after interpolation, fails the step instead of falling back to the environment or the default AWS endpoint. |
 | `output_key` | string | no | `s3vector` | Prefix for context output keys. |
 
 ## Target Resolution and Safety

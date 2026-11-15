@@ -422,6 +422,15 @@ publication is verified separately.
   `filter_key` is data and is still used as stored. See
   [Metadata Filter](../nodes/s3vector_query_vectors.md#metadata-filter).
 
+- **`s3vector_*` nodes reject a malformed `endpoint_url` or `region`**
+  (IF-221). A value that was not a string, for example a number or a table,
+  was ignored, and the request went to `AWS_ENDPOINT_URL`, the region chain
+  or the default AWS endpoint instead of the configured one. Such a value,
+  and one that is empty after interpolation, now fails the step before the
+  client is built. Leave the parameter out to use the environment. `top_k`
+  and `dimension` above 2147483647 are refused instead of wrapping to a
+  negative number.
+
 - **A child `input` mapping fails when its parent key is absent** (IF-221).
   In `subworkflow`, `parallel_subworkflows` and `repeat_subworkflow` a string
   in `input` names a parent context key. When the key was absent,

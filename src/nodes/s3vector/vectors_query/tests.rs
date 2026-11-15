@@ -282,3 +282,23 @@ fn an_inline_filter_placeholder_that_does_not_resolve_builds_no_request() {
         assert!(!error.contains("acme-secret"));
     }
 }
+
+#[test]
+fn top_k_above_the_request_range_is_refused() {
+    for top_k in [
+        serde_json::json!(2_147_483_648_u64),
+        serde_json::json!(4_294_967_295_u64),
+    ] {
+        let error = prepare_query_vectors_input(
+            &filter_config(serde_json::json!({ "top_k": top_k })),
+            &Context::new(),
+        )
+        .err()
+        .expect("top_k out of range")
+        .to_string();
+        assert_eq!(
+            error,
+            "s3vector_query_vectors requires 'top_k' to be at most 2147483647"
+        );
+    }
+}

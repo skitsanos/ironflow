@@ -10,7 +10,7 @@ use super::client::build_s3vector_client;
 use super::config::resolve_output_key;
 use super::document::document_to_json;
 use super::filter::resolve_filter;
-use super::parameters::{resolve_f64, resolve_flag, resolve_u32};
+use super::parameters::{request_count, resolve_f64, resolve_flag, resolve_u32};
 use super::target::{IndexTarget, TargetPolicy, resolve_index_target};
 use super::vectors::resolve_query_vector;
 
@@ -36,6 +36,7 @@ fn prepare_query_vectors_input(
     if top_k == 0 {
         anyhow::bail!("s3vector_query_vectors requires 'top_k' to be greater than zero");
     }
+    let top_k = request_count(top_k, "s3vector_query_vectors", "top_k")?;
     let query_vector = resolve_query_vector(config, ctx, "s3vector_query_vectors")?;
     let return_metadata = resolve_flag(config, ctx, "s3vector_query_vectors", "return_metadata")?;
     let return_distance = resolve_flag(config, ctx, "s3vector_query_vectors", "return_distance")?;
@@ -52,7 +53,7 @@ fn prepare_query_vectors_input(
     let filter = resolve_filter(config, ctx)?;
 
     let request = QueryVectorsInputBuilder::default()
-        .top_k(top_k as i32)
+        .top_k(top_k)
         .query_vector(VectorData::Float32(query_vector))
         .return_metadata(return_metadata)
         .return_distance(return_distance || min_similarity.is_some());

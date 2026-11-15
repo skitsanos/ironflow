@@ -11,7 +11,7 @@ Run vector similarity search on an Amazon S3 Vector index.
 | `index_name` | string | yes* | environment-only fallback | Target index name. Uses `S3VECTOR_INDEX_NAME` only when no target field is configured. |
 | `index` | string | no | no | Alias for `index_name`. |
 | `index_arn` | string | yes* | environment-only fallback | Self-contained alternative target. Uses `S3VECTOR_INDEX_ARN` only when no target field is configured. |
-| `top_k` | integer | yes | -- | Number of nearest neighbors to return (`> 0`). |
+| `top_k` | integer | yes | -- | Number of nearest neighbors to return (`> 0` and at most 2147483647; a larger value is refused, not wrapped). |
 | `query_vector` | array<number> | no* | -- | Query embedding vector. |
 | `query_vector_key` | string | no* | -- | Context key containing a query embedding array. |
 | `filter` | object | no | -- | Optional metadata filter, written in the flow. String values support `${ctx.key}` interpolation, and a placeholder that does not resolve fails the step; see [Metadata Filter](#metadata-filter). |
@@ -20,8 +20,8 @@ Run vector similarity search on an Amazon S3 Vector index.
 | `return_distance` | bool | no | `false` | Include distance values in results. See [Boolean Flags](#boolean-flags). |
 | `min_similarity` | number | no | -- | Optional minimum cosine similarity threshold between query vector and results. Only supported for cosine-index metrics (`min_similarity = 1 - distance`). Fewer results may be returned than `top_k`. |
 | `strict` | bool | no | `false` | When `true`, require a cosine index for `min_similarity`; otherwise `min_similarity` is ignored for non-cosine indexes. See [Boolean Flags](#boolean-flags). |
-| `region` | string | no | AWS region chain | Override `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, or `AWS_DEFAULT_REGION`. |
-| `endpoint_url` | string | no | `AWS_ENDPOINT_URL` env var | Override the S3 Vectors service endpoint. |
+| `region` | string | no | AWS region chain | Override `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, or `AWS_DEFAULT_REGION`. The environment is used only when the parameter is absent: a value that is not a string, or is empty after interpolation, fails the step before the client is built. |
+| `endpoint_url` | string | no | `AWS_ENDPOINT_URL` env var | Override the S3 Vectors service endpoint. A value that is not a string, or is empty after interpolation, fails the step instead of falling back to the environment or the default AWS endpoint. |
 | `output_key` | string | no | `s3vector` | Prefix for context output keys. |
 
 ## Target Resolution

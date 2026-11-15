@@ -79,6 +79,13 @@ pub(super) fn resolve_u32(
     })
 }
 
+/// The service takes these counts as `i32`. A larger value is refused; a
+/// plain cast would wrap it to a negative number.
+pub(super) fn request_count(value: u32, node: &str, field: &str) -> Result<i32> {
+    i32::try_from(value)
+        .map_err(|_| anyhow::anyhow!("{} requires '{}' to be at most {}", node, field, i32::MAX))
+}
+
 pub(super) fn resolve_f64(
     config: &serde_json::Value,
     ctx: &Context,

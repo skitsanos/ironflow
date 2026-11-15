@@ -8,8 +8,8 @@ Create a new Amazon S3 Vector bucket.
 |-----------|--------|----------|---------|-------------|
 | `vector_bucket_name` | string | yes | environment-only fallback | Bucket name. When no target field is configured, uses `S3VECTOR_BUCKET_NAME`, then legacy `S3_BUCKET`. |
 | `bucket` | string | no | no | Alias for `vector_bucket_name`. |
-| `region` | string | no | AWS region chain | Override `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, or `AWS_DEFAULT_REGION`. |
-| `endpoint_url` | string | no | `AWS_ENDPOINT_URL` env var | Override the S3 Vectors service endpoint. |
+| `region` | string | no | AWS region chain | Override `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, or `AWS_DEFAULT_REGION`. The environment is used only when the parameter is absent: a value that is not a string, or is empty after interpolation, fails the step before the client is built. |
+| `endpoint_url` | string | no | `AWS_ENDPOINT_URL` env var | Override the S3 Vectors service endpoint. A value that is not a string, or is empty after interpolation, fails the step instead of falling back to the environment or the default AWS endpoint. |
 | `output_key` | string | no | `s3vector` | Prefix for context output keys. |
 
 ## Target Resolution
