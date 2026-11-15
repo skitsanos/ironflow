@@ -87,6 +87,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **openai_responses.lua** — OpenAI Responses API (`gpt-5-nano`)
 - **openai_with_extract.lua** — Chat Completions + function handler to extract the reply
 - **http_methods.lua** — Generic http_request, http_put, and http_delete
+- **outbound_destination_policy.lua** — Refuse private and metadata addresses per node (`block_private_network`) or for the whole process (`IRONFLOW_BLOCK_PRIVATE_NETWORK`, with `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` for a local model server); offline, fails on purpose
 - **s3_presigned_upload.lua** — Stream a local artifact through a presigned HTTP PUT and verify it with S3
 
 ## 06-shell

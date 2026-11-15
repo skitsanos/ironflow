@@ -1320,6 +1320,25 @@ private-network blocking is enabled, transport bypasses system proxies, rejects
 the complete DNS answer if any address is internal, and passes only that
 validated set to the connector.
 
+That guard is one module, `util::outbound`, shared by every node that
+connects to a flow-chosen destination (IF-212). A guard exists for a node
+execution when the operator forced the process policy on
+(`IRONFLOW_BLOCK_PRIVATE_NETWORK`) or an `http_*` node opted in; the node
+option can only add it. It decides in two stages: the requested host and
+port (a literal address is classified at once, `localhost` is refused by
+name), then the complete DNS answer. The operator allowlist
+(`IRONFLOW_PRIVATE_NETWORK_ALLOWLIST`) is the only exception and is matched
+on the requested host name or on the address, never learned from a flow.
+Clients take the guard in the form their driver allows:
+
+- The `http_*` nodes keep one shared direct client whose resolver reads the
+  policy for each lookup and check every redirect hop themselves.
+
+The policy is read from the environment on each use, with the
+`ironflow.yaml` keys installed by the CLI as a fallback, so an embedding
+caller needs no start-up call and a malformed value fails the node closed.
+`docs/SECURITY.md` holds the operator contract.
+
 The local backend still treats its configured directory as a trusted process
 boundary. Verified reads prevent same-size path replacement and pathname
 time-of-check/time-of-use substitution from silently changing the input, but a

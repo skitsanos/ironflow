@@ -140,12 +140,97 @@ and must contain at least 16 bytes, so an empty secret is already rejected.
 
 ## Outbound destinations
 
-A flow chooses where its nodes connect. Only the `http_request`, `http_get`,
-`http_post`, `http_put` and `http_delete` nodes can restrict that choice:
-`block_private_network = true` refuses `localhost` and every address that is
-not a public unicast destination, for the initial URL, every redirect target
-and every DNS answer, and pins the validated addresses to the connection. It
-is off by default.
+A flow chooses where its nodes connect. The outbound destination guard
+refuses `localhost` and every address that is not a public unicast
+destination, before any connection is opened. It is off by default and is
+turned on in one of two ways (IF-191, IF-212):
+
+- **Process policy, set by the operator.** `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`
+  (or `block_private_network: true` in `ironflow.yaml`; the environment
+  wins) forces the guard on for every covered node in the process. It is
+  one-way: no flow setting turns it off. A value other than `true` or
+  `false`, including an empty one, stops startup.
+- **Per node, set by the flow author.** `block_private_network = true` on
+  `http_request`, `http_get`, `http_post`, `http_put` and `http_delete`
+  turns the guard on for that step. It can only tighten: with the process
+  policy on, `block_private_network = false` changes nothing.
+
+`ironflow run`, `validate` and `serve` log the resolved policy once at
+startup (`outbound destination policy`, with the switch and the number of
+allowlist entries, never the entries).
+
+### Operator allowlist
+
+`IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` (comma-separated) or
+`private_network_allowlist` (a YAML list; the environment wins) names the
+internal destinations the guard still permits. Only the operator can set it;
+nothing in a flow, a request or a context value adds an entry. A malformed
+entry, an empty variable or more than 256 entries stops startup, and the
+message gives the position of the entry, not its text.
+
+| Entry | Example | Matches |
+|-------|---------|---------|
+| Host name | `ollama.internal` | A destination whose requested host is exactly that name (ASCII case-insensitive, a trailing dot ignored), on any port. |
+| Host name and port | `db.internal:5432` | The same, on that port only. |
+| Address | `10.0.5.9`, `fd00::9` | That literal address, and a DNS answer containing it. |
+| Address and port | `127.0.0.1:11434`, `[::1]:11434` | That literal address on that port. Never a DNS answer. |
+| CIDR range | `10.0.5.0/24`, `fd00:5::/64` | A literal address in the range, and a DNS answer in it. Address bits beyond the prefix are rejected. |
+
+How a host-name entry is matched, precisely:
+
+- The entry is compared with the host the node was asked to reach. There is
+  no wildcard and no suffix matching: `ollama.internal` does not admit
+  `x.ollama.internal` or `ollama.internal.example.com`.
+- When it matches, the addresses that name resolves to are permitted for
+  that connection, whatever range they are in. Nothing is recorded about
+  those addresses: another host name that resolves to the same address is
+  still refused, and so is the address itself as a literal. An entry
+  therefore cannot be used to reach an internal address under a different
+  name, and DNS answers for every other name stay validated and pinned.
+- A name that is listed only with ports is refused on every other port
+  (`the private-network allowlist permits this host on other ports only`),
+  whether or not it would resolve to a public address.
+- A redirect is checked hop by hop under the same rules.
+
+An address or range entry is a statement about the address, so any name that
+resolves into an allowlisted range without a port is permitted. Use a
+host-name entry when only one service should be reachable. The allowlist
+also applies when only the per-node option turned the guard on.
+
+### What is covered
+
+| Consumer | Destination setting | With the guard on |
+|----------|---------------------|-------------------|
+| `http_request`, `http_get`, `http_post`, `http_put`, `http_delete` | `url` | Literal address, every redirect target and every DNS answer checked; the validated answer is pinned to the connection. |
+| `llm`, `ai_embed`, `ai_chunk_semantic`, `transcribe` | `base_url`, `azure_endpoint`, `ollama_host`, OAuth `token_url`, and their environment variables | Not covered. Redirects are same-origin only. |
+| `slack_notification`, `send_email` with `resend`, `arangodb_aql` | `webhook_url`, `api_url`, `url` | Not covered. Redirects are same-origin only. |
+| `mcp_client` (Streamable HTTP) | `url` | Not covered. Only same-origin `307`/`308` redirects are followed. |
+| `s3_*` and S3 Vectors nodes | `endpoint_url`, `AWS_ENDPOINT_URL` | Not covered. |
+| `send_email` with `smtp` | `smtp_server`, `smtp_port` | Not covered. |
+| `db_query`, `db_exec` | `connection` | Not covered. |
+| `shell_command`, `mcp_client` (stdio) | the command | Not covered; a subprocess can open any connection. |
+
+The refusal reads `blocked: target is a private network address` or
+`blocked: DNS resolution returned a private network address`, names the
+setting that turned the guard on, and shows the destination without
+credentials.
+
+With the guard on these clients connect directly and ignore a system proxy,
+because a proxy would resolve the destination outside the guard;
+`proxy_mode = "system"` on an `http_*` node is refused. A deployment that
+requires an egress proxy should enforce destinations there instead.
+
+### Out of scope
+
+The artifact store endpoint, the state and event store URLs and the metrics
+endpoint are operator configuration, cannot be changed by a flow, and are
+not checked. The guard classifies addresses by registry: a public-looking
+range that a deployment routes internally is outside what it can know.
+Where reaching the internal network must be impossible, also confine the
+IronFlow process with network policy (egress rules, a metadata-service hop
+limit or block).
+
+### Refused ranges
 
 Refused IPv4 ranges: `0.0.0.0/8`, `10.0.0.0/8`, `100.64.0.0/10`,
 `127.0.0.0/8`, `169.254.0.0/16`, `172.16.0.0/12`, `192.0.0.0/24`,
@@ -160,26 +245,6 @@ NAT64 (`64:ff9b::/96`) and 6to4 (`2002::/16`) addresses are refused when the
 IPv4 address they embed is in a refused IPv4 range and allowed otherwise.
 The node reference describes each range under
 [Private-network blocking](nodes/http_request.md#private-network-blocking).
-
-No other node has this option or an equivalent address restriction:
-
-| Consumer | Destination setting | Restriction present |
-|----------|---------------------|---------------------|
-| `mcp_client` (Streamable HTTP) | `url` | None on the address. Only same-origin `307`/`308` redirects are followed. |
-| `llm`, `ai_embed`, `ai_chunk_semantic`, `transcribe` | `base_url`, `azure_endpoint`, `ollama_host`, OAuth `token_url`, and their environment variables | None on the address. Redirects are same-origin only. |
-| `slack_notification`, `send_email` with `resend` | `webhook_url`, `api_url` | None on the address. Redirects are same-origin only. |
-| `send_email` with `smtp` | `smtp_server`, `smtp_port` | None. |
-| `arangodb_aql` | `url` | Scheme must be `http` or `https`; none on the address. Redirects are same-origin only. |
-| `db_query`, `db_execute` | `connection` | None. |
-| `s3_*` and S3 Vectors nodes | `endpoint_url`, `AWS_ENDPOINT_URL` | None. |
-| `shell_command`, `mcp_client` (stdio) | the command | None; a subprocess can open any connection. |
-
-These nodes also use the system proxy when one is configured. Treat a flow
-that sets any of these values from untrusted input as able to reach the
-internal network, and confine the IronFlow process with network policy
-(egress rules, a metadata-service hop limit or block) where that matters.
-The artifact store endpoint and the state-store URLs are operator
-configuration and cannot be changed by a flow.
 
 ## Forwarded webhook headers
 

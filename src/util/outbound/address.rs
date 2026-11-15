@@ -7,7 +7,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 /// single classifier behind the opt-in SSRF guard, applied to literal hosts,
 /// redirect targets and every DNS answer. `docs/nodes/http_request.md` lists
 /// the refused ranges; keep the two in step.
-pub(super) fn ip_is_internal(ip: IpAddr) -> bool {
+pub(crate) fn ip_is_internal(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(v4) => ipv4_is_internal(v4),
         IpAddr::V6(v6) => ipv6_is_internal(v6),

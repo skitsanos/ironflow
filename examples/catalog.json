@@ -20,6 +20,7 @@
         "examples/03-control-flow/guard_literals.lua",
         "examples/03-control-flow/step_if.lua",
         "examples/03-control-flow/switch_routing.lua",
+        "examples/05-http/outbound_destination_policy.lua",
         "examples/07-advanced/base64_encode_decode.lua",
         "examples/07-advanced/context_projection.lua",
         "examples/07-advanced/data_pipeline.lua",
@@ -446,7 +447,8 @@
       "examples/17-mcp/mcp_stdio.lua"
     ],
     "expected_failure": [
-      "examples/01-basics/retries_and_timeout.lua"
+      "examples/01-basics/retries_and_timeout.lua",
+      "examples/05-http/outbound_destination_policy.lua"
     ]
   }
 }

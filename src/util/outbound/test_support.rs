@@ -4,7 +4,7 @@
 
 /// `(range, address)` pairs the guard must refuse: the first and last address
 /// of each refused range, plus embedded-IPv4 forms of internal addresses.
-pub(super) const REFUSED: &[(&str, &str)] = &[
+pub(crate) const REFUSED: &[(&str, &str)] = &[
     ("0.0.0.0/8 this network", "0.0.0.0"),
     ("0.0.0.0/8 this network", "0.0.0.1"),
     ("0.0.0.0/8 this network", "0.255.255.255"),
@@ -110,7 +110,7 @@ pub(super) const REFUSED: &[(&str, &str)] = &[
 
 /// Public addresses that must still pass, most of them adjacent to a refused
 /// range.
-pub(super) const ALLOWED: &[&str] = &[
+pub(crate) const ALLOWED: &[&str] = &[
     "1.0.0.0",
     "8.8.8.8",
     "9.255.255.255",
@@ -157,7 +157,7 @@ pub(super) const ALLOWED: &[&str] = &[
 ];
 
 /// Render an address as the host part of a URL.
-pub(super) fn url_host(address: &str) -> String {
+pub(crate) fn url_host(address: &str) -> String {
     if address.contains(':') {
         format!("[{address}]")
     } else {

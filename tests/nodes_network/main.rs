@@ -32,6 +32,8 @@ mod test_mcp_streamable_http;
 mod test_mcp_streamable_http_sse;
 #[path = "../test_notification_response_limits.rs"]
 mod test_notification_response_limits;
+#[path = "../test_outbound_policy.rs"]
+mod test_outbound_policy;
 #[path = "../test_provider_redirect_security.rs"]
 mod test_provider_redirect_security;
 #[path = "../test_s3_copy.rs"]

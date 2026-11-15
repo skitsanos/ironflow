@@ -339,7 +339,8 @@ or give it a value. The rule covers:
 | `IRONFLOW_STORE_URL`, `IRONFLOW_EVENT_STORE_URL` | Startup fails when the matching backend is `sqlite` or `postgres`; the variable is not read otherwise. |
 | `IRONFLOW_SQL_TABLE_PREFIX` | Startup fails. An empty `sql_table_prefix` in config still selects the default prefix. |
 | `REDIS_URL`, `REDIS_PREFIX` | Startup fails when a Redis backend is selected. An empty `redis_prefix` in config still means unprefixed keys. |
-| Boolean and numeric variables (`IRONFLOW_ALLOW_UNAUTHENTICATED_API`, `IRONFLOW_METRICS_ENABLED`, `IRONFLOW_ALLOW_ADHOC_FLOWS`, `IRONFLOW_REPLICA_MODE`, `REDIS_TTL`, limits) | Startup fails: an empty string is not a valid boolean or number. |
+| Boolean and numeric variables (`IRONFLOW_ALLOW_UNAUTHENTICATED_API`, `IRONFLOW_METRICS_ENABLED`, `IRONFLOW_ALLOW_ADHOC_FLOWS`, `IRONFLOW_REPLICA_MODE`, `IRONFLOW_BLOCK_PRIVATE_NETWORK`, `REDIS_TTL`, limits) | Startup fails: an empty string is not a valid boolean or number. |
+| `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` | Startup fails for `run`, `validate` and `serve`, also for a value with no entry in it such as `,`. Unset the variable to use `private_network_allowlist` from config or no allowlist; `private_network_allowlist: []` in config stays valid. |
 | `HOST`, `PORT`, `MAX_BODY`, `FLOWS_DIR`, `IRONFLOW_STORE_DIR` | Startup fails in argument parsing or at bind. |
 | `IRONFLOW_ARTIFACT_DIR` | Startup fails for `run`, `validate` and `serve`, and `artifacts prune` fails before listing. Remove the variable to use `data/artifacts`. |
 | `IRONFLOW_ARTIFACT_BACKEND`, `IRONFLOW_ARTIFACT_S3_*` | The first artifact operation fails; these are read when the artifact store is first used. |
@@ -490,6 +491,38 @@ preflights both selected SQL URLs before opening either store, in standalone
 and replica mode. SQL URL settings are ignored when their corresponding backend
 is not SQL. See [Replica deployment](REPLICA_DEPLOYMENT.md) for the shared-store
 operator contract.
+
+#### Outbound destination policy
+
+Two keys, read by `run`, `validate` and `serve`, set the process-wide
+outbound destination policy. The matching environment variable wins over
+each key.
+
+```yaml
+block_private_network: true
+private_network_allowlist:
+  - "127.0.0.1:11434"      # a model server on this host
+  - "minio.internal:9000"  # a host name, on one port
+  - "10.0.5.0/24"          # a range
+```
+
+| Key | Variable | Default | Meaning |
+|-----|----------|---------|---------|
+| `block_private_network` | `IRONFLOW_BLOCK_PRIVATE_NETWORK` | `false` | `true` refuses `localhost` and every destination that is not a public unicast address for every covered node; [Outbound destinations](SECURITY.md#what-is-covered) lists them. A flow cannot turn it off. |
+| `private_network_allowlist` | `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` | none | Internal destinations that stay reachable. A host-name entry matches the requested host exactly, without wildcards; an address or CIDR entry matches the address. Only the operator can set it. |
+
+A value that is not a boolean, a malformed allowlist entry (a URL, a
+wildcard, a port outside `1..=65535`, a CIDR with address bits beyond its
+prefix) or more than 256 entries stops startup; the message names the
+setting and the position of the entry, not its text. The resolved policy is
+logged once at startup as `outbound destination policy` with the switch and
+the number of entries. An embedding caller that does not go through the CLI
+gets the environment variables only, read when a node runs; a malformed
+value then fails that node instead of turning the guard off.
+
+The matching rules, the per-node coverage and the common local setups (a
+local model server needs an allowlist entry when the policy is on) are in
+[Outbound destinations](SECURITY.md#outbound-destinations).
 
 #### Store directory and SQLite URLs
 
@@ -672,6 +705,8 @@ Or via environment variables (override config file):
 | `IRONFLOW_EVENT_STORE` | `memory` | Event backend for `/runs/{id}/events`: `memory`, `sqlite`, `postgres`, or `redis` |
 | `IRONFLOW_EVENT_STORE_URL` | File under the store directory for `sqlite`; required for `postgres` | SQL event store URL; an in-memory SQLite URL is rejected |
 | `IRONFLOW_REPLICA_MODE` | `false` | Require `postgres` or `redis` for both state and events; reject process-local backends |
+| `IRONFLOW_BLOCK_PRIVATE_NETWORK` | `false` | Force the outbound destination guard on for every covered node; see [Outbound destination policy](#outbound-destination-policy) |
+| `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` | — | Comma-separated internal destinations the guard still permits |
 | `IRONFLOW_SHUTDOWN_GRACE_SECONDS` | `30` | Seconds accepted runs may finish before cooperative cancellation (`0..=3600`) |
 | `IRONFLOW_EVENT_MEMORY_CAPACITY` | `10000` | Positive global event/fence count when the event backend is `memory`; a fixed 64 MiB retained-heap estimate is enforced independently |
 | `IRONFLOW_SQL_TABLE_PREFIX` | `ironflow_` | SQL table/index prefix for SQLite/Postgres state and event stores |
@@ -1485,6 +1520,8 @@ start.
 | `IRONFLOW_METRICS_ENABLED` | `false` | Register process-local `GET /metrics`; accepts only `true` or `false` and follows API authentication |
 | `IRONFLOW_ALLOW_ADHOC_FLOWS` | `true` | Allow `POST /flows/run` and `POST /flows/validate` to evaluate flow source sent in the request body. `false` requires `flows_dir` and restricts both endpoints to files under it. Overrides `allow_adhoc_flows` in config. |
 | `IRONFLOW_CORS_ORIGINS` | — | Comma-separated allowed browser origins; use `*` to allow any origin. Present but empty fails startup. |
+| `IRONFLOW_BLOCK_PRIVATE_NETWORK` | `false` | Read by `run`, `validate` and `serve`. `true` forces the outbound destination guard on for every covered node, whatever a flow sets. Accepts only `true` or `false`; any other value, including an empty one, fails startup. Overrides `block_private_network` in config. See [Outbound destination policy](#outbound-destination-policy). |
+| `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` | — | Comma-separated host names, `host:port`, addresses, `address:port` and CIDR ranges that the guard still permits. A malformed entry, an empty value or more than 256 entries fails startup. Overrides `private_network_allowlist` in config. |
 
 ### Run listing
 

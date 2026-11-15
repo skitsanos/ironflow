@@ -27,7 +27,7 @@ Generic HTTP request with configurable method.
 | `max_redirects` | integer | no | `10` | Maximum number of redirects to follow. Set to `0` to disable redirect following; maximum `100`. |
 | `allow_cross_origin_redirects` | boolean | no | `false` | Allow redirects that change scheme, host, or port. Even when enabled, cross-origin redirects are refused when `auth`, credentials embedded in URL userinfo, caller-configured `headers`, or a request `body` is present, because arbitrary credentials cannot be stripped safely. Generated `Referer` headers are disabled. |
 | `proxy_mode` | string | no | `"auto"` | `auto` uses the system proxy unless private-network blocking is enabled; `system` always uses it; `direct` bypasses it. |
-| `block_private_network` | boolean | no | `false` | Refuse `localhost` and every address that is not a public unicast destination, for the initial URL and each redirect target; see [Private-network blocking](#private-network-blocking) for the exact ranges. Hostnames are resolved, every answer is validated, and the validated set is pinned to the connector. |
+| `block_private_network` | boolean | no | `false` | Can only tighten: `IRONFLOW_BLOCK_PRIVATE_NETWORK=true` forces it on. Refuse `localhost` and every address that is not a public unicast destination, for the initial URL and each redirect target; see [Private-network blocking](#private-network-blocking) for the exact ranges. Hostnames are resolved, every answer is validated, and the validated set is pinned to the connector. |
 
 For `body_type = "json"`, string values in `body` are recursively interpolated via `${ctx.key}`.
 
@@ -61,7 +61,7 @@ allowance for generated boundaries and headers. Artifact and multipart bodies
 also reject caller-supplied `Content-Length` or `Transfer-Encoding` framing.
 
 `proxy_mode = "system"` cannot be combined with
-`block_private_network = true`, because a proxy resolves the target outside
+`block_private_network = true` or `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, because a proxy resolves the target outside
 IronFlow's validated connector. `auto` becomes direct in that mode.
 
 ### Private-network blocking
@@ -84,8 +84,15 @@ Every other address is allowed, including public addresses reached through
 NAT64 or 6to4. The option does not interpret an IPv4 address embedded in the
 interface identifier of an otherwise public IPv6 address (ISATAP), and it
 cannot know about a public-looking range that a deployment routes internally;
-restrict those at the network layer. Only the `http_*` nodes implement this
-option. Other nodes that open network connections are listed under
+restrict those at the network layer.
+
+The operator can force this guard on for the whole process with
+`IRONFLOW_BLOCK_PRIVATE_NETWORK=true`. The option then cannot turn it off:
+`block_private_network = false` changes nothing, and `proxy_mode = "system"`
+is refused. Internal destinations the operator lists in
+`IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` are permitted in either case. The
+policy, the allowlist matching rules and the other covered nodes are
+described under
 [Outbound destinations](../SECURITY.md#outbound-destinations).
 
 ### Auth

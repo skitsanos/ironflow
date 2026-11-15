@@ -183,6 +183,25 @@ pub(super) fn validate_limit_environment() -> Result<()> {
     crate::util::limits::validate_environment()
 }
 
+/// Install the config-file fallback of the outbound destination policy,
+/// reject a malformed switch or allowlist entry from either source, and state
+/// the resolved policy once. Entries are counted, never logged.
+pub(super) fn install_outbound_policy(config: &IronFlowConfig) -> Result<()> {
+    use crate::util::outbound::policy;
+
+    policy::install_config(
+        config.block_private_network,
+        config.private_network_allowlist.as_deref(),
+    )?;
+    let (block_private_network, allowlist_entries) = policy::summary()?;
+    tracing::info!(
+        block_private_network,
+        allowlist_entries,
+        "outbound destination policy"
+    );
+    Ok(())
+}
+
 pub(super) fn resolve_max_concurrent_tasks(config: &IronFlowConfig) -> Result<Option<usize>> {
     let value = environment_value("IRONFLOW_MAX_CONCURRENT_TASKS", "a non-negative integer")?
         .or(config.max_concurrent_tasks);

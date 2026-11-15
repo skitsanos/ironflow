@@ -9,6 +9,7 @@ pub mod json_depth;
 pub mod limits;
 pub mod listing;
 pub mod node_config;
+pub(crate) mod outbound;
 pub(crate) mod pdf_info;
 pub(crate) mod pdf_load;
 pub(crate) mod provider_http;

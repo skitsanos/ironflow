@@ -13,6 +13,7 @@ use crate::util::duration::{nonnegative_duration, positive_duration};
 use crate::util::node_config::{
     config_bool_or, config_f64_or, config_u64_strict, config_usize_strict,
 };
+use crate::util::outbound::Guard;
 use crate::util::sensitive_url::SecretEndpoint;
 
 use body::RequestBody;
@@ -79,13 +80,14 @@ pub(super) async fn do_http_request(
         carries_redirect_sensitive_data(config, &url, request_body.has_payload());
     // This is a security control: a typo must fail closed rather than silently
     // turning private-network protection off.
-    let block_private = config_bool_or(config, "block_private_network", ctx, false)?;
+    // The process policy forces the guard on; this option can only add it.
+    let guard = Guard::resolve(config_bool_or(config, "block_private_network", ctx, false)?)?;
 
-    let client = shared_client(ProxyMode::parse(config)?, block_private)?;
+    let client = shared_client(ProxyMode::parse(config)?, guard.is_some())?;
     let redirect_policy = RedirectPolicy {
         max_redirects,
         allow_cross_origin: allow_cross_origin_redirects,
-        block_private,
+        guard,
         carries_sensitive_data: carries_redirect_sensitive_data,
     };
 

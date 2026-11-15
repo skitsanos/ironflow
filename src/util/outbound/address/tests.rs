@@ -1,12 +1,16 @@
 use std::net::IpAddr;
 
 use super::ip_is_internal;
-use crate::nodes::http::helpers::url_targets_internal_network;
-use crate::nodes::http::test_support::{ALLOWED, REFUSED, url_host};
+use crate::util::outbound::Guard;
+use crate::util::outbound::test_support::{ALLOWED, REFUSED, url_host};
 
 fn url_is_internal(address: &str) -> bool {
     let url = format!("http://{}:8080/path", url_host(address));
     url_targets_internal_network(&url::Url::parse(&url).unwrap())
+}
+
+fn url_targets_internal_network(url: &url::Url) -> bool {
+    Guard::node_only().check_url(url).is_err()
 }
 
 #[test]

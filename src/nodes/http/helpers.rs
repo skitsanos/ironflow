@@ -1,6 +1,3 @@
-use std::net::IpAddr;
-
-use super::address::ip_is_internal;
 use crate::engine::types::Context;
 use crate::lua::interpolate::interpolate_value;
 use anyhow::Result;
@@ -11,23 +8,6 @@ pub(super) fn interpolate_json_value(
     ctx: &Context,
 ) -> serde_json::Value {
     interpolate_value(value, ctx)
-}
-
-/// True if a URL's host targets the local host or a private network. Literal
-/// IP addresses (including the cloud-metadata link-local range) and
-/// `localhost` are recognized; hostnames that resolve to internal addresses via
-/// DNS are handled later by the private-network transport, which validates and
-/// pins every resolved address before connecting.
-pub(super) fn url_targets_internal_network(url: &url::Url) -> bool {
-    match url.host() {
-        Some(url::Host::Domain(domain)) => {
-            let domain = domain.to_ascii_lowercase();
-            domain == "localhost" || domain.ends_with(".localhost")
-        }
-        Some(url::Host::Ipv4(ip)) => ip_is_internal(IpAddr::V4(ip)),
-        Some(url::Host::Ipv6(ip)) => ip_is_internal(IpAddr::V6(ip)),
-        None => false,
-    }
 }
 
 /// Simple percent-encoding for form body values.
@@ -70,36 +50,4 @@ pub(super) fn build_form_body(body: &serde_json::Value) -> Result<String> {
         ));
     }
     Ok(pairs.join("&"))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::url_targets_internal_network;
-
-    fn internal(u: &str) -> bool {
-        url_targets_internal_network(&url::Url::parse(u).unwrap())
-    }
-
-    #[test]
-    fn flags_local_and_private_hosts() {
-        assert!(internal("http://localhost/x"));
-        assert!(internal("http://127.0.0.1/x"));
-        assert!(internal("http://10.0.0.5/x"));
-        assert!(internal("http://192.168.1.1/x"));
-        assert!(internal("http://172.16.9.9/x"));
-        assert!(internal("http://169.254.169.254/latest/meta-data")); // cloud metadata
-        assert!(internal("http://[::1]/x"));
-        assert!(internal("http://[fd00::1]/x")); // unique local
-        assert!(internal("http://[::ffff:127.0.0.1]/x"));
-        assert!(internal("http://[::ffff:10.0.0.5]/x"));
-        assert!(internal("http://[::ffff:169.254.169.254]/x"));
-    }
-
-    #[test]
-    fn allows_public_hosts() {
-        assert!(!internal("http://example.com/x"));
-        assert!(!internal("https://8.8.8.8/x"));
-        assert!(!internal("http://93.184.216.34/x"));
-        assert!(!internal("http://[::ffff:8.8.8.8]/x"));
-    }
 }

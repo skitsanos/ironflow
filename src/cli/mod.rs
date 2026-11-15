@@ -176,6 +176,7 @@ pub async fn run_cli() -> Result<()> {
             store_dir,
         } => {
             resolution::validate_limit_environment()?;
+            resolution::install_outbound_policy(&cfg)?;
             let store_dir = resolution::with_config(
                 store_dir,
                 sources.store_dir,
@@ -187,6 +188,7 @@ pub async fn run_cli() -> Result<()> {
         }
         Commands::Validate { flow, strict } => {
             resolution::validate_limit_environment()?;
+            resolution::install_outbound_policy(&cfg)?;
             commands::cmd_validate(flow, strict)
         }
         Commands::List {
@@ -237,6 +239,7 @@ pub async fn run_cli() -> Result<()> {
         } => {
             let listing_policy = crate::util::listing::ListingPolicy::from_env()?;
             let server_config = resolution::ServerConfig::resolve(&cfg)?;
+            resolution::install_outbound_policy(&cfg)?;
             replica_config::validate(&cfg, server_config.replica_mode)?;
             let host = resolution::with_config(host, sources.host, cfg.host.clone());
             let port = resolution::with_config(port, sources.port, cfg.port);

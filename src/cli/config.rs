@@ -67,6 +67,13 @@ pub struct IronFlowConfig {
     pub allow_adhoc_flows: Option<bool>,
     /// Require shared durable state and event backends suitable for replicas.
     pub replica_mode: Option<bool>,
+    /// Force the outbound destination guard on for every covered node.
+    /// `IRONFLOW_BLOCK_PRIVATE_NETWORK` takes precedence.
+    pub block_private_network: Option<bool>,
+    /// Internal destinations the guard still permits: hosts, `host:port`,
+    /// addresses and CIDR ranges. `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` takes
+    /// precedence.
+    pub private_network_allowlist: Option<Vec<String>>,
 }
 
 struct BoundedSchedules(HashMap<String, ScheduleConfig>);
