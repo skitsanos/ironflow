@@ -6,6 +6,7 @@ pub mod execution;
 pub(crate) mod file_source;
 pub mod json_budget;
 pub mod json_depth;
+pub mod json_integers;
 pub mod limits;
 pub mod listing;
 pub mod node_config;

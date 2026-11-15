@@ -66,7 +66,7 @@ fn integers_floats_null_and_empty_containers_keep_their_lua_shape() {
     let check = lua
         .load(
             r#"
-            local value = json_parse('{"int": 7, "float": 7.0, "big": 18446744073709551615, '
+            local value = json_parse('{"int": 7, "float": 7.0, "big": 1e30, '
                 .. '"null": null, "array": [], "object": {}, "list": [null, 2]}')
             assert(math.type(value.int) == "integer")
             assert(math.type(value.float) == "float")
@@ -82,6 +82,43 @@ fn integers_floats_null_and_empty_containers_keep_their_lua_shape() {
         )
         .eval::<bool>();
     assert!(check.unwrap());
+}
+
+/// IF-223: an integer above the Lua integer range used to become the
+/// nearest float, and one above the unsigned 64-bit range was rounded by the
+/// parser before that.
+#[test]
+fn integers_a_lua_integer_cannot_hold_stay_text() {
+    let lua = lua();
+    let check = lua
+        .load(
+            r#"
+            local value = json_parse('[18446744073709551615, 9223372036854775808, '
+                .. '123456789012345678901234567890, -9223372036854775809, '
+                .. '9223372036854775807, -9223372036854775808, 1e30, 18446744073709551615.0]')
+            assert(value[1] == "18446744073709551615", tostring(value[1]))
+            assert(value[2] == "9223372036854775808", tostring(value[2]))
+            assert(value[3] == "123456789012345678901234567890", tostring(value[3]))
+            assert(value[4] == "-9223372036854775809", tostring(value[4]))
+            assert(math.type(value[5]) == "integer" and value[5] == math.maxinteger)
+            assert(math.type(value[6]) == "integer" and value[6] == math.mininteger)
+            assert(math.type(value[7]) == "float" and value[7] == 1e30)
+            assert(math.type(value[8]) == "float")
+            assert(#value == 8)
+            return true
+            "#,
+        )
+        .eval::<bool>();
+    assert!(check.unwrap());
+}
+
+#[test]
+fn a_wide_integer_does_not_move_a_later_syntax_error() {
+    let lua = lua();
+    assert_eq!(
+        parse_error(&lua, "[123456789012345678901234567890, }", LIMITS),
+        "runtime error: json_parse failed: expected value at line 1 column 34"
+    );
 }
 
 #[test]

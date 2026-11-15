@@ -35,6 +35,12 @@ impl<'lua> JsonToLuaConverter<'lua> {
             serde_json::Value::Number(number) => {
                 if let Some(integer) = number.as_i64() {
                     Ok(LuaValue::Integer(integer))
+                } else if number.is_u64() {
+                    // Above the Lua integer range a float would round the
+                    // value; its digits are kept as text (IF-223).
+                    Ok(LuaValue::String(
+                        self.lua.create_string(number.to_string())?,
+                    ))
                 } else if let Some(number) = number.as_f64() {
                     Ok(LuaValue::Number(number))
                 } else {

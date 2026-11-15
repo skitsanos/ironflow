@@ -16,12 +16,19 @@ use mlua::prelude::*;
 use serde::de::{DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor};
 
 use crate::util::json_depth::{DepthExceeded, MAX_JSON_VALUE_DEPTH};
+use crate::util::json_integers::parse_exact;
 
 use super::ConversionLimits;
 use super::path::json_field_path;
 
-/// Parse `text` into a Lua value under `limits`.
+/// Parse `text` into a Lua value under `limits`. An integer that neither a
+/// Lua integer nor the parser can hold exactly becomes a string of its
+/// digits (IF-223).
 pub(super) fn parse(lua: &Lua, text: &str, limits: ConversionLimits) -> LuaResult<LuaValue> {
+    parse_exact(text, |text| parse_text(lua, text, limits))
+}
+
+fn parse_text(lua: &Lua, text: &str, limits: ConversionLimits) -> LuaResult<LuaValue> {
     let mut parser = Parser {
         lua,
         limits,
@@ -177,12 +184,13 @@ impl<'de> Visitor<'de> for ValueSeed<'_, '_> {
         Ok(self.scalar(LuaValue::Integer(value)))
     }
 
-    fn visit_u64<E>(self, value: u64) -> Result<LuaValue, E> {
-        // Above the Lua integer range a number becomes a float, as before.
-        Ok(self.scalar(match i64::try_from(value) {
-            Ok(integer) => LuaValue::Integer(integer),
-            Err(_) => LuaValue::Number(value as f64),
-        }))
+    fn visit_u64<E: serde::de::Error>(self, value: u64) -> Result<LuaValue, E> {
+        // Above the Lua integer range a float would round the value; its
+        // digits are kept as text (IF-223).
+        match i64::try_from(value) {
+            Ok(integer) => Ok(self.scalar(LuaValue::Integer(integer))),
+            Err(_) => self.visit_str(&value.to_string()),
+        }
     }
 
     fn visit_f64<E>(self, value: f64) -> Result<LuaValue, E> {

@@ -7,6 +7,7 @@ mod json;
 mod json_equality;
 mod xml;
 mod yaml;
+mod yaml_numbers;
 
 pub use csv::{CsvParseNode, CsvStringifyNode};
 pub use data_collection::{BatchNode, DeduplicateNode};

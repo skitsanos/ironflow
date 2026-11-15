@@ -13,6 +13,24 @@ Parse a JSON string from context into a value.
 
 - `{output_key}` — the parsed JSON value (object, array, number, etc.)
 
+## Numbers
+
+A JSON number is stored exactly when it is an integer from
+`-9223372036854775808` to `18446744073709551615`, and as an IEEE 754 double
+when it is written with a fraction or an exponent. An integer literal outside
+that range cannot be stored exactly and is kept as a string of its digits:
+`{"id": 123456789012345678901234567890}` gives `id =
+"123456789012345678901234567890"`. It used to become the rounded float
+`1.2345678901234568e29`. `1e999` and other numbers outside the double range
+fail the step with `number out of range`, as before; `NaN` and `Infinity`
+are not JSON and fail as syntax errors.
+
+The same rule applies to [`json_extract_path`](json_extract_path.md) with
+`parse_json = true` and to the Lua `json_parse()` global. In Lua an integer
+above `9223372036854775807` has no exact number type, so such a value reaches
+a handler as a string of its digits, whether it comes from `json_parse()` or
+from the run context; see [`code`](code.md#available-globals).
+
 ## Limits
 
 The parsed value may nest arrays and objects at most 123 levels deep (a

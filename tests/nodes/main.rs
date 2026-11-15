@@ -30,6 +30,8 @@ mod test_html_sanitize_node;
 mod test_json_node_budget;
 #[path = "../test_nodes.rs"]
 mod test_nodes;
+#[path = "../test_number_fidelity.rs"]
+mod test_number_fidelity;
 #[path = "../test_semantic_chunk_boundaries.rs"]
 mod test_semantic_chunk_boundaries;
 #[path = "../test_staged_output_modes.rs"]

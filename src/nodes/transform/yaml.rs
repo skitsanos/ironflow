@@ -4,6 +4,8 @@ use async_trait::async_trait;
 use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
+
+use super::yaml_numbers;
 // Direct defaults preserve merge expansion and YAML 1.2 scalar resolution.
 use noyalib as yaml;
 
@@ -46,8 +48,7 @@ impl Node for YamlParseNode {
             anyhow::bail!("yaml_parse requires either 'input' or 'source_key'");
         };
 
-        let yaml_value: yaml::Value = yaml::from_str(&yaml_str)?;
-        let json_value = yaml_to_json(yaml_value);
+        let json_value = yaml_numbers::parse(&yaml_str)?;
 
         let mut output = NodeOutput::new();
         output.insert(output_key.to_string(), json_value);
@@ -82,45 +83,18 @@ impl Node for YamlStringifyNode {
             .get(source_key)
             .ok_or_else(|| anyhow::anyhow!("Key '{}' not found in context", source_key))?;
 
+        // The writer refuses such an integer with a message about build
+        // features; name the value instead (IF-223).
+        if let Some(integer) = yaml_numbers::unwritable_integer(source) {
+            anyhow::bail!(
+                "yaml_stringify: integer {integer} is above the signed 64-bit range and \
+                 cannot be written exactly; convert it to a string first"
+            );
+        }
         let yaml_str = yaml::to_string(source)?;
 
         let mut output = NodeOutput::new();
         output.insert(output_key.to_string(), serde_json::Value::String(yaml_str));
         Ok(output)
-    }
-}
-
-/// Convert a YAML value into a serde_json::Value.
-fn yaml_to_json(value: yaml::Value) -> serde_json::Value {
-    match value {
-        yaml::Value::Null => serde_json::Value::Null,
-        yaml::Value::Bool(b) => serde_json::Value::Bool(b),
-        yaml::Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                serde_json::Value::Number(i.into())
-            } else if let Some(u) = n.as_u64() {
-                serde_json::Value::Number(u.into())
-            } else {
-                let f = n.as_f64();
-                serde_json::Number::from_f64(f)
-                    .map(serde_json::Value::Number)
-                    .unwrap_or(serde_json::Value::Null)
-            }
-        }
-        yaml::Value::String(s) => serde_json::Value::String(s),
-        yaml::Value::Sequence(seq) => {
-            serde_json::Value::Array(seq.into_iter().map(yaml_to_json).collect())
-        }
-        yaml::Value::Mapping(map) => {
-            let obj: serde_json::Map<String, serde_json::Value> = map
-                .into_iter()
-                .map(|(key, value)| (key, yaml_to_json(value)))
-                .collect();
-            serde_json::Value::Object(obj)
-        }
-        yaml::Value::Tagged(tagged) => {
-            let (_, value) = tagged.into_parts();
-            yaml_to_json(value)
-        }
     }
 }

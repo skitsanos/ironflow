@@ -227,7 +227,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 ## 18-xml-yaml
 - **xml_parse.lua** — Parse XML into JSON and verify entity, CDATA, and attribute fidelity
 - **xml_stringify.lua** — Convert JSON-like data into XML with attributes, wrap a list with `item_tag`, and read it back
-- **yaml_parse.lua** — Parse YAML into JSON and log the result
+- **yaml_parse.lua** — Parse YAML into JSON and log the result; an integer outside the 64-bit range and `.inf` stay strings
 - **yaml_stringify.lua** — Convert JSON-like data into YAML
 
 ## 19-html-sanitize

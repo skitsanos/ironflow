@@ -534,6 +534,24 @@ publication is verified separately.
   result and now fails the step. `deduplicate` treats `5` and `5.0` as the
   same key for the same reason. See
   [`data_filter`](../nodes/data_filter.md#equality).
+- **`yaml_parse` and `json_parse` keep numbers they cannot hold exactly as
+  text** (IF-223). `yaml_parse` returned `null` for `.nan`, `.inf` and an
+  overflowing exponent such as `1e999`, and a rounded float for an integer
+  outside the signed 64-bit range (`12345678901234567890` became
+  `1.2345678901234567e19`). Each of these is now a string of its source text,
+  the rule `csv_parse` follows, also through aliases and merges; `!!float
+  .inf` fails the step. `json_parse`, `json_extract_path` with `parse_json`
+  and the Lua `json_parse()` global rounded an integer literal outside
+  `-9223372036854775808` to `18446744073709551615` and now return its digits
+  as a string. In Lua, an integer above `9223372036854775807` (from
+  `json_parse()` or from `ctx`) was the nearest float and is now a string of
+  its digits, because Lua has no exact number for it. `yaml_stringify`
+  already refused such an integer and now names the value in its error.
+  Integers in range, floats written as floats, and all other values are
+  unchanged. A flow that did arithmetic on one of these values now receives a
+  string: Lua arithmetic converts it as before, a comparison does not. See
+  [`yaml_parse`](../nodes/yaml_parse.md#numbers-that-json-cannot-hold) and
+  [`json_parse`](../nodes/json_parse.md#numbers).
 - **Extracted text changes for some PDF, DOCX and PPTX documents** (IF-193).
   Review stored extractions, embeddings and assertions that depend on the
   earlier output:
