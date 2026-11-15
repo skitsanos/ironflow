@@ -35,6 +35,7 @@ pub fn relationships(entries: &[(&str, &str, &str)]) -> String {
     )
 }
 
+#[allow(dead_code)] // Each test file uses a different subset.
 pub fn slide(text: &str) -> String {
     format!(
         "<p:sld xmlns:p=\"{PML}\" xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"><p:sp><p:txBody><a:p><a:r><a:t>{text}</a:t></a:r></a:p></p:txBody></p:sp></p:sld>"

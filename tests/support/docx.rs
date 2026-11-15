@@ -20,6 +20,7 @@ pub fn document(body: &str) -> String {
 }
 
 /// A part with root element `root` (for example `w:styles`) around `content`.
+#[allow(dead_code)] // Each test file uses a different subset.
 pub fn part(root: &str, content: &str) -> String {
     format!("{DECLARATION}<{root} {NAMESPACES}>{content}</{root}>")
 }

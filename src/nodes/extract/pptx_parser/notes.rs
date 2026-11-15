@@ -77,6 +77,10 @@ pub(super) fn parse_pptx_notes<R: BufRead>(xml: R, budget: &mut Budget<'_>) -> R
     let mut buffer = Vec::new();
     let mut text = String::new();
     let mut in_text = false;
+    // `a:br` elements since the last notes text, and where the open
+    // paragraph starts: a break renders only between text of one paragraph.
+    let mut pending_breaks = 0_usize;
+    let mut paragraph_start = 0;
     let mut scope = Scope::default();
     let mut saw_element = false;
     let mut depth = 0_u64;
@@ -95,27 +99,40 @@ pub(super) fn parse_pptx_notes<R: BufRead>(xml: R, budget: &mut Budget<'_>) -> R
                 depth = depth.saturating_add(1);
                 budget.charge_item("PPTX notes XML events")?;
                 scope.open(&event, decoder.version, budget)?;
-                in_text = local_name(event.name().as_ref().as_bytes()) == b"t"
-                    && scope.notes()
-                    && !scope.in_field;
+                let name = event.name();
+                let name = local_name(name.as_ref().as_bytes());
+                in_text = name == b"t" && scope.notes() && !scope.in_field;
+                pending_breaks += usize::from(name == b"br" && scope.notes());
             }
             Ok(Event::Empty(event)) => {
                 saw_element = true;
                 budget.charge_item("PPTX notes XML events")?;
                 scope.open(&event, decoder.version, budget)?;
-                scope.close(event.name().as_ref().as_bytes());
+                let name = event.name();
+                let name = name.as_ref().as_bytes();
+                pending_breaks += usize::from(local_name(name) == b"br" && scope.notes());
+                scope.close(name);
             }
             Ok(Event::Text(event)) if in_text => {
                 budget.charge_item("PPTX notes XML events")?;
+                let breaks = std::mem::take(&mut pending_breaks);
+                if breaks > 0 && text.len() > paragraph_start {
+                    budget.charge_output(breaks as u64, "PPTX notes line breaks")?;
+                    text.extend(std::iter::repeat_n('\n', breaks));
+                }
                 text.push_str(event.as_ref());
             }
             Ok(Event::End(event)) => {
                 let name = event.name();
                 let name = name.as_ref().as_bytes();
                 scope.close(name);
-                if local_name(name) == b"p" && scope.notes() {
-                    budget.charge_output(1, "PPTX notes paragraph separator")?;
-                    text.push('\n');
+                if local_name(name) == b"p" {
+                    pending_breaks = 0;
+                    if scope.notes() {
+                        budget.charge_output(1, "PPTX notes paragraph separator")?;
+                        text.push('\n');
+                    }
+                    paragraph_start = text.len();
                 }
                 budget.charge_item("PPTX notes XML events")?;
                 depth = depth.checked_sub(1).ok_or_else(|| {

@@ -623,9 +623,15 @@ publication is verified separately.
     by mis-decoded text) and remove a language tag from a PDFDocEncoding
     string (`˙de˙Größe` is now `Größe`) and from a UTF-16 string that stores
     the tag as raw code bytes (`敮Packed` is now `Packed`).
+  - `extract_pptx` renders a line break (`a:br`) inside a slide or notes
+    paragraph. The text on both sides was joined without a separator
+    (`line oneline two`); it is now a newline in paragraph text and speaker
+    notes, and a space in a table cell and in the slide title
+    (`QuarterlyReview` is now `Quarterly Review`).
 
-  See [`extract_word`](../nodes/extract_word.md#style-inheritance-of-bold-italic-and-strikethrough)
-  and [`pdf_metadata`](../nodes/pdf_metadata.md).
+  See [`extract_word`](../nodes/extract_word.md#style-inheritance-of-bold-italic-and-strikethrough),
+  [`pdf_metadata`](../nodes/pdf_metadata.md) and
+  [`extract_pptx`](../nodes/extract_pptx.md#text-fidelity).
 
 - **Deleting a scheduled run no longer lets its occurrence run again**
   (IF-201). Before, a server that started or restarted inside a schedule's

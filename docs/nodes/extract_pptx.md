@@ -37,7 +37,7 @@ comments are outside this contract.
 Slide text, table cells, speaker notes, metadata and comments decode built-in XML
 entities and numeric references once and preserve literal CDATA. Adjacent events
 and runs do not introduce spaces or newlines; speaker-note paragraphs are
-separated by newlines. Metadata outer whitespace is trimmed after accumulation.
+separated by newlines, and a line break element is rendered as described below. Metadata outer whitespace is trimmed after accumulation.
 Picture descriptions, embed IDs, list levels and comment attributes use the
 part's declared XML-version normalization (1.0 by default).
 
@@ -48,6 +48,13 @@ are not notes. Field runs (`a:fld`, for example a slide number or date
 inside the notes text) are generated values and are skipped, as they are in
 slide text. A slide whose body placeholder is empty has no `speaker_notes`.
 Text in a notes part that contains no shapes at all is still read.
+
+A DrawingML line break (`a:br`) between two runs of a paragraph is a newline
+in that paragraph's `text` and in `speaker_notes`. It is a single space in a
+table cell and in the slide `title`, which are one line in every format. A
+break with no text after it in its paragraph adds nothing, and a paragraph
+that holds only breaks is empty. In Markdown the text after a break continues
+on the next line of the same paragraph or list item.
 
 Unknown/invalid text references and DTDs return errors; no custom or external
 entities are expanded. Decoding and retained attribute values are admitted

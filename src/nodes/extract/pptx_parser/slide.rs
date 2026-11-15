@@ -1,11 +1,16 @@
 use std::io::BufRead;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use quick_xml::events::{BytesStart, Event};
 
+use self::attributes::{
+    collect_embed_id, collect_list_level, collect_string_attribute, local_name,
+};
 use super::{PptxElement, PptxTextPara};
 use crate::nodes::extract::resource::Budget;
-use crate::util::xml::{Decoder, attribute_value};
+use crate::util::xml::Decoder;
+
+mod attributes;
 
 #[derive(Default)]
 struct State {
@@ -16,6 +21,11 @@ struct State {
     in_paragraph: bool,
     current_text: String,
     current_list_level: Option<u32>,
+    /// `a:br` elements seen since the last text of the open paragraph. They
+    /// become line breaks only when more text follows in the same paragraph.
+    pending_breaks: usize,
+    /// The open table cell has a break to render before its next text.
+    cell_break: bool,
     current_paragraphs: Vec<PptxTextPara>,
     in_run: bool,
     in_text: bool,
@@ -64,12 +74,7 @@ pub(super) fn parse_pptx_slide<R: BufRead>(
             }
             Ok(Event::Text(event)) if state.in_text => {
                 budget.charge_item("PPTX slide XML events")?;
-                let text = event.as_ref();
-                state.current_text.push_str(text);
-                if state.in_cell {
-                    budget.charge_output(text.len() as u64, "PPTX duplicated cell text")?;
-                    state.current_cell_text.push_str(text);
-                }
+                push_text(event.as_ref(), &mut state, budget)?;
             }
             Ok(Event::End(event)) => {
                 budget.charge_item("PPTX slide XML events")?;
@@ -109,6 +114,10 @@ fn start_element(
             state.current_list_level = None;
         }
         b"r" if state.in_paragraph => state.in_run = true,
+        b"br" if state.in_paragraph => {
+            state.pending_breaks = state.pending_breaks.saturating_add(1);
+            state.cell_break = state.in_cell;
+        }
         b"t" if state.in_run => state.in_text = true,
         b"pPr" if state.in_paragraph => collect_list_level(event, state, version, budget)?,
         b"tbl" => {
@@ -118,6 +127,7 @@ fn start_element(
         b"tr" if state.in_table => state.current_row.clear(),
         b"tc" if state.in_table => {
             state.in_cell = true;
+            state.cell_break = false;
             state.current_cell_text.clear();
         }
         b"pic" => {
@@ -180,7 +190,27 @@ fn end_element(name: &[u8], state: &mut State, budget: &mut Budget<'_>) -> Resul
     Ok(())
 }
 
+/// Append run text. A pending `a:br` is a line break inside a paragraph and
+/// a space inside a table cell, which is one line in every text format.
+fn push_text(text: &str, state: &mut State, budget: &mut Budget<'_>) -> Result<()> {
+    let breaks = std::mem::take(&mut state.pending_breaks);
+    if breaks > 0 && !state.current_text.is_empty() {
+        budget.charge_output(breaks as u64, "PPTX line breaks")?;
+        state.current_text.extend(std::iter::repeat_n('\n', breaks));
+    }
+    state.current_text.push_str(text);
+    if state.in_cell {
+        budget.charge_output(text.len() as u64 + 1, "PPTX duplicated cell text")?;
+        if std::mem::take(&mut state.cell_break) && !state.current_cell_text.is_empty() {
+            state.current_cell_text.push(' ');
+        }
+        state.current_cell_text.push_str(text);
+    }
+    Ok(())
+}
+
 fn finish_paragraph(state: &mut State, budget: &mut Budget<'_>) -> Result<()> {
+    state.pending_breaks = 0;
     if !state.current_text.trim().is_empty() {
         budget.charge_item("PPTX paragraphs")?;
         state.current_paragraphs.push(PptxTextPara {
@@ -209,7 +239,9 @@ fn finish_shape(state: &mut State, budget: &mut Budget<'_>) -> Result<()> {
                     .iter()
                     .map(|paragraph| paragraph.text.as_str())
                     .collect::<Vec<_>>()
-                    .join(" "),
+                    .join(" ")
+                    // A heading is one line: a break in the title is a space.
+                    .replace('\n', " "),
             );
         }
         state.current_paragraphs.clear();
@@ -222,70 +254,4 @@ fn finish_shape(state: &mut State, budget: &mut Budget<'_>) -> Result<()> {
     }
     state.placeholder = None;
     Ok(())
-}
-
-fn collect_string_attribute(
-    event: &BytesStart<'_>,
-    key: &[u8],
-    target: &mut Option<String>,
-    version: quick_xml::XmlVersion,
-    budget: &mut Budget<'_>,
-) -> Result<()> {
-    for attribute in event.attributes() {
-        let attribute = attribute.context("extract_pptx: invalid slide attribute")?;
-        if attribute.key.as_ref().as_bytes() == key {
-            *target = Some(
-                attribute_value(&attribute, version, |bytes| {
-                    budget.charge_output(bytes, "PPTX retained slide attributes")
-                })?
-                .into_owned(),
-            );
-        }
-    }
-    Ok(())
-}
-
-fn collect_embed_id(
-    event: &BytesStart<'_>,
-    state: &mut State,
-    version: quick_xml::XmlVersion,
-    budget: &mut Budget<'_>,
-) -> Result<()> {
-    for attribute in event.attributes() {
-        let attribute = attribute.context("extract_pptx: invalid image attribute")?;
-        if local_name(attribute.key.as_ref().as_bytes()) == b"embed" {
-            state.picture_embed_id = Some(
-                attribute_value(&attribute, version, |bytes| {
-                    budget.charge_output(bytes, "PPTX retained image relationship IDs")
-                })?
-                .into_owned(),
-            );
-        }
-    }
-    Ok(())
-}
-
-fn collect_list_level(
-    event: &BytesStart<'_>,
-    state: &mut State,
-    version: quick_xml::XmlVersion,
-    budget: &mut Budget<'_>,
-) -> Result<()> {
-    for attribute in event.attributes() {
-        let attribute = attribute.context("extract_pptx: invalid paragraph attribute")?;
-        if attribute.key.as_ref().as_bytes() == b"lvl" {
-            state.current_list_level = Some(
-                attribute_value(&attribute, version, |bytes| {
-                    budget.charge_output(bytes, "PPTX list level decoding")
-                })?
-                .parse::<u32>()
-                .context("extract_pptx: paragraph list level must be an unsigned integer")?,
-            );
-        }
-    }
-    Ok(())
-}
-
-fn local_name(name: &[u8]) -> &[u8] {
-    name.rsplit(|byte| *byte == b':').next().unwrap_or(name)
 }
