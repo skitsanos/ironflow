@@ -604,6 +604,15 @@ publication is verified separately.
   [`extract_word`](../nodes/extract_word.md#text-boxes) and
   [`extract_pptx`](../nodes/extract_pptx.md#text-fidelity).
 
+- **Further extracted text changes for some DOCX, PPTX and PDF documents**
+  (IF-222). Review stored extractions, embeddings and assertions that depend
+  on the earlier output:
+  - `extract_word` comment anchors no longer read the `mc:Fallback` copy of a
+    text box. `anchored_text` for a comment range around or inside a text box
+    repeated the box text (`ANCHOREDANCHORED`); it now holds it once.
+
+  See [`extract_word`](../nodes/extract_word.md).
+
 - **Deleting a scheduled run no longer lets its occurrence run again**
   (IF-201). Before, a server that started or restarted inside a schedule's
   `grace_seconds` ran an occurrence a second time when its run record was

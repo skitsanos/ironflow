@@ -116,6 +116,8 @@ Shape of `ctx[comments_key]`:
 
 `anchored_text` is the verbatim text the comment was attached to (joined run text between the comment's `<w:commentRangeStart/>` and `<w:commentRangeEnd/>` markers). It is omitted when the comment has no anchored range (whole-document comments).
 
+Comment ranges and text inside an `mc:Fallback` element are not observed, consistently with the document text: the fallback copy of a text box repeats the `mc:Choice` content, so a range around or inside a text box anchors the box text once. A range that only a fallback declares anchors nothing.
+
 If the document has no comments part, an empty array is written.
 
 ```lua

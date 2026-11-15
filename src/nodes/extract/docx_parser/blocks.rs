@@ -13,7 +13,8 @@ use super::{DocxBlock, DocxCell, DocxParagraph, DocxRow, DocxRun, DocxTable};
 /// Elements whose content is never live. An `mc:Fallback` repeats its
 /// `mc:Choice` in an older vocabulary, and a tracked formatting change holds
 /// the previous `w:rPr` or `w:pPr`, not the current one.
-const SKIPPED: [&str; 3] = ["mc:Fallback", "w:rPrChange", "w:pPrChange"];
+const SKIPPED: [&str; 3] = [FALLBACK, "w:rPrChange", "w:pPrChange"];
+pub(super) const FALLBACK: &str = "mc:Fallback";
 
 /// Document-wide lookups resolved before the walk starts.
 pub(super) struct Lookups<'a> {

@@ -4,6 +4,7 @@ use anyhow::Result;
 use quick_xml::events::{BytesStart, Event};
 
 use super::super::resource::Budget;
+use super::blocks::FALLBACK;
 use super::visit_attributes;
 
 pub(super) struct AnchorCollector<'set, 'id> {
@@ -11,6 +12,9 @@ pub(super) struct AnchorCollector<'set, 'id> {
     open: HashSet<String>,
     anchors: HashMap<String, String>,
     in_text: bool,
+    /// Open `mc:Fallback` elements. A fallback repeats its `mc:Choice`, so
+    /// its ranges and text are not observed, as in the block builder.
+    fallback_depth: u64,
 }
 
 impl<'set, 'id> AnchorCollector<'set, 'id> {
@@ -20,6 +24,7 @@ impl<'set, 'id> AnchorCollector<'set, 'id> {
             open: HashSet::new(),
             anchors: HashMap::new(),
             in_text: false,
+            fallback_depth: 0,
         }
     }
 
@@ -32,6 +37,13 @@ impl<'set, 'id> AnchorCollector<'set, 'id> {
         budget.charge_item("DOCX document comment-range events")?;
         let is_empty = matches!(event, Event::Empty(_));
         match event {
+            Event::Start(event) if event.name().as_ref() == FALLBACK => {
+                self.fallback_depth = self.fallback_depth.saturating_add(1);
+            }
+            Event::End(event) if event.name().as_ref() == FALLBACK => {
+                self.fallback_depth = self.fallback_depth.saturating_sub(1);
+            }
+            _ if self.fallback_depth > 0 => {}
             Event::Start(event) | Event::Empty(event) => match event.name().as_ref() {
                 "w:commentRangeStart" => self.update_ranges(event, true, version, budget)?,
                 "w:commentRangeEnd" => self.update_ranges(event, false, version, budget)?,
