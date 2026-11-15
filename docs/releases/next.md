@@ -754,6 +754,14 @@ publication is verified separately.
   page file is now capped by `IRONFLOW_MAX_PDF_BYTES`, and on Unix a missing
   `output_dir` is created `0755` masked by the umask (it was `0777` masked,
   which differs only under a umask that keeps group or other write).
+- **`cache_set` with `backend = "file"` replaces an entry atomically**
+  (IF-218). The record was written in place, so a `cache_get` running at the
+  same time, in the same or another process, could read a truncated file and
+  fail with `Corrupt cache file`. The record is now staged beside the entry
+  and renamed over it. A symlink at an entry name now fails `cache_set`
+  instead of overwriting the link's target. The record format and file names
+  are unchanged; on Unix a missing cache directory is created `0755` masked
+  by the umask.
 - **`s3_list_objects` cannot be kept paging by an endpoint** (IF-189). A
   truncated page without a continuation token used to restart the listing
   from the first page without end. That response, a repeated token, a page

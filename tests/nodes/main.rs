@@ -8,6 +8,8 @@
 mod test_ai_chunk_nodes;
 #[path = "../test_base64_write_safety.rs"]
 mod test_base64_write_safety;
+#[path = "../test_cache_file_atomic.rs"]
+mod test_cache_file_atomic;
 #[path = "../test_copy_move_file_safety.rs"]
 mod test_copy_move_file_safety;
 #[path = "../test_date_node.rs"]
