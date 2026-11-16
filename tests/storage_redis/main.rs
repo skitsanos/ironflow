@@ -14,5 +14,7 @@ mod test_redis_atomicity;
 mod test_redis_json_depth;
 #[path = "../test_redis_lease_atomicity.rs"]
 mod test_redis_lease_atomicity;
+#[path = "../test_redis_response_timeout.rs"]
+mod test_redis_response_timeout;
 #[path = "../test_redis_store.rs"]
 mod test_redis_store;

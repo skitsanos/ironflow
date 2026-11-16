@@ -203,6 +203,11 @@ superseded (scheduler outcome `superseded`). Another replica that starts
 later inside the same window finds all of them settled and starts none. See
 [Catch-up](CLI_REFERENCE.md#catch-up).
 
+Both Redis stores wait `IRONFLOW_REDIS_RESPONSE_TIMEOUT_MS` (default 500) for
+each response. If store operations fail with `timed out` under load, raise it
+on every replica; a response that arrives late is otherwise reported as a
+failed operation although Redis may have applied it.
+
 With the Redis state store, keep `REDIS_TTL` greater than the largest
 `grace_seconds` plus 60 seconds. `ironflow serve` logs a warning for each
 schedule that is not covered. The occurrence is still not run twice, but its

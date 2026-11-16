@@ -1,10 +1,9 @@
 //! Process-wide size limits for I/O-heavy nodes and embedded runtimes.
 //!
-//! Limits are environment-overridable so deployments can tune them without
-//! recompiling. Every numeric limit is declared once as a [`Limit`], here or in
-//! a submodule, and listed in [`ALL`] so that [`validate_environment`] rejects
-//! a malformed override at startup under one contract (see `env.rs`). Read
-//! paths consult the accessors before allocating unbounded amounts of memory.
+//! Limits are environment-overridable. Every numeric limit is declared once as
+//! a [`Limit`], here or in a submodule, and listed in [`ALL`] so that
+//! [`validate_environment`] rejects a malformed override at startup under one
+//! contract (see `env.rs`). Read paths consult the accessors before allocating.
 mod env;
 mod image;
 mod lua;
@@ -175,6 +174,7 @@ pub(crate) const ALL: &[&Limit] = &[
     &process::MCP_SESSION_TTL_SECS,
     &process::RUNTIME_SHUTDOWN_SECONDS,
     &process::MAX_REPEAT_ITERATIONS,
+    &process::REDIS_RESPONSE_TIMEOUT_MS,
     &work::MAX_JSON_PARSE_NODES,
     &work::MAX_HTML_TEXT_DEPTH,
     &work::MAX_LIVE_CHILD_RUNS,

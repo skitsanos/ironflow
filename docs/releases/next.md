@@ -1037,6 +1037,13 @@ publication is verified separately.
   or keep it out of error text. See
   [Diagnostic scrubbing](../SECURITY.md#diagnostic-scrubbing).
 
+- The Redis response timeout is configurable (IF-220). Both Redis stores used
+  the client library's fixed 500 ms response timeout, which a loaded server or
+  host can exceed. `IRONFLOW_REDIS_RESPONSE_TIMEOUT_MS` (default 500,
+  `1..=600000`) now sets it for the state and event stores; a malformed or
+  out-of-range value stops startup. Behaviour is unchanged when the variable
+  is unset. See [Environment variables](../CLI_REFERENCE.md#ironflow-serve).
+
 - A flow definition built without the Lua loader gets the same guard-condition
   check (IF-220). An `if_node` condition that is invalid for every context,
   such as `ctx.n > nil`, was rejected only when a Lua file or source was

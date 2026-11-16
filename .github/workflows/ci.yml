@@ -162,6 +162,8 @@ jobs:
       CARGO_PROFILE_TEST_DEBUG: line-tables-only
       IRONFLOW_REDIS_TEST_URL: redis://127.0.0.1:6379
       IRONFLOW_REDIS_TEST_REQUIRED: "1"
+      # The stores' 500 ms default fails unrelated tests on a loaded runner (IF-220).
+      IRONFLOW_REDIS_RESPONSE_TIMEOUT_MS: "5000"
       DATABASE_URL: postgres://postgres:ironflow-${{ github.run_id }}-${{ github.run_attempt }}@127.0.0.1:5432/ironflow_test
       IRONFLOW_POSTGRES_TEST_REQUIRED: "1"
     steps:

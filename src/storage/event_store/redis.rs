@@ -30,7 +30,7 @@ impl RedisEventStore {
             .map_err(|error| StorageError::backend("Invalid Redis event store TTL", error))?;
         let client = crate::storage::redis_config::client(url)
             .map_err(|error| StorageError::backend("Invalid Redis event store URL", error))?;
-        let conn = redis::aio::ConnectionManager::new(client)
+        let conn = crate::storage::redis_config::connection_manager(client)
             .await
             .map_err(|error| StorageError::backend("Failed to connect Redis event store", error))?;
 

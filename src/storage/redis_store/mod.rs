@@ -40,7 +40,7 @@ impl RedisStateStore {
             .map_err(|error| StorageError::backend("Invalid Redis state store TTL", error))?;
         let client = crate::storage::redis_config::client(url)
             .map_err(|error| StorageError::backend("Invalid Redis state store URL", error))?;
-        let conn = redis::aio::ConnectionManager::new(client)
+        let conn = crate::storage::redis_config::connection_manager(client)
             .await
             .map_err(|error| StorageError::backend("Failed to connect Redis state store", error))?;
 

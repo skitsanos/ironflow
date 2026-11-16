@@ -134,6 +134,7 @@ fi
 
 IRONFLOW_REDIS_TEST_URL="redis://127.0.0.1:$redis_port" \
 IRONFLOW_REDIS_TEST_REQUIRED=1 \
+IRONFLOW_REDIS_RESPONSE_TIMEOUT_MS=5000 \
 IRONFLOW_POSTGRES_TEST_REQUIRED=1 \
 DATABASE_URL="postgres://postgres:$postgres_password@127.0.0.1:$postgres_port/ironflow_test" \
   bun --no-env-file scripts/test_rust_targets.ts --features postgres,redis,cjk-fonts -- --test-threads=1

@@ -33,6 +33,10 @@ pub(crate) const RUNTIME_SHUTDOWN_SECONDS: Limit =
 /// ceiling of 1024 is fixed (IF-220: validated at startup like the others).
 pub(crate) const MAX_REPEAT_ITERATIONS: Limit =
     Limit::bounded("IRONFLOW_MAX_REPEAT_ITERATIONS", 128, 1_024);
+/// Milliseconds a Redis store waits for one response (IF-216, IF-220). The
+/// default is the client library's own; the ceiling is ten minutes.
+pub(crate) const REDIS_RESPONSE_TIMEOUT_MS: Limit =
+    Limit::bounded("IRONFLOW_REDIS_RESPONSE_TIMEOUT_MS", 500, 600_000);
 
 fn capacity(limit: &Limit) -> usize {
     usize::try_from(limit.read()).unwrap_or(usize::MAX)
@@ -74,4 +78,9 @@ pub fn mcp_session_ttl_secs() -> u64 {
 /// has returned; a worker inside an uninterruptible call is then abandoned.
 pub fn runtime_shutdown_timeout() -> std::time::Duration {
     std::time::Duration::from_secs(RUNTIME_SHUTDOWN_SECONDS.read())
+}
+
+/// How long the Redis state and event stores wait for one response.
+pub fn redis_response_timeout() -> std::time::Duration {
+    std::time::Duration::from_millis(REDIS_RESPONSE_TIMEOUT_MS.read())
 }
