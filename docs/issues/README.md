@@ -6,8 +6,8 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts generate` and verified with
 `bun run scripts/issues_registry.ts check`.
 
-- Total findings: 223
-- Active findings: 3
+- Total findings: 229
+- Active findings: 6
 
 ## Working agreement
 
@@ -249,5 +249,11 @@ priority, area, and title. The registry is generated with
 | [IF-219](./IF-219.md) | P3 | Resolved | Diagnostics | Diagnostic scrubber over-redacts and misses some key forms |
 | [IF-220](./IF-220.md) | P3 | Open | Maintainability | Operational and validation follow-ups from the 2026-11 fix batches |
 | [IF-221](./IF-221.md) | P2 | Resolved | Workflow composition | Child input mappings and s3vector flags fall back silently on missing or malformed values |
-| [IF-222](./IF-222.md) | P3 | Open | Documents/extraction fidelity | Document extraction fidelity follow-ups for DOCX, PPTX and PDF metadata |
+| [IF-222](./IF-222.md) | P3 | Resolved | Documents/extraction fidelity | Document extraction fidelity follow-ups for DOCX, PPTX and PDF metadata |
 | [IF-223](./IF-223.md) | P3 | Resolved | Data transforms | Data transform follow-ups: YAML non-finite and large numbers, CSV formula cells, neq on a missing field |
+| [IF-224](./IF-224.md) | P3 | Resolved | Documents/extraction fidelity | extract_pptx does not tell hidden slides apart |
+| [IF-225](./IF-225.md) | P3 | Open | Documents/extraction fidelity | Verify extract_word against a document saved by Word or LibreOffice |
+| [IF-226](./IF-226.md) | P3 | Open | Documents/extraction fidelity | Verify extract_pptx comments and notes header and date placeholders against a PowerPoint deck |
+| [IF-227](./IF-227.md) | P3 | Open | Documents/extraction fidelity | Verify extract_xlsx date cells against a workbook saved by Excel |
+| [IF-228](./IF-228.md) | P3 | Open | Documents/extraction fidelity | Decide whether slide footer placeholder text belongs in extract_pptx slide text |
+| [IF-229](./IF-229.md) | P3 | Open | Documents/extraction fidelity | extract_pptx approximates bullets inherited from the layout and master |
