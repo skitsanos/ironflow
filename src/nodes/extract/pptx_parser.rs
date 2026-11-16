@@ -1,6 +1,8 @@
 mod comments;
 mod content_types;
 mod graph;
+mod inherited;
+mod list_style;
 mod metadata;
 mod notes;
 mod package;

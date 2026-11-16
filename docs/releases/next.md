@@ -666,8 +666,8 @@ publication is verified separately.
     properties or in the shape's `a:lstStyle` level, now has `list_level`
     (`0` without `lvl`) and a `- ` marker in Markdown. An indented paragraph
     of a text box or drawn shape that declares no bullet was reported as a
-    list item and is now plain. Placeholders are unchanged: their inherited
-    bullets are still approximated from `lvl`.
+    list item and is now plain. Placeholder paragraphs that declare nothing
+    are covered by the IF-229 entry below.
   - `extract_pdf` builds lines from the position of the text. Every
     `BT … ET` block used to be its own line and moves inside a block were
     ignored, so a PDF whose writer ends a block at each font change (macOS
@@ -687,6 +687,21 @@ publication is verified separately.
   [`pdf_metadata`](../nodes/pdf_metadata.md),
   [`extract_pdf`](../nodes/extract_pdf.md#lines-and-word-spaces) and
   [`extract_pptx`](../nodes/extract_pptx.md#text-fidelity).
+
+- **`extract_pptx` resolves placeholder bullets through the slide layout
+  and master** (IF-229). A placeholder paragraph that declares no bullet was
+  guessed from its `lvl` attribute. It now takes the bullet of its level
+  from the layout placeholder, the master placeholder and the master's text
+  styles, in that order. For existing decks this changes `list_level` in
+  JSON and the `- ` marker in Markdown in two ways: a body paragraph without
+  `lvl` that the master bullets (the usual first-level bullet of a content
+  slide) was plain and is now a list item with `list_level` `0`, and a
+  paragraph with `lvl` whose layout or master switches the bullet off (a
+  subtitle, a footer) was a list item and is now plain. Text boxes and drawn
+  shapes are unchanged. The layout and master parts are now read, so
+  malformed XML in one of them fails the step; a slide whose layout or
+  master is absent keeps the earlier behaviour. See
+  [`extract_pptx`](../nodes/extract_pptx.md#element-types).
 
 - **`extract_pptx` JSON marks hidden slides** (IF-224). A slide hidden from
   the slide show (`show="0"` on the slide) was extracted like any other,

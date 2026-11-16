@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 
 use super::content_types::{ContentTypes, parse_content_types};
 use super::graph::{Presentation, SlidePart, resolve_target};
+use super::inherited::Sheets;
 use super::notes::parse_pptx_notes;
 use super::relationships::Kind;
 use super::slide::{ParsedSlide, parse_pptx_slide};
@@ -31,6 +32,7 @@ pub(in crate::nodes::extract) fn extract_pptx_slides(
     };
 
     let mut slides = Vec::new();
+    let mut sheets = Sheets::default();
     let mut artifacts = HashMap::new();
     let mut media = MediaState {
         artifact_store,
@@ -47,9 +49,12 @@ pub(in crate::nodes::extract) fn extract_pptx_slides(
             title,
             mut elements,
             hidden,
-        } = archive.with_required_xml(&slide.part, execution, |reader| {
-            parse_pptx_slide(reader, budget)
-        })?;
+        } = {
+            let inherited = sheets.of_slide(archive, slide, budget, execution)?;
+            archive.with_required_xml(&slide.part, execution, |reader| {
+                parse_pptx_slide(reader, inherited, budget)
+            })?
+        };
         resolve_images(archive, slide, &mut elements, &mut media, budget, execution)?;
         let speaker_notes = read_notes(archive, slide.notes.as_deref(), budget, execution)?;
         slides.push(PptxSlide {

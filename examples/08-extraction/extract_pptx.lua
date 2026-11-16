@@ -9,7 +9,8 @@ local flow = Flow.new("extract_pptx_demo")
 -- date, header and footer placeholders and field values are not included.
 -- A paragraph is a list item (list_level, "- " in Markdown) when a bullet is
 -- declared for it in its own properties or in the shape's list style; a
--- first-level bullet has list_level 0.
+-- first-level bullet has list_level 0. A placeholder paragraph that declares
+-- nothing inherits the bullet of its slide layout and slide master.
 -- Slides follow the presentation list, including listed hidden slides.
 -- In JSON a hidden slide carries hidden = true; a shown slide has no such
 -- field. Text and Markdown do not mark hidden slides.

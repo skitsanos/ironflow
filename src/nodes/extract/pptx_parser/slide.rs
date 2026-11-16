@@ -6,12 +6,15 @@ use quick_xml::events::{BytesStart, Event};
 use self::attributes::{
     collect_embed_id, collect_hidden, collect_list_level, collect_string_attribute, local_name,
 };
+use self::finish::{finish_paragraph, finish_shape, push_text};
+use super::inherited::Inherited;
 use super::{PptxElement, PptxTextPara};
 use crate::nodes::extract::resource::Budget;
 use crate::util::xml::Decoder;
 
 mod attributes;
 mod bullets;
+mod finish;
 
 /// What one slide part holds.
 pub(super) struct ParsedSlide {
@@ -50,7 +53,11 @@ struct State {
     picture_embed_id: Option<String>,
 }
 
-pub(super) fn parse_pptx_slide<R: BufRead>(xml: R, budget: &mut Budget<'_>) -> Result<ParsedSlide> {
+pub(super) fn parse_pptx_slide<R: BufRead>(
+    xml: R,
+    inherited: &Inherited,
+    budget: &mut Budget<'_>,
+) -> Result<ParsedSlide> {
     let mut reader = quick_xml::Reader::from_reader(xml);
     let mut decoder = Decoder::default();
     let mut buffer = Vec::new();
@@ -84,7 +91,12 @@ pub(super) fn parse_pptx_slide<R: BufRead>(xml: R, budget: &mut Budget<'_>) -> R
                     collect_hidden(&event, &mut state, decoder.version, budget)?;
                 }
                 start_element(&event, &mut state, decoder.version, budget)?;
-                end_element(event.name().as_ref().as_bytes(), &mut state, budget)?;
+                end_element(
+                    event.name().as_ref().as_bytes(),
+                    &mut state,
+                    inherited,
+                    budget,
+                )?;
             }
             Ok(Event::Text(event)) if state.in_text => {
                 budget.charge_item("PPTX slide XML events")?;
@@ -95,7 +107,12 @@ pub(super) fn parse_pptx_slide<R: BufRead>(xml: R, budget: &mut Budget<'_>) -> R
                 depth = depth.checked_sub(1).ok_or_else(|| {
                     anyhow::anyhow!("extract_pptx: invalid unmatched closing element in slide")
                 })?;
-                end_element(event.name().as_ref().as_bytes(), &mut state, budget)?;
+                end_element(
+                    event.name().as_ref().as_bytes(),
+                    &mut state,
+                    inherited,
+                    budget,
+                )?;
             }
             Ok(Event::Eof) => break,
             Ok(_) => budget.charge_item("PPTX slide XML events")?,
@@ -129,6 +146,8 @@ fn start_element(
         b"ph" => {
             state.bullets.placeholder();
             collect_string_attribute(event, b"type", &mut state.placeholder, version, budget)?;
+            collect_string_attribute(event, b"type", &mut state.bullets.kind, version, budget)?;
+            collect_string_attribute(event, b"idx", &mut state.bullets.idx, version, budget)?;
         }
         b"txBody" => {
             state.in_text_body = true;
@@ -171,11 +190,16 @@ fn start_element(
     Ok(())
 }
 
-fn end_element(name: &[u8], state: &mut State, budget: &mut Budget<'_>) -> Result<()> {
+fn end_element(
+    name: &[u8],
+    state: &mut State,
+    inherited: &Inherited,
+    budget: &mut Budget<'_>,
+) -> Result<()> {
     match local_name(name) {
         b"t" => state.in_text = false,
         b"r" => state.in_run = false,
-        b"p" if state.in_text_body => finish_paragraph(state, budget)?,
+        b"p" if state.in_text_body => finish_paragraph(state, inherited, budget)?,
         b"txBody" => state.in_text_body = false,
         b"sp" => finish_shape(state, budget)?,
         b"tc" if state.in_table => {
@@ -215,73 +239,5 @@ fn end_element(name: &[u8], state: &mut State, budget: &mut Budget<'_>) -> Resul
         name if state.in_text_body => state.bullets.close(name),
         _ => {}
     }
-    Ok(())
-}
-
-/// Append run text. A pending `a:br` is a line break inside a paragraph and
-/// a space inside a table cell, which is one line in every text format.
-fn push_text(text: &str, state: &mut State, budget: &mut Budget<'_>) -> Result<()> {
-    let breaks = std::mem::take(&mut state.pending_breaks);
-    if breaks > 0 && !state.current_text.is_empty() {
-        budget.charge_output(breaks as u64, "PPTX line breaks")?;
-        state.current_text.extend(std::iter::repeat_n('\n', breaks));
-    }
-    state.current_text.push_str(text);
-    if state.in_cell {
-        budget.charge_output(text.len() as u64 + 1, "PPTX duplicated cell text")?;
-        if std::mem::take(&mut state.cell_break) && !state.current_cell_text.is_empty() {
-            state.current_cell_text.push(' ');
-        }
-        state.current_cell_text.push_str(text);
-    }
-    Ok(())
-}
-
-fn finish_paragraph(state: &mut State, budget: &mut Budget<'_>) -> Result<()> {
-    state.pending_breaks = 0;
-    // The next paragraph of a table cell continues the cell's single line.
-    state.cell_break = state.in_cell;
-    if !state.current_text.trim().is_empty() {
-        budget.charge_item("PPTX paragraphs")?;
-        state.current_paragraphs.push(PptxTextPara {
-            text: std::mem::take(&mut state.current_text),
-            list_level: state.bullets.list_level(),
-        });
-    } else {
-        state.current_text.clear();
-    }
-    state.in_paragraph = false;
-    Ok(())
-}
-
-fn finish_shape(state: &mut State, budget: &mut Budget<'_>) -> Result<()> {
-    if state.current_paragraphs.is_empty() {
-        state.placeholder = None;
-        return Ok(());
-    }
-    if matches!(state.placeholder.as_deref(), Some("title" | "ctrTitle")) {
-        if state.title.is_none() {
-            let separators = state.current_paragraphs.len().saturating_sub(1) as u64;
-            budget.charge_output(separators, "PPTX generated title separators")?;
-            state.title = Some(
-                state
-                    .current_paragraphs
-                    .iter()
-                    .map(|paragraph| paragraph.text.as_str())
-                    .collect::<Vec<_>>()
-                    .join(" ")
-                    // A heading is one line: a break in the title is a space.
-                    .replace('\n', " "),
-            );
-        }
-        state.current_paragraphs.clear();
-    } else {
-        budget.charge_item("PPTX elements")?;
-        state.elements.push(PptxElement::TextBlock {
-            placeholder: state.placeholder.take(),
-            paragraphs: std::mem::take(&mut state.current_paragraphs),
-        });
-    }
-    state.placeholder = None;
     Ok(())
 }
