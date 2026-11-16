@@ -87,6 +87,12 @@ fn validate_url(backend: &str, kind: SqlStoreKind, url: Option<&str>) -> Result<
             sqlite_url::EPHEMERAL_REJECTION
         );
     }
+    if dialect == SqlDialect::Sqlite && sqlite_url::has_relative_authority(url) {
+        anyhow::bail!(
+            "{backend} {label} URL in {environment} or {field} in config is refused: {}",
+            sqlite_url::RELATIVE_AUTHORITY_REJECTION
+        );
+    }
     Ok(())
 }
 
@@ -149,7 +155,7 @@ mod tests {
     #[test]
     fn supported_schemes_match_storage_dialect_detection() {
         for kind in [SqlStoreKind::State, SqlStoreKind::Event] {
-            for url in ["sqlite:relative.db", "sqlite://absolute.db?mode=rwc"] {
+            for url in ["sqlite:relative.db", "sqlite:///var/absolute.db?mode=rwc"] {
                 validate_url("sqlite", kind, Some(url)).unwrap();
             }
             for url in ["postgres://user@host/db", "postgresql://user@host/db"] {

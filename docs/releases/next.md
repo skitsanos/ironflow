@@ -6,6 +6,21 @@ publication is verified separately.
 
 ## Upgrade Notes
 
+- **A `sqlite://<relative path>` store URL is refused at startup** (IF-220,
+  decided 2026-11-16). `IRONFLOW_STORE_URL`, `IRONFLOW_EVENT_STORE_URL`,
+  `store_url` and `event_store_url` accepted
+  `sqlite://data/runs/ironflow.sqlite`, but what follows `//` was parsed as a
+  URL authority: the first path component was read as a host name, or as a
+  port or a user when it contained `:` or `@`, and a name with a space or
+  another character failed with `invalid domain character`. The form now fails
+  with a message that names the replacement. Before upgrading, change such a
+  URL to `sqlite:data/runs/ironflow.sqlite`, which opens the same file; an
+  absolute path is `sqlite:///var/lib/ironflow/state.db`, which is unchanged,
+  as is every `sqlite:<path>` URL and the default store under `--store-dir`.
+  `SqlStateStore::new` and `SqlEventStore::new` refuse the form as well. The
+  `db_query` and `db_exec` connection strings are not affected. See [`ironflow
+  serve`](../CLI_REFERENCE.md#ironflow-serve).
+
 - **A configuration variable that is present but empty now stops startup**
   (IF-198). `IRONFLOW_API_KEY=` (empty or whitespace-only) used to take
   priority over `api_key` in `ironflow.yaml` and was then discarded, so a

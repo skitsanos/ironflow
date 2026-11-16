@@ -235,15 +235,19 @@ async fn in_memory_and_temporary_sqlite_urls_are_rejected_before_any_side_effect
 #[tokio::test]
 async fn explicit_sqlite_urls_still_open_the_file_they_name() {
     for (url, file) in [
+        // An absolute path keeps working in the `sqlite:///` form.
         (
-            "sqlite://state/ironflow.sqlite?mode=rwc",
+            "sqlite://{root}/state/ironflow.sqlite?mode=rwc",
             "state/ironflow.sqlite",
         ),
         ("sqlite:state/plain.db?mode=rwc", "state/plain.db"),
         ("sqlite:state/my%20runs.db?mode=rwc", "state/my runs.db"),
     ] {
         let directory = tempfile::tempdir().unwrap();
-        let root = directory.path();
+        // Canonical, so the path has no component that needs encoding here.
+        let canonical = directory.path().canonicalize().unwrap();
+        let root = canonical.as_path();
+        let url = &url.replace("{root}", root.to_str().unwrap());
         fs::write(root.join("probe.lua"), support::FLOW).unwrap();
         fs::create_dir(root.join("state")).unwrap();
 
@@ -341,5 +345,56 @@ async fn an_invalid_table_prefix_creates_no_directory_or_database() {
                 entries(directory.path())
             );
         }
+    }
+}
+
+/// IF-220 (v), decided 2026-11-16: `sqlite://<relative path>` reads the first
+/// path component as a host (with a port or user when it contains `:` or
+/// `@`). It is refused at startup for both stores, naming the form to use.
+#[tokio::test]
+async fn sqlite_double_slash_urls_with_a_relative_path_are_refused_at_startup() {
+    for url in [
+        "sqlite://state/ironflow.sqlite?mode=rwc",
+        "sqlite://state.sqlite",
+        "sqlite://user@state/ironflow.sqlite",
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        fs::write(root.join("probe.lua"), support::FLOW).unwrap();
+        fs::create_dir(root.join("state")).unwrap();
+
+        let run = output(
+            command(root)
+                .args(["run", "probe.lua"])
+                .env("IRONFLOW_STORE_URL", url),
+        )
+        .await;
+        let text = diagnostic(&run);
+        assert!(!run.status.success(), "{url}: {text}");
+        assert!(
+            text.contains("IRONFLOW_STORE_URL")
+                && text.contains("sqlite:<path>")
+                && text.contains("sqlite:///"),
+            "{url}: unclear diagnostic: {text}"
+        );
+        assert!(
+            !text.contains("ironflow.sqlite"),
+            "{url}: URL disclosed: {text}"
+        );
+        assert!(entries(&root.join("state")).is_empty(), "{url}");
+
+        let serve = output(
+            command(root)
+                .args(["serve", "--port", "0"])
+                .env("IRONFLOW_EVENT_STORE", "sqlite")
+                .env("IRONFLOW_EVENT_STORE_URL", url),
+        )
+        .await;
+        let text = diagnostic(&serve);
+        assert!(!serve.status.success(), "{url}: {text}");
+        assert!(
+            text.contains("IRONFLOW_EVENT_STORE_URL") && text.contains("sqlite:<path>"),
+            "{url}: unclear diagnostic: {text}"
+        );
     }
 }

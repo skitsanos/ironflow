@@ -35,13 +35,52 @@ pub(crate) fn is_ephemeral(url: &str) -> bool {
         || database.starts_with("file::memory:")
 }
 
+/// True when `url` has the `sqlite://<relative path>` form. The connection
+/// layer parses what follows `//` as a URL authority, so the first path
+/// component is read as a host, and as a port or a user when it contains `:`
+/// or `@`; a name with any other character fails with an unrelated error
+/// (IF-199, IF-220). `sqlite:<path>` and `sqlite:///<absolute path>` are not
+/// affected.
+pub(crate) fn has_relative_authority(url: &str) -> bool {
+    url.strip_prefix("sqlite://").is_some_and(|rest| {
+        let authority = rest.split(['/', '?']).next().unwrap_or_default();
+        !authority.is_empty()
+    })
+}
+
+/// Diagnostic for [`has_relative_authority`]. It never contains the URL.
+pub(crate) const RELATIVE_AUTHORITY_REJECTION: &str = "a sqlite://<relative path> URL is not      supported, because its first path component is read as a host name: write a relative path      as sqlite:<path> and an absolute one as sqlite:///<path>";
+
 /// Diagnostic shared by the stores and the CLI. It never contains the URL.
 pub(crate) const EPHEMERAL_REJECTION: &str = "in-memory and temporary SQLite databases are not \
      supported: every pooled connection would open its own empty database";
 
 #[cfg(test)]
 mod tests {
-    use super::is_ephemeral;
+    use super::{has_relative_authority, is_ephemeral};
+
+    #[test]
+    fn only_the_double_slash_form_with_a_relative_path_has_an_authority() {
+        for url in [
+            "sqlite://data/runs/ironflow.sqlite?mode=rwc",
+            "sqlite://state.db",
+            "sqlite://user@dir/state.db",
+            "sqlite://dir:1/state.db",
+        ] {
+            assert!(has_relative_authority(url), "{url}");
+        }
+        for url in [
+            "sqlite:relative.db",
+            "sqlite:data/runs/ironflow.sqlite?mode=rwc",
+            "sqlite:///var/lib/ironflow/state.db",
+            "sqlite:%2Ftmp%2Fstate.db?mode=rwc",
+            "sqlite://",
+            "sqlite://?mode=memory",
+            "postgres://host/db",
+        ] {
+            assert!(!has_relative_authority(url), "{url}");
+        }
+    }
 
     #[test]
     fn urls_without_a_database_file_are_ephemeral() {

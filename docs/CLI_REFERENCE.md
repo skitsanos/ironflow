@@ -588,10 +588,15 @@ store, and the directory that holds the database must already exist.
 - The URL is a URL: percent-encode a space as `%20`, `%` as `%25`, `?` as
   `%3F` and `#` as `%23`. `sqlite:my%20runs/state.db?mode=rwc` opens
   `my runs/state.db`.
-- Prefer the `sqlite:<path>` form. With `sqlite://`, the first component of a
-  relative path is parsed as a host name, so it accepts only host characters;
-  `sqlite://data/runs/ironflow.sqlite` works, and an absolute path is
-  `sqlite:///var/lib/ironflow/state.db`.
+- Write a relative path as `sqlite:<path>` and an absolute one as
+  `sqlite:///var/lib/ironflow/state.db` (or `sqlite:/var/lib/...`). The
+  `sqlite://<relative path>` form, such as
+  `sqlite://data/runs/ironflow.sqlite`, is refused at startup for both
+  stores (IF-220): what follows `//` is parsed as a URL authority, so the
+  first path component was read as a host name, or as a port or a user when
+  it contained `:` or `@`, and other characters failed with an unrelated
+  error. Change such a URL to `sqlite:data/runs/ironflow.sqlite`; it opens
+  the same file.
 - `mode=rwc` creates the file when it is missing; without it the file must
   exist. The other accepted parameters are `mode=ro`, `mode=rw`, `cache`,
   `immutable` and `vfs`.

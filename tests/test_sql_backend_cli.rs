@@ -244,7 +244,7 @@ async fn standalone_sqlite_defaults_and_explicit_urls_serve_and_persist() {
         cmd.env("IRONFLOW_STORE", "sqlite")
             .env("IRONFLOW_EVENT_STORE", "sqlite");
         if explicit {
-            fs::write(directory.path().join("ironflow.yaml"), "store_backend: postgres\nevent_store: postgres\nstore_url: 'sqlite:state.sqlite?mode=rwc'\nevent_store_url: 'sqlite://events.sqlite?mode=rwc'\n").unwrap();
+            fs::write(directory.path().join("ironflow.yaml"), "store_backend: postgres\nevent_store: postgres\nstore_url: 'sqlite:state.sqlite?mode=rwc'\nevent_store_url: 'sqlite:events.sqlite?mode=rwc'\n").unwrap();
         }
         let server = Server::start(cmd).await;
         let id = server.run_flow().await;

@@ -10,7 +10,7 @@ host: "127.0.0.1"
 port: 8080
 store_dir: "custom/runs"
 store_backend: "sqlite"
-store_url: "sqlite://custom/runs/ironflow.sqlite?mode=rwc"
+store_url: "sqlite:custom/runs/ironflow.sqlite?mode=rwc"
 event_store: "postgres"
 event_store_url: "postgres://example"
 event_memory_capacity: 4096
@@ -43,7 +43,7 @@ static:
     assert_eq!(cfg.store_backend.as_deref(), Some("sqlite"));
     assert_eq!(
         cfg.store_url.as_deref(),
-        Some("sqlite://custom/runs/ironflow.sqlite?mode=rwc")
+        Some("sqlite:custom/runs/ironflow.sqlite?mode=rwc")
     );
     assert_eq!(cfg.event_store.as_deref(), Some("postgres"));
     assert_eq!(cfg.event_store_url.as_deref(), Some("postgres://example"));

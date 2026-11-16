@@ -52,6 +52,13 @@ impl SqlStateStore {
                 crate::storage::sqlite_url::EPHEMERAL_REJECTION
             )));
         }
+        if dialect == SqlDialect::Sqlite && crate::storage::sqlite_url::has_relative_authority(url)
+        {
+            return Err(StorageError::invalid_input(format_args!(
+                "SQL state store URL is refused: {}",
+                crate::storage::sqlite_url::RELATIVE_AUTHORITY_REJECTION
+            )));
+        }
         let pool = AnyPoolOptions::new()
             .max_connections(5)
             .connect(url)
