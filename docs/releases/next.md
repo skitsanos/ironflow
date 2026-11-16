@@ -703,6 +703,17 @@ publication is verified separately.
   master is absent keeps the earlier behaviour. See
   [`extract_pptx`](../nodes/extract_pptx.md#element-types).
 
+- **`extract_pptx` leaves footer, date, slide-number and header
+  placeholders out of slide text** (IF-228). The text of a slide's footer
+  placeholder (`<p:ph type="ftr">`) was returned as a `text_block` with
+  `"placeholder": "ftr"` in JSON and as an ordinary line in text and
+  Markdown, so a deck with a footer repeated the same sentence on every
+  slide. Slide text now omits `ftr`, `dt`, `sldNum` and `hdr` placeholders
+  in every format, as speaker notes already did. Stored extractions,
+  embeddings and assertions of decks with a footer change; a consumer that
+  read the footer through `placeholder == "ftr"` no longer receives it. See
+  [`extract_pptx`](../nodes/extract_pptx.md#text-fidelity).
+
 - **`extract_pptx` JSON marks hidden slides** (IF-224). A slide hidden from
   the slide show (`show="0"` on the slide) was extracted like any other,
   with nothing to tell it apart. Its JSON object now carries

@@ -208,7 +208,8 @@ async fn the_nearest_declaration_of_a_level_wins() {
 
 /// The layout placeholder is found by `idx`, and by type when no `idx`
 /// matches. Other placeholders of the layout and master do not apply, and
-/// their own prompt paragraphs are not declarations.
+/// their own prompt paragraphs are not declarations. The footer is not
+/// slide text at all (IF-228).
 #[tokio::test]
 async fn the_placeholder_is_matched_by_idx_and_then_by_type() {
     let slide = [
@@ -240,8 +241,7 @@ async fn the_placeholder_is_matched_by_idx_and_then_by_type() {
         Deck::new(&slide, &layout, &master).extract("json").await,
         json!([
             {"text": "matched by idx"},
-            {"text": "matched by type", "list_level": 0},
-            {"text": "footer"}
+            {"text": "matched by type", "list_level": 0}
         ])
     );
 }

@@ -52,7 +52,14 @@ pub(super) fn finish_shape(state: &mut State, budget: &mut Budget<'_>) -> Result
         state.placeholder = None;
         return Ok(());
     }
-    if matches!(state.placeholder.as_deref(), Some("title" | "ctrTitle")) {
+    // Footer, date, slide number and header are page furniture, repeated on
+    // every slide: like the notes of a slide, slide text leaves them out.
+    if matches!(
+        state.placeholder.as_deref(),
+        Some("ftr" | "dt" | "sldNum" | "hdr")
+    ) {
+        state.current_paragraphs.clear();
+    } else if matches!(state.placeholder.as_deref(), Some("title" | "ctrTitle")) {
         if state.title.is_none() {
             let separators = state.current_paragraphs.len().saturating_sub(1) as u64;
             budget.charge_output(separators, "PPTX generated title separators")?;

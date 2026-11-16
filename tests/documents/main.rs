@@ -92,5 +92,7 @@ mod test_pptx_line_breaks;
 mod test_pptx_notes_placeholders;
 #[path = "../test_pptx_presentation.rs"]
 mod test_pptx_presentation;
+#[path = "../test_pptx_slide_furniture.rs"]
+mod test_pptx_slide_furniture;
 #[path = "../test_tool_authored_documents.rs"]
 mod test_tool_authored_documents;
