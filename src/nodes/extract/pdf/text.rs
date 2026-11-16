@@ -145,15 +145,21 @@ fn collect(
                     output.push(" ", budget)?;
                 }
             }
-            Object::Integer(value) => {
-                run.adjust(*value as f64);
-                if *value < -100
+            Object::Integer(_) | Object::Real(_) => {
+                let adjustment = match operand {
+                    Object::Real(value) => f64::from(*value),
+                    operand => operand.as_i64().unwrap_or_default() as f64,
+                };
+                if adjustment.is_finite() {
+                    run.adjust(adjustment);
+                }
+                // More than a tenth of the text size forward is a word space.
+                if adjustment < -100.0
                     && let Some(output) = output.as_deref_mut()
                 {
                     output.push(" ", budget)?;
                 }
             }
-            Object::Real(value) if value.is_finite() => run.adjust(f64::from(*value)),
             _ => {}
         }
     }

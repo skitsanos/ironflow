@@ -117,3 +117,32 @@ async fn a_malformed_width_table_falls_back_to_one_line_per_block() {
         assert!(text.starts_with("\u{103}\n\u{219}\n"), "{label}: {text:?}");
     }
 }
+
+/// A `TJ` adjustment that moves the next glyph forward by more than a tenth
+/// of the text size is a word space. Only integer operands were read, so a
+/// writer that emits real numbers had its words joined.
+#[tokio::test]
+async fn real_number_adjustments_in_a_glyph_array_are_word_spaces() {
+    let array = |gap: Object, kern: Object| {
+        operation(
+            "TJ",
+            vec![Object::Array(vec![
+                Object::string_literal("spaced"),
+                gap,
+                Object::string_literal("wor"),
+                kern,
+                Object::string_literal("ds"),
+            ])],
+        )
+    };
+    let page = vec![
+        operation("BT", vec![]),
+        font("F3", 12.0),
+        operation("Td", vec![72.into(), 700.into()]),
+        array(Object::Real(-250.5), Object::Real(-20.25)),
+        operation("Td", vec![0.into(), (-14).into()]),
+        array((-250).into(), (-20).into()),
+        operation("ET", vec![]),
+    ];
+    assert_eq!(extract(page).await, "spaced words \nspaced words \n");
+}

@@ -679,6 +679,9 @@ publication is verified separately.
     Fonts without a usable width table keep one line per block. Extracted
     PDF text and Markdown change for many documents: line breaks move, and
     words that were split are whole.
+  - `extract_pdf` reads real-number adjustments in a `TJ` array. Only
+    integers counted as a word gap, so `[(spaced) -250.5 (words)] TJ` was
+    returned as `spacedwords` and is now `spaced words`.
 
   See [`extract_word`](../nodes/extract_word.md#style-inheritance-of-bold-italic-and-strikethrough),
   [`pdf_metadata`](../nodes/pdf_metadata.md),

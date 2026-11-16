@@ -58,6 +58,9 @@ before it:
   the macOS Quartz PDF context end a block at every font change, so a word
   with one glyph from a fallback font is one word, not three lines.
 - `T*`, `'` and `"` always start a new line.
+- Inside one `TJ` array, an adjustment that moves the next glyph forward by
+  more than a tenth of the text size (a number below `-100`, integer or
+  real) is a space.
 
 The end of a string comes from its glyph widths: `/Widths` of a simple font,
 and `/W` with `/DW` of a Type0 font encoded `Identity-H`. For any other font
