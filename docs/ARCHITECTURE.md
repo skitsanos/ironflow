@@ -994,11 +994,19 @@ run is detached from the tick loop after it starts, so a long-running flow does
 not block later scheduler evaluations.
 
 Schedule names evaluate concurrently, each under a 15-second wall-time budget.
-A timed-out evaluation is indeterminate: its storage claim or run start may
-have committed after the caller lost the result. IronFlow therefore logs the
-timeout, reports each due instant as `TimedOut`, and advances that schedule's
-watermark through the evaluated window instead of retrying and risking a
-duplicate. Other schedule names continue independently. The tick task and API
+Each decision is written to a progress record outside the future the budget
+cancels, so an expiry keeps what was decided. An instant that was still
+undecided is indeterminate: its claim or run start may have committed after
+the caller lost the result. That is safe to retry, because the claim, the
+settled mark and the deterministic run ID are all idempotent: the retry
+either starts the run, converges on the run the cancelled attempt created
+(also when that run is still active, which is not an overlap), or skips. The
+undecided instant is therefore reported as `Deferred` and the watermark
+stops before it. `MAX_BUDGET_DEFERRALS` (2) bounds this per schedule: the
+third consecutive expired evaluation reports what is undecided as `TimedOut`
+and advances the watermark through the window, as every expiry did before
+IF-217; a completed evaluation resets the count, and grace bounds every
+retry as well. Other schedule names continue independently. The tick task and API
 server are supervised as one availability unit; an unexpected scheduler return
 or panic ends `serve` with an error, while normal server completion requests and
 awaits scheduler shutdown.

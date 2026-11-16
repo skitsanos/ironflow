@@ -1,5 +1,7 @@
 //! Concurrent, time-bounded evaluation of configured schedule names.
 
+use std::sync::{Mutex, PoisonError};
+
 use chrono::{DateTime, NaiveDateTime, Utc};
 use futures_util::future::join_all;
 
@@ -12,7 +14,29 @@ struct Evaluation {
     name: String,
     target: NaiveDateTime,
     decisions: Vec<Decision>,
+    /// The budget expired and what was undecided stays due.
+    budget_deferred: bool,
 }
+
+/// What one evaluation has decided so far. It lives outside the future the
+/// budget can cancel, so an expiry keeps every decision already made.
+#[derive(Default)]
+struct Progress {
+    superseded: Vec<Decision>,
+    current: Vec<Decision>,
+    /// The loop over `DueWindow::current` ran to its end.
+    current_done: bool,
+    earliest_retry: Option<NaiveDateTime>,
+}
+
+type SharedProgress = Mutex<Progress>;
+
+fn with<T>(progress: &SharedProgress, update: impl FnOnce(&mut Progress) -> T) -> T {
+    // Never held across an await, and no update can panic part-way.
+    update(&mut progress.lock().unwrap_or_else(PoisonError::into_inner))
+}
+
+const BUDGET_DEFERRED: &str = "schedule evaluation exceeded its budget before the run started";
 
 impl Scheduler {
     /// Evaluate every schedule once and return deterministic, name-sorted
@@ -28,6 +52,14 @@ impl Scheduler {
 
         for evaluation in completed {
             let after = self.evaluated_through[&evaluation.name];
+            if evaluation.budget_deferred {
+                *self
+                    .budget_expiries
+                    .entry(evaluation.name.clone())
+                    .or_default() += 1;
+            } else {
+                self.budget_expiries.remove(&evaluation.name);
+            }
             if evaluation.target > after {
                 self.evaluated_through
                     .insert(evaluation.name, evaluation.target);
@@ -50,63 +82,96 @@ impl Scheduler {
         let schedule = &self.schedules[name];
         let through = now.with_timezone(&schedule.timezone()).naive_local();
         let window = due_window(schedule, self.evaluated_through[name], through);
+        let grace_floor = timing::grace_floor(now, schedule);
+        let progress = SharedProgress::default();
 
-        match tokio::time::timeout(
+        let expired = tokio::time::timeout(
             self.evaluation_timeout,
-            self.evaluate_window(name, schedule, &window, now),
+            self.evaluate_window(name, schedule, &window, now, &progress),
         )
         .await
-        {
-            Ok((decisions, earliest_retry)) => {
-                let grace_floor = timing::grace_floor(now, schedule);
-                let retry = earliest(earliest_retry, window.resume_at);
-                Evaluation {
-                    name: name.to_string(),
-                    target: timing::watermark_target(window.through, grace_floor, retry),
-                    decisions,
-                }
-            }
-            Err(_) => {
-                let due = window.superseded.iter().chain(&window.current);
-                let decisions = due
-                    .map(|instant| decision(name, instant, Outcome::TimedOut))
-                    .collect::<Vec<_>>();
-                tracing::error!(
-                    schedule = %name,
-                    timeout_ms = self.evaluation_timeout.as_millis(),
-                    due_instants = decisions.len(),
-                    "schedule evaluation timed out; due instants are indeterminate \
-                     and will be burned rather than retried"
+        .is_err();
+        let mut progress = progress
+            .into_inner()
+            .unwrap_or_else(PoisonError::into_inner);
+
+        let mut budget_deferred = false;
+        let mut retry = earliest(progress.earliest_retry, window.resume_at);
+        if expired {
+            let undecided_superseded = &window.superseded[progress.superseded.len()..];
+            let undecided_current: &[DueInstant] = if progress.current_done {
+                &[]
+            } else {
+                &window.current[progress.current.len()..]
+            };
+            budget_deferred =
+                self.budget_expiries.get(name).copied().unwrap_or(0) < super::MAX_BUDGET_DEFERRALS;
+            log_expiry(
+                name,
+                self.evaluation_timeout,
+                undecided_superseded.len() + undecided_current.len(),
+                budget_deferred,
+            );
+            if budget_deferred {
+                // What was not decided stays due. A missed instant is
+                // superseded on a later tick and gets no decision now.
+                let first = undecided_superseded.iter().chain(undecided_current).next();
+                retry = earliest(retry, first.map(|instant| instant.local));
+                let reason = || Outcome::Deferred {
+                    reason: BUDGET_DEFERRED.to_string(),
+                };
+                progress.current.extend(
+                    undecided_current
+                        .iter()
+                        .map(|instant| decision(name, instant, reason())),
                 );
-                Evaluation {
-                    name: name.to_string(),
-                    target: window.through,
-                    decisions,
-                }
+            } else {
+                // The bound is reached: burn the window, as every expiry did
+                // before IF-217.
+                retry = None;
+                let burned = |instant| decision(name, instant, Outcome::TimedOut);
+                progress
+                    .superseded
+                    .extend(undecided_superseded.iter().map(burned));
+                progress
+                    .current
+                    .extend(undecided_current.iter().map(burned));
             }
+        }
+
+        let mut decisions = progress.superseded;
+        decisions.extend(progress.current);
+        Evaluation {
+            name: name.to_string(),
+            target: timing::watermark_target(window.through, grace_floor, retry),
+            decisions,
+            budget_deferred,
         }
     }
 
     /// Decide the most recent due occurrence, then settle the missed ones it
     /// supersedes (see `window`). The most recent goes first because it is
-    /// the only one that can start a run; the decisions are still returned
-    /// oldest first. The second value is the earliest instant to retry.
+    /// the only one that can start a run; the decisions are still reported
+    /// oldest first. Every result goes to `progress` as soon as it exists,
+    /// because the caller's budget can cancel this future at any await.
     async fn evaluate_window(
         &self,
         name: &str,
         schedule: &ScheduleConfig,
         window: &DueWindow,
         now: DateTime<Utc>,
-    ) -> (Vec<Decision>, Option<NaiveDateTime>) {
-        let mut earliest_retry = None;
-        let mut current = Vec::with_capacity(window.current.len());
+        progress: &SharedProgress,
+    ) {
         for instant in &window.current {
             let outcome = self.decide(name, schedule, instant, now).await;
             let deferred = matches!(outcome, Outcome::Deferred { .. });
-            if deferred || matches!(outcome, Outcome::ClaimFailed { .. }) {
-                earliest_retry.get_or_insert(instant.local);
-            }
-            current.push(decision(name, instant, outcome));
+            let retried = deferred || matches!(outcome, Outcome::ClaimFailed { .. });
+            with(progress, |progress| {
+                if retried {
+                    progress.earliest_retry.get_or_insert(instant.local);
+                }
+                progress.current.push(decision(name, instant, outcome));
+            });
             // The watermark stops before a deferred instant; waiting for the
             // load limit again for a matched time that shares its key would
             // only spend this schedule's evaluation budget.
@@ -114,20 +179,50 @@ impl Scheduler {
                 break;
             }
         }
+        with(progress, |progress| progress.current_done = true);
 
-        let mut decisions = Vec::with_capacity(window.superseded.len() + current.len());
-        if let Some(by) = window.current.first() {
-            for instant in &window.superseded {
-                let outcome = self.supersede(name, schedule, instant, &by.key).await;
+        let Some(by) = window.current.first() else {
+            return;
+        };
+        for instant in &window.superseded {
+            let outcome = self.supersede(name, schedule, instant, &by.key).await;
+            with(progress, |progress| {
                 if matches!(outcome, Outcome::ClaimFailed { .. }) {
-                    earliest_retry = earliest(earliest_retry, Some(instant.local));
+                    progress.earliest_retry =
+                        earliest(progress.earliest_retry, Some(instant.local));
                 }
-                decisions.push(decision(name, instant, outcome));
-            }
-            log_superseded(name, &decisions, &by.key, window.resume_at.is_some());
+                progress.superseded.push(decision(name, instant, outcome));
+            });
         }
-        decisions.extend(current);
-        (decisions, earliest_retry)
+        with(progress, |progress| {
+            log_superseded(
+                name,
+                &progress.superseded,
+                &by.key,
+                window.resume_at.is_some(),
+            );
+        });
+    }
+}
+
+fn log_expiry(name: &str, timeout: std::time::Duration, undecided: usize, deferred: bool) {
+    if deferred {
+        tracing::warn!(
+            schedule = %name,
+            timeout_ms = timeout.as_millis(),
+            undecided_instants = undecided,
+            "schedule evaluation exceeded its budget; undecided instants stay due \
+             and are retried on the next tick"
+        );
+    } else {
+        tracing::error!(
+            schedule = %name,
+            timeout_ms = timeout.as_millis(),
+            undecided_instants = undecided,
+            consecutive_expiries = super::MAX_BUDGET_DEFERRALS + 1,
+            "schedule evaluation timed out again; undecided instants are \
+             burned rather than retried"
+        );
     }
 }
 

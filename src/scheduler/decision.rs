@@ -35,8 +35,11 @@ impl Scheduler {
                 Err(outcome) => return outcome,
             }
         }
-        if let Some(skip) = self.post_claim_skip(name, schedule, instant, now).await {
-            return self.settle_skip(name, schedule, instant, skip).await;
+        match self.post_claim_skip(name, schedule, instant, now).await {
+            // Not a skip: the occurrence's own run exists and is recorded.
+            Some(Outcome::NotClaimed) => return Outcome::NotClaimed,
+            Some(skip) => return self.settle_skip(name, schedule, instant, skip).await,
+            None => {}
         }
         match self.start(name, schedule, instant, claimed).await {
             skip @ (Outcome::AtCapacity | Outcome::Failed { .. }) => {
@@ -110,7 +113,8 @@ impl Scheduler {
         }
     }
 
-    /// Grace, overlap and capacity checks that consume the instant without a run.
+    /// Grace, overlap and capacity checks that consume the instant without a
+    /// run, and the one check that finds its run already exists.
     async fn post_claim_skip(
         &self,
         name: &str,
@@ -131,6 +135,9 @@ impl Scheduler {
         }
 
         if let Some(active_run) = self.executor.active_run(name).await {
+            if active_run == super::identity::run_id(name, &instant.key) {
+                return Some(self.converge_on_own_run(name, schedule, instant).await);
+            }
             tracing::warn!(
                 schedule = %name,
                 key = %instant.key,
@@ -145,6 +152,24 @@ impl Scheduler {
         }
 
         None
+    }
+
+    /// The active run is this occurrence, not an earlier one it overlaps: an
+    /// attempt that lost its result (a budget expiry, a peer that died before
+    /// recording) created it. Converge on it as on any existing run.
+    async fn converge_on_own_run(
+        &self,
+        name: &str,
+        schedule: &ScheduleConfig,
+        instant: &DueInstant,
+    ) -> Outcome {
+        tracing::debug!(
+            schedule = %name,
+            key = %instant.key,
+            "instant already has its run, which is still active"
+        );
+        self.record_run_created(name, schedule, instant).await;
+        Outcome::NotClaimed
     }
 
     async fn start(

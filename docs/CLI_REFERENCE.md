@@ -1516,10 +1516,21 @@ tick. A start deferred
 for flow-load capacity is logged at `WARN` too, and is a delay rather than a
 skip. Losing a claim is
 logged at `debug`, because on N replicas it is the expected outcome N-1 times.
-Schedule names evaluate concurrently under a 15-second per-name budget. If that
-budget expires, the claim or run-start result can be indeterminate, so every
-due instant in that schedule's window is logged as timed out and burned rather
-than retried. Unrelated schedule names continue. If the scheduler task itself
+Schedule names evaluate concurrently under a 15-second per-name budget. A
+start can reach it without anything being wrong with the schedule: a 5-second
+wait for a flow-load permit followed by a flow that takes close to the
+10-second Lua limit to parse, or a slow state-store call. If the budget
+expires, what the evaluation had already decided stands (a run that started
+is reported as `fired`), and an instant that was still undecided stays due:
+it is logged at `WARN`, counted as scheduler outcome `deferred`, and decided
+again on the next tick. Retrying is safe because the occurrence's run ID is
+deterministic: if the interrupted attempt did create the run, the retry finds
+it and reports `not_claimed`. The retry is bounded. The third consecutive
+evaluation of the same schedule that exceeds the budget logs at `ERROR` and
+burns what is still undecided as `timed_out`, so a schedule that never fits
+the budget costs three evaluations per window, and every retry is also
+limited by `grace_seconds`. An evaluation that completes resets the count.
+Unrelated schedule names continue. If the scheduler task itself
 returns or panics, `serve` stops with an error so `/health` cannot remain green
 while scheduled execution is dead; normal server shutdown also waits for the
 scheduler loop to stop. Before it exits for a dead scheduler, `serve` drains

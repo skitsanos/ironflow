@@ -1052,6 +1052,21 @@ publication is verified separately.
   the instants it could not start as `at_capacity`; it now reports them as
   `deferred` and records nothing, so a peer still starts them.
 
+- A scheduled instant is no longer lost when its evaluation runs out of
+  time before the run starts (IF-217). Each schedule is evaluated under a
+  15-second budget, which a 5-second wait for a flow-load permit followed by
+  a parse close to the 10-second Lua limit could reach; every due instant was
+  then logged as timed out and dropped. An instant that is still undecided
+  when the budget expires now stays due: it is logged at `WARN`, counted as
+  `deferred`, and decided again on the next tick, and a run that had already
+  started in that evaluation is reported as `fired`. If the interrupted
+  attempt created the run, the retry finds it and reports `not_claimed`, also
+  while that run is still active (it used to be reported as `overlapped`
+  with itself when a peer converged on an unrecorded run). The retry is
+  bounded: the third consecutive evaluation of a schedule that exceeds the
+  budget burns what is undecided as `timed_out`, as before, and
+  `grace_seconds` limits every retry.
+
 - Schedules that share a minute no longer lose occurrences to
   `IRONFLOW_MAX_CONCURRENT_FLOW_LOADS` (IF-182). A scheduled start now waits
   up to 5 seconds for a flow-load permit instead of failing at once, and an

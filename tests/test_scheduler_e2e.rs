@@ -237,6 +237,68 @@ async fn a_long_running_schedule_does_not_block_the_next_evaluation() {
     assert_eq!(status, ironflow::engine::types::RunStatus::Success);
 }
 
+/// IF-217 (d): an evaluation that is retried after its budget expired can
+/// find the run its own cancelled attempt created, still active. That run is
+/// this occurrence, not an earlier one it overlaps: the instant is settled as
+/// already started, and the claim is repaired like any converged one.
+#[tokio::test]
+async fn an_occurrence_whose_own_run_is_active_is_not_reported_as_overlapped() {
+    use ironflow::scheduler::ScheduleRun;
+
+    let _admission = PROCESS_ADMISSION_LOCK.lock().await;
+    let flows = tempfile::tempdir().unwrap();
+    std::fs::write(
+        flows.path().join("slow.lua"),
+        r#"
+        local flow = Flow.new("slow_flow")
+        flow:step("wait", nodes.delay({ seconds = 3 }))
+        return flow
+        "#,
+    )
+    .unwrap();
+    let (app, delay) = build_controlled_executor(flows.path());
+    let schedule =
+        ScheduleConfig::new("slow.lua", "0 2 * * *", Some("UTC"), None, Context::new()).unwrap();
+    let key = "UTC@2026-03-10T02:00";
+
+    // The cancelled attempt: the instant was claimed and its run created, but
+    // the result never reached the scheduler, so nothing was recorded.
+    assert!(
+        app.store
+            .claim_schedule("slow", key, 604_800)
+            .await
+            .unwrap()
+    );
+    let started = ScheduleExecutor::run(app.executor.as_ref(), "slow", key, &schedule)
+        .await
+        .unwrap();
+    let ScheduleRun::Started { run_id } = started else {
+        panic!("the first attempt must start the run: {started:?}");
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(30), delay.started.notified())
+        .await
+        .expect("the run did not start");
+    assert!(!app.store.schedule_run_recorded("slow", key).await.unwrap());
+
+    let now = Utc.with_ymd_and_hms(2026, 3, 10, 2, 0, 35).unwrap();
+    let mut scheduler = Scheduler::new(
+        std::collections::HashMap::from([("slow".to_string(), schedule)]),
+        app.store.clone(),
+        app.executor.clone(),
+        now,
+    );
+    let decisions = scheduler.evaluate(now).await;
+
+    assert_eq!(decisions.len(), 1, "{decisions:?}");
+    assert_eq!(decisions[0].outcome, Outcome::NotClaimed, "{decisions:?}");
+    assert!(app.store.schedule_run_recorded("slow", key).await.unwrap());
+
+    delay.release.notify_one();
+    let status = wait_for_terminal(&app.store, &run_id).await;
+    assert_eq!(status, ironflow::engine::types::RunStatus::Success);
+    assert_eq!(app.store.list_runs(None).await.unwrap().len(), 1);
+}
+
 #[tokio::test]
 async fn two_schedulers_sharing_one_store_fire_an_instant_exactly_once() {
     let _admission = PROCESS_ADMISSION_LOCK.lock().await;

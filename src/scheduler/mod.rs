@@ -41,9 +41,20 @@ pub const TICK_INTERVAL: Duration = Duration::from_secs(30);
 
 /// Maximum wall time one schedule may consume during a tick.
 ///
-/// Names are evaluated concurrently, so a timeout burns only the affected
+/// Names are evaluated concurrently, so a timeout affects only that
 /// schedule's due instants and cannot hold unrelated schedules indefinitely.
 pub const SCHEDULE_EVALUATION_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// How many consecutive evaluations of one schedule may exceed
+/// `SCHEDULE_EVALUATION_TIMEOUT` with their undecided instants kept due.
+///
+/// An expiry before the run starts (a flow-load wait followed by a slow
+/// parse, a stalled store call) is treated like a deferral: the instant is
+/// retried on the next tick. The third consecutive expiry burns what is
+/// still undecided as `TimedOut`, so a schedule whose evaluation never fits
+/// the budget costs three evaluations per window and cannot loop until its
+/// grace runs out (IF-217).
+pub const MAX_BUDGET_DEFERRALS: u32 = 2;
 
 /// What happened to one due instant.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -73,9 +84,12 @@ pub enum Outcome {
     /// The flow-load limit stayed full for the executor's bounded wait.
     /// Nothing was parsed and no run exists, so like `ClaimFailed` the
     /// instant is retried on later ticks until it starts or leaves grace.
+    /// Also reported for an instant that was still undecided when the
+    /// evaluation budget expired, up to `MAX_BUDGET_DEFERRALS` times.
     Deferred { reason: String },
-    /// Evaluation exceeded its budget. The claim or run-start result can be
-    /// indeterminate, so the instant is burned rather than retried.
+    /// Evaluation exceeded its budget for the third consecutive time (see
+    /// `MAX_BUDGET_DEFERRALS`), so the instant is burned rather than retried
+    /// again. Earlier expiries report `Deferred`.
     TimedOut,
 }
 
@@ -138,6 +152,8 @@ pub struct Scheduler {
     executor: Arc<dyn ScheduleExecutor>,
     /// Local wall-clock time each schedule was last evaluated through.
     evaluated_through: HashMap<String, NaiveDateTime>,
+    /// Consecutive evaluations of each schedule that exceeded the budget.
+    budget_expiries: HashMap<String, u32>,
     evaluation_timeout: Duration,
     metrics: Option<Arc<crate::metrics::Metrics>>,
 }
@@ -165,6 +181,7 @@ impl Scheduler {
             store,
             executor,
             evaluated_through,
+            budget_expiries: HashMap::new(),
             evaluation_timeout: SCHEDULE_EVALUATION_TIMEOUT,
             metrics: None,
         }

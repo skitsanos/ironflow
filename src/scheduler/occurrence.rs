@@ -112,7 +112,7 @@ impl Scheduler {
     ///
     /// Best-effort by design: the run exists and remains the fence for as
     /// long as its record does, so a failed write must not fail the instant.
-    async fn record_run_created(
+    pub(super) async fn record_run_created(
         &self,
         name: &str,
         schedule: &ScheduleConfig,
