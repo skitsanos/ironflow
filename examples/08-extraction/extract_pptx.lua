@@ -7,6 +7,9 @@ local flow = Flow.new("extract_pptx_demo")
 -- text; in a table cell and in the slide title it is a space.
 -- Notes are the body placeholder of the notes slide only: its slide number,
 -- date, header and footer placeholders and field values are not included.
+-- A paragraph is a list item (list_level, "- " in Markdown) when a bullet is
+-- declared for it in its own properties or in the shape's list style; a
+-- first-level bullet has list_level 0.
 -- Slides follow the presentation list, including listed hidden slides.
 -- Notes/comments/images follow relationships, not matching filename numbers.
 -- Embedded media, when present, is streamed to IRONFLOW_ARTIFACT_DIR and

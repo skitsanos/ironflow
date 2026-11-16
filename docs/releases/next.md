@@ -659,6 +659,15 @@ publication is verified separately.
     (`a:buNone`) as a list item. Tools that write a level on every paragraph
     (pandoc writes `lvl="0"` with `a:buNone`) had their plain text rendered
     as `- ` bullets in Markdown and with `list_level` in JSON.
+  - `extract_pptx` decides list items by the declared bullet, not by the
+    `lvl` attribute alone. PowerPoint writes no `lvl` on a first-level
+    bullet, so a bulleted text box was returned as plain paragraphs; a
+    paragraph with `a:buChar`, `a:buAutoNum` or `a:buBlip`, in its own
+    properties or in the shape's `a:lstStyle` level, now has `list_level`
+    (`0` without `lvl`) and a `- ` marker in Markdown. An indented paragraph
+    of a text box or drawn shape that declares no bullet was reported as a
+    list item and is now plain. Placeholders are unchanged: their inherited
+    bullets are still approximated from `lvl`.
 
   See [`extract_word`](../nodes/extract_word.md#style-inheritance-of-bold-italic-and-strikethrough),
   [`pdf_metadata`](../nodes/pdf_metadata.md) and

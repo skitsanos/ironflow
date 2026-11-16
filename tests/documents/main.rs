@@ -76,6 +76,8 @@ mod test_pdf_split_group_safety;
 mod test_pdf_split_groups;
 #[path = "../test_pdf_split_single_safety.rs"]
 mod test_pdf_split_single_safety;
+#[path = "../test_pptx_bullets.rs"]
+mod test_pptx_bullets;
 #[path = "../test_pptx_graph_validation.rs"]
 mod test_pptx_graph_validation;
 #[path = "../test_pptx_line_breaks.rs"]

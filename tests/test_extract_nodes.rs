@@ -876,7 +876,7 @@ fn slide_xml(title: &str, body_paras: &[(&str, Option<u32>)]) -> String {
       <p:txBody><a:p><a:r><a:t>{title}</a:t></a:r></a:p></p:txBody>
     </p:sp>
     <p:sp>
-      <p:nvSpPr><p:nvPr/></p:nvSpPr>
+      <p:nvSpPr><p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr>
       <p:txBody>{paras_xml}</p:txBody>
     </p:sp>
   </p:spTree></p:cSld>

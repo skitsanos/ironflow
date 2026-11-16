@@ -57,7 +57,7 @@ pub(super) fn collect_list_level(
     for attribute in event.attributes() {
         let attribute = attribute.context("extract_pptx: invalid paragraph attribute")?;
         if attribute.key.as_ref().as_bytes() == b"lvl" {
-            state.current_list_level = Some(
+            state.bullets.level(
                 attribute_value(&attribute, version, |bytes| {
                     budget.charge_output(bytes, "PPTX list level decoding")
                 })?

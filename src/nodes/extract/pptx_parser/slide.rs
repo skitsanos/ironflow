@@ -11,6 +11,7 @@ use crate::nodes::extract::resource::Budget;
 use crate::util::xml::Decoder;
 
 mod attributes;
+mod bullets;
 
 #[derive(Default)]
 struct State {
@@ -20,7 +21,7 @@ struct State {
     in_text_body: bool,
     in_paragraph: bool,
     current_text: String,
-    current_list_level: Option<u32>,
+    bullets: bullets::Bullets,
     /// `a:br` elements seen since the last text of the open paragraph. They
     /// become line breaks only when more text follows in the same paragraph.
     pending_breaks: usize,
@@ -106,13 +107,21 @@ fn start_element(
         b"sp" => {
             state.placeholder = None;
             state.current_paragraphs.clear();
+            state.bullets.start_shape();
         }
-        b"ph" => collect_string_attribute(event, b"type", &mut state.placeholder, version, budget)?,
-        b"txBody" => state.in_text_body = true,
+        b"graphicFrame" => state.bullets.start_shape(),
+        b"ph" => {
+            state.bullets.placeholder();
+            collect_string_attribute(event, b"type", &mut state.placeholder, version, budget)?;
+        }
+        b"txBody" => {
+            state.in_text_body = true;
+            state.bullets.start_text_body();
+        }
         b"p" if state.in_text_body => {
             state.in_paragraph = true;
             state.current_text.clear();
-            state.current_list_level = None;
+            state.bullets.start_paragraph();
         }
         b"r" if state.in_paragraph => state.in_run = true,
         b"br" if state.in_paragraph => {
@@ -121,8 +130,6 @@ fn start_element(
         }
         b"t" if state.in_run => state.in_text = true,
         b"pPr" if state.in_paragraph => collect_list_level(event, state, version, budget)?,
-        // `a:buNone` switches the bullet off: a level alone is not a list item.
-        b"buNone" if state.in_paragraph => state.current_list_level = None,
         b"tbl" => {
             state.in_table = true;
             state.table_rows.clear();
@@ -142,6 +149,7 @@ fn start_element(
             collect_string_attribute(event, b"descr", &mut state.picture_alt, version, budget)?;
         }
         b"blip" if state.in_picture => collect_embed_id(event, state, version, budget)?,
+        name if state.in_text_body => state.bullets.open(name, state.in_paragraph),
         _ => {}
     }
     Ok(())
@@ -188,6 +196,7 @@ fn end_element(name: &[u8], state: &mut State, budget: &mut Budget<'_>) -> Resul
             });
             state.in_picture = false;
         }
+        name if state.in_text_body => state.bullets.close(name),
         _ => {}
     }
     Ok(())
@@ -220,7 +229,7 @@ fn finish_paragraph(state: &mut State, budget: &mut Budget<'_>) -> Result<()> {
         budget.charge_item("PPTX paragraphs")?;
         state.current_paragraphs.push(PptxTextPara {
             text: std::mem::take(&mut state.current_text),
-            list_level: state.current_list_level,
+            list_level: state.bullets.list_level(),
         });
     } else {
         state.current_text.clear();
