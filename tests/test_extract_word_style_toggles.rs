@@ -223,3 +223,32 @@ async fn text_box_paragraphs_resolve_their_own_styles() {
     assert_eq!(runs[1]["italic"], true, "{json}");
     assert_eq!(json["blocks"][1]["runs"][0]["strike"], true, "{json}");
 }
+
+/// Some generators write their built-in styles first and the document's own
+/// definitions after them under the same `w:styleId` (seen in a sample
+/// written by a JavaScript DOCX library, which declares `Heading1` and
+/// `Heading2` twice). Word formats the text with the later definition. This
+/// pins that reading; it passed before the sample was examined.
+#[tokio::test]
+async fn a_repeated_style_id_takes_its_last_definition() {
+    let styles = "<w:style w:type=\"paragraph\" w:styleId=\"Section\"><w:name w:val=\"Section\"/>\
+        <w:basedOn w:val=\"Normal\"/><w:rPr><w:i/><w:sz w:val=\"26\"/></w:rPr></w:style>\
+        <w:style w:type=\"paragraph\" w:styleId=\"Plain\"><w:rPr><w:b/></w:rPr></w:style>\
+        <w:style w:type=\"paragraph\" w:styleId=\"Section\"><w:name w:val=\"Section\"/>\
+        <w:basedOn w:val=\"Normal\"/><w:rPr><w:b/><w:bCs/><w:sz w:val=\"28\"/></w:rPr></w:style>\
+        <w:style w:type=\"paragraph\" w:styleId=\"Plain\"><w:rPr><w:sz w:val=\"20\"/></w:rPr></w:style>";
+    let body = [
+        paragraph(Some("Section"), "", "section"),
+        paragraph(Some("Plain"), "", "plain"),
+    ]
+    .concat();
+    let output = extract(
+        &[
+            ("word/styles.xml", part("w:styles", styles)),
+            ("word/document.xml", document(&body)),
+        ],
+        json!({"format": "markdown"}),
+    )
+    .await;
+    assert_eq!(output["content"], "**section**\nplain");
+}

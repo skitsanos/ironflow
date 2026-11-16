@@ -82,7 +82,10 @@ Run flags (`bold`, `italic`, `underline`, `strike`) are emitted only when true. 
    all of the above.
 
 A style reference that names no style of the right kind falls back to the
-default style. A `w:basedOn` cycle ends the chain. Table styles and their
+default style. A `w:basedOn` cycle ends the chain. When `word/styles.xml`
+defines one `w:styleId` more than once (some generators write their built-in
+styles first and the document's own after them), the last definition is
+used, as Word does. Table styles and their
 conditional formatting (for example a bold first row) are not resolved, and
 neither are `underline`, `color` and `highlight`, which are reported from the
 run's own properties only. The styles part is parsed under the same
