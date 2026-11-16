@@ -7,7 +7,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts check`.
 
 - Total findings: 223
-- Active findings: 4
+- Active findings: 3
 
 ## Working agreement
 
@@ -244,7 +244,7 @@ priority, area, and title. The registry is generated with
 | [IF-214](./IF-214.md) | P2 | Resolved | API events | Event streams can be lost when a delete overlaps a new run or incarnation admission fails |
 | [IF-215](./IF-215.md) | P2 | Resolved | Resource safety | Parsing, planning and fan-out paths that still do unbounded work |
 | [IF-216](./IF-216.md) | P2 | Resolved | Test reliability | Redis legacy-expiry tests fail intermittently on a loaded machine |
-| [IF-217](./IF-217.md) | P3 | Open | Scheduler | Scheduler follow-ups: outcome labels, catch-up losses and cron messages |
+| [IF-217](./IF-217.md) | P3 | Resolved | Scheduler | Scheduler follow-ups: outcome labels, catch-up losses and cron messages |
 | [IF-218](./IF-218.md) | P3 | Resolved | File I/O | File output and archive follow-ups |
 | [IF-219](./IF-219.md) | P3 | Open | Diagnostics | Diagnostic scrubber over-redacts and misses some key forms |
 | [IF-220](./IF-220.md) | P3 | Open | Maintainability | Operational and validation follow-ups from the 2026-11 fix batches |
