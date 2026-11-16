@@ -953,7 +953,11 @@ occurrence instead of creating a backlog. The flow-load limit does not: a
 scheduled start waits up to five seconds for a load permit, where API requests
 fail fast, and a wait that expires defers the occurrence. Nothing was parsed
 and no run exists, so the watermark stops before it and later ticks retry it,
-in order, until it starts or falls outside grace. The overlap check pages
+in order, until it starts or falls outside grace. The start takes its run
+permit only after it holds a load permit and before the Lua VM is created: a
+queued start occupies no run capacity, and a start refused for run capacity
+returns its load permit without parsing. The run permit is never waited for,
+so the two limits cannot deadlock. The overlap check pages
 through at most 256 non-terminal runs and tolerates read failures, so it is a
 bounded best-effort guard rather than a distributed per-schedule lock. It
 recognises a schedule's run by its deterministic run ID, recomputed from the

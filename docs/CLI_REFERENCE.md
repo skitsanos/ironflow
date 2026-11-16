@@ -1514,7 +1514,9 @@ slow flows, nothing has been parsed and no run exists; the instant is logged
 as deferred, counted as scheduler outcome `deferred`, and retried on each
 30-second tick until it starts or passes its `grace_seconds`, when it is
 skipped as late. Later instants of the same schedule wait behind a deferred
-one and start in order.
+one and start in order. A start that is waiting for a flow-load permit does
+not hold a run permit: it takes one only when it is about to parse the flow,
+so queued schedules do not use up `IRONFLOW_MAX_CONCURRENT_RUNS`.
 
 Overlap suppression scans at most 256 non-terminal run summaries
 and tolerates state-read failures; it is therefore a bounded best-effort check,

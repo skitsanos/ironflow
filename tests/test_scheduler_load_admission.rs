@@ -5,16 +5,12 @@
 //! on `PERMITS` instead of racing each other for those two slots.
 
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Router;
-use axum::body::Body;
-use axum::http::{Request, StatusCode};
-use axum::routing::post;
+use axum::http::StatusCode;
 use chrono::{DateTime, TimeZone as _, Utc};
-use ironflow::api::{AppState, handlers};
 use ironflow::engine::types::Context;
 use ironflow::nodes::NodeRegistry;
 use ironflow::scheduler::config::ScheduleConfig;
@@ -23,8 +19,11 @@ use ironflow::scheduler::{Decision, Outcome, Scheduler};
 use ironflow::storage::StateStore as _;
 use ironflow::storage::event_store::MemoryEventStore;
 use ironflow::storage::json_store::JsonStateStore;
-use ironflow::util::listing::ListingPolicy;
-use tower::ServiceExt as _;
+
+#[path = "support/flow_load.rs"]
+mod flow_load;
+
+use flow_load::{hold_both_load_permits, slow_flow, validate, validation_router};
 
 // The end-to-end tests in this binary start real scheduled runs with short
 // time bounds, so they must never overlap a test here that holds the permits.
@@ -33,21 +32,6 @@ use super::test_scheduler_e2e::PROCESS_ADMISSION_LOCK as PERMITS;
 /// Five seconds after the 02:00 UTC occurrence every schedule here matches.
 fn just_after_two() -> DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 3, 10, 2, 0, 5).unwrap()
-}
-
-/// A flow definition whose top-level chunk keeps its load permit for about
-/// `hold_ms`. Each iteration does real work in one VM instruction, so the
-/// loop stays far below the default Lua instruction budget.
-fn slow_flow(name: &str, hold_ms: u64) -> String {
-    format!(
-        r#"
-        local stop_at = now_unix_ms() + {hold_ms}
-        while now_unix_ms() < stop_at do string.rep("x", 200000) end
-        local flow = Flow.new("{name}")
-        flow:step("emit", nodes.log({{ message = "ran" }}))
-        return flow
-        "#
-    )
 }
 
 struct Fixture {
@@ -80,69 +64,6 @@ fn fixture(configure: impl FnOnce(FlowExecutor) -> FlowExecutor) -> Fixture {
         _flows: flows,
         _store_dir: store_dir,
     }
-}
-
-fn validation_router(
-    registry: Arc<NodeRegistry>,
-    store: Arc<JsonStateStore>,
-    events: Arc<MemoryEventStore>,
-    flows_dir: &Path,
-) -> Router {
-    let state = Arc::new(AppState {
-        registry,
-        store,
-        event_store: events,
-        flows_dir: Some(flows_dir.to_path_buf()),
-        max_concurrent_tasks: Some(1),
-        listing_policy: ListingPolicy::default(),
-        webhooks: HashMap::new(),
-        allow_adhoc_flows: true,
-        lifecycle: ironflow::api::ServiceLifecycle::default(),
-        metrics: None,
-    });
-    Router::new()
-        .route("/flows/validate", post(handlers::validate_flow))
-        .with_state(state)
-}
-
-async fn validate(router: &Router, source: String) -> StatusCode {
-    let request = Request::builder()
-        .method("POST")
-        .uri("/flows/validate")
-        .header("content-type", "application/json")
-        .body(Body::from(
-            serde_json::json!({ "source": source }).to_string(),
-        ))
-        .unwrap();
-    router.clone().oneshot(request).await.unwrap().status()
-}
-
-/// Occupy both flow-load permits with `/flows/validate` parses for about
-/// `hold_ms`. A refused request returns at once, so a request still pending
-/// after 50 milliseconds owns a permit; other tests in this binary can take a
-/// permit for a moment, which is why a refused holder is simply resubmitted.
-/// The final refusal is evidence that API admission stays fail-fast.
-async fn hold_both_load_permits(router: &Router, hold_ms: u64) {
-    for index in 0..2 {
-        let source = slow_flow(&format!("holder-{index}"), hold_ms);
-        tokio::time::timeout(Duration::from_secs(10), async {
-            loop {
-                let (router, source) = (router.clone(), source.clone());
-                let holder = tokio::spawn(async move { validate(&router, source).await });
-                tokio::time::sleep(Duration::from_millis(50)).await;
-                if !holder.is_finished() {
-                    return;
-                }
-            }
-        })
-        .await
-        .expect("a slow parse never obtained a flow-load permit");
-    }
-    let probe = "local flow = Flow.new('probe')\nreturn flow".to_string();
-    assert_eq!(
-        validate(router, probe).await,
-        StatusCode::SERVICE_UNAVAILABLE
-    );
 }
 
 fn schedules(names: &[&str], grace_seconds: Option<u64>) -> HashMap<String, ScheduleConfig> {

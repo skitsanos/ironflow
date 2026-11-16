@@ -13,7 +13,10 @@
 use ironflow::engine::types::{Context, RunStatus};
 use ironflow::scheduler::ScheduleExecutor;
 use ironflow::scheduler::config::ScheduleConfig;
+use ironflow::storage::StateStore as _;
 
+#[path = "support/flow_load.rs"]
+mod flow_load;
 #[path = "support/scheduler.rs"]
 mod scheduler_support;
 
@@ -130,8 +133,6 @@ impl ScheduleExecutor for ProbeSawCapacity {
 async fn a_run_cap_that_fills_after_the_probe_is_reported_as_at_capacity() {
     use chrono::TimeZone as _;
     use ironflow::scheduler::{Outcome, Scheduler};
-    use ironflow::storage::StateStore as _;
-
     let _serial = ONE_RUN_PERMIT.lock().await;
     cap_runs_at_one();
 
@@ -170,4 +171,98 @@ async fn a_run_cap_that_fills_after_the_probe_is_reported_as_at_capacity() {
         RunStatus::Success
     );
     wait_for_capacity(&app.executor).await;
+}
+
+/// IF-217 (b): the run permit is taken once the start has its flow-load
+/// permit, so a start that is only waiting for the load limit does not occupy
+/// the run cap.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_start_waiting_for_a_load_permit_does_not_hold_run_capacity() {
+    use axum::http::StatusCode;
+    use ironflow::scheduler::ScheduleRun;
+    use ironflow::scheduler::execution::FlowExecutor;
+
+    let _serial = ONE_RUN_PERMIT.lock().await;
+    cap_runs_at_one();
+
+    let flows = slow_flows();
+    let store_dir = tempfile::tempdir().unwrap();
+    let store = std::sync::Arc::new(ironflow::storage::json_store::JsonStateStore::new(
+        store_dir.path(),
+    ));
+    let events = std::sync::Arc::new(ironflow::storage::event_store::MemoryEventStore::new());
+    let delay = std::sync::Arc::new(scheduler_support::ControlledDelay::default());
+    let mut registry = ironflow::nodes::NodeRegistry::with_builtins();
+    registry.register(delay.clone());
+    let registry = std::sync::Arc::new(registry);
+    let executor = std::sync::Arc::new(
+        FlowExecutor::new(
+            registry.clone(),
+            store.clone(),
+            events.clone(),
+            Some(flows.path().to_path_buf()),
+            None,
+        )
+        // The start must outwait the held parses instead of being deferred.
+        .with_flow_load_wait(std::time::Duration::from_secs(120)),
+    );
+    let router = flow_load::validation_router(registry, store.clone(), events, flows.path());
+    let schedule =
+        ScheduleConfig::new("slow.lua", "0 2 * * *", Some("UTC"), None, Context::new()).unwrap();
+    wait_for_capacity(&executor).await;
+
+    // A wrong pass is possible only if the holders release early; the probe
+    // after the capacity check detects that, and the attempt is repeated.
+    let mut observed = false;
+    for _attempt in 0..5 {
+        flow_load::hold_both_load_permits(&router, 5_000).await;
+        let start = {
+            let (executor, schedule) = (executor.clone(), schedule.clone());
+            tokio::spawn(async move {
+                ScheduleExecutor::run(
+                    executor.as_ref(),
+                    "waiting",
+                    "UTC@2026-03-10T02:00",
+                    &schedule,
+                )
+                .await
+            })
+        };
+        // Let the start reach its wait for a load permit.
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let capacity_while_waiting = executor.has_capacity();
+        let probe = "local flow = Flow.new('probe')\nreturn flow".to_string();
+        let still_held =
+            flow_load::validate(&router, probe).await == StatusCode::SERVICE_UNAVAILABLE;
+
+        let started = tokio::time::timeout(std::time::Duration::from_secs(120), start)
+            .await
+            .expect("the start never obtained a flow-load permit")
+            .unwrap()
+            .unwrap();
+        let ScheduleRun::Started { run_id } = started else {
+            panic!("the waiting start did not start a run: {started:?}");
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(30), delay.started.notified())
+            .await
+            .expect("the run did not start");
+        assert!(!executor.has_capacity(), "a started run holds the permit");
+        delay.release.notify_one();
+        assert_eq!(wait_for_terminal(&store, &run_id).await, RunStatus::Success);
+        wait_for_capacity(&executor).await;
+        store.delete_run(&run_id).await.unwrap();
+
+        if still_held {
+            assert!(
+                capacity_while_waiting,
+                "a start that is waiting for a flow-load permit must not hold a run permit"
+            );
+            observed = true;
+            break;
+        }
+    }
+    assert!(
+        observed,
+        "the flow-load permits were never held long enough"
+    );
 }

@@ -1008,6 +1008,14 @@ publication is verified separately.
   scheduler outcome `failed`. It is now logged and counted like every other
   capacity skip.
 
+- A scheduled start that waits for a flow-load permit no longer holds a run
+  permit while it waits (IF-217). It used to reserve one of
+  `IRONFLOW_MAX_CONCURRENT_RUNS` first and then wait up to 5 seconds for
+  `IRONFLOW_MAX_CONCURRENT_FLOW_LOADS`, so schedules queued behind slow
+  parses made API and webhook runs fail with `503` although nothing was
+  running. The run permit is now taken after the load permit and before the
+  flow is parsed.
+
 - Schedules that share a minute no longer lose occurrences to
   `IRONFLOW_MAX_CONCURRENT_FLOW_LOADS` (IF-182). A scheduled start now waits
   up to 5 seconds for a flow-load permit instead of failing at once, and an

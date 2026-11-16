@@ -125,24 +125,14 @@ impl ScheduleExecutor for FlowExecutor {
         let path = resolve_flow_path_in(schedule.flow(), self.flows_dir.as_deref())
             .map_err(|error| format!("{error:?}"))?;
 
-        // Held for the run's real duration: moved into the spawned task below,
-        // not dropped when this function returns. Reserve it before the Lua VM
-        // is created so a run rejected for capacity cannot still consume parse
-        // CPU and memory.
-        let run_permit =
-            match crate::api::acquire_run_permit(&self.lifecycle, self.metrics.as_deref()) {
-                Ok(permit) => permit,
-                // `has_capacity` reserved nothing, so the cap can fill between
-                // that probe and this acquire. It is the same refusal, and is
-                // reported as one rather than as a failed start (IF-217).
-                Err(crate::api::errors::AppError::ServiceUnavailable(_)) => {
-                    return Ok(ScheduleRun::AtCapacity);
-                }
-                Err(error) => return Err(format!("{error:?}")),
-            };
         // Schedules sharing a tick queue for the load limit instead of failing
         // fast like API requests. A wait that expires has parsed nothing and
         // created no run, so the occurrence is deferred, not consumed (IF-182).
+        //
+        // The wait comes before the run permit (IF-217): a start that is only
+        // queueing for the load limit must not occupy run capacity that an API
+        // request or another schedule could use. The order cannot deadlock,
+        // because the run permit below is never waited for.
         let Some(flow_load_permit) = crate::api::acquire_flow_load_permit_within(
             self.flow_load_wait,
             self.metrics.as_deref(),
@@ -154,6 +144,22 @@ impl ScheduleExecutor for FlowExecutor {
                 reason: FLOW_LOAD_DEFERRED.to_string(),
             });
         };
+
+        // Held for the run's real duration: moved into the spawned task below,
+        // not dropped when this function returns. Reserved before the Lua VM
+        // is created, so a run rejected for capacity gives its load permit
+        // back without consuming parse CPU or memory.
+        let run_permit =
+            match crate::api::acquire_run_permit(&self.lifecycle, self.metrics.as_deref()) {
+                Ok(permit) => permit,
+                // `has_capacity` reserved nothing, so the cap can fill between
+                // that probe and this acquire. It is the same refusal, and is
+                // reported as one rather than as a failed start (IF-217).
+                Err(crate::api::errors::AppError::ServiceUnavailable(_)) => {
+                    return Ok(ScheduleRun::AtCapacity);
+                }
+                Err(error) => return Err(format!("{error:?}")),
+            };
 
         // Parse off the async runtime so a pathological flow cannot pin a
         // worker thread and stall the server (IF-038). The error can echo
