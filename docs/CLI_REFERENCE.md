@@ -1106,7 +1106,7 @@ this coordinated behavior should use `storage::lifecycle::delete_run`.
 
 #### Run Events
 
-`GET /runs/{id}/events` streams compact run/task lifecycle events as Server-Sent Events. Events include run/task status, step name, node type, attempts, timing, errors, and skip reasons, but never full node input/output.
+`GET /runs/{id}/events` streams compact run/task lifecycle events as Server-Sent Events. Events include run/task status, step name, node type, attempts, timing, errors, and skip reasons, but never full node input/output. Events are best-effort: each publication has 500 ms, and one that fails or takes longer is dropped with a logged warning while the run continues, so a stream can miss an event on a saturated host or event store. The run's status, tasks and context from `GET /runs/{id}` are authoritative.
 
 ```bash
 curl -N http://localhost:3000/runs/<run_id>/events \

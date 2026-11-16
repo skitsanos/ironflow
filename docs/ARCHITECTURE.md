@@ -841,6 +841,22 @@ than replay-order keys. Concurrent task execution can still publish in a
 different order between runs; the sequence records the order chosen by the
 backend rather than redefining DAG/context precedence.
 
+Delivery guarantee (IF-220). Run events are best-effort and the state store
+is the source of truth. The engine gives each publication 500 ms and never
+lets it hold a step: when the event store fails, or does not answer within
+that bound, the publication is dropped with a warning (`Failed to publish
+workflow event` or `Workflow event publication timed out`) and the run
+continues unchanged. A stream can therefore miss any single event, including
+`run_started` and `run_finished`, when the event store or the host is
+saturated. What is guaranteed: the events that were stored keep their order
+and are replayed completely from any cursor; an event is never attributed to
+another run or incarnation; and the run's status, tasks and context in the
+state store are complete whether or not their events were. A consumer that
+needs the outcome reads `GET /runs/{id}` and treats the stream as progress
+reporting. The repository's event tests assert a complete stream only for a
+round in which the engine abandoned no publication, and repeat a round in
+which it did.
+
 At the HTTP boundary, a non-empty `Last-Event-ID` header overrides the
 bootstrap `?after=` query cursor; an empty header is treated as absent. The
 handler performs and retains its initial event-store page before committing the

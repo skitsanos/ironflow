@@ -137,9 +137,166 @@ fn shape(stream: &[RunEvent]) -> Vec<(RunEventType, Option<String>)> {
         .collect()
 }
 
+/// Counts the publications the engine abandoned (IF-220).
+///
+/// Run events are best-effort: the engine gives each publication 500 ms and
+/// drops it when that passes, which a saturated host can cause for a store
+/// that is otherwise correct. The dropped future is visible here, so a test
+/// can tell that loss from an event the store or a fence lost.
+struct Watched {
+    inner: Arc<dyn EventStore>,
+    abandoned: std::sync::atomic::AtomicUsize,
+}
+
+/// Counts a publication unless it ran to completion.
+struct AbandonGuard<'a>(Option<&'a std::sync::atomic::AtomicUsize>);
+
+impl Drop for AbandonGuard<'_> {
+    fn drop(&mut self) {
+        if let Some(counter) = self.0 {
+            counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+}
+
+impl Watched {
+    fn new(inner: Arc<dyn EventStore>) -> Arc<Self> {
+        Arc::new(Self {
+            inner,
+            abandoned: std::sync::atomic::AtomicUsize::new(0),
+        })
+    }
+
+    fn abandoned(&self) -> usize {
+        self.abandoned.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+#[async_trait::async_trait]
+impl EventStore for Watched {
+    async fn publish(&self, event: RunEvent) -> ironflow::storage::StorageResult<()> {
+        let mut guard = AbandonGuard(Some(&self.abandoned));
+        let result = self.inner.publish(event).await;
+        guard.0 = None;
+        result
+    }
+
+    async fn publish_as(
+        &self,
+        event: RunEvent,
+        incarnation: &str,
+    ) -> ironflow::storage::StorageResult<()> {
+        let mut guard = AbandonGuard(Some(&self.abandoned));
+        let result = self.inner.publish_as(event, incarnation).await;
+        guard.0 = None;
+        result
+    }
+
+    async fn begin_incarnation(
+        &self,
+        run_id: &str,
+        incarnation: &str,
+    ) -> ironflow::storage::StorageResult<()> {
+        self.inner.begin_incarnation(run_id, incarnation).await
+    }
+
+    async fn admitted_incarnation(
+        &self,
+        run_id: &str,
+    ) -> ironflow::storage::StorageResult<Option<String>> {
+        self.inner.admitted_incarnation(run_id).await
+    }
+
+    async fn delete_run(&self, run_id: &str) -> ironflow::storage::StorageResult<usize> {
+        self.inner.delete_run(run_id).await
+    }
+
+    async fn delete_incarnation(
+        &self,
+        run_id: &str,
+        incarnation: &str,
+    ) -> ironflow::storage::StorageResult<usize> {
+        self.inner.delete_incarnation(run_id, incarnation).await
+    }
+
+    async fn delete_orphaned_run(&self, run_id: &str) -> ironflow::storage::StorageResult<usize> {
+        self.inner.delete_orphaned_run(run_id).await
+    }
+
+    async fn delete_orphaned_incarnation(
+        &self,
+        run_id: &str,
+        seen: Option<&str>,
+    ) -> ironflow::storage::StorageResult<usize> {
+        self.inner.delete_orphaned_incarnation(run_id, seen).await
+    }
+
+    async fn list_since(
+        &self,
+        run_id: &str,
+        after: Option<&str>,
+        limit: usize,
+    ) -> ironflow::storage::StorageResult<Vec<RunEvent>> {
+        self.inner.list_since(run_id, after, limit).await
+    }
+}
+
+/// Every event the two-step flow publishes, in order.
+fn complete_shape() -> Vec<(RunEventType, Option<String>)> {
+    let step = |kind, name: &str| (kind, Some(name.to_string()));
+    vec![
+        (RunEventType::RunStarted, None),
+        step(RunEventType::TaskStarted, "first"),
+        step(RunEventType::TaskSucceeded, "first"),
+        step(RunEventType::TaskStarted, "second"),
+        step(RunEventType::TaskSucceeded, "second"),
+        (RunEventType::ContextUpdated, None),
+        (RunEventType::RunFinished, None),
+    ]
+}
+
+/// Run one scenario round until a round passes, repeating a round only when
+/// it failed while the engine abandoned a publication (IF-220).
+///
+/// "Complete" is what the product delivers when no publication is abandoned
+/// at the engine's 500 ms bound; with one abandoned, the stream legitimately
+/// misses that event. Such a round proves nothing about fences and is run
+/// again with a fresh key, so a loaded host cannot fail these tests. A round
+/// that fails with no abandoned publication is a real loss and fails at once.
+async fn tolerating_abandoned_publications<Round, Running>(
+    events: Arc<dyn EventStore>,
+    key: &str,
+    round: Round,
+) where
+    Round: Fn(Arc<dyn EventStore>, String) -> Running,
+    Running: std::future::Future<Output = ()> + Send + 'static,
+{
+    const ROUNDS: usize = 5;
+    let watched = Watched::new(events);
+    for attempt in 1..=ROUNDS {
+        let abandoned_before = watched.abandoned();
+        let store: Arc<dyn EventStore> = watched.clone();
+        match tokio::spawn(round(store, format!("{key}-{attempt}"))).await {
+            Ok(()) => return,
+            Err(failure) if watched.abandoned() > abandoned_before && attempt < ROUNDS => {
+                eprintln!(
+                    "round {attempt} failed after the engine abandoned a publication at its \
+                     bound; repeating it ({failure})"
+                );
+            }
+            Err(failure) => std::panic::resume_unwind(failure.into_panic()),
+        }
+    }
+}
+
 /// `POST` with a key, `DELETE`, the same `POST` again: the second
 /// incarnation has the same deterministic ID and a complete stream.
 pub async fn assert_resubmitted_run_has_complete_events(events: Arc<dyn EventStore>, key: &str) {
+    tolerating_abandoned_publications(events, key, resubmission_round).await;
+}
+
+async fn resubmission_round(events: Arc<dyn EventStore>, key: String) {
+    let key = key.as_str();
     let directory = tempfile::tempdir().unwrap();
     let store = sqlite_state(directory.path()).await;
     let app = app(store.clone(), events.clone());
@@ -147,7 +304,7 @@ pub async fn assert_resubmitted_run_has_complete_events(events: Arc<dyn EventSto
     let run_id = submit(&app, key).await;
     let first = finished_stream(events.as_ref(), &run_id).await;
     wait_terminal(store.as_ref(), &run_id).await;
-    assert!(first.len() >= 4, "first incarnation: {first:?}");
+    assert_eq!(shape(&first), complete_shape(), "first incarnation");
 
     assert_eq!(delete_status(&app, &run_id).await, StatusCode::OK);
     assert!(
@@ -473,6 +630,19 @@ pub async fn assert_delete_overlapping_resubmission_keeps_new_events(
     events: Arc<dyn EventStore>,
     key: &str,
 ) {
+    tolerating_abandoned_publications(
+        events,
+        key,
+        delete_overlapping_resubmission_keeps_new_events_round,
+    )
+    .await;
+}
+
+async fn delete_overlapping_resubmission_keeps_new_events_round(
+    events: Arc<dyn EventStore>,
+    key: String,
+) {
+    let key = key.as_str();
     let directory = tempfile::tempdir().unwrap();
     let store = sqlite_state(directory.path()).await;
     let paused = PausedDelete::new(events.clone());
@@ -518,6 +688,19 @@ pub async fn assert_orphan_sweep_overlapping_resubmission_keeps_new_events(
     events: Arc<dyn EventStore>,
     key: &str,
 ) {
+    tolerating_abandoned_publications(
+        events,
+        key,
+        orphan_sweep_overlapping_resubmission_keeps_new_events_round,
+    )
+    .await;
+}
+
+async fn orphan_sweep_overlapping_resubmission_keeps_new_events_round(
+    events: Arc<dyn EventStore>,
+    key: String,
+) {
+    let key = key.as_str();
     let directory = tempfile::tempdir().unwrap();
     let store = sqlite_state(directory.path()).await;
     let paused = PausedDelete::new(events.clone());
@@ -742,6 +925,12 @@ pub async fn assert_failed_admission_is_retried_then_surfaced(
     events: Arc<dyn EventStore>,
     key: &str,
 ) {
+    tolerating_abandoned_publications(events, key, failed_admission_is_retried_then_surfaced_round)
+        .await;
+}
+
+async fn failed_admission_is_retried_then_surfaced_round(events: Arc<dyn EventStore>, key: String) {
+    let key = key.as_str();
     let directory = tempfile::tempdir().unwrap();
     let store = sqlite_state(directory.path()).await;
     let failing = FailingAdmission::new(events.clone());

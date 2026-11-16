@@ -7,6 +7,38 @@ use ironflow::storage::event_store::{MemoryEventStore, SqlEventStore};
 #[path = "event_store/fence_contract.rs"]
 mod fence_contract;
 
+#[path = "event_store/faulty.rs"]
+mod faulty;
+
+/// IF-220 (aa): the engine drops a publication that outlasts its 500 ms
+/// bound. The contract below must not report that as a fence defect.
+#[tokio::test]
+async fn a_publication_abandoned_at_the_publish_bound_is_not_a_contract_failure() {
+    let slow = faulty::FaultyOnce::new(
+        Arc::new(MemoryEventStore::new()),
+        faulty::Fault::OutlastTheBound,
+    );
+    fence_contract::assert_resubmitted_run_has_complete_events(slow, "memory-abandoned").await;
+}
+
+/// IF-220 (aa): an event that is lost without the bound being involved is a
+/// real loss, and the contract still fails on it.
+#[tokio::test]
+async fn an_event_lost_without_the_publish_bound_still_fails_the_contract() {
+    let lossy = faulty::FaultyOnce::new(
+        Arc::new(MemoryEventStore::new()),
+        faulty::Fault::DropSilently,
+    );
+    let outcome = tokio::spawn(async move {
+        fence_contract::assert_resubmitted_run_has_complete_events(lossy, "memory-lossy").await;
+    })
+    .await;
+    assert!(
+        outcome.is_err_and(|error| error.is_panic()),
+        "a silently dropped event must fail the complete-stream contract"
+    );
+}
+
 async fn sqlite_events(directory: &std::path::Path) -> SqlEventStore {
     let url = format!(
         "sqlite://{}?mode=rwc",
