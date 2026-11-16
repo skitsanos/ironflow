@@ -34,9 +34,11 @@ flow:step("format_failed", nodes.log({
     level = "warn"
 }))
 
+-- Both log steps write `log_message`. The summary waits for the handler, so
+-- the final value is always the summary and does not depend on step order.
 flow:step("log", nodes.log({
     message = "Current: ${ctx.current_time} | Formatted: ${ctx.pretty_date} | UTC: ${ctx.utc_time} (${ctx.utc_time_unix})",
     level = "info"
-})):depends_on("offset")
+})):depends_on("offset", "format_failed")
 
 return flow
