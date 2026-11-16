@@ -9,7 +9,7 @@ tree, `OFL.txt` in the release archives, `fonts-OFL.txt` in the image).
 This file is generated from `Cargo.lock` by
 `bun --no-env-file scripts/third_party_notices.ts write`; do not edit it by
 hand. It covers every crate reachable from IronFlow through normal or build
-dependencies with all Cargo features enabled (548 crates), so it also lists
+dependencies with all Cargo features enabled (549 crates), so it also lists
 crates that only the `-full` archives and the container image include. Rows
 carry no version: the exact versions linked into a binary are those in the
 `Cargo.lock` of the source revision it was built from. Where a crate offers
@@ -494,13 +494,14 @@ at the listed source.
 | unicode-general-category | Apache-2.0 | Apache-2.0 | https://github.com/yeslogic/unicode-general-category |
 | unicode-ident | (MIT OR Apache-2.0) AND Unicode-3.0 | MIT, Unicode-3.0 | https://github.com/dtolnay/unicode-ident |
 | unicode-normalization | (MIT OR Apache-2.0) AND Unicode-3.0 | MIT, Unicode-3.0 | https://github.com/unicode-rs/unicode-normalization |
-| unicode-properties | MIT/Apache-2.0 | MIT | https://github.com/unicode-rs/unicode-properties |
+| unicode-properties | (MIT OR Apache-2.0) AND Unicode-3.0 | MIT, Unicode-3.0 | https://github.com/unicode-rs/unicode-properties |
 | unicode-script | MIT OR Apache-2.0 | MIT | https://github.com/unicode-rs/unicode-script |
 | untrusted | ISC | ISC | https://github.com/briansmith/untrusted |
 | url | MIT OR Apache-2.0 | MIT | https://github.com/servo/rust-url |
 | urlencoding | MIT | MIT | https://github.com/kornelski/rust_urlencoding |
 | utf8_iter | Apache-2.0 OR MIT | MIT | https://github.com/hsivonen/utf8_iter |
 | utf8parse | Apache-2.0 OR MIT | MIT | https://github.com/alacritty/vte |
+| utf_types | Apache-2.0 OR MIT | MIT | https://github.com/hsivonen/utf_types |
 | uuid | Apache-2.0 OR MIT | MIT | https://github.com/uuid-rs/uuid |
 | uuid-simd | MIT | MIT | https://github.com/Nugine/simd |
 | valuable | MIT | MIT | https://github.com/tokio-rs/valuable |
@@ -571,7 +572,7 @@ at the listed source.
 | zopfli | Apache-2.0 | Apache-2.0 | https://github.com/zopfli-rs/zopfli |
 | zstd | BSD-3-Clause | BSD-3-Clause | https://github.com/gyscos/zstd-rs |
 | zstd-safe | BSD-3-Clause | BSD-3-Clause | https://github.com/gyscos/zstd-rs |
-| zstd-sys | BSD-3-Clause | BSD-3-Clause | https://github.com/gyscos/zstd-rs |
+| zstd-sys | BSD-3-Clause AND BSD-2-Clause | BSD-2-Clause, BSD-3-Clause | https://github.com/gyscos/zstd-rs |
 | zune-core | MIT OR Apache-2.0 OR Zlib | MIT | https://github.com/etemesi254/zune-image |
 | zune-jpeg | MIT OR Apache-2.0 OR Zlib | MIT | https://github.com/etemesi254/zune-image/tree/dev/crates/zune-jpeg |
 
@@ -593,7 +594,7 @@ Each license below applies to the crates whose "Used under" column names it.
 
 ### MIT
 
-Used by 462 crates.
+Used by 463 crates.
 
 ```text
 MIT License
@@ -698,7 +699,7 @@ limitations under the License.
 
 ### BSD-2-Clause
 
-Used by 2 crates.
+Used by 3 crates.
 
 ```text
 Copyright (c) <year> <owner>
@@ -813,7 +814,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ### Unicode-3.0
 
-Used by 24 crates.
+Used by 25 crates.
 
 ```text
 UNICODE LICENSE V3
