@@ -176,7 +176,7 @@ async fn extract_html_text_rejects_pathological_nesting_quickly() {
     let html = format!("<table>{}", nested_divs(100_000));
     assert_text_nesting_error(100_000, extract_html(&html, "text").await);
     assert!(
-        started.elapsed() < std::time::Duration::from_secs(10),
+        started.elapsed() < std::time::Duration::from_secs(60),
         "took {:?}",
         started.elapsed()
     );

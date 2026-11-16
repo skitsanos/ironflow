@@ -70,8 +70,11 @@ async fn json_parse_refuses_a_large_document_without_building_it() {
     // this is several hundred megabytes.
     let started = std::time::Instant::now();
     assert_budget_error("json_parse", json_parse(array_of(20_000_000)).await);
+    // Reading 40 MB and counting 20 million values took 25 s on a loaded CI
+    // runner in an unoptimized build. The refusal above is the property
+    // under test; this bound only shows the parse stops.
     assert!(
-        started.elapsed() < std::time::Duration::from_secs(20),
+        started.elapsed() < std::time::Duration::from_secs(180),
         "took {:?}",
         started.elapsed()
     );
