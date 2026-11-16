@@ -261,3 +261,52 @@ async fn whitespace_only_webhook_secret_fails_startup() {
         Startup::Serving(..)
     ));
 }
+
+/// IF-220 (t), decided 2026-11-16: a blank `IRONFLOW_API_KEY` with the
+/// unauthenticated opt-in contradicts a key in the config file. Startup fails
+/// and names both; the server never serves unauthenticated in that case.
+#[tokio::test]
+async fn blank_key_variable_with_the_opt_in_contradicts_a_configured_key() {
+    let cases: [(String, Vec<(&str, &str)>); 2] = [
+        (
+            keyed_config(),
+            vec![
+                ("IRONFLOW_API_KEY", ""),
+                ("IRONFLOW_ALLOW_UNAUTHENTICATED_API", "true"),
+            ],
+        ),
+        (
+            format!("{}allow_unauthenticated_api: true\n", keyed_config()),
+            vec![("IRONFLOW_API_KEY", "  ")],
+        ),
+    ];
+    for (config, environment) in cases {
+        let directory = tempfile::tempdir().unwrap();
+        match start(directory.path(), &config, &environment).await {
+            Startup::Failed(log) => {
+                assert!(
+                    log.contains("IRONFLOW_API_KEY")
+                        && log.contains("'api_key'")
+                        && log.contains("contradict"),
+                    "{log}"
+                );
+                assert!(!log.contains(YAML_KEY), "key disclosed in: {log}");
+            }
+            Startup::Serving(_server, base) => panic!(
+                "server started with {environment:?}; GET /runs without a key returned {}",
+                runs_status(&base, None).await
+            ),
+        }
+    }
+
+    // The opt-in beside a usable configured key keeps enforcing that key.
+    let directory = tempfile::tempdir().unwrap();
+    let environment = [("IRONFLOW_ALLOW_UNAUTHENTICATED_API", "true")];
+    let Startup::Serving(_server, base) =
+        start(directory.path(), &keyed_config(), &environment).await
+    else {
+        panic!("server did not start with the configured key and the opt-in");
+    };
+    assert_eq!(runs_status(&base, None).await, 401);
+    assert_eq!(runs_status(&base, Some(YAML_KEY)).await, 200);
+}

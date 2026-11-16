@@ -1037,6 +1037,17 @@ publication is verified separately.
   or keep it out of error text. See
   [Diagnostic scrubbing](../SECURITY.md#diagnostic-scrubbing).
 
+- An empty `IRONFLOW_API_KEY` beside the unauthenticated opt-in no longer
+  overrides a key in the config file (IF-220, decided 2026-11-16). With
+  `IRONFLOW_ALLOW_UNAUTHENTICATED_API=true` (or `allow_unauthenticated_api:
+  true`), an empty or whitespace-only `IRONFLOW_API_KEY` used to mean no key
+  even when `api_key` was set in `ironflow.yaml`, so the server started
+  unauthenticated. Startup now fails with a message that names the
+  contradiction. To enforce the key, remove the variable or give it a value;
+  to serve without authentication on purpose, remove `api_key` from the config
+  file. An empty variable with the opt-in and no configured key still starts
+  unauthenticated. See [`ironflow serve`](../CLI_REFERENCE.md#ironflow-serve).
+
 - A webhook signature secret of only whitespace stops startup (IF-220). A
   `secret_env` variable holding 16 or more spaces or tabs passed the length
   check, so the webhook was signed with a placeholder. `ironflow serve` now

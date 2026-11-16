@@ -55,12 +55,22 @@ pub(super) fn environment_non_blank(name: &'static str) -> Result<Option<String>
 /// setting. A blank winner fails instead of meaning "no key", because a
 /// loopback server would then start unauthenticated while a key sits in the
 /// lower-priority source. Only the explicit unauthenticated opt-in makes a
-/// blank key resolve to no key.
+/// blank key resolve to no key, and not while the config file holds a key:
+/// a blank variable beside that key and the opt-in is a contradiction, and
+/// serving unauthenticated would be the unsafe reading of it (IF-220).
 pub(super) fn resolve_api_key(
     environment: Option<String>,
     config: Option<String>,
     allow_unauthenticated_api: bool,
 ) -> Result<Option<String>> {
+    let contradicts_configured_key = allow_unauthenticated_api
+        && environment.as_deref().is_some_and(is_blank)
+        && config.as_deref().is_some_and(|key| !is_blank(key));
+    if contradicts_configured_key {
+        bail!(
+            "environment variable IRONFLOW_API_KEY is set but empty and unauthenticated access is allowed, while config file field 'api_key' holds a key. These settings contradict each other, so the server does not start. To enforce the key, remove IRONFLOW_API_KEY or give it a value; to serve without authentication on purpose, remove 'api_key' from the config file."
+        );
+    }
     let (source, value) = match environment {
         Some(value) => (SettingSource::Environment("IRONFLOW_API_KEY"), Some(value)),
         None => (SettingSource::ConfigFile("api_key"), config),
@@ -148,16 +158,26 @@ mod tests {
             some("from-yaml")
         );
         assert_eq!(resolve_api_key(None, None, false).unwrap(), None);
-        assert_eq!(
-            resolve_api_key(some(""), some("from-yaml"), true).unwrap(),
-            None
-        );
+        assert_eq!(resolve_api_key(some(""), None, true).unwrap(), None);
+        assert_eq!(resolve_api_key(some(""), some(" "), true).unwrap(), None);
         assert_eq!(resolve_api_key(None, some(" "), true).unwrap(), None);
         // The opt-in does not discard a usable key.
         assert_eq!(
             resolve_api_key(some("from-env"), None, true).unwrap(),
             some("from-env")
         );
+    }
+
+    #[test]
+    fn blank_variable_with_the_opt_in_contradicts_a_configured_key() {
+        for blank in BLANKS {
+            let error = resolve_api_key(some(blank), some("configured-key"), true)
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("IRONFLOW_API_KEY") && error.contains("'api_key'"));
+            assert!(error.contains("contradict"), "{error}");
+            assert!(!error.contains("configured-key"));
+        }
     }
 
     #[test]

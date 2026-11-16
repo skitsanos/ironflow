@@ -361,7 +361,7 @@ or give it a value. The rule covers:
 
 | Setting | Present but empty |
 |---|---|
-| `IRONFLOW_API_KEY`, `api_key` | Startup fails. With `IRONFLOW_ALLOW_UNAUTHENTICATED_API=true` or `allow_unauthenticated_api: true` an empty key means no key, and the server starts unauthenticated on purpose. |
+| `IRONFLOW_API_KEY`, `api_key` | Startup fails. With `IRONFLOW_ALLOW_UNAUTHENTICATED_API=true` or `allow_unauthenticated_api: true` an empty key means no key, and the server starts unauthenticated on purpose. The exception is an empty `IRONFLOW_API_KEY` while `api_key` in the config file holds a key: those settings contradict each other and startup fails, naming both. Remove the variable or give it a value to enforce the key, or remove `api_key` to serve without authentication. |
 | `IRONFLOW_CORS_ORIGINS` | Startup fails, also for a value with no origin in it such as `,`. Unset the variable to deny cross-origin requests; `cors_origins: []` in config stays valid. |
 | `IRONFLOW_STORE`, `IRONFLOW_EVENT_STORE` | Startup fails. |
 | `IRONFLOW_STORE_URL`, `IRONFLOW_EVENT_STORE_URL` | Startup fails when the matching backend is `sqlite` or `postgres`; the variable is not read otherwise. |

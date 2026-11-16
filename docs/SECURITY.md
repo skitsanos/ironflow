@@ -124,7 +124,11 @@ loopback behind a reverse proxy or sidecar served every route, including
 
 - An empty or whitespace-only `IRONFLOW_API_KEY` or `api_key` fails startup on
   every bind address. Only `IRONFLOW_ALLOW_UNAUTHENTICATED_API=true` or
-  `allow_unauthenticated_api: true` makes an empty key mean "no key".
+  `allow_unauthenticated_api: true` makes an empty key mean "no key", and
+  never over a configured one: an empty `IRONFLOW_API_KEY` with the opt-in
+  while `api_key` in `ironflow.yaml` holds a key fails startup as a
+  contradiction (IF-220), because serving unauthenticated would be the
+  unsafe reading of it.
 - A loopback bind with no key configured anywhere still starts
   unauthenticated for local development, and a non-loopback bind without a
   key still fails. Do not rely on a loopback bind for isolation when other
