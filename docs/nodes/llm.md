@@ -12,7 +12,7 @@ Run a chat-style request against OpenAI, OpenAI-compatible, Azure, or custom end
 | `tools` | array | no | — | OpenAI-style tool definitions, provided as a Lua table. Chat mode only. |
 | `tool_choice` | string/object | no | provider default | Tool selection behavior (`"auto"`, `"required"`, or explicit object). Sent only when set. Chat mode only. |
 | `prompt` | string | no | — | Direct prompt text for user content |
-| `input_key` | string | no | — | Context key holding the prompt text when `prompt` is not set. There is no default: one of `prompt`, `input_key`, `messages` or `messages_key` is required. |
+| `input_key` | string | no | — | Context key holding the prompt text when `prompt` is not set. There is no default: one of `prompt`, `input_key`, `messages` or `messages_key` is required. A `prompt` or `input_key` that is given but is not a string fails the step with `llm: '<name>' must be a string`; `prompt` is no longer skipped in favour of `input_key`. |
 | `messages` | array | no | — | Chat-style message objects (`role`, `content`) for chat mode |
 | `messages_key` | string | no | — | Context key containing a runtime chat-message array. Mutually exclusive with `messages`. |
 | `system_prompt` | string | no | — | System message used when building chat `messages` automatically. In responses mode it is sent as `instructions`. |
@@ -127,7 +127,8 @@ in prompts or ordinary persisted context.
 - `{output_key}_tool_calls_normalized` — provider-neutral tool calls with parsed arguments:
   `{ id, index, type, name, arguments, raw_arguments, raw_call }`
 
-A successful HTTP response must carry a usable reply: non-empty text, or at
+A successful HTTP response must carry a usable reply: text that is not empty
+or only whitespace, or at
 least one tool call. In chat mode the text is the first choice's message
 content and the tool calls are its `tool_calls`. In responses mode the text is
 `output_text` or the text of the `output` items, and `function_call` output

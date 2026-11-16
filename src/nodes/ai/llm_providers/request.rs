@@ -34,11 +34,13 @@ pub(crate) fn resolve_messages(config: &Value, ctx: &Context) -> Result<Option<V
 }
 
 pub(crate) fn resolve_prompt(config: &Value, ctx: &Context) -> Result<String> {
-    if let Some(prompt) = config.get("prompt").and_then(Value::as_str) {
+    // A value of another type is a mistake in the flow. It used to be
+    // skipped, so the prompt silently came from `input_key` (IF-220).
+    if let Some(prompt) = string_parameter(config, "prompt")? {
         return Ok(interpolate_ctx(prompt, ctx));
     }
 
-    if let Some(input_key) = config.get("input_key").and_then(Value::as_str) {
+    if let Some(input_key) = string_parameter(config, "input_key")? {
         let input_key = interpolate_ctx(input_key, ctx);
         return ctx
             .get(&input_key)
@@ -50,6 +52,15 @@ pub(crate) fn resolve_prompt(config: &Value, ctx: &Context) -> Result<String> {
     }
 
     anyhow::bail!("llm: either 'prompt', 'input_key', 'messages', or 'messages_key' is required")
+}
+
+/// A parameter that is a string when given; absent and null mean not given.
+fn string_parameter<'a>(config: &'a Value, key: &str) -> Result<Option<&'a str>> {
+    match config.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(value)) => Ok(Some(value)),
+        Some(_) => anyhow::bail!("llm: '{key}' must be a string"),
+    }
 }
 
 pub(crate) struct LlmBodyInput<'a> {

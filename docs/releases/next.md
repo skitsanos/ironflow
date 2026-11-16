@@ -1037,6 +1037,14 @@ publication is verified separately.
   or keep it out of error text. See
   [Diagnostic scrubbing](../SECURITY.md#diagnostic-scrubbing).
 
+- `llm` rejects a whitespace-only reply and a non-string `prompt` (IF-220). A
+  provider reply whose text is only whitespace, with no tool call, was
+  reported as success; it now fails the step with `no usable reply`, like an
+  empty one. A `prompt` or `input_key` that is given but is not a string was
+  skipped, so a numeric `prompt` silently took the prompt from `input_key`;
+  the step now fails with `llm: 'prompt' must be a string` before any request.
+  `null` still means not given. See [`llm`](../nodes/llm.md).
+
 - `llm` says why responses mode cannot run a tool loop (IF-220). Responses
   mode sends `input` as text, so the results of a reported `function_call`
   cannot be returned to the model. `messages` and `messages_key` were already

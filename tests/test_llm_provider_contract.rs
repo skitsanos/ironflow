@@ -479,3 +479,67 @@ async fn responses_mode_refuses_a_tool_loop_with_the_reason() {
         assert!(server.requests().is_empty(), "a request was still sent");
     }
 }
+
+/// IF-220 (q): text that is only whitespace is not a usable reply.
+#[tokio::test]
+async fn a_whitespace_only_reply_fails_the_step_unless_a_tool_was_called() {
+    let cases = [
+        (
+            "chat",
+            json!({"choices": [{"message": {"content": " \n\t "}}]}),
+        ),
+        ("responses", json!({"output_text": "\n \n"})),
+    ];
+    for (mode, reply) in cases {
+        let server = Server::start(None, (StatusCode::OK, reply)).await;
+        let error = match run(custom(&server, mode)).await {
+            Ok(output) => panic!("{mode} reported success with {}", output["llm_text"]),
+            Err(error) => format!("{error:#}"),
+        };
+        assert!(error.contains("no usable reply"), "{error}");
+    }
+
+    // Whitespace beside a tool call is still a tool-call reply.
+    let reply = json!({"choices": [{"message": {"content": "\n", "tool_calls": [
+        {"id": "call_1", "type": "function", "function": {"name": "lookup", "arguments": "{}"}}
+    ]}}]});
+    let server = Server::start(None, (StatusCode::OK, reply)).await;
+    let output = run(custom(&server, "chat")).await.unwrap();
+    assert_eq!(output["llm_tool_call_needed"], true);
+    assert_eq!(output["llm_text"], "<tool call requested>");
+}
+
+/// IF-220 (q): a `prompt` or `input_key` of another type is an error, not a
+/// reason to look for the prompt somewhere else.
+#[tokio::test]
+async fn a_non_string_prompt_or_input_key_is_rejected_before_any_request() {
+    let ctx = Context::from_iter([("question".to_string(), json!("from context"))]);
+    for (parameter, name) in [
+        (json!({"prompt": 42, "input_key": "question"}), "'prompt'"),
+        (
+            json!({"prompt": ["a"], "input_key": "question"}),
+            "'prompt'",
+        ),
+        (json!({"prompt": null, "input_key": 7}), "'input_key'"),
+    ] {
+        let server = Server::start(None, success()).await;
+        let error = run_with(with(custom(&server, "chat"), parameter), &ctx)
+            .await
+            .unwrap_err();
+        let message = format!("{error:#}");
+        assert!(
+            message.contains(name) && message.contains("must be a string"),
+            "{message}"
+        );
+        assert!(server.requests().is_empty(), "a request was still sent");
+    }
+
+    // A null prompt still means "not given".
+    let server = Server::start(None, success()).await;
+    let config = with(
+        custom(&server, "chat"),
+        json!({"prompt": null, "input_key": "question"}),
+    );
+    run_with(config, &ctx).await.unwrap();
+    assert_eq!(body(&server)["messages"][0]["content"], "from context");
+}

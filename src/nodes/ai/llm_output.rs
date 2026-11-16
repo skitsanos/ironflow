@@ -32,7 +32,8 @@ pub(super) fn build(parsed: Value, meta: ReplyMeta<'_>) -> Result<NodeOutput> {
             extract_responses_tool_calls(&parsed),
         ),
     };
-    let text = match reply {
+    // Text that is only whitespace is no more usable than none (IF-220).
+    let text = match reply.filter(|reply| !reply.trim().is_empty()) {
         Some(reply) => reply,
         None if !tool_calls.is_empty() => "<tool call requested>".to_string(),
         // The body is provider-controlled and stays out of the error.
