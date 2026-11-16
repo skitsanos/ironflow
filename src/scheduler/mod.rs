@@ -4,6 +4,7 @@ mod catchup;
 pub mod config;
 mod context;
 mod cron;
+mod decision;
 mod evaluation;
 pub mod execution;
 mod field_shape;

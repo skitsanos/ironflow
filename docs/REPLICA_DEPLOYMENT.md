@@ -188,6 +188,15 @@ the flow through the API or CLI to run it again. A claim whose replica died
 before creating the run carries no such record and is still recovered within
 grace.
 
+An occurrence that a replica skipped is settled in the same way. A skip for
+lateness, overlap with the schedule's previous run,
+`IRONFLOW_MAX_CONCURRENT_RUNS` or a flow that fails to load is recorded in
+the claim, so a replica that starts or restarts inside the grace window
+reports the instant as `not_claimed` and does not start it later, for example
+once the overlapping run has finished. A replica that is draining does not
+skip: it defers, records nothing, and the instant is started by a peer or by
+the replica after its restart while it is inside grace.
+
 With the Redis state store, keep `REDIS_TTL` greater than the largest
 `grace_seconds` plus 60 seconds. `ironflow serve` logs a warning for each
 schedule that is not covered. The occurrence is still not run twice, but its

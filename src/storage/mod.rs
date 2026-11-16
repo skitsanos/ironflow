@@ -216,8 +216,10 @@ pub trait StateStore: Send + Sync {
         ))
     }
 
-    /// Record in the claim that the occurrence `(name, key)` has a durable
-    /// run. Idempotent, and retained at least as long as the claim itself;
+    /// Record in the claim that the occurrence `(name, key)` is settled: it
+    /// has a durable run, or the scheduler skipped it and it must not be
+    /// started (IF-217). Idempotent, written whether or not the claim itself
+    /// exists, and retained at least as long as the claim;
     /// `ttl_seconds` is the claim's lifetime, for stores whose record carries
     /// its own expiry. The record must survive the deletion or expiry of the
     /// run itself: it is what keeps an occurrence from starting again once
@@ -238,7 +240,8 @@ pub trait StateStore: Send + Sync {
 
     /// Whether [`record_schedule_run`](Self::record_schedule_run) was called
     /// for `(name, key)` and its record is still retained. `false` for a
-    /// claim that never produced a run, which the scheduler recovers.
+    /// claim that neither produced a run nor was skipped, which the scheduler
+    /// recovers.
     async fn schedule_run_recorded(&self, name: &str, key: &str) -> StorageResult<bool> {
         let _ = (name, key);
         Ok(false)

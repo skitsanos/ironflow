@@ -30,3 +30,5 @@ mod test_scheduler_e2e;
 mod test_scheduler_load_admission;
 #[path = "../test_scheduler_occurrence_fence.rs"]
 mod test_scheduler_occurrence_fence;
+#[path = "../test_scheduler_skip_records.rs"]
+mod test_scheduler_skip_records;

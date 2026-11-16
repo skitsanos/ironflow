@@ -932,7 +932,18 @@ within grace starts it. A run record that has since disappeared, through
 `REDIS_TTL` expiry or `DELETE /runs/{id}`, left a marked claim, so the
 occurrence stays consumed for the claim's lifetime: on every backend, deleting
 a scheduled run removes the record and does not release the instant. To run
-the flow again, start it through the API or the CLI. The mark is written after
+the flow again, start it through the API or the CLI.
+
+The same mark settles an occurrence the scheduler skipped. A skip for
+lateness, overlap, run capacity or a flow that fails to load creates no run,
+so its claim alone would read as an orphan and a replica that restarted
+inside the grace window would start the instant its peer had skipped. The
+replica that skips therefore calls `record_schedule_run` as well, and the
+mark means "do not start this occurrence" whether or not a run exists. For a
+skip nothing else fences the instant, so a failed write is not ignored: the
+instant is reported as a failed claim and decided again on the next tick. A
+start that is only deferred (flow-load capacity, or a replica that is
+draining) writes no mark and stays due. The mark is written after
 the run is created, so a process that dies between the two leaves an unmarked
 claim; the run record fences the instant for as long as it exists, and the
 next replica that converges on it writes the mark. That window is covered
@@ -949,7 +960,8 @@ record alone.
 
 Existing or later-stalled executions are never replayed. Lateness,
 overlap, run capacity, and a flow that fails to load may still skip an
-occurrence instead of creating a backlog. The flow-load limit does not: a
+occurrence instead of creating a backlog; each such skip is recorded in the
+claim and is final for every replica. The flow-load limit does not: a
 scheduled start waits up to five seconds for a load permit, where API requests
 fail fast, and a wait that expires defers the occurrence. Nothing was parsed
 and no run exists, so the watermark stops before it and later ticks retry it,

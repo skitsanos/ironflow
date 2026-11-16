@@ -99,7 +99,8 @@ impl JsonStateStore {
         )
     }
 
-    /// Write the run marker. Retention reaps it together with its claim.
+    /// Write the run marker, which also settles a skipped occurrence
+    /// (IF-217). Retention reaps it together with its claim.
     pub(super) async fn record_schedule_run_file(
         &self,
         name: &str,

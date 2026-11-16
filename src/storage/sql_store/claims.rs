@@ -4,8 +4,9 @@ use super::SqlStateStore;
 use crate::storage::schedule_cleanup::CLAIM_CLEANUP_BATCH_SIZE;
 use crate::storage::{StorageError, StorageErrorKind, StorageResult};
 
-/// Set once the claimed occurrence has a durable run (IF-201). Nullable, so a
-/// claim row written by an older binary reads as "no run recorded".
+/// Set once the claimed occurrence is settled: it has a durable run (IF-201)
+/// or the scheduler skipped it (IF-217). Nullable, so a claim row written by
+/// an older binary reads as "not settled".
 const RUN_COLUMN: &str = "run_micros";
 
 impl SqlStateStore {

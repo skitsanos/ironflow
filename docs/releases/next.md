@@ -1016,6 +1016,18 @@ publication is verified separately.
   running. The run permit is now taken after the load permit and before the
   flow is parsed.
 
+- A scheduled instant that was skipped is no longer started later by
+  another replica (IF-217). A skip for lateness, overlap, run capacity or a
+  flow that fails to load created no run and left only its claim, which a
+  replica that started or restarted inside the grace window read as an
+  abandoned claim: it started the instant once the reason for the skip had
+  gone. The skip is now recorded in the claim on the JSON, SQL and Redis
+  stores, and such a replica reports the instant as `not_claimed`. If that
+  record cannot be written, the instant is reported as `claim_failed` and
+  decided again on the next tick. A replica that is draining used to report
+  the instants it could not start as `at_capacity`; it now reports them as
+  `deferred` and records nothing, so a peer still starts them.
+
 - Schedules that share a minute no longer lose occurrences to
   `IRONFLOW_MAX_CONCURRENT_FLOW_LOADS` (IF-182). A scheduled start now waits
   up to 5 seconds for a flow-load permit instead of failing at once, and an

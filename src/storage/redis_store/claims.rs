@@ -45,7 +45,8 @@ impl RedisStateStore {
         Ok(claimed)
     }
 
-    /// Value of a claim key whose occurrence has a durable run (IF-201).
+    /// Value of a claim key whose occurrence is settled: it has a durable run
+    /// (IF-201) or the scheduler skipped it (IF-217).
     ///
     /// A plain claim stores `key` itself, so prefixing `key` can never equal
     /// the value of an unmarked claim for the same instant.

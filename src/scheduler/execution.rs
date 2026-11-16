@@ -112,8 +112,9 @@ impl ScheduleExecutor for FlowExecutor {
 
     fn has_capacity(&self) -> bool {
         // The permit is dropped immediately; this is a probe, not a
-        // reservation. `run` acquires the permit it actually holds.
-        crate::api::acquire_run_permit(&self.lifecycle, None).is_ok()
+        // reservation. `run` acquires the permit it actually holds. A drain
+        // is not a capacity answer: `run` defers the instant instead.
+        !self.lifecycle.is_ready() || crate::api::acquire_run_permit(&self.lifecycle, None).is_ok()
     }
 
     async fn run(
@@ -122,6 +123,12 @@ impl ScheduleExecutor for FlowExecutor {
         instant_key: &str,
         schedule: &ScheduleConfig,
     ) -> Result<ScheduleRun, String> {
+        // A skip is recorded durably, so a replica that is only draining must
+        // not produce one: the instant stays due for a peer, or for this
+        // replica once it has restarted (IF-217).
+        if !self.lifecycle.is_ready() {
+            return Ok(draining());
+        }
         let path = resolve_flow_path_in(schedule.flow(), self.flows_dir.as_deref())
             .map_err(|error| format!("{error:?}"))?;
 
@@ -156,7 +163,11 @@ impl ScheduleExecutor for FlowExecutor {
                 // that probe and this acquire. It is the same refusal, and is
                 // reported as one rather than as a failed start (IF-217).
                 Err(crate::api::errors::AppError::ServiceUnavailable(_)) => {
-                    return Ok(ScheduleRun::AtCapacity);
+                    return Ok(if self.lifecycle.is_ready() {
+                        ScheduleRun::AtCapacity
+                    } else {
+                        draining()
+                    });
                 }
                 Err(error) => return Err(format!("{error:?}")),
             };
@@ -234,3 +245,12 @@ impl ScheduleExecutor for FlowExecutor {
         Ok(ScheduleRun::Started { run_id })
     }
 }
+
+fn draining() -> ScheduleRun {
+    ScheduleRun::Deferred {
+        reason: "server is draining".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests;

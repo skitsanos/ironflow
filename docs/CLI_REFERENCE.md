@@ -1456,7 +1456,10 @@ instant. A replica that loses or observes an earlier claim still converges on
 that identity; atomic run initialization chooses the one executor. This closes
 the crash window between claim and run creation without replaying an existing
 or later-stalled run. A late, overlapping, capacity-constrained, or invalid
-occurrence can still be deliberately skipped. The JSON store coordinates only
+occurrence can still be deliberately skipped. A skip is recorded in the
+claim, so it is final for every replica: one that restarts inside the grace
+window reports the instant as `not_claimed` and does not start it. A replica
+that is draining defers the instant instead of skipping it. The JSON store coordinates only
 among processes sharing a `store_dir`; replica mode requires PostgreSQL or
 Redis across hosts. JSON and SQL claim retention runs in schedule-specific batches of
 at most 256, no more than once per hour for the normal seven-day-or-longer claim
