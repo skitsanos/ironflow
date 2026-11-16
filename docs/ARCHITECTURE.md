@@ -1038,12 +1038,15 @@ admission rather than waiting in the accept backlog (IF-183). Remaining
 coordinators receive the same cooperative cancellation signal as explicit run
 cancellation and have 20 seconds to settle. The listener closes only after
 that, and open connections have five seconds to finish. `main` then shuts the
-runtime down with a five-second timeout instead of dropping it, because a
-dropped runtime waits for every blocking closure; this bound applies to every
-command, so `ironflow run` also exits at most five seconds after printing its
+runtime down with a timeout instead of dropping it, because a dropped runtime
+waits for every blocking closure. The timeout is
+`IRONFLOW_RUNTIME_SHUTDOWN_SECONDS` (default 5, `1..=3600`, registered with
+the other limits so a malformed value stops startup). It applies to every
+command, so `ironflow run` also exits at most that long after printing its
 result. A worker still inside an uninterruptible call at that point ends with
 the process. Each stage is bounded so a defective task cannot hold an
-orchestrator termination forever: at most grace plus 30 seconds in total.
+orchestrator termination forever: at most grace plus 30 seconds in total with
+the default runtime bound.
 
 `IRONFLOW_REPLICA_MODE=true` is an operator assertion checked before stores are
 opened. It accepts only PostgreSQL/Redis state plus PostgreSQL/Redis events;

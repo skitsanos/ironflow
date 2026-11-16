@@ -76,24 +76,27 @@ fn replace_cache_entry_with_fifo(directory: &std::path::Path) {
     assert_eq!(result, 0, "{}", std::io::Error::last_os_error());
 }
 
-#[test]
-fn a_stuck_blocking_worker_does_not_hold_the_process_after_the_result() {
+/// Run the stuck flow and return how long the process lived after its start.
+fn stuck_run_lifetime(bound_seconds: Option<&str>, watchdog: Duration) -> Duration {
     let directory = tempfile::tempdir().unwrap();
     let flow = directory.path().join("stuck.lua");
     std::fs::write(&flow, STUCK_FLOW).unwrap();
     std::fs::write(directory.path().join("stuck_child.lua"), STUCK_CHILD).unwrap();
     replace_cache_entry_with_fifo(directory.path());
     let stdout_path = directory.path().join("stdout.log");
-    let mut child = ironflow(directory.path(), &flow)
+    let mut command = ironflow(directory.path(), &flow);
+    command.env_remove("IRONFLOW_RUNTIME_SHUTDOWN_SECONDS");
+    if let Some(seconds) = bound_seconds {
+        command.env("IRONFLOW_RUNTIME_SHUTDOWN_SECONDS", seconds);
+    }
+    let mut child = command
         .stdout(std::fs::File::create(&stdout_path).unwrap())
         .stderr(Stdio::null())
         .spawn()
         .unwrap();
 
     let started = Instant::now();
-    // The five-second runtime shutdown bound, with margin for a loaded test
-    // host.
-    let deadline = started + Duration::from_secs(20);
+    let deadline = started + watchdog;
     let status = loop {
         if let Some(status) = child.try_wait().unwrap() {
             break status;
@@ -113,10 +116,62 @@ fn a_stuck_blocking_worker_does_not_hold_the_process_after_the_result() {
     let stdout = std::fs::read_to_string(&stdout_path).unwrap();
     assert!(stdout.contains("Status: success"), "{stdout}");
     assert!(status.success(), "{status:?}");
+    started.elapsed()
+}
+
+#[test]
+fn a_stuck_blocking_worker_does_not_hold_the_process_after_the_result() {
+    // The five-second runtime shutdown bound, with margin for a loaded test
+    // host.
+    let lifetime = stuck_run_lifetime(None, Duration::from_secs(20));
     // The worker really was stuck: exit waited for the bound, not for it.
     assert!(
-        started.elapsed() >= Duration::from_secs(5),
-        "exited after {:?}; the worker was not stuck",
-        started.elapsed()
+        lifetime >= Duration::from_secs(5),
+        "exited after {lifetime:?}; the worker was not stuck"
     );
+}
+
+/// IF-220 (c): the bound is `IRONFLOW_RUNTIME_SHUTDOWN_SECONDS`. A longer
+/// value is asserted from below only, so a loaded host cannot fail it.
+#[test]
+fn the_runtime_shutdown_bound_is_configurable() {
+    let lifetime = stuck_run_lifetime(Some("8"), Duration::from_secs(60));
+    assert!(
+        lifetime >= Duration::from_secs(8),
+        "exited after {lifetime:?}; the configured bound was not applied"
+    );
+}
+
+/// IF-220 (c): a malformed or out-of-range value stops every command
+/// before it does any work, naming the variable and its range.
+#[test]
+fn bounded_limits_are_rejected_at_startup_when_out_of_range() {
+    let directory = tempfile::tempdir().unwrap();
+    let flow = directory.path().join("seed.lua");
+    std::fs::write(&flow, SEED_FLOW).unwrap();
+    for (name, maximum) in [("IRONFLOW_RUNTIME_SHUTDOWN_SECONDS", 3_600_u64)] {
+        for value in ["abc", "0", "-1", &(maximum + 1).to_string()] {
+            let output = Command::new(env!("CARGO_BIN_EXE_ironflow"))
+                .current_dir(directory.path())
+                .arg("validate")
+                .arg(&flow)
+                .env(name, value)
+                .output()
+                .unwrap();
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert_eq!(output.status.code(), Some(1), "{name}={value}: {stderr}");
+            assert!(
+                stderr.contains(name) && stderr.contains(&maximum.to_string()),
+                "{name}={value}: {stderr}"
+            );
+        }
+        let accepted = Command::new(env!("CARGO_BIN_EXE_ironflow"))
+            .current_dir(directory.path())
+            .arg("validate")
+            .arg(&flow)
+            .env(name, maximum.to_string())
+            .output()
+            .unwrap();
+        assert!(accepted.status.success(), "{name}={maximum}");
+    }
 }

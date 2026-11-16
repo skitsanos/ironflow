@@ -371,10 +371,13 @@ remain readable. Once
 accepted runs have finished, or were cancelled after the grace and settled
 within 20 seconds, the listener closes and new connections are refused. Open
 connections then have five seconds to finish and blocking workers that cannot
-be interrupted have five more, so the process exits at most
+be interrupted have `IRONFLOW_RUNTIME_SHUTDOWN_SECONDS` more (default 5), so
+with the default the process exits at most
 `IRONFLOW_SHUTDOWN_GRACE_SECONDS + 30` seconds after the signal.
 
-Every command applies the same five-second bound after it returns. A step
+Every command applies the same `IRONFLOW_RUNTIME_SHUTDOWN_SECONDS` bound
+after it returns (`1..=3600`, default 5; a malformed or out-of-range value
+stops startup). A step
 that timed out or was cancelled while its blocking worker was inside a call
 that cannot be interrupted no longer keeps `ironflow run` alive after the
 final status is printed; the worker ends with the process. This bound starts
@@ -709,6 +712,7 @@ Or via environment variables (override config file):
 | `IRONFLOW_BLOCK_PRIVATE_NETWORK` | `false` | Force the outbound destination guard on for every covered node; see [Outbound destination policy](#outbound-destination-policy) |
 | `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` | — | Comma-separated internal destinations the guard still permits |
 | `IRONFLOW_SHUTDOWN_GRACE_SECONDS` | `30` | Seconds accepted runs may finish before cooperative cancellation (`0..=3600`) |
+| `IRONFLOW_RUNTIME_SHUTDOWN_SECONDS` | `5` | Seconds blocking workers that cannot be interrupted may keep the process alive after any command has returned (`1..=3600`) |
 | `IRONFLOW_EVENT_MEMORY_CAPACITY` | `10000` | Positive global event/fence count when the event backend is `memory`; a fixed 64 MiB retained-heap estimate is enforced independently |
 | `IRONFLOW_SQL_TABLE_PREFIX` | `ironflow_` | SQL table/index prefix for SQLite/Postgres state and event stores |
 | `REDIS_URL` | `redis://127.0.0.1:6379` | Redis connection URL |
@@ -1623,6 +1627,7 @@ start.
 | `IRONFLOW_EVENT_MEMORY_CAPACITY` | `10000` | Positive global event/fence count when the event backend is `memory`; a fixed 64 MiB retained-heap estimate applies independently; zero or invalid values fail startup |
 | `IRONFLOW_REPLICA_MODE` | `false` | Fail startup unless state and events use PostgreSQL or Redis |
 | `IRONFLOW_SHUTDOWN_GRACE_SECONDS` | `30` | Accepted-run drain before cancellation (`0..=3600` seconds) |
+| `IRONFLOW_RUNTIME_SHUTDOWN_SECONDS` | `5` | Wait for uninterruptible blocking workers after the command returns (`1..=3600` seconds) |
 | `IRONFLOW_SQL_TABLE_PREFIX` | `ironflow_` | SQL table/index prefix for SQLite/Postgres state and event stores |
 | `FLOWS_DIR` | — | Flow files directory |
 | `MAX_BODY` | `1048576` | Max request body size (bytes) |

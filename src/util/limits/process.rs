@@ -25,6 +25,10 @@ pub(crate) const MCP_SESSION_CACHE_SIZE: Limit =
 /// Idle TTL for live MCP sessions, in seconds.
 pub(crate) const MCP_SESSION_TTL_SECS: Limit =
     Limit::positive("IRONFLOW_MCP_SESSION_TTL_SECS", 3_600);
+/// Seconds blocking workers may keep the process alive after a command has
+/// returned (IF-183, IF-220). The ceiling keeps the timer arithmetic in range.
+pub(crate) const RUNTIME_SHUTDOWN_SECONDS: Limit =
+    Limit::bounded("IRONFLOW_RUNTIME_SHUTDOWN_SECONDS", 5, 3_600);
 
 fn capacity(limit: &Limit) -> usize {
     usize::try_from(limit.read()).unwrap_or(usize::MAX)
@@ -56,4 +60,10 @@ pub fn mcp_session_cache_size() -> usize {
 
 pub fn mcp_session_ttl_secs() -> u64 {
     MCP_SESSION_TTL_SECS.read()
+}
+
+/// How long detached blocking workers may hold the process once the command
+/// has returned; a worker inside an uninterruptible call is then abandoned.
+pub fn runtime_shutdown_timeout() -> std::time::Duration {
+    std::time::Duration::from_secs(RUNTIME_SHUTDOWN_SECONDS.read())
 }

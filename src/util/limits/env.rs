@@ -24,6 +24,8 @@ pub struct Limit {
     pub name: &'static str,
     pub default: u64,
     pub zero: Zero,
+    /// Largest accepted value; `u64::MAX` when the limit has no ceiling.
+    pub max: u64,
 }
 
 impl Limit {
@@ -32,6 +34,18 @@ impl Limit {
             name,
             default,
             zero: Zero::Rejected,
+            max: u64::MAX,
+        }
+    }
+
+    /// A positive limit with a ceiling of its own, for a value that is
+    /// unsafe or meaningless above `max`.
+    pub const fn bounded(name: &'static str, default: u64, max: u64) -> Self {
+        Self {
+            name,
+            default,
+            zero: Zero::Rejected,
+            max,
         }
     }
 
@@ -40,13 +54,19 @@ impl Limit {
             name,
             default,
             zero: Zero::Disables,
+            max: u64::MAX,
         }
     }
 
-    fn expected(&self) -> &'static str {
-        match self.zero {
+    fn expected(&self) -> String {
+        let kind = match self.zero {
             Zero::Rejected => "a positive integer",
             Zero::Disables => "a non-negative integer (0 disables the limit)",
+        };
+        if self.max == u64::MAX {
+            kind.to_string()
+        } else {
+            format!("{kind} no greater than {}", self.max)
         }
     }
 
@@ -59,7 +79,8 @@ impl Limit {
             .all(|byte| byte.is_ascii_digit())
             .then(|| digits.parse::<u64>().ok())
             .flatten()
-            .filter(|value| *value > 0 || self.zero == Zero::Disables);
+            .filter(|value| *value > 0 || self.zero == Zero::Disables)
+            .filter(|value| *value <= self.max);
         match value {
             Some(value) => Ok(value),
             None => bail!("{} must be {}", self.name, self.expected()),
@@ -168,6 +189,19 @@ mod tests {
             let error = CEILING.parse(raw).unwrap_err().to_string();
             assert_eq!(
                 error, "IRONFLOW_TEST_CEILING must be a positive integer",
+                "{raw:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn bounded_limits_reject_values_above_their_ceiling() {
+        const BOUNDED: Limit = Limit::bounded("IRONFLOW_TEST_BOUNDED", 5, 60);
+        assert_eq!(BOUNDED.parse("60").unwrap(), 60);
+        for raw in ["0", "61", "abc"] {
+            let error = BOUNDED.parse(raw).unwrap_err().to_string();
+            assert_eq!(
+                error, "IRONFLOW_TEST_BOUNDED must be a positive integer no greater than 60",
                 "{raw:?}"
             );
         }

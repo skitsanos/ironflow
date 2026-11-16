@@ -236,9 +236,11 @@ keep working for clients that follow an accepted run. IronFlow waits
 cancels remaining runs and allows up to 20 seconds for their durable
 finalization. Only then does the listener close, after which new connections
 are refused; open connections get up to five seconds to finish, and blocking
-workers that cannot be interrupted get up to five more before the process
-exits without them. The process therefore exits at most
-`IRONFLOW_SHUTDOWN_GRACE_SECONDS + 30` seconds after the signal. Configure the
+workers that cannot be interrupted get up to
+`IRONFLOW_RUNTIME_SHUTDOWN_SECONDS` more (default 5) before the process
+exits without them. With that default the process exits at most
+`IRONFLOW_SHUTDOWN_GRACE_SECONDS + 30` seconds after the signal; add the
+difference when you raise the runtime bound. Configure the
 platform termination window at or above that total.
 
 ## Local Docker acceptance

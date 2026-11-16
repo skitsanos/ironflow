@@ -1037,6 +1037,14 @@ publication is verified separately.
   or keep it out of error text. See
   [Diagnostic scrubbing](../SECURITY.md#diagnostic-scrubbing).
 
+- The wait for blocking workers at process exit is configurable (IF-220).
+  `IRONFLOW_RUNTIME_SHUTDOWN_SECONDS` (default 5, `1..=3600`) replaces the
+  fixed five seconds every command waits, after it has returned, for blocking
+  workers that cannot be interrupted. A malformed, zero or larger value stops
+  startup with a message that names the variable. With a larger value, raise
+  the platform termination window by the same amount. See [`ironflow
+  serve`](../CLI_REFERENCE.md#ironflow-serve).
+
 - `POST /flows/validate` answers `503` while the server drains (IF-220).
   Validation evaluates the flow's Lua source, so a draining replica now
   refuses it with `server is draining; retry on another replica`, like `POST
