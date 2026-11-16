@@ -37,9 +37,13 @@ fn normalize_item(item: &str) -> Result<String, String> {
     if let Some((first, last)) = wrapping_named_range(base) {
         return Ok(crate_days(first, last, step));
     }
-    if matches!(base, "*" | "?") || is_named(base) {
-        // A step over `*` starts on Sunday in both numberings, and the crate
-        // resolves names itself.
+    if is_named(base) {
+        check_names(item, base, step.is_some())?;
+        // The crate resolves names itself.
+        return Ok(item.to_string());
+    }
+    if matches!(base, "*" | "?") {
+        // A step over `*` starts on Sunday in both numberings.
         return Ok(item.to_string());
     }
 
@@ -103,6 +107,31 @@ fn is_named(base: &str) -> bool {
     }
 }
 
+/// Refuse what the crate would refuse in a named item, naming the field: an
+/// unknown day name, and a step after a single name.
+fn check_names(item: &str, base: &str, stepped: bool) -> Result<(), String> {
+    let (first, last) = match base.split_once('-') {
+        Some((first, last)) => (first, Some(last)),
+        None => (base, None),
+    };
+    for name in std::iter::once(first).chain(last) {
+        if day_number(name).is_none() {
+            return Err(if name == item {
+                format!("weekday '{item}' is not a day name ({NUMBERING})")
+            } else {
+                format!("weekday '{item}' holds '{name}', which is not a day name")
+            });
+        }
+    }
+    if stepped && last.is_none() {
+        return Err(format!(
+            "weekday step in '{item}' cannot follow a single day name; \
+             write a range such as Mon-Sat/2"
+        ));
+    }
+    Ok(())
+}
+
 fn parse_day(item: &str, text: &str) -> Result<u8, String> {
     if text.is_empty() || !text.bytes().all(|byte| byte.is_ascii_digit()) {
         return Err(format!(
@@ -151,16 +180,7 @@ mod tests {
 
     #[test]
     fn names_wildcards_and_their_steps_pass_through() {
-        for field in [
-            "*",
-            "?",
-            "*/2",
-            "?/3",
-            "Mon",
-            "mon-FRI",
-            "Mon-Fri/2",
-            "Funday",
-        ] {
+        for field in ["*", "?", "*/2", "?/3", "Mon", "mon-FRI", "Mon-Fri/2"] {
             assert_eq!(normalize(field).as_deref(), Ok(field));
         }
         assert_eq!(normalize("Mon,3,*/2").as_deref(), Ok("Mon,4,*/2"));
@@ -180,8 +200,12 @@ mod tests {
         }
         // The numeric form of the same days.
         assert_eq!(normalize("Sat-Sun"), normalize("6-7"));
-        // An unknown name is not a wrap; the crate refuses it.
-        assert_eq!(normalize("Sat-Funday").as_deref(), Ok("Sat-Funday"));
+        // An unknown name is refused, not read as a wrap.
+        let error = normalize("Sat-Funday").unwrap_err();
+        assert!(
+            error.contains("'Funday', which is not a day name"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -210,6 +234,8 @@ mod tests {
             "Mon-5",
             "1-Fri",
             "Mon-Fri-Sun",
+            "Funday",
+            "Mon/2",
             "1-2-3",
             "1/2/3",
             "１",

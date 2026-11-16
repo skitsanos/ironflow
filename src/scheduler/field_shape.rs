@@ -6,11 +6,11 @@
 //! `/5 1* * * *` after the fixed seconds field it reads seconds `0/5`
 //! (IF-206). This module accepts a token only when it is exactly one field, so
 //! the crate can neither split a token nor join two. Values, bounds and month
-//! names stay the crate's to check; the weekday field has its own module.
+//! names are checked by `field_value`; the weekday field has its own module.
 
 /// A field written before the weekday.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Field {
+pub(super) enum Field {
     Minute,
     Hour,
     DayOfMonth,
@@ -21,7 +21,7 @@ enum Field {
 const LEADING: [Field; 4] = [Field::Minute, Field::Hour, Field::DayOfMonth, Field::Month];
 
 impl Field {
-    fn label(self) -> &'static str {
+    pub(super) fn label(self) -> &'static str {
         match self {
             Self::Minute => "minute",
             Self::Hour => "hour",
@@ -41,19 +41,25 @@ impl Field {
 }
 
 /// Check that each of the minute, hour, day-of-month and month tokens is one
-/// field.
+/// field, and then that every value, range and step fits its field. Every
+/// shape is checked first: a token that holds two fields shifts the ones
+/// after it, so their values are not yet the author's.
 ///
 /// The error is one line that names the field and can be appended to the
 /// caller's message.
 pub(super) fn check(tokens: [&str; 4]) -> Result<(), String> {
+    each_item(tokens, check_item)?;
+    each_item(tokens, super::field_value::check_item)
+}
+
+fn each_item(
+    tokens: [&str; 4],
+    check: impl Fn(Field, &str) -> Result<(), String>,
+) -> Result<(), String> {
     LEADING
         .into_iter()
         .zip(tokens)
-        .try_for_each(|(field, token)| {
-            token
-                .split(',')
-                .try_for_each(|item| check_item(field, item))
-        })
+        .try_for_each(|(field, token)| token.split(',').try_for_each(|item| check(field, item)))
 }
 
 fn check_item(field: Field, item: &str) -> Result<(), String> {
@@ -101,12 +107,26 @@ fn is_name(text: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::check;
+    use super::{check_item, each_item};
+
+    /// The shape check alone; `field_value` has its own tests.
+    fn check(tokens: [&str; 4]) -> Result<(), String> {
+        each_item(tokens, check_item)
+    }
 
     fn check_one(position: usize, token: &str) -> Result<(), String> {
         let mut tokens = ["*"; 4];
         tokens[position] = token;
         check(tokens)
+    }
+
+    #[test]
+    fn every_shape_is_checked_before_any_value() {
+        // The hour token is two fields, so the minute's value is not judged.
+        let error = super::check(["60", "2*", "*", "*"]).unwrap_err();
+        assert!(error.starts_with("hour '2*'"), "{error}");
+        let error = super::check(["60", "2", "*", "*"]).unwrap_err();
+        assert!(error.starts_with("minute '60'"), "{error}");
     }
 
     #[test]

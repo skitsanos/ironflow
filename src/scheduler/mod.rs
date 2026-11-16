@@ -7,6 +7,7 @@ mod cron;
 mod evaluation;
 pub mod execution;
 mod field_shape;
+mod field_value;
 mod identity;
 mod occurrence;
 mod overlap;

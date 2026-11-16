@@ -990,6 +990,16 @@ publication is verified separately.
   Sunday). A numeric range that runs backwards, such as `6-1`, is still
   refused. See [Weekday field](../CLI_REFERENCE.md#weekday-field).
 
+- A `cron` value that does not fit its field is refused with the field and
+  the value (IF-217). A value outside its field, a range that runs backwards,
+  a step that is zero or larger than the field's highest value, and an
+  unknown month or day name used to fail startup with only `cron expression
+  '...' is not valid`. The message now ends with, for example, `hour '24' is
+  outside 0 to 23`, `minute '30-10' is a range that runs backwards`, `hour
+  '*/24' has a step outside 1 to 23` or `weekday 'Funday' is not a day name`.
+  The same expressions are accepted and refused as before. See
+  [Field syntax](../CLI_REFERENCE.md#field-syntax).
+
 - Schedules that share a minute no longer lose occurrences to
   `IRONFLOW_MAX_CONCURRENT_FLOW_LOADS` (IF-182). A scheduled start now waits
   up to 5 seconds for a flow-load permit instead of failing at once, and an

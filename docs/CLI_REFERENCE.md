@@ -1387,7 +1387,12 @@ is a comma-separated list of items with no space inside it:
   ends with `-`, `,` or `/`. The schedule is never loaded with its fields
   shifted.
 - A value outside its field, a range that runs backwards, and a step that is
-  zero or larger than the field's highest value also fail at startup.
+  zero or larger than the field's highest value also fail at startup. The
+  message names the field and quotes the list item that is wrong, for example
+  `hour '24' is outside 0 to 23`, `minute '30-10' is a range that runs
+  backwards`, `hour '*/24' has a step outside 1 to 23` or `month 'Smarch' is
+  not a month name`. The fields are checked in order and the first one that
+  is wrong is reported.
 
 ##### Weekday field
 
@@ -1414,9 +1419,10 @@ schedule's time zone:
   same as `6-7`, and `Fri-Mon` is Friday, Saturday, Sunday and Monday. A step
   counts from the first day, so `Fri-Mon/2` is Friday and Sunday. A range
   cannot mix a name with a number.
-- A number outside `0` to `7`, a range that runs backwards such as `6-1`, a
-  step outside `1` to `7`, or an empty list item fails at startup with a
-  message that names the weekday field.
+- A number outside `0` to `7`, a numeric range that runs backwards such as
+  `6-1`, a step outside `1` to `7`, a step after a single day name (`Mon/2`),
+  an unknown day name, or an empty list item fails at startup with a message
+  that names the weekday field and quotes the item.
 
 A deterministic offline configuration and flow are available at
 `examples/21-schedules/ironflow.yaml` and

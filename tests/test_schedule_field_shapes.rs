@@ -368,6 +368,107 @@ fn values_outside_a_field_are_still_refused() {
     }
 }
 
+// -- IF-217 (f): the refusal names the field and the offending value --------
+
+/// Assert `expression` is refused in one line that quotes it and contains
+/// every fragment. Every case is tried before the assertion.
+fn assert_refused_with(cases: &[(&str, &[&str])]) {
+    let mut problems = Vec::new();
+    for (expression, fragments) in cases {
+        match parse_cron(expression) {
+            Ok(_) => problems.push(format!("'{expression}' was accepted")),
+            Err(error) => {
+                let complete = fragments.iter().all(|fragment| error.contains(fragment));
+                if !(complete && error.contains(expression) && !error.contains('\n')) {
+                    problems.push(format!(
+                        "'{expression}' should be refused with {fragments:?}: {error}"
+                    ));
+                }
+            }
+        }
+    }
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+}
+
+#[test]
+fn a_value_outside_its_field_is_refused_with_the_field_and_the_value() {
+    assert_refused_with(&[
+        ("60 * * * *", &["minute '60'", "0 to 59"]),
+        ("0,75 * * * *", &["minute '75'", "0 to 59"]),
+        ("0 24 * * *", &["hour '24'", "0 to 23"]),
+        ("0 0 0 * *", &["day of month '0'", "1 to 31"]),
+        ("0 0 32 * *", &["day of month '32'", "1 to 31"]),
+        ("0 0 * 0 *", &["month '0'", "1 to 12"]),
+        ("0 0 * 13 *", &["month '13'", "1 to 12"]),
+        ("0 0 * 1-13 *", &["month '1-13'", "13", "1 to 12"]),
+        ("0 8-24 * * *", &["hour '8-24'", "24", "0 to 23"]),
+        ("70/5 * * * *", &["minute '70/5'", "70", "0 to 59"]),
+        (
+            "99999999999999999999 * * * *",
+            &["minute '99999999999999999999'", "0 to 59"],
+        ),
+        ("0 0 * Smarch *", &["month 'Smarch'", "not a month name"]),
+        ("0 0 * Jan-Smarch *", &["month 'Jan-Smarch'", "Smarch"]),
+        ("0 9 * * Funday", &["weekday 'Funday'", "not a day name"]),
+        ("0 9 * * Mon-Funday", &["weekday 'Mon-Funday'", "Funday"]),
+    ]);
+}
+
+#[test]
+fn a_backwards_range_is_refused_with_the_field_and_the_range() {
+    assert_refused_with(&[
+        ("30-10 * * * *", &["minute '30-10'", "runs backwards"]),
+        ("0 18-6 * * *", &["hour '18-6'", "runs backwards"]),
+        ("0 0 20-10 * *", &["day of month '20-10'", "runs backwards"]),
+        ("0 0 * 12-2 *", &["month '12-2'", "runs backwards"]),
+        ("0 0 * Mar-Jan *", &["month 'Mar-Jan'", "runs backwards"]),
+        ("0 0 * 6-1/2 *", &["month '6-1/2'", "runs backwards"]),
+    ]);
+}
+
+#[test]
+fn a_bad_step_is_refused_with_the_field_and_the_step() {
+    assert_refused_with(&[
+        ("*/0 * * * *", &["minute '*/0'", "step", "1 to 59"]),
+        ("*/60 * * * *", &["minute '*/60'", "step", "1 to 59"]),
+        ("0 */24 * * *", &["hour '*/24'", "step", "1 to 23"]),
+        ("0 0 1-10/0 * *", &["day of month '1-10/0'", "step"]),
+        ("0 0 */32 * *", &["day of month '*/32'", "step", "1 to 31"]),
+        ("0 0 * */13 *", &["month '*/13'", "step", "1 to 12"]),
+        ("0 0 * Jan-Jun/0 *", &["month 'Jan-Jun/0'", "step"]),
+        (
+            "*/99999999999999999999 * * * *",
+            &["minute '*/99999999999999999999'", "step"],
+        ),
+        ("0 9 * * Mon/2", &["weekday", "'Mon/2'", "step"]),
+    ]);
+}
+
+#[test]
+fn the_first_field_with_a_bad_value_is_the_one_reported() {
+    assert_refused_with(&[
+        ("0 24 32 * *", &["hour '24'"]),
+        ("0 0 * 13 8", &["month '13'"]),
+    ]);
+}
+
+#[test]
+fn values_at_the_edges_of_each_field_are_accepted() {
+    for expression in [
+        "0 0 1 1 *",
+        "59 23 31 12 *",
+        "0-59 0-23 1-31 1-12 *",
+        "*/59 */23 */31 */12 *",
+        "5/59 5/23 5/31 5/12 *",
+        "10-10 * * * *",
+        "0 0 * Jan-Dec *",
+        "0 0 * january-DECEMBER/12 *",
+        "007 * * * *",
+    ] {
+        parse_cron(expression).unwrap_or_else(|error| panic!("'{expression}': {error}"));
+    }
+}
+
 mod at_startup {
     use ironflow::engine::types::Context;
     use ironflow::scheduler::config::ScheduleConfig;
