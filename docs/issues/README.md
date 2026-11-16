@@ -7,7 +7,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts check`.
 
 - Total findings: 223
-- Active findings: 6
+- Active findings: 4
 
 ## Working agreement
 
