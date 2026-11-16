@@ -256,7 +256,9 @@ platform termination window at or above that total.
 The opt-in gate builds the production image, starts PostgreSQL, two restricted
 IronFlow containers, and an nginx round-robin proxy. It verifies simultaneous
 cold start, cross-replica state, idempotent retry, a producer-on-A and
-consumer-on-B streamed artifact handoff through disposable MinIO, schedule
+consumer-on-B streamed artifact handoff through a disposable S3 gateway
+(`versity/versitygw` over a local directory; the MinIO images used before are
+no longer published, IF-220), schedule
 uniqueness, SIGTERM draining with a `503` readiness answer on new connections,
 real SIGKILL lease reconciliation, arbitrary UID
 execution, and a read-only root filesystem.
@@ -264,6 +266,11 @@ execution, and a read-only root filesystem.
 ```bash
 IRONFLOW_RUN_REPLICA_ACCEPTANCE=1 bun run scripts/replica_acceptance.ts
 ```
+
+The image build links the release binary with fat LTO in one codegen unit.
+A Docker VM with 8 GiB of memory was not enough for that link (the compiler
+is killed and the build reports `cannot allocate memory`), so give the VM
+more memory before running the gate.
 
 The project is explicitly named `ironflow-replica-acceptance`; cleanup removes
 only its containers, network, and disposable PostgreSQL volume. The locally

@@ -27,7 +27,7 @@ x-ironflow: &ironflow
     IRONFLOW_ARTIFACT_S3_BUCKET: artifacts
     IRONFLOW_ARTIFACT_S3_PREFIX: replica-acceptance
     IRONFLOW_ARTIFACT_S3_REGION: us-east-1
-    IRONFLOW_ARTIFACT_S3_ENDPOINT_URL: http://minio:9000
+    IRONFLOW_ARTIFACT_S3_ENDPOINT_URL: http://object-store:9000
     IRONFLOW_ARTIFACT_S3_FORCE_PATH_STYLE: "true"
     AWS_ACCESS_KEY_ID: acceptance
     AWS_SECRET_ACCESS_KEY: acceptance-secret
@@ -38,8 +38,8 @@ x-ironflow: &ironflow
   depends_on:
     postgres:
       condition: service_healthy
-    minio-init:
-      condition: service_completed_successfully
+    object-store:
+      condition: service_healthy
   stop_grace_period: 35s
   healthcheck:
     test: ["CMD", "curl", "--fail", "http://127.0.0.1:3000/health/ready"]
@@ -62,31 +62,27 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql
 
-  minio:
-    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
-    command: server /data
-    environment:
-      MINIO_ROOT_USER: acceptance
-      MINIO_ROOT_PASSWORD: acceptance-secret
-    healthcheck:
-      test: ["CMD", "curl", "--fail", "http://127.0.0.1:9000/minio/health/live"]
-      interval: 2s
-      timeout: 2s
-      retries: 30
-    volumes:
-      - minio-data:/data
-
-  minio-init:
-    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
-    depends_on:
-      minio:
-        condition: service_healthy
+  # An S3-compatible gateway over a local directory. The MinIO images this
+  # stack used are no longer published (IF-220). A top-level directory is a
+  # bucket, so the bucket is created before the gateway starts.
+  object-store:
+    image: versity/versitygw:v1.11.0
     entrypoint:
       - /bin/sh
       - -c
       - >-
-        mc alias set acceptance http://minio:9000 acceptance acceptance-secret &&
-        mc mb --ignore-existing acceptance/artifacts
+        mkdir -p /data/artifacts &&
+        exec /usr/local/bin/versitygw --port :9000 --health /health posix /data
+    environment:
+      ROOT_ACCESS_KEY: acceptance
+      ROOT_SECRET_KEY: acceptance-secret
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:9000/health"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    volumes:
+      - object-store-data:/data
 
   ironflow-a:
     <<: *ironflow
@@ -118,5 +114,5 @@ services:
         condition: service_healthy
 
 volumes:
-  minio-data:
+  object-store-data:
   postgres-data:

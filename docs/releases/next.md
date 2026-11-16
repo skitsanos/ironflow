@@ -1052,6 +1052,14 @@ publication is verified separately.
   or keep it out of error text. See
   [Diagnostic scrubbing](../SECURITY.md#diagnostic-scrubbing).
 
+- The local replica acceptance stack starts again (IF-220).
+  `deploy/replica/docker-compose.yml` used `minio/minio` and `minio/mc` images
+  that are no longer published, so `scripts/replica_acceptance.ts` failed
+  before any check. The stack now uses `versity/versitygw` v1.11.0 as its
+  disposable S3 endpoint and creates the bucket without an init container. The
+  acceptance checks are unchanged and passed. This affects only the acceptance
+  tooling, not IronFlow's S3 support.
+
 - `ironflow artifacts prune --all` covers the whole store in one command
   (IF-220, decided 2026-11-16). A store larger than `--scan` digests had to be
   pruned by a wrapper that looped on the printed `--after` digest. The opt-in
