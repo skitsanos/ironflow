@@ -1500,7 +1500,10 @@ configuration.
 **Overlap.** If a previous run of the same schedule has not finished, the new
 instant is skipped rather than queued. At `IRONFLOW_MAX_CONCURRENT_RUNS`
 capacity the instant is likewise skipped, so a saturated server does not build
-a backlog.
+a backlog. The scheduler checks capacity before it starts and takes the run
+permit when it starts; an API or webhook run that takes the last permit in
+between produces the same skip, logged and counted as `at_capacity`, not a
+failed start.
 
 **Flow-load capacity.** `IRONFLOW_MAX_CONCURRENT_FLOW_LOADS` is different: it
 delays a scheduled instant and never consumes it. Schedules due in the same

@@ -229,12 +229,7 @@ impl Scheduler {
         }
 
         if !self.executor.has_capacity() {
-            tracing::warn!(
-                schedule = %name,
-                key = %instant.key,
-                "skipping instant: at maximum concurrent run capacity"
-            );
-            return Some(Outcome::AtCapacity);
+            return Some(at_capacity(name, &instant.key));
         }
 
         None
@@ -263,6 +258,8 @@ impl Scheduler {
                 Outcome::NotClaimed
             }
             Ok(super::ScheduleRun::Deferred { reason }) => deferred(name, &instant.key, reason),
+            // The cap filled after the probe: the same skip, not a failure.
+            Ok(super::ScheduleRun::AtCapacity) => at_capacity(name, &instant.key),
             Err(error) => {
                 tracing::warn!(schedule = %name, key = %instant.key, %error, "scheduled run failed");
                 Outcome::Failed { error }
@@ -279,4 +276,13 @@ fn deferred(name: &str, key: &str, reason: String) -> Outcome {
         "scheduled run deferred; it is retried on the next tick within grace"
     );
     Outcome::Deferred { reason }
+}
+
+fn at_capacity(name: &str, key: &str) -> Outcome {
+    tracing::warn!(
+        schedule = %name,
+        %key,
+        "skipping instant: at maximum concurrent run capacity"
+    );
+    Outcome::AtCapacity
 }

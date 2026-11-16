@@ -1000,6 +1000,14 @@ publication is verified separately.
   The same expressions are accepted and refused as before. See
   [Field syntax](../CLI_REFERENCE.md#field-syntax).
 
+- A scheduled start that loses the last run permit to another trigger is
+  reported as `at_capacity` (IF-217). The scheduler checks
+  `IRONFLOW_MAX_CONCURRENT_RUNS` before it starts and takes the permit when it
+  starts; when an API or webhook run took the last permit in between, the
+  instant was logged as `scheduled run failed` and counted under the
+  scheduler outcome `failed`. It is now logged and counted like every other
+  capacity skip.
+
 - Schedules that share a minute no longer lose occurrences to
   `IRONFLOW_MAX_CONCURRENT_FLOW_LOADS` (IF-182). A scheduled start now waits
   up to 5 seconds for a flow-load permit instead of failing at once, and an

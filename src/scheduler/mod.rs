@@ -87,6 +87,10 @@ pub enum ScheduleRun {
     Deferred {
         reason: String,
     },
+    /// Nothing was started: the process reached its concurrent-run cap after
+    /// `has_capacity` answered. The probe reserves nothing, so another
+    /// trigger can take the last permit in between (IF-217).
+    AtCapacity,
 }
 
 /// One evaluated instant.
@@ -110,7 +114,9 @@ pub trait ScheduleExecutor: Send + Sync {
 
     /// Start the schedule's flow and return its run id, without waiting for
     /// the run to finish. `ScheduleRun::Deferred` reports a pre-start
-    /// capacity refusal that left no run behind and is safe to retry.
+    /// capacity refusal that left no run behind and is safe to retry;
+    /// `ScheduleRun::AtCapacity` reports a full run cap, which the scheduler
+    /// treats exactly like a `has_capacity` that answered `false`.
     async fn run(
         &self,
         schedule_name: &str,

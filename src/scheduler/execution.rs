@@ -26,6 +26,7 @@ pub use super::overlap::MAX_OVERLAP_SCAN;
 pub const FLOW_LOAD_WAIT: Duration = Duration::from_secs(5);
 
 const FLOW_LOAD_DEFERRED: &str = "server is at maximum concurrent flow-loading capacity";
+const RUN_CAPACITY_FULL: &str = "server is at maximum concurrent run capacity";
 
 /// Runs schedules through the same engine path the REST API uses.
 pub struct FlowExecutor {
@@ -98,6 +99,7 @@ impl FlowExecutor {
         match <Self as ScheduleExecutor>::run(self, schedule_name, &instant_key, schedule).await? {
             ScheduleRun::Started { run_id } | ScheduleRun::Existing { run_id } => Ok(run_id),
             ScheduleRun::Deferred { reason } => Err(reason),
+            ScheduleRun::AtCapacity => Err(RUN_CAPACITY_FULL.to_string()),
         }
     }
 }
@@ -127,8 +129,17 @@ impl ScheduleExecutor for FlowExecutor {
         // not dropped when this function returns. Reserve it before the Lua VM
         // is created so a run rejected for capacity cannot still consume parse
         // CPU and memory.
-        let run_permit = crate::api::acquire_run_permit(&self.lifecycle, self.metrics.as_deref())
-            .map_err(|_| "server is at maximum concurrent run capacity".to_string())?;
+        let run_permit =
+            match crate::api::acquire_run_permit(&self.lifecycle, self.metrics.as_deref()) {
+                Ok(permit) => permit,
+                // `has_capacity` reserved nothing, so the cap can fill between
+                // that probe and this acquire. It is the same refusal, and is
+                // reported as one rather than as a failed start (IF-217).
+                Err(crate::api::errors::AppError::ServiceUnavailable(_)) => {
+                    return Ok(ScheduleRun::AtCapacity);
+                }
+                Err(error) => return Err(format!("{error:?}")),
+            };
         // Schedules sharing a tick queue for the load limit instead of failing
         // fast like API requests. A wait that expires has parsed nothing and
         // created no run, so the occurrence is deferred, not consumed (IF-182).
