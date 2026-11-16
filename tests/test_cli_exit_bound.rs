@@ -142,14 +142,17 @@ fn the_runtime_shutdown_bound_is_configurable() {
     );
 }
 
-/// IF-220 (c): a malformed or out-of-range value stops every command
+/// IF-220 (c) and (f): a malformed or out-of-range value stops every command
 /// before it does any work, naming the variable and its range.
 #[test]
 fn bounded_limits_are_rejected_at_startup_when_out_of_range() {
     let directory = tempfile::tempdir().unwrap();
     let flow = directory.path().join("seed.lua");
     std::fs::write(&flow, SEED_FLOW).unwrap();
-    for (name, maximum) in [("IRONFLOW_RUNTIME_SHUTDOWN_SECONDS", 3_600_u64)] {
+    for (name, maximum) in [
+        ("IRONFLOW_RUNTIME_SHUTDOWN_SECONDS", 3_600_u64),
+        ("IRONFLOW_MAX_REPEAT_ITERATIONS", 1_024),
+    ] {
         for value in ["abc", "0", "-1", &(maximum + 1).to_string()] {
             let output = Command::new(env!("CARGO_BIN_EXE_ironflow"))
                 .current_dir(directory.path())

@@ -29,6 +29,10 @@ pub(crate) const MCP_SESSION_TTL_SECS: Limit =
 /// returned (IF-183, IF-220). The ceiling keeps the timer arithmetic in range.
 pub(crate) const RUNTIME_SHUTDOWN_SECONDS: Limit =
     Limit::bounded("IRONFLOW_RUNTIME_SHUTDOWN_SECONDS", 5, 3_600);
+/// Largest `max_iterations` a `repeat_subworkflow` step may request. The
+/// ceiling of 1024 is fixed (IF-220: validated at startup like the others).
+pub(crate) const MAX_REPEAT_ITERATIONS: Limit =
+    Limit::bounded("IRONFLOW_MAX_REPEAT_ITERATIONS", 128, 1_024);
 
 fn capacity(limit: &Limit) -> usize {
     usize::try_from(limit.read()).unwrap_or(usize::MAX)
@@ -44,6 +48,10 @@ pub fn max_subworkflow_depth() -> usize {
 
 pub fn max_parallel_subworkflows() -> usize {
     capacity(&MAX_PARALLEL_SUBWORKFLOWS)
+}
+
+pub fn max_repeat_iterations() -> usize {
+    capacity(&MAX_REPEAT_ITERATIONS)
 }
 
 pub fn oauth_cache_size() -> usize {

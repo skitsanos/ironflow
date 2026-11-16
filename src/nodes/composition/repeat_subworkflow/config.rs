@@ -8,8 +8,6 @@ use crate::util::node_config::{config_f64_strict, config_usize_strict};
 
 use super::super::input_mapping::{input_object, map_parent_input};
 
-const DEFAULT_MAX_REPEAT_ITERATIONS: usize = 128;
-const ABSOLUTE_MAX_REPEAT_ITERATIONS: usize = 1024;
 const DEFAULT_MAX_DELAY_SECONDS: f64 = 60.0;
 const ABSOLUTE_MAX_DELAY_SECONDS: f64 = 3600.0;
 
@@ -43,7 +41,7 @@ impl RepeatConfig {
 
         let max_iterations = config_usize_strict(config, "max_iterations", ctx)?
             .ok_or_else(|| anyhow::anyhow!("repeat_subworkflow requires 'max_iterations'"))?;
-        let process_cap = max_repeat_iterations()?;
+        let process_cap = crate::util::limits::max_repeat_iterations();
         if max_iterations == 0 {
             anyhow::bail!("repeat_subworkflow: 'max_iterations' must be greater than 0");
         }
@@ -167,22 +165,4 @@ fn validate_delays(delay: f64, backoff: f64, maximum: f64) -> Result<()> {
         );
     }
     Ok(())
-}
-
-fn max_repeat_iterations() -> Result<usize> {
-    let Some(raw) = std::env::var_os("IRONFLOW_MAX_REPEAT_ITERATIONS") else {
-        return Ok(DEFAULT_MAX_REPEAT_ITERATIONS);
-    };
-    let raw = raw.to_str().ok_or_else(|| {
-        anyhow::anyhow!("IRONFLOW_MAX_REPEAT_ITERATIONS must contain valid UTF-8")
-    })?;
-    let value = raw.parse::<usize>().map_err(|_| {
-        anyhow::anyhow!("IRONFLOW_MAX_REPEAT_ITERATIONS must be a positive whole number")
-    })?;
-    if value == 0 || value > ABSOLUTE_MAX_REPEAT_ITERATIONS {
-        anyhow::bail!(
-            "IRONFLOW_MAX_REPEAT_ITERATIONS must be between 1 and {ABSOLUTE_MAX_REPEAT_ITERATIONS}"
-        );
-    }
-    Ok(value)
 }

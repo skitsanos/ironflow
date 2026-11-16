@@ -126,7 +126,9 @@ The complete runnable pair is in
 ## Operational Bounds
 
 `IRONFLOW_MAX_REPEAT_ITERATIONS` defaults to `128` and must be between `1` and
-the compiled absolute ceiling of `1024`. A node may choose a lower
+the compiled absolute ceiling of `1024`. A malformed or out-of-range value
+stops startup of every command with a message that names the variable; it is
+no longer discovered by the first `repeat_subworkflow` step. A node may choose a lower
 `max_iterations`, but cannot raise the process limit. The node stores only the
 current state and final child context; payload growth inside that state remains
 the workflow author's responsibility.

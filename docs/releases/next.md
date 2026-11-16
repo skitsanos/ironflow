@@ -1037,6 +1037,12 @@ publication is verified separately.
   or keep it out of error text. See
   [Diagnostic scrubbing](../SECURITY.md#diagnostic-scrubbing).
 
+- `IRONFLOW_MAX_REPEAT_ITERATIONS` is validated at startup (IF-220). A
+  malformed value or one outside `1..=1024` used to be accepted by `validate`,
+  `run` and `serve` and failed the first `repeat_subworkflow` step that ran.
+  Every command now refuses to start and names the variable. See
+  [`repeat_subworkflow`](../nodes/repeat_subworkflow.md).
+
 - The wait for blocking workers at process exit is configurable (IF-220).
   `IRONFLOW_RUNTIME_SHUTDOWN_SECONDS` (default 5, `1..=3600`) replaces the
   fixed five seconds every command waits, after it has returned, for blocking
