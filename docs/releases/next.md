@@ -983,6 +983,13 @@ publication is verified separately.
   artifact. Values read through `body_key` and a part's `source_key` are
   still used as stored, and a path is still rejected.
 
+- A named weekday range in a schedule's `cron` may cross the week boundary
+  (IF-217). `Sat-Sun` and `Fri-Mon` used to stop `serve` at startup although
+  `6-7` was accepted. They now mean Saturday and Sunday, and Friday to
+  Monday; a step counts from the first day (`Fri-Mon/2` is Friday and
+  Sunday). A numeric range that runs backwards, such as `6-1`, is still
+  refused. See [Weekday field](../CLI_REFERENCE.md#weekday-field).
+
 - Schedules that share a minute no longer lose occurrences to
   `IRONFLOW_MAX_CONCURRENT_FLOW_LOADS` (IF-182). A scheduled start now waits
   up to 5 seconds for a flow-load permit instead of failing at once, and an

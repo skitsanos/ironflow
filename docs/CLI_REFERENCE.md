@@ -1404,14 +1404,16 @@ schedule's time zone:
 | `1-5/2` | Monday, Wednesday and Friday |
 | `*/2` | Sunday, Tuesday, Thursday and Saturday: a step over `*` counts from Sunday |
 | `Mon-Fri`, `sat,sun` | The named days |
+| `Sat-Sun`, `Fri-Mon` | The named days across the week boundary |
 
 - A step after one number, `N/S`, runs from `N` through `7`, so `1/2` is
   Monday, Wednesday, Friday and Sunday.
 - English names are accepted in any case, short (`Sun` … `Sat`) or spelled
   out, alone, in lists that may also hold numbers, and in ranges. A named
-  range follows the week from Sunday to Saturday: `Mon-Fri` and `Sun-Sat` are
-  accepted, `Sat-Sun` is rejected, and `6-7` or `Sat,Sun` says the same thing.
-  A range cannot mix a name with a number.
+  range may cross the week boundary: `Sat-Sun` is Saturday and Sunday, the
+  same as `6-7`, and `Fri-Mon` is Friday, Saturday, Sunday and Monday. A step
+  counts from the first day, so `Fri-Mon/2` is Friday and Sunday. A range
+  cannot mix a name with a number.
 - A number outside `0` to `7`, a range that runs backwards such as `6-1`, a
   step outside `1` to `7`, or an empty list item fails at startup with a
   message that names the weekday field.

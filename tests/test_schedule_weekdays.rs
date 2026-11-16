@@ -322,8 +322,8 @@ fn unknown_and_misplaced_names_are_still_rejected() {
     for expression in [
         "0 9 * * Funday",
         "0 9 * * Mon/2",
-        "0 9 * * Sat-Sun",
-        "0 9 * * Fri-Mon",
+        "0 9 * * Funday-Mon",
+        "0 9 * * Sat-Funday",
     ] {
         let error = parse_cron(expression).unwrap_err();
         assert!(
@@ -392,4 +392,55 @@ mod in_the_schedule_time_zone {
             "{error}"
         );
     }
+}
+
+// -- IF-217 (e): named ranges across the week boundary ----------------------
+
+#[test]
+fn a_named_range_may_cross_the_week_boundary() {
+    assert_eq!(fortnight("0 9 * * Sat-Sun"), fortnight("0 9 * * 6-7"));
+    assert_eq!(fortnight("0 9 * * Fri-Mon"), fortnight("0 9 * * 5,6,0,1"));
+    assert_eq!(
+        fortnight("0 9 * * friday-MONDAY"),
+        fortnight("0 9 * * 5-7,1")
+    );
+    assert_eq!(
+        fortnight("0 9 * * Mon-Sun").len(),
+        14,
+        "Mon-Sun is every day"
+    );
+    assert_eq!(
+        fortnight("0 9 * * Sat-Fri").len(),
+        14,
+        "Sat-Fri is every day"
+    );
+    // In a list, and beside a restricted day of month (union, as before).
+    assert_eq!(fortnight("0 9 * * Wed,Sat-Sun"), fortnight("0 9 * * 3,6,0"));
+    assert_eq!(
+        fired_days(
+            "0 4 17 * Sat-Sun",
+            utc(2026, 11, 13, 12, 0),
+            utc(2026, 11, 22, 23, 59)
+        ),
+        fired_days(
+            "0 4 17 * 6,0",
+            utc(2026, 11, 13, 12, 0),
+            utc(2026, 11, 22, 23, 59)
+        )
+    );
+}
+
+#[test]
+fn a_stepped_wrapping_named_range_counts_from_its_first_day() {
+    // Fri, Sun: every second day of Fri, Sat, Sun, Mon.
+    assert_eq!(fortnight("0 9 * * Fri-Mon/2"), fortnight("0 9 * * 5,0"));
+    // Sat, Mon, Wed.
+    assert_eq!(fortnight("0 9 * * Sat-Wed/2"), fortnight("0 9 * * 6,1,3"));
+}
+
+#[test]
+fn a_numeric_range_that_runs_backwards_is_still_refused() {
+    // A name states the intent; `6-1` may as easily be a typing error.
+    let error = parse_cron("0 9 * * 6-1").unwrap_err();
+    assert!(error.contains("runs backwards"), "{error}");
 }
