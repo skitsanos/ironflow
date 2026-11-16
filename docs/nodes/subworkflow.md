@@ -216,6 +216,12 @@ through this deadline.
 itself, tolerates the refusal one level above the ceiling and reports it to the
 top-level run.
 
+`ironflow validate` loads child flows named with a literal path and reports
+recursion before a run: as an error when the flow always starts itself again
+and nothing tolerates the failure, otherwise as a warning (the example above
+validates with one). See
+[Child flows](../CLI_REFERENCE.md#child-flows).
+
 ## Examples
 
 [`if135_child_error_details.lua`](../../examples/11-subworkflow/if135_child_error_details.lua)

@@ -91,6 +91,8 @@ Parse and validate a flow file without executing it. Checks for:
   step
 - Flow source or string-valued `code` node source nested deeper than 1,000
   syntax levels
+- Child flows that fail to load or validate, and child-flow recursion (see
+  [Child flows](#child-flows) below)
 
 Undefined globals are warnings by default, so validation still exits
 successfully while reporting the source line and column. Embedded code-source
@@ -98,6 +100,32 @@ locations use `step[NAME].source:LINE:COLUMN`; their positions are relative to
 the decoded source string. Use `--strict` to treat any Lua warning as a
 validation failure. Invalid embedded syntax and function handlers that capture
 outer locals are always rejected.
+
+#### Child flows
+
+`ironflow validate` also loads the child flows that `subworkflow`,
+`repeat_subworkflow`, `parallel_subworkflows` (`flows` entries and the dynamic
+`flow`) and `tool_dispatch` (`tools.<name>.flow`) name with a literal path,
+and their children in turn. Paths follow the run-time rule: an absolute path
+is used as it is, a relative one is joined to the directory of the flow that
+names it. Each distinct child is loaded and checked once for the errors
+listed above and reported as `child flow <file>: ...`; the output adds
+`Child flows: <n>`. The walk stops at `IRONFLOW_MAX_SUBWORKFLOW_DEPTH` levels
+(default 16), the depth at which a run refuses a child, so flows below that
+level are not loaded.
+
+| Finding | Result |
+|---------|--------|
+| A child fails to load, names an unknown node type or has an invalid graph | Error |
+| A flow starts itself again, directly or through other flows, on every run, and nothing tolerates the failure | Error: `child flow recursion: a.lua -> b.lua -> a.lua always starts itself again` |
+| The same for a chain of distinct flows deeper than the limit | Error |
+| Recursion or a too-deep chain that a run can avoid or survive: the step is routed, is or has an `on_error` handler, depends on such a step, the node has `on_error = "ignore"` or `wait = false`, `subworkflow` has `output_key` without `on_error`, or the reference is a `tool_dispatch` handler or a dynamic fan-out | Warning: `... can start itself again` |
+| A named child file does not exist | Warning, because an earlier step may write it |
+
+Warnings do not fail validation unless `--strict` is given. Lua handler
+warnings of a child are reported when that file is validated itself. A path
+that is only known at run time is not followed, and `POST /flows/validate`
+checks the submitted flow only.
 
 The step and dependency caps are fixed and apply wherever a flow is loaded,
 including `ironflow run`, the REST API, webhooks, schedules, and subworkflows.

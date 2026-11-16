@@ -1037,6 +1037,19 @@ publication is verified separately.
   or keep it out of error text. See
   [Diagnostic scrubbing](../SECURITY.md#diagnostic-scrubbing).
 
+- `ironflow validate` loads child flows and reports recursion (IF-220). A
+  child named with a literal path by `subworkflow`, `repeat_subworkflow`,
+  `parallel_subworkflows` or `tool_dispatch` is loaded and checked like the
+  flow itself, down to `IRONFLOW_MAX_SUBWORKFLOW_DEPTH` levels, so a broken
+  child fails validation of its parent instead of the first run. A flow that
+  always starts itself again, directly or through other flows, fails
+  validation when nothing tolerates the failure; recursion that is guarded by
+  a route or tolerated with `on_error` is a warning, as is a child file that
+  does not exist. Validation of a flow whose child is broken or always
+  recurses now exits 1 where it exited 0 before, and `--strict` rejects the
+  new warnings; such a flow already failed when it ran. `POST /flows/validate`
+  is unchanged. See [Child flows](../CLI_REFERENCE.md#child-flows).
+
 - `IRONFLOW_MAX_REPEAT_ITERATIONS` is validated at startup (IF-220). A
   malformed value or one outside `1..=1024` used to be accepted by `validate`,
   `run` and `serve` and failed the first `repeat_subworkflow` step that ran.

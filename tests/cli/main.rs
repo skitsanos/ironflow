@@ -40,5 +40,7 @@ mod test_schedule_retention_warning;
 mod test_sql_backend_cli;
 #[path = "../test_sqlite_store_path.rs"]
 mod test_sqlite_store_path;
+#[path = "../test_validate_child_flows.rs"]
+mod test_validate_child_flows;
 #[path = "../test_validation_diagnostics.rs"]
 mod test_validation_diagnostics;
