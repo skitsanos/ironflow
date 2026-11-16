@@ -82,6 +82,8 @@ mod test_pdf_text_lines;
 mod test_pptx_bullets;
 #[path = "../test_pptx_graph_validation.rs"]
 mod test_pptx_graph_validation;
+#[path = "../test_pptx_hidden.rs"]
+mod test_pptx_hidden;
 #[path = "../test_pptx_line_breaks.rs"]
 mod test_pptx_line_breaks;
 #[path = "../test_pptx_notes_placeholders.rs"]

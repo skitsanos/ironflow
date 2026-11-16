@@ -11,6 +11,8 @@ local flow = Flow.new("extract_pptx_demo")
 -- declared for it in its own properties or in the shape's list style; a
 -- first-level bullet has list_level 0.
 -- Slides follow the presentation list, including listed hidden slides.
+-- In JSON a hidden slide carries hidden = true; a shown slide has no such
+-- field. Text and Markdown do not mark hidden slides.
 -- Notes/comments/images follow relationships, not matching filename numbers.
 -- Embedded media, when present, is streamed to IRONFLOW_ARTIFACT_DIR and
 -- represented by a small artifact descriptor; binary bytes never enter the
@@ -34,6 +36,7 @@ flow:step("summarize", function(ctx)
     assert(ctx.deck_meta.slide_count == #slides, "Slide count must match membership")
     for index, slide in ipairs(slides) do
         assert(slide.slide_index == index, "Slide indices must follow presentation order")
+        assert(slide.hidden == nil or slide.hidden == true, "hidden is set only on hidden slides")
         for _, comment in ipairs(slide.comments or {}) do
             assert(comment.slide_index == index, "Comment must refer to its slide position")
         end

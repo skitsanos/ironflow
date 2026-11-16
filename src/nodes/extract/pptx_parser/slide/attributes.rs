@@ -48,6 +48,29 @@ pub(super) fn collect_embed_id(
     Ok(())
 }
 
+/// `show` on the root `p:sld`: `0` or `false` hides the slide from the slide
+/// show. The attribute is absent on a slide that is shown.
+pub(super) fn collect_hidden(
+    event: &BytesStart<'_>,
+    state: &mut State,
+    version: quick_xml::XmlVersion,
+    budget: &mut Budget<'_>,
+) -> Result<()> {
+    if local_name(event.name().as_ref().as_bytes()) != b"sld" {
+        return Ok(());
+    }
+    for attribute in event.attributes() {
+        let attribute = attribute.context("extract_pptx: invalid slide attribute")?;
+        if attribute.key.as_ref().as_bytes() == b"show" {
+            let value = attribute_value(&attribute, version, |bytes| {
+                budget.charge_output(bytes, "PPTX slide show flag decoding")
+            })?;
+            state.hidden = matches!(value.as_ref(), "0" | "false");
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn collect_list_level(
     event: &BytesStart<'_>,
     state: &mut State,

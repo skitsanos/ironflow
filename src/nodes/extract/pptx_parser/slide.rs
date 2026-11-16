@@ -4,7 +4,7 @@ use anyhow::Result;
 use quick_xml::events::{BytesStart, Event};
 
 use self::attributes::{
-    collect_embed_id, collect_list_level, collect_string_attribute, local_name,
+    collect_embed_id, collect_hidden, collect_list_level, collect_string_attribute, local_name,
 };
 use super::{PptxElement, PptxTextPara};
 use crate::nodes::extract::resource::Budget;
@@ -13,10 +13,19 @@ use crate::util::xml::Decoder;
 mod attributes;
 mod bullets;
 
+/// What one slide part holds.
+pub(super) struct ParsedSlide {
+    pub(super) title: Option<String>,
+    pub(super) elements: Vec<PptxElement>,
+    /// The root `p:sld` switches the slide off in the slide show.
+    pub(super) hidden: bool,
+}
+
 #[derive(Default)]
 struct State {
     title: Option<String>,
     elements: Vec<PptxElement>,
+    hidden: bool,
     placeholder: Option<String>,
     in_text_body: bool,
     in_paragraph: bool,
@@ -41,10 +50,7 @@ struct State {
     picture_embed_id: Option<String>,
 }
 
-pub(super) fn parse_pptx_slide<R: BufRead>(
-    xml: R,
-    budget: &mut Budget<'_>,
-) -> Result<(Option<String>, Vec<PptxElement>)> {
+pub(super) fn parse_pptx_slide<R: BufRead>(xml: R, budget: &mut Budget<'_>) -> Result<ParsedSlide> {
     let mut reader = quick_xml::Reader::from_reader(xml);
     let mut decoder = Decoder::default();
     let mut buffer = Vec::new();
@@ -66,11 +72,17 @@ pub(super) fn parse_pptx_slide<R: BufRead>(
                 saw_element = true;
                 depth = depth.saturating_add(1);
                 budget.charge_item("PPTX slide XML events")?;
+                if depth == 1 {
+                    collect_hidden(&event, &mut state, decoder.version, budget)?;
+                }
                 start_element(&event, &mut state, decoder.version, budget)?;
             }
             Ok(Event::Empty(event)) => {
                 saw_element = true;
                 budget.charge_item("PPTX slide XML events")?;
+                if depth == 0 {
+                    collect_hidden(&event, &mut state, decoder.version, budget)?;
+                }
                 start_element(&event, &mut state, decoder.version, budget)?;
                 end_element(event.name().as_ref().as_bytes(), &mut state, budget)?;
             }
@@ -94,7 +106,11 @@ pub(super) fn parse_pptx_slide<R: BufRead>(
     if !saw_element || depth != 0 {
         anyhow::bail!("extract_pptx: incomplete XML in slide part");
     }
-    Ok((state.title, state.elements))
+    Ok(ParsedSlide {
+        title: state.title,
+        elements: state.elements,
+        hidden: state.hidden,
+    })
 }
 
 fn start_element(

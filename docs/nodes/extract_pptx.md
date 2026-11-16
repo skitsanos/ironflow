@@ -8,7 +8,10 @@ Extract slides, speaker notes, and comments from a PowerPoint (`.pptx`) deck.
 presentation's slide list determines membership and order in every output
 format. `slide_index` is the one-based position in that list, not a part filename
 suffix or the presentation's internal slide ID. Hidden slides that remain in the
-list are included. Orphan slide, note, and comment parts are not extracted.
+list are included and counted in `slide_count`. In JSON a hidden slide (`show="0"`
+or `show="false"` on its `p:sld` root) carries `"hidden": true`; a shown slide has
+no `hidden` field. Text and Markdown do not mark hidden slides: use JSON to skip
+them. Orphan slide, note, and comment parts are not extracted.
 
 Slide parts may be renamed or stored in other package directories. Notes and
 legacy comments are followed through each slide's actual relationship part;
@@ -124,6 +127,7 @@ deadline, and final serialized-output checks are unchanged.
     },
     {
       "slide_index": 2,
+      "hidden": true,
       "title": "Patient Profile A",
       "elements": [
         {

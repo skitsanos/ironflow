@@ -688,6 +688,15 @@ publication is verified separately.
   [`extract_pdf`](../nodes/extract_pdf.md#lines-and-word-spaces) and
   [`extract_pptx`](../nodes/extract_pptx.md#text-fidelity).
 
+- **`extract_pptx` JSON marks hidden slides** (IF-224). A slide hidden from
+  the slide show (`show="0"` on the slide) was extracted like any other,
+  with nothing to tell it apart. Its JSON object now carries
+  `"hidden": true`; a shown slide has no `hidden` field. Hidden slides are
+  still extracted, in presentation order, and `slide_count` still counts
+  them. Text and Markdown output are unchanged. A consumer that validates
+  slide objects against a closed schema must allow the new field. See
+  [`extract_pptx`](../nodes/extract_pptx.md#presentation-order).
+
 - **Deleting a scheduled run no longer lets its occurrence run again**
   (IF-201). Before, a server that started or restarted inside a schedule's
   `grace_seconds` ran an occurrence a second time when its run record was
