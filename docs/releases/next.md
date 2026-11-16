@@ -1037,6 +1037,14 @@ publication is verified separately.
   or keep it out of error text. See
   [Diagnostic scrubbing](../SECURITY.md#diagnostic-scrubbing).
 
+- `html_sanitize` checks the type of `link_rel` and interpolates it (IF-220).
+  A `link_rel` that was not a string, such as a number or a list, was ignored
+  and the default `noopener noreferrer` applied; the step now fails with
+  `html_sanitize: link_rel must be a string`. A string value supports
+  `${ctx.key}` like `input`, so a flow that passed a literal `${...}` text as
+  the `rel` value now gets the context value instead. See
+  [`html_sanitize`](../nodes/html_sanitize.md).
+
 - The Redis response timeout is configurable (IF-220). Both Redis stores used
   the client library's fixed 500 ms response timeout, which a loaded server or
   host can exceed. `IRONFLOW_REDIS_RESPONSE_TIMEOUT_MS` (default 500,

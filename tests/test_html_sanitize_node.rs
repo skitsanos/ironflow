@@ -307,3 +307,50 @@ async fn html_sanitize_lua_empty_table_strips_every_tag() {
         .unwrap();
     assert_eq!(output["sanitized_html"], "Hi there");
 }
+
+// --- IF-220 (n): `link_rel` is type-checked and interpolated ---
+
+#[tokio::test]
+async fn html_sanitize_link_rel_rejects_a_non_string_instead_of_using_the_default() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("html_sanitize").unwrap();
+
+    for value in [
+        serde_json::json!(7),
+        serde_json::json!(true),
+        serde_json::json!(["nofollow"]),
+        serde_json::json!({"rel": "nofollow"}),
+    ] {
+        let config = serde_json::json!({
+            "input": "<a href=\"https://example.com\">x</a>",
+            "link_rel": value,
+        });
+        let error = node
+            .execute(&config, &empty_ctx())
+            .await
+            .expect_err("a non-string link_rel must fail the step")
+            .to_string();
+        assert!(error.contains("link_rel must be a string"), "{error}");
+    }
+}
+
+#[tokio::test]
+async fn html_sanitize_link_rel_is_interpolated_and_null_keeps_the_default() {
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("html_sanitize").unwrap();
+    let html = "<a href=\"https://example.com\">x</a>";
+
+    let config = serde_json::json!({ "input": html, "link_rel": "${ctx.rel}" });
+    let ctx = ctx_with(vec![("rel", serde_json::json!("nofollow ugc"))]);
+    let result = node.execute(&config, &ctx).await.unwrap();
+    let sanitized = result["sanitized_html"].as_str().unwrap();
+    assert!(sanitized.contains("rel=\"nofollow ugc\""), "{sanitized}");
+
+    let config = serde_json::json!({ "input": html, "link_rel": null });
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
+    let sanitized = result["sanitized_html"].as_str().unwrap();
+    assert!(
+        sanitized.contains("rel=\"noopener noreferrer\""),
+        "{sanitized}"
+    );
+}

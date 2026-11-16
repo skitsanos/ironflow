@@ -11,7 +11,7 @@ Sanitize HTML by removing dangerous tags, attributes, and scripts using the [amm
 | `output_key`    | string   | no       | `"sanitized_html"`   | Key to store sanitized output      |
 | `allowed_tags`  | string[] | no       | ammonia defaults      | Tags to keep, replacing the default allow-list; `{}` keeps none. See [Allowed tags](#allowed-tags) |
 | `strip_comments`| bool     | no       | `true`               | Whether to strip HTML comments     |
-| `link_rel`      | string   | no       | `"noopener noreferrer"` | `rel` attribute for links       |
+| `link_rel`      | string   | no       | `"noopener noreferrer"` | `rel` attribute for links (supports `${ctx.key}`). Any other type fails the step; it is not replaced by the default |
 
 *One of `input` or `source_key` is required (not both).
 
