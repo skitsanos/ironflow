@@ -378,6 +378,14 @@ async fn sqlite_double_slash_urls_with_a_relative_path_are_refused_at_startup() 
             "{url}: unclear diagnostic: {text}"
         );
         assert!(
+            text.contains(
+                "a sqlite://<relative path> URL is not supported, because its first path \
+                 component is read as a host name: write a relative path as sqlite:<path> and \
+                 an absolute one as sqlite:///<path>"
+            ),
+            "{url}: the refusal must read as one sentence: {text}"
+        );
+        assert!(
             !text.contains("ironflow.sqlite"),
             "{url}: URL disclosed: {text}"
         );

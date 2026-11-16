@@ -49,7 +49,9 @@ pub(crate) fn has_relative_authority(url: &str) -> bool {
 }
 
 /// Diagnostic for [`has_relative_authority`]. It never contains the URL.
-pub(crate) const RELATIVE_AUTHORITY_REJECTION: &str = "a sqlite://<relative path> URL is not      supported, because its first path component is read as a host name: write a relative path      as sqlite:<path> and an absolute one as sqlite:///<path>";
+pub(crate) const RELATIVE_AUTHORITY_REJECTION: &str = "a sqlite://<relative path> URL is not \
+     supported, because its first path component is read as a host name: write a relative path \
+     as sqlite:<path> and an absolute one as sqlite:///<path>";
 
 /// Diagnostic shared by the stores and the CLI. It never contains the URL.
 pub(crate) const EPHEMERAL_REJECTION: &str = "in-memory and temporary SQLite databases are not \
@@ -58,6 +60,24 @@ pub(crate) const EPHEMERAL_REJECTION: &str = "in-memory and temporary SQLite dat
 #[cfg(test)]
 mod tests {
     use super::{has_relative_authority, is_ephemeral};
+
+    /// The wording is pinned whole: indentation of the source once leaked
+    /// into it as runs of spaces.
+    #[test]
+    fn the_relative_authority_rejection_reads_as_one_sentence() {
+        assert_eq!(
+            super::RELATIVE_AUTHORITY_REJECTION,
+            "a sqlite://<relative path> URL is not supported, because its first path component \
+             is read as a host name: write a relative path as sqlite:<path> and an absolute one \
+             as sqlite:///<path>"
+        );
+        for message in [
+            super::RELATIVE_AUTHORITY_REJECTION,
+            super::EPHEMERAL_REJECTION,
+        ] {
+            assert!(!message.contains("  "), "{message}");
+        }
+    }
 
     #[test]
     fn only_the_double_slash_form_with_a_relative_path_has_an_authority() {
