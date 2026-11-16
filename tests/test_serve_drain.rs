@@ -142,6 +142,20 @@ async fn fresh_connections_are_answered_while_an_accepted_run_drains() {
         .expect("a fresh run request must be answered during the drain");
     assert_eq!(refused.status(), reqwest::StatusCode::SERVICE_UNAVAILABLE);
 
+    // Validation evaluates a Lua chunk, so it is new work as well (IF-220 b).
+    let validation = fresh_client(Duration::from_secs(2))
+        .post(format!("{base}/flows/validate"))
+        .json(&json!({"file": "hold.lua"}))
+        .send()
+        .await
+        .expect("a fresh validation request must be answered during the drain");
+    assert_eq!(
+        validation.status(),
+        reqwest::StatusCode::SERVICE_UNAVAILABLE
+    );
+    let body: Value = validation.json().await.unwrap();
+    assert!(body.to_string().contains("draining"), "{body}");
+
     // The accepted run still drains to completion inside the grace.
     let run = accepted.await.unwrap();
     assert_eq!(run["status"], "success", "{run}");

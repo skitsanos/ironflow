@@ -229,7 +229,7 @@ SIGTERM and SIGINT close readiness and scheduler/API execution admission first.
 Already accepted runs retain their admission permits, and the listener stays
 open while they drain: a connection opened after the signal is answered at
 once, `/health/ready` with `503` and `"status": "draining"`, and
-`POST /flows/run` and webhooks with `503`, so a probe or a load balancer sees
+`POST /flows/run`, `POST /flows/validate` and webhooks with `503`, so a probe or a load balancer sees
 the replica leave rotation instead of timing out. Run status and event reads
 keep working for clients that follow an accepted run. IronFlow waits
 `IRONFLOW_SHUTDOWN_GRACE_SECONDS` (default 30, maximum 3600), cooperatively

@@ -47,6 +47,9 @@ pub async fn validate_flow(
         .as_deref()
         .map(|file| resolve_flow_path(file, &state))
         .transpose()?;
+    // Validation evaluates a Lua chunk, so a draining replica refuses it
+    // like any other new work (IF-220).
+    crate::api::refuse_flow_load_while_draining(&state.lifecycle, state.metrics.as_deref())?;
     let flow_load_permit = crate::api::acquire_flow_load_permit(state.metrics.as_deref())?;
 
     let flow_result = if let Some(source) = source {

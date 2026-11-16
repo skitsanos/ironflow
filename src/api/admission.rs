@@ -77,6 +77,26 @@ pub(crate) fn acquire_run_permit(
     result
 }
 
+/// Refuse a flow load that creates no run while the service drains, with the
+/// same retry signal run admission gives.
+pub(crate) fn refuse_flow_load_while_draining(
+    lifecycle: &ServiceLifecycle,
+    metrics: Option<&crate::metrics::Metrics>,
+) -> Result<(), AppError> {
+    if lifecycle.is_ready() {
+        return Ok(());
+    }
+    if let Some(metrics) = metrics {
+        metrics.admission(
+            crate::metrics::AdmissionResource::FlowLoad,
+            crate::metrics::AdmissionDecision::Draining,
+        );
+    }
+    Err(AppError::ServiceUnavailable(
+        "server is draining; retry on another replica".to_string(),
+    ))
+}
+
 /// Reserve one of the bounded Lua flow-definition evaluation slots.
 ///
 /// API requests fail fast rather than accumulating request bodies while they

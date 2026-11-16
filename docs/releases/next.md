@@ -1037,6 +1037,12 @@ publication is verified separately.
   or keep it out of error text. See
   [Diagnostic scrubbing](../SECURITY.md#diagnostic-scrubbing).
 
+- `POST /flows/validate` answers `503` while the server drains (IF-220).
+  Validation evaluates the flow's Lua source, so a draining replica now
+  refuses it with `server is draining; retry on another replica`, like `POST
+  /flows/run` and webhooks, and counts it as a `flow_load` admission decision
+  `draining`. Send the request to another replica or retry after the restart.
+
 - A damaged run lease file no longer stops JSON store lease reconciliation
   (IF-220). A lease file the store could not decode failed the whole pass, so
   `serve` did not start and no later expired lease was reaped; it is now
