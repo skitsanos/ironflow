@@ -364,3 +364,25 @@ async fn offline_child_failure_example_validates_and_runs() {
         }
     }
 }
+
+/// IF-220 (i): the launching step loads a detached child's flow before it
+/// returns. That wait is bounded by the flow-load limits, and it is what
+/// reports a child that cannot be loaded to the flow that named it.
+#[tokio::test]
+async fn a_detached_child_that_cannot_be_loaded_fails_the_launching_step() {
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::write(directory.path().join("broken.lua"), "this is not lua").unwrap();
+    let node = NodeRegistry::with_builtins().get("subworkflow").unwrap();
+
+    for (flow, needle) in [("broken.lua", "broken.lua"), ("absent.lua", "cannot find")] {
+        let error = node
+            .execute(
+                &json!({"flow": flow, "wait": false}),
+                &context(directory.path()),
+            )
+            .await
+            .expect_err("a detached child that cannot be loaded must fail its step")
+            .to_string();
+        assert!(error.contains(needle), "{flow}: {error}");
+    }
+}

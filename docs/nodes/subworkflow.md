@@ -280,7 +280,17 @@ flow:step("async_greet", nodes.subworkflow({
 })):depends_on("prepare")
 ```
 
-When `wait = false`, the parent step completes immediately with `subworkflow_async = true` in the context.
+When `wait = false`, the parent step completes with `subworkflow_async = true`
+in the context as soon as the child is admitted; it does not wait for the
+child's steps. Before that it resolves the child's path, checks the input
+mapping, and loads and validates the child's flow file, so a child that is
+missing, does not parse or is invalid fails the launching step instead of
+only being logged. That load holds the launching step for as long as it
+takes. It is bounded like every flow load: by the source size limit
+(`IRONFLOW_MAX_FLOW_SOURCE_BYTES`), the Lua instruction, time and memory
+budgets (`IRONFLOW_LUA_MAX_INSTRUCTIONS`, `IRONFLOW_LUA_MAX_SECONDS`, 10
+seconds by default, and `IRONFLOW_LUA_MAX_MEMORY_BYTES`) and the step's own
+`timeout`.
 
 ### Input mapping
 
