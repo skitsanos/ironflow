@@ -1,4 +1,5 @@
 mod assignments;
+mod quoted;
 mod search;
 mod urls;
 mod values;
@@ -93,8 +94,17 @@ pub(crate) fn redact_secret_endpoint(raw: &str) -> String {
 /// scanned and kept, in time linear in that prefix, and the rest is replaced
 /// by a truncation marker. Redact exact values first: a value cut by the
 /// limit no longer matches as a whole.
+///
+/// A diagnostic is scrubbed by the node that raised it and again by the
+/// engine, so a second pass returns scrubbed text unchanged (IF-219).
 pub fn redact_sensitive_text(text: &str) -> String {
-    let (text, truncated) = bounded_prefix(text);
+    // A diagnostic an earlier pass cut is marked once, not once per pass.
+    let (text, cut_before) = match text.strip_suffix(TRUNCATED) {
+        Some(body) => (body, true),
+        None => (text, false),
+    };
+    let (text, cut_now) = bounded_prefix(text);
+    let truncated = cut_before || cut_now;
     let mut redacted = scrub(text, truncated);
     if truncated {
         redacted.push_str(TRUNCATED);
@@ -140,6 +150,8 @@ fn redact_known_raw_url_errors(text: &str) -> Cow<'_, str> {
 
 #[cfg(test)]
 mod cost_tests;
+#[cfg(test)]
+mod repeat_tests;
 #[cfg(test)]
 mod shape_tests;
 #[cfg(test)]

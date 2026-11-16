@@ -9,7 +9,7 @@
 //! `token_type`, `max_tokens` and `password_policy` alone.
 
 use super::REDACTED;
-use super::values::assigned_value;
+use super::values::{Key, assigned_value};
 
 /// Key endings that name a credential, in lower case. A `_` also matches `-`
 /// or nothing, so `api_key` covers `api-key`, `apikey` and `apiKey`.
@@ -48,10 +48,15 @@ pub(super) fn redact_sensitive_assignments(text: &str) -> String {
                 .take_while(|byte| is_key_byte(**byte))
                 .count();
         cursor = key_end;
-        if !is_sensitive_key(&bytes[key_start..key_end]) {
+        let word = &bytes[key_start..key_end];
+        if !is_sensitive_key(word) {
             continue;
         }
-        let Some(value) = assigned_value(text, key_end) else {
+        let key = Key {
+            end: key_end,
+            authorization: ends_with_suffix(word, b"authorization"),
+        };
+        let Some(value) = assigned_value(text, key) else {
             continue;
         };
         output.push_str(&text[copied..value.start]);

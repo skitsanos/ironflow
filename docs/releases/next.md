@@ -783,6 +783,14 @@ publication is verified separately.
 
 ## Security
 
+- **Connection URLs joined without whitespace are each redacted** (found
+  with IF-219). A diagnostic that listed URLs separated only by a comma or
+  semicolon, such as `postgres://db1/app,postgres://user:pw@db2/app`, was
+  read as one URL, so every URL after the first kept its user name and
+  password in the first one's path. A URL now ends where the next one starts.
+  If an error that listed several connection URLs may have been logged or
+  stored by an older version, rotate those credentials.
+
 - **The outbound destination guard can be forced on for the whole process,
   and covers every node that connects to a flow-chosen destination**
   (IF-212). `IRONFLOW_BLOCK_PRIVATE_NETWORK=true` (or
@@ -922,6 +930,20 @@ publication is verified separately.
   error three times to a store under 1 MiB.
 
 ## Unreleased changes
+
+- The diagnostic scrubber no longer removes ordinary text after a credential
+  (IF-219). A task error is scrubbed by the node that raised it and again by
+  the engine. The first pass turned a line break into a space, so the second
+  read the following lines as the value of `key: value` and replaced them up
+  to the next comma; on one line, `X-API-Key: <value> while calling the
+  billing service, attempt 2` lost everything before the comma. A value after
+  `:` is now one word, as it already was after `=`; a `Bearer` or `Basic`
+  value and any `Authorization` header value is the scheme and the credential
+  after it; and a second pass returns scrubbed text unchanged. One thing is
+  redacted less than before: an unquoted value with spaces after `:`, such as
+  `password: correct horse`, now loses only its first word. Quote such a value
+  or keep it out of error text. See
+  [Diagnostic scrubbing](../SECURITY.md#diagnostic-scrubbing).
 
 - A step timeout or retry backoff that cannot be scheduled now fails
   validation (IF-203). `:timeout(1e19)` and `:retries(1, 2e19)` used to pass

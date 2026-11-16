@@ -308,10 +308,10 @@ Guaranteed shapes:
 
 | Shape | Example | What is replaced |
 | --- | --- | --- |
-| URL with the scheme `http`, `https`, `postgres`, `postgresql`, `redis`, `rediss`, `smtp`, `smtps` or `sqlite` | `postgres://app:pw@db/app?sslmode=require` | User information, every query value and the fragment; for `http` and `https` the path too. A URL that does not parse becomes `[REDACTED URL]`. |
-| Assignment with `=` | `db_password=pw`, `--token=pw`, `PGPASSWORD=pw` | The value up to the next whitespace or `&`, `;`, `,`, `<`, `>` or quote. |
-| `Bearer` or `Basic` after `=` | `Authorization=Bearer pw` | The scheme and the credential after it, as one value. |
-| Assignment with `:` | `X-API-Key: pw`, `Proxy-Authorization: Basic pw` | The value up to the next `&`, `;`, `,`, `<`, `>`, quote or line end. |
+| URL with the scheme `http`, `https`, `postgres`, `postgresql`, `redis`, `rediss`, `smtp`, `smtps` or `sqlite` | `postgres://app:pw@db/app?sslmode=require` | User information, every query value and the fragment; for `http` and `https` the path too. A URL that does not parse becomes `[REDACTED URL]`. A URL ends at whitespace, a quote, an angle bracket or where the next URL starts, so each URL of a list joined by commas is redacted. |
+| Assignment with `=` or `:` | `db_password=pw`, `--token=pw`, `PGPASSWORD=pw`, `X-API-Key: pw` | The value up to the next whitespace or `&`, `;`, `,`, `<`, `>` or quote. |
+| `Bearer` or `Basic` value | `token=Bearer pw`, `Proxy-Authorization: Basic pw` | The scheme and the credential after it, as one value. |
+| `Authorization` header | `Authorization: Token pw`, `authorization=ApiKey pw` | Two words, whatever the scheme: a key that ends with `authorization` carries a scheme and its credential. |
 | Quoted value | `"client_secret": "pw"`, `password = 'p''w'` | The content between the quotes. A backslash escape or a doubled quote does not end it. |
 | JSON inside a JSON string | `{\"password\":\"pw\"}` | The content between the escaped quotes, at any escaping depth. |
 
@@ -330,6 +330,14 @@ a URL that the limit cuts becomes `[REDACTED URL]`. The scan reads the text a
 fixed number of times, so its cost grows linearly with the input, and the
 engine redacts a task error above the limit on the blocking pool.
 
+A diagnostic is usually scrubbed twice, by the node that raised it and by the
+engine. The second pass returns scrubbed text unchanged
+([IF-219](issues/IF-219.md)): a value that is already `[REDACTED]` is complete,
+so the words and lines after it stay, and a diagnostic that was cut is marked
+`...[truncated]` once. Two cases are outside that guarantee. Text glued to the
+end of a URL with no whitespace or quote between them is read as part of the
+URL, and a cut diagnostic that redaction made longer than 64 KiB is cut again.
+
 Boundary. The scrubber is a last line of defence that recognises shapes, not
 secrets. It does not recognise:
 
@@ -337,8 +345,11 @@ secrets. It does not recognise:
   bare `Bearer pw` in prose;
 - plural keys other than `credentials` (`tokens`, `passwords`, `secrets`) and
   keys whose sensitive word is not last;
-- more than the first word of an unquoted value after `=`, except for the two
-  schemes above;
+- more than the first word of an unquoted value, after `=` and after `:`
+  alike, except for the scheme and `Authorization` rows above. An unquoted
+  passphrase with spaces, as in `password: correct horse`, loses only its
+  first word. Until IF-219 a value after `:` ran to the next comma or line
+  end, which also removed the ordinary words after a header credential;
 - the operand of a comparison: `password == pw` is not an assignment, and a
   sensitive key followed by `==` is left as written so an error that quotes
   a guard condition stays readable (IF-187). A value that starts with `=`,
