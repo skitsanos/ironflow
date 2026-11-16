@@ -50,7 +50,9 @@ upgrade that adds an index or a column, or the one-time event identity
 migration from a legacy `(id)` key. Such a change needs a table lock, and
 PostgreSQL queues every later statement on that table behind a lock request
 that is waiting. IronFlow therefore waits at most 5 seconds
-(`lock_timeout`, not configurable) and then stops with an error of this form:
+(`lock_timeout`; the bound is fixed on purpose and not configurable, because
+it is also the longest one start attempt can stall the replicas that are
+serving) and then stops with an error of this form:
 
 ```text
 Timed out after 5 s waiting for a lock on PostgreSQL table 'ironflow_events'
@@ -67,8 +69,9 @@ attempt, statements of running replicas on that table can wait up to the same
 5 seconds; event publication gives up after 500 ms, so a run that publishes
 during an attempt can lose live events while its state stays correct. Apply
 schema-changing upgrades when no long transaction is open. While one replica
-builds a missing index on a large table, another starting replica can hit
-the same timeout and succeeds on a later start. The identity migration still
+builds a missing index on a large table, another starting replica hits the
+same timeout, with an error that names the index, and succeeds on a later
+start. The identity migration still
 requires the coordinated writer stop described in the
 [architecture](ARCHITECTURE.md).
 
