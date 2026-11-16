@@ -546,3 +546,126 @@ async fn delete_racing_a_recreate_with_the_same_id_never_removes_a_leased_run() 
         "the owner lost its lease to the delete"
     );
 }
+
+/// IF-220 (y): a second replica that starts while another one is still
+/// building a missing index. The open transaction below is that build: it
+/// holds the same locks for as long as the test needs, where a real build on
+/// a large table holds them for its duration. The second start is bounded by
+/// the lock timeout, fails with an error that names the index, changes
+/// nothing, and succeeds once the build has committed.
+#[tokio::test]
+async fn a_second_replica_starting_during_an_index_build_is_bounded_and_retryable() {
+    let Some(database) = Database::from_env("if220_index").await else {
+        return;
+    };
+    drop(database.event_store().await.expect("create the schema"));
+    let index = database.table("events_run_seq_idx");
+    database.execute(format!("DROP INDEX {index}")).await;
+
+    let mut build = database
+        .admin
+        .begin()
+        .await
+        .expect("open the build session");
+    let create = format!(
+        "CREATE UNIQUE INDEX {index} ON {}(run_id, sequence)",
+        database.table("events")
+    );
+    sqlx::query(sqlx::AssertSqlSafe(create.as_str()))
+        .execute(&mut *build)
+        .await
+        .expect("start the index build");
+
+    let during = tokio::time::timeout(BOUNDED, database.event_store()).await;
+    let during = during.map(|store| store.map(|_| ()));
+    build.commit().await.expect("finish the index build");
+    let after = tokio::time::timeout(BOUNDED, database.event_store()).await;
+    let usable = match after {
+        Ok(Ok(store)) => store
+            .publish(event("if220-run", "if220-event"))
+            .await
+            .map_err(|error| error.to_string()),
+        Ok(Err(error)) => Err(error.to_string()),
+        Err(_) => Err("the start after the build did not finish".to_string()),
+    };
+    database.cleanup().await;
+
+    let error = during
+        .expect("the start waited for the index build without a bound")
+        .expect_err("a start during the build cannot create the same index");
+    assert_eq!(error.kind(), StorageErrorKind::Conflict, "{error}");
+    let message = error.to_string();
+    assert!(
+        message.contains("lock") && message.contains("event sequence index"),
+        "the startup error must name the lock and the index: {message}"
+    );
+    usable.expect("the start after the build must succeed and publish");
+}
+
+/// IF-220 (y): the in-place schedule-claim upgrade of IF-201 on PostgreSQL.
+/// A claims table from before IF-201 has no `run_micros` column; two replicas
+/// of the new binary start together, both must succeed, and the claim an
+/// older binary wrote reads as an orphan until its run is recorded.
+#[tokio::test]
+async fn postgres_claims_table_from_an_older_binary_is_upgraded_in_place() {
+    const KEY: &str = "UTC@2026-05-01T02:00";
+    let Some(database) = Database::from_env("if220_claims").await else {
+        return;
+    };
+    let claims = database.table("schedule_claims");
+    database
+        .execute(format!(
+            "CREATE TABLE {claims} (\
+             name TEXT NOT NULL, claim_key TEXT NOT NULL, claimed_micros BIGINT NOT NULL, \
+             PRIMARY KEY (name, claim_key))"
+        ))
+        .await;
+    database
+        .execute(format!(
+            "INSERT INTO {claims} (name, claim_key, claimed_micros) \
+             VALUES ('nightly', '{KEY}', {})",
+            chrono::Utc::now().timestamp_micros()
+        ))
+        .await;
+
+    let result: Result<(), String> = async {
+        let (first, second) = tokio::join!(database.state_store(), database.state_store());
+        let store = first.map_err(|error| format!("first replica: {error}"))?;
+        let peer = second.map_err(|error| format!("second replica: {error}"))?;
+        let check =
+            |label: &str, condition: bool| condition.then_some(()).ok_or_else(|| label.to_string());
+        let error = |error: ironflow::storage::StorageError| error.to_string();
+
+        let claimed = store.claim_schedule("nightly", KEY, 3_600).await;
+        check("the old claim was claimed again", !claimed.map_err(error)?)?;
+        let recorded = store.schedule_run_recorded("nightly", KEY).await;
+        check("the old claim read as recorded", !recorded.map_err(error)?)?;
+        store
+            .record_schedule_run("nightly", KEY, 3_600)
+            .await
+            .map_err(error)?;
+        let seen = peer.schedule_run_recorded("nightly", KEY).await;
+        check("the peer did not see the record", seen.map_err(error)?)?;
+        Ok(())
+    }
+    .await;
+    let columns: Vec<String> = sqlx::query(
+        "SELECT column_name::text AS column_name FROM information_schema.columns \
+         WHERE table_name = $1 ORDER BY ordinal_position",
+    )
+    .bind(&claims)
+    .fetch_all(&database.admin)
+    .await
+    .expect("read the claim columns")
+    .iter()
+    .map(|row| row.get::<String, _>("column_name"))
+    .collect();
+    database.cleanup().await;
+
+    result.unwrap();
+    assert_eq!(
+        columns,
+        ["name", "claim_key", "claimed_micros", "run_micros"],
+        "the column must be added exactly once"
+    );
+}
