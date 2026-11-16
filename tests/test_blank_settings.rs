@@ -223,3 +223,41 @@ async fn blank_artifact_directory_variable_fails_startup() {
         .await;
     }
 }
+
+/// IF-220 (s): a webhook secret made of whitespace passes a length check but
+/// is as unset as an empty one.
+#[tokio::test]
+async fn whitespace_only_webhook_secret_fails_startup() {
+    let config = "allow_unauthenticated_api: true\n\
+                  flows_dir: flows\n\
+                  webhooks:\n  \
+                    signed:\n    \
+                      flow: signed.lua\n    \
+                      signature:\n      \
+                        type: hmac_sha256\n      \
+                        header: x-signature\n      \
+                        secret_env: IF220_WEBHOOK_SECRET\n";
+    for blank in [" ".repeat(16), "\t".repeat(32), " \t ".repeat(8)] {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::create_dir(directory.path().join("flows")).unwrap();
+        let environment = [("IF220_WEBHOOK_SECRET", blank.as_str())];
+        match start(directory.path(), config, &environment).await {
+            Startup::Failed(log) => {
+                assert!(
+                    log.contains("IF220_WEBHOOK_SECRET") && log.contains("whitespace"),
+                    "{log}"
+                );
+            }
+            Startup::Serving(..) => panic!("server started with a whitespace-only webhook secret"),
+        }
+    }
+
+    // A secret that merely contains or is padded with spaces is still valid.
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::create_dir(directory.path().join("flows")).unwrap();
+    let environment = [("IF220_WEBHOOK_SECRET", " sixteen byte secret ")];
+    assert!(matches!(
+        start(directory.path(), config, &environment).await,
+        Startup::Serving(..)
+    ));
+}

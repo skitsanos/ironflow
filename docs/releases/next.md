@@ -1037,6 +1037,13 @@ publication is verified separately.
   or keep it out of error text. See
   [Diagnostic scrubbing](../SECURITY.md#diagnostic-scrubbing).
 
+- A webhook signature secret of only whitespace stops startup (IF-220). A
+  `secret_env` variable holding 16 or more spaces or tabs passed the length
+  check, so the webhook was signed with a placeholder. `ironflow serve` now
+  fails with `webhook signature environment variable '<name>' contains only
+  whitespace`. A secret that contains or is padded with spaces is used as
+  given, as before. See [Webhooks](../CLI_REFERENCE.md#webhook-routes).
+
 - `llm` rejects a whitespace-only reply and a non-string `prompt` (IF-220). A
   provider reply whose text is only whitespace, with no tool call, was
   reported as success; it now fails the step with `no usable reply`, like an

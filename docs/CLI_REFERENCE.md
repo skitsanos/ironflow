@@ -1258,7 +1258,7 @@ webhooks:
 - A `signature` policy verifies an HMAC-SHA256 hex digest over the exact,
   bounded request body before JSON parsing, flow loading, or run creation
 - `secret_env` is resolved at server startup and must contain at least 16
-  bytes. Its value and the signature header are never workflow input
+  bytes that are not all whitespace. Its value and the signature header are never workflow input
 - The signature header must occur exactly once and must not also appear in
   `forward_headers`. Missing, repeated, malformed, or mismatched signatures
   return `403` without creating a run

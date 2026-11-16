@@ -136,7 +136,8 @@ loopback behind a reverse proxy or sidecar served every route, including
   include a value.
 
 Webhook signature secrets are read from the variable named by `secret_env`
-and must contain at least 16 bytes, so an empty secret is already rejected.
+and must contain at least 16 bytes that are not all whitespace, so an empty
+or blank secret is rejected at startup.
 
 ## Outbound destinations
 

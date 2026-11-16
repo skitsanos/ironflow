@@ -123,14 +123,26 @@ impl WebhookSignatureConfig {
                 self.secret_env
             )
         })?;
-        if value.len() < MIN_SECRET_BYTES {
-            return Err(format!(
-                "webhook signature environment variable '{}' must contain at least {MIN_SECRET_BYTES} bytes",
-                self.secret_env
-            ));
-        }
+        check_secret(&self.secret_env, &value)?;
         Ok(value)
     }
+}
+
+/// A usable secret has at least [`MIN_SECRET_BYTES`] bytes and is not made of
+/// whitespace alone: sixteen spaces are an unresolved placeholder, not a key
+/// (IF-220). The value is used as given and never appears in the error.
+fn check_secret(name: &str, value: &str) -> Result<(), String> {
+    if value.len() < MIN_SECRET_BYTES {
+        return Err(format!(
+            "webhook signature environment variable '{name}' must contain at least {MIN_SECRET_BYTES} bytes"
+        ));
+    }
+    if value.trim().is_empty() {
+        return Err(format!(
+            "webhook signature environment variable '{name}' contains only whitespace"
+        ));
+    }
+    Ok(())
 }
 
 fn default_sha256_prefix() -> String {
@@ -156,6 +168,20 @@ mod tests {
             WebhookSignatureConfig::hmac_sha256("x-signature", "SECRET-NAME", "sha256=").is_err()
         );
         assert!(WebhookSignatureConfig::hmac_sha256("x-signature", "SECRET_NAME", "é").is_err());
+    }
+
+    #[test]
+    fn a_secret_must_be_long_enough_and_not_only_whitespace() {
+        assert!(
+            check_secret("S", "short")
+                .unwrap_err()
+                .contains("at least 16 bytes")
+        );
+        for blank in [" ".repeat(16), "\t\n ".repeat(8)] {
+            let error = check_secret("S", &blank).unwrap_err();
+            assert!(error.contains("'S' contains only whitespace"), "{error}");
+        }
+        assert!(check_secret("S", " sixteen byte secret ").is_ok());
     }
 
     #[test]

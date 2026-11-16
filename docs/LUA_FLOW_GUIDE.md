@@ -376,7 +376,7 @@ flow:step("process", function(ctx)
 end)
 ```
 
-The HMAC secret must contain at least 16 bytes and is resolved from the named
+The HMAC secret must contain at least 16 bytes, not all whitespace, and is resolved from the named
 environment variable when the server starts. The signature header and secret
 never enter Lua context, and a rejected request creates no run. This generic
 policy signs only the request body; provider schemes that sign timestamps or
