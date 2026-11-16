@@ -100,3 +100,33 @@ fn every_store_applies_the_same_context_limit() {
         );
     }
 }
+
+/// IF-220 (a): `inspect` on a record the store cannot decode says so and
+/// names the way to clear it, instead of printing only the parser's message.
+#[test]
+fn inspect_names_an_undecodable_record_and_how_to_clear_it() {
+    let directory = tempfile::tempdir().unwrap();
+    let admitted = run(directory.path(), Some("json"), 1);
+    assert!(admitted.status.success());
+    let store_dir = directory.path().join("runs");
+    let record = json_run_files(&store_dir)
+        .into_iter()
+        .find(|name| name.ends_with(".json") && !name.ends_with(".summary.json"))
+        .expect("the run left a record");
+    std::fs::write(store_dir.join(&record), b"{broken").unwrap();
+    let run_id = record.trim_end_matches(".json");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_ironflow"))
+        .args(["inspect", run_id, "--store-dir"])
+        .arg(&store_dir)
+        .env("IRONFLOW_STORE", "json")
+        .output()
+        .expect("run ironflow CLI");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert!(
+        stderr.contains("cannot be decoded") && stderr.contains("DELETE /runs/"),
+        "{stderr}"
+    );
+    assert!(stderr.contains(run_id), "{stderr}");
+}

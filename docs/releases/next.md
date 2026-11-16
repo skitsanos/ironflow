@@ -1037,6 +1037,15 @@ publication is verified separately.
   or keep it out of error text. See
   [Diagnostic scrubbing](../SECURITY.md#diagnostic-scrubbing).
 
+- A damaged run lease file no longer stops JSON store lease reconciliation
+  (IF-220). A lease file the store could not decode failed the whole pass, so
+  `serve` did not start and no later expired lease was reaped; it is now
+  skipped with a warning that names the file, like an undecodable run record.
+  `DELETE /runs/{id}` removes the run and the damaged lease: a lease that
+  cannot be decoded protects nothing, because no owner can renew it or write
+  under it. `ironflow inspect` on a record that cannot be decoded now says so
+  and names that remedy. See [Architecture](../ARCHITECTURE.md).
+
 - A step timeout or retry backoff that cannot be scheduled now fails
   validation (IF-203). `:timeout(1e19)` and `:retries(1, 2e19)` used to pass
   `ironflow validate` and then end the run `stalled` with `execution ended

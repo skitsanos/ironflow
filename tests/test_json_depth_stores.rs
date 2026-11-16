@@ -133,3 +133,46 @@ async fn json_delete_keeps_an_undecodable_record_that_a_live_owner_holds() {
     );
     assert!(directory.path().join("held.json").exists());
 }
+
+/// IF-220 (a): a lease file that cannot be decoded is skipped and reported,
+/// like an undecodable run record, instead of failing the whole pass.
+#[tokio::test]
+async fn json_reconciliation_skips_a_damaged_lease_file_and_delete_removes_it() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = JsonStateStore::new(directory.path());
+    for run_id in ["a-damaged", "b-neighbor"] {
+        store
+            .init_run_owned(run_id, "flow", &Context::new(), &expired_lease())
+            .await
+            .unwrap();
+    }
+    let lease = directory
+        .path()
+        .join(".ironflow-run-leases-v1/a-damaged.lease");
+    std::fs::write(&lease, b"{not a lease").unwrap();
+
+    for expected in [1, 0] {
+        let reconciled = store
+            .reconcile_expired_run_leases(chrono::Utc::now())
+            .await
+            .expect("a damaged lease file must not abort the reconciliation pass");
+        assert_eq!(reconciled, expected);
+    }
+    assert_eq!(
+        store.get_run_info("b-neighbor").await.unwrap().status,
+        RunStatus::Stalled
+    );
+    // The run behind the damaged lease is left as it was for the operator.
+    assert_eq!(
+        store.get_run_info("a-damaged").await.unwrap().status,
+        RunStatus::Pending
+    );
+    assert!(lease.exists());
+
+    store
+        .delete_run("a-damaged")
+        .await
+        .expect("a run whose lease cannot be decoded must be deletable");
+    assert!(!lease.exists(), "the damaged lease survived deletion");
+    assert!(!directory.path().join("a-damaged.json").exists());
+}

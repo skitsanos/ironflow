@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 use super::JsonStateStore;
 use super::leases::LEASE_SUFFIX;
 use crate::engine::types::{RunStatus, TaskStatus};
-use crate::storage::StorageResult;
+use crate::storage::{StorageErrorKind, StorageResult};
 
 /// What reconciliation found behind one expired lease.
 enum ExpiredRun {
@@ -29,6 +29,18 @@ impl JsonStateStore {
             let record = match self.read_named_lease(name).await {
                 Ok(record) => record,
                 Err(error) if error.is_not_found() => continue,
+                // A lease the decoder rejects cannot say when it expires.
+                // It is reported and left for `delete_run`, so one damaged
+                // file does not stop the leases behind it (IF-220).
+                Err(error) if error.kind() == StorageErrorKind::Corruption => {
+                    tracing::warn!(
+                        lease = name,
+                        %error,
+                        "lease reconciliation skipped a lease file it could not decode; \
+                         delete the run to clear it"
+                    );
+                    continue;
+                }
                 Err(error) => return Err(error),
             };
             if record.expires_micros > now.timestamp_micros() {

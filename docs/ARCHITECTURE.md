@@ -166,7 +166,20 @@ than the Rust decoder. A Redis record whose `info` is not JSON or names
 another run is still refused by that script, as before, and stays until its
 key expires or is removed by hand. The SQL stores reconcile with `UPDATE`
 statements and never decode a record there. I/O errors and faults in the
-Redis index keys still fail the pass, as before.
+Redis index keys still fail the pass, as before: without the expiry index no
+lease can be listed or fenced, so there is nothing to skip to.
+
+The JSON store treats a lease file it cannot decode the same way (IF-220):
+the pass warns with the file name and continues, and the run behind it is
+left unchanged. Such a lease protects nothing, since every renewal and owned
+write reads the lease first and fails, so `delete_run` removes the run and
+the lease. `ironflow inspect` reports a record that cannot be decoded as
+such and names deletion as the remedy. The run list fails on a record whose
+header is damaged, by design (a store entry that does not match its name is
+reported, not hidden); a record that is only nested too deep still lists,
+because the list reads its summary. The unbounded `StateStore::list_runs`
+compatibility method also fails on any undecodable record; no built-in
+command or endpoint calls it.
 
 SQL uses the database clock and Redis uses `TIME` for lease creation, renewal,
 fencing, and reaping, so application-host clock skew cannot transfer ownership

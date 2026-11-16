@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use super::JsonStateStore;
 use super::fs::FileState;
 use crate::engine::types::{Context, RunStatus, TaskState};
-use crate::storage::{RunLease, StateStore, StorageError, StorageResult};
+use crate::storage::{RunLease, StateStore, StorageError, StorageErrorKind, StorageResult};
 
 pub(super) const LEASE_SUFFIX: &str = ".lease";
 const MAX_OWNER_BYTES: usize = 128;
@@ -51,12 +51,7 @@ impl JsonStateStore {
                     false
                 }
             };
-            if !terminal
-                && store
-                    .read_lease(&run_id)
-                    .await?
-                    .is_some_and(|lease| lease.expires_micros > Utc::now().timestamp_micros())
-            {
+            if !terminal && store.lease_blocks_deletion(&run_id).await? {
                 return Err(StorageError::conflict(format_args!(
                     "Run '{run_id}' is still executing"
                 )));
@@ -226,6 +221,22 @@ impl JsonStateStore {
             return Ok(None);
         }
         self.read_named_lease(&name).await.map(Some)
+    }
+
+    /// Whether a lease still protects a non-terminal run from deletion. A
+    /// lease the decoder rejects does not: no owner can renew it or write
+    /// under it, because every owned operation reads it first (IF-220).
+    async fn lease_blocks_deletion(&self, run_id: &str) -> StorageResult<bool> {
+        match self.read_lease(run_id).await {
+            Ok(lease) => {
+                Ok(lease.is_some_and(|lease| lease.expires_micros > Utc::now().timestamp_micros()))
+            }
+            Err(error) if error.kind() == StorageErrorKind::Corruption => {
+                tracing::debug!(run_id, %error, "deleting a run whose lease cannot be decoded");
+                Ok(false)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     async fn lease_is_live(&self, run_id: &str, owner: &str) -> StorageResult<bool> {
