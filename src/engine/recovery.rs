@@ -20,6 +20,7 @@ impl ExecutionPlan {
     /// Validate a flow and construct its complete execution graph.
     pub(crate) fn build(flow: &FlowDefinition) -> Result<Self, Vec<String>> {
         let mut errors = validate_step_options(flow);
+        errors.extend(crate::nodes::composition::guard_condition_errors(flow));
         let (steps_by_name, duplicate_errors) = index_steps(flow);
         errors.extend(duplicate_errors);
         errors.extend(validate_dependencies(flow, &steps_by_name));

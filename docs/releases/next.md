@@ -1037,6 +1037,14 @@ publication is verified separately.
   or keep it out of error text. See
   [Diagnostic scrubbing](../SECURITY.md#diagnostic-scrubbing).
 
+- A flow definition built without the Lua loader gets the same guard-condition
+  check (IF-220). An `if_node` condition that is invalid for every context,
+  such as `ctx.n > nil`, was rejected only when a Lua file or source was
+  loaded; a `FlowDefinition` assembled by an embedding program reached the
+  engine and failed at the guard step. `FlowDefinition::validate_dag` and
+  `WorkflowEngine` now report `Step '<name>' has an invalid condition` before
+  a run is created. Flows loaded from Lua behave as before.
+
 - `ironflow validate` loads child flows and reports recursion (IF-220). A
   child named with a literal path by `subworkflow`, `repeat_subworkflow`,
   `parallel_subworkflows` or `tool_dispatch` is loaded and checked like the

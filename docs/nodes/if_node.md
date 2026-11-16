@@ -90,6 +90,9 @@ A comparison that has no defined result is reported instead of routing
   `ctx.n < 'abc'`, `ctx.a > ctx.b`) is rejected when the flow is loaded, so
   `ironflow validate`, `ironflow run` and the API refuse the flow before any
   step runs. The load error names the step and the condition.
+  A flow definition assembled in Rust and handed to `WorkflowEngine` gets
+  the same refusal from the engine and from `FlowDefinition::validate_dag`,
+  before a run is created.
 - An ordering operator applied to anything but a number (an absent or `null`
   value, a string, a boolean, an object or an array), or an object or array
   compared with anything other than `nil`, fails the `if_node` step. The

@@ -8,8 +8,8 @@ pub mod repeat_subworkflow;
 pub mod subworkflow;
 pub mod tool_dispatch;
 
-pub(crate) use conditional::validate_guard_conditions;
 pub use conditional::{IfBodyContainsNode, IfHttpStatusNode, IfNode, SwitchNode};
+pub(crate) use conditional::{guard_condition_errors, validate_guard_conditions};
 pub use foreach::ForEachNode;
 pub use input_mapping::InputMappingError;
 pub use parallel_subworkflows::ParallelSubworkflowsNode;
