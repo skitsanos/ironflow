@@ -67,7 +67,7 @@ async fn pinned_root_does_not_follow_a_replacement_symlink() {
     let destination_for_worker = destination.clone();
     let pinned_for_worker = pinned.clone();
     let outside_for_worker = outside.clone();
-    crate::util::execution::run_blocking_step(move |execution| {
+    crate::util::execution::run_tracked_blocking_step(move |execution| {
         let root = RootedDir::prepare(&destination_for_worker, "test", &execution)?;
         std::fs::rename(&destination_for_worker, &pinned_for_worker)?;
         symlink(&outside_for_worker, &destination_for_worker)?;
@@ -190,4 +190,88 @@ async fn symlinked_append_destination_is_reported_as_a_symlink() {
     assert!(error.contains("write_file"), "{error}");
     assert!(error.contains("link.txt"), "{error}");
     assert!(error.contains("symlink"), "{error}");
+}
+
+fn mode_of(path: &Path) -> u32 {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path).unwrap().permissions().mode() & 0o7777
+}
+
+fn staged_names(directory: &Path) -> Vec<std::path::PathBuf> {
+    std::fs::read_dir(directory)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with(".ironflow-"))
+        })
+        .collect()
+}
+
+/// IF-185: the staged file is owner-only while it is written and takes its
+/// published mode only at commit. The default-mode probe leaves nothing.
+#[tokio::test]
+async fn staged_file_is_private_until_commit_then_takes_the_published_mode() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().to_path_buf();
+    let plain = path.join("plain-create");
+    std::fs::File::create(&plain).unwrap();
+    let default_mode = mode_of(&plain);
+    let replaced = path.join("replaced.txt");
+    std::fs::write(&replaced, b"before").unwrap();
+    std::fs::set_permissions(&replaced, std::fs::Permissions::from_mode(0o664)).unwrap();
+
+    let worker_path = path.clone();
+    crate::util::execution::run_tracked_blocking_step(move |execution| {
+        let root = RootedDir::prepare(&worker_path, "test", &execution)?;
+        for (name, overwrite) in [
+            ("replaced.txt", true),
+            ("created.txt", true),
+            ("nested/exclusive.txt", false),
+        ] {
+            let mut staged = root.stage_file(Path::new(name), overwrite, &execution)?;
+            staged.writer().write_all(b"after")?;
+            let parent = worker_path.join(name).parent().unwrap().to_path_buf();
+            let names = staged_names(&parent);
+            assert_eq!(names.len(), 1, "{name}: one staged file while writing");
+            assert_eq!(mode_of(&names[0]), 0o600, "{name}: staged file is private");
+            staged.commit()?;
+            assert!(staged_names(&parent).is_empty(), "{name}: nothing left");
+        }
+        Ok(())
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(mode_of(&replaced), 0o664);
+    assert_eq!(mode_of(&path.join("created.txt")), default_mode);
+    assert_eq!(mode_of(&path.join("nested/exclusive.txt")), default_mode);
+}
+
+/// IF-140 through the IF-185 commit path: explicit permissions win over the
+/// replaced file's mode.
+#[tokio::test]
+async fn explicit_permissions_win_over_the_replaced_mode() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().to_path_buf();
+    let destination = path.join("tool.sh");
+    std::fs::write(&destination, b"before").unwrap();
+    std::fs::set_permissions(&destination, std::fs::Permissions::from_mode(0o600)).unwrap();
+
+    crate::util::execution::run_tracked_blocking_step(move |execution| {
+        let root = RootedDir::prepare(&path, "test", &execution)?;
+        let mut staged = root.stage_file(Path::new("tool.sh"), true, &execution)?;
+        staged.writer().write_all(b"after")?;
+        staged.publish_with_permissions(std::fs::Permissions::from_mode(0o751));
+        staged.commit()
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(mode_of(&destination), 0o751);
 }

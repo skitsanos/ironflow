@@ -24,6 +24,12 @@ ironflow_assert_key_layout(progress.mode)
 if progress.phase == 'blocked' then
     return {'blocked'}
 end
+-- Checked before any phase can record the migration as blocked: an expired
+-- stream is reported as expired and its state is left for the status script
+-- to remove once the captured deadline has passed.
+if ironflow_snapshot_expired(progress) then
+    return {'expired'}
+end
 
 local function set_progress(phase, generation_value, cursor, digest, expected)
     progress.phase = phase

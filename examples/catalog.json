@@ -17,14 +17,17 @@
         "examples/02-data-transforms/json_operations.lua",
         "examples/02-data-transforms/transform_pipeline.lua",
         "examples/03-control-flow/conditional_routing.lua",
+        "examples/03-control-flow/guard_literals.lua",
         "examples/03-control-flow/step_if.lua",
         "examples/03-control-flow/switch_routing.lua",
+        "examples/05-http/outbound_destination_policy.lua",
         "examples/07-advanced/base64_encode_decode.lua",
         "examples/07-advanced/context_projection.lua",
         "examples/07-advanced/data_pipeline.lua",
         "examples/07-advanced/function_handler.lua",
         "examples/07-advanced/hashing.lua",
         "examples/07-advanced/json_validate.lua",
+        "examples/07-advanced/lua_pattern_budget.lua",
         "examples/07-advanced/markdown_conversion.lua",
         "examples/07-advanced/reused_callbacks.lua",
         "examples/07-advanced/schema_validation.lua",
@@ -52,10 +55,12 @@
     "offline_output": {
       "description": "Runs offline but creates files, processes, cache state, or a local database and therefore needs isolated output paths.",
       "flows": [
+        "examples/00-showcase/batch_idempotency_check.lua",
         "examples/04-file-operations/artifact_handoff.lua",
         "examples/04-file-operations/binary_file_io.lua",
         "examples/04-file-operations/copy_move_files.lua",
         "examples/04-file-operations/read_write_files.lua",
+        "examples/04-file-operations/write_file_artifact_inputs.lua",
         "examples/04-file-operations/zip_workflow.lua",
         "examples/06-shell/run_commands.lua",
         "examples/07-advanced/markdown_documents.lua",
@@ -84,6 +89,7 @@
     "public_network": {
       "description": "Uses a public endpoint or local service without repository-managed credentials; excluded from deterministic CI.",
       "flows": [
+        "examples/00-showcase/research_source_snapshot.lua",
         "examples/02-data-transforms/json_extract_path.lua",
         "examples/05-http/api_call.lua",
         "examples/05-http/authenticated_request.lua",
@@ -156,6 +162,7 @@
       "description": "Loaded by ironflow serve and exercised through HTTP or a configured scheduler rather than run as a standalone CLI flow.",
       "flows": [
         "examples/15-webhooks/auth_check.lua",
+        "examples/15-webhooks/forwarded_header.lua",
         "examples/15-webhooks/simple_webhook.lua",
         "examples/21-schedules/scheduled_hello.lua",
         "examples/22-replica-deployment/artifact_consume.lua",
@@ -172,10 +179,12 @@
         "examples/11-subworkflow/greet.lua",
         "examples/11-subworkflow/if135_child_error_details.lua",
         "examples/11-subworkflow/if135_error_child.lua",
+        "examples/11-subworkflow/input_mapping_forms.lua",
         "examples/11-subworkflow/large_result_child.lua",
         "examples/11-subworkflow/literal_item_child.lua",
         "examples/11-subworkflow/live_child_results.lua",
         "examples/11-subworkflow/metadata_child.lua",
+        "examples/11-subworkflow/nesting_limit.lua",
         "examples/11-subworkflow/parallel_literal_inputs.lua",
         "examples/11-subworkflow/parallel_result_metadata.lua",
         "examples/11-subworkflow/parallel_subworkflows.lua",
@@ -193,6 +202,7 @@
       "description": "Contacts a public, local, or hosted service; execution is excluded from deterministic offline CI.",
       "flows": [
         "examples/00-showcase/nightly_report.lua",
+        "examples/00-showcase/research_source_snapshot.lua",
         "examples/02-data-transforms/json_extract_path.lua",
         "examples/04-file-operations/s3_copy.lua",
         "examples/04-file-operations/s3_mrap_presign.lua",
@@ -315,11 +325,14 @@
     "local_state": {
       "description": "Writes local output/cache/database state or owns a local process. Paths must be run-unique and retained effects must be documented.",
       "flows": [
+        "examples/00-showcase/batch_idempotency_check.lua",
+        "examples/00-showcase/research_source_snapshot.lua",
         "examples/04-file-operations/artifact_handoff.lua",
         "examples/04-file-operations/binary_file_io.lua",
         "examples/04-file-operations/copy_move_files.lua",
         "examples/04-file-operations/read_write_files.lua",
         "examples/04-file-operations/s3_put_get_list.lua",
+        "examples/04-file-operations/write_file_artifact_inputs.lua",
         "examples/04-file-operations/zip_workflow.lua",
         "examples/05-http/s3_presigned_upload.lua",
         "examples/06-shell/run_commands.lua",
@@ -355,8 +368,6 @@
       "flows": [
         "examples/04-file-operations/zip_workflow.lua",
         "examples/06-shell/run_commands.lua",
-        "examples/08-extraction/pdf_thumbnail.lua",
-        "examples/08-extraction/pdf_to_image.lua",
         "examples/13-ai/pdf_gemini_rag_schema.lua",
         "examples/13-ai/pdf_gemini_reconstruct_schema.lua",
         "examples/13-ai/pptx_gemini_reconstruct.lua",
@@ -375,13 +386,6 @@
         "examples/13-ai/pdf_gemini_reconstruct_schema.lua",
         "examples/13-ai/pptx_gemini_reconstruct.lua",
         "examples/13-ai/pptx_gemini_reconstruct_schema.lua"
-      ]
-    },
-    "pdfium": {
-      "description": "Requires a loadable Pdfium native library, commonly configured through PDFIUM_LIB_PATH.",
-      "flows": [
-        "examples/08-extraction/pdf_thumbnail.lua",
-        "examples/08-extraction/pdf_to_image.lua"
       ]
     },
     "poppler_pdftoppm": {
@@ -425,6 +429,8 @@
       "examples/08-extraction/extract_word.lua",
       "examples/08-extraction/image_metadata.lua",
       "examples/08-extraction/pdf_metadata.lua",
+      "examples/08-extraction/pdf_thumbnail.lua",
+      "examples/08-extraction/pdf_to_image.lua",
       "examples/08-extraction/xlsx_workbook.lua",
       "examples/13-ai/chunk_fixed.lua",
       "examples/13-ai/chunk_merge.lua",
@@ -434,7 +440,8 @@
       "examples/17-mcp/mcp_stdio.lua"
     ],
     "expected_failure": [
-      "examples/01-basics/retries_and_timeout.lua"
+      "examples/01-basics/retries_and_timeout.lua",
+      "examples/05-http/outbound_destination_policy.lua"
     ]
   }
 }

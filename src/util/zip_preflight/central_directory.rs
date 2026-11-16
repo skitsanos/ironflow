@@ -210,8 +210,10 @@ fn validate_bounds(
         .offset
         .checked_add(directory.size)
         .ok_or_else(|| anyhow::anyhow!("{operation}: ZIP central-directory bounds overflow"))?;
-    if directory_end > directory.end {
-        anyhow::bail!("{operation}: ZIP central directory extends outside the archive");
+    // A gap lets the reader treat the validated directory as prepended data
+    // and read another one that abuts the end record (IF-190).
+    if directory_end != directory.end {
+        anyhow::bail!("{operation}: ZIP central directory does not end at its end record");
     }
     Ok(())
 }

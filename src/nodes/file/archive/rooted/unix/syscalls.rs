@@ -7,10 +7,24 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
+/// The nine permission bits of a file mode. The file type and the setuid,
+/// setgid and sticky bits are never carried to a published file.
+pub(super) type Mode = libc::mode_t;
+const PERMISSION_BITS: Mode = 0o777;
+
+/// The mode requested for a parent directory a file node creates, before the
+/// process umask is applied. Deliberately `0755`, not the `0777` of a plain
+/// `mkdir` (IF-218): a permissive umask such as `002` then never yields a
+/// group-writable directory, in which a group member could replace the files
+/// the node publishes. Operators who need a wider mode create the directory
+/// themselves; an existing directory is used as it is.
+const CREATED_DIRECTORY_MODE: Mode = 0o755;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum LeafKind {
     Missing,
-    Regular,
+    /// A regular file and its permission bits.
+    Regular(Mode),
     Symlink,
     Other,
 }
@@ -35,7 +49,9 @@ pub(super) fn open_or_create_directory(
     match open_directory_at(parent, &name_c) {
         Ok(directory) => Ok(directory),
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
-            let created = unsafe { libc::mkdirat(parent.as_raw_fd(), name_c.as_ptr(), 0o755) };
+            let created = unsafe {
+                libc::mkdirat(parent.as_raw_fd(), name_c.as_ptr(), CREATED_DIRECTORY_MODE)
+            };
             if created != 0 {
                 let create_error = io::Error::last_os_error();
                 if create_error.kind() != io::ErrorKind::AlreadyExists {
@@ -60,16 +76,45 @@ fn open_directory_at(parent: &File, name: &CStr) -> io::Result<File> {
     file_from_descriptor(descriptor)
 }
 
+/// Create the staged file. It is private to the owner until it is published.
 pub(super) fn create_file_at(parent: &File, name: &CStr) -> io::Result<File> {
+    create_exclusive(parent, name, 0o600)
+}
+
+fn create_exclusive(parent: &File, name: &CStr, mode: libc::c_uint) -> io::Result<File> {
     let descriptor = unsafe {
         libc::openat(
             parent.as_raw_fd(),
             name.as_ptr(),
             libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC,
-            0o600,
+            mode,
         )
     };
     file_from_descriptor(descriptor)
+}
+
+/// The permission bits the platform gives a file newly created in `parent`:
+/// `0666` masked by the process umask, or shaped by a default ACL. The umask
+/// cannot be read without changing it for every thread, so one empty file is
+/// created as `name`, measured and removed again.
+pub(super) fn default_file_mode(parent: &File, name: &CStr) -> io::Result<Mode> {
+    let probe = create_exclusive(parent, name, 0o666)?;
+    let mode = descriptor_mode(&probe);
+    let removed = unlink_at(parent, name);
+    let mode = mode?;
+    removed?;
+    Ok(mode)
+}
+
+fn descriptor_mode(file: &File) -> io::Result<Mode> {
+    let mut metadata = std::mem::MaybeUninit::<libc::stat>::uninit();
+    syscall_result(unsafe { libc::fstat(file.as_raw_fd(), metadata.as_mut_ptr()) })?;
+    Ok(unsafe { metadata.assume_init() }.st_mode & PERMISSION_BITS)
+}
+
+/// Give the open staged file the permission bits it is published with.
+pub(super) fn set_mode(file: &File, mode: Mode) -> io::Result<()> {
+    syscall_result(unsafe { libc::fchmod(file.as_raw_fd(), mode & PERMISSION_BITS) })
 }
 
 pub(super) fn read_file_at(parent: &File, name: &CStr) -> io::Result<File> {
@@ -109,10 +154,11 @@ pub(super) fn inspect_leaf(parent: &File, name: &CStr) -> io::Result<LeafKind> {
             Err(error)
         };
     }
-    let mode = unsafe { metadata.assume_init() }.st_mode & libc::S_IFMT;
-    Ok(if mode == libc::S_IFREG {
-        LeafKind::Regular
-    } else if mode == libc::S_IFLNK {
+    let mode = unsafe { metadata.assume_init() }.st_mode;
+    let kind = mode & libc::S_IFMT;
+    Ok(if kind == libc::S_IFREG {
+        LeafKind::Regular(mode & PERMISSION_BITS)
+    } else if kind == libc::S_IFLNK {
         LeafKind::Symlink
     } else {
         LeafKind::Other

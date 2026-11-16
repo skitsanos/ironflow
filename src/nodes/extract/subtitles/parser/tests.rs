@@ -1,9 +1,9 @@
 use super::*;
 
-// run_blocking_step needs 'static, so the fixture is moved in rather than
+// run_tracked_blocking_step needs 'static, so the fixture is moved in rather than
 // borrowed.
 async fn parse(contents: &'static str, is_vtt: bool) -> Vec<SubtitleCue> {
-    crate::util::execution::run_blocking_step(move |execution| {
+    crate::util::execution::run_tracked_blocking_step(move |execution| {
         let limits = Limits {
             max_output_bytes: 1_000_000,
             max_items: 10_000,

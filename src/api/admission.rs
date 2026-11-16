@@ -1,6 +1,7 @@
 //! Process-wide admission control for API and scheduler initiated runs.
 
 use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
@@ -76,6 +77,26 @@ pub(crate) fn acquire_run_permit(
     result
 }
 
+/// Refuse a flow load that creates no run while the service drains, with the
+/// same retry signal run admission gives.
+pub(crate) fn refuse_flow_load_while_draining(
+    lifecycle: &ServiceLifecycle,
+    metrics: Option<&crate::metrics::Metrics>,
+) -> Result<(), AppError> {
+    if lifecycle.is_ready() {
+        return Ok(());
+    }
+    if let Some(metrics) = metrics {
+        metrics.admission(
+            crate::metrics::AdmissionResource::FlowLoad,
+            crate::metrics::AdmissionDecision::Draining,
+        );
+    }
+    Err(AppError::ServiceUnavailable(
+        "server is draining; retry on another replica".to_string(),
+    ))
+}
+
 /// Reserve one of the bounded Lua flow-definition evaluation slots.
 ///
 /// API requests fail fast rather than accumulating request bodies while they
@@ -89,15 +110,44 @@ pub(crate) fn acquire_flow_load_permit(
             "server is at maximum concurrent flow-loading capacity; retry later".to_string(),
         )
     });
+    record_flow_load_admission(metrics, result.is_ok());
+    result
+}
+
+/// Reserve a flow-load slot for scheduler-initiated work, waiting at most
+/// `wait` for one to free up. `Ok(None)` means the wait expired.
+///
+/// A schedule holds no request body and several schedules routinely share a
+/// minute, so queueing briefly behind the other loads is cheaper than
+/// refusing (IF-182). The wait is bounded so a stuck parse cannot hold the
+/// schedule's evaluation budget.
+pub(crate) async fn acquire_flow_load_permit_within(
+    wait: Duration,
+    metrics: Option<&crate::metrics::Metrics>,
+) -> Result<Option<OwnedSemaphorePermit>, AppError> {
+    let semaphore = configured_flow_load_semaphore().map_err(AppError::Internal)?;
+    let permit = match tokio::time::timeout(wait, semaphore.clone().acquire_owned()).await {
+        Ok(Ok(permit)) => Some(permit),
+        Ok(Err(_)) => {
+            return Err(AppError::Internal(anyhow::anyhow!(
+                "flow-load admission semaphore is closed"
+            )));
+        }
+        Err(_) => None,
+    };
+    record_flow_load_admission(metrics, permit.is_some());
+    Ok(permit)
+}
+
+fn record_flow_load_admission(metrics: Option<&crate::metrics::Metrics>, accepted: bool) {
     if let Some(metrics) = metrics {
-        let decision = if result.is_ok() {
+        let decision = if accepted {
             crate::metrics::AdmissionDecision::Accepted
         } else {
             crate::metrics::AdmissionDecision::AtCapacity
         };
         metrics.admission(crate::metrics::AdmissionResource::FlowLoad, decision);
     }
-    result
 }
 
 /// Run an admitted flow parse in a detached supervisor that owns its permit.

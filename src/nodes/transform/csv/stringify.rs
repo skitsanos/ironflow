@@ -6,9 +6,10 @@ use csv::{QuoteStyle, WriterBuilder};
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
-use crate::util::node_config::config_bool;
+use crate::util::node_config::{config_bool, config_bool_or};
 
-use super::value::{csv_value_to_string, parse_csv_single_byte};
+use super::formula::Cells;
+use super::value::parse_csv_single_byte;
 
 pub struct CsvStringifyNode;
 
@@ -33,6 +34,12 @@ impl Node for CsvStringifyNode {
             .ok_or_else(|| anyhow::anyhow!("csv_stringify requires 'output_key'"))?;
         let include_headers = config_bool(config, "include_headers", ctx).unwrap_or(true);
         let quote_all = config_bool(config, "quote_all", ctx).unwrap_or(false);
+        // On unless the flow turns it off; a value that is not a boolean
+        // fails instead of silently writing raw cells (IF-223).
+        let cells = Cells {
+            escape_formulas: config_bool_or(config, "escape_formulas", ctx, true)
+                .map_err(|error| anyhow::anyhow!("csv_stringify: {error}"))?,
+        };
         let source = ctx
             .get(source_key)
             .ok_or_else(|| anyhow::anyhow!("Key '{}' not found in context", source_key))?;
@@ -49,10 +56,10 @@ impl Node for CsvStringifyNode {
 
         match source {
             serde_json::Value::Array(values) => {
-                write_array(&mut writer, values, include_headers)?;
+                write_array(&mut writer, values, include_headers, cells)?;
             }
             serde_json::Value::Object(object) => {
-                write_object(&mut writer, object, include_headers)?;
+                write_object(&mut writer, object, include_headers, cells)?;
             }
             _ => {
                 anyhow::bail!("csv_stringify requires 'source_key' to contain an object or array");
@@ -72,16 +79,17 @@ fn write_array(
     writer: &mut csv::Writer<Vec<u8>>,
     values: &[serde_json::Value],
     include_headers: bool,
+    cells: Cells,
 ) -> Result<()> {
     match detect_source_mode(values)? {
-        CsvSourceMode::Objects => write_object_rows(writer, values, include_headers),
-        CsvSourceMode::Arrays => write_array_rows(writer, values, include_headers),
+        CsvSourceMode::Objects => write_object_rows(writer, values, include_headers, cells),
+        CsvSourceMode::Arrays => write_array_rows(writer, values, include_headers, cells),
         CsvSourceMode::Scalars => {
             if include_headers {
                 writer.write_record(["value"])?;
             }
             for value in values {
-                writer.write_record([csv_value_to_string(value)])?;
+                writer.write_record([cells.value(value)])?;
             }
             Ok(())
         }
@@ -92,6 +100,7 @@ fn write_object_rows(
     writer: &mut csv::Writer<Vec<u8>>,
     values: &[serde_json::Value],
     include_headers: bool,
+    cells: Cells,
 ) -> Result<()> {
     let mut headers = Vec::new();
     let mut seen = HashSet::new();
@@ -111,12 +120,14 @@ fn write_object_rows(
     }
     headers.sort_unstable();
     if include_headers {
-        writer.write_record(&headers)?;
+        writer.write_record(headers.iter().map(|header| cells.text(header).into_owned()))?;
     }
     for row in rows {
-        writer.write_record(headers.iter().map(|field| {
-            csv_value_to_string(row.get(field).unwrap_or(&serde_json::Value::Null))
-        }))?;
+        writer.write_record(
+            headers
+                .iter()
+                .map(|field| cells.value(row.get(field).unwrap_or(&serde_json::Value::Null))),
+        )?;
     }
     Ok(())
 }
@@ -125,6 +136,7 @@ fn write_array_rows(
     writer: &mut csv::Writer<Vec<u8>>,
     values: &[serde_json::Value],
     include_headers: bool,
+    cells: Cells,
 ) -> Result<()> {
     let width = values
         .iter()
@@ -140,9 +152,9 @@ fn write_array_rows(
                 "csv_stringify expects array elements to be arrays when source is an array mode"
             )
         })?;
-        writer.write_record((0..width).map(|index| {
-            csv_value_to_string(row.get(index).unwrap_or(&serde_json::Value::Null))
-        }))?;
+        writer.write_record(
+            (0..width).map(|index| cells.value(row.get(index).unwrap_or(&serde_json::Value::Null))),
+        )?;
     }
     Ok(())
 }
@@ -151,16 +163,17 @@ fn write_object(
     writer: &mut csv::Writer<Vec<u8>>,
     object: &serde_json::Map<String, serde_json::Value>,
     include_headers: bool,
+    cells: Cells,
 ) -> Result<()> {
     let mut headers: Vec<_> = object.keys().cloned().collect();
     headers.sort_unstable();
     if include_headers {
-        writer.write_record(&headers)?;
+        writer.write_record(headers.iter().map(|header| cells.text(header).into_owned()))?;
     }
     writer.write_record(
-        headers.iter().map(|field| {
-            csv_value_to_string(object.get(field).unwrap_or(&serde_json::Value::Null))
-        }),
+        headers
+            .iter()
+            .map(|field| cells.value(object.get(field).unwrap_or(&serde_json::Value::Null))),
     )?;
     Ok(())
 }

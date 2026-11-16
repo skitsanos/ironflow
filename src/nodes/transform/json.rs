@@ -3,6 +3,8 @@ use async_trait::async_trait;
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
+use crate::util::json_budget::{self, Refusal};
+use crate::util::json_integers::parse_exact;
 use crate::util::node_config::config_bool;
 
 pub struct JsonParseNode;
@@ -36,7 +38,17 @@ impl Node for JsonParseNode {
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("Value at '{}' is not a string", source_key))?;
 
-        let parsed: serde_json::Value = serde_json::from_str(json_str)?;
+        // Counted before it is built: a `Value` is many times the size of
+        // its text (IF-215). An integer the value cannot hold exactly is
+        // kept as a string of its digits (IF-223).
+        let parsed =
+            parse_exact(json_str, json_budget::parse).map_err(|refusal| match refusal {
+                Refusal::Syntax(error) => anyhow::Error::new(error),
+                Refusal::TooManyNodes { .. } => anyhow::anyhow!("json_parse: {refusal}"),
+            })?;
+        // The parsed value becomes step output, which the stores must be able
+        // to read back (IF-181).
+        crate::util::json_depth::check_value(&parsed)?;
 
         let mut output = NodeOutput::new();
         output.insert(output_key.to_string(), parsed);
@@ -119,12 +131,15 @@ impl Node for JsonExtractPathNode {
 
         let source = if parse_json {
             if let Some(json_text) = source.as_str() {
-                serde_json::from_str(json_text).map_err(|err| {
-                    anyhow::anyhow!(
+                parse_exact(json_text, json_budget::parse).map_err(|refusal| match refusal {
+                    Refusal::Syntax(error) => anyhow::anyhow!(
                         "json_extract_path failed to parse '{}' as JSON: {}",
                         source_key,
-                        err
-                    )
+                        error
+                    ),
+                    Refusal::TooManyNodes { .. } => {
+                        anyhow::anyhow!("json_extract_path: {refusal}")
+                    }
                 })?
             } else {
                 source.clone()

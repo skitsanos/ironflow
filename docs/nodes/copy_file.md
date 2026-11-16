@@ -22,14 +22,20 @@ as `write_file`. The copy runs on a tracked blocking worker and is bounded by
   before staging. Unix pins the resolved directory, so retargeting the alias
   afterward cannot redirect the copy. This is not permission to follow a
   destination-file symlink.
+- On Unix, missing parent directories are created
+  [`0755` masked by the process umask](write_file.md#created-directories).
 - A destination-file symlink, dangling link or special file is refused and its
   target is never opened or truncated. An existing regular destination is
   replaced only after a complete, flushed and synced copy.
 - On Unix, the copy keeps the source's permission bits (for example an
-  executable `0751` script stays `0751`); the staged file is created `0600`
-  and receives the source mode before it is published. Other platforms use
+  executable `0751` script stays `0751`), whether the destination is new or
+  replaces a file with another mode; the staged file is created `0600` and
+  receives the source mode before it is published. Other platforms use
   native file-permission semantics, not Unix modes; protect destination
   directories with appropriate access controls.
+- Copies to one destination are serialized inside the IronFlow process with
+  `write_file` writes to it; see [write_file](write_file.md) for the limits of
+  that guarantee.
 - Source, admission, cancellation or commit failure leaves an existing
   destination unchanged and removes the staged file.
 - Portable platforms revalidate the destination immediately before an OS-level

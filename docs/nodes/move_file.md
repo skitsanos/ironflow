@@ -17,6 +17,8 @@ tracked blocking worker.
   before the rename. Unix pins the resolved directory and renames relative to
   that handle, so retargeting the alias afterward cannot redirect the move.
   This is not permission to follow a destination-file symlink.
+- On Unix, missing parent directories are created
+  [`0755` masked by the process umask](write_file.md#created-directories).
 - A destination leaf that is a symlink, dangling link or special file is
   refused, so the move never replaces a link or writes through one. An
   existing regular destination file is replaced atomically.

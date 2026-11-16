@@ -3,7 +3,8 @@ use anyhow::Result;
 use crate::engine::types::Context;
 
 use crate::nodes::ai::embeddings::{
-    BatchOptions, acquire_oauth_token, embed_ollama, embed_openai, resolve_param,
+    BatchOptions, OauthClient, embed_oauth, embed_ollama, embed_openai, provider_name,
+    resolve_param,
 };
 
 pub(super) async fn embed_sentences(
@@ -13,15 +14,14 @@ pub(super) async fn embed_sentences(
     sentences: &[String],
     options: &BatchOptions,
 ) -> Result<Vec<Vec<f64>>> {
-    match config
-        .get("provider")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("openai")
-    {
+    match provider_name(config, "ai_chunk_semantic", "openai")? {
         "openai" => embed_with_openai(client, config, ctx, sentences, options).await,
         "ollama" => embed_with_ollama(client, config, ctx, sentences, options).await,
         "oauth" => embed_with_oauth(client, config, ctx, sentences, options).await,
-        provider => anyhow::bail!("ai_chunk_semantic: unsupported provider '{}'", provider),
+        provider => anyhow::bail!(
+            "ai_chunk_semantic: unsupported provider '{}'. Use 'openai', 'ollama', or 'oauth'.",
+            provider
+        ),
     }
 }
 
@@ -67,16 +67,14 @@ async fn embed_with_oauth(
     let base_url = required_param(config, "base_url", "OAUTH_BASE_URL", ctx)?;
     let scope = resolve_param(config, "scope", "OAUTH_SCOPE", ctx);
     let model = resolve_model(config, "openai-text-embedding-3-small");
-    let token = acquire_oauth_token(
-        client,
-        &token_url,
-        &client_id,
-        &client_secret,
-        scope.as_deref(),
-    )
-    .await?;
+    let oauth = OauthClient {
+        token_url: &token_url,
+        client_id: &client_id,
+        client_secret: &client_secret,
+        scope: scope.as_deref(),
+    };
 
-    embed_openai(client, &base_url, &token, model, sentences, options).await
+    embed_oauth(client, &oauth, &base_url, model, sentences, options).await
 }
 
 fn required_param(

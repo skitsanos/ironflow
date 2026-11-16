@@ -12,9 +12,9 @@
 # Storage
 # store_dir: "data/runs"  # --store-dir / IRONFLOW_STORE_DIR
 store_backend: "json"     # IRONFLOW_STORE: json, sqlite, postgres, or redis
-# store_url: "sqlite://data/runs/ironflow.sqlite?mode=rwc" # IRONFLOW_STORE_URL
+# store_url: "sqlite:data/runs/ironflow.sqlite?mode=rwc" # IRONFLOW_STORE_URL
 # event_store: "memory"   # IRONFLOW_EVENT_STORE
-# event_store_url: "sqlite://data/runs/ironflow-events.sqlite?mode=rwc"
+# event_store_url: "sqlite:data/runs/ironflow-events.sqlite?mode=rwc"
 # event_memory_capacity: 10000 # Positive count bound; memory also has a fixed 64 MiB retained-heap estimate
 # sql_table_prefix: "ironflow_" # IRONFLOW_SQL_TABLE_PREFIX
 
@@ -35,6 +35,16 @@ store_backend: "json"     # IRONFLOW_STORE: json, sqlite, postgres, or redis
 # cors_origins:                    # IRONFLOW_CORS_ORIGINS (comma-separated)
 #   - "https://app.example.com"
 
+# Outbound destination policy. `true` refuses localhost and every address that
+# is not a public unicast destination for every node that connects to a
+# flow-chosen destination; a flow cannot turn it off. The allowlist names the
+# internal destinations that stay reachable: host names, host:port, addresses
+# and CIDR ranges. A malformed entry stops startup. See docs/SECURITY.md.
+# block_private_network: false     # IRONFLOW_BLOCK_PRIVATE_NETWORK
+# private_network_allowlist:       # IRONFLOW_PRIVATE_NETWORK_ALLOWLIST (comma-separated)
+#   - "127.0.0.1:11434"            # a model server on this host
+#   - "db.internal:5432"
+
 # Optional same-origin public frontend. Presence enables static hosting;
 # relative directories resolve from the process working directory. The root
 # index must exist before `ironflow serve` starts.
@@ -48,6 +58,8 @@ store_backend: "json"     # IRONFLOW_STORE: json, sqlite, postgres, or redis
 # Webhooks — scalar entries forward no request headers. Structured entries can
 # opt confidential business-signature headers into the execution-only
 # ctx._headers overlay. Platform auth/cookie/session headers remain reserved.
+# A forwarded value needs at least eight non-whitespace bytes; it and its
+# components of eight bytes or more are redacted from step output and records.
 # webhooks:
 #   hello: hello_world.lua
 #   signed-action:
@@ -60,7 +72,11 @@ store_backend: "json"     # IRONFLOW_STORE: json, sqlite, postgres, or redis
 # staging and nightly in production without editing flow source.
 #
 # `cron` is standard five-field (minute hour day month weekday); seconds are
-# fixed at zero. If day and weekday are both restricted, either one matching
+# fixed at zero. Each field is one token and fields are separated by spaces: a
+# missing space such as "5*/2 * * * *" fails at startup. Weekday numbers are
+# 0 to 7: 0 and 7 are Sunday, 1 to 6 are
+# Monday to Saturday, so "0 9 * * 1-5" is 09:00 from Monday to Friday. If day
+# and weekday are both restricted, either one matching
 # fires the schedule. `timezone` is an IANA name and defaults to UTC.
 # `grace_seconds` is the maximum lateness for which a missed instant still
 # fires (default 300, range 60..=604800). One tick evaluates at most 64 due

@@ -58,3 +58,16 @@ removes that temporary file and preserves any prior output; only a complete
 archive is published. The configured output parent may be a directory alias
 such as macOS `/tmp`; it is resolved before staging. An existing output symlink is rejected rather than
 followed.
+
+On Unix a new archive gets `0666` masked by the process umask (`0644` under
+umask `022`) and a replaced archive keeps its permission bits; the temporary
+file is mode `0600` until it is published. Missing parent directories of
+`zip_path` are created [`0755` masked by the process umask](write_file.md#created-directories).
+
+Each archive entry records the permission bits of its source file (`rwx` for
+owner, group and other), so an executable script is stored as `0755` and a
+private file as `0600` (IF-218; every entry was stored as `0600` before).
+Setuid, setgid and sticky bits are never recorded, and ownership is not
+stored. On platforms without Unix modes entries are still recorded as `0600`.
+[`zip_extract`](zip_extract.md#file-modes) ignores stored modes; other tools
+such as `unzip` apply them.

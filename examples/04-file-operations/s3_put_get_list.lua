@@ -88,7 +88,7 @@ flow:step("remove", nodes.s3_delete_object({
 Step 6: Inspect the outcome in logs.
 ]]
 flow:step("log", nodes.log({
-    message = "S3 demo complete: account buckets=${ctx.account_buckets_count}, bucket=${ctx.uploaded_bucket}, key=${ctx.uploaded_key}, size=${ctx.downloaded_size}, prefix objects=${ctx.objects_count}"
+    message = "S3 demo complete: account buckets=${ctx.account_buckets_count}, bucket=${ctx.uploaded_bucket}, key=${ctx.uploaded_key}, size=${ctx.downloaded_size}, prefix objects=${ctx.objects_count} (truncated=${ctx.objects_truncated})"
 })):depends_on("remove")
 
 --[[

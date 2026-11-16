@@ -1,6 +1,8 @@
 mod comments;
 mod content_types;
 mod graph;
+mod inherited;
+mod list_style;
 mod metadata;
 mod notes;
 mod package;
@@ -19,6 +21,8 @@ pub(super) use package::extract_pptx_slides;
 
 pub(super) struct PptxSlide {
     pub(super) slide_index: u32,
+    /// Hidden from the slide show (`show="0"` on the slide).
+    pub(super) hidden: bool,
     pub(super) title: Option<String>,
     pub(super) elements: Vec<PptxElement>,
     pub(super) speaker_notes: Option<String>,

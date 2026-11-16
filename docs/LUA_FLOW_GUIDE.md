@@ -71,6 +71,19 @@ flow:step("call_api", nodes.http_post({
 
 The backoff is exponential: 1s → 2s → 4s.
 
+A step may be retried at most 100 times. A larger count fails validation
+with `Step '<name>' retry count is too large (max 100)` before a run starts;
+the ceiling is fixed. Each failed attempt stores one error record of at most
+64 KiB, so the ceiling also bounds what a failing step adds to the store.
+
+Every wait the step could reach must be a duration the engine can schedule.
+The wait before retry *n* is `backoff × 2^(n-1)` seconds, so with a 1 second
+backoff the wait before retry 65 is 2^64 seconds, which is out of range:
+`:retries(100, 1)` fails validation with `Step '<name>' retry backoff is too
+large to schedule: the wait before retry 65 is not representable as a
+duration`, and `:retries(64, 1)` is accepted. A backoff of `0` is valid for
+any count.
+
 ## Timeout
 
 Set a per-step timeout:
@@ -89,11 +102,21 @@ that deadline; the timeout error is persisted when the budget expires.
 Node-local timeouts such as `shell_command.timeout` and HTTP `timeout` remain
 independent upper bounds, but the shorter enclosing step budget wins.
 
+The timeout must be a finite number of seconds greater than zero that the
+process clock can schedule. A value beyond that, such as `:timeout(1e19)`,
+fails validation with `Step '<name>' timeout is too large to schedule`. Omit
+`timeout()` for a step with no budget of its own.
+
 Cancellation is cooperative and resource-specific:
 
 - async node work is cancelled by dropping its future;
 - `code`, `foreach`, and nested-flow parsing run away from Tokio worker threads
-  and check the step deadline/cancellation through the Lua instruction hook;
+  and check the step deadline/cancellation through the Lua instruction hook.
+  This covers function handlers, which run as `code` steps. A Lua loop stops
+  at the next hook check. The hook cannot run inside one C library call, for
+  example a `string.find` whose pattern backtracks heavily, so a step stuck
+  there ends only when the call returns: its timeout error, its `on_error`
+  handler, dependent steps and the end of the run wait for it;
 - structured child workflows are cancelled with their parent step;
 - shell children and invalidated MCP stdio sessions terminate their direct
   child on every platform, and kill the inherited process group on Unix;
@@ -141,13 +164,14 @@ flow:step("continue", nodes.log({
 
 The handler receives three invocation-local context values for every failure:
 
-- `_error_message` — the source step's final error after retries;
+- `_error_message` — the source step's final error after retries. It is
+  scrubbed and holds at most the first 64 KiB of the step's error text, as
+  described under [diagnostic scrubbing](SECURITY.md#diagnostic-scrubbing);
 - `_error_step` — the source step name;
 - `_error_node_type` — the source node type.
 
 When a node returns a structured failure, the handler also receives
-`_error_output`: an object containing the final attempt's exact, redacted
-output. Those fields are also published under their normal context keys after
+`_error_output`: an object containing the final attempt's exact output. Those fields are also published under their normal context keys after
 retries are exhausted and the source phase settles. `_error_output` remains
 useful when parallel tasks use the same output-key prefix because it preserves
 the source task's exact output even if another task wins the shared-context
@@ -215,9 +239,21 @@ values must coexist. If a phase is cancelled or stalls before its barrier,
 none of that phase's buffered output enters final run context, although
 already-terminal bounded task history remains available.
 
+A context value may nest arrays and objects at most 123 levels deep (a scalar
+has depth 0, `[[1]]` has depth 2). The limit is fixed and is the same for the
+initial context, for every step output and for the state stores, so a value
+that is accepted can always be stored and read back. An initial context over
+the limit is refused before the run starts. A step whose output is over the
+limit fails with `step output refused: value '<key>' is nested deeper than
+123 levels of arrays and objects`; it is not retried, and its `on_error`
+handler runs as for any other failure. Lua code meets
+`IRONFLOW_MAX_CONVERSION_DEPTH` (default 64) first. See
+[JSON nesting limit](CLI_REFERENCE.md#json-nesting-limit).
+
 Final inspection context uses the same cap per value. Waiting subworkflows,
-parallel children, repeated children, and tool handlers pass full, redacted
-results to the live parent instead of reading those inspection snapshots.
+parallel children, repeated children, and tool handlers pass full results,
+exactly as the child produced them, to the live parent instead of reading
+those inspection snapshots.
 Large child values and carried repeat state therefore stay intact for later
 steps, subject to the usual Lua memory/conversion and execution limits. See
 [`live_child_results.lua`](../examples/11-subworkflow/live_child_results.lua)
@@ -274,6 +310,13 @@ Lua string. Resolution is one pass: a placeholder contained inside a resolved
 context string is not evaluated again. Numbers, booleans, arrays, and objects
 render as compact JSON.
 
+Only strings written in a node's configuration are templates. A value that a
+node reads from context through a key parameter, such as `source_key`,
+`vectors_source_key` or `keys_source_key`, is data: a path, URI or key stored
+there is used exactly as it is, including any `${ctx...}` text it contains.
+A flow can therefore validate a value in one step and rely on a later node
+using that same value.
+
 ## Environment Variables
 
 Use `env(key)` to read the final merged process environment in Lua. Existing
@@ -286,6 +329,15 @@ By default `env()` can read any process variable. Set `IRONFLOW_ENV_ALLOWLIST`
 to a comma-separated list of variable names to restrict it: when set, `env()`
 returns `nil` for any name not on the list, so flows cannot read (or exfiltrate)
 credentials the deployment did not explicitly expose.
+
+An operator can also restrict where nodes connect. With
+`IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, a step that names `localhost` or a
+private, loopback, link-local or metadata address fails with `blocked:
+target is a private network address` before any connection, unless the
+operator listed the destination in `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST`. A
+flow cannot change either setting; on the `http_*` nodes
+`block_private_network = true` adds the same guard for one step. See
+[Outbound destinations](SECURITY.md#outbound-destinations).
 
 ```lua
 local api_key = env("API_KEY")
@@ -324,7 +376,7 @@ flow:step("process", function(ctx)
 end)
 ```
 
-The HMAC secret must contain at least 16 bytes and is resolved from the named
+The HMAC secret must contain at least 16 bytes, not all whitespace, and is resolved from the named
 environment variable when the server starts. The signature header and secret
 never enter Lua context, and a rejected request creates no run. This generic
 policy signs only the request body; provider schemes that sign timestamps or
@@ -334,10 +386,19 @@ No request headers are forwarded by default. Separate non-authentication
 business headers can be allowlisted with `forward_headers`. Platform headers
 such as `Authorization` and `X-API-Key`, cookies, and proxy/session credentials
 are never workflow input. Configured header values are execution-only and are
-redacted from literal outputs, errors, child runs, stored context, events, and
-run-detail responses. Validate them in place; do not log, return, transform, or
-send their raw values elsewhere. The engine cannot recognize every derived or
-deliberately exfiltrated form of a secret.
+redacted from every record: stored task output, errors, stored context,
+events, and run-detail responses. Validate them in place; do not log,
+transform, or send their raw values elsewhere. The engine cannot recognize
+every derived or deliberately exfiltrated form of a secret.
+
+Redaction is record-only. The complete value and each component of at least
+eight non-whitespace bytes are matched in records; header names, JSON keys and
+shorter components such as `true` or `1` are not. The data a step returns
+reaches later steps, recovery handlers and parent runs unchanged, so a
+forwarded header cannot blank a value or change which steps run. Only the
+error message of a failed step is redacted before a handler reads it as
+`_error_message`. The exact rules are in the
+[CLI reference](CLI_REFERENCE.md#forwarded-header-redaction).
 
 `ctx._webhook` is durable workflow metadata. `ctx._headers` exists only during
 webhook execution and is inherited by nested workflow execution without being
@@ -376,7 +437,48 @@ flow:step("bonus", nodes.code({ source = "return { got_bonus = true }" })):depen
 flow:step_if("ctx.score > 50", "bonus", nodes.code({ source = "return { got_bonus = true }" }))
 ```
 
-`step_if` accepts the same condition syntax as `if_node` (`ctx.key > N`, `ctx.key == "value"`, `ctx.key exists`, bare truthiness). It creates an auto-named guard step (`_if_<step_name>`) and wires the actual step to run only when the condition is true. If false, the step is skipped.
+`step_if` accepts the same condition syntax as `if_node`. It creates an auto-named guard step (`_if_<step_name>`) and wires the actual step to run only when the condition is true. If false, the step is skipped.
+
+#### Condition grammar
+
+A condition is a comparison, an existence check (`ctx.key exists`) or a bare
+path tested for truthiness (`ctx.key`, false for `false`, `null` and a
+missing key). In a comparison the left side is a context path and the right
+side is always a literal:
+
+| Literal | Written as |
+|---------|------------|
+| Number | `100`, `-2`, `1.5` |
+| String | `"active"`, `'active'`, or an unquoted word |
+| Boolean | `true`, `false` |
+| Nil | `nil`, matching a key that is absent or `null` |
+
+```lua
+flow:step_if("ctx.ready == true", "start", nodes.log({ message = "ready" }))
+flow:step_if("ctx.dry_run != true", "write", nodes.log({ message = "writing" }))
+flow:step_if("ctx.override == nil", "use_default", nodes.log({ message = "default" }))
+flow:step_if("ctx.attempts >= 3", "escalate", nodes.log({ message = "escalating" }))
+```
+
+- `==` and `!=` accept every literal, and `!=` is the exact negation of `==`.
+  Values of different types are not equal, except that a string in the
+  context is compared with the operand's text, so the string `"5"` equals
+  `5`.
+- `>`, `<`, `>=` and `<=` compare a number in the context with a number
+  literal.
+- A comparison with no defined result is an error, not a skipped step. An
+  ordering operator with a non-numeric right operand (`ctx.n > nil`,
+  `ctx.a > ctx.b`) is rejected when the flow is loaded. Ordering anything
+  but a number, including a missing key or a numeric string, or comparing an
+  object or array with anything except `nil`, fails the guard step and the
+  run. Give a key that may be missing a default before ordering it.
+- There is no `and`, `or`, `not` or grouping, and a condition that uses them
+  (`not ctx.ready`, `ctx.a == 1 and ctx.b == 2`) is rejected when the flow
+  is loaded, and so is a literal in place of the path, such as the
+  condition `true`. Chain guards or decide in a `code` step. Quote a string
+  operand that contains spaces.
+
+The full rules are in the [`if_node` reference](nodes/if_node.md#condition-syntax).
 
 Function handlers work too:
 
@@ -453,9 +555,10 @@ end)
 The function receives `ctx` (the phase-start workflow context) as its argument
 and returns a table of key-value pairs to publish at the phase barrier. Under
 the hood, the function is compiled to bytecode at parse time and executed as a
-`code` node — so the same sandbox rules apply. Runtime helpers such as `env()`,
-`log()`, `json_parse()`, and `now_unix_ms()` work inside handlers. Loader-only
-globals such as `Flow` and `nodes` do not.
+`code` node — so the same sandbox rules, execution budgets and
+[timeout behaviour](nodes/code.md#execution-limits) apply. Runtime
+helpers such as `env()`, `log()`, `json_parse()`, and `now_unix_ms()` work
+inside handlers. Loader-only globals such as `Flow` and `nodes` do not.
 
 By default every context value is eagerly converted under one cumulative
 JSON-to-Lua budget. To exclude unused large values, declare literal top-level
@@ -523,6 +626,20 @@ validation rejects the ambiguous association instead of assigning diagnostics
 by registration order. Put those definitions on distinct lines, including
 nested functions when necessary. This is a validation-time source-analysis
 requirement; normal execution does not perform source association.
+
+### Flow size limits
+
+A flow may declare at most 10,000 steps, and one step may list at most 10,000
+dependencies. Both caps are fixed and apply wherever a flow is loaded. Build
+flows with `Flow.new`, `flow:step`, and the step builder methods: the loader
+measures the step and dependency lists itself and rejects a list that carries
+a metatable or a `_step_count` that does not match the steps the flow holds.
+
+Validation additionally rejects flow source, and string-valued
+`nodes.code.source`, whose syntax nests deeper than 1,000 levels. Lua refuses
+more than about 200 nested constructs on its own, so only an operator, index,
+or call chain of roughly a thousand links or more reaches that cap. Split such
+a generated expression into several statements.
 
 ## Complete Example
 

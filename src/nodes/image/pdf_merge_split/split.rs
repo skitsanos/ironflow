@@ -1,16 +1,20 @@
 mod document;
 mod grouped;
 
+use std::path::Path;
+
 use anyhow::Result;
 use async_trait::async_trait;
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
+use crate::nodes::file::RootedDir;
 use crate::util::execution::{ExecutionControl, run_tracked_blocking_step};
 
 use self::document::selected_document;
 use super::super::common::{parse_pages_spec, resolve_source};
+use super::output::{Policy, save_atomic};
 
 pub(crate) struct PdfSplitNode;
 
@@ -86,9 +90,11 @@ fn split(request: Request, execution: &ExecutionControl) -> Result<NodeOutput> {
         return grouped::split(&source, &request, &page_ids, &page_indices, execution);
     }
 
-    std::fs::create_dir_all(&request.output_dir)
-        .map_err(|error| anyhow::anyhow!("pdf_split: failed to create output dir: {error}"))?;
-
+    // The same rooted, no-follow, staged writer as the grouped mode. Single
+    // pages keep their legacy contract of replacing an existing regular file,
+    // which a repeated selection relies on.
+    let root = RootedDir::prepare(Path::new(&request.output_dir), "pdf_split", execution)?;
+    let maximum_bytes = crate::util::limits::max_pdf_bytes();
     let mut output_files = Vec::new();
     output_files.try_reserve_exact(page_indices.len())?;
     for &page_index in &page_indices {
@@ -98,17 +104,23 @@ fn split(request: Request, execution: &ExecutionControl) -> Result<NodeOutput> {
             .ok_or_else(|| anyhow::anyhow!("pdf_split: page index {page_index} out of range"))?;
         let mut document = selected_document(&source, &[*page_id], None, execution)?;
         execution.checkpoint()?;
-        let output_path = std::path::Path::new(&request.output_dir).join(format!(
-            "{}_{}.pdf",
-            request.stem,
-            page_index + 1
-        ));
-        document.save(&output_path).map_err(|error| {
-            anyhow::anyhow!(
-                "pdf_split: failed to save page {}: {error:?}",
-                page_index + 1
-            )
+        let leaf = format!("{}_{}.pdf", request.stem, page_index + 1);
+        save_atomic(
+            &mut document,
+            &root,
+            Path::new(&leaf),
+            Policy {
+                operation: "pdf_split",
+                variable: "IRONFLOW_MAX_PDF_BYTES",
+                maximum: maximum_bytes,
+                overwrite: true,
+            },
+            execution,
+        )
+        .map_err(|error| {
+            error.context(format!("pdf_split: failed to save page {}", page_index + 1))
         })?;
+        let output_path = Path::new(&request.output_dir).join(leaf);
         output_files.push(serde_json::Value::String(
             output_path.to_string_lossy().into_owned(),
         ));

@@ -155,3 +155,35 @@ fn recursive_validation_reports_value_paths() {
         vec!["config.headers.Authorization", "config.items[1]"]
     );
 }
+
+#[test]
+fn required_interpolation_fails_instead_of_rendering_an_empty_value() {
+    let mut ctx = context();
+    ctx.insert("indirect".to_string(), json!("${ctx.amount}"));
+
+    assert_eq!(
+        interpolate_ctx_required("${ctx.user.name}/${ctx.amount}/${ctx.enabled}", &ctx).unwrap(),
+        "Alice/42/true"
+    );
+    // One pass: a placeholder inside a resolved value is not read again.
+    assert_eq!(
+        interpolate_ctx_required("${ctx.indirect}", &ctx).unwrap(),
+        "${ctx.amount}"
+    );
+    assert_eq!(
+        interpolate_ctx_required("\\${ctx.absent} ${HOME} plain", &ctx).unwrap(),
+        "${ctx.absent} ${HOME} plain"
+    );
+    for (template, detail) in [
+        ("${ctx.absent}", "the value is missing from context"),
+        ("x-${ctx.user.email}", "the value is missing from context"),
+        ("${ctx.nothing}", "the value is missing from context"),
+        ("${ctx.user}", "the value is an object or array, not text"),
+        ("${ctx.items}", "the value is an object or array, not text"),
+    ] {
+        let error = interpolate_ctx_required(template, &ctx).unwrap_err();
+        assert_eq!(error.detail(), detail, "{template}");
+        assert_eq!(try_interpolate_ctx("${ctx.absent}", &ctx).unwrap(), "");
+    }
+    assert!(interpolate_ctx_required("${ctx.user", &ctx).is_err());
+}

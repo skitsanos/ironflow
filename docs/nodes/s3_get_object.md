@@ -36,6 +36,16 @@ and every body chunk is counted while streaming, so missing or inaccurate
 metadata cannot bypass the ceiling. The complete bounded body is then decoded
 as text or base64.
 
+## Outbound destination policy
+
+When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, `endpoint_url`
+(or `AWS_ENDPOINT_URL`) is refused when it is `localhost` or not a public
+unicast address, and every DNS answer of the service client is validated
+and pinned. An S3-compatible endpoint on a private address must be listed by
+the operator in `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` (for example
+`minio.internal:9000`). See
+[Outbound destinations](../SECURITY.md#outbound-destinations).
+
 ## Example
 
 ```lua

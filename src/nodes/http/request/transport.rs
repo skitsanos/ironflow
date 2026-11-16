@@ -2,12 +2,12 @@ use anyhow::Result;
 use std::sync::LazyLock;
 
 use crate::engine::types::Context;
-use crate::nodes::http::helpers::url_targets_internal_network;
+use crate::util::outbound::Guard;
 use crate::util::sensitive_url::{SecretEndpoint, redact_sensitive_text};
 
 use super::body::RequestBody;
 use super::builder::build_request;
-use super::dns::PublicDnsResolver;
+use super::dns::GuardedDnsResolver;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum ProxyMode {
@@ -34,7 +34,7 @@ impl ProxyMode {
 pub(super) struct RedirectPolicy {
     pub(super) max_redirects: usize,
     pub(super) allow_cross_origin: bool,
-    pub(super) block_private: bool,
+    pub(super) guard: Option<Guard>,
     pub(super) carries_sensitive_data: bool,
 }
 
@@ -53,7 +53,7 @@ fn build_client(direct: bool, public_dns_only: bool) -> Result<reqwest::Client, 
         builder = builder.no_proxy();
     }
     if public_dns_only {
-        builder = builder.dns_resolver(PublicDnsResolver);
+        builder = builder.dns_resolver(GuardedDnsResolver);
     }
     builder.build().map_err(|error| error.to_string())
 }
@@ -62,7 +62,7 @@ pub(super) fn shared_client(proxy_mode: ProxyMode, block_private: bool) -> Resul
     let client = if block_private {
         if proxy_mode == ProxyMode::System {
             anyhow::bail!(
-                "HTTP proxy_mode='system' cannot be combined with block_private_network=true; use 'auto' or 'direct'"
+                "HTTP proxy_mode='system' cannot be combined with block_private_network=true or IRONFLOW_BLOCK_PRIVATE_NETWORK=true; use 'auto' or 'direct'"
             );
         }
         &*SAFE_DIRECT_CLIENT
@@ -106,7 +106,7 @@ async fn send_chain(
     let mut redirects = 0_usize;
 
     loop {
-        enforce_literal_network_policy(&current_url, policy.block_private)?;
+        enforce_literal_network_policy(&current_url, policy.guard.as_ref())?;
         let response = build_request(
             client,
             &current_method,
@@ -169,7 +169,7 @@ fn validate_redirect(current: &url::Url, target: &url::Url, policy: &RedirectPol
     if !target.username().is_empty() || target.password().is_some() {
         anyhow::bail!("HTTP redirect target cannot contain URL credentials");
     }
-    enforce_literal_network_policy(target, policy.block_private)?;
+    enforce_literal_network_policy(target, policy.guard.as_ref())?;
 
     let cross_origin = current.scheme() != target.scheme()
         || current.host() != target.host()
@@ -187,11 +187,14 @@ fn validate_redirect(current: &url::Url, target: &url::Url, policy: &RedirectPol
     Ok(())
 }
 
-fn enforce_literal_network_policy(url: &url::Url, block_private: bool) -> Result<()> {
-    if block_private && url_targets_internal_network(url) {
+fn enforce_literal_network_policy(url: &url::Url, guard: Option<&Guard>) -> Result<()> {
+    if let Some(guard) = guard
+        && let Err(refusal) = guard.check_url(url)
+    {
         anyhow::bail!(
-            "HTTP request to {} blocked: target is a private network address (block_private_network is enabled)",
-            SecretEndpoint::new(url.as_str())
+            "HTTP request to {} blocked: {refusal} ({})",
+            SecretEndpoint::new(url.as_str()),
+            guard.setting()
         );
     }
     Ok(())
@@ -260,5 +263,33 @@ mod tests {
             redirected_method(reqwest::StatusCode::SEE_OTHER, "HEAD"),
             ("HEAD".to_owned(), true)
         );
+    }
+
+    // IF-191: a redirect hop is refused when its literal host is in any
+    // refused range, and a public hop on the same origin rules still passes.
+    #[test]
+    fn redirect_targets_follow_the_address_table() {
+        use crate::util::outbound::test_support::{ALLOWED, REFUSED, url_host};
+
+        let policy = RedirectPolicy {
+            max_redirects: 10,
+            allow_cross_origin: true,
+            guard: Some(Guard::node_only()),
+            carries_sensitive_data: false,
+        };
+        let current = url::Url::parse("https://example.com/start").unwrap();
+        let hop = |ip: &str| {
+            let target = format!("https://{}/next", url_host(ip));
+            validate_redirect(&current, &url::Url::parse(&target).unwrap(), &policy)
+        };
+
+        let followed: Vec<_> = REFUSED.iter().filter(|(_, ip)| hop(ip).is_ok()).collect();
+        assert!(followed.is_empty(), "redirect followed: {followed:#?}");
+        for (_, ip) in REFUSED {
+            let error = hop(ip).unwrap_err().to_string();
+            assert!(error.contains("private network"), "{ip}: {error}");
+        }
+        let refused: Vec<_> = ALLOWED.iter().filter(|ip| hop(ip).is_err()).collect();
+        assert!(refused.is_empty(), "public redirect refused: {refused:#?}");
     }
 }

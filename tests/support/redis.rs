@@ -55,7 +55,12 @@ impl RedisTest {
 
     pub async fn connection(&self) -> redis::RedisResult<ConnectionManager> {
         let client = redis::Client::open(self.url.as_str())?;
-        ConnectionManager::new(client).await
+        // The fixture is not under test: a response that takes longer than
+        // the client's 500 ms default on a loaded host must not fail a test
+        // of something else (IF-216, IF-220).
+        let config = redis::aio::ConnectionManagerConfig::new()
+            .set_response_timeout(Some(std::time::Duration::from_secs(60)));
+        ConnectionManager::new_with_config(client, config).await
     }
 
     pub async fn cleanup(&self) {

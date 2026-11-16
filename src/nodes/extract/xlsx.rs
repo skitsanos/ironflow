@@ -11,6 +11,7 @@ mod output_budget;
 mod shared_strings;
 mod sheets;
 mod stream;
+mod styles;
 mod workbook;
 
 use anyhow::Result;

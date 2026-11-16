@@ -8,7 +8,7 @@ published PDF.
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `files` | array | one of `files` / `source_key` | — | Non-empty array of paths, artifact descriptors, or canonical artifact URIs. Path strings support `${ctx.key}` interpolation. |
-| `source_key` | string | one of `files` / `source_key` | — | Context key containing the non-empty source array. Useful when prior nodes produced artifact descriptors. |
+| `source_key` | string | one of `files` / `source_key` | — | Context key containing the non-empty source array. Stored paths are used as they are and are not interpolated. Useful when prior nodes produced artifact descriptors. |
 | `output_path` | string | yes | — | Merged output path with `${ctx.key}` interpolation. |
 | `output_key` | string | no | `"pdf_merge"` | Prefix for output values. |
 
@@ -51,10 +51,14 @@ signatures, catalog features, or a general content-redaction operation.
 The result is written to a sibling staged file, flushed and synchronized, then
 atomically committed. Parse, limit, save, and cancellation failures remove the
 partial staging file and preserve an existing destination. The output refuses
-a final link or non-regular destination.
+a final link or non-regular destination. On Unix a new output gets `0666`
+masked by the process umask (`0644` under umask `022`) and a replaced output
+keeps its permission bits; the staged file is mode `0600` until it is
+published.
 
 Configured parent-directory aliases for `output_path`, including macOS `/tmp`,
-are resolved before staging and missing parent directories are created. Unix
+are resolved before staging and missing parent directories are created
+([`0755` masked by the process umask](write_file.md#created-directories) on Unix). Unix
 pins the resolved directory, so retargeting the alias afterward cannot redirect
 the write. This is not permission to follow a destination-file symlink.
 

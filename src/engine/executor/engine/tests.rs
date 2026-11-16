@@ -9,8 +9,13 @@ use crate::storage::event_store::EventStore;
 use crate::storage::null_store::NullStateStore;
 use crate::storage::{StateStore, StorageResult};
 
+mod builtin_workers;
+mod child_deadline;
 mod child_failures;
 mod child_results;
+mod child_workers;
+mod function_workers;
+mod lua_library_bounds;
 
 struct HangingEventStore;
 

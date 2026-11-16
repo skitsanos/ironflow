@@ -6,10 +6,14 @@ use crate::storage::{StorageError, StorageResult};
 
 mod backfill;
 mod deletion;
+mod fence;
 mod index;
 mod migration;
+mod row;
 mod schema;
 mod store;
+
+use fence::Fence;
 
 pub struct SqlEventStore {
     pub(super) pool: AnyPool,
@@ -27,6 +31,19 @@ impl SqlEventStore {
         crate::initialize_tls_provider();
         let dialect = SqlDialect::from_url(url)
             .map_err(|error| StorageError::backend("Invalid SQL event store URL", error))?;
+        if dialect == SqlDialect::Sqlite && crate::storage::sqlite_url::is_ephemeral(url) {
+            return Err(StorageError::invalid_input(format_args!(
+                "SQL event store requires a SQLite database file; {}",
+                crate::storage::sqlite_url::EPHEMERAL_REJECTION
+            )));
+        }
+        if dialect == SqlDialect::Sqlite && crate::storage::sqlite_url::has_relative_authority(url)
+        {
+            return Err(StorageError::invalid_input(format_args!(
+                "SQL event store URL is refused: {}",
+                crate::storage::sqlite_url::RELATIVE_AUTHORITY_REJECTION
+            )));
+        }
         let pool = AnyPoolOptions::new()
             .max_connections(5)
             .connect(url)
@@ -188,21 +205,6 @@ impl SqlEventStore {
         transaction: &mut Transaction<'_, Any>,
         run_id: &str,
     ) -> StorageResult<bool> {
-        let sql = format!(
-            "SELECT 1 FROM {} WHERE run_id = {}",
-            self.tables.event_deletions,
-            self.placeholder(1)
-        );
-        sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.as_str()))
-            .bind(run_id)
-            .fetch_optional(&mut **transaction)
-            .await
-            .map(|row| row.is_some())
-            .map_err(|error| {
-                StorageError::backend(
-                    format_args!("Failed to inspect event deletion for run '{run_id}'"),
-                    error,
-                )
-            })
+        Ok(self.fence(transaction, run_id).await? != Fence::Absent)
     }
 }

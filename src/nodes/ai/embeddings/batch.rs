@@ -1,7 +1,7 @@
 use anyhow::{Context as _, Result, ensure};
 
 use super::batch_config::BatchOptions;
-use super::transport::Endpoint;
+use super::transport::{EmbeddingError, Endpoint, is_unauthorized};
 
 pub(super) async fn embed_batches(
     endpoint: Endpoint<'_>,
@@ -55,12 +55,13 @@ pub(super) async fn embed_batches(
         }
         .await;
         // Keep the batch position in the outer message used by node diagnostics.
-        result.map_err(|error| {
-            anyhow::anyhow!(
+        result.map_err(|error| EmbeddingError {
+            message: format!(
                 "embedding batch {batch} (inputs {}-{end} of {}): {error:#}",
                 start + 1,
                 texts.len()
-            )
+            ),
+            unauthorized: is_unauthorized(&error),
         })?;
         start = end;
     }

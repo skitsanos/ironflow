@@ -13,7 +13,9 @@ flow:step("transcribe", nodes.transcribe({
     timeout = 300
 })):retries(2, 2):timeout(300)
 
--- extract_vtt reads a file, which is why transcribe wrote one.
+-- extract_vtt reads a file, which is why transcribe wrote one. The directory
+-- of output_file must exist; the transcript is staged beside it and atomically
+-- replaces a regular file, and a symlinked destination is refused.
 flow:step("cues", nodes.extract_vtt({
     path = "${ctx.transcript_path}",
     cues_key = "cues"

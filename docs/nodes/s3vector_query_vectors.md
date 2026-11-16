@@ -11,17 +11,17 @@ Run vector similarity search on an Amazon S3 Vector index.
 | `index_name` | string | yes* | environment-only fallback | Target index name. Uses `S3VECTOR_INDEX_NAME` only when no target field is configured. |
 | `index` | string | no | no | Alias for `index_name`. |
 | `index_arn` | string | yes* | environment-only fallback | Self-contained alternative target. Uses `S3VECTOR_INDEX_ARN` only when no target field is configured. |
-| `top_k` | integer | yes | -- | Number of nearest neighbors to return (`> 0`). |
+| `top_k` | integer | yes | -- | Number of nearest neighbors to return (`> 0` and at most 2147483647; a larger value is refused, not wrapped). |
 | `query_vector` | array<number> | no* | -- | Query embedding vector. |
 | `query_vector_key` | string | no* | -- | Context key containing a query embedding array. |
-| `filter` | object | no | -- | Optional metadata filter. |
-| `filter_key` | string | no | -- | Context key for a JSON metadata filter object. |
-| `return_metadata` | bool | no | `false` | Include vector metadata in results. |
-| `return_distance` | bool | no | `false` | Include distance values in results. |
+| `filter` | object | no | -- | Optional metadata filter, written in the flow. String values support `${ctx.key}` interpolation, and a placeholder that does not resolve fails the step; see [Metadata Filter](#metadata-filter). |
+| `filter_key` | string | no | -- | Context key that holds the metadata filter object. When set, the key must exist and hold a non-empty object; see [Metadata Filter](#metadata-filter). |
+| `return_metadata` | bool | no | `false` | Include vector metadata in results. See [Boolean Flags](#boolean-flags). |
+| `return_distance` | bool | no | `false` | Include distance values in results. See [Boolean Flags](#boolean-flags). |
 | `min_similarity` | number | no | -- | Optional minimum cosine similarity threshold between query vector and results. Only supported for cosine-index metrics (`min_similarity = 1 - distance`). Fewer results may be returned than `top_k`. |
-| `strict` | bool | no | `false` | When `true`, require a cosine index for `min_similarity`; otherwise `min_similarity` is ignored for non-cosine indexes. |
-| `region` | string | no | AWS region chain | Override `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, or `AWS_DEFAULT_REGION`. |
-| `endpoint_url` | string | no | `AWS_ENDPOINT_URL` env var | Override the S3 Vectors service endpoint. |
+| `strict` | bool | no | `false` | When `true`, require a cosine index for `min_similarity`; otherwise `min_similarity` is ignored for non-cosine indexes. See [Boolean Flags](#boolean-flags). |
+| `region` | string | no | AWS region chain | Override `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, or `AWS_DEFAULT_REGION`. The environment is used only when the parameter is absent: a value that is not a string, or is empty after interpolation, fails the step before the client is built. |
+| `endpoint_url` | string | no | `AWS_ENDPOINT_URL` env var | Override the S3 Vectors service endpoint. A value that is not a string, or is empty after interpolation, fails the step instead of falling back to the environment or the default AWS endpoint. |
 | `output_key` | string | no | `s3vector` | Prefix for context output keys. |
 
 ## Target Resolution
@@ -40,6 +40,88 @@ non-string, incomplete, or blank targets fail before the AWS client is built.
 
 At least one of `query_vector` or `query_vector_key` is required.
 
+## Boolean Flags
+
+`strict`, `return_metadata` and `return_distance` default to `false` only
+when the parameter is absent (in Lua, `nil`). A present value must be a
+boolean, one of the strings `true`/`yes`/`on`/`1` or `false`/`no`/`off`/`0`
+(case-insensitive), or a `${ctx.key}` template that resolves to one of them.
+Anything else, including a number, JSON `null`, a misspelling such as
+`"tru"` and a template whose key is missing, fails the step with
+`s3vector_query_vectors requires '<flag>' to be a boolean` before the AWS
+client is built, so no request is sent. A malformed `strict` therefore can
+no longer turn off the cosine requirement for `min_similarity`.
+
+## Metadata Filter
+
+Without `filter` and `filter_key` the query covers the whole index.
+
+`filter` is written in the flow, so its string values are templates:
+
+```lua
+filter = {
+    tenant = "${ctx.tenant_id}",            -- resolved before the request
+    ["$and"] = { { kind = "note-${ctx.kind}" } }
+}
+```
+
+- Every string value is interpolated once, at any depth, in objects and
+  arrays. Object keys are structural and are sent as written. A placeholder
+  inside a resolved value is not read again, and `\${ctx.key}` keeps a
+  literal `${ctx.key}`.
+- A placeholder must resolve to a string, number or boolean. When the value
+  is missing from context, is JSON `null`, or is an object or array, the step
+  fails with `s3vector_query_vectors could not interpolate
+  'filter.<entry>': ...` before the AWS client is built, and no request is
+  sent. Unlike other parameters, a missing value does not become an empty
+  string, because an empty or literal value would change what the query
+  returns. The message names the filter entry and the expression, never a
+  context value.
+- Interpolation produces text: `"${ctx.year}"` sends the string `"2026"`.
+  For a typed number or boolean, or a whole sub-filter, build the filter in a
+  step and pass it with `filter_key`.
+
+In earlier releases the inline filter was not interpolated and
+`"${ctx.tenant_id}"` was sent as that literal text.
+
+`filter_key` reads the filter from context, and a configured `filter_key` is
+a requirement, not a hint: the step fails before the AWS client is built, and
+no request is sent, unless the key resolves to a filter.
+
+| `filter_key` case | Result |
+|-------------------|--------|
+| Names a context key holding a non-empty object | The object is sent as the request filter. |
+| Names a key that is absent from context | Fails: `requires filter_key '<key>' to exist in context`. |
+| The context value is `null`, an empty object `{}`, an array, a string, a number or a boolean | Fails: `requires filter_key '<key>' to hold a non-empty filter object`. |
+| Not a string, or empty after `${ctx.key}` interpolation | Fails: `requires 'filter_key' to be a non-empty string`. |
+
+An empty object is refused because it restricts nothing: a flow that builds a
+tenant or access filter upstream and ends up with `{}` would otherwise query
+every vector. Error messages name the context key and never include its
+value. The context value is used as stored; `${ctx.key}` placeholders inside
+it are not expanded.
+
+When both are configured, `filter` is used and `filter_key` is not read. Leave
+`filter_key` out of the step (in Lua, `nil`) for a query that is meant to be
+unfiltered.
+
+```lua
+flow:step("scope", nodes.code({
+    source = function(ctx)
+        return { tenant_filter = { tenant = ctx.tenant_id } }
+    end
+}))
+
+flow:step("query_vectors", nodes.s3vector_query_vectors({
+    vector_bucket_name = "ironflow-vectors-demo",
+    index_name = "ironflow-demo-index",
+    top_k = 5,
+    query_vector_key = "query_embedding",
+    filter_key = "tenant_filter",
+    output_key = "query"
+})):depends_on("scope")
+```
+
 ## Context Output
 
 - `{output_key}_distance_metric` — Similarity metric used.
@@ -48,6 +130,16 @@ At least one of `query_vector` or `query_vector_key` is required.
 - `{output_key}_count` — Number of returned result entries.
 - `{output_key}_vectors` — Array of result objects (`key`, optional `distance`, optional `metadata`).
 - `{output_key}_success` — `true` on success.
+
+## Outbound destination policy
+
+When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, `endpoint_url`
+(or `AWS_ENDPOINT_URL`) is refused when it is `localhost` or not a public
+unicast address, and every DNS answer of the service client is validated
+and pinned. An S3-compatible endpoint on a private address must be listed by
+the operator in `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` (for example
+`minio.internal:9000`). See
+[Outbound destinations](../SECURITY.md#outbound-destinations).
 
 ## Example
 

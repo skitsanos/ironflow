@@ -56,11 +56,18 @@ Execute a workflow from a Lua flow file.
 | `<FLOW>` | yes | — | Path to the `.lua` flow file |
 | `-c, --context <JSON>` | no | `{}` | Initial context as a JSON string |
 | `-v, --verbose` | no | off | Show step details, per-task timing, and outputs |
-| `--store-dir <DIR>` | no | `data/runs` | Directory for state persistence (`IRONFLOW_STORE_DIR`) |
+| `--store-dir <DIR>` | no | `data/runs` | Directory for state persistence (`IRONFLOW_STORE_DIR`); any valid directory name, see [Store directory and SQLite URLs](#store-directory-and-sqlite-urls) |
 
 ```bash
 ironflow run flow.lua --context '{"user": "Alice"}' --verbose
 ```
+
+Each value in `--context` may nest arrays and objects at most 123 levels deep
+(a scalar has depth 0, `[[1]]` has depth 2). A deeper value is refused before
+a run record exists, with `Invalid --context JSON: value '<key>' is nested
+deeper than 123 levels of arrays and objects` and exit status 1. The same
+fixed limit applies to a `POST /flows/run` `context`, a webhook body and
+every step output; see [JSON nesting limit](#json-nesting-limit).
 
 ---
 
@@ -72,9 +79,20 @@ Parse and validate a flow file without executing it. Checks for:
 - DAG cycles
 - Duplicate step names
 - Invalid recovery targets, shared handlers, and recovery-graph cycles
+- `step_if` and `if_node` conditions outside the condition grammar, such as
+  `not ctx.ready` or `ctx.a == 1 and ctx.b == 2`, and conditions that order
+  against a non-numeric operand, such as `ctx.n > nil` (see
+  [Condition Syntax](nodes/if_node.md#condition-syntax))
 - Invalid syntax in string-valued `code` node source
 - Reads of undefined globals inside Lua function handlers and string-valued
   `code` node source
+- A flow table that `Flow.new` and `flow:step` did not build consistently
+- More than 10,000 steps in the flow, or more than 10,000 dependencies on one
+  step
+- Flow source or string-valued `code` node source nested deeper than 1,000
+  syntax levels
+- Child flows that fail to load or validate, and child-flow recursion (see
+  [Child flows](#child-flows) below)
 
 Undefined globals are warnings by default, so validation still exits
 successfully while reporting the source line and column. Embedded code-source
@@ -82,6 +100,47 @@ locations use `step[NAME].source:LINE:COLUMN`; their positions are relative to
 the decoded source string. Use `--strict` to treat any Lua warning as a
 validation failure. Invalid embedded syntax and function handlers that capture
 outer locals are always rejected.
+
+#### Child flows
+
+`ironflow validate` also loads the child flows that `subworkflow`,
+`repeat_subworkflow`, `parallel_subworkflows` (`flows` entries and the dynamic
+`flow`) and `tool_dispatch` (`tools.<name>.flow`) name with a literal path,
+and their children in turn. Paths follow the run-time rule: an absolute path
+is used as it is, a relative one is joined to the directory of the flow that
+names it. Each distinct child is loaded and checked once for the errors
+listed above and reported as `child flow <file>: ...`; the output adds
+`Child flows: <n>`. The walk stops at `IRONFLOW_MAX_SUBWORKFLOW_DEPTH` levels
+(default 16), the depth at which a run refuses a child, so flows below that
+level are not loaded.
+
+| Finding | Result |
+|---------|--------|
+| A child fails to load, names an unknown node type or has an invalid graph | Error |
+| A flow starts itself again, directly or through other flows, on every run, and nothing tolerates the failure | Error: `child flow recursion: a.lua -> b.lua -> a.lua always starts itself again` |
+| The same for a chain of distinct flows deeper than the limit | Error |
+| Recursion or a too-deep chain that a run can avoid or survive: the step is routed, is or has an `on_error` handler, depends on such a step, the node has `on_error = "ignore"` or `wait = false`, `subworkflow` has `output_key` without `on_error`, or the reference is a `tool_dispatch` handler or a dynamic fan-out | Warning: `... can start itself again` |
+| A named child file does not exist | Warning, because an earlier step may write it |
+
+Warnings do not fail validation unless `--strict` is given. Lua handler
+warnings of a child are reported when that file is validated itself. A path
+that is only known at run time is not followed, and `POST /flows/validate`
+checks the submitted flow only.
+
+The step and dependency caps are fixed and apply wherever a flow is loaded,
+including `ironflow run`, the REST API, webhooks, schedules, and subworkflows.
+The loader measures the flow's step list and each step's dependency list
+itself: a list that carries a metatable, or a `_step_count` field that does not
+match the steps the flow holds, is a load error, so a script cannot make the
+loader reserve memory for a count it merely claims.
+
+The syntax-nesting cap is fixed and applies only to validation, which is the
+only path that walks the syntax tree. Lua itself refuses more than about 200
+nested constructs, well inside the cap; only operator, index, or call chains
+longer than roughly a thousand links reach it, for example a generated
+`1 + 1 + ...` expression. Such a flow fails validation with `Lua source is
+nested too deeply for validation`, naming the line, but Lua compiles those
+chains without nesting, so the execution paths still load it.
 
 Self-contained callbacks may be registered repeatedly; each source warning is
 reported once. Distinct functions with identical start/end line ranges are
@@ -186,24 +245,112 @@ store.
 
 | Flag | Required | Default | Description |
 |------|----------|---------|-------------|
-| `--before <RFC3339>` | yes | — | Consider only artifacts last modified before this instant |
-| `--limit <COUNT>` | no | `100` | Candidate batch size, strictly 1–100 |
+| `--before <RFC3339>` | yes | — | Delete only artifacts last modified before this instant |
+| `--limit <COUNT>` | no | `100` | Most artifacts deleted by this invocation, strictly 1–100 |
+| `--scan <COUNT>` | no | `10000` | Most stored artifacts examined by this invocation, strictly 1–10000 |
+| `--after <SHA256>` | no | — | Resume after this digest, as printed by an incomplete invocation |
 | `--confirm-offline` | yes | — | Assert that no process can add a reference during the scan/delete window |
+| `--all` | no | off | Repeat bounded passes, each with its own `--scan` and `--limit`, until the whole store has been examined. See [Covering the whole store](#covering-the-whole-store) |
 | `--store-dir <DIR>` | no | `data/runs` | JSON/SQLite state location; normal store configuration and environment overrides still apply |
 
-The command holds at most 100 candidate digests, walks run summaries in
-100-record cursor pages, and loads one full run at a time. Corrupt or unreadable
-run state fails closed before deletion. S3 listing can traverse multiple remote
-pages but retains only the requested candidate batch. The command deletes both
-the remote object and its local cache entry; local mode deletes the local
-object only.
+Invalid arguments fail before either store is opened.
+
+**What one invocation does.** It examines the next `--scan` stored digests in
+ascending digest order, starting after `--after` (or at the beginning), and
+treats those older than `--before` as candidates. It then walks every retained
+run once and deletes, in digest order, the candidates that no run context or
+task input/output references, stopping at `--limit` deletions. Candidates that
+are still referenced are skipped, not counted against `--limit`, so referenced
+artifacts at the front of the store no longer hide the orphans behind them
+(IF-200). Earlier releases applied `--limit` to the artifacts *inspected*; it
+now bounds deletions.
+
+**Output.** Two lines on standard output, exit status `0`:
+
+```text
+Artifact prune inspected 9, retained 7, deleted 2.
+Artifact prune incomplete: examined 12 stored artifacts; continue with --after <sha256>
+```
+
+| Field | Meaning |
+|---|---|
+| `inspected` | Old candidates resolved by this invocation: `retained` plus `deleted` |
+| `retained` | Resolved candidates that a retained run still references |
+| `deleted` | Candidates removed, at most `--limit` |
+| `examined` | Stored digests listed in this window, old or not, at most `--scan` |
+| `incomplete … --after <sha256>` | More of the store remains; pass the digest back to continue |
+| `complete …` | The window reached the end of the store and nothing was left over |
+
+#### Covering the whole store
+
+By default one invocation is one bounded pass, so its work is bounded by
+`--scan` and `--limit` however large the store is. `--all` (IF-220) runs the
+loop below inside the command: it repeats passes, each still bounded by
+`--scan` and `--limit`, resuming after the digest the previous pass reached,
+until a pass reaches the end of the store. It requires `--confirm-offline`
+like every prune, may be combined with `--after` to start part-way, and
+stops with an error if a pass fails. Each pass prints its `inspected` line;
+an intermediate pass then prints `Artifact prune pass <n>: examined <k>
+stored artifacts; continuing after <sha256>`, and the command ends with the
+`complete` line and a total, `Artifact prune --all: <n> passes, inspected
+<i>, retained <r>, deleted <d>.` What `--all` gives up is the bound on one
+invocation: it runs ⌈N / scan⌉ + ⌈D / limit⌉ passes at most, and every pass
+reads every retained run once, so the writers stay stopped for the whole of
+it. Use the default when the offline window is short and the store is
+large, and continue in the next window with the printed `--after`.
+
+**Progress guarantee.** Every incomplete invocation prints a digest greater
+than the one it was given, and everything up to that digest has been resolved.
+Repeating the command with the printed `--after` until it prints `complete`
+therefore covers a store of *N* digests holding *D* deletable artifacts in at
+most ⌈N / scan⌉ + ⌈D / limit⌉ invocations, whatever share of the store is still
+referenced. Without `--after` each invocation starts at the beginning again:
+that is sufficient only while the store holds no more digests than `--scan`.
+Start the next maintenance cycle without `--after`.
 
 ```bash
-ironflow artifacts prune \
-  --before 2026-07-01T00:00:00Z \
-  --limit 100 \
-  --confirm-offline
+# sh or bash: the unquoted ${after:+...} expansion must split into two words.
+after=""
+while :; do
+  out=$(ironflow artifacts prune --before 2026-07-01T00:00:00Z \
+    --confirm-offline ${after:+--after "$after"}) || exit 1
+  printf '%s\n' "$out"
+  after=$(printf '%s\n' "$out" | sed -n 's/.*--after \([0-9a-f]\{64\}\).*/\1/p')
+  [ -n "$after" ] || break
+done
 ```
+
+**Bounds of one invocation.**
+
+- Listing: S3 mode lists at most `--scan` keys under `<prefix>/sha256/`, in at
+  most ⌈scan / 1000⌉ requests. Local mode reads the names in
+  `IRONFLOW_ARTIFACT_DIR/sha256` once and reads metadata for at most `--scan`
+  files.
+  One S3 listing page is also bounded in bytes before it is buffered
+  (`IRONFLOW_MAX_S3_LIST_PAGE_BYTES`, default 16 MiB); a larger page stops
+  the invocation with `artifacts prune: a list page exceeds
+  IRONFLOW_MAX_S3_LIST_PAGE_BYTES` and nothing is deleted.
+- Memory: at most `--scan` digests (about 1 MB at the maximum) and one run.
+- References: one pass over run summaries in 100-record cursor pages, loading
+  one full run at a time. The pass is skipped when the window has no candidate
+  and ends early once every candidate is known to be referenced. Its cost
+  grows with the number of retained runs, not with the artifact store.
+- Deletions: at most `--limit`.
+- Time: the command sets no wall-clock limit of its own; its duration follows
+  the bounds above, so lower `--scan` to shorten an invocation.
+
+**Failure behavior.** Corrupt or unreadable run state, and a run holding more
+than 1,000,000 JSON values, fail closed before any deletion. A string that
+starts with `artifact://` but is not a canonical
+`artifact://sha256/<64 lowercase hex>` URI no longer aborts the prune: it is
+skipped and reported on standard error as a count with up to five run IDs,
+never by value. If such a string spells a stored digest in another form (upper
+case, or with a suffix), that artifact is kept. In S3 mode every listed key
+counts against `--scan`; a window that contains only keys that are not
+artifact digests fails with a message instead of reporting progress. The
+command deletes both the remote object and its local cache entry; local mode
+deletes the local object only. Deletion is idempotent, so an interrupted
+invocation can be repeated.
 
 ---
 
@@ -221,6 +368,33 @@ Start the REST API server.
 
 Explicit CLI flags take precedence over environment variables, which take
 precedence over matching `ironflow.yaml` fields and built-in defaults.
+
+A variable that is present but empty or whitespace-only is not treated as
+unset, and it is not a value either: `serve` (and every command that opens a
+store) stops at startup with a message that names the variable, never its
+value. This is what a compose placeholder (`IRONFLOW_API_KEY=${API_KEY}` with
+`API_KEY` undefined), an unresolved orchestrator secret or an unfilled `.env`
+line produces, and falling through would silently drop the configured setting
+(IF-198). Remove the variable to use the `ironflow.yaml` field or the default,
+or give it a value. The rule covers:
+
+| Setting | Present but empty |
+|---|---|
+| `IRONFLOW_API_KEY`, `api_key` | Startup fails. With `IRONFLOW_ALLOW_UNAUTHENTICATED_API=true` or `allow_unauthenticated_api: true` an empty key means no key, and the server starts unauthenticated on purpose. The exception is an empty `IRONFLOW_API_KEY` while `api_key` in the config file holds a key: those settings contradict each other and startup fails, naming both. Remove the variable or give it a value to enforce the key, or remove `api_key` to serve without authentication. |
+| `IRONFLOW_CORS_ORIGINS` | Startup fails, also for a value with no origin in it such as `,`. Unset the variable to deny cross-origin requests; `cors_origins: []` in config stays valid. |
+| `IRONFLOW_STORE`, `IRONFLOW_EVENT_STORE` | Startup fails. |
+| `IRONFLOW_STORE_URL`, `IRONFLOW_EVENT_STORE_URL` | Startup fails when the matching backend is `sqlite` or `postgres`; the variable is not read otherwise. |
+| `IRONFLOW_SQL_TABLE_PREFIX` | Startup fails. An empty `sql_table_prefix` in config still selects the default prefix. |
+| `REDIS_URL`, `REDIS_PREFIX` | Startup fails when a Redis backend is selected. An empty `redis_prefix` in config still means unprefixed keys. |
+| Boolean and numeric variables (`IRONFLOW_ALLOW_UNAUTHENTICATED_API`, `IRONFLOW_METRICS_ENABLED`, `IRONFLOW_ALLOW_ADHOC_FLOWS`, `IRONFLOW_REPLICA_MODE`, `IRONFLOW_BLOCK_PRIVATE_NETWORK`, `REDIS_TTL`, limits) | Startup fails: an empty string is not a valid boolean or number. |
+| `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` | Startup fails for `run`, `validate` and `serve`, also for a value with no entry in it such as `,`. Unset the variable to use `private_network_allowlist` from config or no allowlist; `private_network_allowlist: []` in config stays valid. |
+| `HOST`, `PORT`, `MAX_BODY`, `FLOWS_DIR`, `IRONFLOW_STORE_DIR` | Startup fails in argument parsing or at bind. |
+| `IRONFLOW_ARTIFACT_DIR` | Startup fails for `run`, `validate` and `serve`, and `artifacts prune` fails before listing. Remove the variable to use `data/artifacts`. |
+| `IRONFLOW_ARTIFACT_BACKEND`, `IRONFLOW_ARTIFACT_S3_*` | The first artifact operation fails; these are read when the artifact store is first used. |
+
+`IRONFLOW_ENV_ALLOWLIST` is the exception: an empty allowlist is a documented
+value that makes the Lua `env()` global return `nil` for every key.
+
 API authentication is required when binding to a non-loopback address. Set `IRONFLOW_API_KEY`; clients must send either `Authorization: Bearer <key>` or `X-API-Key: <key>`.
 Browser CORS access is denied by default. Set `IRONFLOW_CORS_ORIGINS` or `cors_origins` in config to allow specific frontend origins.
 
@@ -237,6 +411,26 @@ IRONFLOW_API_KEY="change-me" ironflow serve
 both configured stores answer a two-second probe. `/health` remains a liveness
 alias. SIGTERM/SIGINT closes readiness, stops scheduling and new run admission,
 then drains accepted work according to `IRONFLOW_SHUTDOWN_GRACE_SECONDS`.
+The listener stays open during that drain: new connections are answered,
+`/health/ready` returns `503` with `"status": "draining"`, `POST /flows/run`,
+`POST /flows/validate` and webhooks return `503`, and run status and events
+remain readable. Once
+accepted runs have finished, or were cancelled after the grace and settled
+within 20 seconds, the listener closes and new connections are refused. Open
+connections then have five seconds to finish and blocking workers that cannot
+be interrupted have `IRONFLOW_RUNTIME_SHUTDOWN_SECONDS` more (default 5), so
+with the default the process exits at most
+`IRONFLOW_SHUTDOWN_GRACE_SECONDS + 30` seconds after the signal.
+
+Every command applies the same `IRONFLOW_RUNTIME_SHUTDOWN_SECONDS` bound
+after it returns (`1..=3600`, default 5; a malformed or out-of-range value
+stops startup). A step
+that timed out or was cancelled while its blocking worker was inside a call
+that cannot be interrupted no longer keeps `ironflow run` alive after the
+final status is printed; the worker ends with the process. This bound starts
+when the command returns. A run is not finished while a tracked worker of one
+of its steps is still inside such a call, which includes Lua function steps
+(IF-211), so the final status itself is printed only after that call returns.
 
 Set `IRONFLOW_METRICS_ENABLED=true` or `metrics_enabled: true` to register
 `GET /metrics`. The OpenMetrics response uses the same API authentication
@@ -306,7 +500,8 @@ portable ASCII characters (`A-Z`, `a-z`, `0-9`, `-`, `_`, `.`, `:`). The key is
 hashed rather than stored; its deterministic run ID and request fingerprint are
 created atomically. A same-key/same-body retry returns that run from any
 replica, while a different source/file/context receives `409 conflict`.
-Deleting the run releases the retained identity. See
+Deleting the run releases the retained identity: the same key then starts a
+new run under the same run ID, with its own complete event stream. See
 [Replica deployment](REPLICA_DEPLOYMENT.md) for the complete boundary.
 
 ### Configuration File
@@ -326,13 +521,13 @@ port 123); quote a value when it must remain a string. Configuration loading and
 
 IronFlow supports these state storage backends:
 
-- **sqlite** (default) — one SQLite database, `ironflow.sqlite`, created under `store_dir`; the directory is restricted to its owner on Unix, and transactions, indexes and keyset pagination come from the database
+- **sqlite** (default) — one SQLite database, `ironflow.sqlite`, created under `store_dir`; the directory is restricted to its owner on Unix, and transactions, indexes and keyset pagination come from the database. See [Store directory and SQLite URLs](#store-directory-and-sqlite-urls)
 - **json** — file-based JSON records in `store_dir`; maintenance-only since IF-163 and kept for existing store directories, selected explicitly with `IRONFLOW_STORE=json`
 - **postgres** — SQL storage in Postgres (requires a `-full` release binary or building with `--features postgres`)
 - **redis** — Redis-backed storage (requires a `-full` release binary or building with `--features redis`)
 
 Two further Cargo features shape the binary: `pdf-render` (default) provides
-`pdf_to_image` and `pdf_thumbnail` through the Pdfium runtime library, and
+`pdf_to_image` and `pdf_thumbnail` with a built-in pure-Rust renderer, and
 `cjk-fonts` (off by default, on in `-full` binaries and the container image)
 embeds the Noto CJK font for `markdown_to_pdf`; see `IRONFLOW_FONT_DIR` below
 for loading fonts at runtime instead.
@@ -347,6 +542,102 @@ preflights both selected SQL URLs before opening either store, in standalone
 and replica mode. SQL URL settings are ignored when their corresponding backend
 is not SQL. See [Replica deployment](REPLICA_DEPLOYMENT.md) for the shared-store
 operator contract.
+
+#### Outbound destination policy
+
+Two keys, read by `run`, `validate` and `serve`, set the process-wide
+outbound destination policy. The matching environment variable wins over
+each key.
+
+```yaml
+block_private_network: true
+private_network_allowlist:
+  - "127.0.0.1:11434"      # a model server on this host
+  - "minio.internal:9000"  # a host name, on one port
+  - "10.0.5.0/24"          # a range
+```
+
+| Key | Variable | Default | Meaning |
+|-----|----------|---------|---------|
+| `block_private_network` | `IRONFLOW_BLOCK_PRIVATE_NETWORK` | `false` | `true` refuses `localhost` and every destination that is not a public unicast address for every covered node; [Outbound destinations](SECURITY.md#what-is-covered) lists them. A flow cannot turn it off. |
+| `private_network_allowlist` | `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` | none | Internal destinations that stay reachable. A host-name entry matches the requested host exactly, without wildcards; an address or CIDR entry matches the address. Only the operator can set it. |
+
+A value that is not a boolean, a malformed allowlist entry (a URL, a
+wildcard, a port outside `1..=65535`, a CIDR with address bits beyond its
+prefix) or more than 256 entries stops startup; the message names the
+setting and the position of the entry, not its text. The resolved policy is
+logged once at startup as `outbound destination policy` with the switch and
+the number of entries. An embedding caller that does not go through the CLI
+gets the environment variables only, read when a node runs; a malformed
+value then fails that node instead of turning the guard off.
+
+The matching rules, the per-node coverage and the common local setups (a
+local model server needs an allowlist entry when the policy is on) are in
+[Outbound destinations](SECURITY.md#outbound-destinations).
+
+#### Store directory and SQLite URLs
+
+Without a store URL, the `sqlite` state store is `ironflow.sqlite` and the
+`sqlite` event store is `ironflow-events.sqlite`, both directly under the store
+directory (`--store-dir`, `IRONFLOW_STORE_DIR`, default `data/runs`). This holds
+for every command that opens the store: `run`, `list`, `inspect`, `serve` and
+`artifacts prune`.
+
+- The store directory is a filesystem path, not part of a URL. Any name the
+  filesystem accepts works, relative or absolute, including spaces, `%`, `?`,
+  `#`, `:` and non-ASCII characters, and nothing in it is decoded: `runs%41data`
+  is the directory `runs%41data`. A relative directory is resolved against the
+  working directory once, at startup, so `runs` and its absolute spelling name
+  the same store (IF-199).
+- The path must be valid UTF-8, because SQLite takes UTF-8 file names. A
+  directory that is not is refused with `Store dir must be valid UTF-8 for the
+  SQLite backend` and is not created. `IRONFLOW_STORE=json` has no such limit.
+- The directory is created, and restricted to its owner on Unix, only after
+  the table prefix and the path have been accepted. It must be a real
+  directory, not a symbolic link. A failure to open the database afterwards
+  leaves the directory in place; IronFlow never removes a store directory.
+- The startup log names the database file, for example
+  `Using SQLite state store at /srv/ironflow/My Runs/ironflow.sqlite`.
+
+An explicit `IRONFLOW_STORE_URL`, `IRONFLOW_EVENT_STORE_URL`, `store_url` or
+`event_store_url` replaces that default and is passed to the SQLite driver
+unchanged; the store directory is then neither used nor created for that
+store, and the directory that holds the database must already exist.
+
+- The URL is a URL: percent-encode a space as `%20`, `%` as `%25`, `?` as
+  `%3F` and `#` as `%23`. `sqlite:my%20runs/state.db?mode=rwc` opens
+  `my runs/state.db`.
+- Write a relative path as `sqlite:<path>` and an absolute one as
+  `sqlite:///var/lib/ironflow/state.db` (or `sqlite:/var/lib/...`). The
+  `sqlite://<relative path>` form, such as
+  `sqlite://data/runs/ironflow.sqlite`, is refused at startup for both
+  stores (IF-220): what follows `//` is parsed as a URL authority, so the
+  first path component was read as a host name, or as a port or a user when
+  it contained `:` or `@`, and other characters failed with an unrelated
+  error. Change such a URL to `sqlite:data/runs/ironflow.sqlite`; it opens
+  the same file.
+- `mode=rwc` creates the file when it is missing; without it the file must
+  exist. The other accepted parameters are `mode=ro`, `mode=rw`, `cache`,
+  `immutable` and `vfs`.
+- In-memory and temporary databases are rejected at startup for both stores:
+  `sqlite::memory:`, `mode=memory`, `file::memory:` and a URL with no file
+  name. The stores use a connection pool, and each connection would open its
+  own empty database, so the schema created on one would be missing on the
+  next. The message names the setting and never the URL. Use a file in a
+  temporary directory for a disposable store, or `IRONFLOW_EVENT_STORE=memory`
+  for process-local events.
+- The diagnostic for a URL that fails to connect redacts credentials and query
+  values as before.
+
+On Windows the same rules apply to drive-letter, backslash and UNC paths
+(`C:\ironflow\runs`, `.\runs`, `\\server\share\runs`). Windows release
+binaries are built without a test job, so this is covered by a unit test of
+the path encoding with Windows-shaped paths rather than by a run on Windows.
+To check a Windows build by hand: run `ironflow run flow.lua --store-dir "My
+Runs %41"` from a directory whose own path contains a space, confirm that
+`My Runs %41\ironflow.sqlite` exists and no other directory was created, then
+run `ironflow list --store-dir` with the absolute path of that directory and
+confirm the run is listed.
 
 ### Encrypted shared stores
 
@@ -454,7 +745,8 @@ Configure via `ironflow.yaml`:
 
 ```yaml
 store_backend: sqlite
-store_url: "sqlite://data/runs/ironflow.sqlite?mode=rwc"
+# Optional. Omit store_url to use ironflow.sqlite under the store directory.
+store_url: "sqlite:data/runs/ironflow.sqlite?mode=rwc"
 event_store: memory
 event_memory_capacity: 10000
 sql_table_prefix: "ironflow_"
@@ -465,16 +757,20 @@ Or via environment variables (override config file):
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `IRONFLOW_STORE` | `sqlite` | Storage backend: `sqlite`, `json`, `postgres`, or `redis` |
-| `IRONFLOW_STORE_URL` | SQLite auto path for `sqlite`; required for `postgres` | SQL store URL |
+| `IRONFLOW_STORE_URL` | File under the store directory for `sqlite`; required for `postgres` | SQL store URL; an in-memory SQLite URL is rejected |
 | `IRONFLOW_EVENT_STORE` | `memory` | Event backend for `/runs/{id}/events`: `memory`, `sqlite`, `postgres`, or `redis` |
-| `IRONFLOW_EVENT_STORE_URL` | SQLite auto path for `sqlite`; required for `postgres` | SQL event store URL |
+| `IRONFLOW_EVENT_STORE_URL` | File under the store directory for `sqlite`; required for `postgres` | SQL event store URL; an in-memory SQLite URL is rejected |
 | `IRONFLOW_REPLICA_MODE` | `false` | Require `postgres` or `redis` for both state and events; reject process-local backends |
+| `IRONFLOW_BLOCK_PRIVATE_NETWORK` | `false` | Force the outbound destination guard on for every covered node; see [Outbound destination policy](#outbound-destination-policy) |
+| `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` | — | Comma-separated internal destinations the guard still permits |
 | `IRONFLOW_SHUTDOWN_GRACE_SECONDS` | `30` | Seconds accepted runs may finish before cooperative cancellation (`0..=3600`) |
+| `IRONFLOW_RUNTIME_SHUTDOWN_SECONDS` | `5` | Seconds blocking workers that cannot be interrupted may keep the process alive after any command has returned (`1..=3600`) |
 | `IRONFLOW_EVENT_MEMORY_CAPACITY` | `10000` | Positive global event/fence count when the event backend is `memory`; a fixed 64 MiB retained-heap estimate is enforced independently |
 | `IRONFLOW_SQL_TABLE_PREFIX` | `ironflow_` | SQL table/index prefix for SQLite/Postgres state and event stores |
 | `REDIS_URL` | `redis://127.0.0.1:6379` | Redis connection URL |
 | `REDIS_PREFIX` | `ironflow:` | Key prefix for Redis keys |
-| `REDIS_TTL` | — | TTL seconds for Redis run/event keys and event-deletion fences: `1..=99,999,999,999` (no expiration if unset). State mutations and event publishes refresh their keys; the first successful event deletion sets the fence expiry, while same-owner retries preserve that original lifetime. |
+| `REDIS_TTL` | — | TTL seconds for Redis run/event keys and event-deletion fences: `1..=99,999,999,999` (no expiration if unset). State mutations and event publishes refresh their keys; the first successful event deletion sets the fence expiry, while same-owner retries preserve that original lifetime. With `schedules:` configured, keep it greater than the largest `grace_seconds` plus 60: `ironflow serve` logs a warning for each schedule it does not cover (see [Record retention and deleted runs](#record-retention-and-deleted-runs)). Schedule claims do not use this TTL. |
+| `IRONFLOW_REDIS_RESPONSE_TIMEOUT_MS` | `500` | Milliseconds the Redis state and event stores wait for one response (`1..=600000`). The default is the client library's; raise it when a loaded Redis server or host makes store operations fail with `timed out`. A longer value also delays the detection of a server that has stopped answering, including for event publication, which gives up after 500 ms on its own. A malformed or out-of-range value stops startup. |
 
 When the state backend is `sqlite` (the default) and no URL is configured, IronFlow creates `ironflow.sqlite` under `IRONFLOW_STORE_DIR`, creating that directory with owner-only permissions on Unix and refusing a symbolic link in its place. Existing JSON store directories keep working with `IRONFLOW_STORE=json`; there is no automatic import between backends, so a deployment that switches backends starts with an empty run history unless it keeps the old selection.
 When `IRONFLOW_EVENT_STORE=sqlite` and no URL is configured, IronFlow creates `ironflow-events.sqlite` under `IRONFLOW_STORE_DIR`.
@@ -520,8 +816,13 @@ deadline and immediately aligns every quarantined component to it; renames and
 rotations never refresh it, and restoration or finalization cannot extend
 retention. Complete quarantine persisted past that deadline is expired, and
 the next access removes its progress record after the governed namespaces are
-gone. Partial families remain fail-closed. Capability probes use absent keys
-and create no probe records.
+gone. A quarantined stream that expires while a migration call is in
+progress is not corruption: the step that finds it gone returns the empty
+stream when the recorded deadline has passed, and otherwise `409 conflict`
+("is expiring; retry the operation") until it has. A stream that carried no
+TTL cannot expire, so its missing quarantine still blocks migration. Partial
+families remain fail-closed. Capability probes use absent keys and create no
+probe records.
 
 Stop pre-protocol Redis event writers before migration. Recreation or mutation
 of the source or destination while deterministic quarantine exists blocks
@@ -570,6 +871,12 @@ unreadable or cursor-skipping event.
 SQLite startup refreshes and verifies index metadata on one connection, so
 stale metadata on another pooled connection cannot falsely reject a new
 event database. No migration or configuration change is required.
+On PostgreSQL an up-to-date schema is verified through the catalog without a
+table lock. A start that must change the schema (a missing index or column,
+or the legacy identity migration) waits at most 5 seconds for its table lock
+and otherwise fails with a message that names the table and the change;
+nothing is changed and the next start retries. The bound is fixed, not a
+setting. See [PostgreSQL startup and schema locks](REPLICA_DEPLOYMENT.md#postgresql-startup-and-schema-locks).
 For shared SQL databases, set `IRONFLOW_SQL_TABLE_PREFIX` or `sql_table_prefix` to isolate IronFlow tables. Prefixes are strictly validated and may contain only ASCII letters, digits, and underscores after deriving table names.
 
 Treat storage, event-store, SMTP, and webhook URLs as secrets when they contain
@@ -578,6 +885,17 @@ query value, and discard fragments; webhook-style secret endpoints also hide
 their paths. Malformed URLs fail closed to a redacted placeholder. This protects
 current diagnostics, but cannot rewrite historical logs, so rotate credentials
 and purge retained logs if an older version may have exposed a full URL.
+
+The same scrubber replaces the value of `key=value` and `key: value`
+assignments whose key ends with a credential name, such as `db_password`,
+`PGPASSWORD`, `X-API-Key` or `Authorization`, and of the same keys written
+as a Lua bracket key, with `=>` or `:=`, as a command-line flag followed by
+its argument, or as an XML element. It scans and keeps the first
+64 KiB of a diagnostic and replaces the rest with `...[truncated]`, so the
+task error shown by `ironflow inspect`, stored with the run and published in
+events stays bounded however large the failing step's message was. The
+guaranteed shapes and the shapes it does not recognize are listed under
+[Diagnostic scrubbing](SECURITY.md#diagnostic-scrubbing).
 
 GitHub releases include default binaries and `-full` binaries. Use the `-full`
 artifact when you need Postgres or Redis support or the embedded CJK font
@@ -630,6 +948,8 @@ curl http://localhost:3000/runs \
 ```
 
 To intentionally run without API authentication, set `IRONFLOW_ALLOW_UNAUTHENTICATED_API=true` or `allow_unauthenticated_api: true` in config. A server whose resolved bind address is loopback (for example `127.0.0.1`, `localhost`, or `::1`) is allowed without a key for local development.
+
+The loopback allowance applies only when no key is configured anywhere. An `IRONFLOW_API_KEY` or `api_key` that is present but empty or whitespace-only stops startup on every bind address instead of disabling the key, unless unauthenticated access is enabled explicitly; see [configuration precedence](#ironflow-serve).
 
 #### Operator Metrics
 
@@ -726,14 +1046,48 @@ all retained events for that run and installs a fence against late event
 publication. If event cleanup fails after state deletion, retry the same
 request: IronFlow still attempts event cleanup for the now-missing state and
 returns success when it removes an orphaned stream. A missing state record with
-no orphaned events returns `404 not_found`. JSON, SQL, and Redis atomically
+no orphaned events returns `404 not_found` and fences nothing, so deleting an
+ID that never existed does not affect a run created under it later. JSON, SQL, and Redis atomically
 return `409 conflict` without removing state, lease, or events when the run is
 non-terminal and its execution-owner lease is still live. Terminal runs and
-abandoned non-terminal runs with an expired lease remain deletable.
+abandoned non-terminal runs with an expired lease remain deletable. A run
+record that the store can no longer decode is deletable under the same rule:
+it cannot prove it is terminal, so only a live lease protects it. Lease
+reconciliation skips such a record with a warning that names the run, and
+continues with the other expired leases; deleting the run clears it.
+
+The fence belongs to the deleted run, not to its ID. Idempotent and scheduled
+run IDs are deterministic, so the same ID can be accepted again after a
+deletion; that run publishes and streams its events normally, while a late
+event from the deleted run is still rejected. State and events are deleted
+in two steps, and a run with the same ID can be accepted between them, for
+example a scheduled occurrence or a retried idempotent request. The event
+step therefore removes only the run whose state was deleted: every event
+backend records which run currently owns a stream when the run starts, the
+SQL and Redis state stores report which run a delete removed, and an event
+delete that finds the stream owned by a newer run changes nothing. Callers
+do not need to wait for the `DELETE` response before reusing the key. A
+retried `DELETE` that finds the state absent while a newer run already owns
+the stream returns `404 not_found`, because the events it would have removed
+were replaced when that run started.
+
+The owner record is the run's first write to the event store. It is attempted
+up to three times, each attempt bounded to one second, with pauses of 50 ms
+and 200 ms. If it still fails, the run executes and its state is recorded
+normally, but its events are rejected when an earlier run with the same ID
+was deleted or left a record, so `GET /runs/{id}/events` and the SSE stream
+can be empty. That is counted in
+`ironflow_event_admissions_total{outcome="failed"}` and recorded on the run
+as the context key `_event_stream_warning`, visible through `GET /runs/{id}`
+and to the run's own steps. The text names the failure category (`store
+error` or `timed out`), never the store's error message.
 
 SQL deletion fences are durable. A Redis fence is persistent without
-`REDIS_TTL` and expires with that configured TTL. The memory backend keeps
-events and fences in one oldest-first queue bounded by both the configured
+`REDIS_TTL` and expires with that configured TTL. The owner record of a run
+that was not deleted is one row in the SQL event-deletion table, one Redis
+key that follows the stream's `REDIS_TTL`, or one entry of the memory queue;
+deleting the run turns it into the fence. The memory backend keeps events,
+owner records and fences in one oldest-first queue bounded by both the configured
 entry count and a fixed 64 MiB retained-heap estimate, so they disappear on
 restart or eviction. Current-layout Redis deletion atomically fences and
 unlinks its list/index/sequence/layout keys after preflighting the command.
@@ -752,7 +1106,7 @@ this coordinated behavior should use `storage::lifecycle::delete_run`.
 
 #### Run Events
 
-`GET /runs/{id}/events` streams compact run/task lifecycle events as Server-Sent Events. Events include run/task status, step name, node type, attempts, timing, errors, and skip reasons, but never full node input/output.
+`GET /runs/{id}/events` streams compact run/task lifecycle events as Server-Sent Events. Events include run/task status, step name, node type, attempts, timing, errors, and skip reasons, but never full node input/output. Events are best-effort: each publication has 500 ms, and one that fails or takes longer is dropped with a logged warning while the run continues, so a stream can miss an event on a saturated host or event store. The run's status, tasks and context from `GET /runs/{id}` are authoritative.
 
 ```bash
 curl -N http://localhost:3000/runs/<run_id>/events \
@@ -853,6 +1207,22 @@ syntax, captured outer locals, and ambiguous function source ranges are errors
 in both modes. Reused callbacks are supported and their source warnings are
 deduplicated, with the same behavior as CLI validation.
 
+`POST /flows/run` applies the same validation before it creates a run. A flow
+that loads but is invalid (a step that depends on an undefined step, an
+unknown node type, a step option out of range) is answered with `400` and
+`bad_request`; the `error` text is `Flow validation failed: ` followed by the
+errors `POST /flows/validate` reports for that flow, separated by `; `. No
+run record is created. A webhook whose configured flow is invalid answers
+`400` with `Webhook flow failed validation` and logs the errors at `WARN`,
+because that flow is server configuration and not the caller's input.
+
+A request `context` must not define `_schedule` or `_schedule_instant`. Those
+keys record which schedule occurrence started a run and only the scheduler
+writes them; a request that carries one is answered with `400` and
+`Request context must not define reserved key '<key>'`, before a run is
+created. A replay that carries the `Idempotency-Key` of an existing run still
+returns that run.
+
 That is the intended contract for a general-purpose engine — but it means an API
 key that can reach `/flows/run` can run any node, so it can read or write any
 path the server process can and execute shell commands. If your deployment
@@ -898,18 +1268,21 @@ webhooks:
 - Request headers are denied by default; only names in `forward_headers` are
   exposed through lowercase `ctx._headers`
 - Forwarded header values are confidential, execution-only inputs: they are
-  removed/redacted before context, task, event, and run-detail persistence
+  removed/redacted before context, task, event, and run-detail persistence.
+  [Forwarded header redaction](#forwarded-header-redaction) states exactly
+  what is matched
 - `Authorization`, `X-API-Key`, cookies, proxy credentials, and common
   platform/session credential headers cannot be forwarded to a workflow
 - A forwarded value must contain at least eight non-whitespace bytes. Repeated
   or non-text values fail the request with `400` instead of becoming ambiguous
 - Webhook name is injected as `ctx._webhook`
-- Request bodies cannot define the reserved `_headers`, `_webhook`, or
-  `_flow_dir` context keys
+- Request bodies cannot define the reserved `_headers`, `_webhook`,
+  `_flow_dir`, `_schedule`, or `_schedule_instant` context keys; a body that
+  does is answered with `400` before the flow is loaded
 - A `signature` policy verifies an HMAC-SHA256 hex digest over the exact,
   bounded request body before JSON parsing, flow loading, or run creation
 - `secret_env` is resolved at server startup and must contain at least 16
-  bytes. Its value and the signature header are never workflow input
+  bytes that are not all whitespace. Its value and the signature header are never workflow input
 - The signature header must occur exactly once and must not also appear in
   `forward_headers`. Missing, repeated, malformed, or mismatched signatures
   return `403` without creating a run
@@ -935,9 +1308,63 @@ add timestamp/replay protection. Schemes such as Stripe and Slack include a
 timestamp in their signed message and require a recency check; verify those in
 an upstream gateway until IronFlow exposes a dedicated policy for that scheme.
 
-`forward_headers` remains available for non-authentication business metadata.
-Values forwarded that way are execution-only and redacted, but workflow code
-must not use direct shared-secret equality as a substitute for request signing.
+`forward_headers` remains available for confidential business headers that a
+flow has to read. Values forwarded that way are execution-only and redacted,
+but workflow code must not use direct shared-secret equality as a substitute
+for request signing.
+
+##### Forwarded header redaction
+
+Every forwarded header value is confidential for the whole run, including
+child workflows. Matching is literal and case-sensitive.
+
+| Part of a forwarded header | Treated as a secret |
+| --- | --- |
+| The complete value, without surrounding whitespace | Always |
+| The credential after a `Bearer` or `Basic` scheme | With at least 8 non-whitespace bytes |
+| The value of each `key=value` pair after splitting the header on `,` or `;`, without surrounding double quotes | With at least 8 non-whitespace bytes |
+| Each string or number inside a value that parses as JSON | With at least 8 non-whitespace bytes |
+| The header name, JSON object keys, booleans, `null`, and any shorter component such as `true`, `1` or `v1` | Never |
+
+The JSON-escaped form of each secret is matched as well. Encoded, hashed,
+split, or otherwise transformed copies are not recognized.
+
+Redaction is record-only (IF-219): it applies where IronFlow records or
+returns a value, never to the data one step hands to the next.
+
+| Where a secret appears | Step output read by later steps, recovery handlers and parent runs | Stored task output and context, events, `GET /runs/{id}` and the other run responses |
+| --- | --- | --- |
+| The `_headers` key, at any depth | Unchanged | Removed |
+| Inside a string | Unchanged | Each occurrence becomes `[REDACTED]` |
+| Inside an object key | Unchanged | Key and value removed |
+| A JSON number equal to it | Unchanged | Replaced by the string `"[REDACTED]"` |
+| Top-level `_route_*` and `_condition_result_*` output | Unchanged | Redacted like any other field |
+| Inside the error message of a failed step | Each occurrence becomes `[REDACTED]`, also in `_error_message` and a child failure summary | Same text |
+
+A forwarded header therefore cannot blank text, change a JSON type or rewrite
+the routing decision of `step_if`, `if_node` or `switch_node`. For example,
+with `X-Feature-Flags: beta=true,legacy=false` forwarded, a step that returns
+the whole value hands it to the next step as it is and stores `[REDACTED]`,
+while the strings `true` and `false` and the header name stay untouched
+everywhere.
+
+Consequences for flow authors:
+
+- Forward a header only when its value must stay out of run records. Send
+  metadata you want to keep in the JSON body instead. A value below eight
+  non-whitespace bytes is rejected with `400`, so short metadata cannot be
+  forwarded at all.
+- A copy of a forwarded value that a step returns is ordinary data for the
+  rest of the run. Later steps can compare it, compute with it and pass it
+  to a child workflow, and a node with an outside effect sends it as it is,
+  so do not hand a copy to a request, file or log line that must not carry
+  it. Only records withhold it.
+- A record shows `[REDACTED]` wherever text of eight or more bytes equals a
+  forwarded value or one of its components, even when the flow produced that
+  text itself. Until IF-219 the same replacement was made in the data later
+  steps read, so a sender could blank a string or flip a branch that compared
+  it; that no longer happens.
+- A transformed copy (encoded, hashed, split) is not recognized in a record.
 
 Runs created by older IronFlow versions may already contain request headers.
 Public run output hides legacy `_headers` values when they are still present,
@@ -964,16 +1391,146 @@ schedules:
 | Field | Required | Default | Notes |
 |---|---|---|---|
 | `flow` | yes | — | Resolved against `flows_dir`, so a schedule cannot escape it. Maximum 1,024 UTF-8 bytes |
-| `cron` | yes | — | Maximum 256 UTF-8 bytes. Five fields: minute hour day month weekday. Seconds are fixed at zero; six- and seven-field expressions are rejected. If day and weekday are both restricted, either matching fires the schedule, as in traditional crontab |
+| `cron` | yes | — | Maximum 256 UTF-8 bytes. Five fields separated by spaces: minute hour day month weekday, each one token (see [Field syntax](#field-syntax)). Seconds are fixed at zero; six- and seven-field expressions are rejected, and so is a token that is not exactly one field. Weekday numbers are `0` to `7`: `0` and `7` are Sunday, `1` to `6` are Monday to Saturday (see [Weekday field](#weekday-field)). If day and weekday are both restricted, either matching fires the schedule, as in traditional crontab |
 | `timezone` | no | `UTC` | IANA name, maximum 128 UTF-8 bytes. Unknown names fail at startup |
-| `grace_seconds` | no | `300` | Maximum lateness for which a missed instant still fires. Range 60..=604,800 because the scheduler evaluates every 30 seconds and catch-up must remain bounded |
+| `grace_seconds` | no | `300` | Maximum lateness for which a missed instant still fires. Of several missed instants only the most recent fires (see [Catch-up](#catch-up)). Range 60..=604,800 because the scheduler evaluates every 30 seconds and catch-up must remain bounded |
 | `context` | no | `{}` | Merged into the run's initial context, maximum 65,536 serialized JSON bytes. Must not define `_schedule` or `_flow_dir` |
 
 The `schedules` map accepts at most 256 entries, and each schedule name is at
-most 48 UTF-8 bytes with no control characters. One tick considers at most 64
-due instants for each name. If a longer grace window contains more occurrences,
-the remainder are logged and skipped rather than queued. This makes
-`grace_seconds` a lateness admission window, not an unbounded replay promise.
+most 48 UTF-8 bytes with no control characters. `grace_seconds` is a lateness
+admission window for the most recent instant, not a replay promise: see
+[Catch-up](#catch-up).
+
+##### Catch-up
+
+When a schedule has more than one instant due at the same evaluation, it has
+missed some: `serve` was down or restarted, or an earlier tick could not
+decide an instant. **Only the most recent due instant is decided. Every
+earlier one is superseded: it is recorded as skipped and never starts.** A
+schedule that runs every minute with `grace_seconds: 3600` and a server that
+was down for 40 minutes therefore starts one run after the restart, for the
+latest minute, not 40.
+
+- The most recent instant is decided like any other: it starts, or it is
+  skipped for lateness, overlap or run capacity, or deferred for flow-load
+  capacity. If it is skipped, nothing runs at this catch-up; the earlier
+  instants are not tried in its place.
+- A superseded instant is claimed and recorded in the state store, so no
+  other replica starts it either, including one that restarts inside the
+  grace window.
+- What you see for a superseded instant: the scheduler outcome label
+  `superseded` in `ironflow_scheduler_decisions_total`, counted once per
+  instant, and one `WARN` line per schedule and tick, `skipping missed
+  instants: at catch-up only the most recent one is decided`, with the fields
+  `schedule`, `superseded` (how many), `from` and `to` (the first and last
+  instant key), `superseded_by` (the instant decided in their place) and
+  `more_on_later_ticks`. There is no run and no event for a superseded
+  instant.
+- One tick records at most 64 superseded instants per schedule, oldest
+  first. A longer backlog is recorded over the following ticks
+  (`more_on_later_ticks=true`); the most recent instant is decided on the
+  first tick and does not wait for them.
+- An instant whose start was deferred and is still waiting when the next
+  instant becomes due is superseded by that next instant.
+
+Earlier releases evaluated every missed instant back to back, oldest first.
+The first one started a run, and each later one was skipped as `overlapped`
+while that run was active, or started another run if the first had already
+finished. A flow that must process every period should take the period from
+its own state (for example the last processed timestamp) and not from the
+number of scheduled runs.
+
+##### Record retention and deleted runs
+
+An occurrence runs at most once, and that does not depend on its run record
+still existing. The claim for the instant records that the run was created,
+so a server that starts or restarts inside the grace window does not start
+the instant again when the record has expired through `REDIS_TTL` or was
+removed with `DELETE /runs/{id}`. This holds for the SQLite, PostgreSQL, JSON
+and Redis state stores alike: deleting a scheduled run removes its record and
+events, and does not release the instant. To run the flow again, start it
+with `POST /flows/run` or `ironflow run`. An instant that was claimed by a
+server that stopped before it created the run is still started by the next
+server that evaluates it within grace.
+
+With the Redis state store and `REDIS_TTL` set, `ironflow serve` logs one
+warning per schedule at startup when `REDIS_TTL` is not greater than that
+schedule's `grace_seconds` plus 60 seconds. For `grace_seconds: 86400` the
+smallest covering value is `REDIS_TTL=86461`. Startup continues, because the
+occurrence is still not run twice. What an uncovered schedule loses is the
+run record and history of an occurrence while it is still inside its grace
+window, and the cover for one narrow failure: a server that stops after
+creating a run but before recording it in the claim is fenced only while
+that run record exists. Claims are kept for seven days, or `grace_seconds`
+plus one day when that is longer, whatever `REDIS_TTL` is.
+
+##### Field syntax
+
+Each field is one token, and tokens are separated by spaces or tabs. A field
+is a comma-separated list of items with no space inside it:
+
+| Item | Matches | Example |
+|---|---|---|
+| `*` | Every value of the field | `*` |
+| `N` | One value | `30` |
+| `N-M` | The values from `N` to `M`, both included | `9-17` |
+| `*/S` or `N-M/S` | Every `S`th value of that range, counted from its start | `*/15`, `10-40/10` |
+| `N/S` | Every `S`th value from `N` to the end of the field | `5/20` in the minute field is 5, 25 and 45 |
+| `?` | The same as `*`; day of month and weekday only | `?` |
+
+| Field | Values | Names |
+|---|---|---|
+| minute | `0` to `59` | — |
+| hour | `0` to `23` | — |
+| day of month | `1` to `31` | — |
+| month | `1` to `12` | `Jan` … `Dec` or spelled out, in any case |
+| weekday | `0` to `7` | See [Weekday field](#weekday-field) |
+
+- A month name can stand alone, in a list that may also hold numbers
+  (`1,Jul`), or in a range (`Jan-Mar`, `Feb-Jun/2`). A range cannot mix a name
+  with a number, and a step cannot follow a single name.
+- A token that is not exactly one field fails at startup with a message that
+  names the field: a missing space such as `5*/2 * * * *`, stray characters
+  such as `1*` or `Jan2030`, an empty list item, or a token that starts or
+  ends with `-`, `,` or `/`. The schedule is never loaded with its fields
+  shifted.
+- A value outside its field, a range that runs backwards, and a step that is
+  zero or larger than the field's highest value also fail at startup. The
+  message names the field and quotes the list item that is wrong, for example
+  `hour '24' is outside 0 to 23`, `minute '30-10' is a range that runs
+  backwards`, `hour '*/24' has a step outside 1 to 23` or `month 'Smarch' is
+  not a month name`. The fields are checked in order and the first one that
+  is wrong is reported.
+
+##### Weekday field
+
+The weekday field uses the standard crontab numbering, evaluated in the
+schedule's time zone:
+
+| Weekday field | Fires on |
+|---|---|
+| `0` or `7` | Sunday |
+| `1` … `6` | Monday … Saturday |
+| `1-5` | Monday to Friday |
+| `5-7` | Friday, Saturday and Sunday |
+| `6,0` | Saturday and Sunday |
+| `1-5/2` | Monday, Wednesday and Friday |
+| `*/2` | Sunday, Tuesday, Thursday and Saturday: a step over `*` counts from Sunday |
+| `Mon-Fri`, `sat,sun` | The named days |
+| `Sat-Sun`, `Fri-Mon` | The named days across the week boundary |
+
+- A step after one number, `N/S`, runs from `N` through `7`, so `1/2` is
+  Monday, Wednesday, Friday and Sunday.
+- English names are accepted in any case, short (`Sun` … `Sat`) or spelled
+  out, alone, in lists that may also hold numbers, and in ranges. A named
+  range may cross the week boundary: `Sat-Sun` is Saturday and Sunday, the
+  same as `6-7`, and `Fri-Mon` is Friday, Saturday, Sunday and Monday. A step
+  counts from the first day, so `Fri-Mon/2` is Friday and Sunday. A range
+  cannot mix a name with a number.
+- A number outside `0` to `7`, a numeric range that runs backwards such as
+  `6-1`, a step outside `1` to `7`, a step after a single day name (`Mon/2`),
+  an unknown day name, or an empty list item fails at startup with a message
+  that names the weekday field and quotes the item.
 
 A deterministic offline configuration and flow are available at
 `examples/21-schedules/ironflow.yaml` and
@@ -991,6 +1548,15 @@ nobody finds out about until 02:00.
 **Scheduled runs are ordinary runs.** They appear in `ironflow list`,
 `ironflow inspect`, and the events stream, and carry the schedule's name in
 their context under `_schedule`, so a run can be traced back to its trigger.
+`_schedule_instant` holds the occurrence. API requests and webhook bodies
+cannot set either key.
+
+**Overlap is decided by run identity.** An occurrence is skipped as
+overlapped while an earlier run of the same schedule is still pending or
+running. A run counts as the schedule's only when its run ID is the one the
+scheduler derives from the schedule name and the occurrence in its context.
+API and webhook runs always have a random or `idem-` run ID, so no caller can
+make a schedule skip by starting a long run that carries the schedule's name.
 
 **Multiple replicas.** Each instant is claimed through the state store and also
 derives a deterministic durable run ID from the schedule name and resolved
@@ -998,7 +1564,10 @@ instant. A replica that loses or observes an earlier claim still converges on
 that identity; atomic run initialization chooses the one executor. This closes
 the crash window between claim and run creation without replaying an existing
 or later-stalled run. A late, overlapping, capacity-constrained, or invalid
-occurrence can still be deliberately skipped. The JSON store coordinates only
+occurrence can still be deliberately skipped. A skip is recorded in the
+claim, so it is final for every replica: one that restarts inside the grace
+window reports the instant as `not_claimed` and does not start it. A replica
+that is draining defers the instant instead of skipping it. The JSON store coordinates only
 among processes sharing a `store_dir`; replica mode requires PostgreSQL or
 Redis across hosts. JSON and SQL claim retention runs in schedule-specific batches of
 at most 256, no more than once per hour for the normal seven-day-or-longer claim
@@ -1011,15 +1580,34 @@ Redis claims expire independently through their atomic key TTL. Cleanup is
 best-effort and never changes whether an unexpired claim was won.
 
 **Skips are logged, never silent.** A skip states which rule caused it — grace,
-overlap, or capacity — and the instant involved, at `WARN`. Losing a claim is
+overlap, or capacity — and the instant involved, at `WARN`. Instants
+superseded at [catch-up](#catch-up) share one `WARN` line per schedule and
+tick. A start deferred
+for flow-load capacity is logged at `WARN` too, and is a delay rather than a
+skip. Losing a claim is
 logged at `debug`, because on N replicas it is the expected outcome N-1 times.
-Schedule names evaluate concurrently under a 15-second per-name budget. If that
-budget expires, the claim or run-start result can be indeterminate, so every
-due instant in that schedule's window is logged as timed out and burned rather
-than retried. Unrelated schedule names continue. If the scheduler task itself
+Schedule names evaluate concurrently under a 15-second per-name budget. A
+start can reach it without anything being wrong with the schedule: a 5-second
+wait for a flow-load permit followed by a flow that takes close to the
+10-second Lua limit to parse, or a slow state-store call. If the budget
+expires, what the evaluation had already decided stands (a run that started
+is reported as `fired`), and an instant that was still undecided stays due:
+it is logged at `WARN`, counted as scheduler outcome `deferred`, and decided
+again on the next tick. Retrying is safe because the occurrence's run ID is
+deterministic: if the interrupted attempt did create the run, the retry finds
+it and reports `not_claimed`. The retry is bounded. The third consecutive
+evaluation of the same schedule that exceeds the budget logs at `ERROR` and
+burns what is still undecided as `timed_out`, so a schedule that never fits
+the budget costs three evaluations per window, and every retry is also
+limited by `grace_seconds`. An evaluation that completes resets the count.
+Unrelated schedule names continue. If the scheduler task itself
 returns or panics, `serve` stops with an error so `/health` cannot remain green
 while scheduled execution is dead; normal server shutdown also waits for the
-scheduler loop to stop.
+scheduler loop to stop. Before it exits for a dead scheduler, `serve` drains
+exactly as it does on a shutdown signal: readiness and run admission answer
+`503`, accepted runs get `IRONFLOW_SHUTDOWN_GRACE_SECONDS` to finish, and
+what is still running is then cancelled. The process still exits with the
+scheduler error.
 
 See [Replica deployment](REPLICA_DEPLOYMENT.md) for liveness/readiness,
 SIGTERM drain, idempotent API submission, Docker acceptance, and platform
@@ -1036,7 +1624,26 @@ configuration.
 **Overlap.** If a previous run of the same schedule has not finished, the new
 instant is skipped rather than queued. At `IRONFLOW_MAX_CONCURRENT_RUNS`
 capacity the instant is likewise skipped, so a saturated server does not build
-a backlog. Overlap suppression scans at most 256 non-terminal run summaries
+a backlog. The scheduler checks capacity before it starts and takes the run
+permit when it starts; an API or webhook run that takes the last permit in
+between produces the same skip, logged and counted as `at_capacity`, not a
+failed start.
+
+**Flow-load capacity.** `IRONFLOW_MAX_CONCURRENT_FLOW_LOADS` is different: it
+delays a scheduled instant and never consumes it. Schedules due in the same
+tick queue for the load permits, each waiting up to 5 seconds, so any number
+of jobs can share a minute with the default of two permits. If the limit is
+still full after that wait, for example because API validations are parsing
+slow flows, nothing has been parsed and no run exists; the instant is logged
+as deferred, counted as scheduler outcome `deferred`, and retried on each
+30-second tick until it starts or passes its `grace_seconds`, when it is
+skipped as late. If the next instant of the same schedule becomes due while
+one is still deferred, the deferred one is superseded by it (see
+[Catch-up](#catch-up)). A start that is waiting for a flow-load permit does
+not hold a run permit: it takes one only when it is about to parse the flow,
+so queued schedules do not use up `IRONFLOW_MAX_CONCURRENT_RUNS`.
+
+Overlap suppression scans at most 256 non-terminal run summaries
 and tolerates state-read failures; it is therefore a bounded best-effort check,
 not a distributed per-schedule lock.
 
@@ -1067,20 +1674,23 @@ start.
 | `PORT` | `3000` | Server listen port |
 | `IRONFLOW_STORE_DIR` | `data/runs` | State store directory |
 | `IRONFLOW_STORE` | `sqlite` | State store backend: `sqlite`, `json`, `postgres`, or `redis` |
-| `IRONFLOW_STORE_URL` | SQLite auto path for `sqlite`; required for `postgres` | SQL store URL |
+| `IRONFLOW_STORE_URL` | File under the store directory for `sqlite`; required for `postgres` | SQL store URL; an in-memory SQLite URL is rejected |
 | `IRONFLOW_EVENT_STORE` | `memory` | Event backend for `/runs/{id}/events`: `memory`, `sqlite`, `postgres`, or `redis` |
-| `IRONFLOW_EVENT_STORE_URL` | SQLite auto path for `sqlite`; required for `postgres` | SQL event store URL |
+| `IRONFLOW_EVENT_STORE_URL` | File under the store directory for `sqlite`; required for `postgres` | SQL event store URL; an in-memory SQLite URL is rejected |
 | `IRONFLOW_EVENT_MEMORY_CAPACITY` | `10000` | Positive global event/fence count when the event backend is `memory`; a fixed 64 MiB retained-heap estimate applies independently; zero or invalid values fail startup |
 | `IRONFLOW_REPLICA_MODE` | `false` | Fail startup unless state and events use PostgreSQL or Redis |
 | `IRONFLOW_SHUTDOWN_GRACE_SECONDS` | `30` | Accepted-run drain before cancellation (`0..=3600` seconds) |
+| `IRONFLOW_RUNTIME_SHUTDOWN_SECONDS` | `5` | Wait for uninterruptible blocking workers after the command returns (`1..=3600` seconds) |
 | `IRONFLOW_SQL_TABLE_PREFIX` | `ironflow_` | SQL table/index prefix for SQLite/Postgres state and event stores |
 | `FLOWS_DIR` | — | Flow files directory |
 | `MAX_BODY` | `1048576` | Max request body size (bytes) |
-| `IRONFLOW_API_KEY` | — | API key required for non-loopback API servers |
+| `IRONFLOW_API_KEY` | — | API key required for non-loopback API servers. Present but empty fails startup unless unauthenticated access is enabled explicitly. |
 | `IRONFLOW_ALLOW_UNAUTHENTICATED_API` | `false` | Explicitly allow unauthenticated API access |
 | `IRONFLOW_METRICS_ENABLED` | `false` | Register process-local `GET /metrics`; accepts only `true` or `false` and follows API authentication |
 | `IRONFLOW_ALLOW_ADHOC_FLOWS` | `true` | Allow `POST /flows/run` and `POST /flows/validate` to evaluate flow source sent in the request body. `false` requires `flows_dir` and restricts both endpoints to files under it. Overrides `allow_adhoc_flows` in config. |
-| `IRONFLOW_CORS_ORIGINS` | — | Comma-separated allowed browser origins; use `*` to allow any origin |
+| `IRONFLOW_CORS_ORIGINS` | — | Comma-separated allowed browser origins; use `*` to allow any origin. Present but empty fails startup. |
+| `IRONFLOW_BLOCK_PRIVATE_NETWORK` | `false` | Read by `run`, `validate` and `serve`. `true` forces the outbound destination guard on for every covered node, whatever a flow sets. Accepts only `true` or `false`; any other value, including an empty one, fails startup. Overrides `block_private_network` in config. See [Outbound destination policy](#outbound-destination-policy). |
+| `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` | — | Comma-separated host names, `host:port`, addresses, `address:port` and CIDR ranges that the guard still permits. A malformed entry, an empty value or more than 256 entries fails startup. Overrides `private_network_allowlist` in config. |
 
 ### Run listing
 
@@ -1096,12 +1706,13 @@ This is resolved after dotenv loading by both `serve` and `list`.
 |----------|---------|-------------|
 | `IRONFLOW_MAX_CONCURRENT_TASKS` | number of CPUs | Maximum tasks running in parallel per workflow execution. `0` is retained as a compatibility spelling for `1`; invalid values and values above Tokio's supported semaphore ceiling fail before execution. |
 | `IRONFLOW_MAX_CONCURRENT_RUNS` | unlimited | Process-wide cap on concurrently executing API-, webhook-, and scheduler-triggered runs. The permit follows a detached run until its coordinator settles. At capacity, API/webhook requests receive `503 Service Unavailable` and a scheduled instant is skipped. `0` or unset means unlimited; invalid or unsupported values fail server startup. |
-| `IRONFLOW_MAX_CONCURRENT_FLOW_LOADS` | `2` | Process-wide positive ceiling for concurrent Lua flow-definition loads by API validation/execution, webhooks, and schedules. Admission is held until detached blocking parsing actually stops. At capacity, API/webhook requests receive `503 Service Unavailable` and a scheduled instant is skipped; zero, invalid, or unsupported values fail server startup. |
-| `IRONFLOW_MAX_FLOW_SOURCE_BYTES` | `1048576` | Positive maximum UTF-8 bytes accepted for a file or inline Lua flow source, enforced before Lua VM creation. Zero or invalid values retain the safe default. |
+| `IRONFLOW_MAX_CONCURRENT_FLOW_LOADS` | `2` | Process-wide positive ceiling for concurrent Lua flow-definition loads by API validation/execution, webhooks, and schedules. Admission is held until detached blocking parsing actually stops. At capacity, API/webhook requests receive `503 Service Unavailable` immediately. A scheduled instant is not skipped: it waits up to 5 seconds for a permit and is otherwise retried on later ticks within its grace window. Zero, invalid, or unsupported values fail server startup. |
+| `IRONFLOW_MAX_FLOW_SOURCE_BYTES` | `1048576` | Positive maximum UTF-8 bytes accepted for a file or inline Lua flow source, enforced before Lua VM creation. Zero or invalid values fail startup. Independently of this limit, a flow may declare at most 10,000 steps and a step at most 10,000 dependencies, and validation rejects source or embedded `code` source whose syntax nests deeper than 1,000 levels; these three caps are fixed |
 | `IRONFLOW_MAX_RUN_SECONDS` | unlimited | Run-level wall-clock deadline. A run exceeding it is cancelled (terminal status `cancelled`), reclaiming a step that hangs without its own `timeout()`. `0` or unset means no deadline; invalid values fail before execution/server startup. |
 | `IRONFLOW_LUA_MAX_INSTRUCTIONS` | `5000000` | Max Lua VM instructions per flow parse/code execution; `0` disables |
 | `IRONFLOW_LUA_MAX_SECONDS` | `10` | Max wall-clock seconds per Lua state; `0` disables |
 | `IRONFLOW_LUA_MAX_MEMORY_BYTES` | `134217728` | Max Lua VM memory per Lua state; `0` disables |
+| `IRONFLOW_LUA_MAX_PATTERN_STEPS` | `50000000` | Max pattern-matching steps per Lua state, summed over `string.find`, `string.match`, `string.gmatch` and `string.gsub`; `0` disables. A pattern that backtracks without bound fails with the budget error instead of holding its step. A step timeout, cancellation and `IRONFLOW_LUA_MAX_SECONDS` also end a match in progress. Invalid values fail startup. See [Execution limits](nodes/code.md#execution-limits) |
 | `IRONFLOW_ENV_ALLOWLIST` | unset (all) | Comma-separated variable names the Lua `env()` global may read. When set, `env()` returns `nil` for any other key; when unset, any process variable is readable (the default). |
 | `IRONFLOW_LUA_HOOK_INTERVAL` | `10000` | Instruction interval for budget checks |
 | `IRONFLOW_LUA_GC_AFTER_EXECUTION` | `true` | Run a Lua garbage-collection cycle after flow parsing/code execution; accepts only `true` or `false` |
@@ -1112,10 +1723,10 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_LLM_MAX_RESPONSE_BYTES` | `26214400` | Max LLM provider response body size; `0` disables |
 | `IRONFLOW_LLM_MAX_IMAGE_INPUT_BYTES` | `52428800` | Maximum cumulative raw image-artifact bytes resolved for one LLM request |
 | `IRONFLOW_LLM_MAX_IMAGE_ARTIFACTS` | `32` | Maximum image-artifact blocks resolved for one LLM request |
-| `IRONFLOW_MAX_TRANSCRIBE_RESPONSE_BYTES` | `26214400` | Maximum transcription-provider response body. Checked while streaming even when `Content-Length` is absent or wrong; zero/invalid values retain the safe default. |
-| `IRONFLOW_MAX_HTTP_BODY_BYTES` | `52428800` | Maximum HTTP node, embedding, ArangoDB Cursor API, Slack, or Resend response body bytes, raw artifact upload, or complete multipart request size. Declared sizes are checked up front and actual sizes while streaming; multipart admission includes conservative generated-framing allowance. Response text/JSON decoding can use additional memory. Does not apply to SMTP or OAuth token responses. |
-| `IRONFLOW_MAX_EMBEDDING_VALUES` | `16777216` | Maximum total scalar values across one `ai_embed` or `ai_chunk_semantic` vector matrix, not per batch. Default equals 128 MiB of raw `f64` values; parsing, JSON, containers, and semantic processing use additional memory. Invalid or zero values retain the default. |
-| `IRONFLOW_MAX_FILE_BYTES` | `52428800` | Maximum `read_file` payload and final `write_file` size (including an existing file in append mode), streamed `s3_get_object` response body, HTML/SRT/VTT extraction input, and raw DOCX/PPTX archive size |
+| `IRONFLOW_MAX_TRANSCRIBE_RESPONSE_BYTES` | `26214400` | Maximum transcription-provider response body. Checked while streaming even when `Content-Length` is absent or wrong; zero or invalid values fail startup. |
+| `IRONFLOW_MAX_HTTP_BODY_BYTES` | `52428800` | Maximum HTTP node, embedding, ArangoDB Cursor API, Slack, or Resend response body bytes, raw artifact upload, or complete multipart request size. Declared sizes are checked up front and actual sizes while streaming; multipart admission includes conservative generated-framing allowance. Response text/JSON decoding can use additional memory. Also caps embedding OAuth token responses. Does not apply to SMTP. |
+| `IRONFLOW_MAX_EMBEDDING_VALUES` | `16777216` | Maximum total scalar values across one `ai_embed` or `ai_chunk_semantic` vector matrix, not per batch. Default equals 128 MiB of raw `f64` values; parsing, JSON, containers, and semantic processing use additional memory. Zero or invalid values fail startup. |
+| `IRONFLOW_MAX_FILE_BYTES` | `52428800` | Maximum `read_file` payload and final `write_file` size (including an existing file in append mode), streamed `s3_get_object` response body, HTML/SRT/VTT extraction input, the `html_to_markdown` input string, and raw DOCX/PPTX archive size |
 | `IRONFLOW_MAX_IMAGE_ENCODED_BYTES` | `52428800` | Maximum encoded bytes for one image path, artifact, or decoded Base64 source, checked before image pixel allocation |
 | `IRONFLOW_MAX_IMAGE_PIXELS` | `25000000` | Maximum decoded pixels in one source image or generated image transform |
 | `IRONFLOW_MAX_IMAGE_DECODE_ALLOCATION_BYTES` | `134217728` | Maximum decoder-managed allocation and admitted image working-buffer estimate, not a process-memory cap. Transforms check retained source plus known output buffers; `image_resize` also budgets the RGBA-float intermediate and filter scratch before pixel decoding/resizing. `image_to_pdf` includes encoded, conversion, and compression buffers for non-JPEG sources |
@@ -1132,15 +1743,18 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_ARTIFACT_S3_FORCE_PATH_STYLE` | `false` | Strict `true`/`false` path-style addressing switch for compatible services. |
 | `IRONFLOW_MAX_AUDIO_BYTES` | `25000000` | Maximum size of the audio/video file `transcribe` reads from disk before uploading it to the provider |
 | `IRONFLOW_MAX_CONVERSION_DEPTH` | `64` | Maximum nesting depth when converting values between JSON and Lua, and when admitting a verbose-JSON `transcribe` response before materialization |
-| `IRONFLOW_MAX_CONVERSION_NODES` | `100000` | Maximum total values converted between JSON and Lua in one conversion, also applied before a verbose-JSON `transcribe` response is materialized. Handlers convert the whole context by default; code nodes and function handlers may opt into `context_keys` to exclude unused values. The root and all selected values still share one cumulative budget |
+| `IRONFLOW_MAX_CONVERSION_NODES` | `100000` | Maximum total values converted between JSON and Lua in one conversion, also applied before a verbose-JSON `transcribe` response is materialized. Handlers convert the whole context by default; code nodes and function handlers may opt into `context_keys` to exclude unused values. The root and all selected values still share one cumulative budget. The Lua `json_parse()` global applies it, and `IRONFLOW_MAX_CONVERSION_DEPTH`, while it reads the text, so an oversized document is refused before it is built. The `json_parse` node has its own budget, `IRONFLOW_MAX_JSON_PARSE_NODES` |
+| `IRONFLOW_MAX_JSON_PARSE_NODES` | `1000000` | Maximum values (scalars, arrays and objects; keys do not count) the `json_parse` node, or `json_extract_path` with `parse_json`, builds from one text. The values are counted before anything is built, so an oversized document is refused instead of becoming a tree many times the size of its text. Separate from `IRONFLOW_MAX_CONVERSION_NODES`: a native value may be larger than a Lua handler can convert |
 | `IRONFLOW_MAX_SHELL_OUTPUT_BYTES` | `10485760` | Maximum captured bytes for each shell output stream and each MCP stdio JSON-RPC frame; the input frame budget is cumulative across partial reads and includes the newline delimiter |
 | `IRONFLOW_MAX_TASK_OUTPUT_BYTES` | `2097152` | Maximum serialized task output or individual final context value persisted for inspection before replacement with a truncation marker; does not truncate live child results or carried repeat state. The aborting counter reports `_minimum_bytes = limit + 1` rather than an exact rejected size |
 | `IRONFLOW_MAX_DIRECTORY_ENTRIES` | `10000` | Maximum entries returned by a directory listing |
+| `IRONFLOW_MAX_S3_LIST_OBJECTS` | `10000` | Maximum objects and common prefixes one `s3_list_objects` call returns. A larger listing fails unless the step pages with `max_objects`, which may not exceed this value |
+| `IRONFLOW_MAX_S3_LIST_PAGE_BYTES` | `16777216` | Maximum response body of one `s3_list_objects` page or one `s3_list_buckets` call. A response that declares a larger length is refused unread and one without a length is cut off while streaming, so an endpoint cannot make the SDK buffer one very large page. The S3 listing of `ironflow artifacts prune` has the same limit |
 | `IRONFLOW_MAX_DIRECTORY_DEPTH` | `32` | Maximum recursive depth for directory listings, ZIP source traversal, and ZIP extraction paths |
 | `IRONFLOW_MAX_ZIP_ENTRIES` | `10000` | Maximum entries processed by archive nodes and OOXML extractors (`extract_word`, `extract_pptx`, `extract_xlsx`); `zip_list`/`zip_extract` count raw entries before deduplication, and `zip_create` counts every visited child file and directory |
 | `IRONFLOW_MAX_ZIP_METADATA_BYTES` | `8388608` | Maximum cumulative raw filename, extra-field, file/archive-comment, and ZIP64 end-record extension bytes for `zip_list` and `zip_extract`, checked before ZIP construction; overridden by node `max_metadata_bytes`. Not a compressed payload or total memory cap |
 | `IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES` | `536870912` | Maximum total uncompressed bytes processed by archive nodes. For DOCX/PPTX it caps cumulative declared package bytes and cumulative actual bytes of parts read; for `extract_xlsx` it also caps the raw workbook before ZIP metadata allocation |
-| `IRONFLOW_MAX_PDF_BYTES` | `104857600` | Maximum size of each PDF accepted by rendering, metadata, splitting, merging, and `extract_pdf`; capped readers reject post-open growth where the parser API permits. Also caps each staged `pdf_split` output when `pages_per_file > 1` |
+| `IRONFLOW_MAX_PDF_BYTES` | `104857600` | Maximum size of each PDF accepted by rendering, metadata, splitting, merging, and `extract_pdf`; capped readers reject post-open growth where the parser API permits. Also caps each staged `pdf_split` output file, single-page or grouped |
 | `IRONFLOW_MAX_PDF_DECOMPRESSED_STREAM_BYTES` | `67108864` | Per object/cross-reference stream decoded-byte limit for `extract_pdf`, `pdf_metadata`, `pdf_split`, and `pdf_merge`; strict loading and bounded recovery checks reject oversized streams. Not a cumulative memory cap; see [PDF loading](PDF_LOADING.md) |
 | `IRONFLOW_MAX_PDF_OBJECTS` | `250000` | Per-source loaded document objects for those four nodes, checked after parsing, not a parser preallocation guard. Also caps each grouped `pdf_split` graph during collection, including its new tree and catalog; separate from the merged-output object limit |
 | `IRONFLOW_MAX_PDF_MERGE_FILES` | `100` | Maximum number of sources admitted by one `pdf_merge` call before source descriptors are collected |
@@ -1148,21 +1762,28 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_MAX_PDF_MERGE_PAGES` | `2000` | Maximum cumulative pages admitted by one `pdf_merge` call |
 | `IRONFLOW_FONT_DIR` | unset | Directory of additional `.ttf`/`.otf`/`.ttc` fonts for `markdown_to_pdf`, registered once per process after the bundled fonts and used as fallbacks for CJK scripts; at most 64 files of at most 64 MiB each, and an unreadable directory or file fails the first document with an error naming the path |
 | `IRONFLOW_MAX_PDF_MERGE_OBJECTS` | `250000` | Maximum retained merged PDF graph objects, including the merged page tree and catalog; shared objects within one source are counted once |
-| `IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES` | `52428800` | Maximum complete serialized `NodeOutput` for one `extract_html`, `extract_pdf`, `extract_word`, `extract_pptx`, `extract_srt`, or `extract_vtt` call; includes configured content/alias, metadata, comments, cues, and artifact descriptors as applicable, but not the artifact files themselves |
-| `IRONFLOW_MAX_EXTRACT_ITEMS` | `250000` | Maximum cumulative structural/work items for one non-XLSX extraction call; units are format-specific and documented on each extract node |
+| `IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES` | `52428800` | Maximum complete serialized `NodeOutput` for one `extract_html`, `extract_pdf`, `extract_word`, `extract_pptx`, `extract_srt`, or `extract_vtt` call; includes configured content/alias, metadata, comments, cues, and artifact descriptors as applicable, but not the artifact files themselves. Also the maximum Markdown one `html_to_markdown` call or `extract_html` Markdown conversion produces, charged while converting: repeated block-quote and list prefixes and table padding count before the output exists |
+| `IRONFLOW_MAX_EXTRACT_ITEMS` | `250000` | Maximum cumulative structural/work items for one non-XLSX extraction call or one `html_to_markdown` call; units are format-specific and documented on each node. Independently of this budget, `extract_html` Markdown output and `html_to_markdown` reject HTML whose elements nest deeper than a fixed 128 levels |
+| `IRONFLOW_MAX_HTML_TEXT_DEPTH` | `1024` | Maximum element nesting `extract_html` accepts with `format = "text"`, counting the `<html>` and `<body>` the parser supplies. HTML parse time grows with the square of the nesting depth, so a deeper document fails while it is parsed. Markdown output has a fixed 128-level cap instead |
 | `IRONFLOW_MAX_PDF_EXTRACT_PAGES` | `1000` | Maximum pages accepted by one `extract_pdf` call before text extraction begins |
+| `IRONFLOW_MAX_PDF_EXTRACT_CMAP_ENTRIES` | `1048576` | Maximum cumulative ToUnicode mapping entries across the distinct fonts of one `extract_pdf` call, charged from a scan of each decoded CMap before it is parsed: a `bfchar` entry counts the UTF-16 units of its destination and a `bfrange` line counts its code span multiplied by the UTF-16 units of its longest destination. An over-budget font fails the node. Not a memory cap: the parser keeps roughly 130 bytes per admitted entry until the call ends |
 | `IRONFLOW_MAX_PDF_RENDER_PAGES` | `25` | Maximum pages rendered by one PDF node call |
 | `IRONFLOW_MAX_PDF_SPLIT_PAGES` | `1000` | Maximum selected pages materialized by one `pdf_split` call; page specifications are rejected before collecting more indices. Also the maximum configured `pages_per_file` |
 | `IRONFLOW_MAX_PDF_RENDER_PIXELS` | `25000000` | Maximum pixels in one rendered PDF page |
+| `IRONFLOW_MAX_PDF_RENDER_OPERATIONS` | `1000000` | Maximum drawing operations in one page rendered by `pdf_to_image` or `pdf_thumbnail`, counted before the page is drawn: one per path, clip, transparency group, glyph and image, plus one per 1024 image pixels, with a tiling pattern counted once per tile copy. A page over the budget fails the node |
 | `IRONFLOW_MAX_PDF_DPI` | `300` | Maximum PDF rendering DPI |
 | `IRONFLOW_MAX_XLSX_ARCHIVE_METADATA_BYTES` | `8388608` | Maximum cumulative XLSX central-directory filename, extra-field, file/archive-comment, and ZIP64 end-record extension bytes, checked without materializing those fields before ZIP/Calamine construction |
 | `IRONFLOW_MAX_XLSX_ROWS` | `50000` | Highest one-based row position accepted in one sheet by `extract_xlsx`; sparse rows do not bypass it |
 | `IRONFLOW_MAX_XLSX_CELLS` | `33000` | Maximum total cells across every sheet one `extract_xlsx` call extracts |
-| `IRONFLOW_MAX_XLSX_OUTPUT_BYTES` | `52428800` | Maximum cumulative decoded/result bytes for one `extract_xlsx` call and maximum compressed/uncompressed size of one workbook part; repeated shared-string references are charged per use |
+| `IRONFLOW_MAX_XLSX_OUTPUT_BYTES` | `52428800` | Maximum cumulative decoded/result bytes for one `extract_xlsx` call and maximum compressed/uncompressed size of one workbook part; repeated shared-string references are charged per use, and so is the style table that opening the workbook builds from `styles.xml` |
 | `IRONFLOW_MAX_DETACHED_SUBWORKFLOWS` | `64` | Process-wide limit for detached `subworkflow` executions |
-| `IRONFLOW_MAX_REPEAT_ITERATIONS` | `128` | Maximum `repeat_subworkflow` iterations requested by one node; valid range is 1–1024 |
+| `IRONFLOW_MAX_SUBWORKFLOW_DEPTH` | `16` | Maximum child workflow levels below a top-level run, counted across `subworkflow` (waiting or detached), `parallel_subworkflows`, `repeat_subworkflow` and `tool_dispatch`. A step that would start a deeper child fails before the child is loaded |
+| `IRONFLOW_MAX_PARALLEL_SUBWORKFLOWS` | `1024` | Maximum child flows one `parallel_subworkflows` call may fan out to, static or dynamic; a longer list fails the step before any child starts |
+| `IRONFLOW_MAX_LIVE_CHILD_RUNS` | `4096` | Maximum child runs alive at once in the process, counted across `subworkflow` (waiting or detached), `parallel_subworkflows`, `repeat_subworkflow` and `tool_dispatch` at every nesting level and under every top-level run. A child that finds no free slot is refused with `child workflow run limit reached` and fails its step; it does not wait |
+| `IRONFLOW_MAX_REPEAT_ITERATIONS` | `128` | Maximum `repeat_subworkflow` iterations requested by one node; valid range is 1–1024, checked at startup |
 | `IRONFLOW_MCP_SESSION_CACHE_SIZE` | `1024` | Maximum live MCP session handles; least-recently-used overflow sessions are closed |
 | `IRONFLOW_MCP_SESSION_TTL_SECS` | `3600` | Idle TTL for live MCP sessions; expired sessions are closed when another session is inserted or leased |
+| `IRONFLOW_MAX_MCP_RESULT_BYTES` | `4194304` | Maximum JSON size of the result one `mcp_client` action (`initialize`, `list_tools`, `call_tool`) may write to workflow context. The transports bound a reply on the wire (16 MiB for a Streamable HTTP JSON response, `IRONFLOW_MAX_SHELL_OUTPUT_BYTES` for a stdio frame); a result above this limit fails the step instead of entering context |
 | `IRONFLOW_OAUTH_CACHE_SIZE` | `128` | Maximum cached OAuth client token tuples |
 
 Lua limits apply to flow parsing, `code` nodes, and `foreach` transform functions. For trusted dedicated-server workloads that intentionally run long Lua computations, raise the budgets or set the relevant budget to `0`.
@@ -1196,6 +1817,42 @@ need separate execution identities and storage ACLs. S3 credentials and bucket
 policy are the remote authentication and namespace boundary.
 
 `IRONFLOW_MAX_XLSX_CELLS` is deliberately kept below `IRONFLOW_MAX_CONVERSION_NODES`: converting an extracted sheet into Lua costs roughly `rows * (cols + 1)` conversion nodes, so a cell ceiling that never fires before the conversion budget does would let oversized workbooks fail deep inside the JSON-to-Lua converter (an error naming a JSON path) instead of at `extract_xlsx` parse time (an error naming the sheet). Raising one of these two limits without the other may simply move where an oversized workbook fails rather than allow it through.
+
+#### Fixed work limits
+
+These ceilings are constants and have no environment override.
+
+| Limit | Value | Result above it |
+|-------|-------|-----------------|
+| Retries of one step (`:retries(max, backoff)`) | `100` | The flow fails validation with `Step '<name>' retry count is too large (max 100)`; no run starts. A failed attempt stores one error record of at most 64 KiB, so one step adds at most 101 of them |
+| Step timeout (`:timeout(seconds)`) and every retry wait (`backoff × 2^(n-1)` seconds before retry *n*) | What the process clock and a duration can represent (a wait below 2^64 seconds) | The flow fails validation with `Step '<name>' timeout is too large to schedule` or `Step '<name>' retry backoff is too large to schedule: the wait before retry <n> is not representable as a duration`; no run starts. `ironflow validate`, `POST /flows/validate` and `POST /flows/run` report it |
+| `ai_chunk_semantic` `sim_window`, `sg_window`, `poly_order` | `101`, `1001`, `16` | The step fails before any embedding request with `ai_chunk_semantic: '<parameter>' must be at most <ceiling>, got <value>`. The boundary computation costs sentences × window, and the cube of the order |
+
+#### JSON nesting limit
+
+One limit is fixed and has no environment override: a context value or a
+step-output value may nest arrays and objects at most **123 levels** deep. A
+scalar has depth 0 and `[[1]]` has depth 2. The object that holds the keys of
+a context, a request body or a step output is not counted.
+
+| Where a deeper value arrives | Result |
+|------------------------------|--------|
+| `ironflow run --context` | `Invalid --context JSON: value '<key>' is nested deeper than 123 levels of arrays and objects`, exit status 1, no run record |
+| `POST /flows/run` `context` and a webhook body | `400` with `bad_request`, naming the key; no run record. A replay that carries the `Idempotency-Key` of an existing run still returns that run |
+| The output of any step | The step fails with `step output refused: value '<key>' is nested deeper than 123 levels of arrays and objects`. It is not retried, because another attempt would repeat the node and return the same shape; `on_error` applies as for any failed step |
+| The `json_parse` node and the Lua `json_parse()` global | The parse fails with `JSON value is nested deeper than 123 levels of arrays and objects` |
+| Structured output attached to a node failure | Dropped: it is not published to the context or passed to the `on_error` handler, and the failed task's record carries a note in its place. The step's own error is kept |
+| A direct `StateStore` call (`init_run`, `update_ctx`, `upsert_task` and their owned forms) | `InvalidInput` from the JSON, SQLite, PostgreSQL and Redis stores; nothing is written |
+
+The number is what every store can read back. The JSON parser reads at most
+127 nested arrays and objects, and a stored run record wraps a task-output
+value in four more objects. `IRONFLOW_MAX_CONVERSION_DEPTH` (default `64`)
+still bounds what Lua reads or returns and applies first unless it is raised
+above 123. `xml_parse` keeps its own cap of 128 nested elements, so a document
+between the two limits parses and its step then fails on the output. A node
+that nests other values adds its own levels: `subworkflow` with `output_key`
+puts the child context one level deeper, so a child value already at 123
+makes the parent step fail after the child has run.
 
 ### Diagnostics
 

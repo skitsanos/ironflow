@@ -8,7 +8,10 @@ Extract slides, speaker notes, and comments from a PowerPoint (`.pptx`) deck.
 presentation's slide list determines membership and order in every output
 format. `slide_index` is the one-based position in that list, not a part filename
 suffix or the presentation's internal slide ID. Hidden slides that remain in the
-list are included. Orphan slide, note, and comment parts are not extracted.
+list are included and counted in `slide_count`. In JSON a hidden slide (`show="0"`
+or `show="false"` on its `p:sld` root) carries `"hidden": true`; a shown slide has
+no `hidden` field. Text and Markdown do not mark hidden slides: use JSON to skip
+them. Orphan slide, note, and comment parts are not extracted.
 
 Slide parts may be renamed or stored in other package directories. Notes and
 legacy comments are followed through each slide's actual relationship part;
@@ -37,9 +40,31 @@ comments are outside this contract.
 Slide text, table cells, speaker notes, metadata and comments decode built-in XML
 entities and numeric references once and preserve literal CDATA. Adjacent events
 and runs do not introduce spaces or newlines; speaker-note paragraphs are
-separated by newlines. Metadata outer whitespace is trimmed after accumulation.
+separated by newlines, and a line break element is rendered as described below. Metadata outer whitespace is trimmed after accumulation.
 Picture descriptions, embed IDs, list levels and comment attributes use the
 part's declared XML-version normalization (1.0 by default).
+
+Speaker notes are the text runs of the notes slide's body placeholder
+(`<p:ph type="body">`). The slide-image, slide-number, date, header and footer
+placeholders, placeholders of any other type and shapes without a placeholder
+are not notes. Field runs (`a:fld`, for example a slide number or date
+inside the notes text) are generated values and are skipped, as they are in
+slide text. A slide whose body placeholder is empty has no `speaker_notes`.
+Text in a notes part that contains no shapes at all is still read.
+
+Slide text leaves out the footer, date, slide-number and header placeholders
+(`<p:ph type="ftr">`, `dt`, `sldNum`, `hdr`) in every format, as speaker notes
+do: they are page furniture that repeats on every slide. No `text_block` is
+returned for them, whether they hold a field or typed text. Text typed into
+any other shape, including a text box placed in the footer area, is slide text.
+
+A DrawingML line break (`a:br`) between two runs of a paragraph is a newline
+in that paragraph's `text` and in `speaker_notes`. It is a single space in a
+table cell and in the slide `title`, which are one line in every format; the
+paragraphs of a table cell are joined by a single space in the same way. A
+break with no text after it in its paragraph adds nothing, and a paragraph
+that holds only breaks is empty. In Markdown the text after a break continues
+on the next line of the same paragraph or list item.
 
 Unknown/invalid text references and DTDs return errors; no custom or external
 entities are expanded. Decoding and retained attribute values are admitted
@@ -52,7 +77,7 @@ deadline, and final serialized-output checks are unchanged.
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `path` | string | one of `path` or `source_key` | — | File path to the `.pptx` file; supports `${ctx.key}` interpolation. |
-| `source_key` | string | one of `path` or `source_key` | — | Context key containing a file path, artifact URI, or artifact descriptor. |
+| `source_key` | string | one of `path` or `source_key` | — | Context key containing a file path, artifact URI, or artifact descriptor. A stored path is used as it is and is not interpolated. |
 | `format` | string | no | `"text"` | Output format: `"text"` (flattened slide text), `"markdown"` (one section per slide), or `"json"` (structured IR). |
 | `output_key` | string | no | `"content"` | Context key where the extracted output is stored. For `text`/`markdown` the value is a string; for `json` it is an object. |
 | `metadata_key` | string | no | — | If set, deck metadata (slide count + Dublin Core fields) is stored under this context key. |
@@ -108,6 +133,7 @@ deadline, and final serialized-output checks are unchanged.
     },
     {
       "slide_index": 2,
+      "hidden": true,
       "title": "Patient Profile A",
       "elements": [
         {
@@ -126,7 +152,7 @@ deadline, and final serialized-output checks are unchanged.
 
 ### Element types
 
-- `text_block` — a non-title shape's text. `placeholder` carries the OOXML placeholder type (`subTitle`, `body`, etc.) when present and is omitted otherwise. `paragraphs[]` carry `text` and optional `list_level` (0-based indent for bulleted items).
+- `text_block` — a non-title shape's text. `placeholder` carries the OOXML placeholder type (`subTitle`, `body`, etc.) when present and is omitted otherwise. Footer, date, slide-number and header placeholders are never returned (see [Text Fidelity](#text-fidelity)). `paragraphs[]` carry `text` and optional `list_level` (0-based indent for bulleted items). A paragraph is a list item when a bullet is declared for it: `a:buChar`, `a:buAutoNum` or `a:buBlip` in its own `a:pPr`, or in the level of the shape's `a:lstStyle` that the paragraph uses. `list_level` is then its `lvl` attribute, and `0` when it has none (PowerPoint writes no `lvl` on a first-level bullet). `a:buNone`, in the paragraph or in that level of the list style, switches the bullet off: the paragraph has no `list_level` and is plain text in Markdown. A placeholder paragraph that declares nothing inherits: the first declaration for its level is taken from the matching placeholder of the slide layout (same `idx`, or else the first of the same `type`), then from the slide master's placeholder of the same role, then from the master's `p:txStyles` (`p:titleStyle`, `p:bodyStyle` for body, subtitle and content placeholders, `p:otherStyle` for the rest). A body paragraph without `lvl` is therefore a first-level list item when the master bullets that level, and a subtitle whose layout sets `a:buNone` is plain. A level nothing declares is plain. The layout and master are followed through the slide's `slideLayout` and the layout's `slideMaster` relationship and each part is read once per call, within the same budgets as slides; malformed XML in one of them fails the step. When a slide has no single internal layout relationship, or the layout or master part is absent, nothing can be inherited and the old approximation applies: such a paragraph is a list item when it carries `lvl`. A text box or drawn shape inherits no bullet, so there a level alone is indentation, not a list item; the presentation's `p:defaultTextStyle` is not read. Numbered items (`a:buAutoNum`) are reported like bullets, without their number.
 - `table` — rendered as `rows: [[string]]`.
 - `image` — picture shape metadata. `alt_text` and `embed_id` are included when available. `embedded_path` is included only when that ID resolves through an internal OOXML image relationship. With `media_mode = "artifact"`, a resolved embedded image also has an `artifact` object containing its canonical URI, SHA-256 digest, decoded byte size, and MIME type. Binary bytes are not placed in `NodeOutput`.
 
@@ -150,7 +176,12 @@ position, in both the flat comments array and the per-slide JSON output.
   refuses to follow a final path-component symlink/reparse point; other platforms enforce the
   opened-handle regular-file check.
 - The EOCD/ZIP64 preflight validates central-directory bounds and
-  `IRONFLOW_MAX_ZIP_ENTRIES` (default `10000`). IronFlow then rejects duplicate
+  `IRONFLOW_MAX_ZIP_ENTRIES` (default `10000`). It accepts only the last end
+  record in the file, which must end at EOF with its comment, and a central
+  directory that ends exactly where that record begins; the opened archive's
+  directory offset and raw entry count must then match the validated ones.
+  Packages with trailing bytes, prepended data, or a second end record inside
+  the archive comment are rejected. IronFlow then rejects duplicate
   part names, symlink or special-file parts, and a cumulative declared
   uncompressed size above `IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES` (default
   `536870912`, 512 MiB). These archive-wide admission checks include orphan parts,

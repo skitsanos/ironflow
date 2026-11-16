@@ -18,7 +18,11 @@ use scheduler_support::{
 // production flow-load admission is intentionally process-wide. Serialize the
 // fixture lifetimes so parallel Rust test threads do not turn unrelated cases
 // into synthetic capacity competitors.
-static PROCESS_ADMISSION_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+/// Shared with `test_scheduler_load_admission`, whose tests hold both
+/// flow-load permits for seconds: a scheduled start here would wait for them
+/// past this file's four-second bound.
+pub(super) static PROCESS_ADMISSION_LOCK: tokio::sync::Mutex<()> =
+    tokio::sync::Mutex::const_new(());
 
 fn nightly(flow: &str) -> ScheduleConfig {
     let mut ctx = Context::new();
@@ -162,12 +166,15 @@ async fn overlap_detection_finds_a_non_terminal_run_of_the_same_schedule() {
     wait_for_terminal(&app.store, &run_id).await;
     assert!(app.executor.active_run("nightly").await.is_none());
 
-    // A run left non-terminal is.
+    // IF-203 (c): the context keys alone do not make a run the schedule's.
+    // A run under any other id is not an overlap, even when it copies both
+    // keys of the settled occurrence; only the occurrence's own
+    // deterministic run id is, and API and webhook runs never get one.
+    let settled = app.store.get_run_info(&run_id).await.unwrap();
     let mut ctx = Context::new();
-    ctx.insert(
-        SCHEDULE_CONTEXT_KEY.to_string(),
-        serde_json::json!("nightly"),
-    );
+    for key in [SCHEDULE_CONTEXT_KEY, "_schedule_instant"] {
+        ctx.insert(key.to_string(), settled.ctx[key].clone());
+    }
     app.store
         .init_run("stuck-run", "nightly_report", &ctx)
         .await
@@ -176,10 +183,7 @@ async fn overlap_detection_finds_a_non_terminal_run_of_the_same_schedule() {
         .set_run_status("stuck-run", ironflow::engine::types::RunStatus::Running)
         .await
         .unwrap();
-    assert_eq!(
-        app.executor.active_run("nightly").await.as_deref(),
-        Some("stuck-run")
-    );
+    assert!(app.executor.active_run("nightly").await.is_none());
 
     // Another schedule's non-terminal run is not this schedule's overlap.
     assert!(app.executor.active_run("other").await.is_none());
@@ -231,6 +235,68 @@ async fn a_long_running_schedule_does_not_block_the_next_evaluation() {
     delay.release.notify_one();
     let status = wait_for_terminal(&app.store, &run_id).await;
     assert_eq!(status, ironflow::engine::types::RunStatus::Success);
+}
+
+/// IF-217 (d): an evaluation that is retried after its budget expired can
+/// find the run its own cancelled attempt created, still active. That run is
+/// this occurrence, not an earlier one it overlaps: the instant is settled as
+/// already started, and the claim is repaired like any converged one.
+#[tokio::test]
+async fn an_occurrence_whose_own_run_is_active_is_not_reported_as_overlapped() {
+    use ironflow::scheduler::ScheduleRun;
+
+    let _admission = PROCESS_ADMISSION_LOCK.lock().await;
+    let flows = tempfile::tempdir().unwrap();
+    std::fs::write(
+        flows.path().join("slow.lua"),
+        r#"
+        local flow = Flow.new("slow_flow")
+        flow:step("wait", nodes.delay({ seconds = 3 }))
+        return flow
+        "#,
+    )
+    .unwrap();
+    let (app, delay) = build_controlled_executor(flows.path());
+    let schedule =
+        ScheduleConfig::new("slow.lua", "0 2 * * *", Some("UTC"), None, Context::new()).unwrap();
+    let key = "UTC@2026-03-10T02:00";
+
+    // The cancelled attempt: the instant was claimed and its run created, but
+    // the result never reached the scheduler, so nothing was recorded.
+    assert!(
+        app.store
+            .claim_schedule("slow", key, 604_800)
+            .await
+            .unwrap()
+    );
+    let started = ScheduleExecutor::run(app.executor.as_ref(), "slow", key, &schedule)
+        .await
+        .unwrap();
+    let ScheduleRun::Started { run_id } = started else {
+        panic!("the first attempt must start the run: {started:?}");
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(30), delay.started.notified())
+        .await
+        .expect("the run did not start");
+    assert!(!app.store.schedule_run_recorded("slow", key).await.unwrap());
+
+    let now = Utc.with_ymd_and_hms(2026, 3, 10, 2, 0, 35).unwrap();
+    let mut scheduler = Scheduler::new(
+        std::collections::HashMap::from([("slow".to_string(), schedule)]),
+        app.store.clone(),
+        app.executor.clone(),
+        now,
+    );
+    let decisions = scheduler.evaluate(now).await;
+
+    assert_eq!(decisions.len(), 1, "{decisions:?}");
+    assert_eq!(decisions[0].outcome, Outcome::NotClaimed, "{decisions:?}");
+    assert!(app.store.schedule_run_recorded("slow", key).await.unwrap());
+
+    delay.release.notify_one();
+    let status = wait_for_terminal(&app.store, &run_id).await;
+    assert_eq!(status, ironflow::engine::types::RunStatus::Success);
+    assert_eq!(app.store.list_runs(None).await.unwrap().len(), 1);
 }
 
 #[tokio::test]

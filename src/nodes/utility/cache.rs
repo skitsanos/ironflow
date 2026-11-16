@@ -6,8 +6,9 @@ use sha2::{Digest, Sha256};
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
+use crate::nodes::file::{RootedDir, staged_output};
 use crate::util::bounded_cache::BoundedCache;
-use crate::util::execution::run_tracked_blocking_step;
+use crate::util::execution::{ExecutionControl, run_tracked_blocking_step};
 use crate::util::node_config::config_u64_strict;
 
 /// A cached entry with value and optional expiry (unix timestamp in seconds).
@@ -124,8 +125,7 @@ impl Node for CacheSetNode {
                 let cache_dir = cache_dir_from_config(config);
                 let file_key = key.clone();
                 run_tracked_blocking_step(move |execution| {
-                    execution.checkpoint()?;
-                    write_file_entry(&cache_dir, &file_key, &entry)?;
+                    write_file_entry(&cache_dir, &file_key, &entry, &execution)?;
                     execution.checkpoint()
                 })
                 .await?;
@@ -226,15 +226,25 @@ fn cache_file_path(cache_dir: &str, key: &str) -> std::path::PathBuf {
         .join(format!("{digest}.json"))
 }
 
-fn write_file_entry(cache_dir: &str, key: &str, entry: &CacheEntry) -> Result<()> {
-    std::fs::create_dir_all(std::path::Path::new(cache_dir).join(format!("v{FILE_CACHE_VERSION}")))
-        .map_err(|e| anyhow::anyhow!("Failed to create cache dir '{}': {}", cache_dir, e))?;
-
+/// Publish one entry through the rooted staged writer (IF-218): the record is
+/// written to a private sibling and renamed over the entry, so a concurrent
+/// reader sees the previous record or the new one, never a partial file, and
+/// a symlink planted at the entry name is refused instead of followed.
+fn write_file_entry(
+    cache_dir: &str,
+    key: &str,
+    entry: &CacheEntry,
+    execution: &ExecutionControl,
+) -> Result<()> {
     let path = cache_file_path(cache_dir, key);
-    let json = serde_json::to_string(entry)?;
-    std::fs::write(&path, json)
-        .map_err(|e| anyhow::anyhow!("Failed to write cache file '{}': {}", path.display(), e))?;
-    Ok(())
+    let directory = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    RootedDir::prepare(directory, "cache_set", execution)
+        .map_err(|e| anyhow::anyhow!("Failed to create cache dir '{}': {}", cache_dir, e))?;
+    staged_output::publish(&path, "cache_set", execution, |writer| {
+        serde_json::to_writer(writer, entry)?;
+        Ok(())
+    })
+    .map_err(|e| anyhow::anyhow!("Failed to write cache file '{}': {:#}", path.display(), e))
 }
 
 fn read_file_entry(cache_dir: &str, key: &str) -> Result<Option<CacheEntry>> {

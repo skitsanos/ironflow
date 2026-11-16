@@ -1,3 +1,4 @@
+mod child_runs;
 mod context;
 mod coordinator;
 mod deadline;
@@ -6,11 +7,13 @@ mod error_handler;
 mod finalizer;
 mod handle;
 mod lease;
+mod nesting;
 mod output;
 mod overlay;
 mod panic_payload;
 mod phase_output;
 mod placement;
+mod run_events;
 mod scheduler;
 mod signal;
 mod task_attempt;
@@ -18,7 +21,9 @@ mod task_runner;
 mod task_runtime;
 mod workflow;
 
+pub use child_runs::LiveChildRunLimit;
 pub use engine::WorkflowEngine;
 pub use handle::RunHandle;
 pub(crate) use handle::{ChildRunResult, RunCancellation};
+pub(crate) use nesting::ChildLink;
 pub(crate) use overlay::ExecutionOverlay;

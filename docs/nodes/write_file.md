@@ -10,14 +10,25 @@ regular file. The work runs on a tracked blocking worker and is bounded by
 |-----------|------|----------|---------|-------------|
 | `path` | string | yes | — | Destination path. Supports `${ctx.key}` interpolation. Missing parent directories are created. |
 | `content` | string | no | `""` | Inline text or Base64 input. Supports interpolation. Mutually exclusive with `source_key` and `artifact`. |
-| `source_key` | string | no | — | Context key containing a string or artifact descriptor. Mutually exclusive with `content` and `artifact`. |
-| `artifact` | object or string | no | — | Artifact descriptor or canonical `artifact://sha256/...` URI. Mutually exclusive with `content` and `source_key`. |
+| `source_key` | string | no | — | Context key containing a string or artifact descriptor. The stored value is used as it is and is not interpolated. Mutually exclusive with `content` and `artifact`. |
+| `artifact` | object or string | no | — | Artifact descriptor or canonical `artifact://sha256/...` URI; a URI string supports `${ctx.key}` interpolation. A local path is rejected. Mutually exclusive with `content` and `source_key`. |
 | `encoding` | string | no | `"text"` | `"text"`, `"base64"`, or `"artifact"`. An object source is recognized as an artifact without the explicit encoding. |
 | `append` | bool | no | `false` | Copy the existing regular file followed by the new input into an atomic replacement. |
 
 At most one input form may be configured. Omitting all three writes an empty
 file. A canonical artifact URI stored as a context string requires
 `encoding = "artifact"`; artifact descriptor objects are detected directly.
+
+An artifact input must name stored bytes: a descriptor object, a canonical
+`artifact://sha256/...` URI, or an `{ artifact = ... }` wrapper of either. Any
+other string fails with `write_file: artifact input must be an artifact
+descriptor or a canonical artifact://sha256/... URI`, whether it was written
+in `artifact`, in `content` with `encoding = "artifact"`, or read through
+`source_key`. This matches the `http_*` artifact body. `write_file` does not
+copy a local file named by path: use [`copy_file`](copy_file.md), or
+[`read_file`](read_file.md) with `encoding = "artifact"` to store it first.
+The accepted and rejected forms are shown in
+[`write_file_artifact_inputs.lua`](../../examples/04-file-operations/write_file_artifact_inputs.lua).
 
 ## Safety and resource contract
 
@@ -30,6 +41,23 @@ file. A canonical artifact URI stored as a context string requires
 - Overwrite and append both use a sibling staged file. Malformed input, size
   failure, cancellation, flush/sync failure, or commit failure leaves an
   existing destination unchanged and removes the staged file.
+- On Unix a new file gets `0666` masked by the process umask (`0644` under
+  umask `022`). Overwrite and append keep the existing file's nine permission
+  bits, so an appended `0755` script stays executable; setuid, setgid and
+  sticky bits are not carried, and the replacement is owned by the IronFlow
+  process. The staged file is mode `0600` until it is published. Other
+  platforms use their native permission semantics.
+- Writes to one destination are serialized inside the IronFlow process. Each
+  write, overwrite or append, including `copy_file` and the `base64_decode`
+  `output_file`, waits for the previous one to commit and observes
+  cancellation and the step deadline while it waits. Parallel appends
+  therefore keep every appended input; their order is the order in which the
+  steps reached the file. The destination is identified by its resolved
+  directory and case-folded file name.
+- Writers outside that process are not coordinated. Two IronFlow processes
+  that append to the same file, such as replicas sharing a volume, or another
+  node that replaces it during an append, are last-writer-wins: an append can
+  be discarded although its step succeeded. Give each process its own file.
 - Final links are refused. Unix uses handle-relative staging and replacement.
   Portable platforms revalidate the destination immediately before an OS-level
   atomic replacement, but cannot close a hostile parent-directory swap race;
@@ -51,6 +79,22 @@ destination stays unchanged, and no `write_file_success` is returned. Idle body
 waits also poll cancellation every 100 ms; this is a cooperative check interval,
 not a hard latency guarantee for filesystem operations. See the
 [artifact lifecycle](../ARCHITECTURE.md#binary-artifacts) for the shared contract.
+
+## Created directories
+
+Missing parent directories are created by every node that writes through the
+rooted writer: `write_file`, `copy_file`, `move_file`, `base64_decode` with
+`output_file`, `zip_create`, `zip_extract`, `pdf_merge`, `pdf_split`,
+`markdown_to_pdf`, `markdown_to_docx` and `cache_set` with the file backend.
+On Unix each created directory gets `0755` masked by the process umask: `0755`
+under umask `022` or `002`, `0750` under `027`, `0700` under `077`. This is a
+deliberate contract (IF-218), narrower than the `0777` a plain `mkdir`
+requests: a permissive umask never yields a group- or world-writable
+directory, in which another user could replace the files a node publishes.
+Published files still get `0666` masked by the umask. A directory that already
+exists is used with the mode it has, so create it beforehand with the mode you
+need, for example a setgid group-writable directory for shared output. Other
+platforms use their native permission semantics.
 
 ## Context output
 

@@ -275,3 +275,34 @@ fn sqlite_example_parallel_runs_use_disposable_independent_databases() {
         "SQLite example left database or sidecar artifacts: {artifacts:?}"
     );
 }
+
+/// IF-220 (o): the handler log and the summary log of the date example both
+/// write `log_message`. The summary waits for the handler, so the reported
+/// value is the summary whatever order the scheduler picks.
+#[test]
+fn date_format_example_reports_its_summary_as_the_final_log_message() {
+    let workspace = tempfile::tempdir().unwrap();
+    let node_temp = workspace.path().join("node-temp");
+    fs::create_dir(&node_temp).unwrap();
+    let flow = "examples/20-date/date_format.lua";
+    let source = fs::read_to_string(repository_root().join(flow)).unwrap();
+    assert!(
+        source.contains(r#":depends_on("offset", "format_failed")"#),
+        "the summary log must run after the failure handler"
+    );
+
+    let output = flow_command(
+        workspace.path(),
+        flow,
+        &workspace.path().join("store"),
+        &node_temp,
+        None,
+    )
+    .output()
+    .unwrap();
+    assert!(output.status.success(), "{}", stderr(&output));
+    let context = reported_context(&output);
+    let message = context["log_message"].as_str().unwrap();
+    assert!(message.starts_with("Current: "), "{message}");
+    assert!(message.contains("UTC: 2024-06-15T08:30:00Z"), "{message}");
+}

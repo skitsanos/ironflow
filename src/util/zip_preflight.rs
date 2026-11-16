@@ -1,6 +1,8 @@
 //! Shared bounded ZIP validation before `zip` allocates entry metadata.
 
+mod admitted;
 mod central_directory;
+mod end_record;
 mod fields;
 
 use std::io::{Read, Seek, SeekFrom};
@@ -10,6 +12,7 @@ use anyhow::Result;
 
 use crate::util::execution::ExecutionControl;
 
+pub(crate) use admitted::Admitted;
 pub(crate) use central_directory::Limits;
 use fields::{le_u16, le_u32, le_u64};
 
@@ -40,14 +43,17 @@ struct ClassicDirectory {
     offset: u32,
 }
 
-/// Admit raw metadata before ZIP construction and return the raw entry count.
+/// Admit raw metadata before ZIP construction.
+///
+/// The returned [`Admitted`] must be confirmed against the archive the ZIP
+/// reader then builds, before any entry is used.
 pub(crate) fn check<R: Read + Seek>(
     reader: &mut R,
     path: &Path,
     operation: &str,
     limits: Limits<'_>,
     execution: Option<&ExecutionControl>,
-) -> Result<u64> {
+) -> Result<Admitted> {
     checkpoint(execution)?;
     let file_len = reader.seek(SeekFrom::End(0))?;
     if file_len > limits.max_raw_bytes {
@@ -72,38 +78,19 @@ pub(crate) fn check<R: Read + Seek>(
     reader.read_exact(&mut tail)?;
     checkpoint(execution)?;
 
-    let mut structural_error = None;
-    for index in (0..=tail_len - EOCD_BYTES).rev() {
-        if &tail[index..index + 4] != EOCD_SIGNATURE {
-            continue;
-        }
-        let comment_len = le_u16(&tail[index + 20..index + 22]) as usize;
-        if index + EOCD_BYTES + comment_len != tail_len {
-            continue;
-        }
-
-        let eocd_offset = tail_start + index as u64;
-        match parse_directory(
-            reader,
-            &tail[index..index + EOCD_BYTES],
-            eocd_offset,
-            operation,
-        ) {
-            Ok(directory) => {
-                central_directory::validate(reader, path, operation, directory, limits, execution)?;
-                checkpoint(execution)?;
-                return Ok(directory.entries);
-            }
-            Err(error) => structural_error = Some(error),
-        }
-    }
-
-    Err(structural_error.unwrap_or_else(|| {
-        anyhow::anyhow!(
-            "{operation}: '{}' is missing a valid ZIP end record",
-            path.display()
-        )
-    }))
+    let index = end_record::locate(&tail, path, operation)?;
+    let directory = parse_directory(
+        reader,
+        &tail[index..index + EOCD_BYTES],
+        tail_start + index as u64,
+        operation,
+    )?;
+    central_directory::validate(reader, path, operation, directory, limits, execution)?;
+    checkpoint(execution)?;
+    Ok(Admitted {
+        entries: directory.entries,
+        directory_offset: directory.offset,
+    })
 }
 
 fn parse_directory<R: Read + Seek>(
@@ -120,12 +107,14 @@ fn parse_directory<R: Read + Seek>(
         size: le_u32(&eocd[12..16]),
         offset: le_u32(&eocd[16..20]),
     };
-    let uses_zip64 = classic.disk == u16::MAX
-        || classic.directory_disk == u16::MAX
-        || classic.entries_on_disk == u16::MAX
-        || classic.entries == u16::MAX
-        || classic.size == u32::MAX
-        || classic.offset == u32::MAX;
+    // Exactly the reader's test (`Zip32CentralDirectoryEnd::may_be_zip64`).
+    // A marker in a disk field alone leaves the reader on the classic path,
+    // where it rejects the record as multi-disk and falls back to an earlier
+    // end record; treating that marker as ZIP64 here would validate a
+    // directory the reader never uses (IF-218). Such a record is refused
+    // below instead.
+    let uses_zip64 =
+        classic.entries == u16::MAX || classic.size == u32::MAX || classic.offset == u32::MAX;
 
     if !uses_zip64 {
         if classic.disk != 0
@@ -238,3 +227,7 @@ fn checkpoint(execution: Option<&ExecutionControl>) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "zip_preflight/tests.rs"]
+mod tests;

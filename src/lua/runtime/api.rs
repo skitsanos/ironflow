@@ -22,6 +22,9 @@ pub(super) fn register_flow_api(
     let new_fn = lua.create_function(move |lua, name: String| {
         let flow = lua.create_table()?;
         flow.set("_name", name)?;
+        // `_steps` is the source of truth and is appended to by raw length.
+        // `_step_count` mirrors it so the loader can tell a builder-made flow
+        // from a hand-written table; it never sizes or indexes anything.
         flow.set("_steps", lua.create_table()?)?;
         flow.set("_step_count", 0i32)?;
         flow.set("step", step_function(lua, constructor_diagnostics.clone())?)?;
@@ -45,7 +48,7 @@ fn step_function(lua: &Lua, diagnostics: Option<HandlerDiagnostics>) -> LuaResul
         move |lua, (flow_tbl, step_name, node_arg): (LuaTable, String, LuaValue)| {
             let node_config = node_config_from_arg(lua, node_arg, diagnostics.as_ref(), "step")?;
             let steps: LuaTable = flow_tbl.get("_steps")?;
-            let count: i32 = flow_tbl.get("_step_count")?;
+            let count = steps.raw_len();
 
             let step = new_step(
                 lua,
@@ -54,7 +57,7 @@ fn step_function(lua: &Lua, diagnostics: Option<HandlerDiagnostics>) -> LuaResul
                 lua.create_table()?,
                 LuaValue::Nil,
             )?;
-            steps.set(count + 1, step.clone())?;
+            steps.raw_set(count + 1, step.clone())?;
             flow_tbl.set("_step_count", count + 1)?;
 
             // Return a step builder with chainable methods
@@ -83,7 +86,7 @@ fn step_if_function(lua: &Lua, diagnostics: Option<HandlerDiagnostics>) -> LuaRe
             // 1. Create a hidden if_node step
             let guard_name = format!("_if_{}", step_name);
             let steps: LuaTable = flow_tbl.get("_steps")?;
-            let count: i32 = flow_tbl.get("_step_count")?;
+            let count = steps.raw_len();
 
             let guard_config = lua.create_table()?;
             guard_config.set("_node_type", "if_node")?;
@@ -95,7 +98,7 @@ fn step_if_function(lua: &Lua, diagnostics: Option<HandlerDiagnostics>) -> LuaRe
                 lua.create_table()?,
                 LuaValue::Nil,
             )?;
-            steps.set(count + 1, guard_step.clone())?;
+            steps.raw_set(count + 1, guard_step.clone())?;
 
             // 2. Create the actual step with depends_on + route("true")
             let node_config =
@@ -103,7 +106,7 @@ fn step_if_function(lua: &Lua, diagnostics: Option<HandlerDiagnostics>) -> LuaRe
             let deps = lua.create_table()?;
             deps.set(1, guard_name)?;
             let step = new_step(lua, step_name, node_config, deps, "true")?;
-            steps.set(count + 2, step.clone())?;
+            steps.raw_set(count + 2, step.clone())?;
             flow_tbl.set("_step_count", count + 2)?;
 
             // Return a builder for the actual step (chainable). User
@@ -183,7 +186,9 @@ fn attach_builder_methods(
 
         let target: LuaTable = builder.get(dependency_target)?;
         let deps: LuaTable = target.get("dependencies")?;
-        let mut idx = deps.len()? as i32;
+        // Append after the entries the table really holds: `#deps` would ask a
+        // script-defined `__len` where to write.
+        let mut idx = deps.raw_len();
 
         for arg in iter {
             if let Some(dep) = arg
@@ -191,7 +196,7 @@ fn attach_builder_methods(
                 .and_then(|s| s.to_str().ok().map(|s| s.to_string()))
             {
                 idx += 1;
-                deps.set(idx, dep)?;
+                deps.raw_set(idx, dep)?;
             }
         }
         Ok(builder)

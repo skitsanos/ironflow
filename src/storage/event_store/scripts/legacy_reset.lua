@@ -29,6 +29,9 @@ if progress.phase ~= 'scan' and progress.phase ~= 'verify' then
     return {'stale'}
 end
 ironflow_assert_key_layout(progress.mode)
+if ironflow_snapshot_expired(progress) then
+    return {'expired'}
+end
 local snapshot, status = ironflow_snapshot(progress)
 if snapshot == nil then
     return {status == 'expired' and 'blocked' or status}

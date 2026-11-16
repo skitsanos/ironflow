@@ -1,24 +1,26 @@
 //! Process-wide size limits for I/O-heavy nodes and embedded runtimes.
 //!
-//! Limits are environment-overridable so deployments can tune them without
-//! recompiling. Every numeric limit is declared once as a [`Limit`], here or in
-//! a submodule, and listed in [`ALL`] so that [`validate_environment`] rejects
-//! a malformed override at startup under one contract (see `env.rs`). Read
-//! paths consult the accessors before allocating unbounded amounts of memory.
+//! Limits are environment-overridable. Every numeric limit is declared once as
+//! a [`Limit`], here or in a submodule, and listed in [`ALL`] so that
+//! [`validate_environment`] rejects a malformed override at startup under one
+//! contract (see `env.rs`). Read paths consult the accessors before allocating.
 mod env;
 mod image;
 mod lua;
 mod pdf;
 mod process;
+mod work;
 mod xlsx;
 
 pub use env::{Limit, Toggle, Zero, validate_environment};
 pub use image::*;
 pub use lua::{
     LuaExecutionLimits, apply_lua_limits, apply_lua_limits_with_control, collect_lua_garbage,
+    max_lua_pattern_steps,
 };
 pub use pdf::*;
 pub use process::*;
+pub use work::*;
 pub use xlsx::{
     max_xlsx_archive_metadata_bytes, max_xlsx_cells, max_xlsx_output_bytes, max_xlsx_rows,
 };
@@ -53,6 +55,9 @@ pub(crate) const DB_MAX_RESULT_BYTES: Limit =
 /// Directory listings and ZIP entry enumeration.
 pub(crate) const MAX_DIRECTORY_ENTRIES: Limit =
     Limit::positive("IRONFLOW_MAX_DIRECTORY_ENTRIES", 10_000);
+/// Objects and common prefixes one `s3_list_objects` call returns (IF-189).
+pub(crate) const MAX_S3_LIST_OBJECTS: Limit =
+    Limit::positive("IRONFLOW_MAX_S3_LIST_OBJECTS", 10_000);
 /// Recursive directory traversal depth.
 pub(crate) const MAX_DIRECTORY_DEPTH: Limit = Limit::positive("IRONFLOW_MAX_DIRECTORY_DEPTH", 32);
 /// ZIP archive entries.
@@ -118,6 +123,7 @@ pub(crate) const ALL: &[&Limit] = &[
     &DB_MAX_ROWS,
     &DB_MAX_RESULT_BYTES,
     &MAX_DIRECTORY_ENTRIES,
+    &MAX_S3_LIST_OBJECTS,
     &MAX_DIRECTORY_DEPTH,
     &MAX_ZIP_ENTRIES,
     &MAX_ZIP_METADATA_BYTES,
@@ -133,6 +139,7 @@ pub(crate) const ALL: &[&Limit] = &[
     &LUA_MAX_MEMORY_BYTES,
     &MAX_FLOW_SOURCE_BYTES,
     &LUA_HOOK_INTERVAL,
+    &lua::LUA_MAX_PATTERN_STEPS,
     &MAX_TASK_OUTPUT_BYTES,
     &image::MAX_IMAGE_ENCODED_BYTES,
     &image::MAX_IMAGE_PIXELS,
@@ -144,9 +151,11 @@ pub(crate) const ALL: &[&Limit] = &[
     &pdf::MAX_PDF_DECOMPRESSED_STREAM_BYTES,
     &pdf::MAX_PDF_OBJECTS,
     &pdf::MAX_PDF_EXTRACT_PAGES,
+    &pdf::MAX_PDF_EXTRACT_CMAP_ENTRIES,
     &pdf::MAX_PDF_RENDER_PAGES,
     &pdf::MAX_PDF_SPLIT_PAGES,
     &pdf::MAX_PDF_RENDER_PIXELS,
+    &pdf::MAX_PDF_RENDER_OPERATIONS,
     &pdf::MAX_PDF_DPI,
     &pdf::MAX_PDF_MERGE_FILES,
     &pdf::MAX_PDF_MERGE_BYTES,
@@ -157,10 +166,20 @@ pub(crate) const ALL: &[&Limit] = &[
     &xlsx::MAX_XLSX_OUTPUT_BYTES,
     &xlsx::MAX_XLSX_ARCHIVE_METADATA_BYTES,
     &process::MAX_DETACHED_SUBWORKFLOWS,
+    &process::MAX_SUBWORKFLOW_DEPTH,
+    &process::MAX_PARALLEL_SUBWORKFLOWS,
     &process::OAUTH_CACHE_SIZE,
     &process::CACHE_MAX_ENTRIES,
     &process::MCP_SESSION_CACHE_SIZE,
     &process::MCP_SESSION_TTL_SECS,
+    &process::RUNTIME_SHUTDOWN_SECONDS,
+    &process::MAX_REPEAT_ITERATIONS,
+    &process::REDIS_RESPONSE_TIMEOUT_MS,
+    &work::MAX_JSON_PARSE_NODES,
+    &work::MAX_HTML_TEXT_DEPTH,
+    &work::MAX_LIVE_CHILD_RUNS,
+    &work::MAX_MCP_RESULT_BYTES,
+    &work::MAX_S3_LIST_PAGE_BYTES,
 ];
 
 /// Every boolean switch, checked by [`validate_environment`] at startup.
@@ -204,6 +223,10 @@ pub fn max_db_result_bytes() -> Option<u64> {
 
 pub fn max_directory_entries() -> u64 {
     MAX_DIRECTORY_ENTRIES.read()
+}
+
+pub fn max_s3_list_objects() -> usize {
+    usize::try_from(MAX_S3_LIST_OBJECTS.read()).unwrap_or(usize::MAX)
 }
 
 pub fn max_directory_depth() -> u64 {

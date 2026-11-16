@@ -10,10 +10,16 @@
 
 #[path = "../test_artifact_retention.rs"]
 mod test_artifact_retention;
+#[path = "../test_artifact_retention_remote.rs"]
+mod test_artifact_retention_remote;
 #[path = "../test_cache_identity.rs"]
 mod test_cache_identity;
+#[path = "../test_event_fence_incarnation.rs"]
+mod test_event_fence_incarnation;
 #[path = "../test_event_store.rs"]
 mod test_event_store;
+#[path = "../test_json_depth_stores.rs"]
+mod test_json_depth_stores;
 #[path = "../test_json_store_security.rs"]
 mod test_json_store_security;
 #[path = "../test_sql_context_concurrency.rs"]

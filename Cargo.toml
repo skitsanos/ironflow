@@ -1,6 +1,6 @@
 [package]
 name = "ironflow"
-version = "1.21.0"
+version = "1.22.0"
 edition = "2024"
 # IF-162: integration tests are declared below as area binaries; see tests/<area>/main.rs.
 autotests = false
@@ -15,7 +15,7 @@ tree-sitter = "0.27.0"
 tree-sitter-lua = "0.5.0"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
-noyalib = "0.0.58"
+noyalib = "0.0.60"
 clap = { version = "4.6.1", features = ["derive", "env"] }
 anyhow = "1.0.102"
 thiserror = "2.0.18"
@@ -26,12 +26,12 @@ cron = "0.17"
 async-trait = "0.1.89"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-prometheus-client = "0.25.0"
+prometheus-client = "0.26.0"
 reqwest = { version = "0.13.4", features = ["json", "stream", "multipart"] }
 url = "2.5.8"
 percent-encoding = "2.3.2"
 http = "1"
-rmcp = { version = "3.4.0", default-features = false, features = ["client", "transport-streamable-http-client-reqwest"] }
+rmcp = { version = "3.9.0", default-features = false, features = ["client", "transport-streamable-http-client-reqwest"] }
 aws-config = "1.8.18"
 aws-sdk-s3 = { version = "1.156.0", default-features = false, features = [
     "http-1x",
@@ -43,9 +43,14 @@ aws-sdk-s3vectors = { version = "1.27.0", default-features = false, features = [
     "default-https-client",
     "rt-tokio",
 ] }
-aws-smithy-types = "1.4.9"
+aws-smithy-types = { version = "1.4.9", features = ["http-body-1-x"] }
+# Already in the tree through the AWS SDK; named directly only to build its
+# HTTPS client with the guarded DNS resolver (IF-212).
+aws-smithy-http-client = { version = "1.5.2", features = ["rustls-aws-lc"] }
+aws-smithy-runtime-api = { version = "1.21.0", features = ["client"] }
+http-body-util = "0.1"
 csv = "1.4.0"
-jsonschema = "0.60"
+jsonschema = "0.61"
 dotenvy = "0.15.7"
 sha2 = "0.11"
 md-5 = "0.11"
@@ -54,34 +59,45 @@ axum = "0.8.9"
 tower-http = { version = "0.7.0", features = ["cors", "fs", "trace"] }
 base64 = "0.23.0"
 comrak = { version = "0.59", default-features = false }
-parley = { version = "0.12.0", default-features = false, features = ["std", "complex-scripts"] }
+parley = { version = "0.13.0", default-features = false, features = ["std", "complex-scripts"] }
 krilla = { version = "0.8.2", default-features = false, features = ["raster-images"] }
 unicode-bidi = "0.3"
 unicode-script = "0.5.8"
 # HTML-to-Markdown conversion and the shared rcdom tree walked by extract_html.
 # Both are permissively licensed; the GPL html2md crate was removed in IF-161.
+# html5ever is the parser htmd already uses: IronFlow drives it directly so
+# nesting is capped while parsing (IF-174). Keep all three on one release line.
 htmd = "0.5.6"
 markup5ever_rcdom = "0.38"
+html5ever = "0.38"
 ammonia = "4.1.2"
 zip = "9.0.5"
 quick-xml = "0.42.0"
-calamine = { version = "0.37", default-features = false, features = ["dates"] }
-lopdf = { version = "0.46", default-features = false, features = ["chrono"] }
+calamine = { version = "0.38", default-features = false, features = ["dates"] }
+lopdf = { version = "0.47", default-features = false, features = ["chrono"] }
 image = { version = "0.25.10", default-features = false, features = [
     "bmp", "ff", "gif", "hdr", "ico", "jpeg", "png", "pnm", "qoi", "tga", "tiff", "webp",
 ] }
-pdfium-render = { version = "0.9", optional = true }
+# Pure-Rust PDF rasterizer behind `pdf_to_image` and `pdf_thumbnail` (IF-194).
+hayro = { version = "0.9.0", optional = true }
 sqlx = { version = "0.9", features = ["runtime-tokio", "any", "sqlite"] }
 futures-util = "0.3"
 lettre = { version = "0.11.22", default-features = false, features = ["builder", "hostname", "pool", "smtp-transport", "tokio1", "tokio1-rustls-tls"] }
 redis = { version = "1.2", features = ["aio", "tokio-comp", "connection-manager"], optional = true }
 rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"], optional = true }
 
+# `--cfg ironflow_portable_writer` compiles the non-Unix rooted writer on a
+# Unix host for verification (IF-218); see "Portable rooted writer" in
+# docs/NODE_CONTRIBUTING.md. Never ship a build made with it.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(ironflow_portable_writer)"] }
+
 [features]
 default = ["pdf-render"]
-# `pdf_to_image` and `pdf_thumbnail` render through the Pdfium runtime library;
-# build without this feature to drop those two nodes and the binding crate.
-pdf-render = ["dep:pdfium-render"]
+# `pdf_to_image` and `pdf_thumbnail` render with the built-in pure-Rust
+# rasterizer and need no native library; build without this feature to drop
+# those two nodes and the rasterizer.
+pdf-render = ["dep:hayro"]
 # Embed Noto Sans CJK (about 29 MiB) for `markdown_to_pdf`. Without it, CJK text
 # needs a font supplied through IRONFLOW_FONT_DIR; see docs/MARKDOWN_DOCUMENTS.md.
 cjk-fonts = []
@@ -91,7 +107,6 @@ redis = ["dep:redis", "redis/tokio-rustls-comp", "dep:rustls"]
 [dev-dependencies]
 tokio = { version = "1.52.3", features = ["test-util"] }
 tempfile = "3"
-http-body-util = "0.1"
 tower = "0.5"
 
 [target.'cfg(unix)'.dependencies]

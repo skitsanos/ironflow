@@ -8,8 +8,14 @@
 mod test_ai_chunk_nodes;
 #[path = "../test_base64_write_safety.rs"]
 mod test_base64_write_safety;
+#[path = "../test_cache_file_atomic.rs"]
+mod test_cache_file_atomic;
 #[path = "../test_copy_move_file_safety.rs"]
 mod test_copy_move_file_safety;
+#[path = "../test_csv_formula.rs"]
+mod test_csv_formula;
+#[path = "../test_data_filter_missing.rs"]
+mod test_data_filter_missing;
 #[path = "../test_date_node.rs"]
 mod test_date_node;
 #[path = "../test_db_nodes.rs"]
@@ -24,10 +30,18 @@ mod test_file_alias_roots;
 mod test_file_nodes;
 #[path = "../test_html_sanitize_node.rs"]
 mod test_html_sanitize_node;
+#[path = "../test_json_node_budget.rs"]
+mod test_json_node_budget;
 #[path = "../test_nodes.rs"]
 mod test_nodes;
+#[path = "../test_number_fidelity.rs"]
+mod test_number_fidelity;
 #[path = "../test_semantic_chunk_boundaries.rs"]
 mod test_semantic_chunk_boundaries;
+#[path = "../test_staged_output_modes.rs"]
+mod test_staged_output_modes;
+#[path = "../test_transform_fidelity.rs"]
+mod test_transform_fidelity;
 #[path = "../test_xml_text_fidelity.rs"]
 mod test_xml_text_fidelity;
 #[path = "../test_xml_yaml_nodes.rs"]
@@ -36,8 +50,12 @@ mod test_xml_yaml_nodes;
 mod test_yaml_nodes;
 #[path = "../test_zip_cancellation.rs"]
 mod test_zip_cancellation;
+#[path = "../test_zip_entry_modes.rs"]
+mod test_zip_entry_modes;
 #[path = "../test_zip_limits.rs"]
 mod test_zip_limits;
+#[path = "../test_zip_marker_fallback.rs"]
+mod test_zip_marker_fallback;
 #[path = "../test_zip_metadata.rs"]
 mod test_zip_metadata;
 #[path = "../test_zip_security.rs"]

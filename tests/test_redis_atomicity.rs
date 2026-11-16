@@ -6,6 +6,8 @@ mod event;
 mod event_delete;
 #[path = "redis_atomicity/event_faults.rs"]
 mod event_faults;
+#[path = "redis_atomicity/event_incarnation.rs"]
+mod event_incarnation;
 #[path = "redis_atomicity/event_legacy_bounded.rs"]
 mod event_legacy_bounded;
 #[path = "redis_atomicity/event_legacy_expiry.rs"]

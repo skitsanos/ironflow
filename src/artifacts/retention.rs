@@ -1,3 +1,4 @@
+use std::collections::BinaryHeap;
 use std::time::SystemTime;
 
 use anyhow::{Result, bail};
@@ -6,7 +7,10 @@ use super::backend::ArtifactStore;
 use super::reference::digest_from_uri;
 use crate::util::execution::ExecutionControl;
 
-pub(crate) const MAX_PRUNE_CANDIDATES: usize = 100;
+/// Most artifacts one prune invocation may delete.
+pub(crate) const MAX_PRUNE_DELETIONS: usize = 100;
+/// Most stored digests one prune invocation may examine.
+pub(crate) const MAX_PRUNE_SCAN: usize = 10_000;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ArtifactCandidate {
@@ -14,18 +18,38 @@ pub(crate) struct ArtifactCandidate {
     pub(crate) modified: SystemTime,
 }
 
+/// One bounded slice of the store, in ascending digest order.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct PruneWindow {
+    /// Examined artifacts last modified before the cutoff, in digest order.
+    pub(crate) candidates: Vec<ArtifactCandidate>,
+    /// Digests examined, whatever their age.
+    pub(crate) listed: usize,
+    /// The last digest examined when the store holds more after it.
+    pub(crate) next: Option<String>,
+}
+
 impl ArtifactStore {
-    pub(crate) fn prune_candidates(
+    /// Examine at most `scan` stored digests that sort after `after`.
+    ///
+    /// Digest order is the same on every invocation and does not depend on
+    /// directory order, so a returned [`PruneWindow::next`] resumes exactly
+    /// where this window stopped (IF-200).
+    pub(crate) fn prune_window(
         &self,
         cutoff: SystemTime,
-        limit: usize,
+        after: Option<&str>,
+        scan: usize,
         execution: &ExecutionControl,
-    ) -> Result<Vec<ArtifactCandidate>> {
-        validate_limit(limit)?;
+    ) -> Result<PruneWindow> {
+        validate_scan(scan)?;
+        if let Some(after) = after {
+            validate_digest_name(after)?;
+        }
         if let Some(remote) = self.remote() {
-            remote.candidates(cutoff, limit, execution)
+            remote.prune_window(cutoff, after, scan, execution)
         } else {
-            self.local_candidates(cutoff, limit, execution)
+            self.local_window(cutoff, after, scan, execution)
         }
     }
 
@@ -34,8 +58,7 @@ impl ArtifactStore {
         digest: &str,
         execution: &ExecutionControl,
     ) -> Result<()> {
-        let uri = format!("artifact://sha256/{digest}");
-        digest_from_uri(&uri)?;
+        validate_digest_name(digest)?;
         execution.checkpoint()?;
         if let Some(remote) = self.remote() {
             remote.delete(digest, execution)?;
@@ -43,45 +66,72 @@ impl ArtifactStore {
         self.local().delete_digest(digest)
     }
 
-    fn local_candidates(
+    /// Select the `scan` smallest digests after the cursor in one pass over
+    /// the directory, holding at most `scan` names, then stat only those.
+    fn local_window(
         &self,
         cutoff: SystemTime,
-        limit: usize,
+        after: Option<&str>,
+        scan: usize,
         execution: &ExecutionControl,
-    ) -> Result<Vec<ArtifactCandidate>> {
-        let mut candidates = Vec::with_capacity(limit);
-        for entry in std::fs::read_dir(self.local().digest_directory())? {
+    ) -> Result<PruneWindow> {
+        let directory = self.local().digest_directory();
+        let mut smallest: BinaryHeap<String> = BinaryHeap::with_capacity(scan + 1);
+        let mut more = false;
+        for entry in std::fs::read_dir(directory)? {
             execution.checkpoint()?;
-            let entry = entry?;
-            let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            let Ok(name) = entry?.file_name().into_string() else {
                 continue;
             };
-            let uri = format!("artifact://sha256/{name}");
-            if digest_from_uri(&uri).is_err() {
+            if validate_digest_name(&name).is_err()
+                || after.is_some_and(|after| name.as_str() <= after)
+            {
                 continue;
             }
-            let metadata = std::fs::symlink_metadata(entry.path())?;
+            smallest.push(name);
+            if smallest.len() > scan {
+                smallest.pop();
+                more = true;
+            }
+        }
+        let digests = smallest.into_sorted_vec();
+        let mut window = PruneWindow {
+            candidates: Vec::new(),
+            listed: digests.len(),
+            next: more.then(|| digests.last().cloned()).flatten(),
+        };
+        for digest in digests {
+            execution.checkpoint()?;
+            let metadata = std::fs::symlink_metadata(directory.join(&digest))?;
             if !metadata.file_type().is_file() {
                 continue;
             }
             let modified = metadata.modified()?;
             if modified < cutoff {
-                candidates.push(ArtifactCandidate {
-                    digest: name,
-                    modified,
-                });
-                if candidates.len() == limit {
-                    break;
-                }
+                window
+                    .candidates
+                    .push(ArtifactCandidate { digest, modified });
             }
         }
-        Ok(candidates)
+        Ok(window)
     }
 }
 
-fn validate_limit(limit: usize) -> Result<()> {
-    if !(1..=MAX_PRUNE_CANDIDATES).contains(&limit) {
-        bail!("artifact prune limit must be between 1 and {MAX_PRUNE_CANDIDATES}");
+pub(crate) fn validate_deletions(limit: usize) -> Result<()> {
+    if !(1..=MAX_PRUNE_DELETIONS).contains(&limit) {
+        bail!("artifact prune limit must be between 1 and {MAX_PRUNE_DELETIONS}");
     }
     Ok(())
+}
+
+fn validate_scan(scan: usize) -> Result<()> {
+    if !(1..=MAX_PRUNE_SCAN).contains(&scan) {
+        bail!("artifact prune scan must be between 1 and {MAX_PRUNE_SCAN}");
+    }
+    Ok(())
+}
+
+/// Accept only the canonical 64-character lowercase SHA-256 spelling.
+pub(super) fn validate_digest_name(digest: &str) -> Result<()> {
+    digest_from_uri(&format!("artifact://sha256/{digest}")).map(|_| ())
 }

@@ -23,8 +23,8 @@ pub(crate) use pdf_render::{PdfThumbnailNode, PdfToImageNode};
 use std::sync::Arc;
 
 pub fn register_all(registry: &mut crate::nodes::NodeRegistry) {
-    // `pdf_to_image` and `pdf_thumbnail` need the Pdfium runtime library and
-    // exist only in builds with the default `pdf-render` feature.
+    // `pdf_to_image` and `pdf_thumbnail` render with the built-in rasterizer
+    // and exist only in builds with the default `pdf-render` feature.
     #[cfg(feature = "pdf-render")]
     {
         registry.register(Arc::new(PdfToImageNode));

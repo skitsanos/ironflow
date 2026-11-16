@@ -17,6 +17,19 @@ On successful execution:
 - `rows_affected` -- Number of rows affected by the statement.
 - `db_exec_success` -- Boolean `true`.
 
+## Outbound destination policy
+
+When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, every network
+host the `connection` URL names (the URL host and the PostgreSQL `host` and
+`hostaddr` query parameters) is resolved and refused when it is `localhost`
+or not a public unicast address. This is a host check only: the database
+driver resolves the name again when it connects, so it is weaker than the
+DNS pinning of the HTTP nodes. A database on a private address must be
+listed by the operator in `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` (for example
+`db.internal:5432`). SQLite files and Unix sockets are not network
+destinations and are unaffected. See
+[Outbound destinations](../SECURITY.md#outbound-destinations).
+
 ## Example
 
 ```lua
@@ -47,6 +60,12 @@ return flow
 ## Notes
 
 - The `connection` string follows the sqlx URL format. For SQLite, use `sqlite:/path/to/file?mode=rwc`.
+- Open only SQLite files, and directories holding them, that IronFlow or a
+  trusted party wrote. The bundled SQLite (3.51.3) is affected by
+  CVE-2026-119375: a database opened together with a crafted sibling `-wal`
+  file can return stale process memory in query results. The fixed binding
+  cannot be resolved until `sqlx` releases support for it; see
+  [Dependency advisories](../SECURITY.md#dependency-advisories).
 - PostgreSQL requires a build with the `postgres` feature. In such builds the
   TLS modes `sslmode=require`, `verify-ca` and `verify-full` are supported, with
   `sslrootcert=/path/to/ca.pem` for a private CA; prefer `verify-full`. The

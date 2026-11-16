@@ -4,18 +4,19 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use super::{ArtifactRef, LocalArtifactStore};
-use crate::util::execution::run_blocking_step;
+use crate::util::execution::run_tracked_blocking_step;
 
 mod read_security;
 mod remote;
 mod remote_download;
+mod retention;
 
 async fn store_bytes(
     store: LocalArtifactStore,
     bytes: Vec<u8>,
     max_bytes: u64,
 ) -> anyhow::Result<ArtifactRef> {
-    run_blocking_step(move |execution| {
+    run_tracked_blocking_step(move |execution| {
         store.put_reader(
             Cursor::new(bytes),
             max_bytes,
@@ -52,7 +53,7 @@ async fn streams_round_trip_from_reader_and_path() {
     let open_store = store.clone();
     let open_artifact = artifact.clone();
     let mut opened =
-        run_blocking_step(move |execution| open_store.open(&open_artifact, &execution))
+        run_tracked_blocking_step(move |execution| open_store.open(&open_artifact, &execution))
             .await
             .unwrap();
     let mut opened_bytes = Vec::new();
@@ -66,10 +67,11 @@ async fn streams_round_trip_from_reader_and_path() {
     let source = directory.path().join("source.bin");
     std::fs::write(&source, b"path source").unwrap();
     let path_store = store.clone();
-    let path_artifact =
-        run_blocking_step(move |execution| path_store.put_path(&source, 1024, None, &execution))
-            .await
-            .unwrap();
+    let path_artifact = run_tracked_blocking_step(move |execution| {
+        path_store.put_path(&source, 1024, None, &execution)
+    })
+    .await
+    .unwrap();
     assert!(
         serde_json::to_value(&path_artifact)
             .unwrap()
@@ -83,7 +85,7 @@ async fn streams_round_trip_from_reader_and_path() {
     );
 
     let generated_store = store.clone();
-    let generated = run_blocking_step(move |execution| {
+    let generated = run_tracked_blocking_step(move |execution| {
         generated_store.put_writer(1024, Some("text/plain".to_owned()), &execution, |file| {
             use std::io::{Seek, SeekFrom, Write};
             file.write_all(b"disk______")?;
@@ -135,7 +137,7 @@ async fn byte_limit_removes_temporary_file() {
 async fn invalid_mime_is_rejected_before_publication() {
     let directory = tempfile::tempdir().unwrap();
     let store = LocalArtifactStore::new(directory.path()).unwrap();
-    let error = run_blocking_step(move |execution| {
+    let error = run_tracked_blocking_step(move |execution| {
         store.put_reader(
             Cursor::new(b"payload"),
             100,
@@ -155,7 +157,7 @@ async fn generated_artifact_limit_is_enforced_during_writes_and_seeks() {
     let directory = tempfile::tempdir().unwrap();
     let store = LocalArtifactStore::new(directory.path()).unwrap();
     let write_store = store.clone();
-    let error = run_blocking_step(move |execution| {
+    let error = run_tracked_blocking_step(move |execution| {
         write_store.put_writer(4, None, &execution, |file| {
             use std::io::Write;
             file.write_all(b"12345")?;
@@ -169,7 +171,7 @@ async fn generated_artifact_limit_is_enforced_during_writes_and_seeks() {
     assert_digest_directory_empty(directory.path());
 
     let seek_store = store.clone();
-    let error = run_blocking_step(move |execution| {
+    let error = run_tracked_blocking_step(move |execution| {
         seek_store.put_writer(4, None, &execution, |file| {
             use std::io::{Seek, SeekFrom};
             file.seek(SeekFrom::Start(5))?;
@@ -193,7 +195,7 @@ async fn cancellation_removes_temporary_file() {
     let worker_finished = Arc::clone(&finished);
 
     let task = tokio::spawn(async move {
-        run_blocking_step(move |execution| {
+        run_tracked_blocking_step(move |execution| {
             let result = store.put_reader(SlowReader(worker_started), u64::MAX, None, &execution);
             worker_finished.store(true, Ordering::Release);
             result

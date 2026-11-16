@@ -195,6 +195,9 @@ impl JsonStateStore {
             // canonical deletion creates both records normally.
             if bucket.remove_regular(marker).await? {
                 let _ = self.schedule_claims.remove_regular(&claim_file).await;
+                if let Some(run_marker) = Self::run_marker_for(&claim_file) {
+                    let _ = self.schedule_claims.remove_regular(&run_marker).await;
+                }
                 removed += 1;
             }
         }

@@ -7,7 +7,7 @@ Extract text and metadata from an SRT subtitle file.
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `path` | string | one of `path` or `source_key` | — | File path to the `.srt` file; supports `${ctx.key}` interpolation. |
-| `source_key` | string | one of `path` or `source_key` | — | Context key containing a `.srt` file path, artifact URI, or artifact descriptor. |
+| `source_key` | string | one of `path` or `source_key` | — | Context key containing a `.srt` file path, artifact URI, or artifact descriptor. A stored path is used as it is and is not interpolated. |
 | `format` | string | no | `"text"` | Optional secondary-output format: `"text"` or `"markdown"`. The canonical `transcript` output is always plain text. |
 | `output_key` | string | no | `"transcript"` | Secondary formatted output key. Set it to a key other than `transcript` to emit a separate text or Markdown rendering. |
 | `cues_key` | string | no | `"cues"` | Context key for the parsed cue list array. |

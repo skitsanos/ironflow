@@ -1,4 +1,6 @@
 -- Effects: retains one UUID-scoped JPEG under TMPDIR, TMP, TEMP, or `.`.
+-- The output directory must exist. The file is staged beside the destination
+-- and atomically replaces a regular file; a symlinked destination is refused.
 -- Supported inputs: BMP, Farbfeld, GIF, HDR, ICO, JPEG, PNG, PNM, QOI, TGA,
 -- TIFF, and WebP. Image-node outputs are PNG or JPEG.
 local flow = Flow.new("image_convert_demo")

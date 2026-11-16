@@ -3,7 +3,61 @@ use ironflow::engine::{RunEvent, RunEventType};
 use ironflow::storage::StorageErrorKind;
 use ironflow::storage::event_store::EventStore;
 
+use std::time::{Duration, Instant};
+
 use super::redis_support::RedisTest;
+
+/// Expiries a deadline scenario arms, shortest first. The steps that must
+/// finish before the expiry are timed, and a scenario that could not finish
+/// them with a quarter of the expiry to spare is repeated with the next
+/// expiry instead of being asserted against an already expired stream.
+const EXPIRY_LADDER_MS: [u64; 3] = [2_000, 8_000, 32_000];
+const EXPIRY_POLL: Duration = Duration::from_millis(20);
+const EXPIRY_POLL_LIMIT: Duration = Duration::from_secs(60);
+
+enum Setup {
+    Complete,
+    OutranExpiry,
+}
+
+/// Whether the steps since `armed` left less than a quarter of the expiry.
+/// `armed` is taken before the expiry is sent, so it never under-reports.
+fn outran_expiry(armed: Instant, expiry_ms: u64) -> bool {
+    let elapsed = armed.elapsed();
+    let outran = elapsed >= Duration::from_millis(expiry_ms - expiry_ms / 4);
+    if outran {
+        eprintln!("setup took {elapsed:?} of a {expiry_ms} ms expiry; repeating the scenario");
+    }
+    outran
+}
+
+async fn wait_until_absent(conn: &mut redis::aio::ConnectionManager, keys: &[String]) {
+    let limit = Instant::now() + EXPIRY_POLL_LIMIT;
+    loop {
+        let present: usize = redis::cmd("EXISTS")
+            .arg(keys)
+            .query_async(conn)
+            .await
+            .unwrap();
+        if present == 0 {
+            return;
+        }
+        assert!(
+            Instant::now() < limit,
+            "{present} of {keys:?} did not expire within {EXPIRY_POLL_LIMIT:?}"
+        );
+        tokio::time::sleep(EXPIRY_POLL).await;
+    }
+}
+
+fn snapshot_family(snapshot: &str) -> [String; 4] {
+    [
+        snapshot.to_string(),
+        format!("{snapshot}:index"),
+        format!("{snapshot}:seq"),
+        format!("{snapshot}:meta"),
+    ]
+}
 
 fn event(run_id: &str, id: impl Into<String>) -> RunEvent {
     let mut event = RunEvent::run(
@@ -141,64 +195,86 @@ async fn redis_legacy_restore_caps_hostile_ttl_extension_at_the_captured_deadlin
 
 #[tokio::test]
 async fn redis_hostile_persist_past_the_deadline_expires_instead_of_restoring() {
+    for expiry_ms in EXPIRY_LADDER_MS {
+        if matches!(hostile_persist_scenario(expiry_ms).await, Setup::Complete) {
+            return;
+        }
+    }
+    panic!("setup outran every expiry in {EXPIRY_LADDER_MS:?}");
+}
+
+async fn hostile_persist_scenario(expiry_ms: u64) -> Setup {
     const EVENT_COUNT: usize = 4_200;
     let Some(fixture) = RedisTest::connect("event_legacy_restore_expired_ttl").await else {
-        return;
+        return Setup::Complete;
     };
     let run_id = "legacy-restore-expired-ttl";
     let base = format!("{}events:{run_id}", fixture.prefix);
     let mut conn = fixture.connection().await.unwrap();
     seed_legacy(&mut conn, &base, run_id, EVENT_COUNT).await;
-    for key in [&base, &format!("{base}:index"), &format!("{base}:seq")] {
-        assert!(
-            redis::cmd("PEXPIRE")
-                .arg(key)
-                .arg(1_000)
-                .query_async::<bool>(&mut conn)
-                .await
-                .unwrap()
-        );
-    }
     let store = fixture.event_store(None).await;
-    assert_eq!(
-        store.list_since(run_id, None, 1).await.unwrap_err().kind(),
-        StorageErrorKind::Conflict
-    );
     let migration = migration_key(&fixture.prefix, run_id);
     let snapshot = format!("{migration}:snapshot");
-    for key in [
-        snapshot.clone(),
-        format!("{snapshot}:index"),
-        format!("{snapshot}:seq"),
-    ] {
-        assert!(
-            redis::cmd("PERSIST")
-                .arg(key)
-                .query_async::<bool>(&mut conn)
-                .await
-                .unwrap()
-        );
+    let frozen = snapshot_family(&snapshot);
+
+    // Everything from here to the `outran_expiry` check must happen before
+    // the expiry, so the results are collected first and asserted afterwards.
+    let armed = Instant::now();
+    let mut pipe = redis::pipe();
+    for key in [&base, &format!("{base}:index"), &format!("{base}:seq")] {
+        pipe.cmd("PEXPIRE").arg(key).arg(expiry_ms);
     }
-    let head: String = redis::cmd("LINDEX")
+    let expiring_keys: Vec<bool> = pipe.query_async(&mut conn).await.unwrap();
+    let frozen_result = store.list_since(run_id, None, 1).await;
+    let remaining: i64 = redis::cmd("PTTL")
+        .arg(&snapshot)
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    let mut pipe = redis::pipe();
+    for key in &frozen[..3] {
+        pipe.cmd("PERSIST").arg(key);
+    }
+    let persisted: Vec<bool> = pipe.query_async(&mut conn).await.unwrap();
+    let head: Option<String> = redis::cmd("LINDEX")
         .arg(&snapshot)
         .arg(0)
         .query_async(&mut conn)
         .await
         .unwrap();
-    let head: RunEvent = serde_json::from_str(&head).unwrap();
-    redis::cmd("HSET")
-        .arg(format!("{snapshot}:index"))
-        .arg(head.id)
-        .arg(1)
-        .query_async::<()>(&mut conn)
-        .await
-        .unwrap();
+    if let Some(head) = &head {
+        let head: RunEvent = serde_json::from_str(head).unwrap();
+        redis::cmd("HSET")
+            .arg(&frozen[1])
+            .arg(head.id)
+            .arg(1)
+            .query_async::<()>(&mut conn)
+            .await
+            .unwrap();
+    }
+    if outran_expiry(armed, expiry_ms) {
+        fixture.cleanup().await;
+        return Setup::OutranExpiry;
+    }
+    assert_eq!(expiring_keys, [true; 3]);
+    assert_eq!(
+        frozen_result.unwrap_err().kind(),
+        StorageErrorKind::Conflict
+    );
+    assert!(
+        remaining > 0 && remaining <= expiry_ms as i64,
+        "snapshot TTL was not aligned: {remaining}"
+    );
+    assert_eq!(persisted, [true; 3]);
+    assert!(head.is_some(), "the snapshot lost its first event");
 
-    tokio::time::sleep(std::time::Duration::from_millis(1_100)).await;
+    // The hostile PERSIST removed every Redis expiry, so only the captured
+    // deadline can end the stream: wait out the TTL observed before it.
+    tokio::time::sleep(Duration::from_millis(remaining as u64 + 100)).await;
     let expiring = store.list_since(run_id, None, 1).await.unwrap_err();
     assert_eq!(expiring.kind(), StorageErrorKind::Conflict);
     assert!(expiring.diagnostic().contains("expiring"));
-    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    wait_until_absent(&mut conn, &frozen).await;
     assert!(store.list_since(run_id, None, 1).await.unwrap().is_empty());
     assert_eq!(
         redis::cmd("EXISTS")
@@ -206,59 +282,72 @@ async fn redis_hostile_persist_past_the_deadline_expires_instead_of_restoring() 
             .arg(format!("{base}:index"))
             .arg(format!("{base}:seq"))
             .arg(&migration)
-            .arg(&snapshot)
-            .arg(format!("{snapshot}:index"))
-            .arg(format!("{snapshot}:seq"))
+            .arg(&frozen)
             .query_async::<usize>(&mut conn)
             .await
             .unwrap(),
         0
     );
     fixture.cleanup().await;
+    Setup::Complete
 }
 
 #[tokio::test]
 async fn redis_expired_legacy_quarantine_releases_its_persistent_state() {
+    for expiry_ms in EXPIRY_LADDER_MS {
+        if matches!(
+            expired_quarantine_scenario(expiry_ms).await,
+            Setup::Complete
+        ) {
+            return;
+        }
+    }
+    panic!("setup outran every expiry in {EXPIRY_LADDER_MS:?}");
+}
+
+async fn expired_quarantine_scenario(expiry_ms: u64) -> Setup {
     const EVENT_COUNT: usize = 10_000;
     let Some(fixture) = RedisTest::connect("event_legacy_expired_quarantine").await else {
-        return;
+        return Setup::Complete;
     };
     let run_id = "legacy-expired-quarantine";
     let base = format!("{}events:{run_id}", fixture.prefix);
     let mut conn = fixture.connection().await.unwrap();
     seed_legacy(&mut conn, &base, run_id, EVENT_COUNT).await;
-    assert!(
-        redis::cmd("PEXPIRE")
-            .arg(&base)
-            .arg(2_000)
-            .query_async::<bool>(&mut conn)
-            .await
-            .unwrap()
-    );
     let store = fixture.event_store(None).await;
+    let migration = migration_key(&fixture.prefix, run_id);
+    let frozen = snapshot_family(&format!("{migration}:snapshot"));
+
+    let armed = Instant::now();
+    let expiring_key: bool = redis::cmd("PEXPIRE")
+        .arg(&base)
+        .arg(expiry_ms)
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    let frozen_result = store.list_since(run_id, None, 1).await;
+    let mut pipe = redis::pipe();
+    for key in &frozen[..3] {
+        pipe.cmd("PTTL").arg(key);
+    }
+    let aligned: Vec<i64> = pipe.query_async(&mut conn).await.unwrap();
+    if outran_expiry(armed, expiry_ms) {
+        fixture.cleanup().await;
+        return Setup::OutranExpiry;
+    }
+    assert!(expiring_key);
     assert_eq!(
-        store.list_since(run_id, None, 1).await.unwrap_err().kind(),
+        frozen_result.unwrap_err().kind(),
         StorageErrorKind::Conflict
     );
-    let migration = migration_key(&fixture.prefix, run_id);
-    let snapshot = format!("{migration}:snapshot");
-    for key in [
-        snapshot.clone(),
-        format!("{snapshot}:index"),
-        format!("{snapshot}:seq"),
-    ] {
-        let ttl: i64 = redis::cmd("PTTL")
-            .arg(key)
-            .query_async(&mut conn)
-            .await
-            .unwrap();
-        assert!(
-            ttl > 0 && ttl <= 2_000,
-            "snapshot TTL was not aligned: {ttl}"
-        );
-    }
+    assert!(
+        aligned
+            .iter()
+            .all(|ttl| *ttl > 0 && *ttl <= expiry_ms as i64),
+        "snapshot TTL was not aligned: {aligned:?}"
+    );
 
-    tokio::time::sleep(std::time::Duration::from_millis(2_200)).await;
+    wait_until_absent(&mut conn, &frozen).await;
     assert!(store.list_since(run_id, None, 1).await.unwrap().is_empty());
     assert!(
         !redis::cmd("EXISTS")
@@ -275,13 +364,26 @@ async fn redis_expired_legacy_quarantine_releases_its_persistent_state() {
         vec![replacement]
     );
     fixture.cleanup().await;
+    Setup::Complete
 }
 
 #[tokio::test]
 async fn redis_expired_owned_current_quarantine_ignores_an_unowned_raw_collision() {
+    for expiry_ms in EXPIRY_LADDER_MS {
+        if matches!(
+            expired_current_collision_scenario(expiry_ms).await,
+            Setup::Complete
+        ) {
+            return;
+        }
+    }
+    panic!("setup outran every expiry in {EXPIRY_LADDER_MS:?}");
+}
+
+async fn expired_current_collision_scenario(expiry_ms: u64) -> Setup {
     const EVENT_COUNT: usize = 5_000;
     let Some(fixture) = RedisTest::connect("event_legacy_expired_current_collision").await else {
-        return;
+        return Setup::Complete;
     };
     let run_id = ":";
     let current = format!("{}events:~3a", fixture.prefix);
@@ -297,19 +399,41 @@ async fn redis_expired_owned_current_quarantine_ignores_an_unowned_raw_collision
         .cmd("SET")
         .arg(&raw_sequence)
         .arg(0)
-        .cmd("PEXPIRE")
-        .arg(&current)
-        .arg(1_500)
         .query_async::<()>(&mut conn)
         .await
         .unwrap();
     let store = fixture.event_store(None).await;
+    let migration = migration_key(&fixture.prefix, run_id);
+    let frozen = snapshot_family(&format!("{migration}:snapshot"));
+
+    let armed = Instant::now();
+    let expiring_key: bool = redis::cmd("PEXPIRE")
+        .arg(&current)
+        .arg(expiry_ms)
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    let frozen_result = store.list_since(run_id, None, 1).await;
+    let remaining: i64 = redis::cmd("PTTL")
+        .arg(&frozen[0])
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    if outran_expiry(armed, expiry_ms) {
+        fixture.cleanup().await;
+        return Setup::OutranExpiry;
+    }
+    assert!(expiring_key);
     assert_eq!(
-        store.list_since(run_id, None, 1).await.unwrap_err().kind(),
+        frozen_result.unwrap_err().kind(),
         StorageErrorKind::Conflict
     );
+    assert!(
+        remaining > 0 && remaining <= expiry_ms as i64,
+        "snapshot TTL was not aligned: {remaining}"
+    );
 
-    tokio::time::sleep(std::time::Duration::from_millis(1_700)).await;
+    wait_until_absent(&mut conn, &frozen).await;
     assert!(store.list_since(run_id, None, 1).await.unwrap().is_empty());
     assert_eq!(
         redis::cmd("GET")
@@ -332,6 +456,163 @@ async fn redis_expired_owned_current_quarantine_ignores_an_unowned_raw_collision
             .await
             .unwrap(),
         "0"
+    );
+    fixture.cleanup().await;
+    Setup::Complete
+}
+
+/// Seed a legacy stream that expires in a minute and run one bounded
+/// migration call, which leaves it quarantined in the snapshot family with
+/// its migration state. Returns the state key and the snapshot keys.
+async fn quarantined_expiring_stream(
+    fixture: &RedisTest,
+    conn: &mut redis::aio::ConnectionManager,
+    store: &dyn EventStore,
+    run_id: &str,
+    count: usize,
+) -> (String, [String; 4]) {
+    let base = format!("{}events:{run_id}", fixture.prefix);
+    seed_legacy(conn, &base, run_id, count).await;
+    for key in [base.clone(), format!("{base}:index"), format!("{base}:seq")] {
+        assert!(
+            redis::cmd("PEXPIRE")
+                .arg(key)
+                .arg(60_000)
+                .query_async::<bool>(conn)
+                .await
+                .unwrap()
+        );
+    }
+    let error = store.list_since(run_id, None, 1).await.unwrap_err();
+    assert_eq!(error.kind(), StorageErrorKind::Conflict, "{error}");
+    let migration = migration_key(&fixture.prefix, run_id);
+    let snapshot = snapshot_family(&format!("{migration}:snapshot"));
+    (migration, snapshot)
+}
+
+async fn redis_now_ms(conn: &mut redis::aio::ConnectionManager) -> i64 {
+    let (seconds, micros): (i64, i64) = redis::cmd("TIME").query_async(conn).await.unwrap();
+    seconds * 1_000 + micros / 1_000
+}
+
+/// IF-214 (c): a quarantined stream that expires between the steps of one
+/// migration call is not corrupt. The step that finds it gone reports a
+/// retryable conflict until the captured deadline has passed, and an empty
+/// stream afterwards. The expiry is applied to the keys directly, so the
+/// test waits for no deadline.
+#[tokio::test]
+async fn redis_legacy_stream_expiring_between_migration_steps_is_not_corruption() {
+    let Some(fixture) = RedisTest::connect("event_legacy_expiry_mid_call").await else {
+        return;
+    };
+    let run_id = "legacy-expiry-mid-call";
+    let mut conn = fixture.connection().await.unwrap();
+    let store = fixture.event_store(None).await;
+    let (migration, snapshot) =
+        quarantined_expiring_stream(&fixture, &mut conn, &store, run_id, 4_200).await;
+
+    // The snapshot expires. The state still holds the deadline captured a
+    // moment ago, so the next call starts as if the stream were live and
+    // finds it expired at its second step.
+    for key in &snapshot[..3] {
+        assert!(
+            redis::cmd("PEXPIRE")
+                .arg(key)
+                .arg(1)
+                .query_async::<bool>(&mut conn)
+                .await
+                .unwrap()
+        );
+    }
+    wait_until_absent(&mut conn, &snapshot).await;
+    for _ in 0..3 {
+        let error = store.list_since(run_id, None, 1).await.unwrap_err();
+        assert_eq!(error.kind(), StorageErrorKind::Conflict, "{error}");
+        assert!(error.to_string().contains("expiring"), "{error}");
+    }
+    let phase: String = redis::cmd("HGET")
+        .arg(&migration)
+        .arg("phase")
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    assert_ne!(phase, "blocked", "an expiry must not block the migration");
+
+    // Once the captured deadline has passed the stream is simply empty and
+    // the run ID is usable again.
+    let passed = redis_now_ms(&mut conn).await - 1;
+    redis::cmd("HSET")
+        .arg(&migration)
+        .arg("expiry_at_ms")
+        .arg(passed)
+        .query_async::<()>(&mut conn)
+        .await
+        .unwrap();
+    assert!(store.list_since(run_id, None, 10).await.unwrap().is_empty());
+    assert!(
+        !redis::cmd("EXISTS")
+            .arg(&migration)
+            .query_async::<bool>(&mut conn)
+            .await
+            .unwrap()
+    );
+    let fresh = event(run_id, "after-expiry");
+    store.publish(fresh.clone()).await.unwrap();
+    assert_eq!(
+        store.list_since(run_id, None, 10).await.unwrap(),
+        vec![fresh]
+    );
+    fixture.cleanup().await;
+}
+
+/// The same expiry in real time: the stream and its captured deadline expire
+/// together while a migration that needs many calls is in flight. Every
+/// call is a retryable conflict or a successful read, never corruption, and
+/// the stream ends empty. A call that spans the expiry returns the empty
+/// stream directly, so no particular number of conflicts is expected. The
+/// loop polls; nothing sleeps past a fixed deadline.
+#[tokio::test]
+async fn redis_legacy_stream_expiring_during_migration_calls_ends_empty() {
+    const EXPIRY_MS: i64 = 100;
+    let Some(fixture) = RedisTest::connect("event_legacy_expiry_in_flight").await else {
+        return;
+    };
+    let run_id = "legacy-expiry-in-flight";
+    let mut conn = fixture.connection().await.unwrap();
+    let store = fixture.event_store(None).await;
+    let (migration, snapshot) =
+        quarantined_expiring_stream(&fixture, &mut conn, &store, run_id, 40_000).await;
+
+    let mut pipe = redis::pipe();
+    pipe.atomic();
+    for key in &snapshot[..3] {
+        pipe.cmd("PEXPIRE").arg(key).arg(EXPIRY_MS).ignore();
+    }
+    let deadline = redis_now_ms(&mut conn).await + EXPIRY_MS;
+    pipe.cmd("HSET")
+        .arg(&migration)
+        .arg("expiry_at_ms")
+        .arg(deadline)
+        .ignore();
+    pipe.query_async::<()>(&mut conn).await.unwrap();
+
+    let limit = Instant::now() + EXPIRY_POLL_LIMIT;
+    loop {
+        match store.list_since(run_id, None, 1).await {
+            Ok(events) if events.is_empty() => break,
+            // Migrated before the expiry: the current stream expires next.
+            Ok(_) => tokio::time::sleep(EXPIRY_POLL).await,
+            Err(error) => assert_eq!(error.kind(), StorageErrorKind::Conflict, "{error}"),
+        }
+        assert!(Instant::now() < limit, "the stream never expired");
+    }
+    wait_until_absent(&mut conn, &snapshot).await;
+    assert!(
+        !redis::cmd("EXISTS")
+            .arg(&migration)
+            .query_async::<bool>(&mut conn)
+            .await
+            .unwrap()
     );
     fixture.cleanup().await;
 }

@@ -135,7 +135,8 @@ flow:step("upsert_vectors", nodes.s3vector_put_vectors({
 flow:step("query_text", nodes.code({
     source = function()
         return {
-            query_prompt = "What is this conversation about in one concise sentence?"
+            query_prompt = "What is this conversation about in one concise sentence?",
+            wanted_source_file = "ironflow-transcript.vtt"
         }
     end
 })):depends_on("upsert_vectors")
@@ -164,8 +165,10 @@ flow:step("query_metadata", nodes.s3vector_query_vectors({
     index_name = "${ctx.index_name}",
     top_k = 3,
     query_vector_key = "query_vector",
+    -- String values of an inline filter are templates. A placeholder that
+    -- does not resolve fails the step; it never widens the query.
     filter = {
-        source_file = "ironflow-transcript.vtt"
+        source_file = "${ctx.wanted_source_file}"
     },
     return_metadata = true,
     return_distance = true,

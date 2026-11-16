@@ -1,22 +1,24 @@
-use super::{super::resource::Budget, marked::Marked, text_output::Output};
+use super::{
+    super::resource::Budget,
+    fonts::{Decoder, Fonts},
+    layout::{Join, Layout, Run},
+    marked::Marked,
+    text_output::Output,
+};
 use anyhow::{Context as _, Result, ensure};
-use lopdf::{Document, Encoding, Object, ObjectId, content::Content};
-use std::collections::BTreeMap;
+use lopdf::{Document, Object, ObjectId, content::Content, content::Operation};
 
 pub(super) fn extract_page(
     doc: &Document,
     page: ObjectId,
     limit: usize,
+    fonts: &mut Fonts<'_>,
     budget: &mut Budget<'_>,
 ) -> Result<String> {
     let stream_limit = limit.min(
         crate::util::limits::max_pdf_decompressed_stream_bytes().min(isize::MAX as u64) as usize,
     );
-    let mut encodings = BTreeMap::new();
-    for (name, font) in doc.get_page_fonts(page)? {
-        budget.charge_item("PDF fonts")?;
-        encodings.insert(name, font.get_font_encoding_with_limit(doc, stream_limit)?);
-    }
+    let names = fonts.page(page, stream_limit, budget)?;
     budget.checkpoint()?;
     let bytes = doc.get_page_content_with_limit(page, stream_limit)?;
     budget.checkpoint()?;
@@ -24,57 +26,95 @@ pub(super) fn extract_page(
     budget.checkpoint()?;
     let mut marked = Marked::default();
     let mut output = Output::new(limit);
-    let mut encoding = None;
+    let mut layout = Layout::default();
+    let mut decoder = None;
     for operation in &content.operations {
         budget.charge_item("PDF content operations")?;
+        let before = output.len();
         if marked.process(doc, page, operation, &mut output, budget)? {
+            // Replacement text has no position: a block that ended before it
+            // still breaks the line.
+            if output.len() > before && layout.take_block_end() {
+                output.break_at(before, budget)?;
+            }
             continue;
         }
-        if operation.operator == "Tf" {
-            let name = operation
-                .operands
-                .first()
-                .context("missing PDF font operand")?
-                .as_name()?;
-            encoding = encodings.get(name);
-            continue;
-        }
-        if marked.hidden() {
-            continue;
-        }
+        let hidden = marked.hidden();
         match operation.operator.as_str() {
-            "Tj" | "TJ" => {
-                if let Some(encoding) = encoding {
-                    collect(&operation.operands, encoding, &mut output, budget, 0)?;
-                }
+            "Tf" => {
+                let name = operation
+                    .operands
+                    .first()
+                    .context("missing PDF font operand")?
+                    .as_name()?;
+                decoder = names.get(name).and_then(|index| fonts.get(*index));
+                layout.font_size(&operation.operands);
             }
-            "'" | "\"" => {
-                if let Some(encoding) = encoding {
+            "Tj" | "TJ" | "'" | "\"" => {
+                show(operation, decoder, &mut layout, &mut output, hidden, budget)?;
+            }
+            "T*" => {
+                layout.next_line();
+                if !hidden {
                     output.newline(budget)?;
-                    let operands = if operation.operator == "\"" {
-                        operation
-                            .operands
-                            .get(2)
-                            .map(std::slice::from_ref)
-                            .unwrap_or_default()
-                    } else {
-                        &operation.operands
-                    };
-                    collect(operands, encoding, &mut output, budget, 0)?;
                 }
             }
-            "T*" | "ET" => output.newline(budget)?,
-            _ => {}
+            "ET" if !hidden => layout.end_block(),
+            operator => layout.operation(operator, &operation.operands),
         }
     }
     marked.finish()?;
+    if layout.take_block_end() {
+        output.newline(budget)?;
+    }
     Ok(output.finish())
+}
+
+/// One show operator. Hidden text (inside an `ActualText` span) and text of
+/// a font that cannot be decoded still moves the text position.
+fn show(
+    operation: &Operation,
+    decoder: Option<&Decoder<'_>>,
+    layout: &mut Layout,
+    output: &mut Output,
+    hidden: bool,
+    budget: &mut Budget<'_>,
+) -> Result<()> {
+    let next_line = operation.operator != "Tj" && operation.operator != "TJ";
+    let operands = if operation.operator == "\"" {
+        layout.spacing(&operation.operands);
+        operation
+            .operands
+            .get(2)
+            .map(std::slice::from_ref)
+            .unwrap_or_default()
+    } else {
+        &operation.operands
+    };
+    if next_line {
+        layout.next_line();
+    }
+    let visible = !hidden && decoder.is_some();
+    if visible {
+        match layout.join() {
+            _ if next_line => output.newline(budget)?,
+            Join::Line => output.newline(budget)?,
+            Join::Space => output.space(budget)?,
+            Join::None => {}
+        }
+    }
+    let mut run = Run::default();
+    let target = visible.then_some(output);
+    collect(operands, decoder, target, &mut run, budget, 0)?;
+    layout.shown(&run, visible);
+    Ok(())
 }
 
 fn collect(
     operands: &[Object],
-    encoding: &Encoding<'_>,
-    output: &mut Output,
+    decoder: Option<&Decoder<'_>>,
+    mut output: Option<&mut Output>,
+    run: &mut Run,
     budget: &mut Budget<'_>,
     depth: usize,
 ) -> Result<()> {
@@ -87,14 +127,39 @@ fn collect(
                     (bytes.len() as u64).div_ceil(4096),
                     "PDF glyph input chunks",
                 )?;
-                let text = encoding.bytes_to_string(bytes)?;
-                output.push(&text, budget)?;
+                run.glyphs(decoder.and_then(|decoder| decoder.measure(bytes)));
+                if let (Some(decoder), Some(output)) = (decoder, output.as_deref_mut()) {
+                    decoder.show(bytes, output, budget)?;
+                }
             }
             Object::Array(array) => {
-                collect(array, encoding, output, budget, depth + 1)?;
-                output.push(" ", budget)?;
+                collect(
+                    array,
+                    decoder,
+                    output.as_deref_mut(),
+                    run,
+                    budget,
+                    depth + 1,
+                )?;
+                if let Some(output) = output.as_deref_mut() {
+                    output.push(" ", budget)?;
+                }
             }
-            Object::Integer(value) if *value < -100 => output.push(" ", budget)?,
+            Object::Integer(_) | Object::Real(_) => {
+                let adjustment = match operand {
+                    Object::Real(value) => f64::from(*value),
+                    operand => operand.as_i64().unwrap_or_default() as f64,
+                };
+                if adjustment.is_finite() {
+                    run.adjust(adjustment);
+                }
+                // More than a tenth of the text size forward is a word space.
+                if adjustment < -100.0
+                    && let Some(output) = output.as_deref_mut()
+                {
+                    output.push(" ", budget)?;
+                }
+            }
             _ => {}
         }
     }

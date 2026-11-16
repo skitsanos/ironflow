@@ -10,7 +10,7 @@ use crate::nodes::Node;
 use super::client::build_s3vector_client;
 use super::config::resolve_output_key;
 use super::document::{parse_data_type, parse_distance_metric};
-use super::parameters::resolve_u32;
+use super::parameters::{request_count, resolve_u32};
 use super::target::{
     BucketTarget, CreateIndexTarget, IndexTarget, TargetPolicy, resolve_create_index_target,
     resolve_index_target,
@@ -59,7 +59,11 @@ fn prepare_create_index_input(
         .data_type(data_type.clone())
         .distance_metric(distance_metric.clone())
         .index_name(index_name.clone())
-        .dimension(dimension as i32);
+        .dimension(request_count(
+            dimension,
+            "s3vector_create_index",
+            "dimension",
+        )?);
     let (request, bucket_name, bucket_arn) = match bucket {
         BucketTarget::Name(name) => (request.vector_bucket_name(name.clone()), Some(name), None),
         BucketTarget::Arn(arn) => (request.vector_bucket_arn(arn.clone()), None, Some(arn)),

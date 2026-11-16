@@ -49,4 +49,8 @@ fn main() {
     if let Err(error) = runtime.block_on(ironflow::cli::run_cli()) {
         exit_with_error(error);
     }
+    // Dropping the runtime would wait for every blocking closure to return.
+    // A worker inside an uninterruptible call is abandoned to process exit
+    // after `IRONFLOW_RUNTIME_SHUTDOWN_SECONDS` (IF-183, IF-220).
+    runtime.shutdown_timeout(ironflow::util::limits::runtime_shutdown_timeout());
 }

@@ -58,22 +58,27 @@ impl Node for SlackNotificationNode {
             anyhow::anyhow!("slack_notification requires 'payload' to be an object when provided")
         })?;
 
+        // `payload` was interpolated above, so its `text` is already final;
+        // only a top-level `text` or `message` still needs its single pass.
         let text = config
             .get("text")
             .and_then(|value| value.as_str())
             .or_else(|| config.get("message").and_then(|value| value.as_str()))
-            .or_else(|| payload_obj.get("text").and_then(|value| value.as_str()))
             .map(|value| interpolate_ctx(value, ctx));
 
         if let Some(text) = text {
             payload_obj.insert("text".to_string(), serde_json::Value::String(text));
-        } else {
+        } else if !payload_obj
+            .get("text")
+            .is_some_and(|value| value.is_string())
+        {
             anyhow::bail!(
                 "slack_notification requires 'text', 'message', or 'payload.text' to be present"
             );
         }
 
-        let client = crate::util::provider_http::client_builder()
+        crate::util::outbound::ensure_url_allowed("slack_notification", &webhook_url).await?;
+        let client = crate::util::provider_http::client_builder()?
             .timeout(timeout)
             .build()
             .map_err(|error| {

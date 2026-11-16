@@ -10,10 +10,11 @@ use chrono_tz::Tz;
 
 use super::config::ScheduleConfig;
 
-/// Maximum occurrences one tick will consider for one schedule.
+/// Maximum missed occurrences one tick settles for one schedule, besides the
+/// most recent one it decides.
 ///
-/// Bounds the work a frequent expression combined with a long catch-up window
-/// can create. Truncation is reported rather than silent.
+/// Bounds the store writes a frequent expression combined with a long
+/// catch-up window can create. The remainder is settled on later ticks.
 pub const MAX_INSTANTS_PER_TICK: usize = 64;
 
 /// Longest daylight-saving gap this probe will step over. Real gaps are 30 or
@@ -88,32 +89,67 @@ pub(super) fn grace_floor(now: DateTime<Utc>, schedule: &ScheduleConfig) -> Naiv
 }
 
 /// The local time to advance a schedule's watermark to for one evaluated
-/// window, given the earliest claim error inside it.
+/// window, given the earliest instant inside it that must be retried.
 ///
-/// A claim error means nobody owns that instant — unlike every other skip
-/// (grace, overlap, capacity), which was claimed and is deliberately burned —
-/// so the watermark must stop short of it rather than pass through it. The
-/// next tick then re-enumerates from there: instants after the errored one
-/// already claimed successfully, so they come back `NotClaimed` and are
-/// skipped harmlessly; the errored one gets one retry per tick until it
-/// succeeds or falls outside grace.
+/// An instant is retried when its claim errored, so nobody owns it, or when
+/// its start was deferred for flow-load capacity, so it is owned but nothing
+/// ran. Every other skip (grace, overlap, run capacity) is deliberately
+/// burned. The watermark must stop short of a retried instant rather than
+/// pass through it. The next tick then re-enumerates from there: instants
+/// already settled come back `NotClaimed` and are skipped harmlessly; the
+/// retried one gets one attempt per tick until it starts or falls outside
+/// grace.
 ///
 /// That cap is floored at `grace_floor`. Grace is only checked *after* a
 /// successful claim, so an instant whose claim keeps erroring never reaches
 /// that check and never ages out on its own — without the floor it would be
 /// retried every tick forever, pinning the watermark while the window in
-/// front of it grows without bound. Once the errored instant is older than
+/// front of it grows without bound. Once a retried instant is older than
 /// `grace_floor` it can no longer legitimately fire anyway, so nothing is
 /// lost by letting the watermark pass it.
 pub(super) fn watermark_target(
     through: NaiveDateTime,
     grace_floor: NaiveDateTime,
-    earliest_claim_error: Option<NaiveDateTime>,
+    earliest_retry: Option<NaiveDateTime>,
 ) -> NaiveDateTime {
-    match earliest_claim_error {
+    match earliest_retry {
         Some(errored) => through.min((errored - Duration::seconds(1)).max(grace_floor)),
         None => through,
     }
+}
+
+/// Every occurrence in the half-open local window `(after_local,
+/// through_local]`, oldest first, resolved to the instant it fires at.
+pub(super) fn occurrences(
+    schedule: &ScheduleConfig,
+    after_local: NaiveDateTime,
+    through_local: NaiveDateTime,
+) -> impl Iterator<Item = DueInstant> + '_ {
+    let tz = schedule.timezone();
+    // Feed naive local times to `cron` as if they were UTC. The iterator then
+    // walks wall-clock occurrences, which is the space the expression is
+    // written in.
+    let cursor = Utc.from_utc_datetime(&after_local);
+    schedule
+        .cron()
+        .after(&cursor)
+        .map(|candidate| candidate.naive_utc())
+        .take_while(move |local| *local <= through_local)
+        .filter_map(move |local| {
+            let instant = resolve_local(tz, local)?;
+            // Keyed on the *resolved* local time, not the matched one: inside a
+            // spring-forward gap every matched local (02:00, 02:15, ...) maps to
+            // the same real instant (03:00), and they must collapse onto one
+            // claim or the gap fires once per gap-interior occurrence instead of
+            // once. `DueInstant.local` stays the matched time — `evaluate`'s
+            // watermark comparisons need that — only the key changes.
+            let key = claim_key(tz, instant.naive_local());
+            Some(DueInstant {
+                local,
+                instant,
+                key,
+            })
+        })
 }
 
 /// Occurrences due in the half-open local window `(after_local, through_local]`.
@@ -128,39 +164,12 @@ pub fn due_instants(
     if through_local <= after_local {
         return (Vec::new(), false);
     }
-
-    let tz = schedule.timezone();
-    // Feed naive local times to `cron` as if they were UTC. The iterator then
-    // walks wall-clock occurrences, which is the space the expression is
-    // written in.
-    let cursor = Utc.from_utc_datetime(&after_local);
-
     let mut due = Vec::new();
-    let mut truncated = false;
-    for candidate in schedule.cron().after(&cursor) {
-        let local = candidate.naive_utc();
-        if local > through_local {
-            break;
-        }
+    for instant in occurrences(schedule, after_local, through_local) {
         if due.len() == MAX_INSTANTS_PER_TICK {
-            truncated = true;
-            break;
+            return (due, true);
         }
-        if let Some(instant) = resolve_local(tz, local) {
-            // Keyed on the *resolved* local time, not the matched one: inside a
-            // spring-forward gap every matched local (02:00, 02:15, ...) maps to
-            // the same real instant (03:00), and they must collapse onto one
-            // claim or the gap fires once per gap-interior occurrence instead of
-            // once. `DueInstant.local` stays the matched time — `evaluate`'s
-            // watermark comparisons need that — only the key changes.
-            let key = claim_key(tz, instant.naive_local());
-            due.push(DueInstant {
-                local,
-                instant,
-                key,
-            });
-        }
+        due.push(instant);
     }
-
-    (due, truncated)
+    (due, false)
 }

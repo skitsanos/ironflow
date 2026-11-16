@@ -94,3 +94,65 @@ pub fn duplicate_archive() -> Vec<u8> {
     bytes[local + 30..local + 38].copy_from_slice(b"same.txt");
     bytes
 }
+
+fn end_record(entries: u16, size: u32, offset: u32, comment_length: u16) -> Vec<u8> {
+    let mut record = b"PK\x05\x06\0\0\0\0".to_vec();
+    record.extend_from_slice(&entries.to_le_bytes());
+    record.extend_from_slice(&entries.to_le_bytes());
+    record.extend_from_slice(&size.to_le_bytes());
+    record.extend_from_slice(&offset.to_le_bytes());
+    record.extend_from_slice(&comment_length.to_le_bytes());
+    record
+}
+
+/// `[file data][directory B][directory A][end record A, comment 23][end record B][1 byte]`.
+///
+/// `hidden` supplies the file data, directory B and end record B. Record A's
+/// comment ends exactly at end of file and covers record B, whose comment
+/// merely fits, so a parser that wants an exact comment reads the one-entry
+/// directory A while one that takes the last fitting record reads B (IF-190).
+pub fn split_end_records(hidden: &[u8]) -> Vec<u8> {
+    let end = eocd(hidden);
+    assert_eq!(
+        hidden.len(),
+        end + 22,
+        "hidden archive must have no comment"
+    );
+    let mut bytes = hidden[..end].to_vec();
+    let decoy_offset = bytes.len() as u32;
+    let name = b"benign.txt";
+    let mut decoy = b"PK\x01\x02".to_vec();
+    decoy.resize(46, 0);
+    decoy[28..30].copy_from_slice(&(name.len() as u16).to_le_bytes());
+    decoy.extend_from_slice(name);
+    bytes.extend_from_slice(&decoy);
+    bytes.extend_from_slice(&end_record(1, decoy.len() as u32, decoy_offset, 23));
+    bytes.extend_from_slice(&hidden[end..]);
+    bytes.push(0);
+    bytes
+}
+
+/// `[file data][directory D][directory R][end record: offset of D, size of one]`.
+///
+/// D and R have equal sizes and entry counts. Read at its declared offset the
+/// directory is D; a reader that prefers the directory abutting the end record
+/// treats D as prepended data and reads R, whose two names are equal.
+pub fn shifted_directory() -> Vec<u8> {
+    let honest = archive(&["same.txt", "else.txt"], "", b"");
+    let (start, end) = (central(&honest), eocd(&honest));
+    let mut duplicate = honest[start..end].to_vec();
+    duplicate[46 + 8 + 46..].copy_from_slice(b"same.txt");
+    let mut bytes = honest[..end].to_vec();
+    bytes.extend_from_slice(&duplicate);
+    bytes.extend_from_slice(&honest[end..]);
+    bytes
+}
+
+/// Insert `gap` between the central directory and whichever record ends it.
+pub fn gap_before_end_record(bytes: &[u8], gap: &[u8]) -> Vec<u8> {
+    let end = eocd(bytes);
+    let mut gapped = bytes[..end].to_vec();
+    gapped.extend_from_slice(gap);
+    gapped.extend_from_slice(&bytes[end..]);
+    gapped
+}

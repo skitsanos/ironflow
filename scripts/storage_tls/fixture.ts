@@ -66,6 +66,17 @@ export async function command(args: string[], options: CommandOptions = {}): Pro
   } finally { clearTimeout(timer); }
 }
 
+// Pull one image, retrying a transient registry or DNS failure: a single
+// failed lookup at this step cost a whole gate run twice.
+async function pullImage(image: string, attempts = 3, pauseMs = 5_000) {
+  for (let attempt = 1; ; attempt += 1) {
+    const result = await command(["docker", "pull", image]);
+    if (result.code === 0 && !result.timedOut) return;
+    if (attempt >= attempts) throw new Error(`docker pull failed: ${result.stderr}`);
+    await Bun.sleep(pauseMs);
+  }
+}
+
 export async function successful(args: string[], options: CommandOptions = {}) {
   const result = await command(args, options);
   if (result.code !== 0 || result.timedOut) throw new Error(`${args[0]} ${args[1]} failed: ${result.stderr}`);
@@ -130,7 +141,7 @@ export async function createFixture() {
     await successful(["openssl", "x509", "-req", "-in", "server.csr", "-CA", "ca.pem", "-CAkey", "ca.key", "-CAcreateserial", "-days", "2", "-sha256", "-extfile", "server.ext", "-out", "server.pem"], { cwd: root });
     await Bun.write(join(root, "pg_hba.conf"), "local all all trust\nhostssl all all 0.0.0.0/0 scram-sha-256\nhostnossl all all 0.0.0.0/0 reject\n");
     await chmod(join(root, "server.key"), 0o600);
-    for (const image of ["postgres:latest", "redis:latest"]) await successful(["docker", "pull", image]);
+    for (const image of ["postgres:latest", "redis:latest"]) await pullImage(image);
     const mount = `type=bind,src=${root},dst=/tls,readonly`;
     owned.push(postgres);
     await successful(["docker", "run", "-d", "--name", postgres, "-p", "127.0.0.1::5432", "--mount", mount, "-e", `POSTGRES_PASSWORD=${password}`, "-e", "POSTGRES_DB=ironflow_tls", "--entrypoint", "sh", "postgres:latest", "-c", "install -o postgres -g postgres -m 600 /tls/server.key /tmp/ironflow.key\ninstall -o postgres -g postgres -m 644 /tls/server.pem /tmp/ironflow.pem\ninstall -o postgres -g postgres -m 644 /tls/pg_hba.conf /tmp/ironflow-hba.conf\nexec docker-entrypoint.sh postgres -c ssl=on -c ssl_cert_file=/tmp/ironflow.pem -c ssl_key_file=/tmp/ironflow.key -c hba_file=/tmp/ironflow-hba.conf"]);

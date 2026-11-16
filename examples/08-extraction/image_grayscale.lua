@@ -1,4 +1,6 @@
 -- Effects: retains one UUID-scoped PNG under TMPDIR, TMP, TEMP, or `.`.
+-- The output directory must exist. The file is staged beside the destination
+-- and atomically replaces a regular file; a symlinked destination is refused.
 local flow = Flow.new("image_grayscale_demo")
 local temp_root = env("TMPDIR")
 if temp_root == nil or temp_root == "" then temp_root = env("TMP") end

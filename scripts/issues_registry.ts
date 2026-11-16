@@ -20,7 +20,6 @@ type YamlMap = Record<string, unknown>;
 const repository = join(import.meta.dir, "..");
 const issuesDirectory = join(repository, "docs/issues");
 const registryPath = join(issuesDirectory, "README.md");
-const compatibilityPath = join(repository, "ISSUES.md");
 const roadmapPath = join(repository, "docs/ROADMAP.md");
 const issuePattern = /^IF-\d{3}$/;
 const allowedFields = new Set(["id", "title", "priority", "status", "area", "resolved"]);
@@ -93,8 +92,8 @@ function displayStatus(status: IssueStatus): string {
   return status[0].toUpperCase() + status.slice(1);
 }
 
-function row(issue: Issue, prefix = "."): string {
-  return `| [${issue.id}](${prefix}/${issue.id}.md) | ${issue.priority} | ${displayStatus(issue.status)} | ${issue.area} | ${issue.title} |`;
+function row(issue: Issue): string {
+  return `| [${issue.id}](./${issue.id}.md) | ${issue.priority} | ${displayStatus(issue.status)} | ${issue.area} | ${issue.title} |`;
 }
 
 export function renderRegistry(issues: Issue[]): string {
@@ -109,30 +108,6 @@ priority, area, and title. The registry is generated with
 
 - Total findings: ${issues.length}
 - Active findings: ${active}
-- Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
-
-| ID | Priority | Status | Area | Summary |
-|---|---:|---|---|---|
-${issues.map((issue) => row(issue)).join("\n")}
-`;
-}
-
-export function renderCompatibilityIndex(issues: Issue[]): string {
-  const active = issues.filter((issue) => issue.status !== "resolved");
-  const rows = active.length
-    ? active.map((issue) => row(issue, "docs/issues")).join("\n")
-    : "| — | — | — | — | No active findings |";
-  return `# IronFlow engineering issues
-
-The canonical engineering ledger is maintained in
-[\`docs/issues/README.md\`](docs/issues/README.md). Individual findings use
-stable paths such as [\`docs/issues/IF-001.md\`](docs/issues/IF-001.md).
-
-## Active findings
-
-| ID | Priority | Status | Area | Summary |
-|---|---:|---|---|---|
-${rows}
 
 ## Working agreement
 
@@ -147,10 +122,13 @@ ${rows}
 5. Set an issue to \`resolved\` only after its acceptance criteria pass. Record
    the outcome, contract boundary, exact validation evidence, ISO completion
    date, and commit or PR when applicable.
-6. Regenerate the indexes and run \`bun run scripts/issues_registry.ts check\`.
+6. Regenerate this index and run \`bun run scripts/issues_registry.ts check\`.
 
-Historical audit baselines and cross-issue evidence are retained in
-[\`docs/issues/AUDIT_EVIDENCE.md\`](docs/issues/AUDIT_EVIDENCE.md).
+## Findings
+
+| ID | Priority | Status | Area | Summary |
+|---|---:|---|---|---|
+${issues.map(row).join("\n")}
 `;
 }
 
@@ -252,13 +230,11 @@ async function checkGenerated(path: string, expected: string, errors: string[]):
 async function run(command: string): Promise<void> {
   const { issues, errors } = await loadIssues();
   const registry = renderRegistry(issues);
-  const compatibility = renderCompatibilityIndex(issues);
 
   if (command === "generate") {
     if (errors.length) throw new Error(errors.join("\n"));
     await Bun.write(registryPath, registry);
-    await Bun.write(compatibilityPath, compatibility);
-    console.log(`Generated issue indexes for ${issues.length} findings.`);
+    console.log(`Generated the issue index for ${issues.length} findings.`);
     return;
   }
   if (command !== "check") throw new Error("usage: bun scripts/issues_registry.ts <check|generate>");
@@ -267,7 +243,6 @@ async function run(command: string): Promise<void> {
   if (!(await roadmap.exists())) errors.push("docs/ROADMAP.md: file is missing");
   else errors.push(...validateRoadmap(await roadmap.text(), issues));
   await checkGenerated(registryPath, registry, errors);
-  await checkGenerated(compatibilityPath, compatibility, errors);
   if (errors.length) throw new Error(errors.join("\n"));
   console.log(`Issue registry validation passed: ${issues.length} findings.`);
 }

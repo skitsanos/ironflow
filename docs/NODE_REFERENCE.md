@@ -4,6 +4,12 @@ Complete reference for all 105 built-in nodes. Click any node name for full docu
 
 For adding or maintaining node implementations, see [Node Contributor Manual](NODE_CONTRIBUTING.md).
 
+Nodes that connect to a destination the flow chooses (HTTP, S3 and S3 Vectors,
+notification, database, AI and MCP nodes) are subject to the operator's
+[outbound destination policy](SECURITY.md#outbound-destinations): with
+`IRONFLOW_BLOCK_PRIVATE_NETWORK=true` they refuse private, loopback and
+metadata addresses that are not in `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST`.
+
 ---
 
 ## HTTP Nodes
@@ -304,6 +310,12 @@ flow:step("parse", function()
 end)
 ```
 
+Text nested deeper than 123 levels of arrays and objects is refused with
+`json_parse failed: JSON value is nested deeper than 123 levels of arrays and
+objects`, the same fixed limit as the [`json_parse`](nodes/json_parse.md)
+node. Shallower text is then subject to `IRONFLOW_MAX_CONVERSION_DEPTH`
+(default `64`).
+
 ### `json_stringify(value)`
 
 Serialize a JSON-compatible Lua value to a JSON string. Tables must be either
@@ -396,5 +408,6 @@ and dropped-future cancellation signal:
 | `IRONFLOW_LUA_MAX_INSTRUCTIONS` | `5000000` | Max Lua VM instructions per Lua state; `0` disables. |
 | `IRONFLOW_LUA_MAX_SECONDS` | `10` | Max wall-clock seconds per Lua state; `0` disables. |
 | `IRONFLOW_LUA_MAX_MEMORY_BYTES` | `134217728` | Max Lua VM memory per Lua state; `0` disables. |
+| `IRONFLOW_LUA_MAX_PATTERN_STEPS` | `50000000` | Max pattern-matching steps (`string.find`, `string.match`, `string.gmatch`, `string.gsub`) per Lua state; `0` disables. |
 | `IRONFLOW_LUA_HOOK_INTERVAL` | `10000` | Instruction interval for checking budgets. |
 | `IRONFLOW_LUA_GC_AFTER_EXECUTION` | `true` | Run Lua garbage collection after parsing/execution. |

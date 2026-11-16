@@ -2,7 +2,7 @@ use std::fmt::Write as _;
 
 use anyhow::{Context, Result};
 
-use super::super::super::docx_parser::{DocxCell, DocxRun, DocxTable};
+use super::super::super::docx_parser::{DocxCell, DocxRun, DocxTable, Flags};
 use super::super::super::resource::Budget;
 
 pub(super) struct TextOutput<'a, 'b> {
@@ -108,24 +108,30 @@ impl<'a, 'b> TextOutput<'a, 'b> {
         self.append_repeat(' ', spaces, "DOCX markdown indentation")
     }
 
+    /// Append runs with their emphasis markers. `inherited` names the bold,
+    /// italic and strikethrough that the surrounding construct already
+    /// expresses (a heading's own style) and that get no marker.
     pub(super) fn append_markdown_runs(
         &mut self,
         runs: &[DocxRun],
         escape_pipe: bool,
+        inherited: Flags,
     ) -> Result<()> {
+        let [no_bold, no_italic, no_strike] = inherited;
         for run in runs {
             self.checkpoint()?;
             if run.text.is_empty() {
                 continue;
             }
-            let emphasis = match (run.bold, run.italic) {
+            let strike = run.strikethrough && !no_strike;
+            let emphasis = match (run.bold && !no_bold, run.italic && !no_italic) {
                 (true, true) => "***",
                 (true, false) => "**",
                 (false, true) => "*",
                 (false, false) => "",
             };
             self.append(emphasis, "DOCX markdown run wrappers")?;
-            if run.strikethrough {
+            if strike {
                 self.append("~~", "DOCX markdown run wrappers")?;
             }
             if escape_pipe {
@@ -133,7 +139,7 @@ impl<'a, 'b> TextOutput<'a, 'b> {
             } else {
                 self.append(&run.text, "DOCX markdown text copies")?;
             }
-            if run.strikethrough {
+            if strike {
                 self.append("~~", "DOCX markdown run wrappers")?;
             }
             self.append(emphasis, "DOCX markdown run wrappers")?;
@@ -207,7 +213,7 @@ impl<'a, 'b> TextOutput<'a, 'b> {
             if has_paragraph {
                 self.append("<br>", "DOCX markdown table separators")?;
             }
-            self.append_markdown_runs(&paragraph.runs, true)?;
+            self.append_markdown_runs(&paragraph.runs, true, Flags::default())?;
             has_paragraph = true;
         }
         Ok(())

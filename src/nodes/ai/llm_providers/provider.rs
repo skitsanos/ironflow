@@ -14,8 +14,8 @@ pub(crate) fn resolve_provider_config(
     config: &Value,
     ctx: &Context,
     mode: LlmMode,
+    provider: Provider,
 ) -> Result<ResolvedProvider> {
-    let provider = Provider::resolve(config);
     match provider {
         Provider::OpenAI | Provider::OpenAICompatible => {
             resolve_openai_provider(config, ctx, mode, provider)
@@ -210,8 +210,13 @@ mod tests {
             "api_key": "compatible-secret",
         });
 
-        let (endpoint, headers, provider) =
-            resolve_provider_config(&config, &Context::new(), LlmMode::Responses).unwrap();
+        let (endpoint, headers, provider) = resolve_provider_config(
+            &config,
+            &Context::new(),
+            LlmMode::Responses,
+            Provider::resolve(&config).unwrap(),
+        )
+        .unwrap();
 
         assert_eq!(endpoint, "https://gateway.example/v1/responses");
         assert_eq!(provider, "openai_compatible");
@@ -241,8 +246,13 @@ mod tests {
         ];
 
         for (mode, expected_suffix) in cases {
-            let (endpoint, headers, provider) =
-                resolve_provider_config(&config, &Context::new(), mode).unwrap();
+            let (endpoint, headers, provider) = resolve_provider_config(
+                &config,
+                &Context::new(),
+                mode,
+                Provider::resolve(&config).unwrap(),
+            )
+            .unwrap();
             assert_eq!(
                 endpoint,
                 format!(

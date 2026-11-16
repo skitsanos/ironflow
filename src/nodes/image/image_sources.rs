@@ -3,6 +3,7 @@ use anyhow::Result;
 use crate::engine::types::Context;
 
 use super::resource::ImageToPdfLimits;
+use crate::util::file_source::{SourceOrigin, parse_file_source_from};
 
 mod base64_admission;
 
@@ -50,7 +51,7 @@ pub(crate) fn resolve_single_image_source(
             .ok_or_else(|| anyhow::anyhow!("{node_name}: 'path' must be a string"))?;
         return parse_image_input(
             &serde_json::Value::String(path.to_owned()),
-            ctx,
+            SourceOrigin::Config(ctx),
             node_name,
             &mut base64,
         );
@@ -63,7 +64,7 @@ pub(crate) fn resolve_single_image_source(
         let value = ctx
             .get(source_key)
             .ok_or_else(|| anyhow::anyhow!("Key '{source_key}' not found in context"))?;
-        return parse_image_input(value, ctx, node_name, &mut base64);
+        return parse_image_input(value, SourceOrigin::Data, node_name, &mut base64);
     }
 
     anyhow::bail!("{node_name} requires either 'path' or 'source_key'")
@@ -80,11 +81,14 @@ pub(crate) fn resolve_image_sources(
         anyhow::bail!("image_to_pdf accepts either 'sources' or 'source_key', not both");
     }
 
+    // `sources` is configuration; an array read through `source_key` is data.
+    let mut origin = SourceOrigin::Config(ctx);
     let values = if let Some(sources) = sources {
         sources
             .as_array()
             .ok_or_else(|| anyhow::anyhow!("image_to_pdf: 'sources' must be an array"))?
     } else if let Some(source_key) = source_key {
+        origin = SourceOrigin::Data;
         let source_key = source_key
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("image_to_pdf: 'source_key' must be a string"))?;
@@ -109,21 +113,24 @@ pub(crate) fn resolve_image_sources(
     for value in values {
         // Base64 length and the cumulative decoded-byte ceiling are admitted
         // inside `parse_image_input` before its context string is cloned.
-        inputs.push(parse_image_input(value, ctx, "image_to_pdf", &mut base64)?);
+        inputs.push(parse_image_input(
+            value,
+            origin,
+            "image_to_pdf",
+            &mut base64,
+        )?);
     }
     Ok(inputs)
 }
 
 fn parse_image_input(
     value: &serde_json::Value,
-    ctx: &Context,
+    origin: SourceOrigin<'_>,
     node_name: &str,
     base64_admission: &mut Base64Admission,
 ) -> Result<ImageInput> {
     if value.is_string() {
-        return Ok(ImageInput::File(
-            crate::util::file_source::parse_file_source(value, ctx, node_name)?,
-        ));
+        return Ok(ImageInput::File(parse_file_source_from(value, origin)?));
     }
 
     let object = value
@@ -147,13 +154,10 @@ fn parse_image_input(
         let path = path
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("{node_name}: source 'path' must be a string"))?;
-        return Ok(ImageInput::File(
-            crate::util::file_source::parse_file_source(
-                &serde_json::Value::String(path.to_owned()),
-                ctx,
-                node_name,
-            )?,
-        ));
+        return Ok(ImageInput::File(parse_file_source_from(
+            &serde_json::Value::String(path.to_owned()),
+            origin,
+        )?));
     }
     if let Some(data) = object.get("base64").or_else(|| object.get("data")) {
         let data = data
@@ -163,9 +167,7 @@ fn parse_image_input(
         return Ok(ImageInput::Base64(data.to_owned()));
     }
 
-    Ok(ImageInput::File(
-        crate::util::file_source::parse_file_source(value, ctx, node_name)?,
-    ))
+    Ok(ImageInput::File(parse_file_source_from(value, origin)?))
 }
 
 fn validate_source_count(count: usize, maximum: u64) -> Result<()> {
@@ -191,9 +193,14 @@ mod tests {
             serde_json::json!({"base64": "AA==", "data": "AA=="}),
             serde_json::json!({"artifact": {}, "artifact_uri": "artifact://sha256/x"}),
         ] {
-            let error = parse_image_input(&value, &ctx, "image_to_pdf", &mut base64)
-                .unwrap_err()
-                .to_string();
+            let error = parse_image_input(
+                &value,
+                SourceOrigin::Config(&ctx),
+                "image_to_pdf",
+                &mut base64,
+            )
+            .unwrap_err()
+            .to_string();
             assert!(error.contains("ambiguous"), "{error}");
         }
     }
@@ -243,9 +250,14 @@ mod tests {
 
         let mut admission = Base64Admission::new(1, 1, false);
         let oversized = serde_json::json!({"base64": "AAAA"});
-        let error = parse_image_input(&oversized, &ctx, "image_resize", &mut admission)
-            .unwrap_err()
-            .to_string();
+        let error = parse_image_input(
+            &oversized,
+            SourceOrigin::Config(&ctx),
+            "image_resize",
+            &mut admission,
+        )
+        .unwrap_err()
+        .to_string();
         assert!(
             error.contains("IRONFLOW_MAX_IMAGE_ENCODED_BYTES"),
             "{error}"

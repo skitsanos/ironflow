@@ -64,7 +64,7 @@ async fn declared_and_actual_archive_budgets_are_cumulative() {
     let directory = tempfile::tempdir().unwrap();
     let declared_path = directory.path().join("declared.docx");
     write_archive(&declared_path, &[("word/document.xml", b"12345", None)]);
-    let error = crate::util::execution::run_blocking_step(move |execution| {
+    let error = crate::util::execution::run_tracked_blocking_step(move |execution| {
         Archive::open(&declared_path, "extract_word", limits(10, 4), &execution).map(|_| ())
     })
     .await
@@ -74,7 +74,7 @@ async fn declared_and_actual_archive_budgets_are_cumulative() {
 
     let actual_path = directory.path().join("actual.docx");
     write_archive(&actual_path, &[("word/document.xml", b"123456", None)]);
-    let error = crate::util::execution::run_blocking_step(move |execution| {
+    let error = crate::util::execution::run_tracked_blocking_step(move |execution| {
         let mut archive = Archive::open(&actual_path, "extract_word", limits(10, 10), &execution)?;
         archive.with_required_xml("word/document.xml", &execution, |_| Ok(()))?;
         archive
@@ -92,7 +92,7 @@ async fn declared_and_actual_archive_budgets_are_cumulative() {
         &[("word/document.xml", b"1234567890", None)],
     );
     patch_declared_size(&understated_path, 1);
-    let error = crate::util::execution::run_blocking_step(move |execution| {
+    let error = crate::util::execution::run_tracked_blocking_step(move |execution| {
         let mut archive =
             Archive::open(&understated_path, "extract_word", limits(10, 5), &execution)?;
         archive
@@ -117,7 +117,7 @@ async fn streamed_parts_validate_utf8_crc_and_complete_the_entry() {
         &partial_path,
         &[("word/document.xml", b"<root>payload</root>", None)],
     );
-    crate::util::execution::run_blocking_step(move |execution| {
+    crate::util::execution::run_tracked_blocking_step(move |execution| {
         let mut archive =
             Archive::open(&partial_path, "extract_word", limits(10, 100), &execution)?;
         archive.with_required_xml("word/document.xml", &execution, |reader| {
@@ -136,7 +136,7 @@ async fn streamed_parts_validate_utf8_crc_and_complete_the_entry() {
         &utf8_path,
         &[("word/document.xml", b"<root>\xff</root>", None)],
     );
-    let error = crate::util::execution::run_blocking_step(move |execution| {
+    let error = crate::util::execution::run_tracked_blocking_step(move |execution| {
         let mut archive = Archive::open(&utf8_path, "extract_word", limits(10, 100), &execution)?;
         archive
             .with_required_xml("word/document.xml", &execution, |_| Ok(()))
@@ -150,7 +150,7 @@ async fn streamed_parts_validate_utf8_crc_and_complete_the_entry() {
     let crc_path = directory.path().join("crc.docx");
     write_archive(&crc_path, &[("word/document.xml", b"<root/>", None)]);
     patch_crc(&crc_path, 0x1234_5678);
-    let error = crate::util::execution::run_blocking_step(move |execution| {
+    let error = crate::util::execution::run_tracked_blocking_step(move |execution| {
         let mut archive = Archive::open(&crc_path, "extract_word", limits(10, 100), &execution)?;
         archive
             .with_required_xml("word/document.xml", &execution, |_| Ok(()))
@@ -178,7 +178,7 @@ async fn streamed_parts_checkpoint_after_cancellation() {
     let worker_message = Arc::clone(&message);
 
     let task = tokio::spawn(async move {
-        crate::util::execution::run_blocking_step(move |execution| {
+        crate::util::execution::run_tracked_blocking_step(move |execution| {
             let result = (|| {
                 let mut archive =
                     Archive::open(&path, "extract_word", limits(10, 1000), &execution)?;
@@ -227,7 +227,7 @@ async fn entry_count_and_symlink_parts_are_rejected() {
         &count_path,
         &[("one.xml", b"1", None), ("two.xml", b"2", None)],
     );
-    let error = crate::util::execution::run_blocking_step(move |execution| {
+    let error = crate::util::execution::run_tracked_blocking_step(move |execution| {
         Archive::open(&count_path, "extract_word", limits(1, 100), &execution).map(|_| ())
     })
     .await
@@ -246,7 +246,7 @@ async fn entry_count_and_symlink_parts_are_rejected() {
         )
         .unwrap();
     writer.finish().unwrap();
-    let error = crate::util::execution::run_blocking_step(move |execution| {
+    let error = crate::util::execution::run_tracked_blocking_step(move |execution| {
         Archive::open(&symlink_path, "extract_word", limits(10, 100), &execution).map(|_| ())
     })
     .await
@@ -273,7 +273,7 @@ async fn duplicate_part_names_are_rejected_without_copying_all_names() {
     }
     std::fs::write(&path, bytes).unwrap();
 
-    let error = crate::util::execution::run_blocking_step(move |execution| {
+    let error = crate::util::execution::run_tracked_blocking_step(move |execution| {
         Archive::open(&path, "extract_word", limits(10, 100), &execution).map(|_| ())
     })
     .await
@@ -283,3 +283,46 @@ async fn duplicate_part_names_are_rejected_without_copying_all_names() {
     assert!(error.contains("duplicate archive part"), "{error}");
 }
 use std::path::Path;
+
+#[tokio::test]
+async fn a_second_end_record_cannot_bypass_the_entry_limit() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("split.docx");
+    write_archive(
+        &path,
+        &[("a.xml", b"first", None), ("b.xml", b"second", None)],
+    );
+    // [file data][directory B][directory A][end record A, comment 23]
+    // [end record B][1 byte]: A declares one entry, the reader uses B's two.
+    let hidden = std::fs::read(&path).unwrap();
+    let end = hidden.len() - 22;
+    let mut bytes = hidden[..end].to_vec();
+    let mut decoy = b"PK\x01\x02".to_vec();
+    decoy.resize(46, 0);
+    decoy[28] = 5;
+    decoy.extend_from_slice(b"c.xml");
+    let mut record = b"PK\x05\x06\0\0\0\0\x01\0\x01\0".to_vec();
+    record.extend_from_slice(&(decoy.len() as u32).to_le_bytes());
+    record.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+    record.extend_from_slice(&23_u16.to_le_bytes());
+    bytes.extend_from_slice(&decoy);
+    bytes.extend_from_slice(&record);
+    bytes.extend_from_slice(&hidden[end..]);
+    bytes.push(0);
+    assert_eq!(
+        zip::ZipArchive::new(std::io::Cursor::new(&bytes))
+            .unwrap()
+            .len(),
+        2
+    );
+    std::fs::write(&path, bytes).unwrap();
+
+    let error = crate::util::execution::run_tracked_blocking_step(move |execution| {
+        Archive::open(&path, "extract_word", limits(1, 100), &execution).map(|_| ())
+    })
+    .await
+    .unwrap_err()
+    .to_string();
+
+    assert!(error.contains("after its ZIP end record"), "{error}");
+}

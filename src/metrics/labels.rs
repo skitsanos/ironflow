@@ -114,21 +114,25 @@ pub(crate) enum SchedulerOutcome {
     NotClaimed,
     Late,
     Overlapped,
+    Superseded,
     AtCapacity,
     Failed,
     ClaimFailed,
+    Deferred,
     TimedOut,
 }
 
 impl SchedulerOutcome {
-    pub(crate) const ALL: [Self; 8] = [
+    pub(crate) const ALL: [Self; 10] = [
         Self::Fired,
         Self::NotClaimed,
         Self::Late,
         Self::Overlapped,
+        Self::Superseded,
         Self::AtCapacity,
         Self::Failed,
         Self::ClaimFailed,
+        Self::Deferred,
         Self::TimedOut,
     ];
 
@@ -138,9 +142,11 @@ impl SchedulerOutcome {
             Outcome::NotClaimed => Self::NotClaimed,
             Outcome::Late { .. } => Self::Late,
             Outcome::Overlapped { .. } => Self::Overlapped,
+            Outcome::Superseded { .. } => Self::Superseded,
             Outcome::AtCapacity => Self::AtCapacity,
             Outcome::Failed { .. } => Self::Failed,
             Outcome::ClaimFailed { .. } => Self::ClaimFailed,
+            Outcome::Deferred { .. } => Self::Deferred,
             Outcome::TimedOut => Self::TimedOut,
         }
     }
@@ -151,9 +157,11 @@ impl SchedulerOutcome {
             Self::NotClaimed => "not_claimed",
             Self::Late => "late",
             Self::Overlapped => "overlapped",
+            Self::Superseded => "superseded",
             Self::AtCapacity => "at_capacity",
             Self::Failed => "failed",
             Self::ClaimFailed => "claim_failed",
+            Self::Deferred => "deferred",
             Self::TimedOut => "timed_out",
         }
     }
@@ -184,6 +192,26 @@ impl LeaseOutcome {
             Self::TimedOut => "timed_out",
             Self::Error => "error",
             Self::ReconciliationFailed => "reconciliation_failed",
+        }
+    }
+}
+
+/// How a run was admitted to its event stream (IF-214).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum EventAdmissionOutcome {
+    Admitted,
+    AdmittedAfterRetry,
+    Failed,
+}
+
+impl EventAdmissionOutcome {
+    pub(crate) const ALL: [Self; 3] = [Self::Admitted, Self::AdmittedAfterRetry, Self::Failed];
+
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Admitted => "admitted",
+            Self::AdmittedAfterRetry => "admitted_after_retry",
+            Self::Failed => "failed",
         }
     }
 }

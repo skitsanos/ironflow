@@ -7,7 +7,7 @@ Extract text and metadata from a PDF document.
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `path` | string | one of `path` or `source_key` | — | File path to the PDF; supports `${ctx.key}` interpolation. |
-| `source_key` | string | one of `path` or `source_key` | — | Context key containing a file path, artifact URI, or artifact descriptor. |
+| `source_key` | string | one of `path` or `source_key` | — | Context key containing a file path, artifact URI, or artifact descriptor. A stored path is used as it is and is not interpolated. |
 | `format` | string | no | `"text"` | Output format: `"text"` for raw extracted text, `"markdown"` for best-effort paragraph-grouped Markdown. |
 | `output_key` | string | no | `"content"` | Context key where the extracted text is stored. |
 | `metadata_key` | string | no | — | If set, PDF metadata is stored under this context key. |
@@ -27,11 +27,50 @@ If `metadata_key` is requested and a present PDF Info entry or supported field
 cannot be resolved as the expected type, extraction fails rather than silently
 returning incomplete metadata.
 
+Metadata text fields are decoded as PDF text strings, exactly as
+[`pdf_metadata`](pdf_metadata.md) does: PDFDocEncoding, UTF-16BE with a
+byte-order mark, UTF-8 with a byte-order mark, and UTF-16LE when a string
+starts with the little-endian mark. Values are trimmed; NUL and other control
+characters except tab, line feed and carriage return are removed, together
+with language-tag escapes in every form described for `pdf_metadata`. An ill-formed UTF-16 or UTF-8
+sequence becomes U+FFFD instead of failing the step, and a field that is empty
+after decoding is omitted.
+
 PDF content streams position glyphs rather than encode semantic words and
 paragraphs. Text and Markdown extraction preserve decoded characters on a
 best-effort basis, but whitespace can be introduced or omitted when positioned
 glyph fragments are joined. Do not treat exact whitespace or byte-for-byte
 output as a stable document-identity representation.
+
+### Lines and word spaces
+
+Lines follow the position of the text, not the `BT … ET` blocks it is written
+in. The text matrix, the line matrix and the page transformation (`cm`, `q`,
+`Q`) are tracked, and each shown string is compared with the end of the one
+before it:
+
+- Text more than half its size off the last baseline starts a new line. This
+  holds for a move inside one block (`Td`, `TD`, `Tm`) as well as for a new
+  block; superscripts and subscripts stay on their line.
+- On the same baseline, text that starts where the last string ended is
+  joined to it, a gap wider than a fifth of the text size becomes one space,
+  and text that starts left of that end begins a new line. Writers such as
+  the macOS Quartz PDF context end a block at every font change, so a word
+  with one glyph from a fallback font is one word, not three lines.
+- `T*`, `'` and `"` always start a new line.
+- Inside one `TJ` array, an adjustment that moves the next glyph forward by
+  more than a tenth of the text size (a number below `-100`, integer or
+  real) is a space.
+
+The end of a string comes from its glyph widths: `/Widths` of a simple font,
+and `/W` with `/DW` of a Type0 font encoded `Identity-H`. For any other font
+(no width table, a Type3 font, another CMap) the end is unknown; a change of
+baseline still starts a new line, and otherwise the older rule applies: each
+`BT … ET` block is its own line and strings inside one block are joined
+without a separator. `/ActualText` replacement text has no position and is
+placed on a new line when a block ended before it. Reading order is stream
+order: columns and table cells are not reordered, and width entries count
+toward `IRONFLOW_MAX_EXTRACT_ITEMS`.
 
 When page marked-content sequences supply `/ActualText`, extraction uses that
 logical replacement string once instead of the enclosed glyphs. The outermost
@@ -73,8 +112,33 @@ correctly.
 - `IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES` (default `52428800`, 50 MiB) bounds the
   extracted text before it is appended and the complete serialized
   `NodeOutput`, including content and requested metadata. The remaining text
-  budget also bounds each page's decompressed content and font-mapping streams.
+  budget also bounds each page's decompressed content stream and each
+  font-mapping stream when its font is first used.
   This is not the later `IRONFLOW_MAX_TASK_OUTPUT_BYTES` persistence limit.
+- `IRONFLOW_MAX_PDF_EXTRACT_CMAP_ENTRIES` (default `1048576`) bounds the
+  ToUnicode mappings of all fonts in one call ([IF-178](../issues/IF-178.md)).
+  Before `lopdf` parses a font's ToUnicode CMap, IronFlow scans the decoded
+  stream and charges each `bfchar` entry at least the UTF-16 units of its
+  destination and each `bfrange` line the number of codes it covers multiplied
+  by the UTF-16 units of its longest destination; a codespace line adds one or
+  two. The count is cumulative over distinct font dictionaries, so a range
+  such as `<00000001> <FFFFFFFE>` fails the node in the time it takes to read
+  the stream instead of being expanded. A font is charged and decoded once,
+  with the first page whose resources list it, however many pages share it; a
+  ToUnicode stream is charged even if the font's `/Encoding` means it is never
+  consulted. The scan is deliberately conservative: a range line inside a
+  comment of a `bfrange` section is charged too, a `bfchar` destination that
+  contains a comment is charged as 256 units, and a `bfrange` destination that
+  contains a comment cannot be measured and fails the font.
+- A glyph string of `n` bytes is admitted by its worst case before it is
+  decoded: `3n` UTF-8 bytes in a single-byte or UTF-16 font, and `6n` times
+  the UTF-16 units of the longest ToUnicode destination in a code-mapped
+  font. A string whose worst case is at most 1 MiB, or fits the remaining
+  output budget, is decoded in one call and its actual text is then admitted
+  exactly. A larger string is decoded in pieces of at most 1 MiB worst case
+  when its font decodes each byte on its own; a code-mapped or UTF-16 string
+  cannot be split safely and is rejected with the output-limit error, even if
+  its actual text would have fitted.
 - Marked-content and text-operand nesting are limited to 64 levels. Property
   reference chains are limited to 32 hops with cycle detection; named-property
   resource inheritance is limited to 64 ancestors. ActualText's decoded UTF-8
@@ -84,13 +148,17 @@ correctly.
   IronFlow parses the input once with `lopdf`, releases the original byte
   buffer, and extracts one page at a time. Document loading and each bounded
   content/CMap decoding are synchronous library calls and cannot be interrupted
-  midway; IronFlow checks cancellation before/after them and between operations,
-  reference hops, text operands and replacement-string validation chunks. Page
+  midway; IronFlow checks cancellation before/after them, every 64 KiB of a
+  ToUnicode scan, and between operations, reference hops, text operands,
+  glyph-string pieces and replacement-string validation chunks. The CMap call
+  that cannot be interrupted is bounded by the entries admitted above. Page
   content and font streams use the smaller of the remaining output budget and
   the shared decompressed-stream limit. This is not a peak-memory ceiling:
-  parsed operations, font maps and temporary glyph-decoding strings coexist
-  with the retained document and result. Task and run admission remain occupied
-  until the physical worker stops.
+  parsed operations and temporary glyph-decoding strings coexist with the
+  retained document and result, and the font maps of every font used so far
+  are kept until the call ends. `lopdf` 0.47 holds roughly 130 bytes for each
+  admitted entry, about 130 MiB at the default entry limit. Task and run
+  admission remain occupied until the physical worker stops.
 
 ## Example
 

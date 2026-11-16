@@ -16,8 +16,49 @@ export type Verdict =
   | { accepted: true; receipt: Receipt; ageSeconds: number }
   | { accepted: false; reason: string };
 
+/** Variables that pin a git command to one repository, as listed by
+ *  `git rev-parse --local-env-vars`. Git exports several of them to the hooks
+ *  it runs, and from a linked worktree GIT_INDEX_FILE is an absolute path, so a
+ *  child git that inherited them inspected the repository whose hook was
+ *  running instead of the one it was pointed at (IF-205). */
+export const REPOSITORY_SCOPED_GIT_VARIABLES: readonly string[] = [
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_COMMON_DIR",
+  "GIT_CONFIG",
+  "GIT_CONFIG_COUNT",
+  "GIT_CONFIG_PARAMETERS",
+  "GIT_DIR",
+  "GIT_GRAFT_FILE",
+  "GIT_IMPLICIT_WORK_TREE",
+  "GIT_INDEX_FILE",
+  "GIT_NO_REPLACE_OBJECTS",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_PREFIX",
+  "GIT_REPLACE_REF_BASE",
+  "GIT_SHALLOW_FILE",
+  "GIT_WORK_TREE",
+];
+
+/** The environment for a git command aimed at an explicit repository: the
+ *  caller's own, without the variables that would redirect it elsewhere. */
+export function repositoryNeutralEnvironment(
+  source: Record<string, string | undefined> = process.env,
+): Record<string, string> {
+  const scoped = new Set(REPOSITORY_SCOPED_GIT_VARIABLES);
+  const environment: Record<string, string> = {};
+  for (const [name, value] of Object.entries(source)) {
+    if (value !== undefined && !scoped.has(name)) environment[name] = value;
+  }
+  return environment;
+}
+
 function git(repository: string, args: string[]): string {
-  const result = Bun.spawnSync(["git", ...args], { cwd: repository, stdout: "pipe", stderr: "pipe" });
+  const result = Bun.spawnSync(["git", ...args], {
+    cwd: repository,
+    env: repositoryNeutralEnvironment(),
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   if (result.exitCode !== 0) {
     const detail = new TextDecoder().decode(result.stderr).trim();
     throw new Error(detail || `git ${args[0]} failed`);

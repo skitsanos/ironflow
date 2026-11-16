@@ -6,7 +6,7 @@ use crate::engine::types::{Context, NodeOutput};
 use crate::lua::conversion::{json_value_to_lua, lua_value_to_json_at};
 use crate::lua::sandbox;
 use crate::nodes::Node;
-use crate::util::execution::{ExecutionControl, run_blocking_step};
+use crate::util::execution::{ExecutionControl, run_tracked_blocking_step};
 use crate::util::limits::{LuaExecutionLimits, apply_lua_limits_with_control, collect_lua_garbage};
 use crate::util::node_config::config_bool;
 
@@ -25,7 +25,9 @@ impl Node for ForEachNode {
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
         let config = config.clone();
         let ctx = ctx.clone();
-        run_blocking_step(move |execution| execute_foreach(&config, &ctx, execution)).await
+        // Tracked: a timed-out or cancelled step is not settled until the
+        // transform has returned (IF-211).
+        run_tracked_blocking_step(move |execution| execute_foreach(&config, &ctx, execution)).await
     }
 }
 

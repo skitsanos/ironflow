@@ -73,8 +73,7 @@ impl Node for ImageFlipNode {
             execution.checkpoint()?;
             let width = flipped.width();
             let height = flipped.height();
-            save_dynamic_image(flipped, &output_path, format)?;
-            execution.checkpoint()?;
+            save_dynamic_image(&flipped, &output_path, format, "image_flip", &execution)?;
 
             let mut output = NodeOutput::new();
             output.insert(output_key.clone(), serde_json::json!(output_path));

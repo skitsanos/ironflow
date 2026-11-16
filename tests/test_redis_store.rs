@@ -762,6 +762,17 @@ async fn redis_delete_run() {
     assert!(!runs.iter().any(|r| r.id == "run-d1"));
 }
 
+#[path = "support/deleted_run.rs"]
+mod deleted_run;
+
+#[tokio::test]
+async fn redis_delete_reports_the_removed_incarnation() {
+    let Some(store) = test_store("deleted_run").await else {
+        return;
+    };
+    deleted_run::assert_delete_reports_the_removed_incarnation(store.as_ref(), "redis", true).await;
+}
+
 #[tokio::test]
 async fn redis_run_not_found() {
     let Some(store) = test_store("notfound").await else {
@@ -841,6 +852,13 @@ async fn redis_ttl_applied() {
     fixture.cleanup().await;
 }
 
+/// Wait past the one-second retention the test configures. This is a lower
+/// bound only: a longer wait on a loaded host proves the same thing, because
+/// the owned run's TTL asserted beside each call is tens of seconds.
+async fn outlast_retention() {
+    tokio::time::sleep(std::time::Duration::from_millis(1_200)).await;
+}
+
 #[tokio::test]
 async fn redis_short_retention_does_not_expire_an_owned_run() {
     let Some(fixture) = RedisTest::connect("owned_ttl").await else {
@@ -868,7 +886,7 @@ async fn redis_short_retention_does_not_expire_an_owned_run() {
         active_ttl >= minimum_active_ttl,
         "active run TTL {active_ttl}s is below the lease/reaper safety bound {minimum_active_ttl}s"
     );
-    tokio::time::sleep(std::time::Duration::from_millis(1_200)).await;
+    outlast_retention().await;
     assert_eq!(store.get_run_info(run_id).await.unwrap().id, run_id);
 
     assert!(
@@ -883,7 +901,7 @@ async fn redis_short_retention_does_not_expire_an_owned_run() {
         .await
         .unwrap();
     assert!(renewed_ttl >= minimum_active_ttl);
-    tokio::time::sleep(std::time::Duration::from_millis(1_200)).await;
+    outlast_retention().await;
     assert_eq!(store.get_run_info(run_id).await.unwrap().id, run_id);
 
     assert!(
@@ -892,15 +910,31 @@ async fn redis_short_retention_does_not_expire_an_owned_run() {
             .await
             .unwrap()
     );
-    assert_eq!(
-        store.get_run_info(run_id).await.unwrap().status,
-        RunStatus::Success
+    // The terminal write put the one-second retention on the key. Reading
+    // the status back here would race that expiry on a loaded host, so the
+    // key's own TTL is the evidence, and absence is polled for (IF-220 m).
+    let terminal_ttl_ms: i64 = redis::cmd("PTTL")
+        .arg(format!("{}runs:{run_id}", fixture.prefix))
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    assert!(
+        terminal_ttl_ms == -2 || (1..=1_000).contains(&terminal_ttl_ms),
+        "a finished run must carry the configured retention, got {terminal_ttl_ms} ms"
     );
-    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-    assert_eq!(
-        store.get_run_info(run_id).await.unwrap_err().kind(),
-        StorageErrorKind::NotFound
-    );
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    loop {
+        match store.get_run_info(run_id).await {
+            Err(error) if error.kind() == StorageErrorKind::NotFound => break,
+            Err(error) => panic!("unexpected error while waiting for expiry: {error}"),
+            Ok(info) => assert_eq!(info.status, RunStatus::Success),
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the finished run outlived its one-second retention by a minute"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
 
     fixture.cleanup().await;
 }

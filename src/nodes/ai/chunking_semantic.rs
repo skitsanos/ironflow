@@ -68,7 +68,7 @@ impl Node for AiChunkSemanticNode {
             return Ok(build_output(output_key, vec![text]));
         }
 
-        let client = crate::util::provider_http::client_builder()
+        let client = crate::util::provider_http::client_builder()?
             .timeout(positive_duration(
                 params.timeout_s,
                 "ai_chunk_semantic timeout",

@@ -2,29 +2,31 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 
 use crate::api::handlers::resolve_flow_path_in;
 use crate::engine::WorkflowEngine;
-use crate::engine::types::RunStatus;
 use crate::lua::LuaRuntime;
 use crate::nodes::NodeRegistry;
+use crate::storage::StateStore;
 use crate::storage::event_store::EventStore;
-use crate::storage::{PageSize, RunCursor, RunListQuery, StateStore};
 use crate::util::sensitive_url::redact_sensitive_text;
 
 use super::config::ScheduleConfig;
 use super::{ScheduleExecutor, ScheduleRun};
 
 pub use super::context::SCHEDULE_CONTEXT_KEY;
+pub use super::overlap::MAX_OVERLAP_SCAN;
 
-/// Most non-terminal runs the overlap check will inspect.
-///
-/// The scan only runs after an instant has been claimed — at most once per
-/// schedule per cron instant, not once per 30-second tick — so the cost is
-/// negligible in practice. The cap bounds the pathological case.
-pub const MAX_OVERLAP_SCAN: usize = 256;
+/// Longest a scheduled start waits for a flow-load permit before it is
+/// deferred to the next tick. Well inside `SCHEDULE_EVALUATION_TIMEOUT`, so
+/// a full limit defers the instant instead of timing the evaluation out.
+pub const FLOW_LOAD_WAIT: Duration = Duration::from_secs(5);
+
+const FLOW_LOAD_DEFERRED: &str = "server is at maximum concurrent flow-loading capacity";
+const RUN_CAPACITY_FULL: &str = "server is at maximum concurrent run capacity";
 
 /// Runs schedules through the same engine path the REST API uses.
 pub struct FlowExecutor {
@@ -35,6 +37,7 @@ pub struct FlowExecutor {
     max_concurrent_tasks: Option<usize>,
     lifecycle: crate::api::ServiceLifecycle,
     metrics: Option<Arc<crate::metrics::Metrics>>,
+    flow_load_wait: Duration,
 }
 
 impl FlowExecutor {
@@ -73,7 +76,15 @@ impl FlowExecutor {
             max_concurrent_tasks,
             lifecycle,
             metrics,
+            flow_load_wait: FLOW_LOAD_WAIT,
         }
+    }
+
+    /// Override how long a start waits for a flow-load permit, for embedded
+    /// runtimes and deterministic admission tests.
+    pub fn with_flow_load_wait(mut self, wait: Duration) -> Self {
+        self.flow_load_wait = wait;
+        self
     }
 
     /// Embedded one-shot execution helper retained independently of cron
@@ -87,6 +98,8 @@ impl FlowExecutor {
         let instant_key = format!("embedded@{}", uuid::Uuid::new_v4().simple());
         match <Self as ScheduleExecutor>::run(self, schedule_name, &instant_key, schedule).await? {
             ScheduleRun::Started { run_id } | ScheduleRun::Existing { run_id } => Ok(run_id),
+            ScheduleRun::Deferred { reason } => Err(reason),
+            ScheduleRun::AtCapacity => Err(RUN_CAPACITY_FULL.to_string()),
         }
     }
 }
@@ -94,93 +107,14 @@ impl FlowExecutor {
 #[async_trait]
 impl ScheduleExecutor for FlowExecutor {
     async fn active_run(&self, schedule_name: &str) -> Option<String> {
-        let page_size = match PageSize::new(64) {
-            Ok(page_size) => page_size,
-            Err(error) => {
-                tracing::warn!(
-                    schedule = %schedule_name,
-                    %error,
-                    "overlap check could not build its page size; \
-                     a still-running previous run may have been missed"
-                );
-                return None;
-            }
-        };
-
-        let mut examined = 0;
-        for status in [RunStatus::Pending, RunStatus::Running] {
-            let mut after: Option<RunCursor> = None;
-            loop {
-                let query = match RunListQuery::new(Some(status.clone()), after, page_size) {
-                    Ok(query) => query,
-                    Err(error) => {
-                        tracing::warn!(
-                            schedule = %schedule_name,
-                            %error,
-                            "overlap check could not build its list query; \
-                             a still-running previous run may have been missed"
-                        );
-                        return None;
-                    }
-                };
-                let page = match self.store.list_run_summaries_page(&query).await {
-                    Ok(page) => page,
-                    Err(error) => {
-                        tracing::warn!(
-                            schedule = %schedule_name,
-                            %error,
-                            "overlap check failed to list runs; \
-                             a still-running previous run may have been missed"
-                        );
-                        return None;
-                    }
-                };
-
-                for summary in &page.items {
-                    if examined >= MAX_OVERLAP_SCAN {
-                        tracing::warn!(
-                            schedule = %schedule_name,
-                            limit = MAX_OVERLAP_SCAN,
-                            "overlap check stopped at its scan limit; \
-                             a still-running previous run may have been missed"
-                        );
-                        return None;
-                    }
-                    examined += 1;
-
-                    // The schedule name lives in the run's context, so the
-                    // summary alone cannot answer this.
-                    let info = match self.store.get_run_info(&summary.id).await {
-                        Ok(info) => info,
-                        Err(error) => {
-                            tracing::debug!(
-                                run_id = %summary.id,
-                                %error,
-                                "overlap check could not read a run's info; skipping it"
-                            );
-                            continue;
-                        }
-                    };
-                    if info.ctx.get(SCHEDULE_CONTEXT_KEY).and_then(|v| v.as_str())
-                        == Some(schedule_name)
-                    {
-                        return Some(summary.id.clone());
-                    }
-                }
-
-                match page.next {
-                    Some(cursor) => after = Some(cursor),
-                    None => break,
-                }
-            }
-        }
-        None
+        super::overlap::active_run(self.store.as_ref(), schedule_name).await
     }
 
     fn has_capacity(&self) -> bool {
         // The permit is dropped immediately; this is a probe, not a
-        // reservation. `run` acquires the permit it actually holds.
-        crate::api::acquire_run_permit(&self.lifecycle, None).is_ok()
+        // reservation. `run` acquires the permit it actually holds. A drain
+        // is not a capacity answer: `run` defers the instant instead.
+        !self.lifecycle.is_ready() || crate::api::acquire_run_permit(&self.lifecycle, None).is_ok()
     }
 
     async fn run(
@@ -189,17 +123,54 @@ impl ScheduleExecutor for FlowExecutor {
         instant_key: &str,
         schedule: &ScheduleConfig,
     ) -> Result<ScheduleRun, String> {
+        // A skip is recorded durably, so a replica that is only draining must
+        // not produce one: the instant stays due for a peer, or for this
+        // replica once it has restarted (IF-217).
+        if !self.lifecycle.is_ready() {
+            return Ok(draining());
+        }
         let path = resolve_flow_path_in(schedule.flow(), self.flows_dir.as_deref())
             .map_err(|error| format!("{error:?}"))?;
 
+        // Schedules sharing a tick queue for the load limit instead of failing
+        // fast like API requests. A wait that expires has parsed nothing and
+        // created no run, so the occurrence is deferred, not consumed (IF-182).
+        //
+        // The wait comes before the run permit (IF-217): a start that is only
+        // queueing for the load limit must not occupy run capacity that an API
+        // request or another schedule could use. The order cannot deadlock,
+        // because the run permit below is never waited for.
+        let Some(flow_load_permit) = crate::api::acquire_flow_load_permit_within(
+            self.flow_load_wait,
+            self.metrics.as_deref(),
+        )
+        .await
+        .map_err(|error| format!("{error:?}"))?
+        else {
+            return Ok(ScheduleRun::Deferred {
+                reason: FLOW_LOAD_DEFERRED.to_string(),
+            });
+        };
+
         // Held for the run's real duration: moved into the spawned task below,
-        // not dropped when this function returns. Reserve it before the Lua VM
-        // is created so a run rejected for capacity cannot still consume parse
-        // CPU and memory.
-        let run_permit = crate::api::acquire_run_permit(&self.lifecycle, self.metrics.as_deref())
-            .map_err(|_| "server is at maximum concurrent run capacity".to_string())?;
-        let flow_load_permit = crate::api::acquire_flow_load_permit(self.metrics.as_deref())
-            .map_err(|_| "server is at maximum concurrent flow-loading capacity".to_string())?;
+        // not dropped when this function returns. Reserved before the Lua VM
+        // is created, so a run rejected for capacity gives its load permit
+        // back without consuming parse CPU or memory.
+        let run_permit =
+            match crate::api::acquire_run_permit(&self.lifecycle, self.metrics.as_deref()) {
+                Ok(permit) => permit,
+                // `has_capacity` reserved nothing, so the cap can fill between
+                // that probe and this acquire. It is the same refusal, and is
+                // reported as one rather than as a failed start (IF-217).
+                Err(crate::api::errors::AppError::ServiceUnavailable(_)) => {
+                    return Ok(if self.lifecycle.is_ready() {
+                        ScheduleRun::AtCapacity
+                    } else {
+                        draining()
+                    });
+                }
+                Err(error) => return Err(format!("{error:?}")),
+            };
 
         // Parse off the async runtime so a pathological flow cannot pin a
         // worker thread and stall the server (IF-038). The error can echo
@@ -274,3 +245,12 @@ impl ScheduleExecutor for FlowExecutor {
         Ok(ScheduleRun::Started { run_id })
     }
 }
+
+fn draining() -> ScheduleRun {
+    ScheduleRun::Deferred {
+        reason: "server is draining".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests;

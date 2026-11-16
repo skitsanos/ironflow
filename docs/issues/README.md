@@ -6,9 +6,25 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts generate` and verified with
 `bun run scripts/issues_registry.ts check`.
 
-- Total findings: 172
-- Active findings: 0
-- Historical audit evidence: [AUDIT_EVIDENCE.md](./AUDIT_EVIDENCE.md)
+- Total findings: 229
+- Active findings: 3
+
+## Working agreement
+
+1. Select one issue, or one tightly coupled pair, from the highest-priority
+   active group and set its frontmatter status to `in-progress`.
+2. Confirm the live code still supports the finding, then add focused
+   regression coverage for the original defect or missing contract.
+3. Align implementation, current documentation, and Lua examples.
+4. During ordinary work, run focused tests and the required surface validators.
+   Run the complete integration gate only at branch integration, before a
+   `develop` push, during release preparation, or when explicitly requested.
+5. Set an issue to `resolved` only after its acceptance criteria pass. Record
+   the outcome, contract boundary, exact validation evidence, ISO completion
+   date, and commit or PR when applicable.
+6. Regenerate this index and run `bun run scripts/issues_registry.ts check`.
+
+## Findings
 
 | ID | Priority | Status | Area | Summary |
 |---|---:|---|---|---|
@@ -184,3 +200,60 @@ priority, area, and title. The registry is generated with
 | [IF-170](./IF-170.md) | P3 | Resolved | Docs | Documentation and repository hygiene drift |
 | [IF-171](./IF-171.md) | P3 | Resolved | Supply chain | Dependency and lint hygiene: unpinned actions, duplicate crates, unguarded unwraps |
 | [IF-172](./IF-172.md) | P1 | Resolved | Validation workflow | Full pre-push gate outlives GitHub's SSH idle timeout, so a gated develop push cannot complete |
+| [IF-173](./IF-173.md) | P1 | Resolved | Dependency security | Three new RustSec advisories fail the audit gate; the rmcp one is reachable through mcp_client |
+| [IF-174](./IF-174.md) | P1 | Resolved | Runtime safety | HTML-to-Markdown conversion overflows the stack on nested markup and aborts the process |
+| [IF-175](./IF-175.md) | P1 | Resolved | Lua runtime safety | Flow source can abort the process during load and validation |
+| [IF-176](./IF-176.md) | P1 | Resolved | API security | Forwarded-header fragments become run-wide secrets and rewrite live step output |
+| [IF-177](./IF-177.md) | P1 | Resolved | Runtime safety | Diagnostic redaction is quadratic on async workers and misses common credential shapes |
+| [IF-178](./IF-178.md) | P1 | Resolved | PDF/resource safety | extract_pdf font decoding is unbounded for wide ToUnicode ranges and long glyph strings |
+| [IF-179](./IF-179.md) | P1 | Resolved | Files/write safety | Image nodes and transcribe write outputs through symlinks without the staged writer |
+| [IF-180](./IF-180.md) | P1 | Resolved | Scheduler contract | Numeric cron weekdays fire one day early |
+| [IF-181](./IF-181.md) | P1 | Resolved | Storage | A context nested 126 levels deep makes a run record unreadable and blocks serve startup |
+| [IF-182](./IF-182.md) | P2 | Resolved | Scheduler availability | Schedules due in the same tick lose occurrences to the flow-load limit |
+| [IF-183](./IF-183.md) | P2 | Resolved | Deployment lifecycle | New connections hang for the whole drain and readiness never reports draining |
+| [IF-184](./IF-184.md) | P2 | Resolved | API events | A deleted run's event fence mutes a re-created run with the same ID |
+| [IF-185](./IF-185.md) | P2 | Resolved | Files/write_file | Staged writers publish mode 0600 and write_file append loses concurrent writes |
+| [IF-186](./IF-186.md) | P2 | Resolved | Interpolation | File-source helper interpolates twice and lets write_file artifact inputs name local paths |
+| [IF-187](./IF-187.md) | P2 | Resolved | Lua DSL | step_if and if_node comparisons against true, false and nil are always false |
+| [IF-188](./IF-188.md) | P2 | Resolved | Workflow composition | Child workflows have no nesting limit and outlive a timed-out parent step |
+| [IF-189](./IF-189.md) | P2 | Resolved | Resource safety | s3_list_objects, json_parse and task error text materialize without a bound |
+| [IF-190](./IF-190.md) | P2 | Resolved | ZIP/admission | ZIP preflight and the archive reader can select different end records |
+| [IF-191](./IF-191.md) | P2 | Resolved | Nodes/security | block_private_network passes CGNAT, NAT64 and other internal address ranges |
+| [IF-192](./IF-192.md) | P2 | Resolved | S3 Vectors | s3vector_query_vectors runs unfiltered when filter_key does not resolve |
+| [IF-193](./IF-193.md) | P2 | Resolved | Documents/extraction fidelity | Document extraction garbles PDF metadata and drops DOCX paragraph text around text boxes |
+| [IF-194](./IF-194.md) | P2 | Resolved | PDF rendering | pdf_to_image and pdf_thumbnail can bind Pdfium only once per process |
+| [IF-195](./IF-195.md) | P2 | Resolved | Nodes | date_format ignores input offsets; date_format and html_sanitize panics stall the run |
+| [IF-196](./IF-196.md) | P2 | Resolved | Data transforms | xml_stringify writes keys as markup; CSV type inference and data_filter equality lose values |
+| [IF-197](./IF-197.md) | P2 | Resolved | AI nodes | llm sends unknown providers to OpenAI and ignores documented parameters |
+| [IF-198](./IF-198.md) | P2 | Resolved | API security | An empty IRONFLOW_API_KEY disables the configured API key on loopback |
+| [IF-199](./IF-199.md) | P2 | Resolved | CLI/SQLite store | Default SQLite store URL breaks for store directories containing spaces, percent signs or question marks |
+| [IF-200](./IF-200.md) | P2 | Resolved | Artifact lifecycle | artifacts prune cannot get past a first page of still-referenced digests |
+| [IF-201](./IF-201.md) | P2 | Resolved | Scheduler/Redis | A Redis TTL shorter than a schedule's grace window re-runs a completed occurrence |
+| [IF-202](./IF-202.md) | P2 | Resolved | Storage/Postgres | PostgreSQL event store takes an exclusive table lock on every startup |
+| [IF-203](./IF-203.md) | P3 | Resolved | Maintainability | Assorted engine, API and documentation follow-ups from the November review |
+| [IF-204](./IF-204.md) | P2 | Resolved | Supply chain | Release archives and the container image ship no third-party license notices |
+| [IF-205](./IF-205.md) | P2 | Resolved | Validation workflow | Pre-commit hook rejects linked-worktree commits that stage policy tests |
+| [IF-206](./IF-206.md) | P2 | Resolved | Scheduler contract | A five-token cron expression is accepted with its fields shifted |
+| [IF-207](./IF-207.md) | P3 | Resolved | Maintainability | Follow-ups recorded while fixing IF-173 to IF-206 |
+| [IF-208](./IF-208.md) | P2 | Resolved | Supply chain | Renovate lockfile pull requests cannot pass CI because the notices file lists crate versions |
+| [IF-209](./IF-209.md) | P3 | Resolved | Maintainability | Follow-ups recorded while fixing IF-182, IF-183 and IF-184 |
+| [IF-210](./IF-210.md) | P3 | Resolved | Maintainability | Follow-ups recorded while fixing IF-186, IF-187 and IF-188 |
+| [IF-211](./IF-211.md) | P2 | Resolved | Workflow execution | Lua run by a step is not tracked work and outlives a timed-out step |
+| [IF-212](./IF-212.md) | P2 | Resolved | Nodes/security | The outbound destination guard covers only the HTTP nodes |
+| [IF-213](./IF-213.md) | P2 | Resolved | Engine/cancellation | Several built-in blocking nodes are not tracked work, and Lua C calls have no time bound |
+| [IF-214](./IF-214.md) | P2 | Resolved | API events | Event streams can be lost when a delete overlaps a new run or incarnation admission fails |
+| [IF-215](./IF-215.md) | P2 | Resolved | Resource safety | Parsing, planning and fan-out paths that still do unbounded work |
+| [IF-216](./IF-216.md) | P2 | Resolved | Test reliability | Redis legacy-expiry tests fail intermittently on a loaded machine |
+| [IF-217](./IF-217.md) | P3 | Resolved | Scheduler | Scheduler follow-ups: outcome labels, catch-up losses and cron messages |
+| [IF-218](./IF-218.md) | P3 | Resolved | File I/O | File output and archive follow-ups |
+| [IF-219](./IF-219.md) | P3 | Resolved | Diagnostics | Diagnostic scrubber over-redacts and misses some key forms |
+| [IF-220](./IF-220.md) | P3 | Resolved | Maintainability | Operational and validation follow-ups from the 2026-11 fix batches |
+| [IF-221](./IF-221.md) | P2 | Resolved | Workflow composition | Child input mappings and s3vector flags fall back silently on missing or malformed values |
+| [IF-222](./IF-222.md) | P3 | Resolved | Documents/extraction fidelity | Document extraction fidelity follow-ups for DOCX, PPTX and PDF metadata |
+| [IF-223](./IF-223.md) | P3 | Resolved | Data transforms | Data transform follow-ups: YAML non-finite and large numbers, CSV formula cells, neq on a missing field |
+| [IF-224](./IF-224.md) | P3 | Resolved | Documents/extraction fidelity | extract_pptx does not tell hidden slides apart |
+| [IF-225](./IF-225.md) | P3 | Open | Documents/extraction fidelity | Verify extract_word against a document saved by Word or LibreOffice |
+| [IF-226](./IF-226.md) | P3 | Open | Documents/extraction fidelity | Verify extract_pptx comments and notes header and date placeholders against a PowerPoint deck |
+| [IF-227](./IF-227.md) | P3 | Open | Documents/extraction fidelity | Verify extract_xlsx date cells against a workbook saved by Excel |
+| [IF-228](./IF-228.md) | P3 | Resolved | Documents/extraction fidelity | Decide whether slide footer placeholder text belongs in extract_pptx slide text |
+| [IF-229](./IF-229.md) | P3 | Resolved | Documents/extraction fidelity | extract_pptx approximated bullets inherited from the layout and master |

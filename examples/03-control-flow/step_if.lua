@@ -3,7 +3,8 @@
 -- step_if does it in one call.
 local flow = Flow.new("step_if_demo")
 
--- Only runs when score > 50
+-- Only runs when score > 50. An ordering guard needs a number: running this
+-- flow without "score" in the context fails the guard instead of skipping.
 flow:step_if("ctx.score > 50", "bonus", nodes.log({
     message = "Bonus unlocked! Score: ${ctx.score}"
 }))

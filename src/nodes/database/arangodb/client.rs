@@ -46,7 +46,7 @@ impl CursorClient {
             config_f64_or(config, "timeout", ctx, 30.0)?,
             "arangodb_aql timeout",
         )?;
-        let http = crate::util::provider_http::client_builder()
+        let http = crate::util::provider_http::client_builder()?
             .timeout(timeout)
             .build()
             .map_err(|error| {
@@ -88,6 +88,7 @@ impl CursorClient {
         } else {
             Method::POST
         };
+        crate::util::outbound::ensure_url_allowed("arangodb_aql", self.url.as_str()).await?;
         let mut request = self.request(method, operation.cursor_id.as_deref());
         if let Some(body) = &operation.body {
             request = request.json(body);

@@ -4,12 +4,19 @@ mod catchup;
 pub mod config;
 mod context;
 mod cron;
+mod decision;
 mod evaluation;
 pub mod execution;
+mod field_shape;
+mod field_value;
 mod identity;
+mod occurrence;
+mod overlap;
 mod runtime;
 pub mod startup;
 pub mod timing;
+mod weekday;
+mod window;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -22,6 +29,7 @@ use crate::storage::StateStore;
 
 use config::ScheduleConfig;
 
+pub(crate) use context::SCHEDULER_OWNED_CONTEXT_KEYS;
 pub(crate) use runtime::spawn_with_lifecycle;
 pub use runtime::{SchedulerTask, spawn};
 
@@ -33,21 +41,37 @@ pub const TICK_INTERVAL: Duration = Duration::from_secs(30);
 
 /// Maximum wall time one schedule may consume during a tick.
 ///
-/// Names are evaluated concurrently, so a timeout burns only the affected
+/// Names are evaluated concurrently, so a timeout affects only that
 /// schedule's due instants and cannot hold unrelated schedules indefinitely.
 pub const SCHEDULE_EVALUATION_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// How many consecutive evaluations of one schedule may exceed
+/// `SCHEDULE_EVALUATION_TIMEOUT` with their undecided instants kept due.
+///
+/// An expiry before the run starts (a flow-load wait followed by a slow
+/// parse, a stalled store call) is treated like a deferral: the instant is
+/// retried on the next tick. The third consecutive expiry burns what is
+/// still undecided as `TimedOut`, so a schedule whose evaluation never fits
+/// the budget costs three evaluations per window and cannot loop until its
+/// grace runs out (IF-217).
+pub const MAX_BUDGET_DEFERRALS: u32 = 2;
 
 /// What happened to one due instant.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Outcome {
     /// The instant was owned and the run was started.
     Fired { run_id: String },
-    /// Another replica owns this instant.
+    /// Another replica owns this instant, or the occurrence already has (or
+    /// had) its run: nothing was started here.
     NotClaimed,
     /// Past the grace window.
     Late { lateness_seconds: i64 },
     /// A previous run of this schedule has not finished.
     Overlapped { active_run: String },
+    /// A missed instant that a more recent due instant of the same schedule
+    /// replaced at catch-up. `by` is the key of the instant that was decided
+    /// in its place; this one is recorded as settled and never starts.
+    Superseded { by: String },
     /// The process is at `IRONFLOW_MAX_CONCURRENT_RUNS`.
     AtCapacity,
     /// The flow could not be started (bad path, load failure, or engine
@@ -57,16 +81,36 @@ pub enum Outcome {
     /// no run was ever owned, so `evaluate` must not treat the instant as
     /// settled — it is retried, not burned.
     ClaimFailed { error: String },
-    /// Evaluation exceeded its budget. The claim or run-start result can be
-    /// indeterminate, so the instant is burned rather than retried.
+    /// The flow-load limit stayed full for the executor's bounded wait.
+    /// Nothing was parsed and no run exists, so like `ClaimFailed` the
+    /// instant is retried on later ticks until it starts or leaves grace.
+    /// Also reported for an instant that was still undecided when the
+    /// evaluation budget expired, up to `MAX_BUDGET_DEFERRALS` times.
+    Deferred { reason: String },
+    /// Evaluation exceeded its budget for the third consecutive time (see
+    /// `MAX_BUDGET_DEFERRALS`), so the instant is burned rather than retried
+    /// again. Earlier expiries report `Deferred`.
     TimedOut,
 }
 
 /// Durable start result for one deterministic schedule occurrence.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ScheduleRun {
-    Started { run_id: String },
-    Existing { run_id: String },
+    Started {
+        run_id: String,
+    },
+    Existing {
+        run_id: String,
+    },
+    /// Nothing was started and nothing was consumed: a pre-start capacity
+    /// wait expired. The scheduler retries the occurrence on a later tick.
+    Deferred {
+        reason: String,
+    },
+    /// Nothing was started: the process reached its concurrent-run cap after
+    /// `has_capacity` answered. The probe reserves nothing, so another
+    /// trigger can take the last permit in between (IF-217).
+    AtCapacity,
 }
 
 /// One evaluated instant.
@@ -89,7 +133,10 @@ pub trait ScheduleExecutor: Send + Sync {
     fn has_capacity(&self) -> bool;
 
     /// Start the schedule's flow and return its run id, without waiting for
-    /// the run to finish.
+    /// the run to finish. `ScheduleRun::Deferred` reports a pre-start
+    /// capacity refusal that left no run behind and is safe to retry;
+    /// `ScheduleRun::AtCapacity` reports a full run cap, which the scheduler
+    /// treats exactly like a `has_capacity` that answered `false`.
     async fn run(
         &self,
         schedule_name: &str,
@@ -105,6 +152,8 @@ pub struct Scheduler {
     executor: Arc<dyn ScheduleExecutor>,
     /// Local wall-clock time each schedule was last evaluated through.
     evaluated_through: HashMap<String, NaiveDateTime>,
+    /// Consecutive evaluations of each schedule that exceeded the budget.
+    budget_expiries: HashMap<String, u32>,
     evaluation_timeout: Duration,
     metrics: Option<Arc<crate::metrics::Metrics>>,
 }
@@ -132,6 +181,7 @@ impl Scheduler {
             store,
             executor,
             evaluated_through,
+            budget_expiries: HashMap::new(),
             evaluation_timeout: SCHEDULE_EVALUATION_TIMEOUT,
             metrics: None,
         }

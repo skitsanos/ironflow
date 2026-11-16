@@ -1,6 +1,6 @@
 use super::{presentation::slide_ids, relationships::parse_pptx_rels};
 use crate::nodes::extract::resource::{Budget, Limits};
-use crate::util::execution::run_blocking_step;
+use crate::util::execution::run_tracked_blocking_step;
 
 fn limits(output: u64, items: u64) -> Limits {
     Limits {
@@ -20,7 +20,7 @@ fn presentation(body: &str) -> String {
 
 #[tokio::test]
 async fn manifest_depth_and_non_element_events_are_bounded() {
-    run_blocking_step(|execution| {
+    run_tracked_blocking_step(|execution| {
         let deep = presentation(&format!(
             "{}{}",
             "<p:ext>".repeat(128),
@@ -45,7 +45,7 @@ async fn manifest_depth_and_non_element_events_are_bounded() {
 
 #[tokio::test]
 async fn manifest_and_relationship_attribute_decoding_are_admitted_before_allocation() {
-    run_blocking_step(|execution| {
+    run_tracked_blocking_step(|execution| {
         let manifest = presentation(&format!(
             "<p:sldIdLst><p:sldId id=\"256\" r:id=\"{}\"/></p:sldIdLst>",
             "&#49;".repeat(10)
@@ -81,7 +81,7 @@ async fn manifest_and_relationship_attribute_decoding_are_admitted_before_alloca
 
 #[tokio::test]
 async fn only_the_direct_presentation_slide_list_controls_membership() {
-    run_blocking_step(|execution| {
+    run_tracked_blocking_step(|execution| {
         let manifest = presentation("<p:extLst><p:sldIdLst><p:sldId id=\"400\" r:id=\"decoy\"/></p:sldIdLst></p:extLst><p:sldIdLst><p:sldId id=\"256\" r:id=\"actual\"></p:sldId></p:sldIdLst>");
         let mut budget = Budget::new("extract_pptx", limits(16384, 100), &execution);
         assert_eq!(slide_ids(manifest.as_bytes(), &mut budget).unwrap(), ["actual"]);

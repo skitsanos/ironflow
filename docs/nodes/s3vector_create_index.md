@@ -13,9 +13,9 @@ Create an Amazon S3 Vector index inside a bucket.
 | `index` | string | no | no | Alias for `index_name`. |
 | `data_type` | string | yes | -- | Vector type (for example: `float32`). |
 | `distance_metric` | string | yes | -- | Similarity metric (for example: `euclidean`, `cosine`). |
-| `dimension` | integer | yes | -- | Vector dimension (must be > 0). |
-| `region` | string | no | AWS region chain | Override `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, or `AWS_DEFAULT_REGION`. |
-| `endpoint_url` | string | no | `AWS_ENDPOINT_URL` env var | Override the S3 Vectors service endpoint. |
+| `dimension` | integer | yes | -- | Vector dimension (must be > 0 and at most 2147483647; a larger value is refused, not wrapped). |
+| `region` | string | no | AWS region chain | Override `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, or `AWS_DEFAULT_REGION`. The environment is used only when the parameter is absent: a value that is not a string, or is empty after interpolation, fails the step before the client is built. |
+| `endpoint_url` | string | no | `AWS_ENDPOINT_URL` env var | Override the S3 Vectors service endpoint. A value that is not a string, or is empty after interpolation, fails the step instead of falling back to the environment or the default AWS endpoint. |
 | `output_key` | string | no | `s3vector` | Prefix for context output keys. |
 
 ## Target Resolution
@@ -40,6 +40,16 @@ targets fail before the AWS client is built.
 - `{output_key}_data_type` — Configured data type.
 - `{output_key}_dimension` — Configured vector dimension.
 - `{output_key}_success` — `true` on success.
+
+## Outbound destination policy
+
+When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, `endpoint_url`
+(or `AWS_ENDPOINT_URL`) is refused when it is `localhost` or not a public
+unicast address, and every DNS answer of the service client is validated
+and pinned. An S3-compatible endpoint on a private address must be listed by
+the operator in `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` (for example
+`minio.internal:9000`). See
+[Outbound destinations](../SECURITY.md#outbound-destinations).
 
 ## Example
 

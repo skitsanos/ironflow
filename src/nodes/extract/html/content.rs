@@ -1,15 +1,17 @@
 use std::rc::Rc;
 
-use anyhow::{Result, anyhow};
-use htmd::HtmlToMarkdown;
+use anyhow::Result;
 use markup5ever_rcdom::{Node, NodeData};
 
 use crate::nodes::extract::resource::Budget;
 use crate::util::execution::ExecutionControl;
 
+use super::markdown;
+use super::tree::{self, DepthCap};
+
 /// Non-content subtrees removed before either rendering. `html_to_markdown`
 /// skips the same set so both nodes agree on what counts as page content.
-pub(crate) const NON_CONTENT_TAGS: [&str; 6] =
+pub(super) const NON_CONTENT_TAGS: [&str; 6] =
     ["head", "title", "script", "style", "noscript", "template"];
 
 pub(super) fn extract(
@@ -18,13 +20,17 @@ pub(super) fn extract(
     execution: &ExecutionControl,
     budget: &Budget<'_>,
 ) -> Result<String> {
-    let converter = HtmlToMarkdown::new();
     budget.checkpoint()?;
+    // Only Markdown conversion recurses per element level; plain text walks
+    // the tree iteratively and accepts deeper markup, up to its own limit.
+    let depth_cap = if format == "text" {
+        DepthCap::text()
+    } else {
+        DepthCap::markdown()
+    };
     // `root` owns the document for the whole call: RcDom's node destructor
     // clears descendant child lists even while handles to them remain.
-    let root = converter
-        .html_to_tree(html)
-        .map_err(|error| anyhow!("extract_html: HTML parser failed: {error}"))?;
+    let root = tree::parse(html, "extract_html", depth_cap, execution)?;
     budget.checkpoint()?;
     // Filter the parsed tree before conversion so table cells and preformatted
     // descendants follow the same rule as top-level elements.
@@ -32,10 +38,24 @@ pub(super) fn extract(
     if format == "text" {
         plain_text(root, budget)
     } else {
-        let markdown = converter.tree_to_markdown(&root);
+        let markdown = markdown::convert(&root, &[], "extract_html", budget.max_output_bytes())?;
         budget.checkpoint()?;
         Ok(markdown)
     }
+}
+
+/// Convert `html` to Markdown for `html_to_markdown`, skipping the non-content
+/// subtrees instead of pruning them, as that node always has.
+pub(super) fn markdown_fragment(
+    html: &str,
+    operation: &str,
+    max_output_bytes: u64,
+    execution: &ExecutionControl,
+) -> Result<String> {
+    let root = tree::parse(html, operation, DepthCap::markdown(), execution)?;
+    let markdown = markdown::convert(&root, &NON_CONTENT_TAGS, operation, max_output_bytes)?;
+    execution.checkpoint()?;
+    Ok(markdown)
 }
 
 fn prune(root: &Rc<Node>, execution: &ExecutionControl) -> Result<()> {
@@ -183,7 +203,7 @@ mod tests {
     use crate::nodes::extract::resource::Limits;
 
     async fn text(html: &'static str) -> String {
-        crate::util::execution::run_blocking_step(move |execution| {
+        crate::util::execution::run_tracked_blocking_step(move |execution| {
             let budget = Budget::new("extract_html", Limits::current(), &execution);
             extract(html, "text", &execution, &budget)
         })

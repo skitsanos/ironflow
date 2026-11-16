@@ -47,6 +47,9 @@ pub async fn validate_flow(
         .as_deref()
         .map(|file| resolve_flow_path(file, &state))
         .transpose()?;
+    // Validation evaluates a Lua chunk, so a draining replica refuses it
+    // like any other new work (IF-220).
+    crate::api::refuse_flow_load_while_draining(&state.lifecycle, state.metrics.as_deref())?;
     let flow_load_permit = crate::api::acquire_flow_load_permit(state.metrics.as_deref())?;
 
     let flow_result = if let Some(source) = source {
@@ -94,18 +97,7 @@ pub async fn validate_flow(
     Ok(Json(match flow_result {
         Ok(validated) => {
             let flow = validated.flow;
-            let mut errors = flow
-                .steps
-                .iter()
-                .filter(|step| state.registry.get(&step.node_type).is_none())
-                .map(|step| {
-                    format!(
-                        "Step '{}' uses unknown node type '{}'",
-                        step.name, step.node_type
-                    )
-                })
-                .collect::<Vec<_>>();
-            errors.extend(flow.validate_dag());
+            let mut errors = super::admission::flow_validation_errors(&flow, &state.registry);
             if strict && !validated.warnings.is_empty() {
                 errors.push(format!(
                     "Strict validation rejected {} Lua handler warning(s)",

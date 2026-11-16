@@ -1,8 +1,9 @@
 mod content;
+mod markdown;
+mod markdown_meter;
+mod tree;
 
 use std::collections::BTreeMap;
-
-pub(crate) use content::NON_CONTENT_TAGS;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -79,6 +80,23 @@ fn extract_html(
     }
     budget.ensure_output(&output)?;
     Ok(output)
+}
+
+/// Convert an in-memory HTML string for `html_to_markdown` under the same
+/// input-byte, markup-item and output-byte limits as `extract_html`.
+pub(crate) fn html_to_markdown(html: &str, execution: &ExecutionControl) -> Result<String> {
+    const OPERATION: &str = "html_to_markdown";
+    let max_bytes = crate::util::limits::max_file_bytes();
+    if html.len() as u64 > max_bytes {
+        anyhow::bail!(
+            "{OPERATION}: input is {} bytes, exceeds IRONFLOW_MAX_FILE_BYTES ({max_bytes})",
+            html.len()
+        );
+    }
+    let limits = Limits::current();
+    let mut budget = Budget::new(OPERATION, limits, execution);
+    budget.inspect_html(html)?;
+    content::markdown_fragment(html, OPERATION, limits.max_output_bytes, execution)
 }
 
 fn extract_html_metadata(html: &str, budget: &Budget<'_>) -> Result<BTreeMap<String, String>> {

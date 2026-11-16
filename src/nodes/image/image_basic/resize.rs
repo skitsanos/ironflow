@@ -80,8 +80,7 @@ impl Node for ImageResizeNode {
                 image::imageops::FilterType::Lanczos3,
             );
             execution.checkpoint()?;
-            save_dynamic_image(resized, &output_path, format)?;
-            execution.checkpoint()?;
+            save_dynamic_image(&resized, &output_path, format, "image_resize", &execution)?;
 
             let mut output = NodeOutput::new();
             output.insert(output_key.clone(), serde_json::json!(output_path));

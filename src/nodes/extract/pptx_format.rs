@@ -16,6 +16,7 @@ pub(super) fn pptx_slides_into_json(
     for slide in slides {
         let PptxSlide {
             slide_index,
+            hidden,
             title,
             elements: slide_elements,
             speaker_notes,
@@ -31,6 +32,9 @@ pub(super) fn pptx_slides_into_json(
         }
         let mut object = serde_json::Map::new();
         object.insert("slide_index".into(), serde_json::json!(slide_index));
+        if hidden {
+            object.insert("hidden".into(), serde_json::Value::Bool(true));
+        }
         if let Some(title) = title {
             object.insert("title".into(), serde_json::Value::String(title));
         }

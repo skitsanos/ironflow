@@ -1,12 +1,11 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use comrak::{Options, markdown_to_html};
-use htmd::HtmlToMarkdown;
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
-use crate::nodes::extract::NON_CONTENT_TAGS;
+use crate::util::execution::run_tracked_blocking_step;
 use crate::util::node_config::config_bool;
 
 /// Convert Markdown to HTML using comrak (CommonMark + GFM).
@@ -32,19 +31,25 @@ impl Node for MarkdownToHtmlNode {
 
         let input = get_input(config, ctx, "markdown_to_html")?;
 
-        let mut options = Options::default();
-        options.extension.strikethrough = true;
-        options.extension.table = true;
-        options.extension.autolink = true;
-        options.extension.tasklist = true;
+        // Parsing and sanitizing are synchronous and have no cancellation
+        // checkpoint, so they run as tracked work off the async thread: a
+        // step that times out holds its handler until they return (IF-213).
+        let html = run_tracked_blocking_step(move |execution| {
+            let mut options = Options::default();
+            options.extension.strikethrough = true;
+            options.extension.table = true;
+            options.extension.autolink = true;
+            options.extension.tasklist = true;
 
-        let html = markdown_to_html(&input, &options);
-
-        let html = if sanitize {
-            ammonia::clean(&html)
-        } else {
-            html
-        };
+            let html = markdown_to_html(&input, &options);
+            execution.checkpoint()?;
+            Ok(if sanitize {
+                ammonia::clean(&html)
+            } else {
+                html
+            })
+        })
+        .await?;
 
         let mut output = NodeOutput::new();
         output.insert(output_key.to_string(), serde_json::Value::String(html));
@@ -73,13 +78,13 @@ impl Node for HtmlToMarkdownNode {
 
         let input = get_input(config, ctx, "html_to_markdown")?;
 
-        // Skip the same non-content subtrees as `extract_html`, so `<title>`,
+        // Parsing and conversion are CPU-bound and share `extract_html`'s
+        // admission, nesting cap, and non-content filtering, so `<title>`,
         // style sheets, and scripts never surface as Markdown text.
-        let markdown = HtmlToMarkdown::builder()
-            .skip_tags(NON_CONTENT_TAGS.to_vec())
-            .build()
-            .convert(&input)
-            .map_err(|error| anyhow::anyhow!("html_to_markdown: HTML parsing failed: {error}"))?;
+        let markdown = run_tracked_blocking_step(move |execution| {
+            crate::nodes::extract::html_to_markdown(&input, &execution)
+        })
+        .await?;
 
         let mut output = NodeOutput::new();
         output.insert(output_key.to_string(), serde_json::Value::String(markdown));

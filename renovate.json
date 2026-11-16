@@ -30,6 +30,12 @@
       "groupName": "Rust toolchain"
     },
     {
+      "description": "The ZIP preflight (src/util/zip_preflight) must select the same end record as these readers. Every update needs the re-read in docs/SECURITY.md (Archive reader updates); the repository policy test fails until scripts/reviewed_archive_readers.json names the new version (IF-218).",
+      "matchManagers": ["cargo"],
+      "matchPackageNames": ["zip", "calamine"],
+      "prBodyNotes": ["Archive reader update: before merging, do the re-read in `docs/SECURITY.md` (Archive reader updates), record it in the issue registry and update `scripts/reviewed_archive_readers.json`. CI fails until that file names the new version."]
+    },
+    {
       "description": "AWS SDK crates share one smithy runtime and must move in lockstep, so every aws-* crate updates in a single grouped PR.",
       "matchManagers": ["cargo"],
       "matchPackageNames": ["/^aws-/"],

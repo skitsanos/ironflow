@@ -12,18 +12,30 @@ pub(super) struct SemanticChunkParams {
     pub(super) min_distance: usize,
 }
 
+/// Widest similarity window. The distances cost sentences x window x
+/// embedding dimension.
+const MAX_SIM_WINDOW: usize = 101;
+/// Widest smoothing window. Each of the three filter passes costs
+/// sentences x window; with the window as long as the document that is
+/// quadratic (5 s for 50,000 sentences, optimized).
+const MAX_SG_WINDOW: usize = 1_001;
+/// Highest polynomial order. Fitting is cubic in the order: order 1,600 took
+/// 19 s and order 3,200 took 330 s (optimized), on the async worker.
+const MAX_POLY_ORDER: usize = 16;
+
 impl SemanticChunkParams {
     pub(super) fn from_config(config: &serde_json::Value, ctx: &Context) -> Result<Self> {
         let sim_window = config_usize_strict(config, "sim_window", ctx)?.unwrap_or(3);
-        let sim_window = odd_at_least_three(sim_window, "sim_window")?;
+        let sim_window = odd_at_least_three(at_most(sim_window, MAX_SIM_WINDOW, "sim_window")?);
         let sg_window = config_usize_strict(config, "sg_window", ctx)?.unwrap_or(11);
-        let sg_window = odd(sg_window, "sg_window")?;
+        let sg_window = odd(at_most(sg_window, MAX_SG_WINDOW, "sg_window")?);
+        let poly_order = config_usize_strict(config, "poly_order", ctx)?.unwrap_or(3);
 
         Ok(Self {
             timeout_s: config_f64_or(config, "timeout", ctx, 120.0)?,
             sim_window,
             sg_window,
-            poly_order: config_usize_strict(config, "poly_order", ctx)?.unwrap_or(3),
+            poly_order: at_most(poly_order, MAX_POLY_ORDER, "poly_order")?,
             threshold: config_f64(config, "threshold", ctx)
                 .unwrap_or(0.5)
                 .clamp(0.0, 1.0),
@@ -32,17 +44,24 @@ impl SemanticChunkParams {
     }
 }
 
-fn odd_at_least_three(value: usize, key: &str) -> Result<usize> {
-    odd(value.max(3), key)
+/// Refuse `value` above `ceiling` (IF-215). The ceilings are odd, so
+/// forcing an accepted window odd never passes them.
+fn at_most(value: usize, ceiling: usize, key: &str) -> Result<usize> {
+    if value > ceiling {
+        anyhow::bail!("ai_chunk_semantic: '{key}' must be at most {ceiling}, got {value}");
+    }
+    Ok(value)
 }
 
-fn odd(value: usize, key: &str) -> Result<usize> {
+fn odd_at_least_three(value: usize) -> usize {
+    odd(value.max(3))
+}
+
+fn odd(value: usize) -> usize {
     if value.is_multiple_of(2) {
-        value
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("'{}' is too large", key))
+        value + 1
     } else {
-        Ok(value)
+        value
     }
 }
 
@@ -133,6 +152,51 @@ mod tests {
                 .unwrap()
                 .timeout_s,
             45.0
+        );
+    }
+
+    fn rejected(config: serde_json::Value) -> String {
+        match SemanticChunkParams::from_config(&config, &Context::new()) {
+            Ok(_) => panic!("{config} must be rejected"),
+            Err(error) => error.to_string(),
+        }
+    }
+
+    #[test]
+    fn window_and_order_ceilings_admit_their_own_value() {
+        let params = SemanticChunkParams::from_config(
+            &json!({ "sim_window": 101, "sg_window": 1001, "poly_order": 16 }),
+            &Context::new(),
+        )
+        .unwrap();
+        assert_eq!(
+            (params.sim_window, params.sg_window, params.poly_order),
+            (101, 1001, 16)
+        );
+        // An even value at the ceiling is still forced odd above it.
+        assert_eq!(
+            rejected(json!({ "sg_window": 1002 })),
+            "ai_chunk_semantic: 'sg_window' must be at most 1001, got 1002"
+        );
+    }
+
+    #[test]
+    fn windows_and_order_above_their_ceilings_are_rejected() {
+        assert_eq!(
+            rejected(json!({ "sim_window": 103 })),
+            "ai_chunk_semantic: 'sim_window' must be at most 101, got 103"
+        );
+        assert_eq!(
+            rejected(json!({ "sg_window": 100_001 })),
+            "ai_chunk_semantic: 'sg_window' must be at most 1001, got 100001"
+        );
+        assert_eq!(
+            rejected(json!({ "poly_order": 17 })),
+            "ai_chunk_semantic: 'poly_order' must be at most 16, got 17"
+        );
+        assert_eq!(
+            rejected(json!({ "poly_order": 3200 })),
+            "ai_chunk_semantic: 'poly_order' must be at most 16, got 3200"
         );
     }
 }

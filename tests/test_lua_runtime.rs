@@ -1,10 +1,15 @@
 //! Tests for Lua runtime: flow loading, parsing, sandbox security.
 
+use std::collections::HashMap;
 use std::io::Write;
 use std::sync::Arc;
 
+use ironflow::engine::executor::WorkflowEngine;
+use ironflow::engine::types::{RunStatus, TaskStatus};
 use ironflow::lua::runtime::LuaRuntime;
 use ironflow::nodes::NodeRegistry;
+use ironflow::storage::StateStore;
+use ironflow::storage::null_store::NullStateStore;
 
 fn registry() -> Arc<NodeRegistry> {
     Arc::new(NodeRegistry::with_builtins())
@@ -161,7 +166,7 @@ fn every_function_backed_entry_point_rejects_captured_outer_locals() {
     let reg = registry();
     let cases = [
         r#"flow:step("s", function() return { value = captured } end)"#,
-        r#"flow:step_if("true", "s", function() return { value = captured } end)"#,
+        r#"flow:step_if("ctx.ready", "s", function() return { value = captured } end)"#,
         r#"flow:step("s", nodes.code({ source = function() return { value = captured } end }))"#,
         r#"flow:step("s", nodes.foreach({ source_key = "items", transform = function() return captured end }))"#,
     ];
@@ -496,8 +501,8 @@ fn flow_without_return() {
 
 // --- step_if parsing ---
 
-#[test]
-fn load_flow_with_step_if() {
+#[tokio::test]
+async fn load_flow_with_step_if() {
     let reg = registry();
     let source = r#"
         local flow = Flow.new("step_if_parse")
@@ -520,4 +525,16 @@ fn load_flow_with_step_if() {
     assert_eq!(flow.steps[2].name, "action");
     assert_eq!(flow.steps[2].dependencies, vec!["_if_action"]);
     assert_eq!(flow.steps[2].route, Some("true".to_string()));
+
+    // The guard compares the boolean at runtime, so the step runs (IF-187).
+    let store: Arc<dyn StateStore> = Arc::new(NullStateStore::new());
+    let engine = WorkflowEngine::new(reg, store.clone(), None);
+    let run_id = engine.execute(&flow, HashMap::new()).await.unwrap();
+    let info = store.get_run_info(&run_id).await.unwrap();
+    assert_eq!(info.status, RunStatus::Success);
+    assert_eq!(info.tasks["action"].status, TaskStatus::Success);
+    assert_eq!(
+        info.ctx.get("_condition_result__if_action"),
+        Some(&serde_json::json!(true))
+    );
 }

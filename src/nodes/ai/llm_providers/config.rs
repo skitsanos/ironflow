@@ -28,19 +28,28 @@ pub(crate) enum Provider {
     Custom,
 }
 
+const ACCEPTED_PROVIDERS: &str = "Use 'openai', 'openai_compatible', 'azure', or 'custom'.";
+
 impl Provider {
-    pub(crate) fn resolve(config: &Value) -> Self {
-        match config
-            .get("provider")
-            .and_then(Value::as_str)
-            .unwrap_or("openai")
-            .to_ascii_lowercase()
-            .as_str()
-        {
-            "openai_compatible" | "compatible" => Self::OpenAICompatible,
-            "azure" => Self::Azure,
-            "custom" => Self::Custom,
-            _ => Self::OpenAI,
+    /// Selects the backend that receives the prompt and the credential.
+    ///
+    /// An unrecognised value is an error, never a fallback: a misspelt
+    /// provider must not route a request to the OpenAI configuration.
+    pub(crate) fn resolve(config: &Value) -> Result<Self> {
+        let name = match config.get("provider") {
+            None | Some(Value::Null) => return Ok(Self::OpenAI),
+            Some(Value::String(name)) => name,
+            Some(_) => anyhow::bail!("llm: 'provider' must be a string. {ACCEPTED_PROVIDERS}"),
+        };
+        match name.to_ascii_lowercase().as_str() {
+            "openai" => Ok(Self::OpenAI),
+            "openai_compatible" | "compatible" => Ok(Self::OpenAICompatible),
+            "azure" => Ok(Self::Azure),
+            "custom" => Ok(Self::Custom),
+            _ => anyhow::bail!(
+                "llm: unsupported provider '{}'. {ACCEPTED_PROVIDERS}",
+                name.chars().take(64).collect::<String>()
+            ),
         }
     }
 

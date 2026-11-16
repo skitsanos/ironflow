@@ -36,8 +36,13 @@ separately after they are no longer needed by older binaries.
 The file backend is a best-effort cache, not a transactional state store. File
 work uses tracked blocking workers, with cancellation/deadline checks before
 and after I/O; an in-progress synchronous operation cannot be preempted or
-rolled back. Concurrent file writes and expiry cleanup, including from other
-processes, are not coordinated. Keep the cache directory trusted and
+rolled back. `cache_set` writes each record to a temporary sibling file and
+renames it over the entry (IF-218), so a reader, in this or another process,
+sees the previous record or the new one and never a partially written file.
+Writers are otherwise not coordinated: concurrent writes of one key are
+last-writer-wins, and expiry cleanup can remove a record that was replaced a
+moment earlier. A symlink or nonregular file at an entry name fails
+`cache_set` instead of being followed. Keep the cache directory trusted and
 access-controlled: keys and values remain plaintext inside records, and the
 digest is not authentication or encryption.
 

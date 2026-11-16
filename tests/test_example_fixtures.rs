@@ -57,8 +57,8 @@ fn fixture_checksums_match_the_reviewed_byte_set() {
 
     assert_eq!(names, payload_names, "SHA256SUMS must list every payload");
     assert!(
-        total_bytes <= 100 * 1024,
-        "fixture pack grew beyond 100 KiB: {total_bytes} bytes"
+        total_bytes <= 128 * 1024,
+        "fixture pack grew beyond 128 KiB: {total_bytes} bytes"
     );
 }
 

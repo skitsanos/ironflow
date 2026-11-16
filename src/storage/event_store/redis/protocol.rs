@@ -104,6 +104,8 @@ pub(super) enum LegacyFetch {
     Done,
     Invalid(String),
     Blocked,
+    /// The quarantined stream expired; nothing is corrupt (IF-214).
+    Expired,
     Stale,
 }
 
@@ -137,6 +139,7 @@ impl LegacyFetch {
                 Ok(Self::Invalid(code.to_string()))
             }
             Some(b"blocked") if response.len() == 1 => Ok(Self::Blocked),
+            Some(b"expired") if response.len() == 1 => Ok(Self::Expired),
             Some(b"stale") if response.len() == 1 => Ok(Self::Stale),
             _ => Err(invalid_response("unexpected chunk response")),
         }
@@ -153,6 +156,7 @@ pub(super) enum LegacyCommit {
     Changed,
     Invalid(String),
     Blocked,
+    Expired,
     Stale,
 }
 
@@ -169,6 +173,7 @@ impl LegacyCommit {
                 Ok(Self::Invalid(response[1].clone()))
             }
             Some("blocked") if response.len() == 1 => Ok(Self::Blocked),
+            Some("expired") if response.len() == 1 => Ok(Self::Expired),
             Some("stale") if response.len() == 1 => Ok(Self::Stale),
             _ => Err(invalid_response("unexpected commit response")),
         }
@@ -182,6 +187,7 @@ pub(super) enum LegacyTransition {
     Failed(String),
     Expiring,
     Blocked,
+    Expired,
     Stale,
 }
 
@@ -196,6 +202,7 @@ impl LegacyTransition {
             }
             Some("expiring") if response.len() == 1 => Ok(Self::Expiring),
             Some("blocked") if response.len() == 1 => Ok(Self::Blocked),
+            Some("expired") if response.len() == 1 => Ok(Self::Expired),
             Some("stale") if response.len() == 1 => Ok(Self::Stale),
             _ => Err(invalid_response("unexpected transition response")),
         }

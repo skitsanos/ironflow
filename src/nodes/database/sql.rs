@@ -85,6 +85,14 @@ pub(super) fn bind_params(params: &[serde_json::Value]) -> Result<sqlx::any::Any
     Ok(args)
 }
 
+/// The host the PostgreSQL driver falls back to for a URL that names none.
+fn driver_default_host() -> Option<String> {
+    std::env::var("PGHOSTADDR")
+        .or_else(|_| std::env::var("PGHOST"))
+        .ok()
+        .filter(|host| !host.is_empty())
+}
+
 /// Connect to a database using the `connection` config parameter.
 pub(super) async fn connect(config: &serde_json::Value, ctx: &Context) -> Result<AnyPool> {
     let url = config
@@ -98,6 +106,12 @@ pub(super) async fn connect(config: &serde_json::Value, ctx: &Context) -> Result
     // PostgreSQL `verify-ca` verifier needs (idempotent; see IF-141).
     sqlx::any::install_default_drivers();
     crate::initialize_tls_provider();
+
+    // IF-212: a host check only. The driver resolves the name again when it
+    // connects, so this is weaker than the pinning the HTTP clients get.
+    for (host, port) in super::destination::network_hosts(&url, driver_default_host()) {
+        crate::util::outbound::resolve_host_allowed("db", &host, port).await?;
+    }
 
     let pool = AnyPool::connect(&url).await.map_err(|_| {
         // Drivers may detach credentials or query values from the URL and

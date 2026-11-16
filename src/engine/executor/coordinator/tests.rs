@@ -9,6 +9,7 @@ use crate::nodes::NodeRegistry;
 use crate::storage::{RunListQuery, RunSummaryPage, StorageResult};
 
 mod lease_loss;
+mod terminal_heartbeat;
 
 #[derive(Default)]
 struct HangingWritesStore {

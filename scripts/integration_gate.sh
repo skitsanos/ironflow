@@ -58,10 +58,13 @@ actionlint .github/workflows/*.yml
 echo "[integration] default Rust gates"
 cargo check --all-targets
 cargo clippy --all-targets -- -D warnings
+# The non-Unix rooted writer and its callers, compiled on this host (IF-218).
+cargo clippy --lib -- --cfg ironflow_portable_writer -D warnings
 bun --no-env-file scripts/test_rust_targets.ts
 cargo test --doc
 cargo audit --deny warnings
 bun --no-env-file scripts/check_licenses.ts
+bun --no-env-file scripts/third_party_notices.ts check
 
 echo "[integration] feature-enabled Rust gates"
 cargo check --all-targets --features postgres,redis,cjk-fonts
@@ -131,6 +134,7 @@ fi
 
 IRONFLOW_REDIS_TEST_URL="redis://127.0.0.1:$redis_port" \
 IRONFLOW_REDIS_TEST_REQUIRED=1 \
+IRONFLOW_REDIS_RESPONSE_TIMEOUT_MS=5000 \
 IRONFLOW_POSTGRES_TEST_REQUIRED=1 \
 DATABASE_URL="postgres://postgres:$postgres_password@127.0.0.1:$postgres_port/ironflow_test" \
   bun --no-env-file scripts/test_rust_targets.ts --features postgres,redis,cjk-fonts -- --test-threads=1

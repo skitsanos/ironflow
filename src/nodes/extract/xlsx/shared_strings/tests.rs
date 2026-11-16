@@ -1,6 +1,28 @@
-use std::io::{Cursor, Read, Write};
+use std::io::{Cursor, Read, Seek, Write};
+use std::path::Path;
 
-use super::{CappedRead, check, inspect, reference_output_bytes};
+use super::{CappedRead, inspect, reference_output_bytes};
+use crate::util::execution::ExecutionControl;
+
+/// Admit the archive with the raw preflight, as `workbook::extract` does,
+/// then run the check under test against the admitted directory.
+fn check<R: Read + Seek>(
+    mut reader: R,
+    path: &Path,
+    max_strings: u64,
+    max_bytes: u64,
+    execution: Option<&ExecutionControl>,
+) -> anyhow::Result<()> {
+    let admitted = super::super::archive_preflight::check_xlsx(
+        &mut reader,
+        path,
+        u64::MAX,
+        u64::MAX,
+        u64::MAX,
+        execution,
+    )?;
+    super::check(reader, path, admitted, max_strings, max_bytes, execution)
+}
 
 fn write_table(body: &str) -> (tempfile::TempDir, std::path::PathBuf) {
     let directory = tempfile::tempdir().unwrap();
@@ -99,4 +121,24 @@ fn invalid_utf8_shared_string_content_is_rejected() {
             "{error}"
         );
     }
+}
+
+#[test]
+fn an_open_that_differs_from_the_admitted_directory_is_refused() {
+    let (_other_directory, other) = write_table("<sst><si><t>a longer table</t></si></sst>");
+    let admitted = super::super::archive_preflight::check_xlsx(
+        &mut std::fs::File::open(&other).unwrap(),
+        &other,
+        u64::MAX,
+        u64::MAX,
+        u64::MAX,
+        None,
+    )
+    .unwrap();
+    let (_directory, path) = write_table("<sst><si><t>x</t></si></sst>");
+    let file = std::fs::File::open(&path).unwrap();
+    let error = super::check(file, &path, admitted, 2, 1024, None)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("different central directory"), "{error}");
 }

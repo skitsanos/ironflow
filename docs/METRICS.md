@@ -48,8 +48,9 @@ credentials, or other caller-controlled data as labels.
 | `ironflow_active_work` | gauge | `kind` | Work currently owned by this process |
 | `ironflow_admission_decisions_total` | counter | `resource`, `decision` | Run and flow-loader admission results |
 | `ironflow_scheduler_decisions_total` | counter | `outcome` | Final decision for each due schedule occurrence evaluated by this process |
-| `ironflow_lease_events_total` | counter | `outcome` | Run-owner lease renewal and loss events |
+| `ironflow_lease_events_total` | counter | `outcome` | Run-owner lease renewal and loss events. A run that finishes normally releases its lease and adds nothing to `lost`; `lost` counts leases taken away while the run was still executing or before its terminal status was stored |
 | `ironflow_storage_failures_total` | counter | `store`, `operation`, `error_kind` | Errors returned by state and event-store operations |
+| `ironflow_event_admissions_total` | counter | `outcome` | Runs admitted to their event stream at start; `failed` runs execute but may publish no events |
 
 Label values are stable and bounded:
 
@@ -60,8 +61,9 @@ Label values are stable and bounded:
 | Active-work `kind` | `run`, `task`, `flow_load` |
 | Admission `resource` | `run`, `flow_load` |
 | Admission `decision` | `accepted`, `at_capacity`, `draining` |
-| Scheduler `outcome` | `fired`, `not_claimed`, `late`, `overlapped`, `at_capacity`, `failed`, `claim_failed`, `timed_out` |
+| Scheduler `outcome` | `fired`, `not_claimed`, `late`, `overlapped`, `superseded`, `at_capacity`, `failed`, `claim_failed`, `deferred`, `timed_out` |
 | Lease `outcome` | `renewed`, `lost`, `timed_out`, `error`, `reconciliation_failed` |
+| Event-admission `outcome` | `admitted`, `admitted_after_retry`, `failed` |
 | Storage `store` | `state`, `event` |
 | Storage `error_kind` | `invalid_input`, `not_found`, `backend`, `corruption`, `conflict` |
 
@@ -70,8 +72,11 @@ State-store operations are `healthcheck`, `init_run`, `init_run_owned`,
 `reconcile_expired_run_leases`, `upsert_task`, `upsert_task_owned`,
 `get_context`, `update_context`, `update_context_owned`, `get_run_info`,
 `list_runs`, `list_run_summaries`, `list_run_summaries_page`, `delete_run`,
-`prune_before`, and `claim_schedule`. Event-store operations are `healthcheck`,
-`publish_event`, `delete_run`, and `list_events`.
+`prune_before`, `claim_schedule`, `record_schedule_run`, and
+`schedule_run_recorded`. Event-store operations are `healthcheck`,
+`publish_event`, `delete_run`, and `list_events`. Admission of a run to its
+event stream counts as `publish_event`, and the admission read that precedes
+a run deletion as `delete_run`.
 
 The histograms use fixed second buckets from 5 ms through 5 minutes. Every
 valid series is initialized at startup, so absent activity is represented by
@@ -120,6 +125,7 @@ IronFlow.
 
 [`deploy/metrics/prometheusrule.yaml`](../deploy/metrics/prometheusrule.yaml)
 provides starting alerts for run failure ratio, sustained admission rejection,
-lease problems, and storage failures. Alert thresholds are examples, not
+lease problems, storage failures, and runs that started without an event
+stream. Alert thresholds are examples, not
 universal service-level objectives; tune them against the workload and route
 them through the deployment's existing notification policy.

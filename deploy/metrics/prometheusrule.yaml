@@ -48,3 +48,11 @@ spec:
           annotations:
             summary: IronFlow storage operations are failing
             description: The {{ $labels.store }} store is returning {{ $labels.error_kind }} errors.
+        - alert: IronFlowEventStreamNotOpened
+          expr: |
+            sum(increase(ironflow_event_admissions_total{outcome="failed"}[10m])) > 0
+          labels:
+            severity: warning
+          annotations:
+            summary: IronFlow runs started without an event stream
+            description: At least one run could not open its event stream and may have published no events.

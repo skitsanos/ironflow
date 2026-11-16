@@ -1,9 +1,12 @@
 mod bootstrap;
 mod commands;
 mod config;
+mod presence;
 mod replica_config;
 mod resolution;
+mod schedule_retention;
 mod sql_config;
+mod sqlite_path;
 mod store_factory;
 
 pub use config::IronFlowConfig;
@@ -129,17 +132,8 @@ pub enum Commands {
 pub enum ArtifactCommands {
     /// Delete old artifacts not referenced by any retained run
     Prune {
-        /// Only inspect artifacts last modified before this RFC 3339 timestamp
-        #[arg(long)]
-        before: String,
-
-        /// Maximum candidate artifacts to inspect (1-100)
-        #[arg(long, default_value = "100")]
-        limit: usize,
-
-        /// Assert that every IronFlow writer sharing the stores is stopped
-        #[arg(long)]
-        confirm_offline: bool,
+        #[command(flatten)]
+        options: commands::ArtifactPruneOptions,
 
         /// State store directory
         #[arg(long, default_value = "data/runs", env = "IRONFLOW_STORE_DIR")]
@@ -182,6 +176,7 @@ pub async fn run_cli() -> Result<()> {
             store_dir,
         } => {
             resolution::validate_limit_environment()?;
+            resolution::install_outbound_policy(&cfg)?;
             let store_dir = resolution::with_config(
                 store_dir,
                 sources.store_dir,
@@ -193,6 +188,7 @@ pub async fn run_cli() -> Result<()> {
         }
         Commands::Validate { flow, strict } => {
             resolution::validate_limit_environment()?;
+            resolution::install_outbound_policy(&cfg)?;
             commands::cmd_validate(flow, strict)
         }
         Commands::List {
@@ -223,19 +219,15 @@ pub async fn run_cli() -> Result<()> {
         }
         Commands::Nodes => commands::cmd_nodes(),
         Commands::Artifacts { command } => match command {
-            ArtifactCommands::Prune {
-                before,
-                limit,
-                confirm_offline,
-                store_dir,
-            } => {
+            ArtifactCommands::Prune { options, store_dir } => {
+                options.validate()?;
                 let store_dir = resolution::with_config(
                     store_dir,
                     sources.store_dir,
                     cfg.store_dir.as_deref().map(PathBuf::from),
                 );
                 let store = create_store(&cfg, &store_dir).await?;
-                commands::cmd_artifact_prune(store, before, limit, confirm_offline).await
+                commands::cmd_artifact_prune(store, options).await
             }
         },
         Commands::Serve {
@@ -247,6 +239,7 @@ pub async fn run_cli() -> Result<()> {
         } => {
             let listing_policy = crate::util::listing::ListingPolicy::from_env()?;
             let server_config = resolution::ServerConfig::resolve(&cfg)?;
+            resolution::install_outbound_policy(&cfg)?;
             replica_config::validate(&cfg, server_config.replica_mode)?;
             let host = resolution::with_config(host, sources.host, cfg.host.clone());
             let port = resolution::with_config(port, sources.port, cfg.port);
@@ -276,15 +269,11 @@ pub async fn run_cli() -> Result<()> {
                 metrics_enabled: server_config.metrics_enabled,
                 static_files: cfg.static_files.clone(),
             };
+            let schedules = cfg.schedules.clone().unwrap_or_default();
+            schedule_retention::warn_about_short_redis_ttl(&cfg, &schedules)?;
             let store = create_store(&cfg, &store_dir).await?;
             let event_store = create_event_store(&cfg, &store_dir).await?;
-            commands::cmd_serve(
-                store,
-                event_store,
-                options,
-                cfg.schedules.clone().unwrap_or_default(),
-            )
-            .await
+            commands::cmd_serve(store, event_store, options, schedules).await
         }
     }
 }

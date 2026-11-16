@@ -5,7 +5,10 @@ use chrono::Utc;
 
 use super::SqlStateStore;
 use crate::engine::types::{Context, RunInfo, RunStatus, RunSummary, TaskState};
-use crate::storage::{RunListQuery, RunSummaryPage, StateStore, StorageError, StorageResult};
+use crate::storage::value_depth::{admit_context, admit_task};
+use crate::storage::{
+    DeletedRun, RunListQuery, RunSummaryPage, StateStore, StorageError, StorageResult,
+};
 
 #[async_trait]
 impl StateStore for SqlStateStore {
@@ -20,6 +23,7 @@ impl StateStore for SqlStateStore {
     }
 
     async fn init_run(&self, run_id: &str, flow_name: &str, ctx: &Context) -> StorageResult<()> {
+        admit_context(run_id, ctx)?;
         let info = RunInfo {
             id: run_id.to_string(),
             flow_name: flow_name.to_string(),
@@ -39,6 +43,7 @@ impl StateStore for SqlStateStore {
         ctx: &Context,
         lease: &crate::storage::RunLease,
     ) -> StorageResult<()> {
+        admit_context(run_id, ctx)?;
         self.insert_owned_run(run_id, flow_name, ctx, lease).await
     }
 
@@ -71,6 +76,7 @@ impl StateStore for SqlStateStore {
     }
 
     async fn upsert_task(&self, run_id: &str, task: &TaskState) -> StorageResult<()> {
+        admit_task(run_id, task)?;
         self.upsert_unowned_task(run_id, task).await
     }
 
@@ -80,6 +86,7 @@ impl StateStore for SqlStateStore {
         task: &TaskState,
         owner: &str,
     ) -> StorageResult<bool> {
+        admit_task(run_id, task)?;
         self.upsert_owned_task(run_id, task, owner).await
     }
 
@@ -88,6 +95,7 @@ impl StateStore for SqlStateStore {
     }
 
     async fn update_ctx(&self, run_id: &str, ctx: &Context) -> StorageResult<()> {
+        admit_context(run_id, ctx)?;
         self.update_unowned_context(run_id, ctx).await
     }
 
@@ -97,6 +105,7 @@ impl StateStore for SqlStateStore {
         ctx: &Context,
         owner: &str,
     ) -> StorageResult<bool> {
+        admit_context(run_id, ctx)?;
         self.update_owned_context(run_id, ctx, owner).await
     }
 
@@ -170,6 +179,10 @@ impl StateStore for SqlStateStore {
     }
 
     async fn delete_run(&self, run_id: &str) -> StorageResult<()> {
+        self.delete_run_transactional(run_id).await.map(|_| ())
+    }
+
+    async fn delete_run_reporting(&self, run_id: &str) -> StorageResult<DeletedRun> {
         self.delete_run_transactional(run_id).await
     }
 
@@ -179,5 +192,14 @@ impl StateStore for SqlStateStore {
 
     async fn claim_schedule(&self, name: &str, key: &str, ttl_seconds: u64) -> StorageResult<bool> {
         self.claim_schedule_row(name, key, ttl_seconds).await
+    }
+
+    /// Retention follows the claim row, so `ttl_seconds` is not needed here.
+    async fn record_schedule_run(&self, name: &str, key: &str, _ttl: u64) -> StorageResult<()> {
+        self.record_schedule_run_row(name, key).await
+    }
+
+    async fn schedule_run_recorded(&self, name: &str, key: &str) -> StorageResult<bool> {
+        self.schedule_run_recorded_row(name, key).await
     }
 }

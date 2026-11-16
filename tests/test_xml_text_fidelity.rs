@@ -274,7 +274,7 @@ async fn pptx_titles_tables_and_list_levels_decode_in_every_format() {
     let slide = format!(
         "<p:sld xmlns:p=\"urn:p\" xmlns:a=\"urn:a\"><p:spTree>\
         <p:sp><p:nvSpPr><p:ph type=\"ti&#116;le\"/></p:nvSpPr><p:txBody><a:p><a:r><a:t>{ENCODED}</a:t></a:r></a:p></p:txBody></p:sp>\
-        <p:sp><p:txBody><a:p><a:pPr lvl=\"&#49;\"/><a:r><a:t>{ENCODED}</a:t></a:r></a:p></p:txBody></p:sp>\
+        <p:sp><p:txBody><a:p><a:pPr lvl=\"&#49;\"><a:buChar char=\"-\"/></a:pPr><a:r><a:t>{ENCODED}</a:t></a:r></a:p></p:txBody></p:sp>\
         <a:tbl><a:tr><a:tc><a:txBody><a:p><a:r><a:t>{ENCODED}</a:t></a:r></a:p></a:txBody></a:tc></a:tr></a:tbl>\
         </p:spTree></p:sld>"
     );

@@ -1,26 +1,11 @@
 {
   "version": 1,
-  "exception_budget": 8,
+  "exception_budget": 5,
   "exceptions": [
-    {
-      "path": "src/engine/recovery.rs",
-      "max_lines": 316,
-      "rationale": "IF-046/052 review: one execution-plan validator and recovery-DAG builder covering dependency, cycle, on_error, retry-count, timeout, and route validation; split validation from graph construction before adding another planning phase."
-    },
     {
       "path": "src/nodes/cloud/s3_objects.rs",
       "max_lines": 321,
       "rationale": "IF-028/036 review: four closely related S3 object operations share one client and payload contract, plus a content-length size pre-flight on get_object; split when a fifth operation or new helper responsibility appears."
-    },
-    {
-      "path": "src/storage/event_store/redis/legacy.rs",
-      "max_lines": 305,
-      "rationale": "IF-028 review: one bounded legacy-event migration state machine; splitting its ordered protocol would obscure progress and failure invariants."
-    },
-    {
-      "path": "src/storage/event_store/sql/store.rs",
-      "max_lines": 359,
-      "rationale": "IF-028 review, tightened during IF-077: one EventStore implementation covering publish, list, decode, and delete transaction boundaries; readiness and rollback helpers live in the parent SQL module."
     },
     {
       "path": "src/storage/json_store/codec.rs",
@@ -29,7 +14,7 @@
     },
     {
       "path": "src/storage/json_store/fs.rs",
-      "max_lines": 345,
+      "max_lines": 344,
       "rationale": "IF-028 review: one secure no-follow and durable-directory abstraction; split by responsibility before adding another filesystem operation family."
     },
     {

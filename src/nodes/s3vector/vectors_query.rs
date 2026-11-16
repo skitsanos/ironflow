@@ -5,12 +5,12 @@ use aws_sdk_s3vectors::types::{DistanceMetric, VectorData};
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::nodes::Node;
-use crate::util::node_config::config_bool;
 
 use super::client::build_s3vector_client;
-use super::config::{resolve_optional, resolve_output_key};
-use super::document::{document_to_json, parse_metadata};
-use super::parameters::{resolve_f64, resolve_u32};
+use super::config::resolve_output_key;
+use super::document::document_to_json;
+use super::filter::resolve_filter;
+use super::parameters::{request_count, resolve_f64, resolve_flag, resolve_u32};
 use super::target::{IndexTarget, TargetPolicy, resolve_index_target};
 use super::vectors::resolve_query_vector;
 
@@ -36,9 +36,10 @@ fn prepare_query_vectors_input(
     if top_k == 0 {
         anyhow::bail!("s3vector_query_vectors requires 'top_k' to be greater than zero");
     }
+    let top_k = request_count(top_k, "s3vector_query_vectors", "top_k")?;
     let query_vector = resolve_query_vector(config, ctx, "s3vector_query_vectors")?;
-    let return_metadata = config_bool(config, "return_metadata", ctx).unwrap_or(false);
-    let return_distance = config_bool(config, "return_distance", ctx).unwrap_or(false);
+    let return_metadata = resolve_flag(config, ctx, "s3vector_query_vectors", "return_metadata")?;
+    let return_distance = resolve_flag(config, ctx, "s3vector_query_vectors", "return_distance")?;
     let min_similarity = if config.get("min_similarity").is_some() {
         let value = resolve_f64(config, ctx, "s3vector_query_vectors", "min_similarity")?;
         if !(0.0..=1.0).contains(&value) {
@@ -48,19 +49,11 @@ fn prepare_query_vectors_input(
     } else {
         None
     };
-    let strict = config_bool(config, "strict", ctx).unwrap_or(false);
-    let filter = if let Some(filter_value) = config.get("filter") {
-        Some(parse_metadata(filter_value, "s3vector_query_vectors")?)
-    } else {
-        let source_key = resolve_optional(config, &["filter_key"], &[], ctx);
-        source_key
-            .and_then(|value| ctx.get(&value).cloned())
-            .map(|value| parse_metadata(&value, "s3vector_query_vectors"))
-            .transpose()?
-    };
+    let strict = resolve_flag(config, ctx, "s3vector_query_vectors", "strict")?;
+    let filter = resolve_filter(config, ctx)?;
 
     let request = QueryVectorsInputBuilder::default()
-        .top_k(top_k as i32)
+        .top_k(top_k)
         .query_vector(VectorData::Float32(query_vector))
         .return_metadata(return_metadata)
         .return_distance(return_distance || min_similarity.is_some());

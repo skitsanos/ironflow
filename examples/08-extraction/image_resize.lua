@@ -1,4 +1,6 @@
 -- Effects: retains one UUID-scoped PNG under TMPDIR, TMP, TEMP, or `.`.
+-- The output directory must exist. The file is staged beside the destination
+-- and atomically replaces a regular file; a symlinked destination is refused.
 -- Width alone preserves aspect ratio; specifying height too uses that exact size.
 -- Resize admission includes Lanczos intermediate/scratch buffers under
 -- IRONFLOW_MAX_IMAGE_DECODE_ALLOCATION_BYTES (128 MiB by default).

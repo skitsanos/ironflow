@@ -1,12 +1,35 @@
-#[cfg(not(unix))]
+//! The rooted, staged writer behind every file-writing node.
+//!
+//! Unix pins the destination directory by handle (`unix`). Every other
+//! platform uses the checked-path fallback (`portable`). Building with
+//! `--cfg ironflow_portable_writer` selects the fallback on a Unix host, so
+//! it can be compiled, linted and tested without a Windows toolchain
+//! (IF-218). That switch is for verification only: never ship such a build.
+
+// Unix test builds compile the fallback as well, so its unit tests run in
+// the default suite; nothing outside those tests uses it there.
+#[cfg(any(not(unix), ironflow_portable_writer, test))]
+#[cfg_attr(all(unix, not(ironflow_portable_writer)), allow(dead_code))]
 mod portable;
-#[cfg(unix)]
+#[cfg(all(unix, not(ironflow_portable_writer)))]
 mod unix;
 
-#[cfg(not(unix))]
-pub(crate) use portable::RootedDir;
-#[cfg(unix)]
-pub(crate) use unix::RootedDir;
+#[cfg(any(not(unix), ironflow_portable_writer))]
+pub(crate) use portable::{DestinationKey, RootedDir};
+#[cfg(all(unix, not(ironflow_portable_writer)))]
+pub(crate) use unix::{DestinationKey, RootedDir};
+
+fn missing_directory(path: &std::path::Path, operation: &str) -> anyhow::Error {
+    let path = if path.as_os_str().is_empty() {
+        std::path::Path::new(".")
+    } else {
+        path
+    };
+    anyhow::anyhow!(
+        "{operation}: destination directory '{}' does not exist",
+        path.display()
+    )
+}
 
 // The caller chooses the root, including any directory alias. Archive entries
 // are resolved below this anchor using the platform's no-follow safeguards.

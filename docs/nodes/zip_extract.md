@@ -52,7 +52,16 @@ return flow
 Before constructing ZIP library metadata, IronFlow scans raw single-disk
 ZIP/ZIP64 headers, checking entry count, directory bounds, exact header lengths,
 duplicate raw names, and the cumulative metadata budget. The end record must
-terminate at EOF, including its archive comment. Unicode path aliases that
+terminate at EOF, including its archive comment, and it must be the last end
+record in the file: an archive with bytes after the comment, or with a comment
+that holds another complete end record, is rejected. The central directory
+must end exactly where its end record (or ZIP64 end record) begins, so
+archives with prepended data or a gap after the directory are rejected. An end record that marks a
+split archive, or whose only ZIP64 marker is a disk-number field, is rejected
+as multi-disk (IF-218): the ZIP library would skip it and look for an earlier
+end record. After
+opening, the ZIP library's directory offset and raw entry count must equal the
+validated ones before any entry is used. Unicode path aliases that
 collapse during bounded ZIP construction also fail before destination changes.
 The metadata budget does not cap compressed payload size or total process
 memory; decoded names and library structures can require additional copies.
@@ -75,6 +84,17 @@ directory-relative, no-follow operations for every parent and leaf. On other
 platforms, IronFlow rejects symlinks observed during traversal, but the standard
 library cannot provide the same race-free `openat` guarantee. An archive entry
 cannot traverse a symlink or special-file destination component or leaf.
+
+## File modes
+
+On Unix, permission metadata stored in the archive is ignored. Every newly
+extracted file gets `0666` masked by the process umask (`0644` under umask
+`022`), so no entry becomes setuid, setgid, world-writable or executable
+because the archive says so; set executable bits in a later step when a flow
+needs them. With `overwrite = true` a replaced file keeps the permission bits
+it already had. Each file is mode `0600` while it is staged, and created
+directories are [`0755` masked by the process umask](write_file.md#created-directories). Other platforms use their native
+permission semantics.
 
 ## Cancellation and partial output
 

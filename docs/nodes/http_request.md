@@ -27,7 +27,7 @@ Generic HTTP request with configurable method.
 | `max_redirects` | integer | no | `10` | Maximum number of redirects to follow. Set to `0` to disable redirect following; maximum `100`. |
 | `allow_cross_origin_redirects` | boolean | no | `false` | Allow redirects that change scheme, host, or port. Even when enabled, cross-origin redirects are refused when `auth`, credentials embedded in URL userinfo, caller-configured `headers`, or a request `body` is present, because arbitrary credentials cannot be stripped safely. Generated `Referer` headers are disabled. |
 | `proxy_mode` | string | no | `"auto"` | `auto` uses the system proxy unless private-network blocking is enabled; `system` always uses it; `direct` bypasses it. |
-| `block_private_network` | boolean | no | `false` | Refuse localhost and private, loopback, link-local, metadata, or IPv4-mapped private addresses for every initial/redirect target. Hostnames are resolved, every answer is validated, and the validated set is pinned to the connector. |
+| `block_private_network` | boolean | no | `false` | Can only tighten: `IRONFLOW_BLOCK_PRIVATE_NETWORK=true` forces it on. Refuse `localhost` and every address that is not a public unicast destination, for the initial URL and each redirect target; see [Private-network blocking](#private-network-blocking) for the exact ranges. Hostnames are resolved, every answer is validated, and the validated set is pinned to the connector. |
 
 For `body_type = "json"`, string values in `body` are recursively interpolated via `${ctx.key}`.
 
@@ -39,13 +39,18 @@ values are stringified.
 
 For `body_type = "artifact"`, provide exactly one of `body` or `body_key`.
 The value must be a canonical `artifact://sha256/...` URI or an artifact
-descriptor, never a local path. IronFlow verifies and reopens the artifact for
+descriptor, never a local path. A URI string written in `body` supports
+`${ctx.key}` interpolation, resolved once, as the `write_file` `artifact`
+parameter does; a value read through `body_key` is used as stored and is not
+interpolated. IronFlow verifies and reopens the artifact for
 each redirect or status retry, streams it with a fixed `Content-Length`, and
 uses the descriptor MIME type as `Content-Type` when the caller did not set one.
 
 For `body_type = "multipart"`, `parts` must contain 1–100 objects. Every part
 has `name` and exactly one of `text`, `source_key`, or `artifact`. Artifact parts
-may add `filename` and `content_type`; text parts may not. IronFlow generates
+may add `filename` and `content_type`; text parts may not. A part's `artifact`
+follows the same rule as `body`: a configured URI string is interpolated once,
+and a value read through `source_key` is not. IronFlow generates
 the multipart boundary, so a caller-supplied `Content-Type` header is rejected.
 Each `name`, `filename`, and `content_type` value must contain 1–255 bytes and
 must not contain CR or LF. An explicit `content_type` must be a valid MIME type
@@ -56,8 +61,39 @@ allowance for generated boundaries and headers. Artifact and multipart bodies
 also reject caller-supplied `Content-Length` or `Transfer-Encoding` framing.
 
 `proxy_mode = "system"` cannot be combined with
-`block_private_network = true`, because a proxy resolves the target outside
+`block_private_network = true` or `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, because a proxy resolves the target outside
 IronFlow's validated connector. `auto` becomes direct in that mode.
+
+### Private-network blocking
+
+With `block_private_network = true` a request is refused before any
+connection when the host is `localhost`, a name under `.localhost`, or a
+literal address in one of the ranges below. The same check runs on every
+redirect target and on every address a hostname resolves to; one refused
+address in a DNS answer refuses the whole answer. Decimal, octal, hexadecimal
+and short IPv4 host forms (`http://1681915905/`) are normalized before the
+check.
+
+| Family | Refused ranges |
+|--------|----------------|
+| IPv4 | `0.0.0.0/8` (this network), `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16` (private), `100.64.0.0/10` (shared address space, carrier-grade NAT), `127.0.0.0/8` (loopback), `169.254.0.0/16` (link-local, cloud metadata), `192.0.0.0/24` (IETF protocol assignments), `192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24` (documentation), `192.88.99.0/24` (deprecated 6to4 relay anycast), `198.18.0.0/15` (benchmarking), `224.0.0.0/4` (multicast), `240.0.0.0/4` (reserved, including `255.255.255.255`) |
+| IPv6 | Everything outside global unicast `2000::/3`: `::` and `::1`, the IPv4-compatible (`::a.b.c.d`) and IPv4-translated (`::ffff:0:a.b.c.d`) forms, `64:ff9b:1::/48` (local-use NAT64), `100::/64` (discard-only), `5f00::/16` (segment routing), `fc00::/7` (unique local), `fe80::/10` (link-local), `fec0::/10` (site-local), `ff00::/8` (multicast) and all unassigned space. Inside `2000::/3`: `2001::/23` (IETF protocol assignments, including Teredo `2001::/32`, benchmarking `2001:2::/48` and ORCHID), `2001:db8::/32` and `3fff::/20` (documentation) |
+| IPv6 carrying IPv4 | IPv4-mapped `::ffff:a.b.c.d`, NAT64 `64:ff9b::/96` and 6to4 `2002::/16` are classified by the embedded IPv4 address: refused when that address is in an IPv4 range above, allowed when it is public |
+
+Every other address is allowed, including public addresses reached through
+NAT64 or 6to4. The option does not interpret an IPv4 address embedded in the
+interface identifier of an otherwise public IPv6 address (ISATAP), and it
+cannot know about a public-looking range that a deployment routes internally;
+restrict those at the network layer.
+
+The operator can force this guard on for the whole process with
+`IRONFLOW_BLOCK_PRIVATE_NETWORK=true`. The option then cannot turn it off:
+`block_private_network = false` changes nothing, and `proxy_mode = "system"`
+is refused. Internal destinations the operator lists in
+`IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` are permitted in either case. The
+policy, the allowlist matching rules and the other covered nodes are
+described under
+[Outbound destinations](../SECURITY.md#outbound-destinations).
 
 ### Auth
 

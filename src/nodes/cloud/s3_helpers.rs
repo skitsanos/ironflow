@@ -7,6 +7,7 @@ use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 use crate::engine::types::Context;
 use crate::lua::interpolate::interpolate_ctx;
 use crate::util::node_config::config_u64;
+use crate::util::outbound::{Guard, aws, ensure_url_allowed};
 
 const COPY_SOURCE_PATH: &AsciiSet = &NON_ALPHANUMERIC
     .remove(b'-')
@@ -115,6 +116,14 @@ pub(super) async fn build_s3_client(config: &serde_json::Value, ctx: &Context) -
     let base_config = loader.load().await;
     let mut s3_builder = aws_sdk_s3::config::Builder::from(&base_config);
     s3_builder = s3_builder.force_path_style(force_path_style);
+    // IF-212: a flow chooses `endpoint_url`, so the destination guard checks
+    // it and every DNS answer of this client when the policy is on.
+    if let Some(guard) = Guard::resolve(false)? {
+        if let Some(endpoint) = &endpoint_url {
+            ensure_url_allowed("s3", endpoint).await?;
+        }
+        s3_builder = s3_builder.http_client(aws::http_client(guard, endpoint_url.as_deref()));
+    }
     if let Some(endpoint) = endpoint_url {
         s3_builder = s3_builder.endpoint_url(endpoint);
     }

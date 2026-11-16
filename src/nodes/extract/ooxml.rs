@@ -31,7 +31,7 @@ impl Archive {
         execution.checkpoint()?;
         let source = source.into();
         let (mut file, label) = source.open(operation, execution)?.into_parts();
-        super::xlsx::archive_preflight::check(
+        let admitted = super::xlsx::archive_preflight::check(
             &mut file,
             std::path::Path::new(&label),
             operation,
@@ -47,6 +47,7 @@ impl Archive {
                 label
             )
         })?;
+        admitted.confirm(&inner, operation)?;
         execution.checkpoint()?;
         preflight_entries(&mut inner, operation, limits, execution)?;
         Ok(Self {

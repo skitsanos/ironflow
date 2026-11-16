@@ -54,7 +54,8 @@ The limit counts received body bytes before charset/BOM decoding. It is not a
 total-memory or decoded-JSON limit. The SMTP provider is unaffected.
 
 Within-limit non-2xx responses still fail with their status and redacted body
-detail. Oversized responses fail with the size error before provider body parsing.
+detail; the error keeps the first 64 KiB of that body (see
+[diagnostic scrubbing](../SECURITY.md#diagnostic-scrubbing)). Oversized responses fail with the size error before provider body parsing.
 A failed response read does not prove the email was not delivered; retrying can
 send the email again.
 
@@ -74,6 +75,20 @@ send the email again.
 | `SMTP_PORT` | SMTP server port |
 | `SMTP_USERNAME` | SMTP authentication username |
 | `SMTP_PASSWORD` | SMTP authentication password |
+
+## Outbound destination policy
+
+When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, both providers
+refuse a destination that is not a public unicast address before connecting:
+a literal private, loopback or link-local address, `localhost`, and a host
+name whose DNS answer contains such an address. The Resend `api_url` is
+checked like any HTTP destination and its validated DNS answer is pinned.
+For SMTP the `smtp_server` name is resolved and checked once and the
+transport connects to the first validated address, so the name is not
+resolved a second time; TLS still verifies the configured name. An internal
+relay must be listed by the operator in `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST`
+(for example `mail.internal:587`); nothing in the flow can add one. See
+[Outbound destinations](../SECURITY.md#outbound-destinations).
 
 ## Examples
 

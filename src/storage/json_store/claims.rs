@@ -16,6 +16,10 @@ use crate::storage::{StorageErrorKind, StorageResult};
 mod cleanup;
 
 const CLAIM_PREFIX: &str = ".ironflow-schedule-claim-v1.";
+/// Marker beside a claim file: its occurrence has a durable run (IF-201).
+/// A separate file, so the claim file a rolling deployment coordinates on is
+/// never rewritten. Shorter than `CLAIM_PREFIX`, so the name limits hold.
+const RUN_PREFIX: &str = ".ironflow-schedule-run-v1.";
 const INDEX_BUCKET_SECONDS: u64 = 3_600;
 const LEGACY_INDEX_COMPLETE: &str = ".legacy-v1-index-complete";
 
@@ -78,6 +82,57 @@ impl JsonStateStore {
         // claim into a reported failure or allow another replica to win it.
         self.index_claim_best_effort(name, key, &file).await;
         Ok(claimed)
+    }
+
+    /// Run-marker file name for a claim file name.
+    fn run_marker_for(claim_file: &str) -> Option<String> {
+        claim_file
+            .strip_prefix(CLAIM_PREFIX)
+            .map(|identity| format!("{RUN_PREFIX}{identity}"))
+    }
+
+    fn run_marker_name(name: &str, key: &str) -> String {
+        format!(
+            "{RUN_PREFIX}{}.{}",
+            hex::encode(name.as_bytes()),
+            hex::encode(key.as_bytes())
+        )
+    }
+
+    /// Write the run marker, which also settles a skipped occurrence
+    /// (IF-217). Retention reaps it together with its claim.
+    pub(super) async fn record_schedule_run_file(
+        &self,
+        name: &str,
+        key: &str,
+    ) -> StorageResult<()> {
+        self.schedule_claims.ensure_created().await?;
+        match self
+            .schedule_claims
+            .write_new(
+                &Self::run_marker_name(name, key),
+                key.as_bytes(),
+                "schedule run record",
+            )
+            .await
+        {
+            Ok(()) => Ok(()),
+            // Already recorded by this or another replica.
+            Err(error) if error.kind() == StorageErrorKind::Conflict => Ok(()),
+            Err(error) => Err(error),
+        }
+    }
+
+    pub(super) async fn schedule_run_recorded_file(
+        &self,
+        name: &str,
+        key: &str,
+    ) -> StorageResult<bool> {
+        let state = self
+            .schedule_claims
+            .inspect_regular(&Self::run_marker_name(name, key))
+            .await?;
+        Ok(state == super::fs::FileState::Regular)
     }
 
     async fn index_claim_best_effort(&self, name: &str, key: &str, claim_file: &str) {

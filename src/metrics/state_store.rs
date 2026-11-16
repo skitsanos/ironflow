@@ -4,7 +4,9 @@ use async_trait::async_trait;
 
 use super::{Metrics, StorageOperation, StoreKind};
 use crate::engine::types::{Context, RunInfo, RunStatus, RunSummary, TaskState};
-use crate::storage::{RunLease, RunListQuery, RunSummaryPage, StateStore, StorageResult};
+use crate::storage::{
+    DeletedRun, RunLease, RunListQuery, RunSummaryPage, StateStore, StorageResult,
+};
 
 pub(crate) fn observe_state_store(
     inner: Arc<dyn StateStore>,
@@ -144,6 +146,11 @@ impl StateStore for ObservedStateStore {
         self.observe(StorageOperation::ListRunSummariesPage, result)
     }
 
+    async fn delete_run_reporting(&self, run_id: &str) -> StorageResult<DeletedRun> {
+        let result = self.inner.delete_run_reporting(run_id).await;
+        self.observe(StorageOperation::DeleteRun, result)
+    }
+
     async fn delete_run(&self, run_id: &str) -> StorageResult<()> {
         let result = self.inner.delete_run(run_id).await;
         self.observe(StorageOperation::DeleteRun, result)
@@ -157,6 +164,21 @@ impl StateStore for ObservedStateStore {
     async fn claim_schedule(&self, name: &str, key: &str, ttl_seconds: u64) -> StorageResult<bool> {
         let result = self.inner.claim_schedule(name, key, ttl_seconds).await;
         self.observe(StorageOperation::ClaimSchedule, result)
+    }
+
+    async fn record_schedule_run(
+        &self,
+        name: &str,
+        key: &str,
+        ttl_seconds: u64,
+    ) -> StorageResult<()> {
+        let result = self.inner.record_schedule_run(name, key, ttl_seconds).await;
+        self.observe(StorageOperation::RecordScheduleRun, result)
+    }
+
+    async fn schedule_run_recorded(&self, name: &str, key: &str) -> StorageResult<bool> {
+        let result = self.inner.schedule_run_recorded(name, key).await;
+        self.observe(StorageOperation::ScheduleRunRecorded, result)
     }
 }
 

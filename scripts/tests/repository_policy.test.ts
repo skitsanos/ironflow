@@ -32,7 +32,6 @@ describe("repository integration policy", () => {
         "Cargo.lock",
         "rust-toolchain.toml",
         "AGENTS.md",
-        "ISSUES.md",
         "docs/issues/IF-133.md",
         ".agents/skills/check-ironflow/SKILL.md",
         ".claude/skills/check/SKILL.md",
@@ -40,10 +39,42 @@ describe("repository integration policy", () => {
         ".githooks/pre-commit",
         "scripts/tests/test_codex_hooks.py",
         ".github/workflows/release.yml",
+        "THIRD_PARTY_LICENSES.md",
+        "scripts/licenses/MIT.txt",
       ]) {
         expect(ignored(path), `${event}: ${path}`).toBeFalse();
       }
     }
+  });
+
+  test("the locked archive readers are the versions whose selection code was re-read", async () => {
+    // IF-218: the ZIP preflight and these readers are separate parsers that
+    // must pick the same central directory. `zip` moved from 9.5.1 to 9.6.0
+    // in a lockfile-only change without the re-read; this pin makes any
+    // version change fail until the review is recorded.
+    const lockfile = await read("Cargo.lock");
+    const reviewed = (JSON.parse(await read("scripts/reviewed_archive_readers.json")) as {
+      readers: Record<string, { version: string; reviewed: string; record: string }>;
+    }).readers;
+    expect(Object.keys(reviewed).sort()).toEqual(["calamine", "zip"]);
+    for (const [name, entry] of Object.entries(reviewed)) {
+      const locked = [...lockfile.matchAll(new RegExp(`name = "${name}"\\nversion = "([^"]+)"`, "g"))].map(
+        (match) => match[1],
+      );
+      expect(
+        locked,
+        `${name} changed in Cargo.lock: do the re-read in docs/SECURITY.md (Archive reader updates), ` +
+          "record it, then update scripts/reviewed_archive_readers.json",
+      ).toEqual([entry.version]);
+      expect(entry.reviewed).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(await Bun.file(join(repository, entry.record)).exists(), entry.record).toBeTrue();
+    }
+    const renovate = JSON.parse(await read("renovate.json")) as {
+      packageRules: { matchPackageNames?: string[]; prBodyNotes?: string[] }[];
+    };
+    const notes = renovate.packageRules.filter((rule) => rule.prBodyNotes !== undefined);
+    expect(notes.map((rule) => rule.matchPackageNames)).toEqual([["zip", "calamine"]]);
+    expect(notes[0].prBodyNotes!.join(" ")).toContain("scripts/reviewed_archive_readers.json");
   });
 
   test("the shipped dependency surface stays bounded, copyleft-free and TLS-verified", async () => {
@@ -51,9 +82,11 @@ describe("repository integration policy", () => {
     const lockfile = await read("Cargo.lock");
     expect(await read(".cargo/audit.toml")).not.toContain('"RUSTSEC-2026-0192"');
     // IF-161: shipped binaries are MIT; the license gate runs in CI, the local
-    // gate and the pre-commit hook for manifest changes.
+    // gate and the pre-commit hook for manifest changes. IF-204: the notices
+    // freshness check runs wherever the gate runs.
     for (const surface of [".github/workflows/ci.yml", "scripts/integration_gate.sh", ".githooks/pre-commit"]) {
       expect(await read(surface), surface).toContain("bun --no-env-file scripts/check_licenses.ts");
+      expect(await read(surface), surface).toContain("bun --no-env-file scripts/third_party_notices.ts check");
     }
     expect(manifest).not.toMatch(/^html2md\s*=/m);
     for (const removedPackage of ["html2md", "textris-pdf", "bincode", "paste", "pdf-extract", "syntect", "ttf-parser", "yaml-rust"]) {
@@ -82,11 +115,43 @@ describe("repository integration policy", () => {
     expect(manifest).not.toContain("tls-native-tls");
   });
 
+  test("the one audit exception lasts only while no fixed SQLite binding resolves", async () => {
+    // IF-173: RUSTSEC-2026-0459 is fixed in libsqlite3-sys 0.39.0, which the
+    // newest published sqlx-sqlite cannot resolve. The exception must go as
+    // soon as the lockfile holds a fixed version, and no other may join it.
+    const { advisories } = Bun.TOML.parse(await read(".cargo/audit.toml")) as { advisories: { ignore: string[] } };
+    const locked = (await read("Cargo.lock")).match(/name = "libsqlite3-sys"\nversion = "(\d+)\.(\d+)\.\d+"/);
+    expect(locked).not.toBeNull();
+    const fixed = Number(locked![1]) > 0 || Number(locked![2]) >= 39;
+    expect(advisories.ignore).toEqual(fixed ? [] : ["RUSTSEC-2026-0459"]);
+  });
+
+  test("a scheduled run audits the default branch and runs no other job", async () => {
+    // IF-173: advisories are published against released code, so the audit and
+    // license gates also run on a schedule. Every other job must opt out, or a
+    // job added later would run the whole suite every night.
+    const workflow = Bun.YAML.parse(await read(".github/workflows/ci.yml")) as {
+      on: { schedule?: Array<{ cron: string }> };
+      jobs: Record<string, { if?: string; steps: Array<{ run?: string }> }>;
+    };
+    expect(workflow.on.schedule).toHaveLength(1);
+    const scheduled = Object.entries(workflow.jobs)
+      .filter(([, job]) => !job.if?.includes("github.event_name != 'schedule'"))
+      .map(([name]) => name);
+    expect(scheduled).toEqual(["audit"]);
+    const commands = workflow.jobs.audit.steps.map((step) => step.run);
+    expect(commands).toContain("cargo audit --deny warnings");
+    expect(commands).toContain("bun --no-env-file scripts/check_licenses.ts");
+  });
+
   test("optional features stay real and every full variant carries all of them", async () => {
     const { dependencies, features } = Bun.TOML.parse(await read("Cargo.toml")) as Manifest;
-    // IF-164: pdf-render gates the Pdfium dependency; cjk-fonts is opt-in.
-    expect(dependencies["pdfium-render"].optional).toBeTrue();
-    expect(features["pdf-render"]).toEqual(["dep:pdfium-render"]);
+    // IF-164, IF-194: pdf-render gates the pure-Rust rasterizer, there is no
+    // native Pdfium binding, and cjk-fonts is opt-in.
+    expect(dependencies.hayro.optional).toBeTrue();
+    expect(dependencies["pdfium-render"]).toBeUndefined();
+    expect(features["pdf-render"]).toEqual(["dep:hayro"]);
+    expect(features["pdf-render-pdfium"]).toBeUndefined();
     expect(features["cjk-fonts"]).toEqual([]);
     expect(features.default).toEqual(["pdf-render"]);
     // The -full archives, the container image, the feature job and the local
@@ -97,6 +162,32 @@ describe("repository integration policy", () => {
     expect((await read("Dockerfile")).match(/^ARG FEATURES="postgres redis cjk-fonts"$/gm)).toHaveLength(2);
     expect(await read(".github/workflows/ci.yml")).toContain("--features postgres,redis,cjk-fonts");
     expect(await read("scripts/integration_gate.sh")).toContain("--features postgres,redis,cjk-fonts");
+  });
+
+  test("every release archive and the container image carry the third-party notices beside the fonts license", async () => {
+    // IF-204: the notices file is a committed, gated build input, so packaging
+    // and the image copy it as plain files.
+    const notices = "THIRD_PARTY_LICENSES.md";
+    expect((await read(notices)).startsWith("# Third-party licenses\n")).toBeTrue();
+    const workflow = Bun.YAML.parse(await read(".github/workflows/release.yml")) as {
+      jobs: { build: { steps: Array<{ name?: string; run?: string }> } };
+    };
+    const packaging = workflow.jobs.build.steps.filter((step) => step.name?.startsWith("Package ("));
+    expect(packaging.map((step) => step.name)).toEqual(["Package (unix)", "Package (windows)"]);
+    for (const step of packaging) {
+      expect(step.run, step.name).toContain(notices);
+      expect(step.run, step.name).toContain("assets/fonts/OFL.txt");
+    }
+    const dockerfile = await read("Dockerfile");
+    const copies = dockerfile.match(/^COPY \S+ \/usr\/local\/share\/licenses\/ironflow\/\S+$/gm) ?? [];
+    expect(copies).toEqual([
+      "COPY assets/fonts/OFL.txt /usr/local/share/licenses/ironflow/fonts-OFL.txt",
+      `COPY ${notices} /usr/local/share/licenses/ironflow/${notices}`,
+    ]);
+    const ignored = (await read(".dockerignore")).split("\n").filter((line) => line.trim() && !line.startsWith("#"));
+    for (const pattern of ignored) {
+      expect(new Bun.Glob(pattern).match(notices), pattern).toBeFalse();
+    }
   });
 
   test("third-party actions are pinned to commit SHAs with their version noted", async () => {

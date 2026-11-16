@@ -16,6 +16,8 @@ pub(super) enum Kind {
     Comments,
     Authors,
     Image,
+    Layout,
+    Master,
     Other,
 }
 
@@ -164,6 +166,8 @@ fn relationship_kind(value: &str) -> Kind {
         Some("comments") => Kind::Comments,
         Some("commentAuthors") => Kind::Authors,
         Some("image") => Kind::Image,
+        Some("slideLayout") => Kind::Layout,
+        Some("slideMaster") => Kind::Master,
         _ => Kind::Other,
     }
 }

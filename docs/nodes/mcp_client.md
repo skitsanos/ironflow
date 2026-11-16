@@ -75,6 +75,29 @@ MCP `tools` capability.
 - A Streamable HTTP session retains its negotiated version, transport-managed
   headers, and server-issued session ID internally. Request responses may be
   `application/json` or `text/event-stream` as defined by MCP 2025-11-25.
+- Streamable HTTP responses are bounded before they are held in memory. One
+  `application/json` response may carry at most 16 MiB (16,777,216 bytes), the
+  body of a non-2xx response at most 64 KiB, and one `text/event-stream` event
+  at most 16 MiB. Bytes are counted while streaming, after decompression. A
+  JSON response that declares or reaches a larger size fails the action with
+  `HTTP response body exceeded the maximum size of 16777216 bytes` and is not
+  read to the end; an oversized error body is discarded and the failure
+  reports the HTTP status instead. The limits come from the MCP client library
+  (`rmcp` 3.9.0 or later) and are not configurable. See
+  [IF-173](../issues/IF-173.md).
+- The result of one action may be at most `IRONFLOW_MAX_MCP_RESULT_BYTES`
+  in its JSON form (default `4194304`, 4 MiB). The limits above bound a reply
+  on the wire; this one bounds what enters workflow context, where a result
+  is written under several keys (`call_tool` stores it as
+  `{output_key}_result` and `{output_key}_tool_result`, and its content again
+  as `{output_key}_tool_content` and `{output_key}_tool_text`). It applies to
+  the server description returned by `initialize`, to `list_tools` and to
+  `call_tool`, on both transports. A larger result fails the step with
+  `mcp_client: call_tool result exceeds IRONFLOW_MAX_MCP_RESULT_BYTES
+  (4194304)` and nothing is written to context. After `list_tools` or
+  `call_tool` the session stays usable, because the reply itself was
+  complete; after `initialize` the session is closed. A tool's side effect
+  has already happened when its result is refused.
 - Sessions are process-local. A handle persisted in run context cannot restore
   a session after IronFlow restarts.
 - Call `close` after the final operation. For stdio, shutdown closes stdin,
@@ -121,6 +144,18 @@ Action-specific output:
 
 Raw JSON-RPC request IDs, request and response envelopes, and server-issued
 HTTP session IDs are intentionally not exposed.
+
+## Outbound destination policy
+
+When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, this node
+refuses a destination that is not a public unicast address before it
+connects: a literal private, loopback or link-local address, `localhost`,
+and a host name whose DNS answer contains such an address. The validated
+answer is the one connected to, and the node connects directly, ignoring a
+system proxy. This covers the Streamable HTTP transport and its same-origin `307`/`308`
+redirects. The stdio transport starts a subprocess and is not covered. An internal destination must be listed by the operator in
+`IRONFLOW_PRIVATE_NETWORK_ALLOWLIST`; nothing in the flow can add one. See
+[Outbound destinations](../SECURITY.md#outbound-destinations).
 
 ## Example: persistent stdio session
 

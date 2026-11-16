@@ -10,8 +10,14 @@ mod test_artifact_restore_cli;
 mod test_cache_identity_cli;
 #[path = "../test_child_result_cli.rs"]
 mod test_child_result_cli;
+#[path = "../test_cli_context_depth.rs"]
+mod test_cli_context_depth;
+#[path = "../test_cli_exit_bound.rs"]
+mod test_cli_exit_bound;
 #[path = "../test_cli_list.rs"]
 mod test_cli_list;
+#[path = "../test_cli_materialization_bounds.rs"]
+mod test_cli_materialization_bounds;
 #[path = "../test_cli_precedence.rs"]
 mod test_cli_precedence;
 #[path = "../test_cli_run.rs"]
@@ -28,7 +34,13 @@ mod test_pptx_presentation_cli;
 mod test_reused_handlers_cli;
 #[path = "../test_s3_signing_cli.rs"]
 mod test_s3_signing_cli;
+#[path = "../test_schedule_retention_warning.rs"]
+mod test_schedule_retention_warning;
 #[path = "../test_sql_backend_cli.rs"]
 mod test_sql_backend_cli;
+#[path = "../test_sqlite_store_path.rs"]
+mod test_sqlite_store_path;
+#[path = "../test_validate_child_flows.rs"]
+mod test_validate_child_flows;
 #[path = "../test_validation_diagnostics.rs"]
 mod test_validation_diagnostics;

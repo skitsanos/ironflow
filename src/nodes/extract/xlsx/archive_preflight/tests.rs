@@ -33,6 +33,7 @@ fn check_bytes(bytes: Vec<u8>, max_entries: u64, max_bytes: u64) -> anyhow::Resu
         "TEST_MAX_BYTES",
         None,
     )
+    .map(|_| ())
 }
 
 pub(super) fn check_xlsx_bytes(
@@ -49,6 +50,7 @@ pub(super) fn check_xlsx_bytes(
         max_metadata_bytes,
         None,
     )
+    .map(|_| ())
 }
 
 pub(super) fn eocd_offset(bytes: &[u8]) -> usize {
@@ -92,11 +94,21 @@ fn classic_eocd_count_is_rejected_before_zip_archive_construction() {
 }
 
 #[test]
-fn a_fake_eocd_signature_inside_the_comment_is_ignored() {
+fn signature_bytes_in_a_comment_are_ignored_unless_they_form_a_record() {
+    check_bytes(standard_zip(1, b"prefix-PK\x05\x06-suffix"), 1, 1024 * 1024).unwrap();
+
+    // With room for its fixed fields the embedded signature is a record the
+    // `zip` reader would use, here as an empty archive (IF-190).
     let mut comment = b"prefix-PK\x05\x06".to_vec();
     comment.extend_from_slice(&[0_u8; 24]);
     let bytes = standard_zip(1, &comment);
-    check_bytes(bytes, 1, 1024 * 1024).unwrap();
+    assert!(
+        zip::ZipArchive::new(Cursor::new(&bytes))
+            .unwrap()
+            .is_empty()
+    );
+    let error = check_bytes(bytes, 1, 1024 * 1024).unwrap_err().to_string();
+    assert!(error.contains("after its ZIP end record"), "{error}");
 }
 
 #[test]

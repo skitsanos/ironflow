@@ -44,8 +44,8 @@ def main() -> int:
     context = (
         f"IronFlow session context: branch {branch}; {changed} changed or untracked paths. "
         "Read the repository AGENTS.md before editing, preserve existing worktree changes, "
-        "use docs/issues/README.md and individual IF-NNN pages as the canonical ledger "
-        "(ISSUES.md is generated), and use repo-local skills from .agents/skills. "
+        "use docs/issues/README.md (generated) and individual IF-NNN pages as the "
+        "canonical ledger, and use repo-local skills from .agents/skills. "
         "Record fresh regression evidence before resolving findings; a previous green "
         "baseline does not validate a new fix. Local edits do not authorize publication."
     )

@@ -6,7 +6,7 @@ TLS trust-store incident assessment and rebuild guidance: [Security](docs/SECURI
 
 IronFlow is a DAG-based workflow orchestration engine designed for CI/CD pipelines, data processing, ETL jobs, API integrations, document extraction, and task automation. Define workflows in simple Lua scripts — a language with only ~20 keywords — and run them on a sandboxed, async Rust runtime with parallel step execution, retry logic, conditional routing, and a built-in REST API.
 
-No Python. No Node.js. No Docker required. Most workflows need only the IronFlow binary; the `pdf_to_image` and `pdf_thumbnail` nodes additionally require a native Pdfium library. IronFlow runs on Linux, macOS, edge servers, and air-gapped environments.
+No Python. No Node.js. No Docker required. Workflows need only the IronFlow binary; every built-in node, including PDF page rendering, works without a native library. IronFlow runs on Linux, macOS, edge servers, and air-gapped environments.
 
 ```lua
 local flow = Flow.new("process_order")
@@ -49,7 +49,7 @@ ironflow run process_order.lua --context '{"order": {"order_id": "ORD-42", "amou
 
 IronFlow gives you a workflow engine that:
 
-- **Ships as a single binary** — no Python, Node.js, package manager, or container runtime required; PDF rendering nodes require Pdfium
+- **Ships as a single binary** — no Python, Node.js, package manager, or container runtime required
 - **Runs anywhere** — Linux, macOS, CI/CD pipelines, edge servers, embedded systems
 - **Is fast** — Rust-powered execution with parallel step scheduling via DAG resolution
 - **Is safe** — Sandboxed Lua can't access the filesystem or OS unless you explicitly allow it
@@ -100,6 +100,12 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 - **Artifact-native HTTP** — stream verified binary uploads, multipart payloads,
   and binary responses without Base64 or lossy UTF-8 conversion, with explicit
   proxy selection and DNS-aware private-network enforcement
+- **Outbound destination policy** — `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`
+  refuses loopback, private, link-local and metadata addresses for every
+  node that connects to a flow-chosen destination (HTTP, LLM and embedding
+  providers, MCP, S3, SMTP, databases), with DNS answers validated and
+  pinned; `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` names the internal services
+  that stay reachable. See [Security](docs/SECURITY.md#outbound-destinations)
 - **REST API** — run and manage flows over HTTP (Axum-based)
 - **Optional static frontend** — serve a configured public directory from the
   same origin as the API, with streamed files, cache validators, ranges, and a
@@ -168,7 +174,7 @@ docker run --rm --pull always --name ironflow --platform linux/amd64 \
 published development build. Both are moving tags, so `--pull always` checks
 for an updated image on each start. Commit tags and digest references are also
 available; see [image selection](docs/GETTING_STARTED.md#select-an-image).
-Use `:1.21.0` to select that stable release. Future stable releases receive
+Use `:1.22.0` to select that stable release. Future stable releases receive
 matching `X.Y.Z` tags on both registries after release publication.
 Images include PostgreSQL and Redis support and currently target `linux/amd64`;
 ARM hosts need Docker's x86-64 emulation. The `ironflow-data` volume preserves
@@ -214,6 +220,13 @@ or a discovered default file that exists, must be readable and valid. The
 whole file is parsed before any values are applied, tracing, or the final
 source-aware CLI parse, so dotenv can configure `RUST_LOG`, CLI environment aliases,
 runtime limits, and Lua `env()` calls without partial startup state.
+
+A server that runs flows it did not write can be confined with
+`IRONFLOW_BLOCK_PRIVATE_NETWORK=true` (`block_private_network` in
+`ironflow.yaml`). It is off by default. With it on, a model server or
+database on a loopback or private address must be listed in
+`IRONFLOW_PRIVATE_NETWORK_ALLOWLIST`, for example `127.0.0.1:11434` for a
+local Ollama; see [Outbound destinations](docs/SECURITY.md#outbound-destinations).
 
 The repository's [`.env.example`](.env.example) contains safe starter values.
 See the [CLI reference](docs/CLI_REFERENCE.md#configuration-resolution) for the
@@ -269,7 +282,9 @@ configuration, confinement, caching, and SPA fallback contract.
 Flows can also run on a schedule. A `schedules:` block in `ironflow.yaml`
 declares bounded standard five-field cron triggers that `ironflow serve`
 evaluates—in a named time zone, with at most one replica claiming a given
-instant. If day-of-month and weekday are both restricted, either match fires
+instant. Weekday numbers follow standard crontab: `0` and `7` are Sunday and
+`1` to `6` are Monday to Saturday, so `1-5` is Monday to Friday. If
+day-of-month and weekday are both restricted, either match fires
 the schedule, as in traditional crontab. A claimed instant may still
 be skipped for lateness, overlap, or capacity; overlap suppression is a bounded
 best-effort check rather than a distributed lock. Schedule names evaluate
@@ -365,12 +380,14 @@ while the prior identity remains retained. Unknown, expired, and cross-run
 event cursors return storage `NotFound` and become `410 event_cursor_gone` at
 the HTTP boundary.
 
-The default in-memory event backend retains events and deletion fences in one
-oldest-first queue across all runs. It enforces both a 10,000-entry limit and a
+The default in-memory event backend retains events, one owner record per run
+and deletion fences in one oldest-first queue across all runs. It enforces both a 10,000-entry limit and a
 fixed 64 MiB retained-heap estimate so large metadata cannot bypass the count
 bound; set `IRONFLOW_EVENT_MEMORY_CAPACITY` or `event_memory_capacity` to
 another positive entry limit. `DELETE /runs/{id}` removes state first, then
-idempotently removes retained events and fences late event publication.
+idempotently removes retained events and fences late event publication from
+the deleted run; a run created again under the same ID has its own stream,
+also when it is accepted while the delete is still in progress.
 Repeating the request can finish event cleanup left by an interrupted first
 attempt. A non-terminal run with an unexpired execution-owner lease is left
 intact and returns `409 conflict`; terminal and expired-lease runs are
@@ -693,4 +710,6 @@ commitment.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). Release archives and the container image include
+[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md), the generated license
+notices for the Rust crates linked into the binary.

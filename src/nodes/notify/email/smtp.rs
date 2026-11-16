@@ -1,6 +1,7 @@
 use anyhow::Result;
 use lettre::message::{Mailbox, MultiPart, SinglePart, header::ContentType};
 use lettre::transport::smtp::authentication::Credentials;
+use lettre::transport::smtp::client::{Tls, TlsParameters};
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 
 use crate::engine::types::{Context, NodeOutput};
@@ -32,12 +33,22 @@ pub(super) async fn send(config: &serde_json::Value, ctx: &Context) -> Result<No
         .unwrap_or("starttls");
 
     let email = build_message(&params)?;
+    // IF-212: when the destination guard applies, the relay name is resolved
+    // and classified here and the transport connects to that validated
+    // address, so the driver does not resolve the name a second time. TLS
+    // still verifies the configured name.
+    let port = smtp_port.unwrap_or_else(|| default_port(tls_mode));
+    let pinned = crate::util::outbound::resolve_host_allowed("send_email", &smtp_server, port)
+        .await?
+        .and_then(|addresses| addresses.first().map(std::net::SocketAddr::ip));
     let transport = build_transport(
-        &smtp_server,
-        smtp_port,
-        smtp_username,
-        smtp_password,
-        tls_mode,
+        &Relay {
+            server: &smtp_server,
+            pinned,
+            port,
+            tls_mode,
+        },
+        smtp_username.zip(smtp_password),
         params.timeout,
     )?;
     let result = transport.send(email).await;
@@ -104,50 +115,49 @@ fn parse_mailbox(address: &str, field: &str) -> Result<Mailbox> {
     })
 }
 
-fn build_transport(
-    server: &str,
-    port: Option<u16>,
-    username: Option<String>,
-    password: Option<String>,
-    tls_mode: &str,
-    timeout: std::time::Duration,
-) -> Result<AsyncSmtpTransport<Tokio1Executor>> {
-    let credentials = username
-        .zip(password)
-        .map(|(username, password)| Credentials::new(username, password));
+/// Where and how to reach the relay. `pinned` is the address the destination
+/// guard validated; without it the transport resolves `server` itself.
+struct Relay<'a> {
+    server: &'a str,
+    pinned: Option<std::net::IpAddr>,
+    port: u16,
+    tls_mode: &'a str,
+}
 
+/// The ports lettre's `builder_dangerous`, `relay` and `starttls_relay` use.
+fn default_port(tls_mode: &str) -> u16 {
     match tls_mode {
-        "none" => {
-            let builder = AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(server);
-            Ok(configure_transport(builder, port, credentials, timeout).build())
-        }
-        "tls" => {
-            let builder = AsyncSmtpTransport::<Tokio1Executor>::relay(server)
-                .map_err(|error| transport_configuration_error(server, error))?;
-            Ok(configure_transport(builder, port, credentials, timeout).build())
-        }
-        _ => {
-            let builder = AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(server)
-                .map_err(|error| transport_configuration_error(server, error))?;
-            Ok(configure_transport(builder, port, credentials, timeout).build())
-        }
+        "none" => 25,
+        "tls" => 465,
+        _ => 587,
     }
 }
 
-fn configure_transport(
-    mut builder: lettre::transport::smtp::AsyncSmtpTransportBuilder,
-    port: Option<u16>,
-    credentials: Option<Credentials>,
+fn build_transport(
+    relay: &Relay<'_>,
+    credentials: Option<(String, String)>,
     timeout: std::time::Duration,
-) -> lettre::transport::smtp::AsyncSmtpTransportBuilder {
-    if let Some(port) = port {
-        builder = builder.port(port);
+) -> Result<AsyncSmtpTransport<Tokio1Executor>> {
+    let connect_to = relay
+        .pinned
+        .map_or_else(|| relay.server.to_owned(), |address| address.to_string());
+    // The certificate is always verified against the configured server name.
+    let tls_parameters = || {
+        TlsParameters::new(relay.server.to_owned())
+            .map_err(|error| transport_configuration_error(relay.server, error))
+    };
+    let mut builder = AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(connect_to)
+        .port(relay.port)
+        .timeout(Some(timeout));
+    builder = match relay.tls_mode {
+        "none" => builder,
+        "tls" => builder.tls(Tls::Wrapper(tls_parameters()?)),
+        _ => builder.tls(Tls::Required(tls_parameters()?)),
+    };
+    if let Some((username, password)) = credentials {
+        builder = builder.credentials(Credentials::new(username, password));
     }
-    builder = builder.timeout(Some(timeout));
-    if let Some(credentials) = credentials {
-        builder = builder.credentials(credentials);
-    }
-    builder
+    Ok(builder.build())
 }
 
 fn transport_configuration_error(

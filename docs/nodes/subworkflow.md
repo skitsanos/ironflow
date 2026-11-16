@@ -10,7 +10,7 @@ The subworkflow node allows you to compose workflows by calling one flow from an
 |-----------|------|----------|---------|-------------|
 | `flow` | string | yes | — | Path to the `.lua` flow file to execute. Resolved relative to the parent flow's directory. |
 | `wait` | bool | no | `true` | When `true`, the parent blocks until the subworkflow completes. When `false`, the subworkflow is launched in the background (fire-and-forget). |
-| `input` | object | no | `nil` | Key mapping from parent context to child context. Each entry maps `child_key = "parent_key"`. |
+| `input` | object | no | `nil` | Key mapping from parent context to child context. Each entry maps `child_key = "parent_key"`; the parent key must exist. See [Input mapping](#input-mapping). Without `input` the child inherits the parent context. |
 | `output_key` | string | no | `nil` | If set, the child's output context is namespaced under this key instead of being merged directly into the parent context. Recommended for parallel subworkflows. |
 | `on_error` | string | no | see below | `"fail_fast"` fails the parent step when the child run fails; `"ignore"` continues with the child's partial context. |
 
@@ -115,7 +115,7 @@ the child returns a broad flattened context that can also contain inherited
 input keys, so namespacing is the safest composition boundary when parallel
 results must coexist.
 
-Waiting composition receives full, redacted child values directly from the live
+Waiting composition receives full child values, as the child produced them, directly from the live
 execution after finalization, not from persisted inspection snapshots.
 `IRONFLOW_MAX_TASK_OUTPUT_BYTES` may replace large values in CLI/API inspection
 with truncation markers, but does not truncate the values consumed by parent
@@ -132,6 +132,95 @@ When `wait = false`:
 
 - `subworkflow_name` — the name of the subworkflow that was launched.
 - `subworkflow_async` — set to `true`, indicating the subworkflow is running in the background.
+
+## Nesting limit and waiting
+
+A child flow may start children of its own. Each child run is one level below
+the run that started it, and a child more than `IRONFLOW_MAX_SUBWORKFLOW_DEPTH`
+levels (default `16`) below the top-level run is refused. The limit covers
+every composition node (`subworkflow`, `parallel_subworkflows`,
+`repeat_subworkflow` and `tool_dispatch`) in any combination, and a detached
+`wait = false` child keeps the level of the step that started it, so a flow
+that calls itself, directly or through other flows, fails instead of
+descending until memory runs out. `ironflow validate` does not load child
+flows and cannot report such a cycle.
+
+The refusal is an error of the step that tried to start the child:
+
+```text
+subworkflow: child workflow nesting depth 17 exceeds the limit of 16 (IRONFLOW_MAX_SUBWORKFLOW_DEPTH); check for a flow that calls itself
+```
+
+It is raised before the child flow is resolved or loaded, and `on_error =
+"ignore"` on that step does not suppress it. The run that contains the step
+fails like any other, so a level further up may tolerate it with its own
+`on_error = "ignore"`. Each level reports the refusal alone in its error text,
+not the chain of sixteen wrapped child failures that led to it. Raise the
+limit only for a design that really nests that deeply: every level holds a
+loaded flow, its context and a run coordinator for as long as its child runs.
+The limit bounds depth, not the number of children; the
+[live child run limit](#live-child-run-limit) bounds that.
+
+## Live child run limit
+
+At most `IRONFLOW_MAX_LIVE_CHILD_RUNS` child runs (default `4096`) are alive
+at once in the process. The count covers every composition node, waiting
+and detached children, all nesting levels and all top-level runs together:
+a wide `parallel_subworkflows` at each of several levels multiplies, and
+neither the nesting limit nor the fan-out limit of one step bounds the
+product. A child run holds its slot from the moment it is admitted until it
+has finalized.
+
+A child that finds no free slot is not started:
+
+```text
+child workflow run limit reached: 4096 child runs are live (IRONFLOW_MAX_LIVE_CHILD_RUNS)
+```
+
+It counts as a failed child of the step that asked for it, so the step
+fails, or records the failure where it tolerates failed children
+(`on_error = "ignore"`, `output_key`). The step does not wait for a slot: it
+keeps its own run alive while it waits, and that run may itself be a child
+holding a slot, so waiting parents could never free one. Lower
+`max_concurrent` on the fan-out steps, or raise the limit when the host has
+the memory for more loaded flows, contexts and coordinators. Top-level runs
+do not take a slot.
+
+A waiting child is part of the step that started it. When that step times
+out, or its run is cancelled or reaches `IRONFLOW_MAX_RUN_SECONDS`, the child
+is cancelled, and the step does not end until the child run has stopped: its
+tracked blocking workers have exited, including in children it started
+itself, and it has finalized. Until then the step's `on_error` handler does
+not start, dependent steps do not run, the run is not finalized, and its task
+and run admission stay held, exactly as for the same node placed directly in
+the parent. A worker that cannot be interrupted therefore delays the timeout
+result by the time it needs to return. A `wait = false` child is independent
+by contract and never holds the step that launched it.
+
+### Parent deadline
+
+The steps of a waiting child observe the deadline of the parent step. A child
+step without a `timeout` of its own sees the parent step's deadline; a child
+step with one sees whichever comes first; a child of that child inherits the
+same deadline, at every level. This is the deadline that work inside a step
+reads: cooperative blocking workers and Lua code stop with `step deadline
+exceeded` when it passes, and deadline-aware requests do not plan past it.
+It does not change which step reports the timeout: the parent step times out
+on its own `timeout` and cancels the child, and a child step still fails with
+its own timeout message only when its own `timeout` elapses. A parent step
+without a `timeout` adds no deadline, and a `wait = false` child inherits
+none. `IRONFLOW_MAX_RUN_SECONDS` is enforced by cancelling the run, not
+through this deadline.
+
+[`nesting_limit.lua`](../../examples/11-subworkflow/nesting_limit.lua) calls
+itself, tolerates the refusal one level above the ceiling and reports it to the
+top-level run.
+
+`ironflow validate` loads child flows named with a literal path and reports
+recursion before a run: as an error when the flow always starts itself again
+and nothing tolerates the failure, otherwise as a warning (the example above
+validates with one). See
+[Child flows](../CLI_REFERENCE.md#child-flows).
 
 ## Examples
 
@@ -191,7 +280,17 @@ flow:step("async_greet", nodes.subworkflow({
 })):depends_on("prepare")
 ```
 
-When `wait = false`, the parent step completes immediately with `subworkflow_async = true` in the context.
+When `wait = false`, the parent step completes with `subworkflow_async = true`
+in the context as soon as the child is admitted; it does not wait for the
+child's steps. Before that it resolves the child's path, checks the input
+mapping, and loads and validates the child's flow file, so a child that is
+missing, does not parse or is invalid fails the launching step instead of
+only being logged. That load holds the launching step for as long as it
+takes. It is bounded like every flow load: by the source size limit
+(`IRONFLOW_MAX_FLOW_SOURCE_BYTES`), the Lua instruction, time and memory
+budgets (`IRONFLOW_LUA_MAX_INSTRUCTIONS`, `IRONFLOW_LUA_MAX_SECONDS`, 10
+seconds by default, and `IRONFLOW_LUA_MAX_MEMORY_BYTES`) and the step's own
+`timeout`.
 
 ### Input mapping
 
@@ -201,11 +300,40 @@ Map specific parent context keys into the child flow's context:
 flow:step("call_child", nodes.subworkflow({
     flow = "process_order.lua",
     input = {
-        order_id = "current_order_id",   -- child sees ctx.order_id
-        customer = "user_info"            -- child sees ctx.customer
+        order_id = "current_order_id",          -- child sees ctx.order_id
+        customer = "user_info",                 -- child sees ctx.customer
+        coupon = { optional = "coupon_code" },  -- omitted when absent
+        channel = { literal = "web" },          -- the text "web"
+        retries = 3                             -- non-string values are literals
     }
 }))
 ```
+
+`subworkflow`, [`parallel_subworkflows`](parallel_subworkflows.md) and
+[`repeat_subworkflow`](repeat_subworkflow.md) share one mapping contract:
+
+| Mapping value | Meaning |
+|---|---|
+| `"parent_key"` | The top-level parent context key. It must exist; a key holding JSON `null` exists. |
+| `{ optional = "parent_key" }` | The parent key when it exists; otherwise the child key is omitted (`nil` in the child). |
+| `{ literal = <value> }` | The value as written, of any type. Use it for a literal string. |
+| number, boolean, array, any other object | Passed as written. Strings nested inside are not looked up. |
+
+A string that names no parent key **fails the step** with
+`subworkflow: input '<child_key>' references a parent context value that does
+not exist; ...`. The check runs before the child flow is loaded, so no child
+run is created, for `wait = false` as well. It is a step error: `on_error =
+"ignore"` on the node does not suppress it, and the message names the mapping
+entry, never the configured string or a context value. In earlier releases a
+missing key was dropped silently here, and passed as a literal string by the
+other two nodes.
+
+Only an object with exactly one key, `optional` or `literal`, is a form. To
+pass such an object as data, wrap it: `{ literal = { literal = 1 } }`.
+`optional` must be a non-empty string. An `input` that is not an object is
+rejected; it used to be ignored, which gave the child the whole parent
+context. [`input_mapping_forms.lua`](../../examples/11-subworkflow/input_mapping_forms.lua)
+runs every form.
 
 ### Output namespacing with output_key
 

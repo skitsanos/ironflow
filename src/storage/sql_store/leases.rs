@@ -46,8 +46,9 @@ impl SqlStateStore {
             StorageError::backend(format_args!("Failed to initialize run '{run_id}'"), error)
         })?;
         let sql = format!(
-            "INSERT INTO {} (id, flow_name, status, started, started_micros, finished, ctx) \
-             VALUES ({}, {}, {}, {}, {}, {}, {})",
+            "INSERT INTO {} \
+             (id, flow_name, status, started, started_micros, finished, ctx, incarnation) \
+             VALUES ({}, {}, {}, {}, {}, {}, {}, {})",
             self.tables.runs,
             self.placeholder(1),
             self.placeholder(2),
@@ -56,6 +57,7 @@ impl SqlStateStore {
             self.placeholder(5),
             self.placeholder(6),
             self.placeholder(7),
+            self.placeholder(8),
         );
         let started = Utc::now();
         sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
@@ -71,6 +73,9 @@ impl SqlStateStore {
                     error,
                 )
             })?)
+            // The lease owner is unique to this incarnation of the run ID;
+            // it outlives the lease so a delete can report it (IF-214).
+            .bind(lease.owner())
             .execute(&mut *transaction)
             .await
             .map_err(|error| map_insert_error("run", run_id, error))?;

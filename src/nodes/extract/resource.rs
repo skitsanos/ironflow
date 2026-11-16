@@ -119,6 +119,12 @@ impl<'a> Budget<'a> {
         self.execution.checkpoint()
     }
 
+    /// The output ceiling, for work that must stop before it materializes
+    /// more than the result may hold.
+    pub(super) fn max_output_bytes(&self) -> u64 {
+        self.max_output_bytes
+    }
+
     pub(super) fn charge_item(&mut self, what: &str) -> Result<()> {
         self.charge_items(1, what)
     }
@@ -217,7 +223,7 @@ mod tests {
 
     #[tokio::test]
     async fn output_limit_is_checked_without_materializing_an_extra_buffer() {
-        crate::util::execution::run_blocking_step(|execution| {
+        crate::util::execution::run_tracked_blocking_step(|execution| {
             let limits = Limits {
                 max_output_bytes: 8,
                 max_items: 10,

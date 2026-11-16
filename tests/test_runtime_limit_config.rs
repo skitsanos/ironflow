@@ -144,6 +144,8 @@ fn malformed_ceilings_are_fatal_for_run_serve_and_validate() {
         ("IRONFLOW_MCP_SESSION_TTL_SECS", "soon"),
         ("IRONFLOW_CACHE_MAX_ENTRIES", "many"),
         ("IRONFLOW_MAX_DETACHED_SUBWORKFLOWS", "0"),
+        ("IRONFLOW_MAX_SUBWORKFLOW_DEPTH", "0"),
+        ("IRONFLOW_MAX_PARALLEL_SUBWORKFLOWS", "all"),
     ] {
         for arguments in [
             vec!["run", "missing.lua"],

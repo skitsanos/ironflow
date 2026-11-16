@@ -121,7 +121,7 @@ mod tests {
                     <w:num w:numId="42"><w:abstractNumId w:val="10"/></w:num>
                     <w:num w:numId="43"><w:abstractNumId w:val="11"/></w:num>
                 </w:numbering>"#;
-        let numbering = crate::util::execution::run_blocking_step(move |execution| {
+        let numbering = crate::util::execution::run_tracked_blocking_step(move |execution| {
             let limits = crate::nodes::extract::resource::Limits::current();
             let mut budget =
                 crate::nodes::extract::resource::Budget::new("extract_word", limits, &execution);

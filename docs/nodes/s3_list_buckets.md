@@ -29,6 +29,23 @@ object behind.
 - `{output_key}_buckets` — Array of buckets (`name`, `creation_date`).
 - `{output_key}_success` — `true` on success.
 
+## Limits
+
+The response body may be at most `IRONFLOW_MAX_S3_LIST_PAGE_BYTES` (default
+`16777216`, 16 MiB), the limit one `s3_list_objects` page has. A larger
+response fails the step with `s3_list_buckets: a list page exceeds
+IRONFLOW_MAX_S3_LIST_PAGE_BYTES (16777216)` before the SDK reads it whole.
+
+## Outbound destination policy
+
+When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, `endpoint_url`
+(or `AWS_ENDPOINT_URL`) is refused when it is `localhost` or not a public
+unicast address, and every DNS answer of the service client is validated
+and pinned. An S3-compatible endpoint on a private address must be listed by
+the operator in `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` (for example
+`minio.internal:9000`). See
+[Outbound destinations](../SECURITY.md#outbound-destinations).
+
 ## Example
 
 See the linked workflow for the executable, cataloged example. Minimal use:

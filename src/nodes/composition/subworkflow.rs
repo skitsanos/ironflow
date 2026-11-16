@@ -5,13 +5,14 @@ use anyhow::Result;
 use async_trait::async_trait;
 use tokio::sync::Semaphore;
 
-use crate::engine::executor::ExecutionOverlay;
-use crate::engine::executor::WorkflowEngine;
+use crate::engine::executor::{ChildLink, ExecutionOverlay, WorkflowEngine};
 use crate::engine::types::{Context, NodeOutput, RunStatus};
 use crate::lua::runtime::LuaRuntime;
 use crate::nodes::{Node, NodeRegistry};
 use crate::storage::null_store::NullStateStore;
 use crate::util::node_config::config_bool;
+
+use super::input_mapping::{input_object, map_parent_input};
 
 /// Keys this node writes to describe its own child. A child that itself ran a
 /// subworkflow carries the same keys about *its* child; without `output_key`
@@ -57,6 +58,9 @@ impl Node for SubworkflowNode {
 
     #[allow(clippy::too_many_lines)] // One child-run lifecycle: admission, load, execution and result projection.
     async fn execute(&self, config: &serde_json::Value, ctx: &Context) -> Result<NodeOutput> {
+        // Refused before the child is resolved or loaded, so a flow that
+        // calls itself stops at the ceiling instead of descending (IF-188).
+        let link = ChildLink::for_current_step("subworkflow")?;
         let flow_file = config
             .get("flow")
             .and_then(|v| v.as_str())
@@ -102,30 +106,20 @@ impl Node for SubworkflowNode {
             PathBuf::from(flow_dir).join(flow_file)
         };
 
-        let flow_path_str = flow_path
-            .canonicalize()
+        let flow_path_str = tokio::fs::canonicalize(&flow_path)
+            .await
             .map_err(|e| {
                 anyhow::anyhow!("subworkflow: cannot find '{}': {}", flow_path.display(), e)
             })?
             .to_string_lossy()
             .to_string();
 
-        // Build subworkflow context from input mapping or full parent context
-        let mut sub_ctx = if let Some(input_map) = config.get("input").and_then(|v| v.as_object()) {
-            let mut mapped = Context::new();
-            for (sub_key, parent_key_val) in input_map {
-                if let Some(parent_key) = parent_key_val.as_str() {
-                    if let Some(value) = ctx.get(parent_key) {
-                        mapped.insert(sub_key.clone(), value.clone());
-                    }
-                } else {
-                    // Direct value (not a key reference)
-                    mapped.insert(sub_key.clone(), parent_key_val.clone());
-                }
-            }
-            mapped
-        } else {
-            ctx.clone()
+        // Build the child context from the input mapping, or inherit the
+        // parent. A mapping whose source is absent fails here, before the
+        // child is loaded or started (IF-221).
+        let mut sub_ctx = match input_object("subworkflow", config)? {
+            Some(input) => map_parent_input("subworkflow", input, ctx)?,
+            None => ctx.clone(),
         };
 
         // Set _flow_dir for the subworkflow (enables nested subworkflows)
@@ -150,7 +144,7 @@ impl Node for SubworkflowNode {
         if wait {
             let engine = WorkflowEngine::new(child_registry, store, None);
             let run_info = engine
-                .execute_child(&flow, sub_ctx, execution_overlay)
+                .execute_child(&flow, sub_ctx, execution_overlay, &link)
                 .await?;
 
             let child_succeeded = matches!(run_info.status, RunStatus::Success);
@@ -240,7 +234,7 @@ impl Node for SubworkflowNode {
                 let _permit = permit;
                 let engine = WorkflowEngine::new(child_registry, store, None);
                 let result = engine
-                    .start_with_execution_overlay(&flow, sub_ctx, execution_overlay)
+                    .start_detached_child(&flow, sub_ctx, execution_overlay, link)
                     .await;
                 let result = match result {
                     Ok(handle) => handle.wait().await.map(|_| ()),

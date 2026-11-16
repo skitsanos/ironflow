@@ -36,7 +36,9 @@ impl Node for IfNode {
             .and_then(|v| v.as_str())
             .unwrap_or("if");
 
-        let result = evaluate_condition(condition, ctx);
+        let result = evaluate_condition(condition, ctx).map_err(|error| {
+            anyhow::anyhow!("if_node cannot evaluate condition '{condition}': {error}")
+        })?;
         let route = if result { true_route } else { false_route };
         let mut output = NodeOutput::new();
         output.insert(

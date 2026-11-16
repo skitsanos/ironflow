@@ -78,6 +78,7 @@ pub struct JsonStateStore {
 impl StateStore for JsonStateStore {
     async fn init_run(&self, run_id: &str, flow_name: &str, ctx: &Context) -> StorageResult<()> {
         codec::validate_input_id(run_id)?;
+        crate::storage::value_depth::admit_context(run_id, ctx)?;
         let _lock = self.lock.write().await;
         self.directory.ensure_created().await?;
         self.directory
@@ -164,6 +165,7 @@ impl StateStore for JsonStateStore {
 
     async fn upsert_task(&self, run_id: &str, task: &TaskState) -> StorageResult<()> {
         codec::validate_input_id(run_id)?;
+        crate::storage::value_depth::admit_task(run_id, task)?;
         let _lock = self.lock.write().await;
         let mut catalog = catalog::CatalogTransaction::begin(self).await?;
         let mut info = self.read_run(run_id).await?;
@@ -191,6 +193,7 @@ impl StateStore for JsonStateStore {
 
     async fn update_ctx(&self, run_id: &str, ctx: &Context) -> StorageResult<()> {
         codec::validate_input_id(run_id)?;
+        crate::storage::value_depth::admit_context(run_id, ctx)?;
         let _lock = self.lock.write().await;
         let mut catalog = catalog::CatalogTransaction::begin(self).await?;
         let mut info = self.read_run(run_id).await?;
@@ -271,5 +274,14 @@ impl StateStore for JsonStateStore {
 
     async fn claim_schedule(&self, name: &str, key: &str, ttl_seconds: u64) -> StorageResult<bool> {
         self.claim_schedule_file(name, key, ttl_seconds).await
+    }
+
+    /// Retention follows the claim file, so `ttl_seconds` is not needed here.
+    async fn record_schedule_run(&self, name: &str, key: &str, _ttl: u64) -> StorageResult<()> {
+        self.record_schedule_run_file(name, key).await
+    }
+
+    async fn schedule_run_recorded(&self, name: &str, key: &str) -> StorageResult<bool> {
+        self.schedule_run_recorded_file(name, key).await
     }
 }

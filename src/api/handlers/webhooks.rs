@@ -7,6 +7,7 @@ use axum::extract::{Path, State};
 use crate::engine::WorkflowEngine;
 use crate::engine::types::Context;
 use crate::lua::LuaRuntime;
+use crate::util::sensitive_url::redact_sensitive_text;
 
 use super::super::AppState;
 use super::super::errors::AppError;
@@ -52,13 +53,14 @@ pub async fn run_webhook(
                 AppError::BadRequest("webhook request body must be a JSON object".to_string())
             })?
     };
-    for reserved in ["_headers", "_webhook", "_flow_dir"] {
-        if initial_ctx.contains_key(reserved) {
-            return Err(AppError::BadRequest(format!(
-                "Webhook request context must not define reserved key '{reserved}'"
-            )));
-        }
-    }
+    crate::util::json_depth::check_entries(&initial_ctx)
+        .map_err(|error| AppError::BadRequest(format!("webhook request body: {error}")))?;
+    super::reserved_keys::reject_reserved_context_keys(
+        &initial_ctx,
+        "Webhook request",
+        &["_headers", "_webhook", "_flow_dir"],
+    )?;
+    super::reserved_keys::reject_scheduler_context_keys(&initial_ctx, "Webhook request")?;
     let execution_overlay = webhook
         .execution_overlay(&headers)
         .map_err(AppError::BadRequest)?;
@@ -79,6 +81,20 @@ pub async fn run_webhook(
     )
     .await
     .map_err(|e| flow_file_load_error(&path, &e))?;
+
+    // The flow is server configuration: the caller learns that it is
+    // unusable, the operator reads why in the log (IF-203).
+    let errors = super::admission::flow_validation_errors(&flow, &state.registry);
+    if !errors.is_empty() {
+        tracing::warn!(
+            webhook = %name,
+            errors = %redact_sensitive_text(&errors.join("; ")),
+            "webhook flow failed validation"
+        );
+        return Err(AppError::BadRequest(
+            "Webhook flow failed validation".to_string(),
+        ));
+    }
 
     // Inject webhook name
     initial_ctx.insert("_webhook".to_string(), serde_json::Value::String(name));

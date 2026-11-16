@@ -7,7 +7,7 @@ Crop a single image file.
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `path` | string | one of `path` or `source_key` | — | Source image path (supports `${ctx.key}` interpolation). |
-| `source_key` | string | one of `path` or `source_key` | — | Context key containing a path, artifact URI/descriptor, `{ artifact = ... }`, or an explicit `{ base64 = "..." }` object. |
+| `source_key` | string | one of `path` or `source_key` | — | Context key containing a path, artifact URI/descriptor, `{ artifact = ... }`, or an explicit `{ base64 = "..." }` object. A stored path is used as it is and is not interpolated. |
 | `output_path` | string | yes | — | Destination file path for the cropped image. |
 | `x` | number | no | `0` | Left offset in pixels. |
 | `y` | number | no | `0` | Top offset in pixels. |
@@ -52,6 +52,31 @@ flow:step("log", nodes.log({
 
 return flow
 ```
+
+## Destination contract
+
+`output_path` is published through the same rooted, atomic writer as
+[`write_file`](write_file.md), inside the tracked blocking worker: the cropped
+image is encoded into a staged file beside the destination, flushed and
+synchronized, then renamed over it.
+
+- The destination directory must already exist. The node creates no
+  directories and fails with `image_crop: destination directory '<dir>' does
+  not exist`. Directory aliases, including macOS `/tmp`, are resolved first.
+- A destination that is a symlink (dangling or not), FIFO, device or directory
+  is refused and its target is left untouched. An existing regular file is
+  replaced.
+- An encoder or write failure, an expired step deadline or cancellation
+  removes the staged file and leaves an existing destination unchanged.
+- On Unix the published file has the mode a plain write would have left: a
+  new file gets `0666` masked by the process umask (`0644` under umask `022`)
+  and a replaced file keeps its permission bits, without any setuid, setgid
+  or sticky bit. The staged file is mode `0600` until it is published. Other
+  platforms use their native permission semantics.
+- Unix pins the resolved directory and stages relative to that handle. Other
+  platforms revalidate the observed path immediately before an atomic
+  replacement and cannot close a hostile parent-directory swap race; protect
+  destination trees from same-identity mutation.
 
 ## Resource contract
 

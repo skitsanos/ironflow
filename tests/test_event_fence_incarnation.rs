@@ -1,0 +1,322 @@
+//! IF-184: a deleted run's event fence belongs to the deleted incarnation.
+
+use std::sync::Arc;
+
+use ironflow::storage::event_store::{MemoryEventStore, SqlEventStore};
+
+#[path = "event_store/fence_contract.rs"]
+mod fence_contract;
+
+#[path = "event_store/faulty.rs"]
+mod faulty;
+
+/// IF-220 (aa): the engine drops a publication that outlasts its 500 ms
+/// bound. The contract below must not report that as a fence defect.
+#[tokio::test]
+async fn a_publication_abandoned_at_the_publish_bound_is_not_a_contract_failure() {
+    let slow = faulty::FaultyOnce::new(
+        Arc::new(MemoryEventStore::new()),
+        faulty::Fault::OutlastTheBound,
+    );
+    fence_contract::assert_resubmitted_run_has_complete_events(slow, "memory-abandoned").await;
+}
+
+/// IF-220 (aa): an event that is lost without the bound being involved is a
+/// real loss, and the contract still fails on it.
+#[tokio::test]
+async fn an_event_lost_without_the_publish_bound_still_fails_the_contract() {
+    let lossy = faulty::FaultyOnce::new(
+        Arc::new(MemoryEventStore::new()),
+        faulty::Fault::DropSilently,
+    );
+    let outcome = tokio::spawn(async move {
+        fence_contract::assert_resubmitted_run_has_complete_events(lossy, "memory-lossy").await;
+    })
+    .await;
+    assert!(
+        outcome.is_err_and(|error| error.is_panic()),
+        "a silently dropped event must fail the complete-stream contract"
+    );
+}
+
+async fn sqlite_events(directory: &std::path::Path) -> SqlEventStore {
+    let url = format!(
+        "sqlite://{}?mode=rwc",
+        directory.join("fence-events.sqlite").to_string_lossy()
+    );
+    SqlEventStore::new(&url).await.unwrap()
+}
+
+#[tokio::test]
+async fn memory_resubmitted_run_has_complete_events() {
+    fence_contract::assert_resubmitted_run_has_complete_events(
+        Arc::new(MemoryEventStore::new()),
+        "memory-resubmit",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn memory_missing_run_delete_leaves_no_fence() {
+    fence_contract::assert_missing_run_delete_leaves_no_fence(
+        &MemoryEventStore::new(),
+        "memory-missing-run",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn sqlite_resubmitted_run_has_complete_events() {
+    let directory = tempfile::tempdir().unwrap();
+    fence_contract::assert_resubmitted_run_has_complete_events(
+        Arc::new(sqlite_events(directory.path()).await),
+        "sqlite-resubmit",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn sqlite_missing_run_delete_leaves_no_fence() {
+    let directory = tempfile::tempdir().unwrap();
+    fence_contract::assert_missing_run_delete_leaves_no_fence(
+        &sqlite_events(directory.path()).await,
+        "sqlite-missing-run",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn memory_fence_is_scoped_to_one_incarnation() {
+    fence_contract::assert_fence_is_scoped_to_one_incarnation(
+        &MemoryEventStore::new(),
+        "memory-incarnations",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn sqlite_fence_is_scoped_to_one_incarnation() {
+    let directory = tempfile::tempdir().unwrap();
+    fence_contract::assert_fence_is_scoped_to_one_incarnation(
+        &sqlite_events(directory.path()).await,
+        "sqlite-incarnations",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn memory_delete_overlapping_resubmission_keeps_new_events() {
+    fence_contract::assert_delete_overlapping_resubmission_keeps_new_events(
+        Arc::new(MemoryEventStore::new()),
+        "memory-delete-overlap",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn sqlite_delete_overlapping_resubmission_keeps_new_events() {
+    let directory = tempfile::tempdir().unwrap();
+    fence_contract::assert_delete_overlapping_resubmission_keeps_new_events(
+        Arc::new(sqlite_events(directory.path()).await),
+        "sqlite-delete-overlap",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn memory_orphan_sweep_overlapping_resubmission_keeps_new_events() {
+    fence_contract::assert_orphan_sweep_overlapping_resubmission_keeps_new_events(
+        Arc::new(MemoryEventStore::new()),
+        "memory-orphan-overlap",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn sqlite_orphan_sweep_overlapping_resubmission_keeps_new_events() {
+    let directory = tempfile::tempdir().unwrap();
+    fence_contract::assert_orphan_sweep_overlapping_resubmission_keeps_new_events(
+        Arc::new(sqlite_events(directory.path()).await),
+        "sqlite-orphan-overlap",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn memory_delete_is_scoped_to_the_removed_incarnation() {
+    fence_contract::assert_delete_is_scoped_to_the_removed_incarnation(
+        &MemoryEventStore::new(),
+        "memory-scoped-delete",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn sqlite_delete_is_scoped_to_the_removed_incarnation() {
+    let directory = tempfile::tempdir().unwrap();
+    fence_contract::assert_delete_is_scoped_to_the_removed_incarnation(
+        &sqlite_events(directory.path()).await,
+        "sqlite-scoped-delete",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn memory_failed_admission_is_retried_then_surfaced() {
+    fence_contract::assert_failed_admission_is_retried_then_surfaced(
+        Arc::new(MemoryEventStore::new()),
+        "memory-admission",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn sqlite_failed_admission_is_retried_then_surfaced() {
+    let directory = tempfile::tempdir().unwrap();
+    fence_contract::assert_failed_admission_is_retried_then_surfaced(
+        Arc::new(sqlite_events(directory.path()).await),
+        "sqlite-admission",
+    )
+    .await;
+}
+
+/// A fence table written by an earlier release has no `incarnation` column.
+/// Opening the store adds it, keeps the existing fence closed and lets the
+/// run ID be admitted again.
+#[tokio::test]
+async fn sqlite_fence_table_from_an_earlier_release_is_upgraded() {
+    use ironflow::storage::StorageErrorKind;
+    use ironflow::storage::event_store::EventStore as _;
+
+    let directory = tempfile::tempdir().unwrap();
+    let url = format!(
+        "sqlite://{}?mode=rwc",
+        directory
+            .path()
+            .join("fence-events.sqlite")
+            .to_string_lossy()
+    );
+    sqlx::any::install_default_drivers();
+    let pool = sqlx::AnyPool::connect(&url).await.unwrap();
+    for sql in [
+        "CREATE TABLE ironflow_event_deletions (run_id TEXT PRIMARY KEY)",
+        "INSERT INTO ironflow_event_deletions (run_id) VALUES ('deleted-before-upgrade')",
+    ] {
+        sqlx::query(sql).execute(&pool).await.unwrap();
+    }
+    pool.close().await;
+
+    let store = sqlite_events(directory.path()).await;
+    // A second open finds the column and changes nothing.
+    drop(sqlite_events(directory.path()).await);
+    let run_id = "deleted-before-upgrade";
+    let event = |id: &str| {
+        let mut event = ironflow::engine::RunEvent::run(
+            run_id,
+            "flow",
+            ironflow::engine::RunEventType::RunStarted,
+            ironflow::engine::types::RunStatus::Running,
+        );
+        event.id = id.to_string();
+        event
+    };
+    for rejected in [
+        store.publish(event("unscoped")).await,
+        store.publish_as(event("late"), "old").await,
+    ] {
+        assert_eq!(rejected.unwrap_err().kind(), StorageErrorKind::Conflict);
+    }
+    store.begin_incarnation(run_id, "new").await.unwrap();
+    store.publish_as(event("new-1"), "new").await.unwrap();
+    assert_eq!(store.list_since(run_id, None, 10).await.unwrap().len(), 1);
+}
+
+#[cfg(feature = "postgres")]
+mod postgres {
+    use std::sync::Arc;
+
+    use ironflow::storage::event_store::SqlEventStore;
+
+    use super::fence_contract;
+
+    /// Explicit opt-in: these tests create and drop prefixed tables.
+    fn database_url() -> Option<String> {
+        std::env::var("DATABASE_URL")
+            .ok()
+            .filter(|url| url.starts_with("postgres://") || url.starts_with("postgresql://"))
+    }
+
+    async fn drop_tables(url: &str, prefix: &str) {
+        let pool = sqlx::AnyPool::connect(url).await.unwrap();
+        for table in ["events", "event_sequences", "event_deletions"] {
+            let sql = format!("DROP TABLE IF EXISTS {prefix}{table}");
+            sqlx::query(sqlx::AssertSqlSafe(sql))
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        pool.close().await;
+    }
+
+    #[tokio::test]
+    async fn postgres_fence_follows_run_incarnations() {
+        let Some(url) = database_url() else {
+            eprintln!("Skipping test: DATABASE_URL is not configured for Postgres");
+            return;
+        };
+        let id = uuid::Uuid::new_v4().simple().to_string();
+        let prefix = format!("if184_{}_", &id[..8]);
+
+        // Start from a fence table written by an earlier release.
+        sqlx::any::install_default_drivers();
+        let pool = sqlx::AnyPool::connect(&url).await.unwrap();
+        let legacy = format!("CREATE TABLE {prefix}event_deletions (run_id TEXT PRIMARY KEY)");
+        sqlx::query(sqlx::AssertSqlSafe(legacy))
+            .execute(&pool)
+            .await
+            .unwrap();
+        pool.close().await;
+
+        let store = Arc::new(
+            SqlEventStore::new_with_prefix(&url, Some(&prefix))
+                .await
+                .unwrap(),
+        );
+        fence_contract::assert_fence_is_scoped_to_one_incarnation(
+            store.as_ref(),
+            "postgres-incarnations",
+        )
+        .await;
+        fence_contract::assert_missing_run_delete_leaves_no_fence(
+            store.as_ref(),
+            "postgres-missing-run",
+        )
+        .await;
+        fence_contract::assert_delete_is_scoped_to_the_removed_incarnation(
+            store.as_ref(),
+            "postgres-scoped-delete",
+        )
+        .await;
+        fence_contract::assert_resubmitted_run_has_complete_events(
+            store.clone(),
+            "postgres-resubmit",
+        )
+        .await;
+        fence_contract::assert_delete_overlapping_resubmission_keeps_new_events(
+            store.clone(),
+            "postgres-delete-overlap",
+        )
+        .await;
+        fence_contract::assert_orphan_sweep_overlapping_resubmission_keeps_new_events(
+            store.clone(),
+            "postgres-orphan-overlap",
+        )
+        .await;
+        fence_contract::assert_failed_admission_is_retried_then_surfaced(
+            store,
+            "postgres-admission",
+        )
+        .await;
+        drop_tables(&url, &prefix).await;
+    }
+}

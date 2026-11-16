@@ -228,6 +228,67 @@ async fn extract_word_is_strict_bounded_and_special_file_safe() {
             ("word/comments.xml", &comments),
         ],
     );
+    // IF-222 (c): `word/styles.xml` is parsed under the same budget. A deep
+    // `w:basedOn` chain resolves; one whose roll-up work exceeds the item
+    // limit fails closed, as does a malformed part.
+    let chain = |length: usize| {
+        let mut styles = String::from(
+            "<w:style w:type=\"paragraph\" w:styleId=\"S0\"><w:rPr><w:b/></w:rPr></w:style>",
+        );
+        for index in 1..length {
+            styles.push_str(&format!(
+                "<w:style w:type=\"paragraph\" w:styleId=\"S{index}\"><w:basedOn w:val=\"S{}\"/></w:style>",
+                index - 1
+            ));
+        }
+        format!(
+            "<w:styles xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">{styles}</w:styles>"
+        )
+    };
+    let styled_document = |style: usize| {
+        document(&format!(
+            "<w:p><w:pPr><w:pStyle w:val=\"S{style}\"/></w:pPr><w:r><w:t>styled</w:t></w:r></w:p>"
+        ))
+    };
+    let shallow = write_docx(
+        directory.path(),
+        "style-chain.docx",
+        &[
+            ("word/styles.xml", &chain(50)),
+            ("word/document.xml", &styled_document(49)),
+        ],
+    );
+    let output = execute(&shallow, serde_json::json!({ "format": "markdown" }))
+        .await
+        .unwrap();
+    assert_eq!(output["content"], "**styled**");
+    let deep = write_docx(
+        directory.path(),
+        "style-chain-deep.docx",
+        &[
+            ("word/styles.xml", &chain(700)),
+            ("word/document.xml", &styled_document(699)),
+        ],
+    );
+    let error = execute(&deep, serde_json::json!({}))
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("IRONFLOW_MAX_EXTRACT_ITEMS"), "{error}");
+    let malformed = write_docx(
+        directory.path(),
+        "style-malformed.docx",
+        &[
+            ("word/styles.xml", "<w:styles><w:style></w:styles>"),
+            ("word/document.xml", &valid_xml),
+        ],
+    );
+    let error = execute(&malformed, serde_json::json!({}))
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("word/styles.xml"), "{error}");
+
     EnvGuard::set("IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES", "4096");
     let error = execute(
         &amplified,

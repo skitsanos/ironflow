@@ -60,32 +60,25 @@ pub(crate) fn resolve_image_output_format(
     }
 }
 
+/// Encode `image` into `output_path` through the staged, no-follow, atomic
+/// writer. The bytes are those of `DynamicImage::save_with_format`.
 pub(crate) fn save_dynamic_image(
-    image: image::DynamicImage,
+    image: &image::DynamicImage,
     output_path: &str,
     format: image::ImageFormat,
+    operation: &'static str,
+    execution: &crate::util::execution::ExecutionControl,
 ) -> Result<()> {
-    image
-        .save_with_format(output_path, format)
-        .map_err(|e| anyhow::anyhow!("{}", e))
-}
-
-#[cfg(feature = "pdf-render")]
-pub(crate) fn load_pdfium() -> Result<Box<dyn pdfium_render::prelude::PdfiumLibraryBindings>> {
-    use pdfium_render::prelude::*;
-    if let Ok(env_path) = std::env::var("PDFIUM_LIB_PATH") {
-        Pdfium::bind_to_library(env_path)
-            .map_err(|e| anyhow::anyhow!("Failed to load pdfium from PDFIUM_LIB_PATH: {:?}", e))
-    } else {
-        Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path("./"))
-            .or_else(|_| Pdfium::bind_to_system_library())
-            .map_err(|e| {
-                anyhow::anyhow!(
-                    "Failed to load pdfium library. Place libpdfium in the working directory or set PDFIUM_LIB_PATH. Error: {:?}",
-                    e
-                )
-            })
-    }
+    crate::nodes::file::staged_output::publish(
+        std::path::Path::new(output_path),
+        operation,
+        execution,
+        |writer| {
+            image
+                .write_to(writer, format)
+                .map_err(|error| anyhow::anyhow!("{error}"))
+        },
+    )
 }
 
 pub(crate) fn parse_positive_u32(value: u64, field: &str) -> Result<u32> {

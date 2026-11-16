@@ -72,6 +72,9 @@ pub(super) fn resolve_vectors_data(
     ctx: &Context,
     node: &str,
 ) -> Result<Vec<PutInputVector>> {
+    // Keys written in configuration are templates; vectors read from context
+    // through `vectors_source_key` are data and keep their keys as stored.
+    let configured = config.get("vectors").is_some();
     let vectors = if let Some(vectors) = config.get("vectors") {
         vectors
     } else {
@@ -120,7 +123,11 @@ pub(super) fn resolve_vectors_data(
             })?;
 
             let mut builder = PutInputVector::builder()
-                .key(interpolate_ctx(key, ctx))
+                .key(if configured {
+                    interpolate_ctx(key, ctx)
+                } else {
+                    key.to_owned()
+                })
                 .data(VectorData::Float32(resolve_float_vector(
                     data, "data", node,
                 )?));
@@ -132,4 +139,29 @@ pub(super) fn resolve_vectors_data(
             Ok(builder.build()?)
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vector_keys_read_from_context_are_not_templates() {
+        let entry = serde_json::json!([{ "key": "doc-${ctx.secret}", "data": [0.5] }]);
+        let ctx = Context::from([
+            ("stored".to_owned(), entry.clone()),
+            ("secret".to_owned(), serde_json::json!("s3cr3t")),
+        ]);
+        let key = |config: serde_json::Value| {
+            resolve_vectors_data(&config, &ctx, "node").unwrap()[0]
+                .key()
+                .to_owned()
+        };
+
+        assert_eq!(
+            key(serde_json::json!({ "vectors_source_key": "stored" })),
+            "doc-${ctx.secret}"
+        );
+        assert_eq!(key(serde_json::json!({ "vectors": entry })), "doc-s3cr3t");
+    }
 }

@@ -508,3 +508,44 @@ async fn a1_and_xfd1048576_is_the_input_that_actually_separates_the_implementati
         "took {elapsed:?}; the whole point is that this no longer allocates"
     );
 }
+
+#[tokio::test]
+async fn excel_character_escapes_in_cell_text_decode_every_utf16_code_unit() {
+    // Excel writes a character it cannot store literally as `_xHHHH_`, one
+    // escape per UTF-16 code unit. calamine 0.37 decoded only `_x00HH_` and
+    // left the rest in the text; 0.38 decodes all of them (IF-173).
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_workbook(
+        dir.path(),
+        "escapes.xlsx",
+        &[SheetSpec::new(
+            "Text",
+            row(
+                1,
+                &[
+                    text("A1", "a_x000D_b"),
+                    text("B1", "_x4E2D_"),
+                    text("C1", "_xD83D__xDE00_"),
+                    text("D1", "_x005F_x000D_"),
+                ],
+            ),
+        )],
+    );
+
+    let out = run_node(serde_json::json!({
+        "path": path.to_str().unwrap(),
+        "has_header": false
+    }))
+    .await
+    .unwrap();
+    let cells = &out["content"]["Text"][0];
+
+    assert_eq!(cells[0], serde_json::json!("a\rb"));
+    assert_eq!(cells[1], serde_json::json!("\u{4E2D}"));
+    assert_eq!(cells[2], serde_json::json!("\u{1F600}"));
+    assert_eq!(
+        cells[3],
+        serde_json::json!("_x000D_"),
+        "an escaped underscore keeps the literal sequence"
+    );
+}

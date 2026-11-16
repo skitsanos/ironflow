@@ -1,11 +1,12 @@
 use anyhow::Result;
 use serde_json::Value;
 
-use crate::artifacts::{ArtifactRef, FileSource};
+use crate::artifacts::FileSource;
 use crate::engine::types::Context;
 use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::http::helpers::{body_value_to_text, build_form_body, interpolate_json_value};
 use crate::util::execution::run_tracked_blocking_step;
+use crate::util::file_source::{SourceOrigin, parse_artifact_source};
 
 use self::multipart::MultipartField;
 
@@ -130,39 +131,34 @@ fn resolve_artifact_body(config: &Value, ctx: &Context) -> Result<RequestBody> {
     if direct.is_some() == source_key.is_some() {
         anyhow::bail!("HTTP body_type='artifact' requires exactly one of 'body' or 'body_key'");
     }
-    let source = match source_key {
-        Some(key) => ctx
-            .get(&interpolate_ctx(key, ctx))
-            .ok_or_else(|| anyhow::anyhow!("HTTP body_key '{key}' not found in context"))?,
-        None => direct.expect("exclusive source validation ensures body exists"),
+    let (source, origin) = match source_key {
+        Some(key) => (
+            ctx.get(&interpolate_ctx(key, ctx))
+                .ok_or_else(|| anyhow::anyhow!("HTTP body_key '{key}' not found in context"))?,
+            SourceOrigin::Data,
+        ),
+        None => (
+            direct.expect("exclusive source validation ensures body exists"),
+            SourceOrigin::Config(ctx),
+        ),
     };
-    Ok(RequestBody::Artifact(artifact_upload(source)?))
+    Ok(RequestBody::Artifact(artifact_upload(source, origin)?))
 }
 
-fn artifact_upload(value: &Value) -> Result<ArtifactUpload> {
-    match value {
-        Value::String(uri) => {
-            ArtifactRef::validate_uri(uri)
-                .map_err(|error| anyhow::anyhow!("HTTP invalid artifact URI: {error}"))?;
-            Ok(ArtifactUpload {
-                source: FileSource::artifact_uri(uri),
-                mime_type: None,
-            })
-        }
-        Value::Object(object) if object.len() == 1 && object.contains_key("artifact") => {
-            artifact_upload(&object["artifact"])
-        }
-        Value::Object(_) => {
-            let artifact = ArtifactRef::from_value(value)
-                .map_err(|error| anyhow::anyhow!("HTTP invalid artifact descriptor: {error}"))?;
-            let mime_type = artifact.mime_type.clone();
-            Ok(ArtifactUpload {
-                source: FileSource::artifact(artifact),
-                mime_type,
-            })
-        }
-        _ => anyhow::bail!("HTTP artifact source must be an artifact URI or descriptor object"),
-    }
+/// An upload names stored bytes by descriptor or canonical URI, parsed by the
+/// same artifact-only parser as `write_file`. A URI written in configuration
+/// is interpolated once; a value read from context is used as stored.
+fn artifact_upload(value: &Value, origin: SourceOrigin<'_>) -> Result<ArtifactUpload> {
+    let source = parse_artifact_source(value, origin).map_err(|error| {
+        anyhow::anyhow!(
+            "HTTP artifact source must be an artifact URI or descriptor object: {error}"
+        )
+    })?;
+    let mime_type = match &source {
+        FileSource::Artifact(artifact) => artifact.mime_type.clone(),
+        FileSource::ArtifactUri(_) | FileSource::Path(_) => None,
+    };
+    Ok(ArtifactUpload { source, mime_type })
 }
 
 struct OpenedUpload {
@@ -195,30 +191,4 @@ fn optional_string<'a>(config: &'a Value, key: &str) -> Result<Option<&'a str>> 
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn artifact_body_rejects_paths_and_ambiguous_sources() {
-        let context = Context::from([("path".to_owned(), Value::String("/tmp/file".to_owned()))]);
-        for config in [
-            serde_json::json!({"body_type": "artifact", "body_key": "path"}),
-            serde_json::json!({"body_type": "artifact", "body": {}, "body_key": "path"}),
-        ] {
-            assert!(RequestBody::resolve(&config, &context).is_err());
-        }
-    }
-
-    #[test]
-    fn multipart_contract_is_strict() {
-        let context = Context::new();
-        for config in [
-            serde_json::json!({"body_type": "multipart", "parts": []}),
-            serde_json::json!({"body_type": "multipart", "parts": [{"name": "x"}]}),
-            serde_json::json!({"body_type": "multipart", "parts": [{"name": "x", "text": "y", "filename": "z"}]}),
-            serde_json::json!({"body_type": "multipart", "parts": [{"name": "x", "text": "y", "unknown": true}]}),
-        ] {
-            assert!(RequestBody::resolve(&config, &context).is_err());
-        }
-    }
-}
+mod tests;

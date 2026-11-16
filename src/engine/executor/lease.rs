@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use tokio::sync::{oneshot, watch};
 
@@ -27,6 +28,16 @@ impl HeartbeatTiming {
             renewal_timeout,
         }
     }
+}
+
+/// How the coordinator ends its heartbeat.
+pub(super) struct HeartbeatStop {
+    /// Fires once supervision, including finalization, is over.
+    pub(super) stopped: oneshot::Receiver<()>,
+    /// Set before the coordinator writes the run's terminal status. That
+    /// write releases the lease, so a renewal refused afterwards is the
+    /// normal end of the run unless the store says otherwise (IF-203).
+    pub(super) finalizing: Arc<AtomicBool>,
 }
 
 pub(super) async fn initialize_run(
@@ -119,10 +130,14 @@ pub(super) async fn heartbeat_with_timing(
     run_id: String,
     owner: String,
     cancel: watch::Sender<ExecutionSignal>,
-    mut stop: oneshot::Receiver<()>,
+    stop: HeartbeatStop,
     timing: HeartbeatTiming,
     metrics: Option<Arc<crate::metrics::Metrics>>,
 ) {
+    let HeartbeatStop {
+        stopped: mut stop,
+        finalizing,
+    } = stop;
     let start = tokio::time::Instant::now() + timing.refresh;
     let mut ticker = tokio::time::interval_at(start, timing.refresh);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -140,12 +155,38 @@ pub(super) async fn heartbeat_with_timing(
                     _ = &mut stop => return,
                     result = renewal => result,
                 };
+                if matches!(result, Ok(Ok(false)))
+                    && released_by_finalization(store.as_ref(), &run_id, &finalizing).await
+                {
+                    return;
+                }
                 if !settle_renewal(result, store.as_ref(), &run_id, &cancel, metrics.as_deref()).await {
                     return;
                 }
             }
         }
     }
+}
+
+/// Whether a refused renewal is this run's own terminal status write
+/// releasing the lease, in the window before the coordinator stops the
+/// heartbeat. Both conditions are needed: without `finalizing`, local work is
+/// still executing and must be stopped even if another replica already
+/// terminalized the run; without a terminal record, the lease was lost before
+/// the write landed. An unreadable run counts as lost.
+async fn released_by_finalization(
+    store: &dyn StateStore,
+    run_id: &str,
+    finalizing: &AtomicBool,
+) -> bool {
+    finalizing.load(Ordering::Acquire)
+        && bounded(
+            "read the run after its lease was released",
+            store.get_run_info(run_id),
+            STATE_OPERATION_TIMEOUT,
+        )
+        .await
+        .is_ok_and(|info| info.status.is_terminal())
 }
 
 /// Record one renewal result. Returns `false` once local execution must stop.

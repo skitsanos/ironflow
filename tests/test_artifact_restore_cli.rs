@@ -79,7 +79,11 @@ async fn replica_consumer_cli_restores_or_cancels_without_partial_publication() 
         let cache = directory.path().join("cache");
         let destination = directory.path().join("restored.bin");
         std::fs::write(&destination, b"existing output").unwrap();
-        let delay = Duration::from_millis(if cancel { 20 } else { 1 });
+        // The cancelled case must still be downloading when its run deadline
+        // fires: 128 chunks at 60 ms last far longer than the 3-second deadline,
+        // which in turn leaves a loaded host time to start the process, load
+        // the flow and receive the first chunks (IF-209).
+        let delay = Duration::from_millis(if cancel { 60 } else { 1 });
         let server = DownloadServer::start(bytes.clone(), delay).await;
         let mut command = tokio::process::Command::new(env!("CARGO_BIN_EXE_ironflow"));
         command
@@ -118,7 +122,7 @@ async fn replica_consumer_cli_restores_or_cancels_without_partial_publication() 
                 .arg(json!({"artifact": artifact, "output_path": destination}).to_string());
         }
         if cancel {
-            command.env("IRONFLOW_MAX_RUN_SECONDS", "1");
+            command.env("IRONFLOW_MAX_RUN_SECONDS", "3");
         }
         let output = tokio::time::timeout(Duration::from_secs(15), command.output())
             .await

@@ -1,5 +1,4 @@
--- Requirements: native Pdfium must be installed system-wide, available in the
--- working directory, or selected with PDFIUM_LIB_PATH.
+-- Requirements: none; pages are drawn by the built-in renderer.
 -- Effects: the thumbnail is stored under IRONFLOW_ARTIFACT_DIR; context
 -- receives its dimensions, format, page number, and content-addressed
 -- descriptor. The artifact is not automatically pruned.

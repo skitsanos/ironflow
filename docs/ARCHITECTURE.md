@@ -6,7 +6,7 @@ IronFlow is a lightweight, high-performance workflow engine that combines a Rust
 
 The engine provides DAG-based task scheduling with parallel execution, dependency management, retries with exponential backoff, conditional routing, and pluggable state persistence. Flows are defined in plain Lua scripts, loaded at runtime without recompilation, and executed in a sandboxed environment where scripts cannot access the filesystem or network unless explicitly granted through nodes.
 
-IronFlow ships as a single binary and does not require a Python, Node.js, or container runtime. Most nodes need only that binary; `pdf_to_image` and `pdf_thumbnail` additionally require a native Pdfium library. It runs in CI/CD pipelines, edge servers, air-gapped environments, or as a long-running API service behind Docker, Railway, or Fly.io.
+IronFlow ships as a single binary and does not require a Python, Node.js, or container runtime. Every built-in node runs from that binary; none needs a native library. It runs in CI/CD pipelines, edge servers, air-gapped environments, or as a long-running API service behind Docker, Railway, or Fly.io.
 
 ## Design Principles
 
@@ -16,7 +16,10 @@ IronFlow ships as a single binary and does not require a Python, Node.js, or con
 4. **Async-first** — The engine uses `tokio` for async execution. Synchronous
    CPU/blocking work is isolated from runtime workers and must cooperate with
    cancellation.
-5. **Pluggable persistence** — State storage is trait-based. JSON file storage ships by default; Redis is optional.
+5. **Pluggable persistence** — State storage is trait-based. SQLite is the
+   default backend; JSON file storage is a maintenance-only backend selected
+   with `IRONFLOW_STORE=json`, and PostgreSQL and Redis are optional build
+   features.
 6. **Bounded responsibilities** — Keep modules cohesive and small enough to
    review independently: target at most 300 physical lines and split distinct
    responsibilities rather than let a file exceed 400 lines. CI treats 301–400-line
@@ -94,6 +97,34 @@ compatibility wrapper that starts the run and waits for the handle.
   attempts and retry backoffs. Structured child runs use cancel-on-drop waits,
   so a parent timeout does not silently detach them. Explicitly detached
   `subworkflow(wait = false)` work remains independent by contract.
+- A waiting child run is physical work of the step that started it (IF-188).
+  A child is coordinated on its own task, where the step's task-local worker
+  sets are not visible, so the composition node captures a `ChildLink` on its
+  own task and the child coordinator registers with the step's attempt and
+  run worker sets before it is spawned. It releases that registration only
+  after it has drained its own tracked workers, which include its children,
+  and finalized. A step timeout, run cancellation or run deadline therefore
+  cancels the child at once but does not record the step result, start its
+  `on_error` handler, finalize the run or release task and run admission
+  until the child has stopped, as for the same node placed directly in the
+  parent.
+- The same link carries the child's nesting level. A child more than
+  `IRONFLOW_MAX_SUBWORKFLOW_DEPTH` levels (default 16) below its top-level run
+  is refused before its flow is resolved or loaded, for all four composition
+  nodes and for detached children, which keep their level. Every level reports
+  the refusal alone, so it is not lost to the failure-summary cap.
+  `parallel_subworkflows` refuses more than `IRONFLOW_MAX_PARALLEL_SUBWORKFLOWS`
+  entries (default 1024), resolves flow paths off the async worker once per
+  distinct path, and loads a child and builds its context only inside the
+  `max_concurrent` window.
+- Neither limit bounds the product of a fan-out at several levels, so every
+  child run also takes one process-wide slot before any durable state exists
+  and holds it until its coordinator has finished (IF-215):
+  `IRONFLOW_MAX_LIVE_CHILD_RUNS`, default 4096, waiting and detached
+  children alike. A child without a free slot is refused with a typed
+  `LiveChildRunLimit` error and fails like any other child. Admission does
+  not wait: a waiting parent keeps its own slot, so a tree of waiting
+  parents could never release one.
 - Controlled node failures produce `Failed`. Executor panics, task-state write
   failures, and other infrastructure faults produce `Stalled`.
 - One finalizer repairs every initialized non-terminal task, persists the final
@@ -113,6 +144,42 @@ allows up to 30 seconds for one reconciliation pass before accepting traffic,
 then repeats a 30-second-bounded pass every 30 seconds. An expired
 `Pending`/`Running` run becomes `Stalled`; unfinished running tasks become
 `Failed` and other unfinished tasks become `Skipped`.
+
+Storing the terminal status releases the lease in every store, and the
+coordinator stops its heartbeat only after finalization has also published
+the last event. A renewal in between is refused. The heartbeat treats that
+refusal as the end of the run, without a lost-lease log line, metric or
+reconciliation pass, only when finalization has begun the terminal write and
+the stored run is terminal. A refusal while work is still executing is a lost
+lease whatever the store says, because another replica may already have
+stalled the run and local work must stop.
+
+A pass does not stop at a run record it cannot decode. The JSON and Redis
+stores log a warning that names the run, leave the record and its expired
+lease in place, and continue with the remaining leases, so one such record
+cannot keep `serve` from starting or later runs from being reconciled. Redis
+pages past skipped records instead of re-reading the head of its expiry
+index. `delete_run` removes a record that is nested too deep: the JSON store
+treats any undecodable record as non-terminal, so only a live lease protects
+it, and the Redis delete script decodes with Lua `cjson`, which reads deeper
+than the Rust decoder. A Redis record whose `info` is not JSON or names
+another run is still refused by that script, as before, and stays until its
+key expires or is removed by hand. The SQL stores reconcile with `UPDATE`
+statements and never decode a record there. I/O errors and faults in the
+Redis index keys still fail the pass, as before: without the expiry index no
+lease can be listed or fenced, so there is nothing to skip to.
+
+The JSON store treats a lease file it cannot decode the same way (IF-220):
+the pass warns with the file name and continues, and the run behind it is
+left unchanged. Such a lease protects nothing, since every renewal and owned
+write reads the lease first and fails, so `delete_run` removes the run and
+the lease. `ironflow inspect` reports a record that cannot be decoded as
+such and names deletion as the remedy. The run list fails on a record whose
+header is damaged, by design (a store entry that does not match its name is
+reported, not hidden); a record that is only nested too deep still lists,
+because the list reads its summary. The unbounded `StateStore::list_runs`
+compatibility method also fails on any undecodable record; no built-in
+command or endpoint calls it.
 
 SQL uses the database clock and Redis uses `TIME` for lease creation, renewal,
 fencing, and reaping, so application-host clock skew cannot transfer ownership
@@ -152,12 +219,26 @@ publish through the shared staged-file boundary and require no external
 converter. See [Markdown Documents](MARKDOWN_DOCUMENTS.md) for limits and format
 differences.
 
+`pdf_to_image` and `pdf_thumbnail` render with a built-in pure-Rust rasterizer
+([IF-194](issues/IF-194.md)). It has no cancellation hook and no work limit,
+so the nodes bound it from outside: the document passes the shared PDF loading
+policy, the streams a page can reach are decoded under the stream ceiling, and
+the page is interpreted once against a metering device that draws nothing. The
+meter counts drawing operations against `IRONFLOW_MAX_PDF_RENDER_OPERATIONS`,
+refuses oversized embedded images, and checks the execution control every 256
+operations; only an admitted page is rasterized, and a renderer panic fails
+the step. The Pdfium binding was removed.
+
 `extract_pdf` reuses the shared single-parse PDF loading boundary and decodes one
 page at a time. A bounded marked-content walker substitutes outermost ActualText
 strings and resolves direct/named/inherited property resources without traversing
 arbitrary structure trees. Ordinary glyph text continues through lopdf font
-encodings. Shared extraction budgets cover operations, property hops and text,
-with cooperative checkpoints outside opaque content/font decoding calls.
+encodings, decoded once per font object and reused across pages. Before lopdf
+parses a ToUnicode CMap, a linear scan charges its mapping entries against
+`IRONFLOW_MAX_PDF_EXTRACT_CMAP_ENTRIES`, and each glyph string is admitted by
+its worst-case decoded size ([IF-178](issues/IF-178.md)). Shared extraction
+budgets cover operations, property hops and text, with cooperative checkpoints
+outside opaque content/font decoding calls.
 
 ### 3. Lua Runtime (`lua/`)
 
@@ -177,6 +258,32 @@ with cooperative checkpoints outside opaque content/font decoding calls.
   blocking pool rather than runtime workers. Their instruction hook observes
   both resource limits and the executor's step deadline/drop-cancellation
   signal.
+- That Lua work is tracked work of the step that runs it (IF-211): a function
+  step, a `nodes.code` step, a `foreach` transform and the top-level code of a
+  child flow loaded by a composition node register with the step's attempt
+  and run worker sets, like built-in blocking nodes. After a step timeout,
+  run cancellation or run deadline the hook stops ordinary Lua at its next
+  check, every `IRONFLOW_LUA_HOOK_INTERVAL` instructions. Flow loads started
+  by the API, webhooks and the scheduler have no step and keep their own
+  flow-load admission.
+- The hook cannot run inside a library call, so the sandbox replaces the
+  calls that could do unbounded work there (IF-213, `lua/library/`).
+  `string.find`, `string.match`, `string.gmatch` and `string.gsub` run on a
+  Rust port of the reference matcher that counts its steps against
+  `IRONFLOW_LUA_MAX_PATTERN_STEPS` and checks the step deadline, cancellation
+  and the Lua time budget every few thousand steps. `string.rep` of nothing,
+  long `table.move` ranges and `table.insert`/`table.remove` on tables with a
+  metatable no longer loop in C. The remaining library calls do work
+  proportional to data the Lua memory cap bounds.
+- `run_tracked_blocking_step` is the only bridge from step work to the
+  blocking pool (IF-213). Every worker registers with the attempt and run
+  worker sets of its step, so the step result, its `on_error` handler,
+  dependent steps, run finalization and task and run admission wait until
+  the worker has physically stopped.
+- The steps of a child run observe the deadline of the parent step that
+  waits for it (IF-213): the deadline visible to a child step's work is the
+  earlier of its own and the inherited one, at every nesting level. A
+  `wait = false` child inherits none.
 
 ### 4. State Store (`storage/`)
 
@@ -234,8 +341,23 @@ pub trait StateStore: Send + Sync {
         key: &str,
         ttl_seconds: u64,
     ) -> StorageResult<bool>;
+    async fn record_schedule_run(
+        &self,
+        name: &str,
+        key: &str,
+        ttl_seconds: u64,
+    ) -> StorageResult<()>;
+    async fn schedule_run_recorded(&self, name: &str, key: &str) -> StorageResult<bool>;
 }
 ```
+
+`init_run`, `update_ctx`, `upsert_task` and their owned forms return
+`InvalidInput`, and write nothing, when a context value or a task's input or
+output nests deeper than the shared 123-level limit described under
+[Context Model](#context-model). The built-in JSON, SQL and Redis stores
+check this before they serialize, so none of them holds a record it cannot
+read back. A custom store should call `util::json_depth::check_entries` and
+`check_record` at the same points if its encoding has a nesting limit.
 
 The owned methods are the execution path used by `WorkflowEngine`. Their
 boolean result is a fencing decision: `false` means the caller no longer owns
@@ -314,7 +436,12 @@ Implementations:
   commit. Successful disjoint updates survive across store instances; duplicate
   keys use the last serialized writer's value (a shallow merge, including JSON
   null). The owned path retains its live-lease check and acquires locks in
-  lease-then-run order. A context snapshot cannot cross deletion/recreation:
+  lease-then-run order. Deletion takes the same order and, once the run row
+  is locked, reads the lease again: on PostgreSQL a run with the same ID and
+  its owner's lease can be committed between the two statements (IF-202).
+  A lease that appeared restarts the delete in lock order, so a live owner
+  gets `Conflict`; the locked run row keeps any later lease out through its
+  foreign key. A context snapshot cannot cross deletion/recreation:
   an absent run returns `NotFound`, while a first locked read after recreation
   can legitimately merge into the new run. Unowned calls do not carry an owner
   or incarnation token. These guarantees require all concurrent writers to
@@ -495,7 +622,14 @@ Run execution events use a separate `EventStore` abstraction so monitoring can
 be scaled independently from run persistence. Besides publish and replay, the
 trait requires idempotent, counted `delete_run`: it removes every retained
 payload for a run, installs a late-publication fence, and returns the number of
-payloads removed. Callers must give every logical event a non-empty ID that is
+payloads removed. The fence is scoped to a run incarnation. The engine
+publishes through `publish_as` with the run's lease owner as the incarnation
+and calls `begin_incarnation` once the state store has accepted a run ID;
+past a retained fence only that admitted incarnation may publish, so a run
+re-created under a deterministic ID has a complete stream and the deleted
+run's late events stay rejected. `delete_orphaned_run` is the variant for a
+run whose state is already absent: it fences only when it removed events.
+All three have defaults for stores without a fence. Callers must give every logical event a non-empty ID that is
 never assigned to another event in the same run, even after retention or TTL
 expiry; engine-generated UUIDv4 event IDs satisfy this obligation. An exact
 publication retry is idempotent while the identity remains retained. Bounded
@@ -538,6 +672,23 @@ returns `StorageErrorKind::NotFound`.
   runs, an old binary/schema cannot be restored without offline data
   transformation; do not treat the retained legacy read index as downgrade
   support.
+
+  PostgreSQL startup stays out of the way of running replicas (IF-202). On
+  an up-to-date schema the state and event stores request no table lock:
+  the primary-key shape, the indexes and the columns are read from the
+  catalog, and an existing index is not passed to `CREATE INDEX IF NOT
+  EXISTS`, which would request `SHARE` on the table before noticing the
+  index. A pending table lock queues every later statement on that table
+  behind it, so the changes that do need one (the identity migration, a
+  missing index, a missing column) each run in a transaction with
+  `lock_timeout = 5s`. The identity migration reads the key again under the
+  lock, because another starting replica may have migrated first. When the
+  lock is not granted, startup fails with a `Conflict` that names the table
+  and the change, nothing is changed, and the next start retries. The
+  startup counter repair restores only counters that are missing or behind
+  their stream; it reads the events table but writes and locks no current
+  counter row. SQLite has one writer lock and no lock queue: startup takes
+  it briefly and waits at most the driver's busy timeout.
 - **RedisEventStore** — Redis-backed event replay (optional, `redis` feature
   flag) using a per-run list, event ID index, sequence, and owner-bound layout
   marker. One preflighted Lua script atomically appends the payload, cursor
@@ -595,8 +746,16 @@ returns `StorageErrorKind::NotFound`.
   IronFlow expires it instead of restoring or adopting it. Once the governed
   source and snapshot namespaces are absent after the deadline, the next access
   removes the persistent progress record and treats the retained stream as
-  expired. Partial families still fail closed. Command-capability probes
-  operate only on absent keys and never create probe data.
+  expired. The same holds when the deadline passes between two steps of one
+  operation: a fetch, commit, restore or transition step that finds the
+  snapshot of a stream with a captured deadline gone, with nothing in the
+  source or destination, answers `expired` and records nothing. The operation
+  then re-reads the status once and returns the empty stream, or `Conflict`
+  with retry guidance while the deadline is still ahead; it is never reported
+  as a blocked migration. A stream captured without a TTL cannot expire, so
+  its missing snapshot remains blocked. Partial families still fail closed.
+  Command-capability probes operate only on absent keys and never create
+  probe data.
 
   Migration requires a coordinated stop of pre-protocol event writers. If one
   recreates the source or destination while quarantine exists, migration is
@@ -621,9 +780,37 @@ only the state store. It deletes state first and then calls the event store's
 idempotent deletion. If event cleanup fails after state committed, the request
 fails but a retry still calls event deletion even though state is now absent;
 the retry succeeds when it removes an orphaned event stream. An absent state
-record with no orphaned events remains `404 not_found`. A successful event
-delete fences a workflow event racing behind it, so a late publication cannot
-undo deletion while that backend retains the fence.
+record with no orphaned events remains `404 not_found` and installs no fence.
+A successful event delete fences a workflow event racing behind it, so a late
+publication cannot undo deletion while that backend retains the fence. The
+fence rejects the deleted incarnation only. Every run is one incarnation of
+its ID, named by its lease owner, and the event store records the incarnation
+that owns a stream when the run starts (`begin_incarnation`), deleted ID or
+not: SQL in the nullable `incarnation` column of the event-deletion table
+(added to existing tables at startup), Redis in an `event_incarnations:v1:`
+key that follows the stream's retention or, past a fence, expires with it,
+and memory in a queue entry. From then on only that incarnation may publish,
+and events left by an earlier incarnation, which are orphans because the
+state store accepted the ID again, are removed.
+
+State and event deletion are separate steps, so a run with the same ID can
+be accepted between them. The coordinator closes that window by naming the
+incarnation it deletes: the SQL and Redis state stores record the lease owner
+with the run (`incarnation` column, `event_incarnation` hash field) and
+report it from the transaction or script that removes the run, and
+`delete_incarnation` is a no-op when the stream has admitted another one.
+For a state store that reports nothing (JSON, a third-party store, a run
+created before the upgrade) the coordinator uses the admitted incarnation it
+read before the state delete; the same read guards the sweep of orphaned
+events when state is already absent. With neither value the event delete is
+unconditional, as before.
+
+Admission is attempted up to three times, each attempt bounded to one
+second, with pauses of 50 ms and 200 ms, before the run's first task starts. A run whose
+admission still fails executes normally, counts as `failed` in
+`ironflow_event_admissions_total` and carries the context key
+`_event_stream_warning`; its events are rejected only if a fence or another
+incarnation's record exists for the ID.
 
 JSON, SQL, and Redis inspect status and lease under the same backend-atomic
 deletion fence. A non-terminal run with an unexpired execution-owner lease is
@@ -653,6 +840,22 @@ per-run publication sequence. Event timestamps remain payload metadata rather
 than replay-order keys. Concurrent task execution can still publish in a
 different order between runs; the sequence records the order chosen by the
 backend rather than redefining DAG/context precedence.
+
+Delivery guarantee (IF-220). Run events are best-effort and the state store
+is the source of truth. The engine gives each publication 500 ms and never
+lets it hold a step: when the event store fails, or does not answer within
+that bound, the publication is dropped with a warning (`Failed to publish
+workflow event` or `Workflow event publication timed out`) and the run
+continues unchanged. A stream can therefore miss any single event, including
+`run_started` and `run_finished`, when the event store or the host is
+saturated. What is guaranteed: the events that were stored keep their order
+and are replayed completely from any cursor; an event is never attributed to
+another run or incarnation; and the run's status, tasks and context in the
+state store are complete whether or not their events were. A consumer that
+needs the outcome reads `GET /runs/{id}` and treats the stream as progress
+reporting. The repository's event tests assert a complete stream only for a
+round in which the engine abandoned no publication, and repeat a round in
+which it did.
 
 At the HTTP boundary, a non-empty `Last-Event-ID` header overrides the
 bootstrap `?after=` query cursor; an empty header is treated as absent. The
@@ -690,9 +893,24 @@ Rolling deployments must not mix pre-CAS and CAS-capable Redis writers: an old b
 `ironflow serve` evaluates configuration-only `schedules:` entries every 30
 seconds. Each scheduler keeps a local wall-clock watermark per schedule,
 enumerates only occurrences still reachable within that schedule's grace
-window, and caps one tick at 64 occurrences; excess occurrences are skipped,
-not queued. Cron expressions have five fields and traditional crontab
-day-of-month/day-of-week OR semantics; time zones use IANA names. A repeated
+window, and decides only the most recent of them. `scheduler/window.rs`
+splits the due occurrences: the latest is decided as usual, and every earlier
+one is superseded, which means claimed and marked as settled without a run.
+One tick marks at most 64 superseded occurrences per schedule, oldest first,
+and the watermark stops before the first one it did not reach, so a longer
+backlog is settled over the following ticks while the latest occurrence is
+decided at once. Occurrences that share a claim key (matched local times
+inside a daylight-saving gap) are one occurrence and never supersede each
+other. Cron expressions have five fields and traditional crontab
+day-of-month/day-of-week OR semantics; time zones use IANA names. Weekday
+numbers are 0 to 7, where 0 and 7 are Sunday and 1 to 6 are Monday to
+Saturday. The underlying `cron` crate numbers the week 1 to 7 from Sunday, so
+`scheduler/weekday.rs` validates the weekday field and rewrites its numbers,
+ranges and steps into that numbering before the expression is parsed; other
+numbers fail at startup. The crate also separates fields with optional
+whitespace and accepts a trailing year, so `scheduler/field_shape.rs` first
+requires each of the other four tokens to be exactly one field: a token such
+as `5*/2` fails at startup instead of shifting every field after it. A repeated
 fall-back wall-clock instant resolves to the earlier occurrence, while a
 spring-forward gap resolves to the first real instant after the gap.
 
@@ -716,7 +934,11 @@ lock and writes separate SHA-256 schedule shards with hourly cleanup buckets.
 Pre-index flat claims are indexed across all schedule shards in batches of 256;
 a durable global completion marker removes that transitional scan once
 migration reaches the end of the legacy namespace. The authoritative claim file
-is never moved or renamed during migration.
+is never moved or renamed during migration. A claim file name is at most 223
+bytes (the 48-byte schedule name limit with the longest IANA zone name), and
+the temporary file a claim is committed from has a fixed 50-byte name that
+does not depend on it, so every valid schedule can claim on a filesystem with
+a 255-byte name limit.
 
 SQL has a covering `(name, claimed_micros, claim_key)` retention index. For
 both backends, each process sweeps a schedule at most once per
@@ -727,16 +949,69 @@ retain storage but cannot invalidate a committed claim or apply one schedule's
 grace-derived TTL to another. Redis needs no sweep because expiry belongs to
 each atomic claim key.
 
-The claim is an admission/audit fence, while a deterministic run ID derived
-from `(schedule name, resolved instant)` is the execution fence. Replicas that
-observe an existing claim still converge on that run identity; the built-in
-stores atomically allow only one initializer. A process dying after its claim
-but before initialization therefore does not permanently consume the
-occurrence. Existing or later-stalled executions are never replayed. Lateness,
-overlap, process capacity, and flow-load failures may still skip an occurrence
-instead of creating a backlog. The overlap check pages
+Two records fence an occurrence. A deterministic run ID derived from
+`(schedule name, resolved instant)` is the execution fence while the run
+record exists: replicas that observe an existing claim converge on that run
+identity, and the built-in stores atomically allow only one initializer. The
+claim carries the second record. Once a replica has started the run, or has
+converged on it, it calls `record_schedule_run`, which marks the claim as
+having produced a run: JSON writes a marker file beside the claim file, SQL
+sets `run_micros` on the claim row, and Redis rewrites the claim key's value.
+A replica that loses the claim reads that mark with `schedule_run_recorded`
+before it loads the flow, and does not start an instant that is marked. A
+store error on that read is treated like a failed claim and retried.
+
+This is what distinguishes the two ways a claim can exist without a run. A
+process that died after its claim but before initialization left an unmarked
+claim, so the occurrence is not consumed and the next replica to evaluate it
+within grace starts it. A run record that has since disappeared, through
+`REDIS_TTL` expiry or `DELETE /runs/{id}`, left a marked claim, so the
+occurrence stays consumed for the claim's lifetime: on every backend, deleting
+a scheduled run removes the record and does not release the instant. To run
+the flow again, start it through the API or the CLI.
+
+The same mark settles an occurrence the scheduler skipped. A skip for
+lateness, overlap, run capacity or a flow that fails to load creates no run,
+so its claim alone would read as an orphan and a replica that restarted
+inside the grace window would start the instant its peer had skipped. The
+replica that skips therefore calls `record_schedule_run` as well, and the
+mark means "do not start this occurrence" whether or not a run exists. For a
+skip nothing else fences the instant, so a failed write is not ignored: the
+instant is reported as a failed claim and decided again on the next tick. A
+start that is only deferred (flow-load capacity, or a replica that is
+draining) writes no mark and stays due. The mark is written after
+the run is created, so a process that dies between the two leaves an unmarked
+claim; the run record fences the instant for as long as it exists, and the
+next replica that converges on it writes the mark. That window is covered
+completely when run records outlive the grace window, which is why
+`ironflow serve` warns at startup, once per schedule, when `REDIS_TTL` is not
+greater than that schedule's `grace_seconds` plus 60 seconds. It is a warning
+and not a failure because the marked claim already prevents the duplicate
+run. Claim lifetime does not depend on `REDIS_TTL`: it is the larger of seven
+days and grace plus one day, counted from the claim (Redis restarts it when
+the mark is written), so it outlasts the largest accepted grace window by at
+least a day. A custom
+store that keeps the trait defaults records nothing and is fenced by the run
+record alone.
+
+Existing or later-stalled executions are never replayed. Lateness,
+overlap, run capacity, and a flow that fails to load may still skip an
+occurrence instead of creating a backlog; each such skip is recorded in the
+claim and is final for every replica. The flow-load limit does not: a
+scheduled start waits up to five seconds for a load permit, where API requests
+fail fast, and a wait that expires defers the occurrence. Nothing was parsed
+and no run exists, so the watermark stops before it and later ticks retry it
+until it starts, falls outside grace, or is superseded by the schedule's next
+occurrence. The start takes its run
+permit only after it holds a load permit and before the Lua VM is created: a
+queued start occupies no run capacity, and a start refused for run capacity
+returns its load permit without parsing. The run permit is never waited for,
+so the two limits cannot deadlock. The overlap check pages
 through at most 256 non-terminal runs and tolerates read failures, so it is a
-bounded best-effort guard rather than a distributed per-schedule lock. A claim
+bounded best-effort guard rather than a distributed per-schedule lock. It
+recognises a schedule's run by its deterministic run ID, recomputed from the
+schedule name and the `_schedule_instant` in the run's context, and not by
+the context keys alone, which API and webhook input may not define anyway. A claim
 backend error is different: the watermark stops before that instant and retries
 it on later ticks until it succeeds or falls outside grace.
 
@@ -748,11 +1023,19 @@ run is detached from the tick loop after it starts, so a long-running flow does
 not block later scheduler evaluations.
 
 Schedule names evaluate concurrently, each under a 15-second wall-time budget.
-A timed-out evaluation is indeterminate: its storage claim or run start may
-have committed after the caller lost the result. IronFlow therefore logs the
-timeout, reports each due instant as `TimedOut`, and advances that schedule's
-watermark through the evaluated window instead of retrying and risking a
-duplicate. Other schedule names continue independently. The tick task and API
+Each decision is written to a progress record outside the future the budget
+cancels, so an expiry keeps what was decided. An instant that was still
+undecided is indeterminate: its claim or run start may have committed after
+the caller lost the result. That is safe to retry, because the claim, the
+settled mark and the deterministic run ID are all idempotent: the retry
+either starts the run, converges on the run the cancelled attempt created
+(also when that run is still active, which is not an overlap), or skips. The
+undecided instant is therefore reported as `Deferred` and the watermark
+stops before it. `MAX_BUDGET_DEFERRALS` (2) bounds this per schedule: the
+third consecutive expired evaluation reports what is undecided as `TimedOut`
+and advances the watermark through the window, as every expiry did before
+IF-217; a completed evaluation resets the count, and grace bounds every
+retry as well. Other schedule names continue independently. The tick task and API
 server are supervised as one availability unit; an unexpected scheduler return
 or panic ends `serve` with an error, while normal server completion requests and
 awaits scheduler shutdown.
@@ -762,12 +1045,24 @@ awaits scheduler shutdown.
 HTTP handlers and the scheduler register each accepted top-level run with one
 process `ServiceLifecycle`. Registration retains only cloneable cancellation
 authority; the ordinary `RunHandle` waiter still owns completion and admission.
-SIGTERM/SIGINT atomically closes readiness and execution admission. Axum stops
-accepting connections, the scheduler exits its tick loop, and accepted runs may
-finish for `IRONFLOW_SHUTDOWN_GRACE_SECONDS`. Remaining coordinators receive
-the same cooperative cancellation signal as explicit run cancellation. Final
-settlement and connection close are separately bounded so a defective task
-cannot hold an orchestrator termination forever.
+SIGTERM/SIGINT atomically closes readiness and execution admission. The
+scheduler exits its tick loop and accepted runs may finish for
+`IRONFLOW_SHUTDOWN_GRACE_SECONDS`. `serve_until` keeps polling the Axum server
+future for that whole drain, so the listener still accepts: a connection
+opened after the signal gets `503` from `/health/ready` and from run
+admission rather than waiting in the accept backlog (IF-183). Remaining
+coordinators receive the same cooperative cancellation signal as explicit run
+cancellation and have 20 seconds to settle. The listener closes only after
+that, and open connections have five seconds to finish. `main` then shuts the
+runtime down with a timeout instead of dropping it, because a dropped runtime
+waits for every blocking closure. The timeout is
+`IRONFLOW_RUNTIME_SHUTDOWN_SECONDS` (default 5, `1..=3600`, registered with
+the other limits so a malformed value stops startup). It applies to every
+command, so `ironflow run` also exits at most that long after printing its
+result. A worker still inside an uninterruptible call at that point ends with
+the process. Each stage is bounded so a defective task cannot hold an
+orchestrator termination forever: at most grace plus 30 seconds in total with
+the default runtime bound.
 
 `IRONFLOW_REPLICA_MODE=true` is an operator assertion checked before stores are
 opened. It accepts only PostgreSQL/Redis state plus PostgreSQL/Redis events;
@@ -778,6 +1073,19 @@ environment/YAML precedence. PostgreSQL requires `postgres://` or
 `serve` preflights both selected SQL URLs without filesystem or connection
 side effects even outside replica mode; the individual factories also validate
 before connecting. Mismatch diagnostics identify settings, not raw URLs.
+The same resolver rejects an invalid SQL table prefix and an in-memory or
+temporary SQLite URL, which would give each pooled connection its own empty
+database; the SQL stores repeat the in-memory check for library callers.
+
+The omitted-URL SQLite default is built from the store directory as a
+filesystem path, never by formatting the path into a URL (IF-199). The stores
+share the `sqlx::Any` pool, which accepts only a URL, and the SQLite driver
+percent-decodes the database part and opens it with URI file names enabled. So
+`src/cli/sqlite_path.rs` makes the path absolute and percent-encodes every byte
+outside `[A-Za-z0-9._-]`, separators included, into `sqlite:<encoded>?mode=rwc`:
+an opaque URL path that the parser neither splits nor normalizes and the driver
+decodes back to exactly the path given. The store directory is created only
+after that URL and the table prefix are known to be usable.
 This verifies dialects, not whether separate processes target the same service.
 The detailed failure
 and platform boundary is in [Replica deployment](REPLICA_DEPLOYMENT.md).
@@ -874,7 +1182,8 @@ Features:
 3. Lua script calls step()/depends_on() → builds FlowDefinition
 4. Engine validates: duplicate names, unknown nodes, dependencies, dedicated
    recovery targets, and cycles in the combined normal/recovery graph
-5. Topological sort of normal and recovery edges → execution phases
+5. Topological sort of normal and recovery edges → execution phases, in
+   one pass over the steps and edges (IF-215)
 6. For each phase, preserve flow declaration order and capture one immutable
    phase-start context snapshot
 7. Run ready tasks concurrently:
@@ -927,6 +1236,18 @@ Context is a `HashMap<String, serde_json::Value>` that flows through the entire 
   same-phase writer deterministically wins a same-key collision; later phases
   may intentionally overwrite earlier values. Initial-context overwrites are
   normal writes, not parallel collisions.
+- One nesting limit is shared by input parsing, the engine and the durable
+  stores: a context or step-output value may nest arrays and objects at most
+  123 levels (`util::json_depth::MAX_JSON_VALUE_DEPTH`). `serde_json` reads
+  back 127 nested containers and a stored run record wraps a task-output
+  value in four objects (run, task map, task, output), so anything admitted
+  can be stored and read by every backend. `ironflow run --context`,
+  `POST /flows/run` and webhook bodies refuse a deeper value before a run
+  exists; `WorkflowEngine` refuses it for every other caller. A deeper step
+  output fails its step as a workflow error that is not retried, and deeper
+  structured failure output is dropped from the task record and from the
+  recovery handler's input. The limit is a constant, not an environment
+  override, because the stores' decoders cannot follow a larger value.
 - Per-task state remains task-local, but `IRONFLOW_MAX_TASK_OUTPUT_BYTES` can
   replace an oversized output record with a truncation marker. Cancellation or
   infrastructure failure before a phase barrier discards that phase's buffered
@@ -943,6 +1264,29 @@ Context is a `HashMap<String, serde_json::Value>` that flows through the entire 
   order (128-byte names, 768-byte messages, UTF-8-safe truncation after full
   redaction). Recovered failures are omitted. Waiting, parallel, repeat and
   tool callers preserve these reasons without fetching persisted task history.
+- The Lua `json_parse()` global deserializes text straight into Lua tables
+  (IF-189). The node and depth budgets are charged per value as it is read
+  and every table and string is allocated by the Lua state, so an oversized
+  document is refused at the budget or at `IRONFLOW_LUA_MAX_MEMORY_BYTES`
+  instead of first being built as a tree outside the Lua allocator. The rest
+  of the text is still scanned, without building, so a syntax error and the
+  JSON nesting limit keep their precedence over the conversion budget.
+- `s3_list_objects` follows continuation tokens itself and is bounded per
+  call (IF-189): at most `IRONFLOW_MAX_S3_LIST_OBJECTS` objects and common
+  prefixes, with the last page cut to what the bound still admits. Without
+  `max_objects` a larger listing fails; with it the call returns the token
+  to resume from. A truncated page without a token, a repeated token, a page
+  larger than requested and 16 consecutive empty truncated pages each fail
+  the step, so an S3-compatible endpoint cannot keep a step requesting pages.
+  One list response is also bounded in bytes before the SDK buffers it
+  (IF-215): `IRONFLOW_MAX_S3_LIST_PAGE_BYTES`, checked against a declared
+  length and enforced while a response without one streams.
+- A task error is stored in task state, published in `TaskFailed` and copied
+  into `_error_message` only after diagnostic scrubbing, which keeps its
+  first 64 KiB and appends `...[truncated]` (IF-177, IF-189). Each attempt
+  therefore adds a bounded record however large the step's message was,
+  and a step has at most 101 attempts: validation refuses a retry count
+  above 100 (IF-215).
 - Code nodes and function handlers may opt into `context_keys` projection.
   Only selected literal top-level keys, plus the four small engine
   diagnostics (`_error_message`, `_error_step`, `_error_node_type`,
@@ -976,8 +1320,30 @@ Context is a `HashMap<String, serde_json::Value>` that flows through the entire 
 - Execution overlays are merged into each node snapshot, propagated to child
   workflow engines, and removed before initial/final context persistence
 - Literal overlay keys and values are redacted before task output/error, event,
-  context, and public run boundaries; redacted output is what downstream steps
-  receive, preventing simple credential laundering between tasks
+  context, and public run boundaries
+- Redaction is record-only (IF-219). Step output, failure output and a child
+  run's result are published to the running workflow exactly as produced, so
+  an overlay value cannot rewrite data or reroute steps; every step receives
+  the overlay itself, so rewriting copies between steps protected nothing. The
+  record form feeds task history, the stored initial and final context and
+  public responses: it replaces a secret inside a string, drops an object key
+  that contains one, replaces a number equal to one and removes the overlay's
+  own keys. The stored context is written only at run start and run end, both
+  in the record form. Diagnostics are redacted once, before they are logged,
+  stored, published or handed to a recovery handler or parent run.
+  Only a complete overlay value and its components of at least eight
+  non-whitespace bytes are secrets; names and object keys are not. That floor
+  is for text a remote party chose: a credential a node resolves itself, such
+  as the `llm` node's authentication headers, is redacted from its errors at
+  any length (IF-108)
+- Diagnostics pass through a pattern scrubber after exact-value redaction
+  (IF-177). It replaces URL credentials and the value of assignments whose key
+  ends with a credential name, reads its input a fixed number of times, and
+  scans and keeps only the first 64 KiB. Exact values are matched in the whole
+  text first, so a value that straddles the limit is never emitted in part;
+  the engine does that for a task error above the limit on the blocking pool
+  instead of the task's async worker. The guaranteed shapes are in
+  [SECURITY.md](SECURITY.md#diagnostic-scrubbing)
 - Documented Lua config fields can access context through `${ctx...}` path
   interpolation; configs are not rewritten globally
 - The grammar supports dotted keys, zero-based array indexes, and JSON
@@ -1013,9 +1379,13 @@ files, hashes the opened handle, compares that digest (and descriptor size when
 present), rewinds it, and passes that same handle to the parser or decoder. The
 store intentionally has no automatic eviction because a completed task or
 recovered run can still reference an artifact. `ironflow artifacts prune`
-performs explicit offline cleanup: it admits at most 100 old candidates, walks
-retained runs in cursor pages, loads one full run at a time, and deletes only
-digests absent from every context and task input/output. The required
+performs explicit offline cleanup: each invocation examines a bounded window of
+the store in digest order (at most 10,000 digests), walks retained runs in
+cursor pages, loads one full run at a time, and deletes at most 100 digests
+absent from every context and task input/output. Referenced candidates are
+skipped rather than counted, and an invocation that stops before the end of
+the store prints the digest to pass back with `--after`, so repeated
+invocations always reach the orphans behind long-retained artifacts. The required
 `--confirm-offline` assertion is the race boundary; every process able to add a
 reference must remain stopped for the scan/delete window. Publication is per
 artifact rather than transactional across a node, so a later parser/page
@@ -1046,6 +1416,39 @@ method/body replay and cross-origin credential fences remain explicit. When
 private-network blocking is enabled, transport bypasses system proxies, rejects
 the complete DNS answer if any address is internal, and passes only that
 validated set to the connector.
+
+That guard is one module, `util::outbound`, shared by every node that
+connects to a flow-chosen destination (IF-212). A guard exists for a node
+execution when the operator forced the process policy on
+(`IRONFLOW_BLOCK_PRIVATE_NETWORK`) or an `http_*` node opted in; the node
+option can only add it. It decides in two stages: the requested host and
+port (a literal address is classified at once, `localhost` is refused by
+name), then the complete DNS answer. The operator allowlist
+(`IRONFLOW_PRIVATE_NETWORK_ALLOWLIST`) is the only exception and is matched
+on the requested host name or on the address, never learned from a flow.
+Clients take the guard in the form their driver allows:
+
+- The `http_*` nodes keep one shared direct client whose resolver reads the
+  policy for each lookup and check every redirect hop themselves.
+- The provider client (`util::provider_http`, behind `llm`, `ai_embed`,
+  `ai_chunk_semantic`, `transcribe`, `slack_notification`, Resend
+  `send_email` and `arangodb_aql`) and the `mcp_client` Streamable HTTP
+  transport are built per execution with the guard installed: no proxy, the
+  pinning resolver, and a refusal hook that reqwest consults for every
+  request URL, so a literal internal address is refused even where a call
+  site adds no check of its own. Nodes also check the resolved URL first to
+  report a readable error.
+- The S3 and S3 Vectors service clients get the AWS SDK HTTPS client with
+  the guard's resolver; the SDK credential providers keep their own client.
+- SMTP resolves the relay through the guard and connects to that address
+  while TLS verifies the configured name.
+- `db_query` and `db_exec` get a host check only, because the SQL driver
+  resolves the URL host itself.
+
+The policy is read from the environment on each use, with the
+`ironflow.yaml` keys installed by the CLI as a fallback, so an embedding
+caller needs no start-up call and a malformed value fails the node closed.
+`docs/SECURITY.md` holds the operator contract.
 
 The local backend still treats its configured directory as a trusted process
 boundary. Verified reads prevent same-size path replacement and pathname
@@ -1113,9 +1516,54 @@ running under the same OS identity from mutating the leased inode.
   traversal, parsing, compression, and copying use tracked blocking workers;
   they checkpoint between filesystem/archive entries and copied chunks so run
   and task admission remains held until physical work stops.
+- A node that encodes straight to a destination file publishes through
+  `nodes::file::staged_output::publish` from its tracked blocking worker
+  (IF-179): the image nodes, `image_to_pdf` and the `transcribe`
+  `output_file`. The encoder writes to a staged sibling through a writer that
+  checkpoints on every write of at most 64 KiB; the staged file is
+  synchronized and renamed over the destination only after a final
+  checkpoint. The destination directory must exist, a symlink or special file
+  at the destination is refused, and a failed or cancelled encode removes the
+  staged file. `write_file`, `copy_file`, `base64_decode`, the archive nodes,
+  `pdf_merge`, `pdf_split` (both modes, IF-218) and the Markdown document
+  nodes use the same rooted writer directly and create missing parent
+  directories.
+- Platforms other than Unix use a checked-path fallback of the rooted writer
+  (`rooted/portable.rs`): it refuses symlinked components and leaves by
+  inspecting paths, without a pinned directory handle. Its unit tests run in
+  Unix test builds, and `--cfg ironflow_portable_writer` compiles the whole
+  library against it in CI (IF-218); see
+  [NODE_CONTRIBUTING.md](NODE_CONTRIBUTING.md#portable-rooted-writer).
+- On Unix a parent directory created by the rooted writer is requested as
+  `0755` and masked by the umask, not as the `0777` of a plain `mkdir`
+  (IF-218, decided; first measured in IF-185). A permissive umask therefore
+  never produces a group-writable output directory. Existing directories are
+  used as they are.
+- On Unix the staged file is mode `0600` while it is written and receives
+  its published mode at commit, immediately before the rename (IF-185): the
+  permission bits of the regular file it replaces, or for a new file the mode
+  the platform gives a plain create in that directory (`0666` masked by the
+  umask), measured once per node execution with an empty probe file because
+  the umask cannot be read without changing it for every thread. Setuid, setgid and
+  sticky bits are never carried, `zip_extract` ignores archive permission
+  metadata, and `copy_file` publishes the source mode instead. Requests of
+  the `write_file` family (`write_file`, `copy_file`, `base64_decode`) hold a
+  per-destination lock in the process from before an append reads the
+  existing file until the commit, so parallel appends keep every input;
+  writers in other processes remain last-writer-wins.
 - `zip_list`, `zip_extract`, and OOXML readers share a raw ZIP/ZIP64 scanner
   before library metadata construction. It bounds raw counts, validates central
-  headers, and rejects duplicate raw names. ZIP list/extract use the independent
+  headers, and rejects duplicate raw names. The scanner and the `zip` reader
+  are separate parsers, so admission also pins them to one directory: the
+  scanner takes the last end-record signature whose record and comment fit in
+  the file, as the reader does, and refuses the archive unless that record
+  ends at EOF and the central directory ends exactly where it (or its ZIP64
+  end record) begins. It follows the ZIP64 record only for the markers the
+  reader honours (entry count, directory size, directory offset) and refuses
+  a record marked in a disk field alone, which the reader would skip in
+  favour of an earlier end record (IF-218). Each caller then confirms that the opened archive has
+  archive offset zero, the validated directory offset and the validated raw
+  entry count before using any entry. ZIP list/extract use the independent
   `IRONFLOW_MAX_ZIP_METADATA_BYTES` budget (8 MiB, per-node override supported)
   for names, extra fields, comments, and ZIP64 end-record extensions. XLSX keeps
   its dedicated archive-metadata budget and OOXML retains its raw input caps.

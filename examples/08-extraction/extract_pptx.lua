@@ -3,7 +3,19 @@ local flow = Flow.new("extract_pptx_demo")
 -- Extract a PowerPoint deck as structured JSON with metadata and comments.
 -- Slide text, notes, metadata and comments retain XML references and CDATA.
 -- Notes separate paragraphs rather than individual XML text fragments.
+-- A line break (a:br) inside a slide or notes paragraph is a newline in the
+-- text; in a table cell and in the slide title it is a space.
+-- Notes are the body placeholder of the notes slide only: its slide number,
+-- date, header and footer placeholders and field values are not included.
+-- A paragraph is a list item (list_level, "- " in Markdown) when a bullet is
+-- declared for it in its own properties or in the shape's list style; a
+-- first-level bullet has list_level 0. A placeholder paragraph that declares
+-- nothing inherits the bullet of its slide layout and slide master.
+-- Footer, date, slide-number and header placeholders are page furniture and
+-- are left out of slide text in every format.
 -- Slides follow the presentation list, including listed hidden slides.
+-- In JSON a hidden slide carries hidden = true; a shown slide has no such
+-- field. Text and Markdown do not mark hidden slides.
 -- Notes/comments/images follow relationships, not matching filename numbers.
 -- Embedded media, when present, is streamed to IRONFLOW_ARTIFACT_DIR and
 -- represented by a small artifact descriptor; binary bytes never enter the
@@ -27,6 +39,7 @@ flow:step("summarize", function(ctx)
     assert(ctx.deck_meta.slide_count == #slides, "Slide count must match membership")
     for index, slide in ipairs(slides) do
         assert(slide.slide_index == index, "Slide indices must follow presentation order")
+        assert(slide.hidden == nil or slide.hidden == true, "hidden is set only on hidden slides")
         for _, comment in ipairs(slide.comments or {}) do
             assert(comment.slide_index == index, "Comment must refer to its slide position")
         end

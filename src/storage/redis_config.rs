@@ -11,6 +11,17 @@ pub(crate) fn client(url: &str) -> redis::RedisResult<redis::Client> {
     redis::Client::open(url)
 }
 
+/// Connect the manager both Redis stores share. The response timeout is
+/// `IRONFLOW_REDIS_RESPONSE_TIMEOUT_MS`; its default equals the client's own
+/// 500 ms, which a loaded server or host can exceed (IF-216, IF-220).
+pub(crate) async fn connection_manager(
+    client: redis::Client,
+) -> redis::RedisResult<redis::aio::ConnectionManager> {
+    let config = redis::aio::ConnectionManagerConfig::new()
+        .set_response_timeout(Some(crate::util::limits::redis_response_timeout()));
+    redis::aio::ConnectionManager::new_with_config(client, config).await
+}
+
 /// Largest TTL that remains safe across IronFlow's Redis Lua scripts.
 ///
 /// Keeping the configured seconds at or below this value guarantees that its

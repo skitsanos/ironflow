@@ -10,8 +10,10 @@ use crate::nodes::NodeRegistry;
 use crate::storage::event_store::EventStore;
 use crate::storage::{RunLease, StateStore};
 
+use super::child_runs::LiveChildRun;
 use super::coordinator::RunCoordinator;
 use super::handle::{ChildRunResult, RunHandle};
+use super::nesting::ChildLink;
 use super::overlay::ExecutionOverlay;
 
 const EVENT_PUBLISH_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(500);
@@ -87,17 +89,22 @@ impl WorkflowEngine {
         execution_overlay: ExecutionOverlay,
     ) -> Result<RunHandle> {
         let run_id = Uuid::new_v4().to_string();
-        self.start_new_with_run_id(flow, initial_ctx, execution_overlay, run_id, false)
+        self.start_new_with_run_id(flow, initial_ctx, execution_overlay, run_id, false, None)
             .await?
             .ok_or_else(|| anyhow::anyhow!("generated workflow run ID already exists"))
     }
 
     /// Return live child values only after execution, finalization and worker drain.
+    ///
+    /// The child registers with the worker sets of the step that captured
+    /// `link`, so that step's timeout or cancellation cannot release its
+    /// capacity or start a handler while the child still has physical work.
     pub(crate) async fn execute_child(
         &self,
         flow: &FlowDefinition,
         initial_ctx: Context,
         execution_overlay: ExecutionOverlay,
+        link: &ChildLink,
     ) -> Result<ChildRunResult> {
         self.start_new_with_run_id(
             flow,
@@ -105,11 +112,28 @@ impl WorkflowEngine {
             execution_overlay,
             Uuid::new_v4().to_string(),
             true,
+            Some(link.clone()),
         )
         .await?
         .ok_or_else(|| anyhow::anyhow!("generated child workflow run ID already exists"))?
         .wait_child_cancel_on_drop()
         .await
+    }
+
+    /// Start a child that the starting step does not wait for. It keeps its
+    /// nesting level, so a detached chain is bounded like a waiting one.
+    pub(crate) async fn start_detached_child(
+        &self,
+        flow: &FlowDefinition,
+        initial_ctx: Context,
+        execution_overlay: ExecutionOverlay,
+        link: ChildLink,
+    ) -> Result<RunHandle> {
+        let run_id = Uuid::new_v4().to_string();
+        let link = Some(link.detached());
+        self.start_new_with_run_id(flow, initial_ctx, execution_overlay, run_id, false, link)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("generated workflow run ID already exists"))
     }
 
     /// Atomically start a caller-identified run. `None` means another process
@@ -126,6 +150,7 @@ impl WorkflowEngine {
             ExecutionOverlay::default(),
             run_id,
             false,
+            None,
         )
         .await
     }
@@ -133,14 +158,22 @@ impl WorkflowEngine {
     async fn start_new_with_run_id(
         &self,
         flow: &FlowDefinition,
-        initial_ctx: Context,
+        mut initial_ctx: Context,
         execution_overlay: ExecutionOverlay,
         run_id: String,
         retain_child_result: bool,
+        child_link: Option<ChildLink>,
     ) -> Result<Option<RunHandle>> {
         // Resolve limits before validating the flow or creating durable state.
         // Embedded callers receive the same fail-closed behavior as the CLI.
         crate::util::limits::validate_environment()?;
+        crate::util::outbound::policy::validate_environment()?;
+        // A child run takes its process-wide slot before anything durable
+        // exists; a refusal fails the step that asked for it (IF-215).
+        let live_child = child_link
+            .as_ref()
+            .map(|_| LiveChildRun::admit())
+            .transpose()?;
         let max_concurrent_tasks =
             crate::util::runtime_config::max_concurrent_tasks(self.max_concurrent_tasks)?;
         let run_deadline = crate::util::runtime_config::run_deadline()?;
@@ -157,6 +190,10 @@ impl WorkflowEngine {
                 unknown_nodes.join(", ")
             );
         }
+
+        // A context the stores could not read back is refused before any
+        // durable state exists (IF-181).
+        crate::util::json_depth::check_entries(&initial_ctx).context("Initial context refused")?;
 
         let lease = RunLease::fresh();
         let durable_initial_ctx = execution_overlay.redact_context(&initial_ctx);
@@ -176,10 +213,33 @@ impl WorkflowEngine {
                 .with_context(|| format!("Failed to initialize workflow run {run_id}"));
         }
 
+        // The lease owner is unique to this incarnation of the run ID, so a
+        // deletion fence left by an earlier run with the same ID admits
+        // these events and still rejects that run's late ones (IF-184).
+        let events = match &self.events {
+            Some(events) => {
+                let admission =
+                    super::run_events::begin(events, &run_id, lease.owner(), self.metrics.as_ref())
+                        .await;
+                if let Some(warning) = admission.warning {
+                    super::run_events::record_warning(
+                        self.store.as_ref(),
+                        &run_id,
+                        lease.owner(),
+                        &mut initial_ctx,
+                        warning,
+                    )
+                    .await;
+                }
+                Some(admission.events)
+            }
+            None => None,
+        };
+
         let coordinator = RunCoordinator::new(
             self.registry.clone(),
             self.store.clone(),
-            self.events.clone(),
+            events,
             max_concurrent_tasks,
             run_id,
             flow.clone(),
@@ -192,7 +252,10 @@ impl WorkflowEngine {
         );
 
         Ok(Some(
-            coordinator.with_child_result(retain_child_result).spawn(),
+            coordinator
+                .with_child_result(retain_child_result)
+                .with_child_link(child_link, live_child)
+                .spawn(),
         ))
     }
 

@@ -54,7 +54,12 @@ pub(crate) async fn cmd_run(
     // Parse initial context
     let mut initial_ctx: Context = match context_json {
         Some(json) => {
-            serde_json::from_str(&json).with_context(|| "Failed to parse --context JSON")?
+            let context: Context =
+                serde_json::from_str(&json).with_context(|| "Failed to parse --context JSON")?;
+            // Refused here, before a run record exists (IF-181).
+            crate::util::json_depth::check_entries(&context)
+                .with_context(|| "Invalid --context JSON")?;
+            context
         }
         None => Context::new(),
     };

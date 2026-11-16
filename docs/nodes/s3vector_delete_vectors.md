@@ -14,10 +14,10 @@ For complete teardown, run this node before `s3vector_delete_index`, then run
 | `index_name` | string | yes* | -- | Explicit target index name. |
 | `index` | string | no | no | Alias for `index_name`. |
 | `index_arn` | string | yes* | -- | Explicit self-contained alternative target. |
-| `keys` | array<string> | yes | -- | Keys to delete from the index. |
-| `keys_source_key` | string | no | -- | Context key containing string-array keys. |
-| `region` | string | no | AWS region chain | Override `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, or `AWS_DEFAULT_REGION`. |
-| `endpoint_url` | string | no | `AWS_ENDPOINT_URL` env var | Override the S3 Vectors service endpoint. |
+| `keys` | array<string> | yes | -- | Keys to delete from the index. Each configured key supports `${ctx.key}` interpolation. |
+| `keys_source_key` | string | no | -- | Context key containing string-array keys. Stored keys are used as they are and are not interpolated. |
+| `region` | string | no | AWS region chain | Override `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, or `AWS_DEFAULT_REGION`. The environment is used only when the parameter is absent: a value that is not a string, or is empty after interpolation, fails the step before the client is built. |
+| `endpoint_url` | string | no | `AWS_ENDPOINT_URL` env var | Override the S3 Vectors service endpoint. A value that is not a string, or is empty after interpolation, fails the step instead of falling back to the environment or the default AWS endpoint. |
 | `output_key` | string | no | `s3vector` | Prefix for context output keys. |
 
 ## Target Resolution and Safety
@@ -35,6 +35,16 @@ AWS client is built.
 - `{output_key}_deleted_count` — Number of keys submitted for deletion.
 - `{output_key}_deleted_keys` — Key list.
 - `{output_key}_success` — `true` on success.
+
+## Outbound destination policy
+
+When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, `endpoint_url`
+(or `AWS_ENDPOINT_URL`) is refused when it is `localhost` or not a public
+unicast address, and every DNS answer of the service client is validated
+and pinned. An S3-compatible endpoint on a private address must be listed by
+the operator in `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` (for example
+`minio.internal:9000`). See
+[Outbound destinations](../SECURITY.md#outbound-destinations).
 
 ## Example
 

@@ -10,6 +10,10 @@ Remove duplicate items from an array.
 | `output_key` | string | yes | — | Context key where the deduplicated array will be stored |
 | `key` | string | no | — | Field name to deduplicate by. When provided, two items are considered duplicates if they have the same value for this field. When omitted, items are compared by their full JSON serialization. |
 
+Numbers are compared by value in both modes: `5` and `5.0` are duplicates, as in [`data_filter`](data_filter.md#equality). Other types stay distinct, so the string `"5"` is not a duplicate of the number `5`.
+
+With `key`, items that do not have the field share one key, so the first of them is kept and the rest are removed as duplicates. A field that is present with `null` is a different key from a missing field, unlike in [`data_filter`](data_filter.md#items-without-the-field), where a missing field compares as `null`. Filter with `exists` first when items without the key must all be kept or all be dropped.
+
 ## Context Output
 
 - `{output_key}` — the deduplicated array, preserving the order of first occurrence

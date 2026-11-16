@@ -21,6 +21,22 @@ The fixtures are intentionally reused across examples:
   transcripts for extraction, cue chunking, and service-backed examples.
 - `markdown-multilingual.md` — Ukrainian, Chinese, Japanese, Korean, Hebrew,
   Arabic, combining marks, mixed-direction text and an RTL table for document generation.
+- `pandoc-deck.pptx` and `pandoc-document.docx` — files written by an
+  authoring tool rather than assembled by hand, extracted by
+  `tests/test_tool_authored_documents.rs` (IF-222). pandoc 3.14 generated
+  them from `pandoc-deck.md` and `pandoc-document.md`. The deck has speaker
+  notes with a hard line break and a slide without notes; the document has
+  style-based headings, direct bold, italic and strikethrough, a hard line
+  break, a comment with an anchored range, a tracked insertion and deletion,
+  and a table. Their text is original test content; the styles, themes, slide
+  masters and layouts inside the packages come from pandoc's default
+  reference documents. Regenerate them with a fixed timestamp so the bytes
+  stay stable:
+
+  ```bash
+  SOURCE_DATE_EPOCH=1794700800 pandoc pandoc-deck.md -o pandoc-deck.pptx
+  SOURCE_DATE_EPOCH=1794700800 pandoc pandoc-document.md -o pandoc-document.docx
+  ```
 
 Lua examples address these files through the injected `_flow_dir` context key,
 so their inputs resolve relative to the flow file rather than the process's

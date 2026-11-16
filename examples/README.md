@@ -30,13 +30,14 @@ credentialed, local-state, and platform-specific flow at the same time.
 | --- | --- |
 | POSIX shell or utilities | `04-file-operations/zip_workflow.lua`, `06-shell/run_commands.lua`, `13-ai/pdf_gemini_rag_schema.lua`, `13-ai/pdf_gemini_reconstruct_schema.lua`, `13-ai/pptx_gemini_reconstruct.lua`, `13-ai/pptx_gemini_reconstruct_schema.lua` |
 | Python 3 on `PATH` | `17-mcp/mcp_stdio.lua` |
-| Native Pdfium (`PDFIUM_LIB_PATH` or system installation) | `08-extraction/pdf_to_image.lua`, `08-extraction/pdf_thumbnail.lua` |
 | Poppler `pdftoppm` on `PATH` | `13-ai/pdf_gemini_rag_schema.lua`, `13-ai/pdf_gemini_reconstruct_schema.lua` |
 | macOS Quick Look `qlmanage` | `13-ai/pptx_gemini_reconstruct.lua` |
 | Repository root as the working directory | `13-ai/pdf_gemini_rag_schema.lua`, `13-ai/pdf_gemini_reconstruct_schema.lua`, `13-ai/pptx_gemini_reconstruct.lua` |
 
 ## 00-showcase
+- **batch_idempotency_check.lua** — Idempotent batch ingestion with a one-table SQLite ledger: `INSERT OR IGNORE` registers the batch, `rows_affected` becomes an `is_new_batch` flag, and an `if_node` gate routes a first delivery to `process` and a redelivery to `skip`. Needs `db_path` (its directory must exist) and `batch` through `--context`; creates the ledger file and keeps it. A batch whose processing fails is not retried.
 - **nightly_report.lua** — Parallel fetches with per-step retries and total timeouts, an inline Lua reduction, and a Slack notification
+- **research_source_snapshot.lua** — Fetch a cited page, save a Markdown copy, and write a manifest with the copy's SHA-256 fingerprint so the citation can be checked later. Needs `source_url`, `document_id`, and `output_dir` through `--context`; keeps `<output_dir>/<document_id>.md` and `.json`, replacing them on a rerun with the same `document_id`.
 
 ## 01-basics
 - **hello_world.lua** — Minimal flow with logging and templates
@@ -50,21 +51,23 @@ credentialed, local-state, and platform-specific flow at the same time.
 ## 02-data-transforms
 - **json_operations.lua** — Parse, select fields, stringify
 - **transform_pipeline.lua** — Filter, transform, rename, batch, deduplicate
-- **filter_and_batch.lua** — Filter by condition, deduplicate, split into batches
+- **filter_and_batch.lua** — Filter by condition (`eq`, and `neq` as its negation, which keeps items without the field) and by numeric equality, deduplicate, split into batches
 - **foreach_function.lua** — Iterate over arrays with a Lua function transform
 - **json_extract_path.lua** — Extract values by JSON path from API responses and parsed JSON
-- **csv_parse_stringify.lua** — Parse CSV text and write back canonical CSV
+- **csv_parse_stringify.lua** — Parse CSV text with type inference that keeps identifiers as text, and write back canonical CSV with formula-like text neutralized for spreadsheets
 
 ## 03-control-flow
 - **conditional_routing.lua** — `if_node` with true/false route branching
 - **switch_routing.lua** — `switch_node` multi-case routing
 - **step_if.lua** — `step_if` conditional step shorthand
+- **guard_literals.lua** — Guard comparisons against `true`, `false` and `nil`
 
 ## 04-file-operations
 - **read_write_files.lua** — Write, read, list, and delete files
 - **artifact_handoff.lua** — Stream a DOCX to the local or S3-backed artifact store and pass its backend-neutral descriptor directly to `extract_word`
 - **binary_file_io.lua** — Contrast explicit Base64 with a disk-backed artifact restore through `write_file`
 - **copy_move_files.lua** — Copy and move files between locations
+- **write_file_artifact_inputs.lua** — Restore an artifact by canonical URI through `write_file`, show that a local path passed as `artifact` is rejected and recovered with `on_error`, and copy by path with `copy_file`
 - **[s3_put_get_list.lua](04-file-operations/s3_put_get_list.lua)** — List visible buckets, then upload, download, list, and delete one UUID-scoped object
 - **s3_copy.lua** — Copy a literal space/percent key in S3, verify downloaded content and object listing, then clean up
 - **s3_mrap_presign.lua** — Generate four SigV4a MRAP presigned URLs without S3 calls; static credentials keep signing offline
@@ -83,6 +86,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **openai_responses.lua** — OpenAI Responses API (`gpt-5-nano`)
 - **openai_with_extract.lua** — Chat Completions + function handler to extract the reply
 - **http_methods.lua** — Generic http_request, http_put, and http_delete
+- **outbound_destination_policy.lua** — Refuse private and metadata addresses per node (`block_private_network`) or for the whole process (`IRONFLOW_BLOCK_PRIVATE_NETWORK`, with `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` for a local model server); offline, fails on purpose
 - **s3_presigned_upload.lua** — Stream a local artifact through a presigned HTTP PUT and verify it with S3
 
 ## 06-shell
@@ -96,6 +100,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **data_pipeline.lua** — Full pipeline: filter → transform → dedup → hash → batch
 - **code_node_extract.lua** — Inline Lua code node to extract fields from API responses
 - **function_handler.lua** — Pass Lua functions directly as step handlers
+- **lua_pattern_budget.lua** — A pattern that backtracks without bound fails with the `IRONFLOW_LUA_MAX_PATTERN_STEPS` budget error instead of holding its run, and an `on_error` handler reports it
 - **reused_callbacks.lua** — Reuse one self-contained callback across steps, conditional steps, code nodes, and foreach transforms
 - **markdown_conversion.lua** — Markdown ↔ HTML conversion with GFM support
 - **markdown_documents.lua** — Generate searchable PDF and editable DOCX from one Markdown source, with tables and an explicitly bound local image. Creates `data/output/markdown/report.pdf` and `report.docx`; override `pdf_path` and `docx_path` for isolated runs. Existing files are not overwritten.
@@ -142,11 +147,13 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **live_child_results.lua** — Verify a full 3 MiB child result in a downstream step while CLI inspection remains truncated
 - **large_result_child.lua** — Reusable payload-producing child for the live result example
 - **on_error_example.lua** — Planned `on_error` recovery with a handler dependency
+- **input_mapping_forms.lua** — Required, `optional` and `literal` child input mappings, and the step error for a missing parent key
 - **parallel_subworkflows.lua** — Run multiple subworkflows concurrently and collect results
 - **parallel_literal_inputs.lua** — Preserve literal source items while explicit input mappings still select parent values
 - **literal_item_child.lua** — Reusable item/index echo child for the literal-input example
 - **parallel_result_metadata.lua** — Verify authoritative status for static/dynamic children whose output uses metadata field names
 - **metadata_child.lua** — Reusable successful/failing child for the parallel metadata example
+- **nesting_limit.lua** — A flow that calls itself is refused at the child workflow nesting limit and reports the refusal
 - **repeat_subworkflow.lua** — Repeat a child flow with explicit carried state and a finite iteration bound
 - **repeat_counter_subworkflow.lua** — Reusable counter child used by the repeat example
 - **greet.lua** — Simple reusable helper flow used by the subworkflow examples
@@ -202,6 +209,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 ## 15-webhooks
 - **simple_webhook.lua** — Basic webhook that greets the caller by name
 - **auth_check.lua** — Webhook protected at ingress by an environment-backed HMAC-SHA256 signature
+- **forwarded_header.lua** — Webhook that reads one `forward_headers` value in place; shows that records redact the value while later steps read step output unchanged
 
 ## 16-s3vector
 - **[s3vector_vector_workflow.lua](16-s3vector/s3vector_vector_workflow.lua)** — Create and inspect a vector bucket/index, upload and query vectors, then tear down all resources.
@@ -218,8 +226,8 @@ credentialed, local-state, and platform-specific flow at the same time.
 
 ## 18-xml-yaml
 - **xml_parse.lua** — Parse XML into JSON and verify entity, CDATA, and attribute fidelity
-- **xml_stringify.lua** — Convert JSON-like data into XML
-- **yaml_parse.lua** — Parse YAML into JSON and log the result
+- **xml_stringify.lua** — Convert JSON-like data into XML with attributes, wrap a list with `item_tag`, and read it back
+- **yaml_parse.lua** — Parse YAML into JSON and log the result; an integer outside the 64-bit range and `.inf` stay strings
 - **yaml_stringify.lua** — Convert JSON-like data into YAML
 
 ## 19-html-sanitize
@@ -229,7 +237,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **date_format.lua** — Parse, format, and display dates with timezone support
 
 ## 21-schedules
-- **scheduled_hello.lua** — Deterministic offline flow used by the adjacent `ironflow.yaml` to demonstrate a minutely `serve` schedule; schedule claims are durable in the state store (SQLite by default), so one instant never fires twice. Run `cargo run -- -C examples/21-schedules/ironflow.yaml serve` from the repository root and stop it with Ctrl-C
+- **scheduled_hello.lua** — Deterministic offline flow used by the adjacent `ironflow.yaml` to demonstrate a minutely `serve` schedule plus a Monday-to-Friday (`1-5`) and a weekend (`6,0`) schedule in the standard weekday numbering, where `0` and `7` are Sunday; schedule claims are durable in the state store (SQLite by default), so one instant never fires twice, and after downtime only the most recent missed instant of each schedule starts a run. Run `cargo run -- -C examples/21-schedules/ironflow.yaml serve` from the repository root and stop it with Ctrl-C
 
 ## 23-static-website
 - **ironflow.yaml** — Runs `ironflow serve` with a public static root on `127.0.0.1:3101`
@@ -323,21 +331,21 @@ duplicated, unclassified, or inconsistent entries.
 | Category | Count | Default CI execution |
 | --- | ---: | --- |
 | Offline | 43 | Fixture-backed deterministic subset |
-| Offline with outputs/processes | 24 | Fixture-backed local-output cases and MCP stdio use isolated paths; others require isolated outputs |
-| Public/local network | 9 | No |
-| Credentialed external service | 51 | No |
-| Server/manual HTTP or scheduler | 7 | No |
+| Offline with outputs/processes | 29 | Fixture-backed local-output cases and MCP stdio use isolated paths; others require isolated outputs |
+| Public/local network | 10 | No |
+| Credentialed external service | 52 | No |
+| Server/manual HTTP or scheduler | 8 | No |
 | Composition parent/helper flow | 18 | Exercised as coordinated cases where applicable |
 
-All 152 flows are still parsed by `ironflow validate`. Twelve fixture-backed
+All 160 flows are still parsed by `ironflow validate`. Twelve fixture-backed
 offline flows and the local MCP stdio example also run from a disposable
 working directory as part of:
 
 ```bash
-cargo test --test test_example_fixtures
+cargo test --test examples test_example_fixtures::
 ```
 
-This runtime gate checks real PDF, DOCX, PPTX, image, VTT, SRT, and
-artifact-to-extractor handoff behavior.
-It deliberately excludes network calls, credentials, remote mutations, native
-Pdfium rendering, and the macOS-only Quick Look preview path.
+This runtime gate checks real PDF, DOCX, PPTX, image, VTT, SRT, PDF page
+rendering, and artifact-to-extractor handoff behavior.
+It deliberately excludes network calls, credentials, remote mutations, and the
+macOS-only Quick Look preview path.

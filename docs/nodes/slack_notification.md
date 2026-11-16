@@ -17,7 +17,9 @@ Either `text`/`message` or `payload.text` is required.
 
 `webhook_url` is optional and may be omitted if `SLACK_WEBHOOK` is set in env.
 
-If `payload` is provided, all string values are context-interpolated (`${ctx.key}`).
+`text` and `message` support `${ctx.key}` interpolation. If `payload` is
+provided, all of its string values are interpolated once, including
+`payload.text`.
 
 ## HTTP Transport
 
@@ -37,7 +39,8 @@ to received body bytes before text decoding, not total process memory or decoded
 JSON size. Charset/BOM decoding and JSON-or-text output behavior are unchanged.
 
 Non-2xx responses within the cap still fail with their status and redacted body
-detail. A size error takes precedence over provider body parsing when the cap is
+detail; the error keeps the first 64 KiB of that body (see
+[diagnostic scrubbing](../SECURITY.md#diagnostic-scrubbing)). A size error takes precedence over provider body parsing when the cap is
 exceeded. A failed response read does not prove the message was not delivered;
 retrying a notification can send it again.
 
@@ -46,6 +49,17 @@ retrying a notification can send it again.
 - `{output_key}_status` — HTTP status code.
 - `{output_key}_data` — Response body (JSON parsed if possible, otherwise raw text).
 - `{output_key}_success` — `true` on HTTP 2xx success.
+
+## Outbound destination policy
+
+When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, this node
+refuses a destination that is not a public unicast address before it
+connects: a literal private, loopback or link-local address, `localhost`,
+and a host name whose DNS answer contains such an address. The validated
+answer is the one connected to, and the node connects directly, ignoring a
+system proxy. An internal destination must be listed by the operator in
+`IRONFLOW_PRIVATE_NETWORK_ALLOWLIST`; nothing in the flow can add one. See
+[Outbound destinations](../SECURITY.md#outbound-destinations).
 
 ## Example
 

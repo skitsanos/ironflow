@@ -31,7 +31,9 @@ that release or an already-running image as protected by this source update.
 | Website and Bun scripts | Bun's embedded trust store; update Bun and rebuild/redeploy existing images. Floating tags do not update running containers. |
 
 Repository policy tests guard the resolved Rust versions and container package
-floor. `cargo audit --deny warnings` remains mandatory without advisory ignores.
+floor. `cargo audit --deny warnings` remains mandatory; its only advisory
+ignore is the reviewed SQLite entry under
+[Dependency advisories](#dependency-advisories).
 No vendored PEM certificate bundles were found in the tracked application,
 test, script, documentation, or example trees during this assessment.
 
@@ -111,6 +113,360 @@ deployment environment. Local results do not establish protection on other
 machines or old deployments. Review historic endpoint, proxy, and TLS logs
 separately; a patched audit cannot establish absence of past exploitation.
 
+## Empty configuration values
+
+A configuration variable that is present but empty or whitespace-only stops
+startup with a message naming the variable (IF-198). It is never read as
+"unset". Before this rule an empty `IRONFLOW_API_KEY` took priority over
+`api_key` in `ironflow.yaml` and was then discarded, so a server bound to
+loopback behind a reverse proxy or sidecar served every route, including
+`POST /flows/run`, without a key.
+
+- An empty or whitespace-only `IRONFLOW_API_KEY` or `api_key` fails startup on
+  every bind address. Only `IRONFLOW_ALLOW_UNAUTHENTICATED_API=true` or
+  `allow_unauthenticated_api: true` makes an empty key mean "no key", and
+  never over a configured one: an empty `IRONFLOW_API_KEY` with the opt-in
+  while `api_key` in `ironflow.yaml` holds a key fails startup as a
+  contradiction (IF-220), because serving unauthenticated would be the
+  unsafe reading of it.
+- A loopback bind with no key configured anywhere still starts
+  unauthenticated for local development, and a non-loopback bind without a
+  key still fails. Do not rely on a loopback bind for isolation when other
+  local processes or a proxy can reach it: configure a key.
+- The same rule applies to `IRONFLOW_CORS_ORIGINS`, the store selectors and
+  URLs, `IRONFLOW_SQL_TABLE_PREFIX`, `REDIS_URL` and `REDIS_PREFIX`. The full
+  table is in the [CLI reference](CLI_REFERENCE.md#ironflow-serve).
+- Diagnostics name the source (the variable or the config field) and never
+  include a value.
+
+Webhook signature secrets are read from the variable named by `secret_env`
+and must contain at least 16 bytes that are not all whitespace, so an empty
+or blank secret is rejected at startup.
+
+## Outbound destinations
+
+A flow chooses where its nodes connect. The outbound destination guard
+refuses `localhost` and every address that is not a public unicast
+destination, before any connection is opened. It is off by default and is
+turned on in one of two ways (IF-191, IF-212):
+
+- **Process policy, set by the operator.** `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`
+  (or `block_private_network: true` in `ironflow.yaml`; the environment
+  wins) forces the guard on for every covered node in the process. It is
+  one-way: no flow setting turns it off. A value other than `true` or
+  `false`, including an empty one, stops startup.
+- **Per node, set by the flow author.** `block_private_network = true` on
+  `http_request`, `http_get`, `http_post`, `http_put` and `http_delete`
+  turns the guard on for that step. It can only tighten: with the process
+  policy on, `block_private_network = false` changes nothing.
+
+`ironflow run`, `validate` and `serve` log the resolved policy once at
+startup (`outbound destination policy`, with the switch and the number of
+allowlist entries, never the entries).
+
+### Operator allowlist
+
+`IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` (comma-separated) or
+`private_network_allowlist` (a YAML list; the environment wins) names the
+internal destinations the guard still permits. Only the operator can set it;
+nothing in a flow, a request or a context value adds an entry. A malformed
+entry, an empty variable or more than 256 entries stops startup, and the
+message gives the position of the entry, not its text.
+
+| Entry | Example | Matches |
+|-------|---------|---------|
+| Host name | `ollama.internal` | A destination whose requested host is exactly that name (ASCII case-insensitive, a trailing dot ignored), on any port. |
+| Host name and port | `db.internal:5432` | The same, on that port only. |
+| Address | `10.0.5.9`, `fd00::9` | That literal address, and a DNS answer containing it. |
+| Address and port | `127.0.0.1:11434`, `[::1]:11434` | That literal address on that port. Never a DNS answer. |
+| CIDR range | `10.0.5.0/24`, `fd00:5::/64` | A literal address in the range, and a DNS answer in it. Address bits beyond the prefix are rejected. |
+
+How a host-name entry is matched, precisely:
+
+- The entry is compared with the host the node was asked to reach. There is
+  no wildcard and no suffix matching: `ollama.internal` does not admit
+  `x.ollama.internal` or `ollama.internal.example.com`.
+- When it matches, the addresses that name resolves to are permitted for
+  that connection, whatever range they are in. Nothing is recorded about
+  those addresses: another host name that resolves to the same address is
+  still refused, and so is the address itself as a literal. An entry
+  therefore cannot be used to reach an internal address under a different
+  name, and DNS answers for every other name stay validated and pinned.
+- A name that is listed only with ports is refused on every other port
+  (`the private-network allowlist permits this host on other ports only`),
+  whether or not it would resolve to a public address.
+- A redirect is checked hop by hop under the same rules.
+
+An address or range entry is a statement about the address, so any name that
+resolves into an allowlisted range without a port is permitted. Use a
+host-name entry when only one service should be reachable. The allowlist
+also applies when only the per-node option turned the guard on.
+
+### What is covered
+
+| Consumer | Destination setting | With the guard on |
+|----------|---------------------|-------------------|
+| `http_request`, `http_get`, `http_post`, `http_put`, `http_delete` | `url` | Literal address, every redirect target and every DNS answer checked; the validated answer is pinned to the connection. |
+| `llm`, `ai_embed`, `ai_chunk_semantic`, `transcribe` | `base_url`, `azure_endpoint`, `ollama_host`, OAuth `token_url`, their environment variables, and an absolute `chat_path`, `responses_path` or `path` of a custom `llm` provider | The same, on the resolved request URL. Redirects are same-origin only. |
+| `slack_notification`, `send_email` with `resend`, `arangodb_aql` | `webhook_url`, `api_url`, `url` | The same. Redirects are same-origin only. |
+| `mcp_client` (Streamable HTTP) | `url` | The same; only same-origin `307`/`308` redirects are followed. |
+| `s3_*` and S3 Vectors nodes | `endpoint_url`, `AWS_ENDPOINT_URL` | Literal endpoint address and every DNS answer of the service client checked and pinned. A virtual-hosted bucket (`<bucket>.<endpoint host>`) is judged as the endpoint host. The SDK credential providers keep their own client. |
+| `send_email` with `smtp` | `smtp_server`, `smtp_port` | The relay name is resolved and checked once, and the transport connects to the first validated address; TLS still verifies the configured name. |
+| `db_query`, `db_exec` | `connection` | **Host check only.** Every host the URL names (including the PostgreSQL `host` and `hostaddr` query parameters) is resolved and checked before connecting. The driver resolves the name again itself, so a name whose answer changes between the two lookups is not caught. Prefer a literal address or a CIDR entry where that matters. SQLite files and Unix sockets are not network destinations. |
+| `shell_command`, `mcp_client` (stdio) | the command | Not covered; a subprocess can open any connection. |
+
+The refusal reads `blocked: target is a private network address` or
+`blocked: DNS resolution returned a private network address`, names the
+setting that turned the guard on, and shows the destination without
+credentials.
+
+With the guard on these clients connect directly and ignore a system proxy,
+because a proxy would resolve the destination outside the guard;
+`proxy_mode = "system"` on an `http_*` node is refused. A deployment that
+requires an egress proxy should enforce destinations there instead.
+
+Common local setups under the policy:
+
+- A model server on the same host (`OLLAMA_HOST=http://127.0.0.1:11434`, or
+  an OpenAI-compatible `base_url` on loopback): add `127.0.0.1:11434`, or
+  `localhost:11434` when the URL says `localhost`.
+- A model server, ArangoDB, MinIO or mail relay on a private network: add
+  its host name with the port (`minio.internal:9000`) or its address.
+- A PostgreSQL server on a private address: add `db.internal:5432` or the
+  address. An environment-supplied destination (`OLLAMA_HOST`,
+  `AWS_ENDPOINT_URL`, `PGHOST`) is checked like one written in the flow.
+
+### Out of scope
+
+The artifact store endpoint, the state and event store URLs and the metrics
+endpoint are operator configuration, cannot be changed by a flow, and are
+not checked. The guard classifies addresses by registry: a public-looking
+range that a deployment routes internally is outside what it can know.
+Where reaching the internal network must be impossible, also confine the
+IronFlow process with network policy (egress rules, a metadata-service hop
+limit or block).
+
+### Refused ranges
+
+Refused IPv4 ranges: `0.0.0.0/8`, `10.0.0.0/8`, `100.64.0.0/10`,
+`127.0.0.0/8`, `169.254.0.0/16`, `172.16.0.0/12`, `192.0.0.0/24`,
+`192.0.2.0/24`, `192.88.99.0/24`, `192.168.0.0/16`, `198.18.0.0/15`,
+`198.51.100.0/24`, `203.0.113.0/24`, `224.0.0.0/4` and `240.0.0.0/4`.
+
+Refused IPv6 ranges: everything outside `2000::/3` (including `::`, `::1`,
+IPv4-compatible and IPv4-translated forms, `64:ff9b:1::/48`, `100::/64`,
+`5f00::/16`, `fc00::/7`, `fe80::/10`, `fec0::/10` and `ff00::/8`), plus
+`2001::/23`, `2001:db8::/32` and `3fff::/20`. IPv4-mapped (`::ffff:0:0/96`),
+NAT64 (`64:ff9b::/96`) and 6to4 (`2002::/16`) addresses are refused when the
+IPv4 address they embed is in a refused IPv4 range and allowed otherwise.
+The node reference describes each range under
+[Private-network blocking](nodes/http_request.md#private-network-blocking).
+
+## Forwarded webhook headers
+
+A webhook passes a request header to a flow only when `forward_headers` names
+it. The value is an invocation-only input: it is merged into `ctx._headers`
+for each step and child workflow and is never written to the stored context,
+task history, events or run-detail responses (IF-011).
+
+Redaction is record-only ([IF-219](issues/IF-219.md), decided 2026-11-16).
+It applies where IronFlow records or returns a value, and never to the data
+one step hands to the next.
+
+Redaction contract (IF-176, IF-219):
+
+- Secrets are the complete header value and each component of at least eight
+  non-whitespace bytes: the credential after `Bearer` or `Basic`, the value of
+  each `key=value` pair split on `,` or `;`, and each string or number inside
+  a value that parses as JSON. The JSON-escaped form is matched too.
+- Header names, JSON object keys, booleans, `null` and shorter components are
+  not secrets. A webhook rejects a forwarded value below the same eight-byte
+  floor with `400`, so every accepted value is matched wherever it occurs.
+- Data inside a running workflow is not redacted. What a step returns
+  reaches later steps, its recovery handler (`_error_output`) and, from a
+  child workflow, the parent step exactly as returned, including a copy of a
+  forwarded value. A header therefore cannot blank text, drop a key, reroute
+  a run or change a branch in a later step.
+- Records are redacted. In stored task output, the stored initial and final
+  context, and everything that returns them (`GET /runs/{id}`, `GET /runs`,
+  the webhook and `POST /flows/run` responses, `ironflow inspect`,
+  `ironflow run` and `ironflow list`), a secret inside a string becomes
+  `[REDACTED]`, an object key containing one is removed with its value, a
+  number equal to one becomes the string `"[REDACTED]"`, and the `_headers`
+  key is removed at any depth. Routing keys are redacted like any other
+  field.
+- Diagnostics are redacted before anything else sees them. The error text of
+  a failed attempt has every secret replaced once, and that one text is what
+  is logged, stored on the task, published in events and the SSE stream, and
+  handed to a recovery handler as `_error_message` and to a parent run as the
+  child failure summary. A handler never receives the unredacted message.
+
+What the stored context holds. The context is persisted twice, when the run
+starts and when it ends, and both writes are the record form above; it is not
+written between steps. `GET /runs/{id}` returns that stored record, so a
+forwarded value that a step copied into its output appears there as
+`[REDACTED]`. The same holds for a child workflow: a child keeps no run record
+of its own, and what it returns is recorded as the output of the parent step
+that ran it. Not redacted there or anywhere: a transformed copy. A step that
+returns an encoded, hashed, reversed or split form of a forwarded value
+stores that form. That was already so before IF-219, because every step
+receives `ctx._headers` directly; moving redaction to the records did not add
+a way to store a value that the previous contract kept out.
+
+Boundary. Matching is literal: an encoded, hashed or split copy of a value is
+not recognized, so flows must validate a forwarded value in place and not
+transform or send it elsewhere. A step that passes a copy to a node with an
+outside effect (an HTTP request, a file, a log line, a cache entry) sends the
+value itself, as a step that reads `ctx._headers` directly always could. A
+sender can still make a *record* show `[REDACTED]` in place of matching text
+of eight or more bytes; the run's data and control flow are unaffected. Keep
+non-confidential metadata in the JSON body. The full table is in the
+[CLI reference](CLI_REFERENCE.md#forwarded-header-redaction).
+
+## Diagnostic scrubbing
+
+Error text can carry a credential that no configuration names: a provider
+echoes a request header, a driver prints its connection string, a script
+raises an error that quotes an environment variable. A pattern scrubber
+therefore runs on the error of every failed task attempt before it is logged,
+stored or published, on failure summaries and panic messages, and on
+scheduler, storage, API and CLI diagnostics. Nodes that quote a provider or
+database response in an error scrub it as well. In the engine the scrubber
+runs after the exact-value redaction described above
+([IF-177](issues/IF-177.md)).
+
+Guaranteed shapes:
+
+| Shape | Example | What is replaced |
+| --- | --- | --- |
+| URL with the scheme `http`, `https`, `postgres`, `postgresql`, `redis`, `rediss`, `smtp`, `smtps` or `sqlite` | `postgres://app:pw@db/app?sslmode=require` | User information, every query value and the fragment; for `http` and `https` the path too. A URL that does not parse becomes `[REDACTED URL]`. A URL ends at whitespace, a quote, an angle bracket or where the next URL starts, so each URL of a list joined by commas is redacted. |
+| Assignment with `=` or `:` | `db_password=pw`, `--token=pw`, `PGPASSWORD=pw`, `X-API-Key: pw` | The value up to the next whitespace or `&`, `;`, `,`, `<`, `>` or quote. |
+| `Bearer` or `Basic` value | `token=Bearer pw`, `Proxy-Authorization: Basic pw` | The scheme and the credential after it, as one value. |
+| `Authorization` header | `Authorization: Token pw`, `authorization=ApiKey pw` | Two words, whatever the scheme: a key that ends with `authorization` carries a scheme and its credential. |
+| Other separators | `password := pw`, `"password" => "pw"`, `"password" : "pw"` | As for `=` and `:`. Whitespace, including a line break, may surround the separator. |
+| Bracketed key | `["password"] = "pw"`, `headers[authorization] = Bearer pw` | As for a plain key: a Lua table constructor or an index expression. |
+| Command-line flag | `--password pw`, `--api-key 'p w'` | The next argument, unless it starts with `-`. |
+| Wrapped value | `password: Some("pw")`, `api_key=SecretString('pw')` | The quoted content after a word that ends with `(`, as Rust `Debug` output prints an optional value. |
+| XML element | `<password>pw</password>` | The element text up to the next tag or line end. |
+| Quoted value | `"client_secret": "pw"`, `password = 'p''w'` | The content between the quotes. A backslash escape or a doubled quote does not end it. |
+| JSON inside a JSON string | `{\"password\":\"pw\"}` | The content between the escaped quotes, at any escaping depth. |
+
+A key is sensitive when it ends, in any letter case, with `access_key`,
+`api_key`, `authorization`, `credential`, `credentials`, `passphrase`,
+`passwd`, `password`, `private_key`, `pwd`, `secret`, `secret_key`,
+`signature` or `token`. An underscore in those endings also matches a hyphen
+or nothing, so `X-API-Key`, `apiKey` and `aws_secret_access_key` are covered.
+Matching by ending covers compound names without a list of them and leaves
+`token_type`, `max_tokens`, `password_policy` and `secret_name` readable.
+
+The flag row also takes the word after a flag that prose mentions, as in
+`pass --token to the client`; that costs one word and leaks nothing.
+
+Every replaced value becomes `[REDACTED]`, and control characters become
+spaces so a diagnostic stays on one log line. Only the first 64 KiB of a
+diagnostic is scanned and kept; the rest is replaced by `...[truncated]`, and
+a URL that the limit cuts becomes `[REDACTED URL]`. The scan reads the text a
+fixed number of times, so its cost grows linearly with the input, and the
+engine redacts a task error above the limit on the blocking pool.
+
+A diagnostic is usually scrubbed twice, by the node that raised it and by the
+engine. The second pass returns scrubbed text unchanged
+([IF-219](issues/IF-219.md)): a value that is already `[REDACTED]` is complete,
+so the words and lines after it stay, and a diagnostic that was cut is marked
+`...[truncated]` once. Two cases are outside that guarantee. Text glued to the
+end of a URL with no whitespace or quote between them is read as part of the
+URL, and a cut diagnostic that redaction made longer than 64 KiB is cut again.
+
+Boundary. The scrubber is a last line of defence that recognises shapes, not
+secrets. It does not recognise:
+
+- a credential with no sensitive key or supported URL around it, including a
+  bare `Bearer pw` in prose;
+- plural keys other than `credentials` (`tokens`, `passwords`, `secrets`) and
+  keys whose sensitive word is not last;
+- more than the first word of an unquoted value, after `=` and after `:`
+  alike, except for the scheme and `Authorization` rows above. An unquoted
+  passphrase with spaces, as in `password: correct horse`, loses only its
+  first word. Until IF-219 a value after `:` ran to the next comma or line
+  end, which also removed the ordinary words after a header credential;
+- an XML element with attributes or a namespace prefix (`<ns:password>`,
+  `<password type="x">`), a byte-string literal such as `b'pw'`, and
+  separators other than `=`, `:`, `:=` and `=>`;
+- the operand of a comparison: `password == pw` is not an assignment, and a
+  sensitive key followed by `==` is left as written so an error that quotes
+  a guard condition stays readable (IF-187). A value that starts with `=`,
+  as in `password==pw`, is still replaced;
+- a value that continues on another line, such as an unescaped PEM block;
+- a connection string without a scheme, outside IronFlow's own Redis and SQL
+  connection errors;
+- an encoded, hashed or split copy of a credential.
+
+Keep credentials out of error messages that a flow raises itself, and rely on
+forwarded-header and node credential redaction for values IronFlow knows.
+
+## Dependency advisories
+
+`cargo audit --deny warnings` fails on every vulnerability and warning that is
+not listed in `.cargo/audit.toml`. Three advisories published after the 1.21.0
+release were handled on 2026-11-12 ([IF-173](issues/IF-173.md)):
+
+| Advisory | Crate | Outcome |
+| --- | --- | --- |
+| [RUSTSEC-2026-0462](https://rustsec.org/advisories/RUSTSEC-2026-0462.html) | `rmcp` | Updated to 3.9.0 and required as the minimum. `mcp_client` over Streamable HTTP was affected: JSON and error bodies were read without a limit. They are now capped at 16 MiB and 64 KiB. |
+| [RUSTSEC-2026-0436](https://rustsec.org/advisories/RUSTSEC-2026-0436.html) | `calamine` | Updated to 0.38.0. The defect is in the `.xls`/`.xlsb`/VBA container parser. `extract_xlsx` does not read those formats, but see the note below on the compound-file probe. |
+| [RUSTSEC-2026-0459](https://rustsec.org/advisories/RUSTSEC-2026-0459.html) | `libsqlite3-sys` | Not fixable yet; one reviewed exception, described below. |
+
+Updating `calamine` was not free of risk. Version 0.38 builds a style record
+for every cell format when a workbook opens and copies the font name and
+number-format code into each one, so a workbook of a few kilobytes could hold
+gigabytes before a cell was read. `extract_xlsx` now bounds that table against
+`IRONFLOW_MAX_XLSX_OUTPUT_BYTES` before the workbook is opened; see
+[`extract_xlsx`](nodes/extract_xlsx.md#ceilings).
+
+The compound-file (OLE) parser is not entirely out of reach of
+`extract_xlsx`, as first recorded here. `calamine::Xlsx::new` probes every
+input for a compound file, to report password protection, before it opens the
+ZIP. In 0.38.0 that probe follows the directory sector chain without a cycle
+check, so a file of a few kilobytes with a looping chain grows a buffer until
+memory is exhausted, and a ZIP package may begin with such a header.
+`extract_xlsx` therefore refuses any file that starts with the compound-file
+signature before the workbook is opened ([IF-218](issues/IF-218.md)). This has
+not been reported upstream.
+
+### SQLite exception (RUSTSEC-2026-0459)
+
+The bundled SQLite is 3.51.3. Before 3.54.0, SQLite can return uninitialized
+page-cache memory when a database is opened together with a crafted sibling
+`-wal` file (CVE-2026-119375). The fix ships in `libsqlite3-sys` 0.39.0, but
+the newest published `sqlx-sqlite` (0.9.0) requires a version below 0.38, so
+no fixed version resolves. The `sqlx` development branch already accepts it.
+
+- **Exposure.** An attacker must write both the database file and its `-wal`
+  file, and IronFlow must then open them. The state and event stores live in
+  an owner-only directory (IF-163) and are not exposed by this. The exposed
+  path is a `db_query` or `db_exec` flow whose `connection` names a SQLite
+  file that a less trusted party could have written: its rows could carry
+  stale memory of the IronFlow process into workflow context.
+- **Until it is fixed.** Do not point `db_query` or `db_exec` at SQLite files,
+  or at directories, that an untrusted party can write. PostgreSQL connections
+  are not affected.
+- **Exit.** The entry is removed when a published `sqlx` release resolves
+  `libsqlite3-sys` 0.39.0 or later. A repository policy test fails as soon as
+  the lockfile holds a fixed version while the entry remains, and whenever a
+  second entry is added. The exception is reviewed again by 2026-12-12 if no
+  such release exists.
+
+### Scheduled audit
+
+Advisories are published against code that is already released, so the CI
+`audit` job (the dependency audit and the license check) also runs every day
+at 05:23 UTC, without a push. A scheduled run uses the workflow and lockfile
+of the default branch, `main`, and runs no other job. It therefore covers the
+released branch only once this workflow has reached `main`, and `develop` is
+still audited on pushes and pull requests. GitHub disables scheduled workflows
+in a public repository after 60 days without repository activity; re-enable
+the workflow if that happens.
+
 ## Dependency licenses
 
 IronFlow is MIT licensed and ships statically linked binaries and container
@@ -137,6 +493,26 @@ The first run of this gate found `html2md` (GPL-3.0+) in the shipped graph; it
 was replaced by `htmd` (Apache-2.0) in IF-161. Fonts embedded for PDF generation
 remain under the SIL Open Font License shipped as `assets/fonts/OFL.txt`.
 
+Attribution for the same graph ships as `THIRD_PARTY_LICENSES.md` in every
+release archive and at `/usr/local/share/licenses/ironflow/` in the container
+image (IF-204). `scripts/third_party_notices.ts write` renders it from the
+gate's shipped-package list: one row per crate, without a version, with its
+SPDX expression, the license IronFlow uses it under (the first allowed option in
+the preference order recorded in the script when a crate offers a choice) and
+its repository link, an MPL-2.0 section that states where the unmodified
+source is available, and each applicable canonical license text once from
+`scripts/licenses/`. The file is committed; `third_party_notices.ts check`
+runs next to the license gate in the CI `audit` job, the integration gate and
+the pre-commit hook. Because rows carry no version (IF-208), a version-only
+lockfile update leaves the file current, so a Renovate pull request for one
+passes unaided; the exact versions are those in the `Cargo.lock` of the
+revision a binary was built from. The check fails when a crate is added or
+removed or a license or source changes, until the file is regenerated:
+
+```sh
+bun --no-env-file scripts/third_party_notices.ts write
+```
+
 ## Watched dependencies
 
 `noyalib` parses `IronFlowConfig` YAML and backs the `yaml_parse` /
@@ -147,6 +523,47 @@ release changes its public API incompatibly, if six months pass without a
 release, or if an advisory is published against it. The dependency audit in
 CI (`cargo audit --deny warnings`) and the Renovate cohort both surface those
 events.
+
+### Archive reader updates
+
+`zip` and `calamine` are reviewed on every version change, including
+lockfile-only ones ([IF-190](issues/IF-190.md), [IF-218](issues/IF-218.md)).
+The raw preflight in `src/util/zip_preflight` and the `zip` reader are
+separate parsers: the limits on entries, duplicate names and metadata hold
+only while both select the same central directory, and `calamine` opens its
+own archive, which IronFlow cannot confirm afterwards.
+`scripts/reviewed_archive_readers.json` records the reviewed versions; a
+repository policy test fails when `Cargo.lock` holds another one, and
+Renovate adds a note to the update pull request. Before changing that file:
+
+1. Diff the new `zip` source against the reviewed version (both are in the
+   Cargo registry cache after a build). If
+   `src/format/find_central_directory.rs`, `src/format/blocks.rs`,
+   `src/read/magic_finder.rs` and `src/read/config.rs` are unchanged, the
+   selection is unchanged.
+2. Otherwise re-read `find_central_directory_end`,
+   `ZipArchive::get_metadata`, `CentralDirectoryInfo::try_from` and
+   `CentralDirectoryEndInfo::central_directory_abuts_end`, and check each
+   point at which the reader skips an end record and looks for an earlier
+   one. The preflight must refuse every archive for which the reader would
+   skip the last record: the ZIP64 markers honoured
+   (`Zip32CentralDirectoryEnd::may_be_zip64`), the multi-disk checks, the
+   locator and ZIP64 record bounds, and the abutment rule.
+3. Check what the reader allocates from archive fields before
+   `Admitted::confirm` runs: the ZIP64 extensible data sector in
+   `Zip64CentralDirectoryEnd::parse` (bounded by the record size the
+   preflight charges to the metadata budget), the entry table capacity in
+   `read_central_header`, and the per-entry name, extra-field and comment
+   buffers in `read/mod.rs`.
+4. For `calamine`, read `Xlsx::new` in `src/xlsx/mod.rs`: it must still open
+   the archive with `ZipArchive::new` on the bytes IronFlow validated, and
+   anything it parses before that (today the compound-file probe in
+   `check_for_password_protected`) must be unreachable or bounded for a file
+   the XLSX preflight admits.
+5. Run `cargo test --lib zip_preflight`, `cargo test --test nodes zip` and
+   `cargo test --test documents xlsx`, record what was read and the
+   conclusion in the issue registry, then update the version, date and record
+   in `scripts/reviewed_archive_readers.json`.
 
 GitHub Actions in every workflow are pinned to commit SHAs with the version
 noted in a comment; Renovate's `helpers:pinGitHubActionDigests` preset keeps

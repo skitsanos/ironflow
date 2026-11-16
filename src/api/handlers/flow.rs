@@ -68,6 +68,15 @@ pub async fn run_flow(
         }
     }
 
+    // Checked only for a run that would be created now: a replay of a request
+    // admitted earlier still returns its existing run (IF-181).
+    if let Some(context) = &context {
+        crate::util::json_depth::check_entries(context)
+            .map_err(|error| AppError::BadRequest(format!("context: {error}")))?;
+        // Only the scheduler records schedule provenance (IF-203).
+        super::reserved_keys::reject_scheduler_context_keys(context, "Request")?;
+    }
+
     reject_inline_source_when_disabled(&state, source.is_some() || source_base64.is_some())?;
 
     // Resolve the confined file path before reserving scarce execution/parser
@@ -119,6 +128,16 @@ pub async fn run_flow(
         .await
         .map_err(|e| flow_file_load_error(&path, &e))?
     };
+
+    // The engine refuses the same flow, but as an internal error: report what
+    // `POST /flows/validate` reports, before a run exists (IF-203).
+    let errors = super::admission::flow_validation_errors(&flow, &state.registry);
+    if !errors.is_empty() {
+        return Err(AppError::BadRequest(format!(
+            "Flow validation failed: {}",
+            errors.join("; ")
+        )));
+    }
 
     let mut initial_ctx = context.unwrap_or_default();
     let flow_name = flow.name.clone();

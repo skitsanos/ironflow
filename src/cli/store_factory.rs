@@ -14,10 +14,11 @@ use crate::storage::json_store::JsonStateStore;
 #[cfg(feature = "redis")]
 use crate::storage::redis_store::RedisStateStore;
 use crate::storage::sql_store::SqlStateStore;
+#[cfg(feature = "redis")]
 use crate::util::sensitive_url::Connection;
 
 use super::IronFlowConfig;
-use super::resolution::environment_string;
+use super::presence::environment_non_blank;
 use super::resolution::environment_value;
 use super::sql_config::{SqlStoreKind, resolve_url};
 
@@ -36,10 +37,10 @@ struct RedisSettings {
 #[cfg(feature = "redis")]
 impl RedisSettings {
     fn resolve(cfg: &IronFlowConfig) -> Result<Self> {
-        let url = environment_string("REDIS_URL")?
+        let url = environment_non_blank("REDIS_URL")?
             .or_else(|| cfg.redis_url.clone())
             .unwrap_or_else(|| "redis://127.0.0.1:6379".to_string());
-        let prefix = environment_string("REDIS_PREFIX")?.or_else(|| cfg.redis_prefix.clone());
+        let prefix = environment_non_blank("REDIS_PREFIX")?.or_else(|| cfg.redis_prefix.clone());
         let ttl = environment_value("REDIS_TTL", "an unsigned integer")?.or(cfg.redis_ttl);
         Ok(Self { url, prefix, ttl })
     }
@@ -74,7 +75,7 @@ pub const DEFAULT_STATE_BACKEND: &str = "sqlite";
 /// Config fields can be overridden by environment variables:
 /// `IRONFLOW_STORE`, `IRONFLOW_STORE_URL`, `REDIS_URL`, `REDIS_PREFIX`, `REDIS_TTL`.
 pub async fn create_store(cfg: &IronFlowConfig, store_dir: &Path) -> Result<Arc<dyn StateStore>> {
-    let backend = environment_string("IRONFLOW_STORE")?
+    let backend = environment_non_blank("IRONFLOW_STORE")?
         .or_else(|| cfg.store_backend.clone())
         .unwrap_or_else(|| DEFAULT_STATE_BACKEND.to_string());
 
@@ -106,11 +107,11 @@ fn json_state_store(store_dir: &Path) -> Arc<dyn StateStore> {
 }
 
 async fn sqlite_state_store(cfg: &IronFlowConfig, store_dir: &Path) -> Result<Arc<dyn StateStore>> {
-    let url = resolve_url(cfg, store_dir, "sqlite", SqlStoreKind::State)?;
+    let target = resolve_url(cfg, store_dir, "sqlite", SqlStoreKind::State)?;
     let table_prefix = resolve_sql_table_prefix(cfg)?;
-    info!("Using SQLite state store at {}", Connection::new(&url));
+    info!("Using SQLite state store at {}", target.location);
     Ok(Arc::new(
-        SqlStateStore::new_with_prefix(&url, table_prefix.as_deref()).await?,
+        SqlStateStore::new_with_prefix(&target.url, table_prefix.as_deref()).await?,
     ))
 }
 
@@ -119,11 +120,11 @@ async fn postgres_state_store(
     store_dir: &Path,
 ) -> Result<Arc<dyn StateStore>> {
     ensure_postgres_feature("state store")?;
-    let url = resolve_url(cfg, store_dir, "postgres", SqlStoreKind::State)?;
+    let target = resolve_url(cfg, store_dir, "postgres", SqlStoreKind::State)?;
     let table_prefix = resolve_sql_table_prefix(cfg)?;
     info!("Using Postgres state store");
     Ok(Arc::new(
-        SqlStateStore::new_with_prefix(&url, table_prefix.as_deref()).await?,
+        SqlStateStore::new_with_prefix(&target.url, table_prefix.as_deref()).await?,
     ))
 }
 
@@ -151,7 +152,7 @@ pub async fn create_event_store(
     cfg: &IronFlowConfig,
     store_dir: &Path,
 ) -> Result<Arc<dyn EventStore>> {
-    let backend = environment_string("IRONFLOW_EVENT_STORE")?
+    let backend = environment_non_blank("IRONFLOW_EVENT_STORE")?
         .or_else(|| cfg.event_store.clone())
         .unwrap_or_else(|| "memory".to_string());
 
@@ -187,11 +188,11 @@ fn memory_event_store(cfg: &IronFlowConfig) -> Result<Arc<dyn EventStore>> {
 }
 
 async fn sqlite_event_store(cfg: &IronFlowConfig, store_dir: &Path) -> Result<Arc<dyn EventStore>> {
-    let url = resolve_url(cfg, store_dir, "sqlite", SqlStoreKind::Event)?;
+    let target = resolve_url(cfg, store_dir, "sqlite", SqlStoreKind::Event)?;
     let table_prefix = resolve_sql_table_prefix(cfg)?;
-    info!("Using SQLite event store at {}", Connection::new(&url));
+    info!("Using SQLite event store at {}", target.location);
     Ok(Arc::new(
-        SqlEventStore::new_with_prefix(&url, table_prefix.as_deref()).await?,
+        SqlEventStore::new_with_prefix(&target.url, table_prefix.as_deref()).await?,
     ))
 }
 
@@ -200,11 +201,11 @@ async fn postgres_event_store(
     store_dir: &Path,
 ) -> Result<Arc<dyn EventStore>> {
     ensure_postgres_feature("event store")?;
-    let url = resolve_url(cfg, store_dir, "postgres", SqlStoreKind::Event)?;
+    let target = resolve_url(cfg, store_dir, "postgres", SqlStoreKind::Event)?;
     let table_prefix = resolve_sql_table_prefix(cfg)?;
     info!("Using Postgres event store");
     Ok(Arc::new(
-        SqlEventStore::new_with_prefix(&url, table_prefix.as_deref()).await?,
+        SqlEventStore::new_with_prefix(&target.url, table_prefix.as_deref()).await?,
     ))
 }
 
@@ -226,5 +227,8 @@ async fn redis_event_store(_cfg: &IronFlowConfig) -> Result<Arc<dyn EventStore>>
 }
 
 pub(super) fn resolve_sql_table_prefix(cfg: &IronFlowConfig) -> Result<Option<String>> {
-    Ok(environment_string("IRONFLOW_SQL_TABLE_PREFIX")?.or_else(|| cfg.sql_table_prefix.clone()))
+    Ok(
+        environment_non_blank("IRONFLOW_SQL_TABLE_PREFIX")?
+            .or_else(|| cfg.sql_table_prefix.clone()),
+    )
 }

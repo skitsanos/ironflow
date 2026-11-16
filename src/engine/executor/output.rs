@@ -1,9 +1,11 @@
+use std::borrow::Cow;
 use std::sync::Arc;
 
 use serde_json::Value;
 
 use crate::engine::types::Context;
 use crate::nodes::NodeFailure;
+use crate::util::json_depth;
 
 use super::overlay::ExecutionOverlay;
 
@@ -42,40 +44,72 @@ pub(super) fn prepare_final_context(
     overlay: &ExecutionOverlay,
     retain_live: bool,
 ) -> (Context, Option<Context>) {
-    let context = overlay.redact_context_owned(into_owned_context(context));
+    let context = into_owned_context(context);
     if !retain_live {
-        return (bound_context(context), None);
+        return (bound_context(overlay.redact_context_owned(context)), None);
     }
+    // A parent run reads the values as the child produced them; only the
+    // stored snapshot is redacted (IF-219). Clone only values admitted to
+    // inspection, never the oversized live values.
     let limit = task_output_limit();
-    // Clone only values admitted to inspection, never the oversized live values.
     let snapshot = context
         .iter()
-        .map(|(key, value)| {
-            (
-                key.clone(),
-                context_truncation(value, limit).unwrap_or_else(|| value.clone()),
-            )
-        })
+        .filter(|(key, _)| !overlay.withholds_record_key(key))
+        .map(|(key, value)| (key.clone(), record_value(value, overlay, limit)))
         .collect();
     (snapshot, Some(context))
 }
 
+/// Publish output to the running workflow and derive its task-history record.
+///
+/// Redaction is record-only (IF-219). What a step returns reaches later
+/// steps, recovery handlers and a parent run exactly as returned: it is the
+/// flow's data, and rewriting it let whoever chose an invocation-only value
+/// blank matching text or flip a branch (IF-176). The history half is the
+/// record form, in which those values are withheld.
 pub(super) fn prepare_output(output: Context, overlay: &ExecutionOverlay) -> PreparedOutput {
-    let context = overlay.redact_context_owned(output);
-    let task_value = bounded_task_value(&context);
+    let task_value = bounded_task_value(&output, overlay);
     PreparedOutput {
-        context,
+        context: output,
         task_value,
     }
+}
+
+/// Refuse a node result the state stores could not read back (IF-181). The
+/// typed cause stays in the error chain, which is how the task runner knows
+/// not to retry the attempt.
+pub(super) fn admit_output(output: Context) -> anyhow::Result<Context> {
+    match json_depth::check_entries(&output) {
+        Ok(()) => Ok(output),
+        Err(refused) => Err(anyhow::Error::new(refused).context("step output refused")),
+    }
+}
+
+/// Whether `error` reports a value nested deeper than the stores can read back.
+pub(super) fn is_depth_refusal(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<json_depth::DepthExceeded>().is_some()
 }
 
 pub(super) fn prepare_failure_output(
     error: &mut anyhow::Error,
     overlay: &ExecutionOverlay,
 ) -> Option<PreparedOutput> {
-    error
-        .downcast_mut::<NodeFailure>()
-        .map(|failure| prepare_output(failure.take_output(), overlay))
+    error.downcast_mut::<NodeFailure>().map(|failure| {
+        let output = failure.take_output();
+        match json_depth::check_entries(&output) {
+            Ok(()) => prepare_output(output, overlay),
+            // The step has already failed; its detail is dropped rather than
+            // written as a record nothing can read (IF-181).
+            Err(refused) => PreparedOutput {
+                context: Context::new(),
+                task_value: serde_json::json!({
+                    "_truncated": true,
+                    "_limit_depth": json_depth::MAX_JSON_VALUE_DEPTH,
+                    "_note": format!("Failure output was omitted from task history: {refused}."),
+                }),
+            },
+        }
+    })
 }
 
 /// Cap individual oversized values in the final persisted context so a run
@@ -101,24 +135,46 @@ fn context_truncation(value: &Value, limit: usize) -> Option<Value> {
     }))
 }
 
-fn bounded_task_value(output: &Context) -> Value {
-    let limit = task_output_limit();
+/// Record form of one live value: scrubbed for storage, then capped.
+fn record_value(value: &Value, overlay: &ExecutionOverlay, limit: usize) -> Value {
+    if let Some(marker) = context_truncation(value, limit) {
+        return marker;
+    }
+    if overlay.is_empty() {
+        return value.clone();
+    }
+    let record = overlay.redact_record_value(value);
+    // Replacing a number with the redaction marker can lengthen the value.
+    context_truncation(&record, limit).unwrap_or(record)
+}
 
+fn bounded_task_value(output: &Context, overlay: &ExecutionOverlay) -> Value {
+    let limit = task_output_limit();
     if serialized_size_up_to(output, limit) == SizeBound::Exceeded {
-        serde_json::json!({
-            "_truncated": true,
-            "_minimum_bytes": limit.saturating_add(1),
-            "_limit_bytes": limit,
-            "_note": "Output exceeded IRONFLOW_MAX_TASK_OUTPUT_BYTES and was omitted from task history.",
-        })
-    } else {
-        Value::Object(
+        return omitted_task_output(limit);
+    }
+    match overlay.redact_context(output) {
+        Cow::Borrowed(output) => Value::Object(
             output
                 .iter()
                 .map(|(key, value)| (key.clone(), value.clone()))
                 .collect(),
-        )
+        ),
+        // Replacing a number with the redaction marker can lengthen the record.
+        Cow::Owned(record) if serialized_size_up_to(&record, limit) == SizeBound::Exceeded => {
+            omitted_task_output(limit)
+        }
+        Cow::Owned(record) => Value::Object(record.into_iter().collect()),
     }
+}
+
+fn omitted_task_output(limit: usize) -> Value {
+    serde_json::json!({
+        "_truncated": true,
+        "_minimum_bytes": limit.saturating_add(1),
+        "_limit_bytes": limit,
+        "_note": "Output exceeded IRONFLOW_MAX_TASK_OUTPUT_BYTES and was omitted from task history.",
+    })
 }
 
 fn task_output_limit() -> usize {
@@ -126,140 +182,4 @@ fn task_output_limit() -> usize {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn live_final_result_moves_large_values_without_copying_them_into_history() {
-        let text = "x".repeat(3 * 1024 * 1024);
-        let pointer = text.as_ptr();
-        let context = Arc::new(Context::from([
-            ("large".into(), Value::String(text)),
-            ("small".into(), Value::from(7)),
-        ]));
-        let (snapshot, live) = prepare_final_context(context, &ExecutionOverlay::default(), true);
-        let live = live.unwrap();
-        assert_eq!(live["large"].as_str().unwrap().as_ptr(), pointer);
-        assert_eq!(snapshot["large"]["_truncated"], true);
-        assert_eq!(snapshot["small"], live["small"]);
-    }
-
-    #[test]
-    fn public_final_snapshot_does_not_retain_live_values() {
-        let context = Arc::new(Context::from([(
-            "large".into(),
-            Value::String("x".repeat(3 * 1024 * 1024)),
-        )]));
-        let (snapshot, live) = prepare_final_context(context, &ExecutionOverlay::default(), false);
-        assert!(live.is_none());
-        assert_eq!(snapshot["large"]["_truncated"], true);
-    }
-
-    #[test]
-    fn bound_context_truncates_only_oversized_values() {
-        // IF-048: the persisted final context caps individual oversized values
-        // (default limit 2 MiB) while preserving small ones.
-        let mut context = Context::new();
-        context.insert("small".to_string(), serde_json::json!("hello"));
-        context.insert(
-            "big".to_string(),
-            serde_json::Value::String("x".repeat(3 * 1024 * 1024)),
-        );
-
-        let bounded = bound_context(context);
-        assert_eq!(bounded.get("small").unwrap(), &serde_json::json!("hello"));
-        assert_eq!(
-            bounded.get("big").unwrap().get("_truncated").unwrap(),
-            &serde_json::json!(true)
-        );
-    }
-
-    #[test]
-    fn oversized_task_output_keeps_the_original_context_allocation() {
-        let text = "x".repeat(3 * 1024 * 1024);
-        let pointer = text.as_ptr();
-        let prepared = prepare_output(
-            Context::from([("big".to_string(), Value::String(text))]),
-            &ExecutionOverlay::default(),
-        );
-
-        assert_eq!(prepared.context["big"].as_str().unwrap().as_ptr(), pointer);
-        assert_eq!(prepared.task_value["_truncated"], true);
-    }
-
-    #[test]
-    fn small_task_output_is_preserved_in_context_and_history() {
-        let output = Context::from([
-            ("count".to_string(), serde_json::json!(3)),
-            ("message".to_string(), serde_json::json!("complete")),
-        ]);
-
-        let prepared = prepare_output(output.clone(), &ExecutionOverlay::default());
-
-        assert_eq!(prepared.context, output);
-        assert_eq!(
-            prepared.task_value,
-            serde_json::json!({"count": 3, "message": "complete"})
-        );
-    }
-
-    #[test]
-    fn uniquely_owned_final_context_reuses_value_allocation() {
-        let text = "x".repeat(4096);
-        let pointer = text.as_ptr();
-        let context = Arc::new(Context::from([("result".to_string(), Value::String(text))]));
-
-        let context = into_owned_context(context);
-
-        assert_eq!(context["result"].as_str().unwrap().as_ptr(), pointer);
-    }
-
-    #[test]
-    fn structured_failure_output_is_taken_without_cloning() {
-        let text = "x".repeat(4096);
-        let pointer = text.as_ptr();
-        let mut failure = anyhow::Error::new(NodeFailure::new(
-            "failed",
-            Context::from([("diagnostic".to_string(), Value::String(text))]),
-        ));
-
-        let prepared = prepare_failure_output(&mut failure, &ExecutionOverlay::default()).unwrap();
-
-        assert_eq!(
-            prepared.context["diagnostic"].as_str().unwrap().as_ptr(),
-            pointer
-        );
-        assert!(
-            failure
-                .downcast_ref::<NodeFailure>()
-                .unwrap()
-                .output()
-                .is_empty()
-        );
-    }
-
-    #[test]
-    fn structured_failure_output_is_redacted_before_publication() {
-        let secret = "if022-secret-sentinel";
-        let overlay = ExecutionOverlay::new(Context::from([(
-            "_headers".to_string(),
-            serde_json::json!({"authorization": secret}),
-        )]));
-        let mut failure = anyhow::Error::new(NodeFailure::new(
-            "command failed",
-            Context::from([
-                ("shell_stderr".to_string(), serde_json::json!(secret)),
-                ("shell_stdout".to_string(), serde_json::json!("safe")),
-                ("_headers".to_string(), serde_json::json!({"copy": secret})),
-            ]),
-        ));
-
-        let prepared = prepare_failure_output(&mut failure, &overlay).unwrap();
-        let serialized = serde_json::to_string(&prepared.context).unwrap();
-
-        assert!(!serialized.contains(secret));
-        assert!(!prepared.context.contains_key("_headers"));
-        assert_eq!(prepared.context["shell_stderr"], "[REDACTED]");
-        assert_eq!(prepared.context["shell_stdout"], "safe");
-    }
-}
+mod tests;

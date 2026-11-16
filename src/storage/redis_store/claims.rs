@@ -44,4 +44,47 @@ impl RedisStateStore {
             .map_err(|error| StorageError::backend("Claim scheduled instant", error))?;
         Ok(claimed)
     }
+
+    /// Value of a claim key whose occurrence is settled: it has a durable run
+    /// (IF-201) or the scheduler skipped it (IF-217).
+    ///
+    /// A plain claim stores `key` itself, so prefixing `key` can never equal
+    /// the value of an unmarked claim for the same instant.
+    fn run_recorded_value(key: &str) -> String {
+        format!("run:{key}")
+    }
+
+    /// Rewrite the claim key's value in place. Unconditional, so the record
+    /// is written even if the claim key is missing, and `EX` restarts the
+    /// claim's lifetime from the moment the run exists.
+    pub(super) async fn record_schedule_run_key(
+        &self,
+        name: &str,
+        key: &str,
+        ttl_seconds: u64,
+    ) -> StorageResult<()> {
+        let mut conn = self.conn.clone();
+        let _: () = conn
+            .set_ex(
+                self.schedule_claim_key(name, key),
+                Self::run_recorded_value(key),
+                ttl_seconds,
+            )
+            .await
+            .map_err(|error| StorageError::backend("Record scheduled run", error))?;
+        Ok(())
+    }
+
+    pub(super) async fn schedule_run_recorded_key(
+        &self,
+        name: &str,
+        key: &str,
+    ) -> StorageResult<bool> {
+        let mut conn = self.conn.clone();
+        let value: Option<String> = conn
+            .get(self.schedule_claim_key(name, key))
+            .await
+            .map_err(|error| StorageError::backend("Read scheduled run record", error))?;
+        Ok(value.is_some_and(|value| value == Self::run_recorded_value(key)))
+    }
 }

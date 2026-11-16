@@ -189,6 +189,35 @@ async fn slack_notification_interpolates_context() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn slack_notification_interpolates_payload_text_once() {
+    let (url, handle) = spawn_mock_server("ok", 200);
+
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("slack_notification").unwrap();
+
+    let mut ctx = Context::new();
+    ctx.insert("note".to_string(), serde_json::json!("see ${ctx.token}"));
+    ctx.insert("token".to_string(), serde_json::json!("s3cr3t-token"));
+
+    let config = serde_json::json!({
+        "webhook_url": url,
+        "payload": { "text": "Note: ${ctx.note} / \\${ctx.token}" },
+        "timeout": 5
+    });
+
+    let out = node.execute(&config, &ctx).await.unwrap();
+    assert!(out.get("slack_success").unwrap().as_bool().unwrap());
+
+    let received = handle.join().unwrap();
+    assert!(
+        received.contains("Note: see ${ctx.token} / ${ctx.token}"),
+        "Expected one interpolation pass, got: {}",
+        received
+    );
+    assert!(!received.contains("s3cr3t-token"), "{received}");
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn slack_notification_uses_message_alias() {
     let (url, handle) = spawn_mock_server("ok", 200);
 

@@ -2,7 +2,14 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DEFAULT_MAX_AGE_SECONDS, checkReceipt, receiptPath, writeReceipt } from "../gate_receipt";
+import {
+  DEFAULT_MAX_AGE_SECONDS,
+  REPOSITORY_SCOPED_GIT_VARIABLES,
+  checkReceipt,
+  receiptPath,
+  repositoryNeutralEnvironment,
+  writeReceipt,
+} from "../gate_receipt";
 
 // Git exports repository-local paths when invoking hooks; a fixture must never
 // inherit them from the repository that runs this test.
@@ -123,6 +130,58 @@ test("the CLI accepts a matching receipt and fails closed on a malformed age lim
 
     expect(run(["check"]).exitCode).toBe(2);
     expect(run(["write", "extra"]).exitCode).toBe(2);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// IF-205: git exports repository-scoped variables to the hooks it runs, and
+// from a linked worktree GIT_INDEX_FILE is an absolute path. A helper that is
+// handed an explicit repository must describe that repository, not the one
+// whose hook happens to be running.
+test("a receipt describes its own repository under variables inherited from a git hook", async () => {
+  const { root, target } = await fixture();
+  const hooked = await fixture();
+  const saved = { index: process.env.GIT_INDEX_FILE, directory: process.env.GIT_DIR };
+  try {
+    await writeFile(join(hooked.root, "staged.lua"), "return 4\n");
+    git(hooked.root, "add", "staged.lua");
+    const head = git(root, "rev-parse", "HEAD");
+
+    process.env.GIT_INDEX_FILE = join(hooked.root, ".git", "index");
+    const receipt = await writeReceipt(root, target);
+    expect(receipt.commit).toBe(head);
+
+    process.env.GIT_DIR = join(hooked.root, ".git");
+    const verdict = await checkReceipt(root, head, target);
+    expect(verdict.accepted).toBeTrue();
+    if (verdict.accepted) expect(verdict.receipt.tree).toBe(git(root, "rev-parse", "HEAD^{tree}"));
+  } finally {
+    for (const [name, value] of [["GIT_INDEX_FILE", saved.index], ["GIT_DIR", saved.directory]] as const) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    await rm(root, { recursive: true, force: true });
+    await rm(hooked.root, { recursive: true, force: true });
+  }
+});
+
+test("every repository-scoped variable git reports is removed and nothing else", async () => {
+  const { root } = await fixture();
+  try {
+    const reported = git(root, "rev-parse", "--local-env-vars").split("\n").filter(Boolean);
+    expect(reported).toContain("GIT_INDEX_FILE");
+    for (const name of reported) expect(REPOSITORY_SCOPED_GIT_VARIABLES).toContain(name);
+
+    const neutral = repositoryNeutralEnvironment({
+      PATH: "/usr/bin",
+      GIT_DIR: "/elsewhere/.git",
+      GIT_INDEX_FILE: "/elsewhere/.git/index",
+      GIT_WORK_TREE: "/elsewhere",
+      GIT_SSH_COMMAND: "ssh -o BatchMode=yes",
+      UNSET: undefined,
+    });
+    expect(neutral).toEqual({ PATH: "/usr/bin", GIT_SSH_COMMAND: "ssh -o BatchMode=yes" });
   } finally {
     await rm(root, { recursive: true, force: true });
   }

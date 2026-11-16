@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # Build the pinned helper on the digest-pinned official Rust image.
-FROM rust:1.99.1-slim-bookworm@sha256:24707e70a4f1e23d9a7b25202ec43126d28a52294b96aad5c670df1fd1f1d400 AS chef
+FROM rust:1.100.0-slim-bookworm@sha256:7c7d4eb4d05b7781187a327809466cfddf29753f6defdc3d19a0e291951b7a37 AS chef
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
@@ -50,6 +50,7 @@ RUN apt-get update \
 
 COPY --from=builder /app/target/release/ironflow /usr/local/bin/ironflow
 COPY assets/fonts/OFL.txt /usr/local/share/licenses/ironflow/fonts-OFL.txt
+COPY THIRD_PARTY_LICENSES.md /usr/local/share/licenses/ironflow/THIRD_PARTY_LICENSES.md
 
 ENV HOST=0.0.0.0 \
     PORT=3000 \

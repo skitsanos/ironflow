@@ -68,6 +68,57 @@ async fn common_server_lifecycle_reconciles_expired_owners() {
     drop(running);
 }
 
+/// IF-181: a run record the store cannot decode, left behind with an expired
+/// lease, must not keep the server from starting or its neighbor from being
+/// reconciled.
+#[tokio::test]
+async fn startup_reconciliation_skips_a_run_record_it_cannot_decode() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = Arc::new(JsonStateStore::new(directory.path()));
+    for run_id in ["poisoned", "neighbor"] {
+        store
+            .init_run_owned(
+                run_id,
+                "flow",
+                &HashMap::new(),
+                &RunLease::at(
+                    "dead-owner",
+                    chrono::Utc::now() - chrono::Duration::seconds(1),
+                ),
+            )
+            .await
+            .unwrap();
+    }
+    // What a pre-fix store wrote for a context nested 126 levels deep.
+    let path = directory.path().join("poisoned.json");
+    let mut record: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let mut deep = serde_json::Value::Null;
+    for _ in 0..126 {
+        deep = serde_json::Value::Array(vec![deep]);
+    }
+    record["ctx"]["a"] = deep;
+    std::fs::write(&path, serde_json::to_vec_pretty(&record).unwrap()).unwrap();
+    assert!(store.get_run_info("poisoned").await.is_err());
+
+    let prepared = super::prepare(
+        store.clone(),
+        Arc::new(MemoryEventStore::new()),
+        serve_options(false, None),
+    )
+    .await
+    .unwrap();
+    let running = prepared
+        .start_run_lifecycle()
+        .await
+        .expect("an undecodable run record must not block startup");
+    assert_eq!(
+        store.get_run_info("neighbor").await.unwrap().status,
+        crate::engine::types::RunStatus::Stalled
+    );
+    drop(running);
+}
+
 #[tokio::test]
 async fn hanging_startup_reconciliation_fails_within_its_budget() {
     let reconciliation = std::future::pending::<crate::storage::StorageResult<usize>>();

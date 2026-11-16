@@ -43,7 +43,7 @@ async fn dynamic_items_preserve_every_json_type_without_resolving_parent_keys() 
             let config = json!({
                 "flow": "echo.lua", "source_key": "jobs", "item_key": item_key,
                 "index_key": index_key, "child_output_key": "child", "max_concurrent": concurrency,
-                "input": {"mapped": "customer", "mapped_once": "alias", "literal": "unmatched", "nested": {"key": "customer"}}
+                "input": {"mapped": "customer", "mapped_once": "alias", "literal": {"literal": "unmatched"}, "nested": {"key": "customer"}}
             });
             let output = execute(&config, &ctx).await;
             assert_eq!(output["parallel_results_all_succeeded"], true);
@@ -105,7 +105,7 @@ async fn static_mapping_keeps_reference_literal_and_parent_inheritance_contracts
     let ctx = fixture(directory.path(), "item", "index");
     let output = execute(&json!({"flows": [
         {"flow": "echo.lua", "output_key": "child"},
-        {"flow": "echo.lua", "output_key": "child", "input": {"item": "customer", "mapped_once": "alias", "literal": "unmatched", "nested": ["customer"]}},
+        {"flow": "echo.lua", "output_key": "child", "input": {"item": "customer", "mapped_once": "alias", "literal": {"literal": "unmatched"}, "nested": ["customer"]}},
         {"flow": "echo.lua", "output_key": "child", "input": {}}
     ]}), &ctx).await;
     let inherited = &output["parallel_results"][0]["child"];

@@ -55,8 +55,7 @@ impl Node for ImageGrayscaleNode {
             execution.checkpoint()?;
             let width = image.width();
             let height = image.height();
-            save_dynamic_image(image, &output_path, format)?;
-            execution.checkpoint()?;
+            save_dynamic_image(&image, &output_path, format, "image_grayscale", &execution)?;
 
             let mut output = NodeOutput::new();
             output.insert(output_key.clone(), serde_json::json!(output_path));

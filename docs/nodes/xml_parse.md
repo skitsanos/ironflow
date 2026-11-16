@@ -23,6 +23,8 @@ Parse an XML string into a JSON object.
 - Text content uses `#text` when mixed with attributes or child elements.
 - Simple text-only elements are simplified to string values.
 - Repeated sibling elements with the same tag become JSON arrays.
+- The document must have exactly one root element; a second root element is
+  an error.
 
 ## Text Fidelity and Limits
 
@@ -44,6 +46,10 @@ resolver opens files or accesses the network.
 
 Parsing runs in a tracked blocking worker with cooperative deadline/cancellation
 checks between events. The nesting limit remains 128, including empty elements.
+Each element becomes one JSON object, and step output may nest at most 123
+levels (see [JSON nesting limit](../CLI_REFERENCE.md#json-nesting-limit)), so
+a document nested deeper than that parses and the step then fails with
+`step output refused`.
 Decoded text and attribute admission is bounded by the input's UTF-8 byte length;
 this is not a new configurable input-size or total JSON-memory limit.
 

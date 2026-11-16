@@ -133,3 +133,62 @@ fn context_projection_keeps_engine_diagnostics_but_not_bulky_engine_payloads() {
     // Omitting the projection is unchanged: the whole context is cloned.
     assert_eq!(project_context(&json!({}), &ctx).unwrap().len(), 8);
 }
+
+/// IF-181: text nested deeper than the stores can read back is refused by the
+/// shared limit, ahead of the configurable JSON-to-Lua conversion depth.
+#[test]
+fn json_parse_global_applies_the_shared_storage_depth_limit() {
+    let lua = Lua::new();
+    super::register_json_globals(&lua).unwrap();
+    let parse = |depth: usize| {
+        let text = format!("{}{}", "[".repeat(depth), "]".repeat(depth));
+        lua.load("return json_parse(...)").call::<LuaValue>(text)
+    };
+
+    let error = parse(124).unwrap_err().to_string();
+    assert!(
+        error.contains("json_parse failed: JSON value is nested deeper than 123 levels"),
+        "{error}"
+    );
+    // At the limit the text is admitted and the conversion depth applies.
+    let error = parse(123).unwrap_err().to_string();
+    assert!(error.contains("IRONFLOW_MAX_CONVERSION_DEPTH"), "{error}");
+    assert!(parse(3).is_ok());
+}
+
+/// IF-223: a context integer above the Lua integer range used to reach a
+/// handler as the nearest float.
+#[test]
+fn context_integers_above_the_lua_range_reach_lua_as_text() {
+    let ctx: Context = [
+        ("big".to_string(), json!(18_446_744_073_709_551_615_u64)),
+        ("edge".to_string(), json!(9_223_372_036_854_775_808_u64)),
+        ("max".to_string(), json!(i64::MAX)),
+        ("float".to_string(), json!(1e30)),
+    ]
+    .into_iter()
+    .collect();
+    let lua = Lua::new();
+    let limits = ConversionLimits {
+        max_nodes: 100,
+        max_depth: 10,
+    };
+    let converted = JsonToLuaConverter::new(&lua, limits).convert_context(&ctx);
+    let LuaValue::Table(table) = converted.unwrap() else {
+        panic!("the context converts to a table");
+    };
+    assert_eq!(
+        table.get::<LuaValue>("big").unwrap().to_string().unwrap(),
+        "18446744073709551615"
+    );
+    assert!(table.get::<LuaValue>("big").unwrap().is_string());
+    assert!(table.get::<LuaValue>("edge").unwrap().is_string());
+    assert_eq!(
+        table.get::<LuaValue>("max").unwrap(),
+        LuaValue::Integer(i64::MAX)
+    );
+    assert_eq!(
+        table.get::<LuaValue>("float").unwrap(),
+        LuaValue::Number(1e30)
+    );
+}

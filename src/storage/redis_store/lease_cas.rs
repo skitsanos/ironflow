@@ -3,7 +3,7 @@ use std::sync::LazyLock;
 use uuid::Uuid;
 
 use super::RedisStateStore;
-use super::atomic::{LEGACY_REVISION, backoff_after_conflict};
+use super::atomic::{LEGACY_REVISION, RunSnapshot, backoff_after_conflict};
 use crate::engine::types::{RunInfo, RunSummary};
 use crate::storage::redis_config::map_redis_error;
 use crate::storage::{StorageError, StorageResult};
@@ -30,7 +30,23 @@ impl RedisStateStore {
     where
         F: Fn(&mut RunInfo) -> T,
     {
-        let mut snapshot = self.read_snapshot(run_id).await?;
+        let snapshot = self.read_snapshot(run_id).await?;
+        self.guarded_mutation_from(run_id, snapshot, guard, mutate)
+            .await
+    }
+
+    /// [`Self::guarded_mutation`] for a caller that has already read the run
+    /// and handles a failed read itself.
+    pub(super) async fn guarded_mutation_from<T, F>(
+        &self,
+        run_id: &str,
+        mut snapshot: RunSnapshot,
+        guard: LeaseGuard<'_>,
+        mutate: F,
+    ) -> StorageResult<Option<T>>
+    where
+        F: Fn(&mut RunInfo) -> T,
+    {
         let incarnation = snapshot.incarnation.clone();
         let mut conflicts = 0_u32;
         loop {

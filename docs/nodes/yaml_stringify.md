@@ -13,6 +13,17 @@ Convert a JSON value from context to a YAML string.
 
 - `<output_key>` (default `yaml`) — the YAML string representation.
 
+## Numbers
+
+Integers in the signed 64-bit range and finite floats are written as YAML
+numbers. An integer above that range (up to the unsigned 64-bit maximum,
+which `json_parse` can produce) fails the step with a message that names the
+value, because [`yaml_parse`](yaml_parse.md#numbers-that-json-cannot-hold)
+would not read it back as the same number; convert it to a string first.
+Strings that look like numbers or keywords (`".inf"`, `"1e999"`,
+`"12345678901234567890"`, `"~"`, `"true"`) are quoted, so they are read back
+as the same strings.
+
 ## Example
 
 ```lua

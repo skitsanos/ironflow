@@ -1,11 +1,11 @@
-if #KEYS ~= 5 then
+if #KEYS ~= 6 then
     return redis.error_reply('IRONFLOW_INVALID_EVENT_PUBLISH_KEYS')
 end
-if #ARGV ~= 4 then
+if #ARGV ~= 5 then
     return redis.error_reply('IRONFLOW_INVALID_EVENT_PUBLISH_ARGUMENTS')
 end
-for left = 1, 5 do
-    for right = left + 1, 5 do
+for left = 1, 6 do
+    for right = left + 1, 6 do
         if KEYS[left] == KEYS[right] then
             return redis.error_reply('IRONFLOW_EVENT_KEYS_MUST_BE_DISTINCT')
         end
@@ -38,11 +38,34 @@ end
 if fence_type ~= 'none' and fence_type ~= 'string' then
     return redis.error_reply('IRONFLOW_INVALID_EVENT_DELETION_FENCE_TYPE')
 end
-if fence_type == 'string' then
-    if redis.call('GET', KEYS[5]) ~= ARGV[3] then
-        return redis.error_reply('IRONFLOW_EVENT_DELETION_FENCE_OWNER_MISMATCH')
+local admitted_type = redis.call('TYPE', KEYS[6]).ok
+if admitted_type ~= 'none' and admitted_type ~= 'string' then
+    return redis.error_reply('IRONFLOW_INVALID_EVENT_INCARNATION_TYPE')
+end
+if fence_type == 'string' and redis.call('GET', KEYS[5]) ~= ARGV[3] then
+    return redis.error_reply('IRONFLOW_EVENT_DELETION_FENCE_OWNER_MISMATCH')
+end
+-- KEYS[6] names the only incarnation that may publish once the state store
+-- has accepted the run ID; a publisher that names none (ARGV[5] == '') or
+-- another one is rejected. A fence without an admission belongs to a deleted
+-- run and rejects everybody.
+if admitted_type == 'string' then
+    if ARGV[5] == '' or redis.call('GET', KEYS[6]) ~= ARGV[5] then
+        return redis.error_reply('IRONFLOW_EVENT_STREAM_DELETED')
     end
+elseif fence_type == 'string' then
     return redis.error_reply('IRONFLOW_EVENT_STREAM_DELETED')
+end
+-- An admission outside a fence follows the stream's retention.
+local function refresh_admission()
+    if admitted_type ~= 'string' or fence_type == 'string' then
+        return
+    end
+    if ttl ~= '-1' then
+        redis.call('EXPIRE', KEYS[6], ttl)
+    else
+        redis.call('PERSIST', KEYS[6])
+    end
 end
 
 local list_len = redis.call('LLEN', KEYS[1])
@@ -97,6 +120,7 @@ if existing ~= false then
         redis.call('PERSIST', KEYS[3])
         redis.call('PERSIST', KEYS[4])
     end
+    refresh_admission()
     return position
 end
 
@@ -118,4 +142,5 @@ else
     redis.call('PERSIST', KEYS[3])
     redis.call('PERSIST', KEYS[4])
 end
+refresh_admission()
 return next_seq

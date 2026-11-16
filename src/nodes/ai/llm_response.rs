@@ -63,6 +63,20 @@ pub(super) fn extract_chat_tool_calls(data: &serde_json::Value) -> Vec<serde_jso
         .unwrap_or_default()
 }
 
+/// `function_call` items of a Responses result, in output order.
+pub(super) fn extract_responses_tool_calls(data: &serde_json::Value) -> Vec<serde_json::Value> {
+    data.get("output")
+        .and_then(Value::as_array)
+        .map(|output| {
+            output
+                .iter()
+                .filter(|item| item.get("type").and_then(Value::as_str) == Some("function_call"))
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 pub(super) fn extract_tool_call_names(tool_calls: &[serde_json::Value]) -> Vec<String> {
     tool_calls
         .iter()
@@ -105,8 +119,10 @@ fn normalize_tool_call(call: &serde_json::Value, idx: usize) -> Option<serde_jso
     };
     let parsed_arguments = serde_json::from_str::<Value>(&raw_arguments_string)
         .unwrap_or_else(|_| Value::String(raw_arguments_string.clone()));
+    // A Responses `function_call` item is answered by its `call_id`.
     let id = call
-        .get("id")
+        .get("call_id")
+        .or_else(|| call.get("id"))
         .and_then(Value::as_str)
         .map(str::to_string)
         .unwrap_or_else(|| format!("call_{}", idx + 1));
@@ -162,6 +178,9 @@ pub(super) fn extract_responses_reply(data: &serde_json::Value) -> Option<String
         && let Some(output) = data.get("output").and_then(|v| v.as_array())
     {
         for item in output {
+            if item.get("type").and_then(Value::as_str) == Some("reasoning") {
+                continue;
+            }
             if let Some(content) = item.get("content") {
                 extract_text(content, &mut out);
             }
@@ -177,6 +196,9 @@ pub(super) fn extract_responses_reply(data: &serde_json::Value) -> Option<String
     if out.is_empty()
         && let Some(output) = data.get("output").and_then(|v| v.as_array())
         && let Some(first) = output.first()
+        // Typed items are Responses API items whose text was read above; only
+        // an untyped item from a custom gateway is searched for any text.
+        && first.get("type").is_none()
     {
         extract_text(first, &mut out);
     }

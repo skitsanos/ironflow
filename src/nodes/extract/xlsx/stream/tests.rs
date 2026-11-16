@@ -78,7 +78,7 @@ async fn cancellation_is_checked_between_filtered_empty_records() {
     let (started_tx, started_rx) = mpsc::channel();
     let (finished_tx, finished_rx) = mpsc::channel();
     let worker_examined = examined.clone();
-    let waiter = tokio::spawn(crate::util::execution::run_blocking_step(
+    let waiter = tokio::spawn(crate::util::execution::run_tracked_blocking_step(
         move |execution| {
             let mut source = FilteredCells(SlowEmptyCells {
                 remaining: TOTAL,

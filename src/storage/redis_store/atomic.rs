@@ -20,7 +20,7 @@ const SWEEP_SCRIPT_SOURCE: &str = include_str!("scripts/sweep.lua");
 
 static CAS_SCRIPT: LazyLock<redis::Script> =
     LazyLock::new(|| redis::Script::new(CAS_SCRIPT_SOURCE));
-static DELETE_SCRIPT: LazyLock<redis::Script> =
+pub(super) static DELETE_SCRIPT: LazyLock<redis::Script> =
     LazyLock::new(|| redis::Script::new(DELETE_SCRIPT_SOURCE));
 static MIGRATE_SCRIPT: LazyLock<redis::Script> =
     LazyLock::new(|| redis::Script::new(MIGRATE_SCRIPT_SOURCE));
@@ -222,43 +222,6 @@ impl RedisStateStore {
             conflicts = conflicts.saturating_add(1);
             backoff_after_conflict(conflicts).await;
             snapshot = self.read_snapshot(run_id).await?;
-        }
-    }
-
-    pub(super) async fn delete_run_atomic(&self, run_id: &str) -> StorageResult<()> {
-        let run_key = self.resolve_run_key(run_id).await?;
-        let mut conn = self.conn.clone();
-        let status_keys = self.ordered_status_keys();
-        let deleted: i64 = DELETE_SCRIPT
-            .key(run_key)
-            .key(self.index_key())
-            .key(self.ordered_catalog_members_key())
-            .key(self.ordered_catalog_key())
-            .key(&status_keys[0])
-            .key(&status_keys[1])
-            .key(&status_keys[2])
-            .key(&status_keys[3])
-            .key(&status_keys[4])
-            .key(&status_keys[5])
-            .key(self.run_lease_expiry_key())
-            .arg(run_id)
-            .invoke_async(&mut conn)
-            .await
-            .map_err(|error| {
-                map_redis_error(format_args!("Failed to delete Redis run '{run_id}'"), error)
-            })?;
-        match deleted {
-            1 => Ok(()),
-            2 => Err(StorageError::conflict(format_args!(
-                "Run '{run_id}' is still executing"
-            ))),
-            0 => Err(StorageError::not_found(format_args!(
-                "Run '{run_id}' not found"
-            ))),
-            _ => Err(StorageError::corruption(
-                format_args!("Invalid deletion result for Redis run '{run_id}'"),
-                deleted,
-            )),
         }
     }
 

@@ -3,7 +3,7 @@ use std::time::Duration;
 use ironflow::engine::types::Context;
 use ironflow::lua::runtime::LuaRuntime;
 use ironflow::nodes::NodeRegistry;
-use ironflow::util::execution::{run_blocking_step, with_execution_deadline};
+use ironflow::util::execution::{run_tracked_blocking_step, with_execution_deadline};
 use ironflow::util::limits::{LuaExecutionLimits, apply_lua_limits_with_control};
 use mlua::prelude::*;
 
@@ -41,7 +41,7 @@ impl Drop for LuaLimitEnv {
 #[tokio::test(flavor = "current_thread")]
 async fn dropped_lua_waiter_cancels_the_blocking_vm_without_starving_tokio() {
     let (finished_tx, finished_rx) = tokio::sync::oneshot::channel();
-    let operation = run_blocking_step(move |execution| {
+    let operation = run_tracked_blocking_step(move |execution| {
         let lua = Lua::new();
         apply_lua_limits_with_control(
             &lua,
@@ -49,6 +49,7 @@ async fn dropped_lua_waiter_cancels_the_blocking_vm_without_starving_tokio() {
                 max_instructions: None,
                 max_seconds: None,
                 max_memory_bytes: None,
+                max_pattern_steps: None,
                 hook_interval: 1_000,
                 gc_after_execution: false,
             },

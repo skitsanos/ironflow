@@ -6,11 +6,12 @@ Execute inline Lua code with access to the workflow context.
 
 | Parameter      | Type   | Required | Default | Description                                                         |
 |----------------|--------|----------|---------|---------------------------------------------------------------------|
-| `source`       | string/function | No* | --      | Lua source code string **or inline function** to evaluate              |
-| `bytecode_b64` | string | No*      | --      | Base64-encoded Lua bytecode for function handler mode               |
+| `source`       | string/function | Yes | --      | Lua source code string **or inline function** to evaluate              |
 | `context_keys` | array of strings | No | Full context | Literal top-level context keys to expose to Lua. An empty list keeps only `_error_message`, `_error_step`, `_error_node_type` and `_flow_dir`, when present |
 
-*Exactly one of `source` or `bytecode_b64` must be provided.
+`source` is the only way to supply code. `bytecode_b64` is an internal step
+field, not a parameter: it is how IronFlow carries a function handler from the
+flow file to the step. See [Function handler mode](#function-handler-mode).
 
 ### Source mode
 
@@ -24,9 +25,22 @@ invalid syntax. Undefined global reads produce warnings with the step name and
 line/column positions relative to the decoded source string. Use
 `ironflow validate --strict` to reject those warnings.
 
-### Function handler (bytecode) mode
+### Function handler mode
 
-When `bytecode_b64` is provided, the base64-encoded Lua bytecode is decoded and loaded as a function. The function is called with the `ctx` table as its sole argument, and its return value becomes the node output.
+When `source` is a Lua function, or a function is passed directly as a step
+handler (`flow:step("name", function(ctx) ... end)`), IronFlow compiles it to
+bytecode while the flow file loads and stores it in the step as `bytecode_b64`,
+signed with a key that exists only inside the running process. At execution
+the signature is checked, the function is loaded in a fresh sandbox and called
+with the `ctx` table as its sole argument, and its return value becomes the
+node output.
+
+A flow author cannot supply `bytecode_b64`. Loading Lua bytecode that the
+process did not compile is memory-unsafe, so a value written into a flow file,
+or copied from another process or an earlier start of the same server, fails
+the step with `Function bytecode failed authentication (only handlers compiled
+by this process may run)` (or `Function bytecode is not authenticated by this
+process` for a value too short to carry a signature). Pass the function itself.
 
 Inline function handlers must not capture locals from the enclosing flow file;
 IronFlow rejects such handlers because captured upvalues cannot survive
@@ -86,7 +100,7 @@ end):context_keys({}):depends_on("inspect")
   direct node execution rather than silently exposing the full context.
 - A builder's projection belongs only to that step, even when multiple steps
   reuse the same `nodes.code` descriptor.
-- Both the global `ctx` and the bytecode function's argument refer to the same
+- Both the global `ctx` and the handler function's argument refer to the same
   isolated snapshot. Projection does not remove data from the workflow context,
   and Lua mutations do not modify stored input values. Outputs merge normally.
 - Conversion remains eager for selected values. The object root and **all**
@@ -130,7 +144,7 @@ are unavailable:
 
 - `ctx` -- isolated table snapshot of the workflow context, optionally projected with `context_keys` (JSON values are converted to Lua types)
 - `env(key)` -- function to read environment variables; returns the value as a string or `nil` if not set
-- `json_parse(str)` -- parse JSON text into a Lua table
+- `json_parse(str)` -- parse JSON text into a Lua table. The values are built inside the Lua state while the text is read, so `IRONFLOW_MAX_CONVERSION_NODES`, `IRONFLOW_MAX_CONVERSION_DEPTH` and `IRONFLOW_LUA_MAX_MEMORY_BYTES` bound the work; text over a budget fails with the budget's error and nothing of it is kept. A syntax error is reported first, then the [JSON nesting limit](../CLI_REFERENCE.md#json-nesting-limit), then the conversion budget. An integer above `9223372036854775807` or below `-9223372036854775808` has no exact Lua number and is returned as a string of its digits (it used to be the nearest float); the same applies to such an integer in `ctx`. For an object that repeats a key the last value is used, and every repeated value counts toward the node budget
 - `json_stringify(value)` -- serialize a Lua value to JSON text
 - `json_array(table)` -- mark a dense Lua table, including `{}`, as a JSON array
 - `json_object(table)` -- mark a string-keyed Lua table, including `{}`, as a JSON object
@@ -152,6 +166,7 @@ Lua execution runs on Tokio's blocking pool and uses process-wide budgets:
 - `IRONFLOW_LUA_MAX_INSTRUCTIONS` — default `5000000`; `0` disables.
 - `IRONFLOW_LUA_MAX_SECONDS` — default `10`; `0` disables.
 - `IRONFLOW_LUA_MAX_MEMORY_BYTES` — default `134217728`; `0` disables.
+- `IRONFLOW_LUA_MAX_PATTERN_STEPS` — default `50000000`; `0` disables.
 - `IRONFLOW_LUA_HOOK_INTERVAL` — default `10000`.
 - `IRONFLOW_LUA_GC_AFTER_EXECUTION` — default `true`.
 
@@ -161,6 +176,50 @@ future (for example, explicit workflow cancellation) signals the same hook, so
 an infinite loop is interrupted without occupying a Tokio runtime worker. Hook
 checks occur every `IRONFLOW_LUA_HOOK_INTERVAL` instructions, so cancellation
 latency is cooperative rather than instruction-exact.
+
+The hook runs between Lua instructions and cannot run inside a library call.
+The library calls that could do unbounded work inside one call are therefore
+replaced in the sandbox:
+
+- **Pattern matching** (`string.find`, `string.match`, `string.gmatch`,
+  `string.gsub`, also as methods such as `s:find(...)`) runs on a matcher
+  that counts one step per pattern item it tries. It accepts the Lua 5.4
+  pattern syntax and returns the same results. A Lua state may spend
+  `IRONFLOW_LUA_MAX_PATTERN_STEPS` steps in total; beyond that the call fails
+  with `Lua pattern matching exceeded step budget of 50000000
+  (IRONFLOW_LUA_MAX_PATTERN_STEPS)`. Matching that is linear in its subject
+  costs a few steps per byte, so the default covers tens of megabytes; a
+  pattern with several unbounded repeats, such as `^.-.-.-b`, can need
+  billions of steps for a few thousand bytes and runs out. Every few
+  thousand steps the matcher also checks the step timeout, run cancellation
+  and `IRONFLOW_LUA_MAX_SECONDS`, so those end a match in progress even when
+  the step budget is disabled. A `string.gsub` result is limited by
+  `IRONFLOW_LUA_MAX_MEMORY_BYTES`.
+- **`string.rep`** with an empty string and an empty or absent separator
+  returns `""` at once instead of counting to `n`.
+- **`table.move`** over more than 100,000 positions, and **`table.insert`**
+  and **`table.remove`** on a table that has a metatable (where `__len` can
+  claim any length), run as Lua loops, which the instruction budget, the time
+  budget, a step timeout and cancellation stop.
+
+These errors are ordinary Lua errors: `pcall` catches them, but a spent
+pattern budget stays spent for that Lua state. An error raised by one of the
+replaced functions names the calling line unless the call is in tail
+position (`return s:find(p)`).
+
+Every other library call (`table.concat`, `table.sort`, `table.unpack`,
+`string.format`, `string.upper`, `string.pack`, `utf8.len` and so on) does
+work proportional to data that `IRONFLOW_LUA_MAX_MEMORY_BYTES` already
+bounds. Such a call cannot be interrupted, but with the default memory cap it
+takes a fraction of a second. If the memory cap is disabled, those calls are
+bounded only by the memory of the host.
+
+Lua is tracked work of its step: when the step times out or its run is
+cancelled, the step's timeout result, its `on_error` handler, dependent
+steps and the end of the run wait until the Lua worker has returned, and task
+and run admission stay held, as for a built-in blocking node. Function
+handlers and `foreach` transforms behave the same. See
+[`lua_pattern_budget.lua`](../../examples/07-advanced/lua_pattern_budget.lua).
 
 ## Return Value Handling
 
@@ -223,23 +282,16 @@ flow:step("done", nodes.log({
 return flow
 ```
 
-Function handler mode with base64-encoded bytecode:
+Function handler mode, where the function receives `ctx` as its argument:
 
 ```lua
-local flow = Flow.new("bytecode_demo")
+local flow = Flow.new("handler_demo")
 
 flow:step("run", nodes.code({
-    bytecode_b64 = "G0x1YVIAAQQEBAgAGZM..."
+    source = function(ctx)
+        return { greeting = "Hello, " .. ctx.name }
+    end
 }))
 
 return flow
-```
-
-The bytecode function receives `ctx` as its argument:
-
-```lua
--- Original source that was compiled to bytecode:
-function(ctx)
-    return { greeting = "Hello, " .. ctx.name }
-end
 ```

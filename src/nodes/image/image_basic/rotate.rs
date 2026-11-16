@@ -81,8 +81,7 @@ impl Node for ImageRotateNode {
                 _ => unreachable!("invalid rotation angle already validated"),
             };
             execution.checkpoint()?;
-            save_dynamic_image(rotated, &output_path, format)?;
-            execution.checkpoint()?;
+            save_dynamic_image(&rotated, &output_path, format, "image_rotate", &execution)?;
 
             let mut output = NodeOutput::new();
             output.insert(output_key.clone(), serde_json::json!(output_path));

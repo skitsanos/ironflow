@@ -1,3 +1,5 @@
+use super::outbound::Guard;
+
 const MAX_SAME_ORIGIN_REDIRECTS: usize = 10;
 
 /// Admit provider response bytes before decoding either success or error text.
@@ -57,22 +59,38 @@ pub(crate) async fn bounded_response_text(
 }
 
 /// Provider requests carry credentials or private payloads, often both.
-pub(crate) fn client_builder() -> reqwest::ClientBuilder {
-    reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+///
+/// When the outbound destination guard applies (IF-212) the client connects
+/// directly, resolves names through the guard so the validated answer is the
+/// one connected to, and refuses a literal internal address on every request
+/// it sends, including a redirect hop.
+pub(crate) fn client_builder() -> anyhow::Result<reqwest::ClientBuilder> {
+    let guard = Guard::resolve(false)?;
+    let redirect_guard = guard.clone();
+    let builder = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::custom(move |attempt| {
             if attempt.previous().len() > MAX_SAME_ORIGIN_REDIRECTS {
                 return attempt.error("too many provider redirects");
             }
             let Some(origin) = attempt.previous().first() else {
                 return attempt.error("provider redirect has no source origin");
             };
-            if same_origin(origin, attempt.url()) {
-                attempt.follow()
-            } else {
-                attempt.error("cross-origin provider redirect refused")
+            if !same_origin(origin, attempt.url()) {
+                return attempt.error("cross-origin provider redirect refused");
+            }
+            match redirect_guard
+                .as_ref()
+                .map(|guard| guard.check_url(attempt.url()))
+            {
+                Some(Err(refusal)) => attempt.error(refusal),
+                _ => attempt.follow(),
             }
         }))
-        .referer(false)
+        .referer(false);
+    Ok(match guard {
+        Some(guard) => guard.install(builder),
+        None => builder,
+    })
 }
 
 fn same_origin(source: &reqwest::Url, target: &reqwest::Url) -> bool {

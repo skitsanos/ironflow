@@ -257,11 +257,13 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
 - [x] Value-source-backed precedence: explicit CLI > existing process
       environment > selected dotenv > config file > built-in default; an
       explicit value equal to a default still wins
-- [x] Webhook routes via config — scalar or structured `webhooks:` entries create `POST /webhooks/{name}` endpoints; request headers are default-denied, explicitly forwarded only through redacted execution overlays, and optional environment-backed HMAC-SHA256 policies verify the exact request body before run creation
+- [x] Webhook routes via config — scalar or structured `webhooks:` entries create `POST /webhooks/{name}` endpoints; request headers are default-denied, explicitly forwarded only through redacted execution overlays (the complete value and its components of eight bytes or more, in records only: step output passes between steps unchanged), and optional environment-backed HMAC-SHA256 policies verify the exact request body before run creation
 - [x] Scheduled triggers — `schedules:` block in `ironflow.yaml`, evaluated by a
       30-second tick inside `ironflow serve`. Cross-replica at-most-one claims via
       `StateStore::claim_schedule` (SQL unique index, Redis `SET NX EX`, JSON
-      exclusive create, Null process-local always-true). A successful claim can
+      exclusive create, Null process-local always-true). The claim also
+      records that its run was created, so an occurrence is not started again
+      after its run record expires or is deleted (IF-201). A successful claim can
       still be deliberately burned by lateness, bounded best-effort overlap,
       capacity, or a start failure. Claim keys are local wall-clock, so a
       fall-back hour is claimed once; a spring-forward gap fires after the gap.
@@ -270,7 +272,10 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
       leave a healthy HTTP process with dead triggers. Configuration is bounded
       to 256 names, finite string/context/grace sizes, and 64 catch-up instants
       per tick. Restricted day-of-month and weekday fields use traditional OR
-      semantics. JSON and SQL retention is cadence-limited and deletes at most
+      semantics, and weekday numbers are the standard 0 to 7 with 0 and 7 as
+      Sunday (IF-180). Each cron token must be exactly one field, so a missing
+      space fails at startup instead of shifting the fields (IF-206). JSON and
+      SQL retention is cadence-limited and deletes at most
       256 schedule-scoped claims per pass; JSON uses digest/hour shards while
       retaining its rolling-upgrade-compatible atomic file and incrementally
       indexing legacy claims, SQL uses a covering cleanup index, and Redis
@@ -341,11 +346,13 @@ See [NODE_REFERENCE.md](NODE_REFERENCE.md) for the complete list with parameters
   oldest-first eviction; expose a positive YAML/env count override
 - [x] `cache_set`/`cache_get` memory backend bounded by `IRONFLOW_CACHE_MAX_ENTRIES` (default 10 000)
 - [x] Stateful MCP sessions use opaque handles, capacity-bound least-recently-used eviction, and idle expiry — `IRONFLOW_MCP_SESSION_CACHE_SIZE` (default 1 024), `IRONFLOW_MCP_SESSION_TTL_SECS` (default 3 600); eviction and expiry close the owned transport
-- [x] OAuth token cache keyed by `(token_url, client_id, scope)`; bounded by `IRONFLOW_OAUTH_CACHE_SIZE` (default 128) — prevents cross-tenant token collision
+- [x] OAuth token cache keyed by `(token_url, client_id, scope, client-secret digest)`; bounded by `IRONFLOW_OAUTH_CACHE_SIZE` (default 128) — prevents cross-tenant token collision
 - [x] Executor `step_map` shared via `Arc<HashMap<String, Arc<StepDefinition>>>`; per-task step and step_map clones removed
 - [x] Task output persisted via direct `Value::Object` construction instead of `serde_json::to_value` round-trip
 - [x] Node trait migrated to `&Context`; executor wraps context in `Arc<RwLock<Arc<Context>>>` with copy-on-write via `Arc::make_mut` — per-attempt deep clone eliminated
-- [x] Subworkflow fan-out backpressure: `parallel_subworkflows` accepts `max_concurrent` (default: the host's available parallelism, capped at 1 024); detached `subworkflow(wait=false)` bounded by process-wide semaphore `IRONFLOW_MAX_DETACHED_SUBWORKFLOWS` (default 64)
+- [x] Subworkflow fan-out backpressure: `parallel_subworkflows` accepts `max_concurrent` (default: the host's available parallelism, capped at 1 024); detached `subworkflow(wait=false)` bounded by process-wide semaphore `IRONFLOW_MAX_DETACHED_SUBWORKFLOWS` (default 64); one call fans out to at most `IRONFLOW_MAX_PARALLEL_SUBWORKFLOWS` children (default 1 024) and child nesting stops at `IRONFLOW_MAX_SUBWORKFLOW_DEPTH` levels (default 16) (IF-188)
+- [x] Work budgets for parsing, planning and fan-out (IF-215): live child runs bounded process-wide by `IRONFLOW_MAX_LIVE_CHILD_RUNS` (default 4 096, refused rather than queued); `extract_html` text nesting by `IRONFLOW_MAX_HTML_TEXT_DEPTH` (1 024); Markdown conversion charged against `IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES` while converting; `mcp_client` results by `IRONFLOW_MAX_MCP_RESULT_BYTES` (4 MiB); the `json_parse` node by `IRONFLOW_MAX_JSON_PARSE_NODES` (1 000 000); one S3 list page by `IRONFLOW_MAX_S3_LIST_PAGE_BYTES` (16 MiB); fixed ceilings on step retries (100) and on `ai_chunk_semantic` windows and polynomial order; execution phases planned in linear time
+- [x] Outbound destination policy (IF-191, IF-212): one guard in `util::outbound` classifies literal addresses, validates and pins DNS answers and checks redirect hops; `IRONFLOW_BLOCK_PRIVATE_NETWORK` forces it on process-wide (one-way; the `http_*` `block_private_network` option can only add it) and `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` is the operator-only exception list. Covered: `http_*`, the provider client (`llm`, `ai_embed`, `ai_chunk_semantic`, `transcribe`, `slack_notification`, Resend `send_email`, `arangodb_aql`), `mcp_client` Streamable HTTP, S3 and S3 Vectors, SMTP (pinned); `db_query` and `db_exec` get a host check only. Operator endpoints (artifact, state and event stores, metrics), `shell_command` and stdio `mcp_client` are out of scope
 - [x] Run persistence: `RunSummary` type + `StateStore::list_run_summaries()` + `prune_before(cutoff)` trait methods; task outputs larger than `IRONFLOW_MAX_TASK_OUTPUT_BYTES` (default 2 MB) replaced with truncation marker
 - [x] I/O size guards: `http_*`, `read_file`, `write_file`, `shell_command` all enforce configurable caps — `IRONFLOW_MAX_HTTP_BODY_BYTES` (50 MB), `IRONFLOW_MAX_FILE_BYTES` (50 MB), `IRONFLOW_MAX_SHELL_OUTPUT_BYTES` (10 MB per stream, exposes optional `{output_key}_output_truncated = true`)
 

@@ -15,6 +15,7 @@ use crate::util::execution::{ExecutionControl, run_tracked_blocking_step};
 use crate::util::node_config::config_bool_or;
 
 mod input;
+mod serial;
 
 use input::{WriteInput, admit_size, parse_input, preflight_base64};
 
@@ -130,6 +131,9 @@ fn write_request(request: Request, execution: &ExecutionControl) -> Result<()> {
         .file_name()
         .ok_or_else(|| anyhow::anyhow!("{operation}: destination has no file name"))?;
     let root = RootedDir::prepare(parent, operation, execution)?;
+    // Held until the staged file is committed, so an append always extends
+    // the content left by the previous write to this destination.
+    let _exclusive = serial::acquire(root.destination_key(leaf)?, execution)?;
     let existing = if request.append {
         root.open_existing(leaf, execution)?
     } else {
@@ -162,8 +166,8 @@ fn write_request(request: Request, execution: &ExecutionControl) -> Result<()> {
         WriteInput::File(source) => {
             let file = open_regular_file(source, operation)?;
             let metadata = file.metadata()?;
-            // A copy keeps the source mode like `cp`; staged files are
-            // created 0600, so apply it to the open handle before commit.
+            // A copy keeps the source mode like `cp`, instead of the mode
+            // of the file it replaces or the default for a new file.
             source_permissions = Some(metadata.permissions());
             source_file = Some(file);
             metadata.len()
@@ -195,10 +199,7 @@ fn write_request(request: Request, execution: &ExecutionControl) -> Result<()> {
     )?;
     staged.writer().flush()?;
     if let Some(permissions) = source_permissions {
-        staged
-            .writer()
-            .set_permissions(permissions)
-            .with_context(|| format!("{operation}: failed to apply the source permissions"))?;
+        staged.publish_with_permissions(permissions);
     }
     staged.writer().sync_all()?;
     execution.checkpoint()?;

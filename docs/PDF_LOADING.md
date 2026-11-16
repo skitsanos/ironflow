@@ -1,9 +1,13 @@
 # PDF loading limits
 
-`extract_pdf`, `pdf_metadata`, `pdf_split`, and `pdf_merge` share a bounded
-`lopdf` loading policy. It applies equally to file paths and verified artifact
-handles. These settings do not govern native PDFium rendering (`pdf_to_image`
-and `pdf_thumbnail`), which has its own rendering limits.
+`extract_pdf`, `pdf_metadata`, `pdf_split`, `pdf_merge`, `pdf_to_image` and
+`pdf_thumbnail` share a bounded `lopdf` loading policy. It applies equally to
+file paths and verified artifact handles. The two render nodes load the
+document under this policy before the built-in renderer sees it, then apply
+their own [rendering limits](nodes/pdf_to_image.md#limits): the streams a
+rendered page can reach (content, forms, patterns, fonts, images) are decoded
+under the per-stream ceiling below, with eight times that ceiling as the total
+for one node call.
 
 | Environment variable | Default | Boundary |
 |----------------------|---------|----------|
@@ -11,8 +15,10 @@ and `pdf_thumbnail`), which has its own rendering limits.
 | `IRONFLOW_MAX_PDF_DECOMPRESSED_STREAM_BYTES` | `67108864` (64 MiB) | Decoded bytes per object or cross-reference stream loaded by `lopdf` |
 | `IRONFLOW_MAX_PDF_OBJECTS` | `250000` | Loaded document objects, checked after parsing and before downstream work |
 
-Zero, invalid, or missing values retain the defaults. The stream ceiling is
-also clamped to the platform's addressable allocation size.
+An unset variable uses its default. A zero or invalid value fails startup
+with an error that names the variable, as for every numeric limit (see the
+[environment reference](CLI_REFERENCE.md#environment-variables)). The stream
+ceiling is also clamped to the platform's addressable allocation size.
 
 ## Admission and failure behavior
 
@@ -44,7 +50,8 @@ When `pdf_split` uses `pages_per_file > 1`, it additionally applies
 `IRONFLOW_MAX_PDF_OBJECTS` during each output group's graph collection, including
 the new page tree and catalog, and `IRONFLOW_MAX_PDF_BYTES` while serializing each
 staged output file. These are per-group limits, not cumulative output-directory
-limits. Legacy single-page output is unchanged. See
+limits. Single-page output applies only the `IRONFLOW_MAX_PDF_BYTES` cap to
+each staged page file. See
 [`pdf_split`](nodes/pdf_split.md) for collision and partial-output behavior.
 
 ## Memory and cancellation boundaries
@@ -59,6 +66,14 @@ Page count, extraction items/output, split selection, and cumulative merge
 bytes/pages/objects keep their existing limits. In particular,
 `IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES` still bounds text extraction and each page's
 content/font-mapping decompression independently of initial loading.
+
+Loading does not parse font ToUnicode CMaps, so the stream limit says nothing
+about what a small CMap expands to. `extract_pdf` scans each font's decoded
+CMap before `lopdf` parses it and charges its `bfchar` entries and `bfrange`
+code spans against `IRONFLOW_MAX_PDF_EXTRACT_CMAP_ENTRIES` (default `1048576`,
+cumulative over the fonts of one call), and admits each glyph string by its
+worst-case decoded size before decoding it. See
+[`extract_pdf`](nodes/extract_pdf.md) for the units and the rejection cases.
 
 Input reading, loading, checks, and downstream work run on tracked blocking
 workers. Cancellation is checked around synchronous parser/decoder calls and

@@ -14,7 +14,7 @@ exactly-once side-effect mechanism.
 |-----------|------|----------|---------|-------------|
 | `flow` | string | yes | - | Child `.lua` flow, resolved relative to the parent flow directory. |
 | `max_iterations` | positive integer | yes | - | Maximum child runs before the step fails. Cannot exceed `IRONFLOW_MAX_REPEAT_ITERATIONS`. |
-| `input` | object | no | parent context | Static child input mapping. A string value selects the parent key when that key exists; otherwise it remains a literal. |
+| `input` | object | no | parent context | Static child input mapping. A string value names a parent key that must exist; `{ optional = "key" }` omits the entry when the key is absent and `{ literal = value }` passes a value as written. |
 | `output_key` | string | no | `"repeat_result"` | Namespace for the final public child context and output metadata. |
 | `state_key` | string | no | `"repeat_state"` | Child input key containing the current carried state. |
 | `next_state_key` | string | no | `"repeat_next_state"` | Child output key containing the state for the next iteration. |
@@ -26,6 +26,14 @@ exactly-once side-effect mechanism.
 
 `state_key`, `next_state_key`, `until_key`, and `iteration_key` must be
 distinct. Explicit `input` cannot set the latter three runtime-owned keys.
+
+`input` follows the [`subworkflow` input mapping](subworkflow.md#input-mapping)
+contract. A string that names no parent key fails the step with
+`repeat_subworkflow: input '<child_key>' references a parent context value
+that does not exist; ...` before the child flow is loaded, so no iteration
+runs. In earlier releases such a string was passed to the child as literal text.
+Map the initial state with `{ optional = "key" }` when a first run may start
+without one.
 
 ## Child Contract
 
@@ -65,7 +73,7 @@ For `output_key = "result"`:
 
 Iteration history is intentionally not retained.
 
-Carried state and the final child context use full, redacted live values, not
+Carried state and the final child context use full live values, not
 persisted inspection snapshots. `IRONFLOW_MAX_TASK_OUTPUT_BYTES` does not
 replace large state with a truncation marker between iterations. CLI/API
 inspection of the parent may still contain markers for large final values.
@@ -118,10 +126,24 @@ The complete runnable pair is in
 ## Operational Bounds
 
 `IRONFLOW_MAX_REPEAT_ITERATIONS` defaults to `128` and must be between `1` and
-the compiled absolute ceiling of `1024`. A node may choose a lower
+the compiled absolute ceiling of `1024`. A malformed or out-of-range value
+stops startup of every command with a message that names the variable; it is
+no longer discovered by the first `repeat_subworkflow` step. A node may choose a lower
 `max_iterations`, but cannot raise the process limit. The node stores only the
 current state and final child context; payload growth inside that state remains
 the workflow author's responsibility.
+
+Each iteration's child counts towards the
+[child workflow nesting limit](subworkflow.md#nesting-limit-and-waiting)
+(`IRONFLOW_MAX_SUBWORKFLOW_DEPTH`, default `16`): a child flow that repeats
+itself is refused at that depth with `repeat_subworkflow: child workflow
+nesting depth 17 exceeds the limit of 16 (IRONFLOW_MAX_SUBWORKFLOW_DEPTH);
+check for a flow that calls itself`, whatever `max_iterations` allows. When
+the step times out or its run is cancelled, the active iteration is cancelled
+and the step does not end, start its `on_error` handler or release its
+admission until that child has stopped, tracked blocking workers included.
+The child's steps observe this step's deadline; see
+[Parent deadline](subworkflow.md#parent-deadline).
 
 The inspection cap is not an execution-memory limit. Existing Lua
 memory/conversion limits, parent timeouts, and cancellation remain enforced;

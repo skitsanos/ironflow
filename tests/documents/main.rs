@@ -8,12 +8,34 @@
 // each as its own private copy, exactly as they did as separate crates.
 #![allow(clippy::duplicate_mod)]
 
+#[path = "../test_document_output_modes.rs"]
+mod test_document_output_modes;
 #[path = "../test_extract_config.rs"]
 mod test_extract_config;
 #[path = "../test_extract_html_content.rs"]
 mod test_extract_html_content;
+#[path = "../test_extract_pdf_font_bounds.rs"]
+mod test_extract_pdf_font_bounds;
+#[path = "../test_extract_word_comment_anchors.rs"]
+mod test_extract_word_comment_anchors;
+#[path = "../test_extract_word_style_toggles.rs"]
+mod test_extract_word_style_toggles;
+#[path = "../test_extract_word_text_boxes.rs"]
+mod test_extract_word_text_boxes;
 #[path = "../test_extract_xlsx.rs"]
 mod test_extract_xlsx;
+#[path = "../test_extract_xlsx_compound_prefix.rs"]
+mod test_extract_xlsx_compound_prefix;
+#[path = "../test_extract_xlsx_styles.rs"]
+mod test_extract_xlsx_styles;
+#[path = "../test_file_source_interpolation.rs"]
+mod test_file_source_interpolation;
+#[path = "../test_html_depth_limit.rs"]
+mod test_html_depth_limit;
+#[path = "../test_html_markdown_output_budget.rs"]
+mod test_html_markdown_output_budget;
+#[path = "../test_image_output_safety.rs"]
+mod test_image_output_safety;
 #[path = "../test_image_resize_safety.rs"]
 mod test_image_resize_safety;
 #[path = "../test_image_util_nodes.rs"]
@@ -34,6 +56,8 @@ mod test_markdown_fonts;
 mod test_markdown_multilingual;
 #[path = "../test_pdf_actual_text.rs"]
 mod test_pdf_actual_text;
+#[path = "../test_pdf_info_strings.rs"]
+mod test_pdf_info_strings;
 #[path = "../test_pdf_load_safety.rs"]
 mod test_pdf_load_safety;
 #[path = "../test_pdf_merge_split_nodes.rs"]
@@ -42,13 +66,33 @@ mod test_pdf_merge_split_nodes;
 mod test_pdf_page_graph;
 #[path = "../test_pdf_page_rendering.rs"]
 mod test_pdf_page_rendering;
+#[path = "../test_pdf_render_nodes.rs"]
+mod test_pdf_render_nodes;
 #[path = "../test_pdf_split_group_runtime.rs"]
 mod test_pdf_split_group_runtime;
 #[path = "../test_pdf_split_group_safety.rs"]
 mod test_pdf_split_group_safety;
 #[path = "../test_pdf_split_groups.rs"]
 mod test_pdf_split_groups;
+#[path = "../test_pdf_split_single_safety.rs"]
+mod test_pdf_split_single_safety;
+#[path = "../test_pdf_text_lines.rs"]
+mod test_pdf_text_lines;
+#[path = "../test_pptx_bullets.rs"]
+mod test_pptx_bullets;
 #[path = "../test_pptx_graph_validation.rs"]
 mod test_pptx_graph_validation;
+#[path = "../test_pptx_hidden.rs"]
+mod test_pptx_hidden;
+#[path = "../test_pptx_inherited_bullets.rs"]
+mod test_pptx_inherited_bullets;
+#[path = "../test_pptx_line_breaks.rs"]
+mod test_pptx_line_breaks;
+#[path = "../test_pptx_notes_placeholders.rs"]
+mod test_pptx_notes_placeholders;
 #[path = "../test_pptx_presentation.rs"]
 mod test_pptx_presentation;
+#[path = "../test_pptx_slide_furniture.rs"]
+mod test_pptx_slide_furniture;
+#[path = "../test_tool_authored_documents.rs"]
+mod test_tool_authored_documents;

@@ -53,7 +53,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: dtolnay/rust-toolchain@1.99.1
+      - uses: dtolnay/rust-toolchain@1.100.0
         with:
           targets: ${{ matrix.platform.target }}
 
@@ -69,14 +69,17 @@ jobs:
       - name: Build release binary
         run: cargo build --locked --release --target ${{ matrix.platform.target }} ${{ matrix.suffix == '-full' && '--features postgres,redis,cjk-fonts' || '' }}
 
+      # Every archive carries the generated third-party notices (IF-204) next
+      # to the fonts' OFL license; the file is committed and gated against the
+      # lockfile, so packaging needs no extra toolchain.
       - name: Package (unix)
         if: runner.os != 'Windows'
-        run: tar czf ironflow-${{ github.ref_name }}-${{ matrix.platform.target }}${{ matrix.suffix }}.tar.gz assets/fonts/OFL.txt -C target/${{ matrix.platform.target }}/release ironflow
+        run: tar czf ironflow-${{ github.ref_name }}-${{ matrix.platform.target }}${{ matrix.suffix }}.tar.gz THIRD_PARTY_LICENSES.md assets/fonts/OFL.txt -C target/${{ matrix.platform.target }}/release ironflow
 
       - name: Package (windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Compress-Archive -Path "target/${{ matrix.platform.target }}/release/ironflow.exe", "assets/fonts/OFL.txt" -DestinationPath "ironflow-${{ github.ref_name }}-${{ matrix.platform.target }}${{ matrix.suffix }}.zip"
+        run: Compress-Archive -Path "target/${{ matrix.platform.target }}/release/ironflow.exe", "THIRD_PARTY_LICENSES.md", "assets/fonts/OFL.txt" -DestinationPath "ironflow-${{ github.ref_name }}-${{ matrix.platform.target }}${{ matrix.suffix }}.zip"
 
       - name: Upload artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -105,7 +108,7 @@ jobs:
           cat checksums-sha256.txt
 
       - name: Create release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3
         with:
           generate_release_notes: true
           files: |

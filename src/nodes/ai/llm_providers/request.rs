@@ -34,11 +34,13 @@ pub(crate) fn resolve_messages(config: &Value, ctx: &Context) -> Result<Option<V
 }
 
 pub(crate) fn resolve_prompt(config: &Value, ctx: &Context) -> Result<String> {
-    if let Some(prompt) = config.get("prompt").and_then(Value::as_str) {
+    // A value of another type is a mistake in the flow. It used to be
+    // skipped, so the prompt silently came from `input_key` (IF-220).
+    if let Some(prompt) = string_parameter(config, "prompt")? {
         return Ok(interpolate_ctx(prompt, ctx));
     }
 
-    if let Some(input_key) = config.get("input_key").and_then(Value::as_str) {
+    if let Some(input_key) = string_parameter(config, "input_key")? {
         let input_key = interpolate_ctx(input_key, ctx);
         return ctx
             .get(&input_key)
@@ -50,6 +52,15 @@ pub(crate) fn resolve_prompt(config: &Value, ctx: &Context) -> Result<String> {
     }
 
     anyhow::bail!("llm: either 'prompt', 'input_key', 'messages', or 'messages_key' is required")
+}
+
+/// A parameter that is a string when given; absent and null mean not given.
+fn string_parameter<'a>(config: &'a Value, key: &str) -> Result<Option<&'a str>> {
+    match config.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(value)) => Ok(Some(value)),
+        Some(_) => anyhow::bail!("llm: '{key}' must be a string"),
+    }
 }
 
 pub(crate) struct LlmBodyInput<'a> {
@@ -74,11 +85,19 @@ pub(crate) fn build_body(input: &LlmBodyInput<'_>) -> Result<Value> {
                 Value::Array(resolve_chat_messages(input)),
             );
             insert_tool_config(&mut body, input);
+            if let Some(format) = resolve_response_format(input.config, input.ctx)? {
+                body.insert("response_format".to_string(), format);
+            }
         }
         LlmMode::Responses => {
+            reject_chat_only_parameters(input.config)?;
             body.insert("input".to_string(), Value::String(input.prompt.to_string()));
+            if let Some(instructions) = system_prompt(input) {
+                body.insert("instructions".to_string(), Value::String(instructions));
+            }
         }
     }
+    // `extra` is merged last, so a field given there replaces the one built above.
     merge_extra_fields(&mut body, input.config, input.ctx);
 
     Ok(Value::Object(body))
@@ -112,15 +131,10 @@ fn resolve_chat_messages(input: &LlmBodyInput<'_>) -> Vec<Value> {
     }
 
     let mut messages = Vec::new();
-    if let Some(system_prompt) = input
-        .config
-        .get("system_prompt")
-        .or_else(|| input.config.get("system"))
-        .and_then(Value::as_str)
-    {
+    if let Some(system_prompt) = system_prompt(input) {
         messages.push(json!({
             "role": "system",
-            "content": interpolate_ctx(system_prompt, input.ctx),
+            "content": system_prompt,
         }));
     }
     messages.push(json!({
@@ -128,6 +142,37 @@ fn resolve_chat_messages(input: &LlmBodyInput<'_>) -> Vec<Value> {
         "content": input.prompt,
     }));
     messages
+}
+
+fn system_prompt(input: &LlmBodyInput<'_>) -> Option<String> {
+    input
+        .config
+        .get("system_prompt")
+        .or_else(|| input.config.get("system"))
+        .and_then(Value::as_str)
+        .map(|prompt| interpolate_ctx(prompt, input.ctx))
+}
+
+fn resolve_response_format(config: &Value, ctx: &Context) -> Result<Option<Value>> {
+    match config.get("response_format") {
+        None | Some(Value::Null) => Ok(None),
+        Some(format @ Value::Object(_)) => Ok(Some(interpolate_json_value(format, ctx))),
+        Some(_) => anyhow::bail!("llm: 'response_format' must be an object"),
+    }
+}
+
+/// The Responses API shapes tools and structured output differently, so the
+/// chat-shaped parameters fail instead of being dropped from the request.
+fn reject_chat_only_parameters(config: &Value) -> Result<()> {
+    for key in ["tools", "tool_choice", "response_format"] {
+        if config.get(key).is_some_and(|value| !value.is_null()) {
+            anyhow::bail!(
+                "llm: '{key}' is a chat-mode parameter and is not sent in responses mode; \
+                 pass the Responses API field through 'extra' or use mode = \"chat\""
+            );
+        }
+    }
+    Ok(())
 }
 
 fn insert_tool_config(body: &mut Map<String, Value>, input: &LlmBodyInput<'_>) {

@@ -44,11 +44,12 @@ async fn missing_nested_tool_inputs_do_not_disclose_private_siblings_in_results(
                 let config = json!({
                     "source_key": "calls", "on_error": policy,
                     "tools": {"inspect": {"flow": "inspect.lua", "input": {"payload": {
-                        "missing_id": "ctx.user.id", "name": "ctx.user.profile.name",
-                        "missing_deep": "ctx.user.profile.id", "missing_root": "ctx.absent.id",
-                        "wrong_type": "ctx.user.profile.name.id", "city": "arguments.city",
-                        "literal": "unchanged literal", "values": [false, 0, null],
-                        "nested": [{"missing": "ctx.user.id"}]
+                        "missing_id": {"optional": "ctx.user.id"}, "name": "ctx.user.profile.name",
+                        "missing_deep": {"optional": "ctx.user.profile.id"},
+                        "missing_root": {"optional": "ctx.absent.id"},
+                        "wrong_type": {"optional": "ctx.user.profile.name.id"}, "city": "arguments.city",
+                        "literal": {"literal": "unchanged literal"}, "values": [false, 0, null],
+                        "nested": [{"missing": {"optional": "ctx.user.id"}}]
                     }}}}
                 });
                 let output =
@@ -119,7 +120,7 @@ async fn handlers_can_reject_required_missing_values_without_disclosing_parent_d
     let node = NodeRegistry::with_builtins().get("tool_dispatch").unwrap();
     for policy in ["fail_fast", "ignore"] {
         let config = json!({"source_key": "calls", "on_error": policy,
-            "tools": {"inspect": {"flow": "required.lua", "input": {"user_id": "ctx.user.id"}}}});
+            "tools": {"inspect": {"flow": "required.lua", "input": {"user_id": {"optional": "ctx.user.id"}}}}});
         let result = tokio::time::timeout(Duration::from_secs(15), node.execute(&config, &context))
             .await
             .expect("tool dispatch timed out");
@@ -184,7 +185,7 @@ async fn offline_projection_example_validates_and_runs_through_cli() {
             assert_eq!(
                 context["tool_results"][0]["result"],
                 json!({
-                    "user_id": null, "display_name": "Ada", "city": "Berlin"
+                    "user_id": null, "display_name": "Ada", "city": "Berlin", "source": "user"
                 })
             );
             for key in [

@@ -17,6 +17,14 @@ Convert Markdown text to HTML using CommonMark + GFM extensions (strikethrough, 
 
 - `<output_key>` (default `html`) — the generated HTML string.
 
+## Execution
+
+Parsing and sanitizing run as tracked work on the blocking pool, not on an
+async runtime thread. The conversion has no cancellation checkpoint: a step
+that times out or is cancelled while it converts reports its result, starts
+its `on_error` handler and releases its admission when the conversion has
+returned.
+
 ## Example
 
 ```lua

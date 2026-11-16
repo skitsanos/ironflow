@@ -6,7 +6,7 @@ Generate text embeddings via OpenAI, Ollama, or OAuth-authenticated providers.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `provider` | string | No | `"openai"` | Embedding provider: `"openai"`, `"ollama"`, `"oauth"` |
+| `provider` | string | No | `"openai"` | Embedding provider: `"openai"`, `"ollama"`, `"oauth"`. Any other value, including a non-string, fails the step before a request is sent. |
 | `model` | string | No | per provider | Model name (see defaults below) |
 | `input_key` | string | Yes | — | Context key holding text (string or array of strings) |
 | `output_key` | string | No | `"embed"` | Prefix for output context keys |
@@ -57,8 +57,8 @@ Configure the final provider endpoint explicitly when its origin changes.
 All three providers use sequential batches, split at whichever comes first:
 `batch_size` inputs or `batch_max_bytes` combined input bytes. Small inputs still
 use one request; an empty array returns zero vectors without contacting a provider.
-OAuth token acquisition happens before the batch loop, using the existing token
-cache. Successful batches are concatenated in input order. OpenAI-compatible
+OAuth token acquisition happens before the batch loop, using the token cache
+described under [OAuth tokens](#oauth-tokens). Successful batches are concatenated in input order. OpenAI-compatible
 responses use each item's `index` when present; duplicate, missing, mixed, or
 out-of-range indices fail. Endpoints omitting all indices retain response order.
 Every batch must return exactly one nonempty, finite, same-dimension vector per
@@ -90,10 +90,35 @@ Each successful embedding response is capped by `IRONFLOW_MAX_HTTP_BODY_BYTES`
 (default 50 MiB), checking declared and streamed bytes before decoding.
 `IRONFLOW_MAX_EMBEDDING_VALUES` (default `16777216`, 128 MiB of raw `f64` values)
 caps the complete vector matrix, not each batch. The first response's dimension
-is used to reject an oversized total before requesting remaining batches. Invalid
-or zero environment limits retain defaults. Response parsing, vector containers,
+is used to reject an oversized total before requesting remaining batches. A zero
+or invalid value for either variable fails startup. Response parsing, vector containers,
 JSON output, and semantic processing require additional memory; this is not an RSS
 ceiling. Existing context-conversion and persisted-output limits still apply.
+
+## OAuth tokens
+
+With `provider = "oauth"` the node requests a client-credentials token from
+`token_url` and caches it per token URL, client ID, client secret and scope
+until 60 seconds
+before the `expires_in` the provider reported. The cache holds at most
+`IRONFLOW_OAUTH_CACHE_SIZE` entries.
+
+- The token response is capped by `IRONFLOW_MAX_HTTP_BODY_BYTES`, checking
+  declared and streamed bytes before decoding.
+- Token errors name only the failure: `OAuth token request failed (HTTP 401);
+  provider body omitted`, a transport kind such as `connection failed`, or a
+  response that is not a token document. The token URL, the request form and
+  the provider's reply are never copied into the error. The response must be a
+  JSON object with a non-empty `access_token` string.
+- `expires_in` may be a non-negative number or the same number as a string.
+  When the provider omits it or sends `null`, the token is used for that
+  execution only and is not cached, so every execution requests a new one.
+  Any other value fails the step as an invalid token document.
+- When the embedding endpoint answers HTTP 401, the token that was sent is
+  evicted from the cache and the request is repeated once with a newly issued
+  token, starting again at the first batch. A second 401 fails the step and
+  evicts that token as well, so the next run starts with a fresh one. The
+  `openai` and `ollama` providers do not retry a 401.
 
 ## Context Output
 
@@ -110,6 +135,18 @@ ceiling. Existing context-conversion and persisted-output limits still apply.
 The `input_key` context value can be:
 - A **string** — embedded as a single text, returns one embedding
 - An **array of strings** — batch embedded, returns one embedding per text
+
+## Outbound destination policy
+
+When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, this node
+refuses a destination that is not a public unicast address before it
+connects: a literal private, loopback or link-local address, `localhost`,
+and a host name whose DNS answer contains such an address. The validated
+answer is the one connected to, and the node connects directly, ignoring a
+system proxy. The OAuth `token_url` is checked as well as the embedding endpoint. A local
+Ollama server needs an entry such as `127.0.0.1:11434`. An internal destination must be listed by the operator in
+`IRONFLOW_PRIVATE_NETWORK_ALLOWLIST`; nothing in the flow can add one. See
+[Outbound destinations](../SECURITY.md#outbound-destinations).
 
 ## Examples
 

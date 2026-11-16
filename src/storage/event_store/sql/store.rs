@@ -1,89 +1,19 @@
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
-use sqlx::{Row, any::AnyRow};
+use sqlx::Row;
 
 use super::SqlEventStore;
 use crate::engine::events::RunEvent;
-use crate::storage::event_store::{EventStore, validate_event_run_id, validate_publish_event};
+use crate::storage::event_store::{
+    EventStore, deleted_stream, validate_event_run_id, validate_incarnation, validate_publish_event,
+};
 use crate::storage::{StorageError, StorageResult};
 
 impl SqlEventStore {
-    fn decode_row(row: &AnyRow, expected_run_id: &str) -> StorageResult<(RunEvent, i64)> {
-        let row_id: String = row.try_get("id").map_err(|error| {
-            StorageError::corruption(
-                format_args!("Invalid stored event row for run '{expected_run_id}'"),
-                error,
-            )
-        })?;
-        let row_run_id: String = row.try_get("run_id").map_err(|error| {
-            StorageError::corruption(
-                format_args!("Invalid stored event row for run '{expected_run_id}'"),
-                error,
-            )
-        })?;
-        let row_event_type: String = row.try_get("event_type").map_err(|error| {
-            StorageError::corruption(
-                format_args!("Invalid stored event row for run '{expected_run_id}'"),
-                error,
-            )
-        })?;
-        let raw_event: String = row.try_get("event_json").map_err(|error| {
-            StorageError::corruption(
-                format_args!("Invalid stored event row for run '{expected_run_id}'"),
-                error,
-            )
-        })?;
-        let row_timestamp: String = row.try_get("timestamp").map_err(|error| {
-            StorageError::corruption(
-                format_args!("Invalid stored event row for run '{expected_run_id}'"),
-                error,
-            )
-        })?;
-        let sequence: i64 = row.try_get("sequence").map_err(|error| {
-            StorageError::corruption(
-                format_args!("Invalid stored event sequence for run '{expected_run_id}'"),
-                error,
-            )
-        })?;
-        let event: RunEvent = serde_json::from_str(&raw_event).map_err(|error| {
-            StorageError::corruption(
-                format_args!("Invalid stored event for run '{expected_run_id}'"),
-                error,
-            )
-        })?;
-        let parsed_timestamp = DateTime::parse_from_rfc3339(&row_timestamp)
-            .map_err(|error| {
-                StorageError::corruption(
-                    format_args!("Invalid stored event timestamp for run '{expected_run_id}'"),
-                    error,
-                )
-            })?
-            .with_timezone(&Utc);
-        if row_id.is_empty()
-            || row_run_id != expected_run_id
-            || event.id != row_id
-            || event.run_id != row_run_id
-            || event.event_type.as_sse_name() != row_event_type
-            || event.timestamp != parsed_timestamp
-            || sequence < 1
-        {
-            return Err(StorageError::corruption(
-                format_args!("Invalid stored event for run '{expected_run_id}'"),
-                "event payload does not match its SQL row",
-            ));
-        }
-
-        Ok((event, sequence))
-    }
-}
-
-#[async_trait]
-impl EventStore for SqlEventStore {
-    async fn healthcheck(&self) -> StorageResult<()> {
-        self.probe().await
-    }
-
-    async fn publish(&self, event: RunEvent) -> StorageResult<()> {
+    async fn publish_scoped(
+        &self,
+        event: RunEvent,
+        incarnation: Option<&str>,
+    ) -> StorageResult<()> {
         validate_publish_event(&event)?;
         // Older processes do not know about the sequence column. Adopt any
         // rows they wrote since startup before allocating a newer position.
@@ -104,14 +34,12 @@ impl EventStore for SqlEventStore {
             .allocate_sequence(&mut transaction, &event.run_id)
             .await?;
         if self
-            .stream_is_deleted(&mut transaction, &event.run_id)
+            .fence(&mut transaction, &event.run_id)
             .await?
+            .rejects(incarnation)
         {
             Self::rollback_publish(transaction, &event.id).await?;
-            return Err(StorageError::conflict(format_args!(
-                "Events for run '{}' have been deleted",
-                event.run_id
-            )));
+            return Err(deleted_stream(&event.run_id));
         }
         let sql = format!(
             "INSERT INTO {} (id, run_id, event_type, event_json, timestamp, sequence) \
@@ -188,79 +116,50 @@ impl EventStore for SqlEventStore {
         })?;
         Ok(())
     }
+}
+
+#[async_trait]
+impl EventStore for SqlEventStore {
+    async fn healthcheck(&self) -> StorageResult<()> {
+        self.probe().await
+    }
+
+    async fn publish(&self, event: RunEvent) -> StorageResult<()> {
+        self.publish_scoped(event, None).await
+    }
+
+    async fn publish_as(&self, event: RunEvent, incarnation: &str) -> StorageResult<()> {
+        validate_incarnation(incarnation)?;
+        self.publish_scoped(event, Some(incarnation)).await
+    }
+
+    async fn begin_incarnation(&self, run_id: &str, incarnation: &str) -> StorageResult<()> {
+        self.admit_incarnation(run_id, incarnation).await
+    }
+
+    async fn admitted_incarnation(&self, run_id: &str) -> StorageResult<Option<String>> {
+        self.read_admitted(run_id).await
+    }
 
     async fn delete_run(&self, run_id: &str) -> StorageResult<usize> {
-        validate_event_run_id(run_id)?;
-        let mut transaction = self.pool.begin().await.map_err(|error| {
-            StorageError::backend(
-                format_args!("Failed to delete events for run '{run_id}'"),
-                error,
-            )
-        })?;
-        self.lock_stream(&mut transaction, run_id).await?;
+        self.delete(run_id, true, None).await
+    }
 
-        let sql = format!(
-            "INSERT INTO {} (run_id) VALUES ({}) ON CONFLICT(run_id) DO NOTHING",
-            self.tables.event_deletions,
-            self.placeholder(1)
-        );
-        sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
-            .bind(run_id)
-            .execute(&mut *transaction)
-            .await
-            .map_err(|error| {
-                StorageError::backend(
-                    format_args!("Failed to fence event deletion for run '{run_id}'"),
-                    error,
-                )
-            })?;
+    async fn delete_incarnation(&self, run_id: &str, incarnation: &str) -> StorageResult<usize> {
+        validate_incarnation(incarnation)?;
+        self.delete(run_id, true, Some(Some(incarnation))).await
+    }
 
-        let sql = format!(
-            "DELETE FROM {} WHERE run_id = {}",
-            self.tables.events,
-            self.placeholder(1)
-        );
-        let removed = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
-            .bind(run_id)
-            .execute(&mut *transaction)
-            .await
-            .map_err(|error| {
-                StorageError::backend(
-                    format_args!("Failed to delete events for run '{run_id}'"),
-                    error,
-                )
-            })?
-            .rows_affected();
+    async fn delete_orphaned_run(&self, run_id: &str) -> StorageResult<usize> {
+        self.delete(run_id, false, None).await
+    }
 
-        let sql = format!(
-            "DELETE FROM {} WHERE run_id = {}",
-            self.tables.event_sequences,
-            self.placeholder(1)
-        );
-        sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
-            .bind(run_id)
-            .execute(&mut *transaction)
-            .await
-            .map_err(|error| {
-                StorageError::backend(
-                    format_args!("Failed to reset event sequence for run '{run_id}'"),
-                    error,
-                )
-            })?;
-        self.verify_deleted_stream(&mut transaction, run_id).await?;
-        let removed = usize::try_from(removed).map_err(|error| {
-            StorageError::corruption(
-                format_args!("Invalid deleted event count for run '{run_id}'"),
-                error,
-            )
-        })?;
-        transaction.commit().await.map_err(|error| {
-            StorageError::backend(
-                format_args!("Failed to commit event deletion for run '{run_id}'"),
-                error,
-            )
-        })?;
-        Ok(removed)
+    async fn delete_orphaned_incarnation(
+        &self,
+        run_id: &str,
+        seen: Option<&str>,
+    ) -> StorageResult<usize> {
+        self.delete(run_id, false, Some(seen)).await
     }
 
     async fn list_since(

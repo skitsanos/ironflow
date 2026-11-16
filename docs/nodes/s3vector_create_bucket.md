@@ -8,8 +8,8 @@ Create a new Amazon S3 Vector bucket.
 |-----------|--------|----------|---------|-------------|
 | `vector_bucket_name` | string | yes | environment-only fallback | Bucket name. When no target field is configured, uses `S3VECTOR_BUCKET_NAME`, then legacy `S3_BUCKET`. |
 | `bucket` | string | no | no | Alias for `vector_bucket_name`. |
-| `region` | string | no | AWS region chain | Override `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, or `AWS_DEFAULT_REGION`. |
-| `endpoint_url` | string | no | `AWS_ENDPOINT_URL` env var | Override the S3 Vectors service endpoint. |
+| `region` | string | no | AWS region chain | Override `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, or `AWS_DEFAULT_REGION`. The environment is used only when the parameter is absent: a value that is not a string, or is empty after interpolation, fails the step before the client is built. |
+| `endpoint_url` | string | no | `AWS_ENDPOINT_URL` env var | Override the S3 Vectors service endpoint. A value that is not a string, or is empty after interpolation, fails the step instead of falling back to the environment or the default AWS endpoint. |
 | `output_key` | string | no | `s3vector` | Prefix for context output keys. |
 
 ## Target Resolution
@@ -26,6 +26,16 @@ value fails before the AWS client is built.
 - `{output_key}_bucket_name` — Bucket name used/created.
 - `{output_key}_bucket_arn` — Bucket ARN if returned by the service.
 - `{output_key}_success` — `true` on success.
+
+## Outbound destination policy
+
+When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, `endpoint_url`
+(or `AWS_ENDPOINT_URL`) is refused when it is `localhost` or not a public
+unicast address, and every DNS answer of the service client is validated
+and pinned. An S3-compatible endpoint on a private address must be listed by
+the operator in `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` (for example
+`minio.internal:9000`). See
+[Outbound destinations](../SECURITY.md#outbound-destinations).
 
 ## Example
 

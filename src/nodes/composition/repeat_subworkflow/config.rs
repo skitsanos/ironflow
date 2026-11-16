@@ -6,8 +6,8 @@ use serde_json::Value;
 use crate::engine::types::Context;
 use crate::util::node_config::{config_f64_strict, config_usize_strict};
 
-const DEFAULT_MAX_REPEAT_ITERATIONS: usize = 128;
-const ABSOLUTE_MAX_REPEAT_ITERATIONS: usize = 1024;
+use super::super::input_mapping::{input_object, map_parent_input};
+
 const DEFAULT_MAX_DELAY_SECONDS: f64 = 60.0;
 const ABSOLUTE_MAX_DELAY_SECONDS: f64 = 3600.0;
 
@@ -41,7 +41,7 @@ impl RepeatConfig {
 
         let max_iterations = config_usize_strict(config, "max_iterations", ctx)?
             .ok_or_else(|| anyhow::anyhow!("repeat_subworkflow requires 'max_iterations'"))?;
-        let process_cap = max_repeat_iterations()?;
+        let process_cap = crate::util::limits::max_repeat_iterations();
         if max_iterations == 0 {
             anyhow::bail!("repeat_subworkflow: 'max_iterations' must be greater than 0");
         }
@@ -76,19 +76,8 @@ impl RepeatConfig {
     }
 
     pub(super) fn initial_context(&self, config: &Value, parent: &Context) -> Result<Context> {
-        let mut context = match config.get("input") {
-            Some(Value::Object(input)) => input
-                .iter()
-                .map(|(child_key, source)| {
-                    let value = source
-                        .as_str()
-                        .and_then(|parent_key| parent.get(parent_key))
-                        .cloned()
-                        .unwrap_or_else(|| source.clone());
-                    (child_key.clone(), value)
-                })
-                .collect(),
-            Some(_) => anyhow::bail!("repeat_subworkflow: 'input' must be an object"),
+        let mut context = match input_object("repeat_subworkflow", config)? {
+            Some(input) => map_parent_input("repeat_subworkflow", input, parent)?,
             None => parent.clone(),
         };
         context.remove(&self.next_state_key);
@@ -176,22 +165,4 @@ fn validate_delays(delay: f64, backoff: f64, maximum: f64) -> Result<()> {
         );
     }
     Ok(())
-}
-
-fn max_repeat_iterations() -> Result<usize> {
-    let Some(raw) = std::env::var_os("IRONFLOW_MAX_REPEAT_ITERATIONS") else {
-        return Ok(DEFAULT_MAX_REPEAT_ITERATIONS);
-    };
-    let raw = raw.to_str().ok_or_else(|| {
-        anyhow::anyhow!("IRONFLOW_MAX_REPEAT_ITERATIONS must contain valid UTF-8")
-    })?;
-    let value = raw.parse::<usize>().map_err(|_| {
-        anyhow::anyhow!("IRONFLOW_MAX_REPEAT_ITERATIONS must be a positive whole number")
-    })?;
-    if value == 0 || value > ABSOLUTE_MAX_REPEAT_ITERATIONS {
-        anyhow::bail!(
-            "IRONFLOW_MAX_REPEAT_ITERATIONS must be between 1 and {ABSOLUTE_MAX_REPEAT_ITERATIONS}"
-        );
-    }
-    Ok(value)
 }

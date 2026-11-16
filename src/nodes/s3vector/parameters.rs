@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use crate::engine::types::Context;
 use crate::lua::interpolate::interpolate_ctx;
-use crate::util::node_config::config_f64;
+use crate::util::node_config::{config_bool, config_f64};
 
 use super::config::resolve_optional;
 
@@ -79,6 +79,13 @@ pub(super) fn resolve_u32(
     })
 }
 
+/// The service takes these counts as `i32`. A larger value is refused; a
+/// plain cast would wrap it to a negative number.
+pub(super) fn request_count(value: u32, node: &str, field: &str) -> Result<i32> {
+    i32::try_from(value)
+        .map_err(|_| anyhow::anyhow!("{} requires '{}' to be at most {}", node, field, i32::MAX))
+}
+
 pub(super) fn resolve_f64(
     config: &serde_json::Value,
     ctx: &Context,
@@ -99,6 +106,21 @@ pub(super) fn resolve_f64(
     Ok(number)
 }
 
+/// Read an optional flag that defaults to `false` only when it is absent. A
+/// value that cannot be read as a boolean fails instead of disabling the flag.
+pub(super) fn resolve_flag(
+    config: &serde_json::Value,
+    ctx: &Context,
+    node: &str,
+    field: &str,
+) -> Result<bool> {
+    if config.get(field).is_none() {
+        return Ok(false);
+    }
+    config_bool(config, field, ctx)
+        .ok_or_else(|| anyhow::anyhow!("{} requires '{}' to be a boolean", node, field))
+}
+
 pub(super) fn resolve_string_array(
     config: &serde_json::Value,
     primary_key: &str,
@@ -107,9 +129,13 @@ pub(super) fn resolve_string_array(
     node: &str,
     field: &str,
 ) -> Result<Vec<String>> {
+    // Items written in configuration are templates; an array read from
+    // context through the fallback key is data and is used as stored.
+    let mut interpolate = true;
     let raw = if let Some(values) = config.get(primary_key) {
         values
     } else if let Some(fallback_key) = fallback_key {
+        interpolate = false;
         let fallback = resolve_optional(config, &[fallback_key], &[], ctx)
             .ok_or_else(|| anyhow::anyhow!("{} requires '{}'", node, field))?;
         ctx.get(&fallback).ok_or_else(|| {
@@ -133,7 +159,11 @@ pub(super) fn resolve_string_array(
         let item = value.as_str().ok_or_else(|| {
             anyhow::anyhow!("{} requires each '{}' item to be a string", node, field)
         })?;
-        values.push(interpolate_ctx(item, ctx));
+        values.push(if interpolate {
+            interpolate_ctx(item, ctx)
+        } else {
+            item.to_owned()
+        });
     }
 
     if values.is_empty() {
@@ -152,6 +182,32 @@ mod tests {
         let mut ctx = Context::new();
         ctx.insert(key.to_string(), value);
         ctx
+    }
+
+    #[test]
+    fn string_arrays_read_from_context_are_not_templates() {
+        let mut ctx = ctx_with("stored", json!(["doc-${ctx.secret}"]));
+        ctx.insert("secret".to_string(), json!("s3cr3t"));
+        let resolve = |config: serde_json::Value| {
+            resolve_string_array(
+                &config,
+                "keys",
+                Some("keys_source_key"),
+                &ctx,
+                "node",
+                "keys",
+            )
+            .unwrap()
+        };
+
+        assert_eq!(
+            resolve(json!({ "keys_source_key": "stored" })),
+            ["doc-${ctx.secret}"]
+        );
+        assert_eq!(
+            resolve(json!({ "keys": ["doc-${ctx.secret}"] })),
+            ["doc-s3cr3t"]
+        );
     }
 
     #[test]

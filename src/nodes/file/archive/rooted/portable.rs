@@ -1,4 +1,4 @@
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File, OpenOptions, Permissions};
 use std::path::{Component, Path, PathBuf};
 
 use anyhow::Result;
@@ -10,6 +10,14 @@ pub(crate) struct RootedDir {
     operation: &'static str,
 }
 
+/// One entry of an observed directory. The leaf is case-folded so two
+/// spellings of one entry on a case-insensitive volume share a key.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) struct DestinationKey {
+    directory: PathBuf,
+    leaf: String,
+}
+
 pub(crate) struct StagedFile {
     file: Option<File>,
     temporary: PathBuf,
@@ -17,6 +25,7 @@ pub(crate) struct StagedFile {
     overwrite: bool,
     operation: &'static str,
     armed: bool,
+    permissions: Option<Permissions>,
 }
 
 impl RootedDir {
@@ -31,6 +40,30 @@ impl RootedDir {
         }
         ensure_observed_directories(&root, operation, execution)?;
         Ok(Self { root, operation })
+    }
+
+    /// Use a destination directory that must already exist. Unlike
+    /// [`Self::prepare`], a missing component is an error and nothing is
+    /// created.
+    pub(crate) fn existing(
+        path: &Path,
+        operation: &'static str,
+        execution: &ExecutionControl,
+    ) -> Result<Self> {
+        let (root, missing) = super::destination_anchor(path, operation, execution)?;
+        if !missing.is_empty() {
+            return Err(super::missing_directory(path, operation));
+        }
+        Ok(Self { root, operation })
+    }
+
+    /// The identity under which writers of `leaf` in this directory are
+    /// serialized inside the process.
+    pub(crate) fn destination_key(&self, leaf: &std::ffi::OsStr) -> Result<DestinationKey> {
+        Ok(DestinationKey {
+            directory: self.root.clone(),
+            leaf: leaf.to_string_lossy().to_lowercase(),
+        })
     }
 
     pub(crate) fn ensure_dir(&self, relative: &Path, execution: &ExecutionControl) -> Result<()> {
@@ -103,6 +136,7 @@ impl RootedDir {
                         overwrite,
                         operation: self.operation,
                         armed: true,
+                        permissions: None,
                     });
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
@@ -117,12 +151,24 @@ impl RootedDir {
 }
 
 impl StagedFile {
+    #[allow(clippy::expect_used)] // Infallible: staged file already committed.
     pub(crate) fn writer(&mut self) -> &mut File {
         self.file.as_mut().expect("staged file already committed")
     }
 
+    /// Publish with exactly these permissions. Without them the file keeps
+    /// the platform's native permissions for a newly created file; Unix mode
+    /// bits do not exist here.
+    pub(crate) fn publish_with_permissions(&mut self, permissions: Permissions) {
+        self.permissions = Some(permissions);
+    }
+
     pub(crate) fn commit(mut self) -> Result<()> {
-        drop(self.file.take());
+        if let Some(file) = self.file.take()
+            && let Some(permissions) = self.permissions.take()
+        {
+            file.set_permissions(permissions)?;
+        }
         validate_leaf(&self.destination, self.overwrite, self.operation)?;
         if self.overwrite {
             replace_file(&self.temporary, &self.destination)?;
@@ -239,3 +285,6 @@ fn validate_leaf(path: &Path, overwrite: bool, operation: &str) -> Result<()> {
         Err(error) => Err(error.into()),
     }
 }
+
+#[cfg(test)]
+mod tests;

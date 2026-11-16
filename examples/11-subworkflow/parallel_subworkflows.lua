@@ -4,17 +4,19 @@
 
 local flow = Flow.new("parallel_demo")
 
--- Run the greet subworkflow twice in parallel with different inputs
+-- Run the greet subworkflow twice in parallel with different inputs.
+-- A plain string in `input` names a parent context key that must exist;
+-- `{ literal = ... }` passes the text itself.
 flow:step("run_parallel", nodes.parallel_subworkflows({
     flows = {
         {
             flow = "greet.lua",
-            input = { name = "Alice" },
+            input = { name = { literal = "Alice" } },
             output_key = "greeting_a"
         },
         {
             flow = "greet.lua",
-            input = { name = "Bob" },
+            input = { name = { literal = "Bob" } },
             output_key = "greeting_b"
         }
     },

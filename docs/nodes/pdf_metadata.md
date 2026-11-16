@@ -7,7 +7,7 @@ Extract metadata from a PDF file (document info dictionary + page count).
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `path` | string | one of `path` or `source_key` | — | PDF file path |
-| `source_key` | string | one of `path` or `source_key` | — | Context key containing a file path, artifact URI, or artifact descriptor |
+| `source_key` | string | one of `path` or `source_key` | — | Context key containing a file path, artifact URI, or artifact descriptor. A stored path is used as it is and is not interpolated. |
 | `output_key` | string | no | `"metadata"` | Prefix for output key |
 
 > Providing both `path` and `source_key` is an error.
@@ -34,6 +34,23 @@ metadata. These are independent limits, not a cumulative memory ceiling.
 - `<output_key>` — object containing metadata:
   - `pages` — page count
   - `title`, `author`, `subject`, `keywords`, `creator`, `producer`, `created`, `modified` when present
+
+The text fields are PDF text strings and are decoded as such: PDFDocEncoding,
+UTF-16BE with a byte-order mark (`<FEFF...>`, the usual form in office-exported
+PDFs) and UTF-8 with a byte-order mark. A string that starts with the
+little-endian mark (`<FFFE...>`) is decoded as UTF-16LE; the format does not
+define that form, but some producers write it. The Info dictionary and each of its
+values may be direct or indirect objects. Values are trimmed. Control
+characters other than tab, line feed and carriage return are removed, as are
+NUL terminators and language-tag escapes, so no NUL reaches the run context.
+A language tag is an escape (0x1B), a two-letter language code with an
+optional two-letter country code, and a closing escape. It is removed in
+each form producers write: a letter per code unit or the raw code bytes
+(`en` as the single unit 0x656E) in a UTF-16 string, and the same bytes in a
+PDFDocEncoding string, where a lone 0x1B is otherwise the dot accent (U+02D9).
+An ill-formed UTF-16 or UTF-8 sequence becomes U+FFFD. A field that is absent,
+not a string, unresolvable or empty after decoding is omitted. `created` and
+`modified` are the raw PDF date strings (`D:YYYYMMDDHHmmSS...`).
 
 ## Example
 

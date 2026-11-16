@@ -130,6 +130,18 @@ sends JSON text when `ctx.docs` is an array. `{ key = "docs" }` remains a litera
 object, not a per-variable context reference. Use `bindVars_key` for typed
 runtime data; no `JSON_PARSE` or `TO_NUMBER` is necessary in AQL.
 
+## Outbound destination policy
+
+When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, this node
+refuses a destination that is not a public unicast address before it
+connects: a literal private, loopback or link-local address, `localhost`,
+and a host name whose DNS answer contains such an address. The validated
+answer is the one connected to, and the node connects directly, ignoring a
+system proxy. An ArangoDB server on a private address needs an entry such as
+`arangodb.internal:8529`. An internal destination must be listed by the operator in
+`IRONFLOW_PRIVATE_NETWORK_ALLOWLIST`; nothing in the flow can add one. See
+[Outbound destinations](../SECURITY.md#outbound-destinations).
+
 ## Examples
 
 See [aql_pagination.lua](../../examples/12-arangodb/aql_pagination.lua) for a

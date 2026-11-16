@@ -7,7 +7,7 @@ use base64::engine::general_purpose::STANDARD;
 use crate::artifacts::FileSource;
 use crate::engine::types::Context;
 use crate::lua::interpolate::interpolate_ctx;
-use crate::util::file_source::parse_file_source;
+use crate::util::file_source::{SourceOrigin, parse_artifact_source};
 
 pub(super) enum WriteInput {
     Text(String),
@@ -39,11 +39,7 @@ pub(super) fn parse_input(
         if encoding != "text" && encoding != "artifact" {
             anyhow::bail!("write_file: artifact input is incompatible with encoding '{encoding}'");
         }
-        return Ok(WriteInput::Artifact(parse_file_source(
-            value,
-            ctx,
-            "write_file",
-        )?));
+        return artifact_input(value, SourceOrigin::Config(ctx));
     }
 
     let (value, interpolate) = if let Some(key) = optional_string(config, "source_key")? {
@@ -58,11 +54,12 @@ pub(super) fn parse_input(
         return Ok(WriteInput::Text(String::new()));
     };
     if value.is_object() || encoding == "artifact" {
-        return Ok(WriteInput::Artifact(parse_file_source(
-            value,
-            ctx,
-            "write_file",
-        )?));
+        let origin = if interpolate {
+            SourceOrigin::Config(ctx)
+        } else {
+            SourceOrigin::Data
+        };
+        return artifact_input(value, origin);
     }
     let text = value
         .as_str()
@@ -89,6 +86,19 @@ pub(super) fn parse_input(
             "write_file: unsupported encoding '{other}'. Must be 'text', 'base64', or 'artifact'."
         ),
     }
+}
+
+/// An artifact input names stored bytes by descriptor or canonical URI. A
+/// local path is refused here: `write_file` copies files only through
+/// `copy_file`, which applies the source-file policy.
+fn artifact_input(value: &serde_json::Value, origin: SourceOrigin<'_>) -> Result<WriteInput> {
+    parse_artifact_source(value, origin)
+        .map(WriteInput::Artifact)
+        .map_err(|error| {
+            anyhow::anyhow!(
+                "write_file: artifact input must be an artifact descriptor or a canonical artifact://sha256/... URI: {error}"
+            )
+        })
 }
 
 /// Compute the decoded length of `encoded` from its encoded length alone and

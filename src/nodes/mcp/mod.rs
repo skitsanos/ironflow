@@ -1,6 +1,7 @@
 mod client;
 mod config;
 mod output;
+mod result_limit;
 mod session;
 mod stdio;
 mod transport;

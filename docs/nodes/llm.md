@@ -6,22 +6,22 @@ Run a chat-style request against OpenAI, OpenAI-compatible, Azure, or custom end
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `provider` | string | no | `"openai"` | Provider backend: `"openai"`, `"openai_compatible"`, `"azure"`, `"custom"` |
+| `provider` | string | no | `"openai"` | Provider backend: `"openai"`, `"openai_compatible"` (alias `"compatible"`), `"azure"`, `"custom"`. Matched without regard to case. Any other value fails the step before a request is sent; see [Provider selection](#provider-selection). |
 | `mode` | string | no | `"chat"` | Request mode: `"chat"`, `"responses"`, or `"auto"` |
 | `model` | string | no | provider-dependent | Model name (for Azure, defaults to deployment when available) |
-| `tools` | array | no | — | OpenAI-style tool definitions, provided as a Lua table |
-| `tool_choice` | string/object | no | `"auto"` | Tool selection behavior (`"auto"`, `"required"`, or explicit object) |
+| `tools` | array | no | — | OpenAI-style tool definitions, provided as a Lua table. Chat mode only. |
+| `tool_choice` | string/object | no | provider default | Tool selection behavior (`"auto"`, `"required"`, or explicit object). Sent only when set. Chat mode only. |
 | `prompt` | string | no | — | Direct prompt text for user content |
-| `input_key` | string | no | `"prompt"` | Context key for prompt text when `prompt` is not set |
+| `input_key` | string | no | — | Context key holding the prompt text when `prompt` is not set. There is no default: one of `prompt`, `input_key`, `messages` or `messages_key` is required. A `prompt` or `input_key` that is given but is not a string fails the step with `llm: '<name>' must be a string`; `prompt` is no longer skipped in favour of `input_key`. |
 | `messages` | array | no | — | Chat-style message objects (`role`, `content`) for chat mode |
 | `messages_key` | string | no | — | Context key containing a runtime chat-message array. Mutually exclusive with `messages`. |
-| `system_prompt` | string | no | — | System message used when building chat `messages` automatically |
+| `system_prompt` | string | no | — | System message used when building chat `messages` automatically. In responses mode it is sent as `instructions`. |
 | `system` | string | no | — | Alias for `system_prompt` |
 | `temperature` | number | no | — | Sampling temperature |
 | `max_tokens` | number | no | — | OpenAI chat `max_tokens` (mapped to `max_tokens` for chat and `max_output_tokens` for responses) |
 | `max_output_tokens` | number | no | — | Output-token limit. Mapped to `max_completion_tokens` for chat mode and `max_output_tokens` for responses mode. |
-| `response_format` | object | no | — | OpenAI-compatible response format override. Useful aliases: `{ type = "json_object" }` or `{ type = "json_schema", json_schema = { ... } }` |
-| `extra` | object | no | — | Extra request fields merged into payload |
+| `response_format` | object | no | — | Chat Completions response format, sent as the request's `response_format`: `{ type = "json_object" }` or `{ type = "json_schema", json_schema = { ... } }`. Chat mode only. |
+| `extra` | object | no | — | Extra request fields merged into the payload last. A field given here replaces the same field built from the parameters above. |
 | `output_key` | string | no | `"llm"` | Prefix for output context keys |
 | `timeout` | number | no | `30` | Request timeout in seconds |
 | `max_response_bytes` | number/string | no | `IRONFLOW_LLM_MAX_RESPONSE_BYTES` / `26214400` | Maximum provider response body size before failing. |
@@ -39,6 +39,44 @@ Run a chat-style request against OpenAI, OpenAI-compatible, Azure, or custom end
 | `responses_path` | string | no | `"/responses"` | Custom provider endpoint path for responses |
 
 `auto` mode will use chat by default and switch to responses only when `responses_input = true`.
+
+## Provider selection
+
+`provider` selects where the prompt and the credential are sent, so it is
+checked before anything else is resolved. A value outside the accepted list,
+such as a misspelling (`"openai-compatible"`) or a backend this node does not
+implement (`"ollama"`, `"gemini"`), fails the step with
+`llm: unsupported provider '<value>'. Use 'openai', 'openai_compatible', 'azure', or 'custom'.`
+No request is made and no credential is read. Earlier releases sent every
+unrecognised value to the OpenAI configuration. Reach other OpenAI-compatible
+backends with `openai_compatible` or `custom` and an explicit `base_url`.
+
+## Chat and Responses parameters
+
+| Parameter | Chat mode | Responses mode |
+|-----------|-----------|----------------|
+| `prompt` / `input_key` | user message | `input` |
+| `system_prompt` / `system` | system message | `instructions` |
+| `messages` / `messages_key` | `messages` | rejected |
+| `tools`, `tool_choice`, `response_format` | sent as given | rejected |
+| `max_tokens`, `max_output_tokens` | `max_tokens`, `max_completion_tokens` | `max_output_tokens` |
+| `extra` | merged last | merged last |
+
+The Responses API uses different shapes for tools and structured output
+(`text.format`), so the chat-shaped parameters are rejected in responses mode
+before a request is sent instead of being dropped. Pass the Responses-shaped
+fields through `extra`, as the web-search example below does.
+
+Responses mode cannot complete a tool loop. `input` is always the prompt
+text, so the `function_call` items a model returns for function tools given
+through `extra.tools` are reported as tool calls but their results cannot be
+sent back: `messages` and `messages_key` fail the step with `llm: 'messages'
+and 'messages_key' are supported only in chat mode. Responses mode sends
+'input' as text, so tool results cannot be returned to the model; run a tool
+loop with mode = "chat"`. Use responses mode for single requests, including
+provider-side tools such as web search and one-shot function calls whose
+arguments the flow reads itself, and use chat mode with
+[`tool_dispatch`](tool_dispatch.md) for a loop.
 
 ## Environment Variable Fallbacks
 
@@ -67,13 +105,15 @@ the final endpoint explicitly when migrating to a different provider origin.
 Request errors hide endpoint userinfo, path, and query. Provider errors retain
 the provider and HTTP status but redact the exact authentication header values
 sent, including environment-only keys, Bearer credentials, short keys, and
-their JSON-escaped forms, before entering logs or durable history. This applies
+their JSON-escaped forms, before entering logs or durable history. The error
+then passes through [diagnostic scrubbing](../SECURITY.md#diagnostic-scrubbing),
+which keeps the first 64 KiB of the provider body. This applies
 to error diagnostics, not arbitrary successful model content; do not put secrets
 in prompts or ordinary persisted context.
 
 ## Context Output
 
-- `{output_key}_text` — extracted model response text
+- `{output_key}_text` — extracted model response text, or `<tool call requested>` when the reply holds only tool calls
 - `{output_key}_raw` — raw provider response as JSON
 - `{output_key}_model` — model used in request
 - `{output_key}_provider` — resolved provider name
@@ -86,6 +126,21 @@ in prompts or ordinary persisted context.
 - `{output_key}_tool_call_names` — list of called function names
 - `{output_key}_tool_calls_normalized` — provider-neutral tool calls with parsed arguments:
   `{ id, index, type, name, arguments, raw_arguments, raw_call }`
+
+A successful HTTP response must carry a usable reply: text that is not empty
+or only whitespace, or at
+least one tool call. In chat mode the text is the first choice's message
+content and the tool calls are its `tool_calls`. In responses mode the text is
+`output_text` or the text of the `output` items, and `function_call` output
+items are reported as tool calls (their `call_id` becomes the normalized
+`id`). Anything else fails the step with
+`llm: <provider> returned HTTP 200 with no usable reply`, naming the
+`finish_reason` or response `status` when the provider gave one: an empty
+`choices` array, empty or null content without tool calls (for example a
+reasoning model that spent its token budget), a refusal without content, a
+Responses result holding only reasoning items, or a body that is not the
+expected JSON document. The provider body is not copied into that error.
+Earlier releases reported these as success with the text `<no reply>`.
 
 Provider response bodies are streamed with a hard byte cap before JSON parsing. Set `IRONFLOW_LLM_MAX_RESPONSE_BYTES=0` to disable the global cap, or use per-node `max_response_bytes` for a specific trusted workflow.
 
@@ -150,6 +205,20 @@ those process limits. Artifact blocks are chat-only; Responses mode is
 unchanged. The selected provider must support OpenAI-compatible `image_url`
 content blocks.
 
+## Outbound destination policy
+
+When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, this node
+refuses a destination that is not a public unicast address before it
+connects: a literal private, loopback or link-local address, `localhost`,
+and a host name whose DNS answer contains such an address. The validated
+answer is the one connected to, and the node connects directly, ignoring a
+system proxy. The check applies to the resolved request URL, including an absolute
+`chat_path`, `responses_path` or `path` of the `custom` provider, which
+replaces `base_url`. A local model server needs an entry such as
+`127.0.0.1:11434`. An internal destination must be listed by the operator in
+`IRONFLOW_PRIVATE_NETWORK_ALLOWLIST`; nothing in the flow can add one. See
+[Outbound destinations](../SECURITY.md#outbound-destinations).
+
 ## Examples
 
 ### OpenAI Chat (simple)
@@ -206,6 +275,9 @@ flow:step("chat", nodes.llm({
 
 ### OpenAI response_format: `json_object` and `json_schema`
 
+`response_format` can be given as a parameter or inside `extra`; `extra` wins
+when both are present.
+
 ```lua
 flow:step("json_object", nodes.llm({
     provider = "openai",
@@ -213,10 +285,8 @@ flow:step("json_object", nodes.llm({
     temperature = 0.0,
     prompt = "Return a JSON object with keys `language` and `topic`.",
     output_key = "openai_json_object",
-    extra = {
-        response_format = {
-            type = "json_object",
-        }
+    response_format = {
+        type = "json_object",
     }
 }))
 

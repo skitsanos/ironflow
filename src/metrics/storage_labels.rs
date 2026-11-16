@@ -36,12 +36,14 @@ pub(crate) enum StorageOperation {
     DeleteRun,
     PruneBefore,
     ClaimSchedule,
+    RecordScheduleRun,
+    ScheduleRunRecorded,
     PublishEvent,
     ListEvents,
 }
 
 impl StorageOperation {
-    pub(crate) const STATE: [Self; 19] = [
+    pub(crate) const STATE: [Self; 21] = [
         Self::Healthcheck,
         Self::InitRun,
         Self::InitRunOwned,
@@ -61,6 +63,8 @@ impl StorageOperation {
         Self::DeleteRun,
         Self::PruneBefore,
         Self::ClaimSchedule,
+        Self::RecordScheduleRun,
+        Self::ScheduleRunRecorded,
     ];
 
     pub(crate) const EVENT: [Self; 4] = [
@@ -91,6 +95,8 @@ impl StorageOperation {
             Self::DeleteRun => "delete_run",
             Self::PruneBefore => "prune_before",
             Self::ClaimSchedule => "claim_schedule",
+            Self::RecordScheduleRun => "record_schedule_run",
+            Self::ScheduleRunRecorded => "schedule_run_recorded",
             Self::PublishEvent => "publish_event",
             Self::ListEvents => "list_events",
         }

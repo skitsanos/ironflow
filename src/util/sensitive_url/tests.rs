@@ -152,3 +152,23 @@ fn known_constructor_messages_hide_malformed_raw_urls() {
     assert_eq!(redacted, "Invalid Redis URL: [REDACTED URL]");
     assert_absent(&redacted, &["user", "secret", "host", "parser details"]);
 }
+
+/// A list of connection URLs joined without whitespace was read as one URL,
+/// so every URL after the first kept its credentials in the first one's path
+/// (found while fixing IF-219).
+#[test]
+fn urls_joined_without_whitespace_are_each_redacted() {
+    let redacted = redact_sensitive_text(
+        "replicas=postgres://db1.test/app,postgres://alice:hunter2@db2.test/app;redis://:hunter3@cache.test/0 failed",
+    );
+
+    assert_absent(&redacted, &["alice", "hunter2", "hunter3"]);
+    assert_eq!(
+        redacted,
+        "replicas=postgres://db1.test/app,postgres://db2.test/app;redis://cache.test/0 failed"
+    );
+
+    let nested =
+        redact_sensitive_text("see sqlite:/data/a.db?next=postgres://bob:hunter4@db.test/x");
+    assert_absent(&nested, &["bob", "hunter4"]);
+}

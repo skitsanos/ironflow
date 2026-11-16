@@ -15,6 +15,7 @@ export type Package = {
   version: string;
   license: string | null;
   license_file: string | null;
+  repository?: string | null;
 };
 
 export type Metadata = {
@@ -199,15 +200,21 @@ export function evaluate(
   return violations;
 }
 
-function main(): void {
+/// The locked, all-features metadata that defines the shipped graph. Shared
+/// with the notices generator so both read one definition (IF-204).
+export function loadMetadata(cwd?: string): Metadata {
   const result = Bun.spawnSync(
     ["cargo", "metadata", "--format-version", "1", "--locked", "--all-features"],
-    { stdout: "pipe", stderr: "pipe" },
+    { cwd, stdout: "pipe", stderr: "pipe" },
   );
   if (result.exitCode !== 0) {
     throw new Error(new TextDecoder().decode(result.stderr).trim() || "cargo metadata failed");
   }
-  const metadata = JSON.parse(new TextDecoder().decode(result.stdout)) as Metadata;
+  return JSON.parse(new TextDecoder().decode(result.stdout)) as Metadata;
+}
+
+function main(): void {
+  const metadata = loadMetadata();
   const violations = evaluate(metadata, ALLOWED_LICENSES, LICENSE_EXCEPTIONS);
   const shipped = shippedPackages(metadata).length;
   if (violations.length) {

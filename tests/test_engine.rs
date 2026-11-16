@@ -506,3 +506,45 @@ async fn step_if_with_function_handler() {
         &serde_json::json!("Hello Alice")
     );
 }
+
+// --- IF-220 (g): guard conditions of flows built without the Lua loader ---
+
+/// A definition assembled in Rust never passes through the loader, so the
+/// engine and `validate_dag` must refuse a condition that is invalid for
+/// every context themselves, before a run exists.
+#[tokio::test]
+async fn a_hand_built_flow_with_an_undefined_guard_comparison_is_refused_before_it_runs() {
+    let (engine, store) = engine();
+    let guard = |condition: &str| FlowDefinition {
+        name: "hand-built".to_string(),
+        steps: vec![StepDefinition {
+            name: "guard".to_string(),
+            node_type: "if_node".to_string(),
+            config: serde_json::json!({ "condition": condition }),
+            dependencies: Vec::new(),
+            retry: ironflow::engine::RetryConfig::default(),
+            timeout_s: None,
+            route: None,
+            on_error: None,
+        }],
+    };
+
+    let invalid = guard("ctx.n > nil");
+    let errors = invalid.validate_dag();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.contains("Step 'guard' has an invalid condition 'ctx.n > nil'")),
+        "{errors:?}"
+    );
+    let error = engine
+        .execute(&invalid, HashMap::new())
+        .await
+        .expect_err("the engine must refuse the flow")
+        .to_string();
+    assert!(error.contains("invalid condition"), "{error}");
+    assert!(store.list_runs(None).await.unwrap().is_empty());
+
+    let valid = guard("ctx.n > 1");
+    assert!(valid.validate_dag().is_empty());
+}

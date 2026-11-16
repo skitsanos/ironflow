@@ -8,7 +8,7 @@ default, or opt into multipage slices with `pages_per_file`.
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `path` | string | one of `path` or `source_key` | — | File path to the PDF; supports `${ctx.key}` interpolation. |
-| `source_key` | string | one of `path` or `source_key` | — | Context key containing a file path, artifact URI, or artifact descriptor. |
+| `source_key` | string | one of `path` or `source_key` | — | Context key containing a file path, artifact URI, or artifact descriptor. A stored path is used as it is and is not interpolated. |
 | `output_dir` | string | yes | — | Directory for output files; supports `${ctx.key}` interpolation. |
 | `pages` | string | no | `"all"` | Page specification: `"all"`, a single page `"3"`, a range `"1-5"`, or a combination `"1-3,7,9-11"`. Pages are 1-based; supports `${ctx.key}` interpolation before parsing. |
 | `pages_per_file` | integer | no | `1` | Maximum selected pages in each output file, from `1` to `IRONFLOW_MAX_PDF_SPLIT_PAGES` (default `1000`). Values greater than `1` enable grouped output. Strings, null, fractions, zero, and negative values are errors. |
@@ -47,6 +47,8 @@ ones), and nonregular destinations are refused. Destination checks occur per
 group, with collision protection at publication as well. Directory aliases are
 resolved using the shared rooted writer; on Unix the resolved directory is
 pinned by an open handle. Other platforms use the writer's checked-path fallback.
+On Unix each published group gets `0666` masked by the process umask (`0644`
+under umask `022`); the temporary file is mode `0600` until then.
 
 This is **per-file atomicity, not an all-or-nothing batch**: completed groups
 remain after a later collision, parse/write failure, or cancellation. Unfinished
@@ -57,8 +59,19 @@ does not resume and will encounter any files already published.
 
 Omitting `pages_per_file` or setting it to `1` preserves legacy filenames
 (`<stem>_<source-page>.pdf`), repeated file paths for duplicate selections,
-existing-file overwrite behavior, direct non-atomic writes, and the three
-original output keys. Grouped collision and staging rules do not alter this path.
+existing-file overwrite behavior, and the three original output keys.
+
+Single pages are written through the same rooted, staged writer as groups
+(IF-218). Each page is flushed and synced to a temporary sibling file and then
+renamed over its destination, so an existing regular file is replaced as a
+whole and never truncated in place. A destination that is a symlink (including
+a dangling one) or a nonregular file is refused and the step fails; pages
+published before it remain. Before IF-218 a symlinked destination was followed
+and its target overwritten. On Unix a new page file gets `0666` masked by the
+process umask, a replaced file keeps its permission bits, and a missing
+`output_dir` is created [`0755` masked by the process umask](write_file.md#created-directories), in both modes. Each page file is
+capped by `IRONFLOW_MAX_PDF_BYTES` while it is serialized. As with groups,
+this is per-file atomicity, not an all-or-nothing batch.
 
 ## Limits and cancellation
 

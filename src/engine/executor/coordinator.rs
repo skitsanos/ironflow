@@ -1,5 +1,6 @@
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use anyhow::Result;
 use futures_util::FutureExt as _;
@@ -13,7 +14,9 @@ use crate::storage::StateStore;
 use crate::storage::event_store::EventStore;
 use crate::util::execution::{CooperativeWorkerSet, with_run_worker_set};
 
+use super::child_runs::LiveChildRun;
 use super::handle::{ChildRunResult, RunHandle};
+use super::nesting::{ChildLink, with_inherited_deadline, with_nesting_depth};
 use super::overlay::ExecutionOverlay;
 use super::panic_payload::panic_message;
 use super::signal::{ExecutionOutcome, ExecutionSignal, request_cancellation, stop_requested};
@@ -35,8 +38,14 @@ pub(super) struct RunCoordinator {
     pub(super) metrics: Option<Arc<crate::metrics::Metrics>>,
     pub(super) run_observation: Option<Arc<crate::metrics::RunObservation>>,
     pub(super) retain_child_result: bool,
+    child_link: Option<ChildLink>,
+    /// The process-wide slot a child run holds until it has finished.
+    live_child: Option<LiveChildRun>,
     finalization_timeout: std::time::Duration,
     heartbeat_timing: super::lease::HeartbeatTiming,
+    /// Set once finalization starts writing the terminal status; read by the
+    /// lease heartbeat.
+    pub(super) finalizing: Arc<AtomicBool>,
 }
 
 impl RunCoordinator {
@@ -71,16 +80,32 @@ impl RunCoordinator {
             metrics,
             run_observation,
             retain_child_result: false,
+            child_link: None,
+            live_child: None,
             finalization_timeout: FINALIZATION_TIMEOUT,
             heartbeat_timing: super::lease::HeartbeatTiming::new(
                 crate::storage::RUN_LEASE_REFRESH,
                 crate::storage::RUN_LEASE_REFRESH,
             ),
+            finalizing: Arc::new(AtomicBool::new(false)),
         }
     }
 
     pub(super) fn with_child_result(mut self, enabled: bool) -> Self {
         self.retain_child_result = enabled;
+        self
+    }
+
+    /// Mark this run as a child of the step that captured `link`.
+    /// Make this a child run: `link` places it below its starting step and
+    /// `live_child` is the slot it occupies among the process's child runs.
+    pub(super) fn with_child_link(
+        mut self,
+        link: Option<ChildLink>,
+        live_child: Option<LiveChildRun>,
+    ) -> Self {
+        self.child_link = link;
+        self.live_child = live_child;
         self
     }
 
@@ -100,12 +125,19 @@ impl RunCoordinator {
         self
     }
 
-    pub(super) fn spawn(self) -> RunHandle {
+    pub(super) fn spawn(mut self) -> RunHandle {
         let run_id = self.run_id.clone();
         let (cancel, cancel_rx) = watch::channel(ExecutionSignal::Running);
         let cancel_owner = cancel.clone();
         let lease_cancel = cancel.clone();
         let (completion_tx, completion) = oneshot::channel();
+        // Registered before the coordinator task exists, so the starting
+        // step never observes an idle worker set while this child is alive.
+        // The child drains its own workers and finalizes before the
+        // registration is dropped (IF-188).
+        let parent_hold = self.child_link.as_ref().map(ChildLink::hold_parent);
+        // Held until the run has finalized and drained, like the parent hold.
+        let live_child = self.live_child.take();
 
         // Optional run-level deadline. When a run outlives it, the same
         // cooperative cancel signal that `RunHandle::cancel` uses is fired, so a
@@ -128,7 +160,10 @@ impl RunCoordinator {
                 self.run_id.clone(),
                 self.lease_owner.clone(),
                 lease_cancel,
-                lease_stopped,
+                super::lease::HeartbeatStop {
+                    stopped: lease_stopped,
+                    finalizing: self.finalizing.clone(),
+                },
                 self.heartbeat_timing,
                 self.metrics.clone(),
             ));
@@ -148,6 +183,8 @@ impl RunCoordinator {
             if let Some(timer) = deadline_timer {
                 timer.abort();
             }
+            drop(parent_hold);
+            drop(live_child);
             let _ = completion_tx.send(result);
         });
 
@@ -164,7 +201,15 @@ impl RunCoordinator {
         // cancellation must not strand the durable handle or admission permit.
         let mut execution_cancel = cancel.clone();
         let workers = CooperativeWorkerSet::new();
-        let execution = with_run_worker_set(workers.clone(), self.run(&mut execution_cancel));
+        let depth = self.child_link.as_ref().map_or(0, ChildLink::depth);
+        let deadline = self.child_link.as_ref().and_then(ChildLink::deadline);
+        let execution = with_run_worker_set(
+            workers.clone(),
+            with_nesting_depth(
+                depth,
+                with_inherited_deadline(deadline, self.run(&mut execution_cancel)),
+            ),
+        );
         let mut execution = Box::pin(AssertUnwindSafe(execution).catch_unwind());
         let outcome = tokio::select! {
             biased;
@@ -173,9 +218,12 @@ impl RunCoordinator {
                 let execution_outcome = match execution {
                     Ok(outcome) => outcome,
                     Err(payload) => {
+                    let message = panic_message(payload.as_ref());
+                    drop(payload);
                     let message = self
                         .execution_overlay
-                        .redact_diagnostic(&panic_message(payload.as_ref()));
+                        .redact_diagnostic_async(message)
+                        .await;
                     error!(run_id = %self.run_id, panic = %message, "Workflow coordinator caught a panic");
                     ExecutionOutcome::Infrastructure(anyhow::anyhow!(
                         "workflow execution panicked: {message}"

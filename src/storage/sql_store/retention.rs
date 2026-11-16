@@ -1,81 +1,10 @@
 use chrono::{DateTime, Utc};
 
-use super::{SqlStateStore, parse_run_status, row_value};
+use super::{SqlStateStore, row_value};
 use crate::storage::sql_names::SqlDialect;
 use crate::storage::{StorageError, StorageResult};
 
 impl SqlStateStore {
-    pub(super) async fn delete_run_transactional(&self, run_id: &str) -> StorageResult<()> {
-        let mut transaction = self.pool.begin().await.map_err(|error| {
-            StorageError::backend(format_args!("Failed to delete run '{run_id}'"), error)
-        })?;
-        let lease_expiry = self
-            .lock_run_lease_for_deletion(&mut transaction, run_id)
-            .await?;
-        if !self.lock_run_for_mutation(&mut transaction, run_id).await? {
-            return Err(StorageError::not_found(format_args!(
-                "Run '{run_id}' not found"
-            )));
-        }
-        let status = self
-            .read_locked_run_status(&mut transaction, run_id)
-            .await?;
-        if !status.is_terminal()
-            && let Some(expires_micros) = lease_expiry
-            && expires_micros > self.database_now_micros(&mut transaction).await?
-        {
-            return Err(StorageError::conflict(format_args!(
-                "Run '{run_id}' is still executing"
-            )));
-        }
-        self.delete_run_lease(&mut transaction, run_id).await?;
-
-        let sql = format!(
-            "DELETE FROM {} WHERE run_id = {}",
-            self.tables.tasks,
-            self.placeholder(1)
-        );
-        sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
-            .bind(run_id)
-            .execute(&mut *transaction)
-            .await
-            .map_err(|error| {
-                StorageError::backend(
-                    format_args!("Failed to delete tasks for run '{run_id}'"),
-                    error,
-                )
-            })?;
-        self.ensure_tasks_removed(&mut transaction, run_id).await?;
-
-        let sql = format!(
-            "DELETE FROM {} WHERE id = {}",
-            self.tables.runs,
-            self.placeholder(1)
-        );
-        let affected = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
-            .bind(run_id)
-            .execute(&mut *transaction)
-            .await
-            .map_err(|error| {
-                StorageError::backend(format_args!("Failed to delete run '{run_id}'"), error)
-            })?
-            .rows_affected();
-        if affected != 1 {
-            return Err(StorageError::corruption(
-                format_args!("Invalid SQL delete result for run '{run_id}'"),
-                affected,
-            ));
-        }
-        self.ensure_run_removed(&mut transaction, run_id).await?;
-        transaction.commit().await.map_err(|error| {
-            StorageError::backend(
-                format_args!("Failed to commit deletion of run '{run_id}'"),
-                error,
-            )
-        })?;
-        Ok(())
-    }
-
     pub(super) async fn prune_before_transactional(
         &self,
         cutoff: DateTime<Utc>,
@@ -153,7 +82,7 @@ impl SqlStateStore {
         Ok(removed)
     }
 
-    async fn ensure_tasks_removed(
+    pub(super) async fn ensure_tasks_removed(
         &self,
         transaction: &mut sqlx::Transaction<'_, sqlx::Any>,
         run_id: &str,
@@ -182,7 +111,7 @@ impl SqlStateStore {
         Ok(())
     }
 
-    async fn delete_run_lease(
+    pub(super) async fn delete_run_lease(
         &self,
         transaction: &mut sqlx::Transaction<'_, sqlx::Any>,
         run_id: &str,
@@ -205,66 +134,7 @@ impl SqlStateStore {
         Ok(())
     }
 
-    /// Lock the lease before the run row, matching owned-writer lock order.
-    /// Returning from the transaction with `Conflict` rolls this no-op update
-    /// back, so a live owner never loses its lease during a delete attempt.
-    async fn lock_run_lease_for_deletion(
-        &self,
-        transaction: &mut sqlx::Transaction<'_, sqlx::Any>,
-        run_id: &str,
-    ) -> StorageResult<Option<i64>> {
-        let sql = format!(
-            "UPDATE {} SET expires_micros = expires_micros WHERE run_id = {} RETURNING expires_micros",
-            self.tables.run_leases,
-            self.placeholder(1),
-        );
-        sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.as_str()))
-            .bind(run_id)
-            .fetch_optional(&mut **transaction)
-            .await
-            .map_err(|error| {
-                StorageError::backend(
-                    format_args!("Failed to lock run lease '{run_id}' for deletion"),
-                    error,
-                )
-            })
-    }
-
-    async fn read_locked_run_status(
-        &self,
-        transaction: &mut sqlx::Transaction<'_, sqlx::Any>,
-        run_id: &str,
-    ) -> StorageResult<crate::engine::types::RunStatus> {
-        let sql = format!(
-            "SELECT status FROM {} WHERE id = {}",
-            self.tables.runs,
-            self.placeholder(1),
-        );
-        let status = sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(sql.as_str()))
-            .bind(run_id)
-            .fetch_one(&mut **transaction)
-            .await
-            .map_err(|error| {
-                StorageError::backend(
-                    format_args!("Failed to inspect run '{run_id}' for deletion"),
-                    error,
-                )
-            })?;
-        parse_run_status(&status)
-    }
-
-    async fn database_now_micros(
-        &self,
-        transaction: &mut sqlx::Transaction<'_, sqlx::Any>,
-    ) -> StorageResult<i64> {
-        let sql = format!("SELECT {}", self.sql_now_micros());
-        sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.as_str()))
-            .fetch_one(&mut **transaction)
-            .await
-            .map_err(|error| StorageError::backend("Failed to read SQL database time", error))
-    }
-
-    async fn ensure_run_removed(
+    pub(super) async fn ensure_run_removed(
         &self,
         transaction: &mut sqlx::Transaction<'_, sqlx::Any>,
         run_id: &str,

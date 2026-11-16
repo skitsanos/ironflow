@@ -6,7 +6,7 @@ use super::metadata::extract_docx_metadata;
 use crate::artifacts::FileSource;
 use crate::engine::types::NodeOutput;
 use crate::nodes::extract::docx_parser::{
-    parse_docx_blocks, parse_numbering_defs, parse_theme_colors,
+    parse_docx_blocks, parse_numbering_defs, parse_styles, parse_theme_colors,
 };
 use crate::nodes::extract::ooxml::Archive;
 use crate::nodes::extract::resource::{Budget, Limits};
@@ -35,6 +35,11 @@ pub(super) fn extract(request: Request, execution: ExecutionControl) -> Result<N
             parse_theme_colors(reader, &mut budget)
         })?
         .unwrap_or_default();
+    let styles = archive
+        .with_optional_xml("word/styles.xml", &execution, |reader| {
+            parse_styles(reader, &mut budget)
+        })?
+        .unwrap_or_default();
     // Resolve requested comment IDs first so document text and comment anchors
     // can be collected during one streamed pass over word/document.xml.
     let mut comments = if request.comments_key.is_some() {
@@ -53,6 +58,7 @@ pub(super) fn extract(request: Request, execution: ExecutionControl) -> Result<N
             reader,
             &numbering,
             &theme,
+            &styles,
             comment_ids.as_ref(),
             &mut budget,
         )

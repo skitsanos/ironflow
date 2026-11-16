@@ -7,7 +7,7 @@ Transcribe an audio or video file to VTT, SRT, plain text, or verbose JSON via O
 | Parameter      | Type   | Required    | Default            | Description                                                                                                                                                                          |
 |----------------|--------|-------------|---------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `path`         | string | conditional | --                  | Path to the audio/video file to transcribe. Supports `${ctx.key}` interpolation. Mutually exclusive with `source_key`; exactly one of the two is required.                          |
-| `source_key`   | string | conditional | --                  | Context key holding a file path, artifact URI, or artifact descriptor. Mutually exclusive with `path`.                                                                              |
+| `source_key`   | string | conditional | --                  | Context key holding a file path, artifact URI, or artifact descriptor. Mutually exclusive with `path`. A stored path is used as it is and is not interpolated. |
 | `provider`     | string | no          | `"openai"`          | Transcription backend: `"openai"`, `"openai_compatible"`, or `"azure"`.                                                                                                              |
 | `format`       | string | no          | `"vtt"`             | Transcript format: `"vtt"`, `"srt"`, `"text"`, or `"json"`. See [Formats](#formats) below.                                                                                            |
 | `model`        | string | no          | `"whisper-1"`       | Model name. Supports `${ctx.key}` interpolation; has no environment-variable fallback. For `provider = "azure"` this is the **deployment name**, not a model ID — see [Azure](#azure). |
@@ -47,6 +47,32 @@ being forwarded to another origin. Same-origin redirect chains are limited to
 
 Automatic `Referer` headers are disabled, including on same-origin redirects,
 so the original endpoint's path and query are not copied into that header.
+
+## Output file
+
+`output_file` is published through the same rooted, atomic writer as
+[`write_file`](write_file.md), after the provider call and inside a tracked
+blocking worker: the raw response body is written into a staged file beside
+the destination, flushed and synchronized, then renamed over it.
+
+- The destination directory must already exist. The node creates no
+  directories and fails with `transcribe: destination directory '<dir>' does
+  not exist`. Directory aliases, including macOS `/tmp`, are resolved first.
+- A destination that is a symlink (dangling or not), FIFO, device or directory
+  is refused and its target is left untouched. An existing regular file is
+  replaced.
+- A write failure, a step deadline that expired during the provider call or
+  the write, or cancellation fails the step, removes the staged file and
+  leaves an existing destination unchanged.
+- On Unix the published file has the mode a plain write would have left: a
+  new file gets `0666` masked by the process umask (`0644` under umask `022`)
+  and a replaced file keeps its permission bits, without any setuid, setgid
+  or sticky bit. The staged file is mode `0600` until it is published. Other
+  platforms use their native permission semantics.
+- Unix pins the resolved directory and stages relative to that handle. Other
+  platforms revalidate the observed path immediately before an atomic
+  replacement and cannot close a hostile parent-directory swap race; protect
+  destination trees from same-identity mutation.
 
 ## Formats
 
@@ -98,6 +124,17 @@ With the default `output_key` of `"transcript"`, the keys are `transcript`, `tra
 | `{output_key}_path` | string | Only present when `output_file` is set. The path the raw response body was written to. |
 
 Errors from this node never contain the API key: the provider's raw error text is scanned for the exact key value sent on the request and any occurrence is replaced with `[REDACTED]`, in addition to the shared pattern-based credential redaction applied to transport and parse errors.
+
+## Outbound destination policy
+
+When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, this node
+refuses a destination that is not a public unicast address before it
+connects: a literal private, loopback or link-local address, `localhost`,
+and a host name whose DNS answer contains such an address. The validated
+answer is the one connected to, and the node connects directly, ignoring a
+system proxy. An internal destination must be listed by the operator in
+`IRONFLOW_PRIVATE_NETWORK_ALLOWLIST`; nothing in the flow can add one. See
+[Outbound destinations](../SECURITY.md#outbound-destinations).
 
 ## Examples
 

@@ -8,7 +8,7 @@ use crate::engine::types::Context;
 use super::webhook_signature::{SignatureVerificationError, WebhookSignatureConfig};
 
 const EXECUTION_HEADERS_KEY: &str = "_headers";
-const MIN_CONFIDENTIAL_HEADER_BYTES: usize = 8;
+const MIN_CONFIDENTIAL_HEADER_BYTES: usize = crate::util::redaction::MIN_SECRET_BYTES;
 
 /// Headers owned by IronFlow or by an upstream authentication layer.
 ///
@@ -159,11 +159,9 @@ impl WebhookConfig {
                     name.as_str()
                 )
             })?;
-            let non_whitespace_bytes = value
-                .bytes()
-                .filter(|byte| !byte.is_ascii_whitespace())
-                .count();
-            if non_whitespace_bytes < MIN_CONFIDENTIAL_HEADER_BYTES {
+            // The same floor decides which text the redactor matches as a
+            // substring, so every accepted value is scrubbed wherever it occurs.
+            if !crate::util::redaction::meets_secret_floor(value) {
                 return Err(format!(
                     "forwarded webhook header '{}' must contain at least {MIN_CONFIDENTIAL_HEADER_BYTES} non-whitespace bytes",
                     name.as_str()

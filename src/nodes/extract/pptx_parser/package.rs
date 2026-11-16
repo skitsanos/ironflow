@@ -4,9 +4,10 @@ use anyhow::{Context, Result};
 
 use super::content_types::{ContentTypes, parse_content_types};
 use super::graph::{Presentation, SlidePart, resolve_target};
+use super::inherited::Sheets;
 use super::notes::parse_pptx_notes;
 use super::relationships::Kind;
-use super::slide::parse_pptx_slide;
+use super::slide::{ParsedSlide, parse_pptx_slide};
 use super::{PptxElement, PptxSlide};
 use crate::artifacts::{ArtifactRef, LocalArtifactStore};
 use crate::nodes::extract::ooxml::Archive;
@@ -31,6 +32,7 @@ pub(in crate::nodes::extract) fn extract_pptx_slides(
     };
 
     let mut slides = Vec::new();
+    let mut sheets = Sheets::default();
     let mut artifacts = HashMap::new();
     let mut media = MediaState {
         artifact_store,
@@ -43,14 +45,21 @@ pub(in crate::nodes::extract) fn extract_pptx_slides(
     for slide in &presentation.slides {
         budget.checkpoint()?;
         budget.charge_item("PPTX slides")?;
-        let (title, mut elements) =
+        let ParsedSlide {
+            title,
+            mut elements,
+            hidden,
+        } = {
+            let inherited = sheets.of_slide(archive, slide, budget, execution)?;
             archive.with_required_xml(&slide.part, execution, |reader| {
-                parse_pptx_slide(reader, budget)
-            })?;
+                parse_pptx_slide(reader, inherited, budget)
+            })?
+        };
         resolve_images(archive, slide, &mut elements, &mut media, budget, execution)?;
         let speaker_notes = read_notes(archive, slide.notes.as_deref(), budget, execution)?;
         slides.push(PptxSlide {
             slide_index: slide.index,
+            hidden,
             title,
             elements,
             speaker_notes,

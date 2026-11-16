@@ -7,7 +7,7 @@ Extract text and metadata from an HTML file.
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `path` | string | one of `path` or `source_key` | — | File path to the HTML file; supports `${ctx.key}` interpolation. |
-| `source_key` | string | one of `path` or `source_key` | — | Context key containing a file path, artifact URI, or artifact descriptor. |
+| `source_key` | string | one of `path` or `source_key` | — | Context key containing a file path, artifact URI, or artifact descriptor. A stored path is used as it is and is not interpolated. |
 | `format` | string | no | `"text"` | Output format: `"text"` reads plain text from the filtered HTML tree; `"markdown"` converts that tree to Markdown, retaining headings, emphasis, lists, tables, links, and code. |
 | `output_key` | string | no | `"content"` | Context key where the extracted content is stored. |
 | `metadata_key` | string | no | — | If set, HTML metadata is stored under this context key. |
@@ -17,6 +17,7 @@ Extract text and metadata from an HTML file.
 > The `format` parameter only accepts `"text"` or `"markdown"`; any other value is rejected.
 > Present `format`, `output_key`, and `metadata_key` values must be strings; a value of the wrong type is rejected instead of being treated as absent.
 > When `metadata_key` is set, it must differ from `output_key`; key collisions are rejected before extraction begins.
+> `"markdown"` rejects HTML whose elements nest deeper than 128 levels; `"text"` accepts up to `IRONFLOW_MAX_HTML_TEXT_DEPTH` levels (default `1024`). See the resource contract below.
 
 ## Context Output
 
@@ -66,15 +67,44 @@ HTML/Markdown security sanitizer.
 - `IRONFLOW_MAX_EXTRACT_ITEMS` (default `250000`) is a cumulative structural
   budget for the call. For HTML it counts markup items, detected as `<`
   markers while scanning the input.
+- `format = "markdown"` accepts at most 128 levels of element nesting. The
+  cap is fixed, not configurable, and counts the `<html>` and `<body>`
+  elements the parser supplies even for a fragment, so a fragment may nest 126
+  elements of its own. Inert `<template>` content counts as nested inside its
+  template element. A deeper document fails with `extract_html: HTML element
+  nesting exceeds 128 levels` as an ordinary node error; the Markdown
+  converter recurses once per level and would otherwise exhaust the worker
+  stack and abort the process. The cap is enforced while the document is
+  parsed, because parse time grows with the square of the nesting depth:
+  between 4 KiB pieces of input, parsing stops once an open element is more
+  than 256 levels deep, and the finished tree is checked against the exact
+  128-level cap before conversion.
+- `format = "text"` walks the tree without recursion, so it accepts deeper
+  markup: at most `IRONFLOW_MAX_HTML_TEXT_DEPTH` levels (default `1024`,
+  counted like the Markdown cap). The limit bounds parse time, which grows
+  with the square of the nesting depth: 100,000 nested `<div>` took about
+  16 s in an optimized build before the limit existed. Parsing stops once an
+  open element is more than twice the limit deep, and a deeper document
+  fails with `extract_html: HTML element nesting exceeds 1024 levels
+  (IRONFLOW_MAX_HTML_TEXT_DEPTH)`.
 - `IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES` (default `52428800`, 50 MiB) bounds the
   complete serialized `NodeOutput`, including the configured content key and
   optional metadata object. This is a logical result limit, not a process-RSS
   limit and not the later `IRONFLOW_MAX_TASK_OUTPUT_BYTES` persistence limit.
+  With `format = "markdown"` the same limit is charged while converting:
+  nested block quotes and list items repeat a prefix on every line and a
+  table with a header row pads every cell to its column's widest cell, so a
+  small document could otherwise produce Markdown far above the limit
+  before the result is checked. Such a document fails with `extract_html:
+  Markdown output exceeds IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES (LIMIT)`; see
+  [`html_to_markdown`](html_to_markdown.md#resource-and-cancellation-contract).
 - File reading, structural inspection, tree filtering, plain-text rendering,
   metadata scanning, and result serialization run on a tracked blocking worker and check cancellation and
-  the step/run deadline cooperatively. Third-party HTML parsing and Markdown
-  conversion cannot be interrupted internally; IronFlow checks before and
-  after them, and during its own filtering and plain-text traversal. The parsed
+  the step/run deadline cooperatively. HTML is fed to the parser in 4 KiB
+  pieces with a check between them, so parsing observes cancellation and the
+  deadline. Third-party Markdown conversion cannot be interrupted internally;
+  IronFlow checks before and after it, and during its own filtering and
+  plain-text traversal. The parsed
   tree and converter-produced Markdown are materialized before the
   extraction-output limit can inspect them, so that logical result limit does
   not cap the libraries' transient peak allocation.

@@ -2,6 +2,7 @@ mod anchors;
 mod blocks;
 mod numbering;
 mod properties;
+mod styles;
 mod theme;
 mod xml;
 
@@ -12,6 +13,7 @@ use anyhow::Result;
 use anchors::AnchorCollector;
 use blocks::{BlockBuilder, Lookups};
 pub(super) use numbering::parse_numbering_defs;
+pub(super) use styles::{Flags, StyleSheet, parse_styles};
 pub(super) use theme::parse_theme_colors;
 pub(super) use xml::{XmlDocument, visit_attributes};
 
@@ -25,6 +27,9 @@ pub(super) struct DocxParagraph {
     pub(super) is_list_item: bool,
     pub(super) list_level: u32,
     pub(super) is_numbered: bool,
+    /// Bold, italic and strikethrough that the paragraph style itself turns
+    /// on. A Markdown heading does not repeat them as markers.
+    pub(super) style_emphasis: Flags,
 }
 
 #[derive(Default, Clone)]
@@ -71,6 +76,7 @@ pub(super) fn parse_docx_blocks<R: BufRead>(
     xml: R,
     numbering_defs: &std::collections::HashMap<String, bool>,
     theme_colors: &std::collections::HashMap<String, String>,
+    styles: &StyleSheet,
     comment_ids: Option<&std::collections::HashSet<&str>>,
     budget: &mut Budget<'_>,
 ) -> Result<ParsedDocxDocument> {
@@ -84,6 +90,7 @@ pub(super) fn parse_docx_blocks<R: BufRead>(
     let lookups = Lookups {
         numbering_defs,
         theme_colors,
+        styles,
     };
     let mut builder = BlockBuilder::default();
 
@@ -104,7 +111,7 @@ pub(super) fn parse_docx_blocks<R: BufRead>(
                 builder.open(event, true, document.version(), &lookups, budget)?;
             }
             Event::Text(ref event) => builder.text(event.as_ref()),
-            Event::End(ref event) => builder.close(event.name().as_ref()),
+            Event::End(ref event) => builder.close(event.name().as_ref(), styles),
             Event::Eof => break,
             _ => {}
         }

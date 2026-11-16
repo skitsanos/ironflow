@@ -6,10 +6,19 @@ use super::*;
 use crate::engine::types::{RunInfo, RunStatus};
 use crate::storage::{RunListQuery, RunSummaryPage};
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum RenewalBehavior {
     Hang,
     Error,
+    /// The lease is gone and the stored run has this status.
+    Refused(RunStatus),
+}
+
+fn not_finalizing(stopped: oneshot::Receiver<()>) -> HeartbeatStop {
+    HeartbeatStop {
+        stopped,
+        finalizing: Arc::new(AtomicBool::new(false)),
+    }
 }
 
 struct RenewalStore(RenewalBehavior);
@@ -25,12 +34,13 @@ impl StateStore for RenewalStore {
     }
 
     async fn renew_run_lease(&self, _: &str, _: &RunLease) -> StorageResult<bool> {
-        match self.0 {
+        match &self.0 {
             RenewalBehavior::Hang => std::future::pending().await,
             RenewalBehavior::Error => Err(StorageError::backend(
                 "renew test lease",
                 "injected failure",
             )),
+            RenewalBehavior::Refused(_) => Ok(false),
         }
     }
 
@@ -46,8 +56,19 @@ impl StateStore for RenewalStore {
         unreachable!()
     }
 
-    async fn get_run_info(&self, _: &str) -> StorageResult<RunInfo> {
-        unreachable!()
+    async fn get_run_info(&self, run_id: &str) -> StorageResult<RunInfo> {
+        let RenewalBehavior::Refused(status) = &self.0 else {
+            unreachable!()
+        };
+        Ok(RunInfo {
+            id: run_id.to_string(),
+            flow_name: "flow".to_string(),
+            status: status.clone(),
+            started: None,
+            finished: None,
+            ctx: Context::new(),
+            tasks: std::collections::HashMap::new(),
+        })
     }
 
     async fn list_runs(&self, _: Option<RunStatus>) -> StorageResult<Vec<RunInfo>> {
@@ -90,7 +111,7 @@ async fn a_hung_renewal_is_bounded_and_reports_infrastructure() {
         "run".to_string(),
         "owner".to_string(),
         cancel,
-        heartbeat_stop,
+        not_finalizing(heartbeat_stop),
         HeartbeatTiming::new(
             std::time::Duration::from_millis(1),
             std::time::Duration::from_millis(5),
@@ -131,7 +152,7 @@ async fn a_renewal_error_reports_infrastructure() {
         "run".to_string(),
         "owner".to_string(),
         signal,
-        heartbeat_stop,
+        not_finalizing(heartbeat_stop),
         HeartbeatTiming::new(
             std::time::Duration::from_millis(1),
             std::time::Duration::from_millis(50),
@@ -151,4 +172,61 @@ async fn a_renewal_error_reports_infrastructure() {
             .unwrap()
             .contains("ironflow_lease_events_total{outcome=\"error\"} 1")
     );
+}
+
+/// One heartbeat against a store that refuses the renewal. Returns the
+/// signal the heartbeat left and the number of lost-lease events it counted.
+async fn refused_renewal(stored: RunStatus, finalizing: bool) -> (ExecutionSignal, bool) {
+    let (signal, execution_signal) = watch::channel(ExecutionSignal::Running);
+    let (_stop, stopped) = oneshot::channel();
+    let metrics = Arc::new(crate::metrics::Metrics::new());
+    heartbeat_with_timing(
+        Arc::new(RenewalStore(RenewalBehavior::Refused(stored))),
+        "run".to_string(),
+        "owner".to_string(),
+        signal,
+        HeartbeatStop {
+            stopped,
+            finalizing: Arc::new(AtomicBool::new(finalizing)),
+        },
+        HeartbeatTiming::new(
+            std::time::Duration::from_millis(1),
+            std::time::Duration::from_secs(30),
+        ),
+        Some(metrics.clone()),
+    )
+    .await;
+    let lost = metrics
+        .encode()
+        .unwrap()
+        .contains("ironflow_lease_events_total{outcome=\"lost\"} 1");
+    let signal = execution_signal.borrow().clone();
+    (signal, lost)
+}
+
+#[tokio::test]
+async fn a_refusal_after_the_runs_own_terminal_write_ends_the_heartbeat_quietly() {
+    let (signal, lost) = refused_renewal(RunStatus::Success, true).await;
+    assert!(matches!(signal, ExecutionSignal::Running));
+    assert!(!lost);
+}
+
+#[tokio::test]
+async fn a_refusal_while_work_is_executing_is_a_lost_lease_whatever_the_store_says() {
+    // Another replica may already have stalled the run: local work must
+    // still be stopped.
+    for stored in [RunStatus::Running, RunStatus::Stalled] {
+        let (signal, lost) = refused_renewal(stored, false).await;
+        assert!(
+            matches!(&signal, ExecutionSignal::Infrastructure(reason) if reason.contains("lost"))
+        );
+        assert!(lost);
+    }
+}
+
+#[tokio::test]
+async fn a_refusal_before_the_terminal_write_landed_is_a_lost_lease() {
+    let (signal, lost) = refused_renewal(RunStatus::Running, true).await;
+    assert!(matches!(signal, ExecutionSignal::Infrastructure(_)));
+    assert!(lost);
 }

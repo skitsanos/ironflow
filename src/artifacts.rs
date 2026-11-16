@@ -15,10 +15,11 @@ mod source;
 mod store;
 
 pub use backend::ArtifactStore;
+pub(crate) use backend::validate_environment;
 pub use lease::VerifiedPathLease;
 pub use reference::ArtifactRef;
 pub(crate) use reference::validate_mime_type;
-pub(crate) use retention::ArtifactCandidate;
+pub(crate) use retention::{ArtifactCandidate, MAX_PRUNE_SCAN, validate_deletions};
 pub(crate) use source::FileSource;
 pub use store::DEFAULT_ARTIFACT_DIR;
 

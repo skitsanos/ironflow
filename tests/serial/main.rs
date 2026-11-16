@@ -48,6 +48,8 @@ mod test_env_allowlist;
 mod test_extract_limits;
 #[path = "../test_extract_nodes.rs"]
 mod test_extract_nodes;
+#[path = "../test_extract_pdf_font_limits.rs"]
+mod test_extract_pdf_font_limits;
 #[path = "../test_extract_pdf_limits.rs"]
 mod test_extract_pdf_limits;
 #[path = "../test_extract_pptx_limits.rs"]
@@ -62,6 +64,8 @@ mod test_extract_text_limits;
 mod test_extract_word_safety;
 #[path = "../test_flow_source_limits.rs"]
 mod test_flow_source_limits;
+#[path = "../test_html_to_markdown_admission.rs"]
+mod test_html_to_markdown_admission;
 #[path = "../test_http_artifacts.rs"]
 mod test_http_artifacts;
 #[path = "../test_http_nodes.rs"]
@@ -86,6 +90,8 @@ mod test_pdf_merge_safety;
 mod test_read_file_special;
 #[path = "../test_run_deadline.rs"]
 mod test_run_deadline;
+#[path = "../test_s3vector_fail_closed.rs"]
+mod test_s3vector_fail_closed;
 #[path = "../test_send_email_node.rs"]
 mod test_send_email_node;
 #[path = "../test_shell_markdown_nodes.rs"]

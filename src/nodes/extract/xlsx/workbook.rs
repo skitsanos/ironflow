@@ -12,6 +12,7 @@ use super::guard::check_archive_size;
 use super::output_budget::OutputBudget;
 use super::shared_strings;
 use super::sheets::{CellBudget, sheet_rows};
+use super::styles;
 use crate::artifacts::FileSource;
 use crate::util::execution::ExecutionControl;
 
@@ -41,7 +42,7 @@ pub(super) fn extract(
     execution.checkpoint()?;
     let (mut file, label) = source.open("extract_xlsx", &execution)?.into_parts();
     let diagnostic_path = std::path::Path::new(&label);
-    archive_preflight::check_xlsx(
+    let admitted = archive_preflight::check_xlsx(
         &mut file,
         diagnostic_path,
         limits.max_zip_entries,
@@ -52,6 +53,7 @@ pub(super) fn extract(
     check_archive_size(
         &mut file,
         diagnostic_path,
+        admitted,
         limits.max_zip_bytes,
         limits.max_zip_entries,
         limits.max_output_bytes,
@@ -60,15 +62,23 @@ pub(super) fn extract(
     shared_strings::check(
         &mut file,
         diagnostic_path,
+        admitted,
         limits.max_cells,
+        limits.max_output_bytes,
+        Some(&execution),
+    )?;
+    styles::check(
+        &mut file,
+        diagnostic_path,
+        admitted,
         limits.max_output_bytes,
         Some(&execution),
     )?;
     execution.checkpoint()?;
 
     // `open_workbook` itself is a calamine call and cannot be interrupted.
-    // The shared-string preflight above bounds its eager table allocation;
-    // resume cooperative checkpoints immediately after it returns.
+    // The shared-string and style preflights above bound its eager table
+    // allocations; resume cooperative checkpoints immediately after it returns.
     let mut workbook: Xlsx<_> = open_workbook_from_rs(BufReader::new(file))
         .map_err(|error| anyhow::anyhow!("extract_xlsx: cannot read '{label}': {error}"))?;
     execution.checkpoint()?;

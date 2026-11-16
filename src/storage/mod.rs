@@ -17,13 +17,16 @@ mod schedule_cleanup;
 pub(crate) mod sql_ddl;
 pub mod sql_names;
 pub mod sql_store;
+pub(crate) mod sqlite_url;
 #[cfg(any(feature = "postgres", feature = "redis"))]
 pub(crate) mod tls;
+mod value_depth;
 
 pub use error::{StorageError, StorageErrorKind, StorageResult};
 #[cfg(feature = "redis")]
 pub use event_store::RedisEventStore;
 pub use event_store::{EventStore, MemoryEventStore, SqlEventStore};
+pub use lifecycle::DeletedRun;
 pub use run_id::{MAX_RUN_ID_BYTES, RunIdError, validate_run_id};
 pub use run_lease::{RUN_LEASE_REFRESH, RUN_LEASE_TTL, RunLease};
 pub use run_listing::{PageSize, RunCursor, RunListQuery, RunSummaryPage};
@@ -157,6 +160,18 @@ pub trait StateStore: Send + Sync {
     /// deletable.
     async fn delete_run(&self, run_id: &str) -> StorageResult<()>;
 
+    /// [`delete_run`](Self::delete_run) that also reports what it removed.
+    ///
+    /// The built-in SQL and Redis stores return the incarnation recorded by
+    /// [`init_run_owned`](Self::init_run_owned) in the same atomic step that
+    /// removes the run, so the caller can delete that incarnation's events
+    /// and no newer one's (IF-214). The default reports none.
+    async fn delete_run_reporting(&self, run_id: &str) -> StorageResult<DeletedRun> {
+        self.delete_run(run_id)
+            .await
+            .map(|()| DeletedRun::default())
+    }
+
     /// Delete runs older than the given cutoff (UTC). Returns the number
     /// removed. Default implementation scans via `list_runs`; stores that
     /// track metadata separately MAY override with an index-only path.
@@ -183,6 +198,13 @@ pub trait StateStore: Send + Sync {
     /// exceed the schedule's grace window, or a late replica could re-fire an
     /// instant whose claim has already been reaped.
     ///
+    /// The claim alone is not the execution fence. `false` only says that a
+    /// peer claimed the instant first: that peer may have died before it
+    /// created the run, so the scheduler still converges on the occurrence's
+    /// deterministic run ID (IF-078) unless
+    /// [`schedule_run_recorded`](Self::schedule_run_recorded) reports that
+    /// the run was already created (IF-201).
+    ///
     /// The default refuses. A store that cannot coordinate claims must not
     /// quietly let every replica fire — that is the duplicate this method
     /// exists to prevent — so scheduling is unavailable rather than unsafe.
@@ -192,6 +214,37 @@ pub trait StateStore: Send + Sync {
             "Claim scheduled instant",
             "this state store does not support scheduling",
         ))
+    }
+
+    /// Record in the claim that the occurrence `(name, key)` is settled: it
+    /// has a durable run, or the scheduler skipped it and it must not be
+    /// started (IF-217). Idempotent, written whether or not the claim itself
+    /// exists, and retained at least as long as the claim;
+    /// `ttl_seconds` is the claim's lifetime, for stores whose record carries
+    /// its own expiry. The record must survive the deletion or expiry of the
+    /// run itself: it is what keeps an occurrence from starting again once
+    /// its run record is gone.
+    ///
+    /// The default records nothing, which leaves a store that implements only
+    /// [`claim_schedule`](Self::claim_schedule) fenced by the run record
+    /// alone, as before IF-201.
+    async fn record_schedule_run(
+        &self,
+        name: &str,
+        key: &str,
+        ttl_seconds: u64,
+    ) -> StorageResult<()> {
+        let _ = (name, key, ttl_seconds);
+        Ok(())
+    }
+
+    /// Whether [`record_schedule_run`](Self::record_schedule_run) was called
+    /// for `(name, key)` and its record is still retained. `false` for a
+    /// claim that neither produced a run nor was skipped, which the scheduler
+    /// recovers.
+    async fn schedule_run_recorded(&self, name: &str, key: &str) -> StorageResult<bool> {
+        let _ = (name, key);
+        Ok(false)
     }
 }
 

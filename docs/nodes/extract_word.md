@@ -24,7 +24,7 @@ remain in force. There are no new configuration options.
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `path` | string | one of `path` or `source_key` | — | File path to the `.docx` file; supports `${ctx.key}` interpolation. |
-| `source_key` | string | one of `path` or `source_key` | — | Context key containing a file path, artifact URI, or artifact descriptor. |
+| `source_key` | string | one of `path` or `source_key` | — | Context key containing a file path, artifact URI, or artifact descriptor. A stored path is used as it is and is not interpolated. |
 | `format` | string | no | `"text"` | Output format: `"text"` for plain text, `"markdown"` for Markdown with headings/lists/inline formatting, `"json"` for a structured block IR (see below). |
 | `output_key` | string | no | `"content"` | Context key where the extracted output is stored. For `text`/`markdown` the value is a string; for `json` it is an object. |
 | `metadata_key` | string | no | — | If set, document metadata (Dublin Core fields) is stored under this context key. |
@@ -63,7 +63,52 @@ When `format = "json"`, the output is an object with a single `blocks` array. Ea
 }
 ```
 
-Run flags (`bold`, `italic`, `underline`, `strike`) are emitted only when true. `color` is the resolved hex (uppercase, no `#`) — see below. `highlight` is the OOXML highlight name when set (e.g. `"yellow"`). `style` and `list` are absent when not applicable. `colors` is a deduped union of run colors at the paragraph level, present only when at least one run has a color.
+Run flags (`bold`, `italic`, `underline`, `strike`) are emitted only when true. A toggle property counts as on when it is present without `w:val` or with `1`, `true` or `on`, and as off with `0`, `false` or `off`; `w:u` is off for `w:val="none"`. Tracked formatting changes are read as accepted: the previous properties stored under `w:rPrChange` and `w:pPrChange` are ignored, so a run or paragraph reports only its current formatting, style and list state. `color` is the resolved hex (uppercase, no `#`) — see below. `highlight` is the OOXML highlight name when set (e.g. `"yellow"`). `style` and `list` are absent when not applicable. `colors` is a deduped union of run colors at the paragraph level, present only when at least one run has a color.
+
+### Style inheritance of bold, italic and strikethrough
+
+`bold`, `italic` and `strike` are toggle properties and are resolved through
+`word/styles.xml` as WordprocessingML defines them:
+
+1. Along each `w:basedOn` chain the nearest value wins, so a derived style
+   with `<w:i w:val="0"/>` switches off the italic of its base.
+2. The result for the paragraph style (`w:pStyle`, or the default paragraph
+   style) and for the character style (`w:rStyle`, or the default character
+   style) are combined by exclusive or: a bold character style inside a bold
+   paragraph style is not bold.
+3. A toggle that the document defaults (`w:docDefaults`) turn on stays on
+   whatever the styles say.
+4. A toggle set directly on the run (`<w:b/>`, `<w:b w:val="0"/>`) replaces
+   all of the above.
+
+A style reference that names no style of the right kind falls back to the
+default style. A `w:basedOn` cycle ends the chain. When `word/styles.xml`
+defines one `w:styleId` more than once (some generators write their built-in
+styles first and the document's own after them), the last definition is
+used, as Word does. Table styles and their
+conditional formatting (for example a bold first row) are not resolved, and
+neither are `underline`, `color` and `highlight`, which are reported from the
+run's own properties only. The styles part is parsed under the same
+`IRONFLOW_MAX_EXTRACT_ITEMS` and output budgets as the document. A package
+without `word/styles.xml` reports direct formatting only.
+
+In Markdown a heading does not repeat the emphasis of its own style: a run in
+a `Heading1` paragraph whose style is bold renders as `# Title`, not
+`# **Title**`, while emphasis that differs from the style (an italic run in
+that heading) keeps its markers. JSON reports the resolved flags on every run.
+
+### Text boxes
+
+A text box is stored inside a run of the paragraph that anchors it. The
+anchoring paragraph keeps all of its own text, and the paragraphs of the box
+follow it as separate blocks in every format, each with its own style and
+runs. Empty paragraphs inside a box are omitted. A table inside a box follows
+the anchoring paragraph as a table block. When the anchoring paragraph sits in
+a table cell, the box content stays in that cell as further paragraphs. Each
+box is emitted once: the `mc:Fallback` copy that word processors write next to
+the `mc:Choice` content is skipped, and with it any other fallback content.
+Boxes nested in boxes are flattened in the same order. The position of the box
+on the page is not used.
 
 ### Table block
 
@@ -103,6 +148,8 @@ Shape of `ctx[comments_key]`:
 
 `anchored_text` is the verbatim text the comment was attached to (joined run text between the comment's `<w:commentRangeStart/>` and `<w:commentRangeEnd/>` markers). It is omitted when the comment has no anchored range (whole-document comments).
 
+Comment ranges and text inside an `mc:Fallback` element are not observed, consistently with the document text: the fallback copy of a text box repeats the `mc:Choice` content, so a range around or inside a text box anchors the box text once. A range that only a fallback declares anchors nothing.
+
 If the document has no comments part, an empty array is written.
 
 ```lua
@@ -130,7 +177,12 @@ Run color is captured from `w:color`:
   refuses to follow a final path-component symlink/reparse point; other platforms enforce the
   opened-handle regular-file check.
 - The EOCD/ZIP64 preflight validates central-directory bounds and
-  `IRONFLOW_MAX_ZIP_ENTRIES` (default `10000`). IronFlow then rejects duplicate
+  `IRONFLOW_MAX_ZIP_ENTRIES` (default `10000`). It accepts only the last end
+  record in the file, which must end at EOF with its comment, and a central
+  directory that ends exactly where that record begins; the opened archive's
+  directory offset and raw entry count must then match the validated ones.
+  Packages with trailing bytes, prepended data, or a second end record inside
+  the archive comment are rejected. IronFlow then rejects duplicate
   part names, symlink or special-file parts, and a cumulative declared
   uncompressed size above `IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES` (default
   `536870912`, 512 MiB).

@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
   parseIssuePage,
-  renderCompatibilityIndex,
   renderRegistry,
   validateRoadmap,
   type Issue,
@@ -66,7 +65,7 @@ describe("issue registry", () => {
     );
   });
 
-  test("renders the complete registry but only active root findings", () => {
+  test("renders every finding and the working agreement in the registry", () => {
     const active = issue({
       id: "IF-102",
       title: "Active finding",
@@ -75,14 +74,12 @@ describe("issue registry", () => {
       path: "docs/issues/IF-102.md",
     });
     const registry = renderRegistry([issue(), active]);
-    const compatibility = renderCompatibilityIndex([issue(), active]);
 
     expect(registry).toContain("Total findings: 2");
     expect(registry).toContain("[IF-101](./IF-101.md)");
     expect(registry).toContain("[IF-102](./IF-102.md)");
-    expect(compatibility).not.toContain("IF-101.md");
-    expect(compatibility).toContain("[IF-102](docs/issues/IF-102.md)");
-    expect(compatibility).toContain("Run the complete integration gate only at branch integration");
+    expect(registry).toContain("Active findings: 1");
+    expect(registry).toContain("Run the complete integration gate only at branch integration");
   });
 
   test("accepts active committed roadmap entries", () => {

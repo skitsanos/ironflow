@@ -18,22 +18,30 @@ mod test_embedding_batches;
 mod test_http_redirect_security;
 #[path = "../test_http_retry_limits.rs"]
 mod test_http_retry_limits;
+#[path = "../test_llm_provider_contract.rs"]
+mod test_llm_provider_contract;
 #[path = "../test_llm_secret_errors.rs"]
 mod test_llm_secret_errors;
 #[path = "../test_mcp_nodes.rs"]
 mod test_mcp_nodes;
+#[path = "../test_mcp_response_limits.rs"]
+mod test_mcp_response_limits;
 #[path = "../test_mcp_streamable_http.rs"]
 mod test_mcp_streamable_http;
 #[path = "../test_mcp_streamable_http_sse.rs"]
 mod test_mcp_streamable_http_sse;
 #[path = "../test_notification_response_limits.rs"]
 mod test_notification_response_limits;
+#[path = "../test_outbound_policy.rs"]
+mod test_outbound_policy;
 #[path = "../test_provider_redirect_security.rs"]
 mod test_provider_redirect_security;
 #[path = "../test_s3_copy.rs"]
 mod test_s3_copy;
 #[path = "../test_s3_header_signing.rs"]
 mod test_s3_header_signing;
+#[path = "../test_s3_list_objects.rs"]
+mod test_s3_list_objects;
 #[path = "../test_s3_nodes.rs"]
 mod test_s3_nodes;
 #[path = "../test_s3_signing_serve.rs"]
@@ -42,5 +50,7 @@ mod test_s3_signing_serve;
 mod test_s3vector_nodes;
 #[path = "../test_transcribe_node.rs"]
 mod test_transcribe_node;
+#[path = "../test_transcribe_output_safety.rs"]
+mod test_transcribe_output_safety;
 #[path = "../test_transcribe_redirect_security.rs"]
 mod test_transcribe_redirect_security;

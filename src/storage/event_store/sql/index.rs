@@ -9,8 +9,8 @@ mod tests;
 
 impl SqlEventStore {
     pub(super) async fn ensure_event_sequence_index(&self) -> StorageResult<()> {
-        crate::storage::sql_ddl::create_if_absent(
-            &self.pool,
+        self.ensure_index(
+            &self.tables.events_run_sequence_idx,
             format!(
                 "CREATE UNIQUE INDEX IF NOT EXISTS {} ON {}(run_id, sequence)",
                 self.tables.events_run_sequence_idx, self.tables.events

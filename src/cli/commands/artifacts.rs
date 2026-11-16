@@ -1,139 +1,213 @@
-use std::collections::HashSet;
+//! `ironflow artifacts prune`: bounded offline artifact retention.
+//!
+//! One pass examines one window of the store in digest order, audits every
+//! retained run against that window, deletes what nothing references, and
+//! reports where the next pass must resume (IF-200). An invocation is one
+//! pass, or with `--all` as many passes as the store needs (IF-220).
+
+mod references;
+
 use std::sync::Arc;
 use std::time::SystemTime;
 
 use anyhow::{Context as _, Result, bail};
-use serde_json::Value;
 
-use crate::artifacts::{ArtifactCandidate, ArtifactRef, ArtifactStore};
-use crate::storage::{PageSize, RunListQuery, StateStore};
-use crate::util::execution::run_blocking_step;
+use crate::artifacts::{ArtifactStore, MAX_PRUNE_SCAN, validate_deletions};
+use crate::storage::StateStore;
+use crate::util::execution::run_tracked_blocking_step;
+
+use references::audit_references;
+
+/// Arguments of `ironflow artifacts prune`.
+#[derive(clap::Args)]
+pub struct ArtifactPruneOptions {
+    /// Only delete artifacts last modified before this RFC 3339 timestamp
+    #[arg(long)]
+    before: String,
+
+    /// Maximum artifacts to delete in this invocation (1-100)
+    #[arg(long, default_value = "100")]
+    limit: usize,
+
+    /// Maximum stored artifacts to examine in this invocation (1-10000)
+    #[arg(long, default_value = "10000")]
+    scan: usize,
+
+    /// Resume after this digest, as printed by an incomplete invocation
+    #[arg(long, value_name = "SHA256")]
+    after: Option<String>,
+
+    /// Assert that every IronFlow writer sharing the stores is stopped
+    #[arg(long)]
+    confirm_offline: bool,
+
+    /// Repeat bounded passes, each with --scan and --limit, until the whole
+    /// store has been examined
+    #[arg(long)]
+    all: bool,
+}
+
+impl ArtifactPruneOptions {
+    /// Reject bad arguments before any store is opened.
+    pub(crate) fn validate(&self) -> Result<()> {
+        if !self.confirm_offline {
+            bail!(
+                "artifact pruning requires --confirm-offline after every IronFlow writer has stopped"
+            );
+        }
+        self.cutoff()?;
+        validate_deletions(self.limit)?;
+        if !(1..=MAX_PRUNE_SCAN).contains(&self.scan) {
+            bail!("artifact prune --scan must be between 1 and {MAX_PRUNE_SCAN}");
+        }
+        if let Some(after) = &self.after
+            && !is_digest(after)
+        {
+            bail!(
+                "--after must be the 64-character lowercase SHA-256 digest printed by an incomplete prune"
+            );
+        }
+        Ok(())
+    }
+
+    fn cutoff(&self) -> Result<SystemTime> {
+        let cutoff = chrono::DateTime::parse_from_rfc3339(&self.before)
+            .context("--before must be an RFC 3339 timestamp")?
+            .with_timezone(&chrono::Utc);
+        Ok(cutoff.into())
+    }
+}
+
+fn is_digest(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
 
 pub(crate) async fn cmd_artifact_prune(
     store: Arc<dyn StateStore>,
-    before: String,
-    limit: usize,
-    confirm_offline: bool,
+    options: ArtifactPruneOptions,
 ) -> Result<()> {
-    if !confirm_offline {
-        bail!(
-            "artifact pruning requires --confirm-offline after every IronFlow writer has stopped"
+    options.validate()?;
+    let cutoff = options.cutoff()?;
+    let mut after = options.after.clone();
+    let mut total = Outcome::default();
+    let mut passes = 0_usize;
+    loop {
+        let pass = prune_pass(store.as_ref(), &options, cutoff, after.clone()).await?;
+        passes += 1;
+        total.add(&pass.outcome);
+        println!(
+            "Artifact prune inspected {}, retained {}, deleted {}.",
+            pass.outcome.inspected, pass.outcome.retained, pass.outcome.deleted
+        );
+        match pass.next {
+            Some(digest) if options.all => {
+                // Digest order makes every pass resume strictly later; a
+                // marker that does not move would loop forever.
+                if after.as_deref() >= Some(digest.as_str()) {
+                    bail!("artifact prune made no progress after {digest}; stopping");
+                }
+                println!(
+                    "Artifact prune pass {passes}: examined {} stored artifacts; continuing after {digest}",
+                    pass.listed
+                );
+                after = Some(digest);
+            }
+            Some(digest) => {
+                println!(
+                    "Artifact prune incomplete: examined {} stored artifacts; continue with --after {digest}",
+                    pass.listed
+                );
+                return Ok(());
+            }
+            None => {
+                println!(
+                    "Artifact prune complete: examined {} stored artifacts and reached the end of the store.",
+                    pass.listed
+                );
+                break;
+            }
+        }
+    }
+    if options.all {
+        println!(
+            "Artifact prune --all: {passes} passes, inspected {}, retained {}, deleted {}.",
+            total.inspected, total.retained, total.deleted
         );
     }
-    let cutoff = chrono::DateTime::parse_from_rfc3339(&before)
-        .context("--before must be an RFC 3339 timestamp")?
-        .with_timezone(&chrono::Utc);
-    let cutoff: SystemTime = cutoff.into();
-    let candidates = run_blocking_step(move |execution| {
-        ArtifactStore::from_env()?.prune_candidates(cutoff, limit, &execution)
+    Ok(())
+}
+
+/// What one bounded pass did and where the next one resumes.
+struct Pass {
+    outcome: Outcome,
+    /// Stored artifacts the pass examined.
+    listed: usize,
+    next: Option<String>,
+}
+
+/// One bounded pass: examine one window of at most `--scan` artifacts in
+/// digest order, audit every retained run against it and delete at most
+/// `--limit` unreferenced artifacts.
+async fn prune_pass(
+    store: &dyn StateStore,
+    options: &ArtifactPruneOptions,
+    cutoff: SystemTime,
+    after: Option<String>,
+) -> Result<Pass> {
+    let scan = options.scan;
+    let (artifacts, window) = run_tracked_blocking_step(move |execution| {
+        let artifacts = ArtifactStore::from_env()?;
+        let window = artifacts.prune_window(cutoff, after.as_deref(), scan, &execution)?;
+        Ok((artifacts, window))
     })
     .await?;
-    let retained = retained_candidates(store.as_ref(), &candidates).await?;
-    let mut deleted = 0_usize;
-    for candidate in &candidates {
-        if retained.contains(&candidate.digest) {
-            continue;
-        }
-        let digest = candidate.digest.clone();
-        run_blocking_step(move |execution| {
-            ArtifactStore::from_env()?.delete_unreferenced(&digest, &execution)
-        })
-        .await?;
-        deleted += 1;
-    }
-    println!(
-        "Artifact prune inspected {}, retained {}, deleted {}.",
-        candidates.len(),
-        retained.len(),
-        deleted
-    );
-    Ok(())
-}
+    let audit = audit_references(store, &window.candidates).await?;
+    audit.report_non_canonical();
 
-async fn retained_candidates(
-    store: &dyn StateStore,
-    candidates: &[ArtifactCandidate],
-) -> Result<HashSet<String>> {
-    let wanted: HashSet<String> = candidates
-        .iter()
-        .map(|candidate| candidate.digest.clone())
-        .collect();
-    let mut retained = HashSet::with_capacity(wanted.len());
-    let mut after = None;
-    let page_size = PageSize::new(100)?;
-    loop {
-        let page = store
-            .list_run_summaries_page(&RunListQuery::new(None, after, page_size)?)
+    let mut outcome = Outcome::default();
+    // Where the next pass resumes: after the window, or after the last
+    // candidate resolved here when the deletion limit ends this one early.
+    let mut next = window.next.clone();
+    for candidate in &window.candidates {
+        if audit.retained.contains(&candidate.digest) {
+            outcome.retained += 1;
+        } else if outcome.deleted == options.limit {
+            // The limit is at least one, so a resolved candidate precedes this one.
+            next = window.candidates[..outcome.inspected]
+                .last()
+                .map(|resolved| resolved.digest.clone());
+            break;
+        } else {
+            let (artifacts, digest) = (artifacts.clone(), candidate.digest.clone());
+            run_tracked_blocking_step(move |execution| {
+                artifacts.delete_unreferenced(&digest, &execution)
+            })
             .await?;
-        for summary in &page.items {
-            let run = store.get_run_info(&summary.id).await?;
-            for value in run.ctx.values() {
-                collect_references(value, &wanted, &mut retained)?;
-            }
-            for task in run.tasks.values() {
-                for value in [task.input.as_ref(), task.output.as_ref()]
-                    .into_iter()
-                    .flatten()
-                {
-                    collect_references(value, &wanted, &mut retained)?;
-                }
-            }
-            if retained.len() == wanted.len() {
-                return Ok(retained);
-            }
+            outcome.deleted += 1;
         }
-        match page.next {
-            Some(cursor) => after = Some(cursor),
-            None => return Ok(retained),
-        }
+        outcome.inspected += 1;
     }
+    Ok(Pass {
+        outcome,
+        listed: window.listed,
+        next,
+    })
 }
 
-fn collect_references(
-    root: &Value,
-    wanted: &HashSet<String>,
-    retained: &mut HashSet<String>,
-) -> Result<()> {
-    let mut pending = vec![root];
-    let mut visited = 0_usize;
-    while let Some(value) = pending.pop() {
-        visited += 1;
-        if visited > 1_000_000 {
-            bail!("run state is too large to audit safely for artifact retention");
-        }
-        match value {
-            Value::String(uri) if uri.starts_with("artifact://") => {
-                ArtifactRef::validate_uri(uri)?;
-                let digest = &uri["artifact://sha256/".len()..];
-                if wanted.contains(digest) {
-                    retained.insert(digest.to_owned());
-                }
-            }
-            Value::Array(values) => pending.extend(values),
-            Value::Object(values) => pending.extend(values.values()),
-            _ => {}
-        }
-    }
-    Ok(())
+#[derive(Default)]
+struct Outcome {
+    inspected: usize,
+    retained: usize,
+    deleted: usize,
 }
 
-#[cfg(test)]
-mod tests {
-    use std::collections::HashSet;
-
-    use super::collect_references;
-
-    #[test]
-    fn nested_artifact_references_are_detected() {
-        let digest = "a".repeat(64);
-        let wanted = HashSet::from([digest.clone()]);
-        let mut retained = HashSet::new();
-        collect_references(
-            &serde_json::json!({"nested": [{"artifact_uri": format!("artifact://sha256/{digest}")}]}),
-            &wanted,
-            &mut retained,
-        )
-        .unwrap();
-        assert_eq!(retained, wanted);
+impl Outcome {
+    fn add(&mut self, other: &Self) {
+        self.inspected += other.inspected;
+        self.retained += other.retained;
+        self.deleted += other.deleted;
     }
 }

@@ -144,10 +144,13 @@ dropping that future cancels pending I/O. Do not detach background work unless
 the node's documented contract is explicitly fire-and-forget.
 
 CPU-heavy or synchronous work must not run directly on a Tokio runtime worker.
-Use `crate::util::execution::run_blocking_step` and call the supplied
+Use `crate::util::execution::run_tracked_blocking_step` and call the supplied
 `ExecutionControl::checkpoint()` between meaningful units of work. The helper
 propagates the enclosing step deadline and signals cancellation when the async
-waiter is dropped. A third-party blocking call that never returns cannot be
+waiter is dropped. It is the only bridge to the blocking pool for step work:
+the worker registers with its step, so a step that times out or is cancelled
+keeps its `on_error` handler, its run and their admission until the worker has
+returned. Do not call `tokio::task::spawn_blocking` from a node. A third-party blocking call that never returns cannot be
 forcibly unwound, so document that boundary and avoid starting irreversible
 side effects before a checkpoint when possible.
 
@@ -176,6 +179,14 @@ evaluate expressions, calls, or fallback operators; missing and `null` values
 render as an empty string. Non-`ctx` forms such as `${HOME}` remain literal.
 The runtime escape `\${ctx.foo}` emits `${ctx.foo}`; Lua source must spell it
 `"\\${ctx.foo}"`.
+
+A value that selects or scopes what a node acts on (a filter, a tenant, a
+target) must not fall back to something wider. Interpolate it with
+`crate::lua::interpolate::interpolate_ctx_required`, which fails when a
+placeholder is missing, `null`, an object or an array, and reject a malformed
+flag or number instead of using the default (`config_bool_or`,
+`config_*_strict`). `s3vector_query_vectors` shows both for its inline
+`filter` and its boolean flags.
 
 Add tests and parameter documentation for every field you opt in. Include
 nested object/array coverage when using the recursive helper.
@@ -305,6 +316,31 @@ existing one; files above 400 lines are never exempt. Passing this check does no
 establish good modularity: reviewers must still examine responsibility
 boundaries, cognitive complexity, and whether moving tests or helpers improves
 cohesion.
+
+### Portable rooted writer
+
+File-writing nodes publish through `nodes::file::RootedDir`. Unix builds use
+the handle-pinned implementation (`rooted/unix.rs`); every other platform uses
+the checked-path fallback (`rooted/portable.rs`), which no Unix build links.
+Two checks keep the fallback from rotting (IF-218):
+
+- Its unit tests (`rooted/portable/tests.rs`) are compiled into Unix test
+  builds and run with `cargo test --lib rooted::portable`.
+- `cargo clippy --lib -- --cfg ironflow_portable_writer -D warnings` selects
+  the fallback for the whole library, so every caller is compiled and linted
+  against its API. CI and `scripts/integration_gate.sh` run it after the
+  default Clippy step; the flag reaches only the IronFlow crate, so nothing
+  else is rebuilt. Run it after changing `RootedDir`, `StagedFile` or a node
+  that uses them. Never ship a build made with that flag.
+
+Neither check compiles for Windows. A `cargo check --target
+x86_64-pc-windows-msvc` from Linux or macOS is not available without new
+toolchain cost: the build scripts of the bundled SQLite and of the TLS and
+Lua crates compile C for the target and need the MSVC toolchain and Windows
+SDK. Windows-only code (`#[cfg(windows)]`, such as the `MoveFileExW` call in
+the fallback) is first compiled by the `x86_64-pc-windows-msvc` job of the
+release workflow; when such code changes, build on a Windows host before
+tagging.
 
 ## 14) Common mistakes to avoid
 

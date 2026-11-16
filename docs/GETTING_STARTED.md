@@ -10,7 +10,7 @@ and API request.
 Open the [latest stable release](https://github.com/skitsanos/ironflow/releases/latest)
 and expand **Assets**. Download the archive matching your system and the
 `checksums-sha256.txt` file from the same release. Asset names include the
-release version; `<version>` below stands for that version, such as `1.21.0`.
+release version; `<version>` below stands for that version, such as `1.22.0`.
 
 | System | Default archive |
 | --- | --- |
@@ -25,9 +25,16 @@ PostgreSQL or Redis storage, choose the matching archive with `-full` before
 not bundle database servers. Linux ARM64 and Windows ARM64 native binaries
 are not currently published.
 
-No Rust compiler or separate Lua installation is required. Some nodes need
-additional tools or libraries: for example, PDF image rendering needs native
-Pdfium even with a full binary or the Docker image. See the
+Every archive contains three files: the `ironflow` binary (`ironflow.exe` on
+Windows), `THIRD_PARTY_LICENSES.md` with the license notices for the Rust
+crates statically linked into that binary, and the SIL Open Font License for
+the bundled document fonts (`assets/fonts/OFL.txt` in the `.tar.gz` archives,
+`OFL.txt` in the `.zip`). Keep the two license files with the binary when you
+redistribute it.
+
+No Rust compiler, separate Lua installation or native library is required:
+PDF pages are rendered to images by a built-in renderer. A few examples call
+external tools such as a POSIX shell or Python; see the
 [example requirements](../examples/README.md#requirements-and-effects).
 
 ### Linux and macOS
@@ -37,17 +44,17 @@ against its entry in `checksums-sha256.txt`:
 
 ```bash
 # Linux; replace the filename with the asset you downloaded.
-sha256sum ironflow-v1.21.0-x86_64-unknown-linux-musl.tar.gz
+sha256sum ironflow-v1.22.0-x86_64-unknown-linux-musl.tar.gz
 
 # macOS Apple Silicon; use x86_64-apple-darwin for an Intel Mac.
-shasum -a 256 ironflow-v1.21.0-aarch64-apple-darwin.tar.gz
+shasum -a 256 ironflow-v1.22.0-aarch64-apple-darwin.tar.gz
 ```
 
 Only continue if the hash matches. Extract your archive with `tar -xzf`, for
 example on Linux:
 
 ```bash
-tar -xzf ironflow-v1.21.0-x86_64-unknown-linux-musl.tar.gz
+tar -xzf ironflow-v1.22.0-x86_64-unknown-linux-musl.tar.gz
 ./ironflow --version
 ```
 
@@ -72,13 +79,13 @@ In PowerShell, verify the archive hash against its entry in
 `checksums-sha256.txt`, then extract it. Substitute the version you downloaded:
 
 ```powershell
-Get-FileHash .\ironflow-v1.21.0-x86_64-pc-windows-msvc.zip -Algorithm SHA256
+Get-FileHash .\ironflow-v1.22.0-x86_64-pc-windows-msvc.zip -Algorithm SHA256
 ```
 
 After confirming that the hash matches:
 
 ```powershell
-Expand-Archive .\ironflow-v1.21.0-x86_64-pc-windows-msvc.zip -DestinationPath .\ironflow
+Expand-Archive .\ironflow-v1.22.0-x86_64-pc-windows-msvc.zip -DestinationPath .\ironflow
 Set-Location .\ironflow
 .\ironflow.exe --version
 ```
@@ -98,6 +105,8 @@ and stable release version tags.
 Docker Desktop or Docker Engine must be running. Images include PostgreSQL
 and Redis storage support and currently target **linux/amd64** only. On ARM
 hosts, Docker must support x86-64 emulation; on Windows, use Linux containers.
+The image keeps the same third-party notices and the fonts' license under
+`/usr/local/share/licenses/ironflow/`.
 
 ### Select an image
 
@@ -108,7 +117,7 @@ manual Container workflow runs:
 | --- | --- |
 | `ghcr.io/skitsanos/ironflow:latest` | Most recently published build from `main`; the Quick Start default. |
 | `ghcr.io/skitsanos/ironflow:develop` | Most recently published build from `develop`; may include unreleased changes. |
-| `ghcr.io/skitsanos/ironflow:1.21.0` | Published image for the stable 1.21.0 release. |
+| `ghcr.io/skitsanos/ironflow:1.22.0` | Published image for the stable 1.22.0 release. |
 | `ghcr.io/skitsanos/ironflow:sha-<full-commit>` | A specific published source revision. |
 | `ghcr.io/skitsanos/ironflow@sha256:...` | An exact image digest for reproducible deployment. |
 
@@ -168,6 +177,11 @@ inside the container; the port mapping exposes it only on your host's
 `127.0.0.1:3000`. The explicit unauthenticated setting is for this local demo.
 For a hosted server, set `IRONFLOW_API_KEY` and follow the
 [authentication reference](CLI_REFERENCE.md#api-authentication).
+A hosted server that runs flows it did not write should also set
+`IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, so a flow cannot reach loopback,
+private or cloud metadata addresses, and list the internal services flows
+may call in `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST`; see
+[Outbound destinations](SECURITY.md#outbound-destinations).
 
 In a second terminal, run `curl --fail http://127.0.0.1:3000/health/ready`, then
 try the [Quick Start API request](../README.md#try-the-rest-api).

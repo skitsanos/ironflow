@@ -64,7 +64,7 @@ mod tests {
     async fn dropped_waiter_stops_chunk_copy() {
         let (started_tx, started_rx) = mpsc::channel();
         let (finished_tx, finished_rx) = mpsc::channel();
-        let waiter = tokio::spawn(crate::util::execution::run_blocking_step(
+        let waiter = tokio::spawn(crate::util::execution::run_tracked_blocking_step(
             move |execution| {
                 let result = copy_with_control(
                     &mut EndlessReader {

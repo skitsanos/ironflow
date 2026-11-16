@@ -27,6 +27,8 @@ tools = {
             call_id = "tool_call_id",
             full_call = "call",
             user_id = "ctx.user.id",
+            locale = { optional = "ctx.user.locale" },
+            units = { literal = "metric" },
         },
     },
 }
@@ -42,33 +44,60 @@ Input values can reference:
 | `call.id`, `call.name`, etc. | Dotted path inside the normalized call. |
 | `tool_name` | Tool function name. |
 | `tool_call_id` | Tool call ID. |
-| `ctx.key` | Dotted path from the parent workflow context. |
-| any other string | Parent context key if present, otherwise literal string. |
+| `ctx.key` | Dotted path from the parent workflow context. Must exist. |
+| any other string | Top-level parent context key. Must exist. |
+| `{ optional = "<reference>" }` | Any reference above; JSON `null` when it does not resolve. |
+| `{ literal = <value> }` | The value as written, of any type. Use it for a literal string. |
 
-References resolve the **complete** dotted path. Missing roots or fields,
-out-of-range array indices, traversal through a scalar, and empty path segments
-resolve to JSON `null`, never the parent object. For example, if `user` contains
-`{ profile = { name = "Ada" }, private_note = "internal" }`, `ctx.user.id`
-selects `null`, while `ctx.user.profile.name` selects `"Ada"`. `ctx.user.` is
-malformed and also selects `null`. The same rule applies to `arguments.*` and
-`call.*`, including a trailing dot with no field.
+References resolve the **complete** dotted path and never fall back to the
+parent object. What a reference that does not resolve means depends on who
+supplies the value:
+
+- **Parent context** (`ctx.<path>` and bare keys): the flow author controls
+  it, so a missing root or field, an out-of-range array index, traversal
+  through a scalar or an empty path segment **fails the step** with
+  `tool_dispatch: tool '<name>': input '<entry>' references a parent context
+  value that does not exist; ...`. `<entry>` is the dotted position inside
+  `input`, for example `payload.user_id`; the configured string and context
+  values are never printed. A key or field holding JSON `null` exists.
+- **Tool call** (`arguments.*`, `call.*`, `tool_name`, `tool_call_id`): the
+  model supplies it, so a missing field resolves to JSON `null` and the
+  handler decides.
+
+For example, if `user` contains `{ profile = { name = "Ada" }, private_note =
+"internal" }`, `ctx.user.profile.name` selects `"Ada"`, `ctx.user.id` and the
+malformed `ctx.user.` fail the step, and `{ optional = "ctx.user.id" }`
+selects `null`.
+
+The mappings of every tool named by the calls in `source_key` are checked
+before the first handler runs, so a failing mapping starts no handler, even
+when the call that uses it is not the first. It is a step error, not a
+per-call result, and `on_error = "ignore"` does not suppress it. A mapping
+for a tool that no call names is not checked. In earlier releases a missing
+`ctx.` path resolved to `null` and a bare string that named no parent key was
+passed as literal text.
+
+Only an object with exactly one key, `optional` or `literal`, is a form;
+wrap such an object in `literal` to pass it as data. `optional` must be a
+non-empty string, and a handler `input` that is not an object is rejected.
 
 Array selectors use zero-based dotted indices such as `ctx.users.0.id`; these
 selectors are not `${ctx...}` interpolation and do not use bracket syntax.
 Mapping objects and arrays resolve their values recursively. Numbers, booleans,
 and JSON null remain unchanged. A value selected from context is copied as-is,
-not reinterpreted as another reference.
+not reinterpreted as another reference, and a `literal` value is not resolved.
 
-Missing values do not fail dispatch by themselves. Lua handlers receive the
-`json_null` sentinel, not `nil`, and can reject required values explicitly:
+A missing tool argument or `optional` reference does not fail dispatch by
+itself. Lua handlers receive the `json_null` sentinel, not `nil`, and can
+reject required values explicitly:
 
 ```lua
 assert(ctx.user_id ~= json_null, "user_id is required")
 ```
 
 If the handler fails, the existing `on_error` policy applies. To select an entire
-object intentionally, use `ctx.user`, `arguments`, or `call`. The legacy bare
-string `user` still selects the parent key if present. These explicit selections
+object intentionally, use `ctx.user`, `arguments`, or `call`. The bare
+string `user` also selects the parent key. These explicit selections
 are not redacted; avoid copying whole objects that contain private fields.
 
 Every child subworkflow also receives:
@@ -108,7 +137,7 @@ recovered errors are excluded. Cancellation or missing details retain the
 status-only fallback. The selected `result`, `content`, and tool-message content
 still come from child context; failure details do not replace those values.
 
-Selection uses full, redacted live child values after finalization. The
+Selection uses full live child values after finalization. The
 `IRONFLOW_MAX_TASK_OUTPUT_BYTES` inspection cap does not truncate results,
 the by-ID collection, or tool message content passed to later steps. Persisted
 CLI/API inspection may still show truncation markers. This in-process handoff
@@ -123,10 +152,26 @@ runtime conversation array, then pass it to `llm` with `messages_key`. For a
 bounded multi-turn agent, place that sequence in a child flow and control it
 with [`repeat_subworkflow`](repeat_subworkflow.md).
 
+## Operational Bounds
+
+`max_calls` bounds the calls one step dispatches; they run one after another.
+Each handler flow counts towards the
+[child workflow nesting limit](subworkflow.md#nesting-limit-and-waiting)
+(`IRONFLOW_MAX_SUBWORKFLOW_DEPTH`, default `16`). A handler that reaches
+`tool_dispatch` again past that depth fails the step with `tool_dispatch:
+child workflow nesting depth 17 exceeds the limit of 16
+(IRONFLOW_MAX_SUBWORKFLOW_DEPTH); check for a flow that calls itself`. This is
+a step error raised before any call is dispatched, not a per-call result, and
+`on_error = "ignore"` does not suppress it. When the step times out or its run
+is cancelled, the active handler is cancelled and the step does not end, start
+its own `on_error` handler or release its admission until that handler run has
+stopped, tracked blocking workers included. The handler's steps observe this
+step's deadline; see [Parent deadline](subworkflow.md#parent-deadline).
+
 ## Example
 
-For a credential-free runnable check of nested selection and missing-value
-isolation, see [`tool_dispatch_input_projection.lua`](../../examples/13-ai/tool_dispatch_input_projection.lua)
+For a credential-free runnable check of nested selection, the `optional` and
+`literal` forms and missing-value isolation, see [`tool_dispatch_input_projection.lua`](../../examples/13-ai/tool_dispatch_input_projection.lua)
 and its [`tool_input_projection_subworkflow.lua`](../../examples/13-ai/tool_input_projection_subworkflow.lua)
 handler.
 

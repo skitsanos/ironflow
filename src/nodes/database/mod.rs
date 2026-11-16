@@ -1,4 +1,5 @@
 mod arangodb;
+mod destination;
 mod row;
 mod sql;
 

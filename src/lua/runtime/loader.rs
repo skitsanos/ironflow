@@ -5,7 +5,8 @@ use crate::engine::types::FlowDefinition;
 use crate::lua::analysis::{HandlerDiagnostics, LuaDiagnostic};
 use crate::lua::sandbox::{new_sandboxed_lua, register_shared_globals};
 use crate::nodes::NodeRegistry;
-use crate::util::execution::{ExecutionControl, run_blocking_step};
+use crate::nodes::composition::validate_guard_conditions;
+use crate::util::execution::{ExecutionControl, run_tracked_blocking_step};
 use crate::util::limits::{
     LuaExecutionLimits, apply_lua_limits, apply_lua_limits_with_control, collect_lua_garbage,
     max_flow_source_bytes,
@@ -33,10 +34,14 @@ impl LuaRuntime {
 
     /// Load a flow file off the async runtime worker while observing the
     /// enclosing step deadline and cancellation.
+    ///
+    /// The flow's top-level code is user Lua. When a step loads a child flow
+    /// the load is tracked work of that step (IF-211); a caller outside a
+    /// step has no worker sets and is unaffected.
     pub async fn load_flow_async(path: &str, registry: &NodeRegistry) -> Result<FlowDefinition> {
         let path = path.to_owned();
         let registry = registry.snapshot();
-        run_blocking_step(move |execution| {
+        run_tracked_blocking_step(move |execution| {
             Self::load_flow_controlled(&path, &registry, Some(execution), false)
                 .map(|loaded| loaded.flow)
         })
@@ -52,7 +57,7 @@ impl LuaRuntime {
     pub async fn validate_flow_async(path: &str, registry: &NodeRegistry) -> Result<ValidatedFlow> {
         let path = path.to_owned();
         let registry = registry.snapshot();
-        run_blocking_step(move |execution| {
+        run_tracked_blocking_step(move |execution| {
             Self::load_flow_controlled(&path, &registry, Some(execution), true)
         })
         .await
@@ -85,7 +90,7 @@ impl LuaRuntime {
         source::validate(source, max_flow_source_bytes())?;
         let source = source.to_owned();
         let registry = registry.snapshot();
-        run_blocking_step(move |execution| {
+        run_tracked_blocking_step(move |execution| {
             Self::load_flow_from_string_controlled(&source, &registry, Some(execution), false)
                 .map(|loaded| loaded.flow)
         })
@@ -108,7 +113,7 @@ impl LuaRuntime {
         source::validate(source, max_flow_source_bytes())?;
         let source = source.to_owned();
         let registry = registry.snapshot();
-        run_blocking_step(move |execution| {
+        run_tracked_blocking_step(move |execution| {
             Self::load_flow_from_string_controlled(&source, &registry, Some(execution), true)
         })
         .await
@@ -161,6 +166,7 @@ impl LuaRuntime {
         checkpoint(&execution)?;
 
         let flow = extract_flow(&lua, &flow_table)?;
+        validate_guard_conditions(&flow)?;
         checkpoint(&execution)?;
         let mut warnings = diagnostics
             .map(|analysis| analysis.warnings())
