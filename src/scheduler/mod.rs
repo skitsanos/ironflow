@@ -16,6 +16,7 @@ mod runtime;
 pub mod startup;
 pub mod timing;
 mod weekday;
+mod window;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -56,6 +57,10 @@ pub enum Outcome {
     Late { lateness_seconds: i64 },
     /// A previous run of this schedule has not finished.
     Overlapped { active_run: String },
+    /// A missed instant that a more recent due instant of the same schedule
+    /// replaced at catch-up. `by` is the key of the instant that was decided
+    /// in its place; this one is recorded as settled and never starts.
+    Superseded { by: String },
     /// The process is at `IRONFLOW_MAX_CONCURRENT_RUNS`.
     AtCapacity,
     /// The flow could not be started (bad path, load failure, or engine

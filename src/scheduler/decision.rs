@@ -46,6 +46,38 @@ impl Scheduler {
         }
     }
 
+    /// Settle a missed instant that the more recent due instant `by`
+    /// supersedes: claim it and record it as settled, so no replica starts
+    /// it. One that already has its record (a run, or a skip recorded by a
+    /// peer) is left as it is.
+    pub(super) async fn supersede(
+        &self,
+        name: &str,
+        schedule: &ScheduleConfig,
+        instant: &DueInstant,
+        by: &str,
+    ) -> Outcome {
+        let claimed = match self.claim(name, schedule, instant).await {
+            Ok(claimed) => claimed,
+            Err(outcome) => return outcome,
+        };
+        if !claimed {
+            match self.run_already_created(name, instant).await {
+                Ok(true) => return Outcome::NotClaimed,
+                Ok(false) => {}
+                Err(outcome) => return outcome,
+            }
+        }
+        tracing::debug!(
+            schedule = %name,
+            key = %instant.key,
+            superseded_by = %by,
+            "skipping missed instant: superseded by a more recent one"
+        );
+        let superseded = Outcome::Superseded { by: by.to_string() };
+        self.settle_skip(name, schedule, instant, superseded).await
+    }
+
     /// Own the instant durably. `Ok(false)` means a peer claimed it first;
     /// `decide` then consults the occurrence record before this replica
     /// converges on the peer's deterministic run identity.

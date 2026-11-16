@@ -651,7 +651,7 @@ async fn an_instant_aged_out_of_grace_stops_pinning_the_watermark() {
 }
 
 #[tokio::test]
-async fn a_deferred_start_stops_the_window_and_every_instant_fires_on_the_retry() {
+async fn a_deferred_start_is_retried_and_only_the_latest_missed_instant_fires() {
     let dir = tempfile::tempdir().unwrap();
     let store: Arc<dyn StateStore> = Arc::new(ironflow::storage::json_store::JsonStateStore::new(
         dir.path(),
@@ -664,40 +664,102 @@ async fn a_deferred_start_stops_the_window_and_every_instant_fires_on_the_retry(
     let start = utc(2026, 5, 1, 2, 0) + chrono::Duration::seconds(30);
     // The default 300-second grace seeds a five-instant catch-up window.
     let mut scheduler = Scheduler::new(schedules, store, executor.clone(), start);
+    let outcomes = |decisions: &[ironflow::scheduler::Decision]| {
+        decisions
+            .iter()
+            .map(|d| (d.key.clone(), d.outcome.clone()))
+            .collect::<Vec<_>>()
+    };
+    let superseded = |key: &str, by: &str| {
+        let by = format!("UTC@2026-05-01T{by}");
+        (format!("UTC@2026-05-01T{key}"), Outcome::Superseded { by })
+    };
 
-    // IF-182: a start deferred for flow-load capacity is claimed but never
-    // ran. It must not be burned, and the instants behind it must wait their
-    // turn rather than each spend the evaluation budget on the same limit.
+    // IF-217 (c): at catch-up only the most recent instant is decided. IF-182:
+    // its start is deferred for flow-load capacity, so it is claimed but
+    // never ran and must not be burned.
     executor.defer.store(true, Ordering::SeqCst);
     let first = scheduler.evaluate(start).await;
-    assert_eq!(first.len(), 1, "{first:?}");
-    assert_eq!(first[0].key, "UTC@2026-05-01T01:56");
-    assert!(matches!(first[0].outcome, Outcome::Deferred { .. }));
-    assert_eq!(executor.runs.load(Ordering::SeqCst), 0);
-
-    executor.defer.store(false, Ordering::SeqCst);
-    let second = scheduler
-        .evaluate(start + chrono::Duration::seconds(30))
-        .await;
-    let keys: Vec<&str> = second.iter().map(|d| d.key.as_str()).collect();
     assert_eq!(
-        keys,
+        outcomes(&first)[..4],
         [
-            "UTC@2026-05-01T01:56",
-            "UTC@2026-05-01T01:57",
-            "UTC@2026-05-01T01:58",
-            "UTC@2026-05-01T01:59",
-            "UTC@2026-05-01T02:00",
-            "UTC@2026-05-01T02:01",
+            superseded("01:56", "02:00"),
+            superseded("01:57", "02:00"),
+            superseded("01:58", "02:00"),
+            superseded("01:59", "02:00"),
         ]
     );
+    assert_eq!(first.len(), 5, "{first:?}");
+    assert_eq!(first[4].key, "UTC@2026-05-01T02:00");
+    assert!(matches!(first[4].outcome, Outcome::Deferred { .. }));
+    assert_eq!(executor.runs.load(Ordering::SeqCst), 0);
+
+    // The deferred instant is retried on the next tick and fires.
+    executor.defer.store(false, Ordering::SeqCst);
+    let second = scheduler
+        .evaluate(start + chrono::Duration::seconds(15))
+        .await;
+    assert_eq!(second.len(), 1, "{second:?}");
+    assert_eq!(second[0].key, "UTC@2026-05-01T02:00");
+    assert!(matches!(second[0].outcome, Outcome::Fired { .. }));
+    assert_eq!(executor.runs.load(Ordering::SeqCst), 1);
+
+    let third = scheduler
+        .evaluate(start + chrono::Duration::seconds(30))
+        .await;
+    assert_eq!(third.len(), 1, "{third:?}");
+    assert_eq!(third[0].key, "UTC@2026-05-01T02:01");
+    assert!(matches!(third[0].outcome, Outcome::Fired { .. }));
+    assert_eq!(executor.runs.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn an_instant_still_deferred_when_the_next_is_due_is_superseded_by_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let store: Arc<dyn StateStore> = Arc::new(ironflow::storage::json_store::JsonStateStore::new(
+        dir.path(),
+    ));
+    let schedules = HashMap::from([(
+        "frequent".to_string(),
+        ScheduleConfig::new("f.lua", "* * * * *", Some("UTC"), None, Context::new()).unwrap(),
+    )]);
+    let executor = Arc::new(StubExecutor::default());
+    let start = utc(2026, 5, 1, 2, 0) + chrono::Duration::seconds(5);
+    let mut scheduler = Scheduler::new(schedules, store, executor.clone(), start);
+    // Settle the catch-up window first, so only 02:00 is due below.
+    scheduler
+        .evaluate(start - chrono::Duration::seconds(10))
+        .await;
+    let before = executor.runs.load(Ordering::SeqCst);
+
+    executor.defer.store(true, Ordering::SeqCst);
+    let first = scheduler.evaluate(start).await;
     assert!(
-        second
-            .iter()
-            .all(|d| matches!(d.outcome, Outcome::Fired { .. })),
+        matches!(first.last().unwrap().outcome, Outcome::Deferred { .. }),
+        "{first:?}"
+    );
+
+    // A minute later the limit is free again and 02:01 is due as well: the
+    // deferred 02:00 is a missed instant now, and 02:01 is the one that runs.
+    executor.defer.store(false, Ordering::SeqCst);
+    let second = scheduler
+        .evaluate(start + chrono::Duration::seconds(60))
+        .await;
+    let outcomes = second
+        .iter()
+        .map(|d| (d.key.as_str(), &d.outcome))
+        .collect::<Vec<_>>();
+    assert!(
+        matches!(
+            outcomes[..],
+            [
+                ("UTC@2026-05-01T02:00", Outcome::Superseded { by }),
+                ("UTC@2026-05-01T02:01", Outcome::Fired { .. }),
+            ] if by == "UTC@2026-05-01T02:01"
+        ),
         "{second:?}"
     );
-    assert_eq!(executor.runs.load(Ordering::SeqCst), 6);
+    assert_eq!(executor.runs.load(Ordering::SeqCst), before + 1);
 }
 
 /// Wraps a real store and injects failures into the occurrence record

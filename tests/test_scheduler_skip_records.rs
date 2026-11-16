@@ -1,4 +1,5 @@
-//! IF-217 (g): an instant the scheduler skipped is consumed durably.
+//! IF-217 (c) and (g): catch-up starts the most recent missed instant only,
+//! and an instant the scheduler skipped is consumed durably.
 //!
 //! A skip creates no run, so the claim alone used to be its only trace, and a
 //! lost claim without a run record reads as an orphan that IF-078 recovers.
@@ -200,8 +201,131 @@ async fn a_deferred_instant_is_still_started(store: Arc<dyn StateStore>) {
     assert_eq!(restarted.starts(), 1);
 }
 
+// -- IF-217 (c): catch-up runs the most recent missed instant only ----------
+
+const EVERY_MINUTE: &str = "* * * * *";
+
+fn minute_key(hour: u32, minute: u32) -> String {
+    format!("UTC@2026-05-01T{hour:02}:{minute:02}")
+}
+
+/// Evaluate `scheduler` at `now` until a tick records no further superseded
+/// instant, and return every decision in order. One tick records a bounded
+/// number of them, so a long catch-up takes several.
+async fn catch_up(scheduler: &mut Scheduler, now: DateTime<Utc>) -> Vec<Decision> {
+    let mut all = Vec::new();
+    for _tick in 0..32 {
+        let decisions = scheduler.evaluate(now).await;
+        let superseded = decisions
+            .iter()
+            .filter(|decision| matches!(decision.outcome, Outcome::Superseded { .. }))
+            .count();
+        all.extend(decisions);
+        if superseded == 0 {
+            return all;
+        }
+    }
+    panic!("catch-up did not finish: {} decisions", all.len());
+}
+
+/// A schedule that missed `missed` every-minute instants starts one run, for
+/// the most recent, and settles every other one durably. A second replica
+/// that starts inside the grace window starts none of them.
+async fn catch_up_starts_only_the_latest_instant(store: Arc<dyn StateStore>, missed: u32) {
+    // Grace reaches back exactly `missed` instants from 04:00:10.
+    let grace = u64::from(missed) * 60;
+    let now = at(4, 0, 10);
+    let latest = minute_key(4, 0);
+
+    let first = Replica::new(Behaviour::Start);
+    let decisions = catch_up(
+        &mut scheduler(EVERY_MINUTE, grace, &store, &first, now),
+        now,
+    )
+    .await;
+
+    assert_eq!(first.starts(), 1, "exactly one run starts at catch-up");
+    let fired = decisions
+        .iter()
+        .filter(|decision| matches!(decision.outcome, Outcome::Fired { .. }))
+        .map(|decision| decision.key.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        fired,
+        [latest.as_str()],
+        "the run is for the latest instant"
+    );
+    let superseded = decisions
+        .iter()
+        .filter(|decision| decision.outcome == Outcome::Superseded { by: latest.clone() })
+        .map(|decision| decision.key.clone())
+        .collect::<Vec<_>>();
+    let expected = (1..missed)
+        .map(|back| {
+            let instant = at(4, 0, 0) - chrono::Duration::minutes(i64::from(missed - back));
+            format!("UTC@{}", instant.format("%Y-%m-%dT%H:%M"))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        superseded, expected,
+        "every other instant is superseded once"
+    );
+    for key in expected.iter().chain([&latest]) {
+        assert!(
+            store.schedule_run_recorded(NAME, key).await.unwrap(),
+            "{key} must have a durable occurrence record"
+        );
+    }
+
+    // A second replica starts thirty seconds later, inside the grace window.
+    let later = at(4, 0, 40);
+    let second = Replica::new(Behaviour::Start);
+    let decisions = catch_up(
+        &mut scheduler(EVERY_MINUTE, grace, &store, &second, later),
+        later,
+    )
+    .await;
+
+    assert_eq!(second.starts(), 0, "the second replica starts nothing");
+    let not_settled = decisions
+        .iter()
+        .filter(|decision| decision.outcome != Outcome::NotClaimed)
+        .collect::<Vec<_>>();
+    assert!(not_settled.is_empty(), "{not_settled:?}");
+}
+
+/// The control for the rule itself: without a missed instant nothing is
+/// superseded, and the next minute is an ordinary start.
+async fn a_single_due_instant_is_not_superseded(store: Arc<dyn StateStore>) {
+    let replica = Replica::new(Behaviour::Start);
+    let mut scheduler = scheduler(EVERY_MINUTE, 60, &store, &replica, at(4, 0, 10));
+
+    let first = scheduler.evaluate(at(4, 0, 10)).await;
+    let second = scheduler.evaluate(at(4, 0, 40)).await;
+    let third = scheduler.evaluate(at(4, 1, 10)).await;
+
+    assert!(
+        matches!(outcomes(&first)[..], [(key, Outcome::Fired { .. })] if key == minute_key(4, 0)),
+        "{first:?}"
+    );
+    assert!(second.is_empty(), "{second:?}");
+    assert!(
+        matches!(outcomes(&third)[..], [(key, Outcome::Fired { .. })] if key == minute_key(4, 1)),
+        "{third:?}"
+    );
+    assert_eq!(replica.starts(), 2);
+}
+
 mod json {
     use super::*;
+
+    #[tokio::test]
+    async fn catch_up_starts_only_the_latest_instant() {
+        let dir = tempfile::tempdir().unwrap();
+        super::catch_up_starts_only_the_latest_instant(store(&dir, "few"), 30).await;
+        super::catch_up_starts_only_the_latest_instant(store(&dir, "many"), 150).await;
+        super::a_single_due_instant_is_not_superseded(store(&dir, "one")).await;
+    }
 
     fn store(dir: &tempfile::TempDir, name: &str) -> Arc<dyn StateStore> {
         Arc::new(ironflow::storage::json_store::JsonStateStore::new(
@@ -236,6 +360,14 @@ mod sqlite {
                 .await
                 .unwrap(),
         )
+    }
+
+    #[tokio::test]
+    async fn catch_up_starts_only_the_latest_instant() {
+        let dir = tempfile::tempdir().unwrap();
+        super::catch_up_starts_only_the_latest_instant(store(&dir, "few").await, 30).await;
+        super::catch_up_starts_only_the_latest_instant(store(&dir, "many").await, 150).await;
+        super::a_single_due_instant_is_not_superseded(store(&dir, "one").await).await;
     }
 
     #[tokio::test]
@@ -277,6 +409,18 @@ mod postgres {
         let result = tokio::spawn(case(store)).await;
         fixture.cleanup().await.unwrap();
         result.unwrap();
+    }
+
+    #[tokio::test]
+    async fn catch_up_starts_only_the_latest_instant() {
+        run("pg_catchup_few", |store| {
+            super::catch_up_starts_only_the_latest_instant(store, 30)
+        })
+        .await;
+        run("pg_catchup_many", |store| {
+            super::catch_up_starts_only_the_latest_instant(store, 150)
+        })
+        .await;
     }
 
     #[tokio::test]
@@ -322,6 +466,18 @@ mod redis {
         let result = tokio::spawn(case(store)).await;
         fixture.cleanup().await;
         result.unwrap();
+    }
+
+    #[tokio::test]
+    async fn catch_up_starts_only_the_latest_instant() {
+        run("catchup_few", |store| {
+            super::catch_up_starts_only_the_latest_instant(store, 30)
+        })
+        .await;
+        run("catchup_many", |store| {
+            super::catch_up_starts_only_the_latest_instant(store, 150)
+        })
+        .await;
     }
 
     #[tokio::test]

@@ -139,6 +139,30 @@ publication is verified separately.
   Stray characters after a weekday, which the parser could read as a year
   (`Mon2030`), are rejected as well. See the weekday table under
   [Schedules](../CLI_REFERENCE.md#weekday-field).
+- **After downtime a schedule starts one run, for its most recent missed
+  instant** (IF-217). When more than one instant of a schedule is due at the
+  same evaluation (`serve` was down or restarted inside `grace_seconds`, or
+  an instant was still deferred when the next became due), only the most
+  recent one is decided. Every earlier one is superseded: it is claimed,
+  recorded as skipped in the state store and never starts, on this replica
+  or any other. Earlier releases evaluated the missed instants back to back,
+  oldest first: the first started a run and the later ones were skipped as
+  `overlapped` while it was active (a measured every-minute schedule lost 15
+  to 19 of its catch-up instants that way), or started further runs when the
+  first had already finished. After the upgrade a schedule with
+  `grace_seconds` longer than its period runs once after a restart, for the
+  latest instant, and not once per missed instant. A flow that must process
+  every period should take the period from its own state and not from the
+  number of scheduled runs. Operators see a superseded instant as the new
+  scheduler outcome label `superseded` in
+  `ironflow_scheduler_decisions_total`, counted once per instant, and as one
+  `WARN` line per schedule and tick: `skipping missed instants: at catch-up
+  only the most recent one is decided`, with `superseded` (count), `from`,
+  `to`, `superseded_by` and `more_on_later_ticks`. Dashboards and alerts that
+  enumerate the `outcome` label values need the new one. One tick records at
+  most 64 superseded instants per schedule; a longer backlog is recorded on
+  the following ticks, and it is no longer dropped unrecorded. See
+  [Catch-up](../CLI_REFERENCE.md#catch-up).
 - **A schedule whose `cron` has a malformed field now stops `serve` at
   startup** (IF-206). Each of the five fields must be one token. Earlier
   releases passed the fields to a parser that separates them with optional

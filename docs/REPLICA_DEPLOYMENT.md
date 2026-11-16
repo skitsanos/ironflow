@@ -197,6 +197,12 @@ once the overlapping run has finished. A replica that is draining does not
 skip: it defers, records nothing, and the instant is started by a peer or by
 the replica after its restart while it is inside grace.
 
+A replica that starts with several missed instants of a schedule inside the
+grace window decides only the most recent one and records the earlier ones as
+superseded (scheduler outcome `superseded`). Another replica that starts
+later inside the same window finds all of them settled and starts none. See
+[Catch-up](CLI_REFERENCE.md#catch-up).
+
 With the Redis state store, keep `REDIS_TTL` greater than the largest
 `grace_seconds` plus 60 seconds. `ironflow serve` logs a warning for each
 schedule that is not covered. The occurrence is still not run twice, but its

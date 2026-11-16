@@ -114,6 +114,7 @@ pub(crate) enum SchedulerOutcome {
     NotClaimed,
     Late,
     Overlapped,
+    Superseded,
     AtCapacity,
     Failed,
     ClaimFailed,
@@ -122,11 +123,12 @@ pub(crate) enum SchedulerOutcome {
 }
 
 impl SchedulerOutcome {
-    pub(crate) const ALL: [Self; 9] = [
+    pub(crate) const ALL: [Self; 10] = [
         Self::Fired,
         Self::NotClaimed,
         Self::Late,
         Self::Overlapped,
+        Self::Superseded,
         Self::AtCapacity,
         Self::Failed,
         Self::ClaimFailed,
@@ -140,6 +142,7 @@ impl SchedulerOutcome {
             Outcome::NotClaimed => Self::NotClaimed,
             Outcome::Late { .. } => Self::Late,
             Outcome::Overlapped { .. } => Self::Overlapped,
+            Outcome::Superseded { .. } => Self::Superseded,
             Outcome::AtCapacity => Self::AtCapacity,
             Outcome::Failed { .. } => Self::Failed,
             Outcome::ClaimFailed { .. } => Self::ClaimFailed,
@@ -154,6 +157,7 @@ impl SchedulerOutcome {
             Self::NotClaimed => "not_claimed",
             Self::Late => "late",
             Self::Overlapped => "overlapped",
+            Self::Superseded => "superseded",
             Self::AtCapacity => "at_capacity",
             Self::Failed => "failed",
             Self::ClaimFailed => "claim_failed",

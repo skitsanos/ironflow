@@ -24,7 +24,10 @@ pub struct CronSchedule {
 
 impl CronSchedule {
     /// Iterate distinct matching wall-clock candidates strictly after `after`.
-    pub fn after<'a>(&'a self, after: &DateTime<Utc>) -> impl Iterator<Item = DateTime<Utc>> + 'a {
+    pub fn after<'a>(
+        &'a self,
+        after: &DateTime<Utc>,
+    ) -> impl Iterator<Item = DateTime<Utc>> + use<'a> {
         let mut cursor = *after;
         std::iter::from_fn(move || {
             let next = self

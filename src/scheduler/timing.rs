@@ -10,10 +10,11 @@ use chrono_tz::Tz;
 
 use super::config::ScheduleConfig;
 
-/// Maximum occurrences one tick will consider for one schedule.
+/// Maximum missed occurrences one tick settles for one schedule, besides the
+/// most recent one it decides.
 ///
-/// Bounds the work a frequent expression combined with a long catch-up window
-/// can create. Truncation is reported rather than silent.
+/// Bounds the store writes a frequent expression combined with a long
+/// catch-up window can create. The remainder is settled on later ticks.
 pub const MAX_INSTANTS_PER_TICK: usize = 64;
 
 /// Longest daylight-saving gap this probe will step over. Real gaps are 30 or
@@ -117,6 +118,40 @@ pub(super) fn watermark_target(
     }
 }
 
+/// Every occurrence in the half-open local window `(after_local,
+/// through_local]`, oldest first, resolved to the instant it fires at.
+pub(super) fn occurrences(
+    schedule: &ScheduleConfig,
+    after_local: NaiveDateTime,
+    through_local: NaiveDateTime,
+) -> impl Iterator<Item = DueInstant> + '_ {
+    let tz = schedule.timezone();
+    // Feed naive local times to `cron` as if they were UTC. The iterator then
+    // walks wall-clock occurrences, which is the space the expression is
+    // written in.
+    let cursor = Utc.from_utc_datetime(&after_local);
+    schedule
+        .cron()
+        .after(&cursor)
+        .map(|candidate| candidate.naive_utc())
+        .take_while(move |local| *local <= through_local)
+        .filter_map(move |local| {
+            let instant = resolve_local(tz, local)?;
+            // Keyed on the *resolved* local time, not the matched one: inside a
+            // spring-forward gap every matched local (02:00, 02:15, ...) maps to
+            // the same real instant (03:00), and they must collapse onto one
+            // claim or the gap fires once per gap-interior occurrence instead of
+            // once. `DueInstant.local` stays the matched time — `evaluate`'s
+            // watermark comparisons need that — only the key changes.
+            let key = claim_key(tz, instant.naive_local());
+            Some(DueInstant {
+                local,
+                instant,
+                key,
+            })
+        })
+}
+
 /// Occurrences due in the half-open local window `(after_local, through_local]`.
 ///
 /// The second return value is `true` when `MAX_INSTANTS_PER_TICK` truncated the
@@ -129,39 +164,12 @@ pub fn due_instants(
     if through_local <= after_local {
         return (Vec::new(), false);
     }
-
-    let tz = schedule.timezone();
-    // Feed naive local times to `cron` as if they were UTC. The iterator then
-    // walks wall-clock occurrences, which is the space the expression is
-    // written in.
-    let cursor = Utc.from_utc_datetime(&after_local);
-
     let mut due = Vec::new();
-    let mut truncated = false;
-    for candidate in schedule.cron().after(&cursor) {
-        let local = candidate.naive_utc();
-        if local > through_local {
-            break;
-        }
+    for instant in occurrences(schedule, after_local, through_local) {
         if due.len() == MAX_INSTANTS_PER_TICK {
-            truncated = true;
-            break;
+            return (due, true);
         }
-        if let Some(instant) = resolve_local(tz, local) {
-            // Keyed on the *resolved* local time, not the matched one: inside a
-            // spring-forward gap every matched local (02:00, 02:15, ...) maps to
-            // the same real instant (03:00), and they must collapse onto one
-            // claim or the gap fires once per gap-interior occurrence instead of
-            // once. `DueInstant.local` stays the matched time — `evaluate`'s
-            // watermark comparisons need that — only the key changes.
-            let key = claim_key(tz, instant.naive_local());
-            due.push(DueInstant {
-                local,
-                instant,
-                key,
-            });
-        }
+        due.push(instant);
     }
-
-    (due, truncated)
+    (due, false)
 }

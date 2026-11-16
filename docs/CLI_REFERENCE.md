@@ -1323,14 +1323,52 @@ schedules:
 | `flow` | yes | — | Resolved against `flows_dir`, so a schedule cannot escape it. Maximum 1,024 UTF-8 bytes |
 | `cron` | yes | — | Maximum 256 UTF-8 bytes. Five fields separated by spaces: minute hour day month weekday, each one token (see [Field syntax](#field-syntax)). Seconds are fixed at zero; six- and seven-field expressions are rejected, and so is a token that is not exactly one field. Weekday numbers are `0` to `7`: `0` and `7` are Sunday, `1` to `6` are Monday to Saturday (see [Weekday field](#weekday-field)). If day and weekday are both restricted, either matching fires the schedule, as in traditional crontab |
 | `timezone` | no | `UTC` | IANA name, maximum 128 UTF-8 bytes. Unknown names fail at startup |
-| `grace_seconds` | no | `300` | Maximum lateness for which a missed instant still fires. Range 60..=604,800 because the scheduler evaluates every 30 seconds and catch-up must remain bounded |
+| `grace_seconds` | no | `300` | Maximum lateness for which a missed instant still fires. Of several missed instants only the most recent fires (see [Catch-up](#catch-up)). Range 60..=604,800 because the scheduler evaluates every 30 seconds and catch-up must remain bounded |
 | `context` | no | `{}` | Merged into the run's initial context, maximum 65,536 serialized JSON bytes. Must not define `_schedule` or `_flow_dir` |
 
 The `schedules` map accepts at most 256 entries, and each schedule name is at
-most 48 UTF-8 bytes with no control characters. One tick considers at most 64
-due instants for each name. If a longer grace window contains more occurrences,
-the remainder are logged and skipped rather than queued. This makes
-`grace_seconds` a lateness admission window, not an unbounded replay promise.
+most 48 UTF-8 bytes with no control characters. `grace_seconds` is a lateness
+admission window for the most recent instant, not a replay promise: see
+[Catch-up](#catch-up).
+
+##### Catch-up
+
+When a schedule has more than one instant due at the same evaluation, it has
+missed some: `serve` was down or restarted, or an earlier tick could not
+decide an instant. **Only the most recent due instant is decided. Every
+earlier one is superseded: it is recorded as skipped and never starts.** A
+schedule that runs every minute with `grace_seconds: 3600` and a server that
+was down for 40 minutes therefore starts one run after the restart, for the
+latest minute, not 40.
+
+- The most recent instant is decided like any other: it starts, or it is
+  skipped for lateness, overlap or run capacity, or deferred for flow-load
+  capacity. If it is skipped, nothing runs at this catch-up; the earlier
+  instants are not tried in its place.
+- A superseded instant is claimed and recorded in the state store, so no
+  other replica starts it either, including one that restarts inside the
+  grace window.
+- What you see for a superseded instant: the scheduler outcome label
+  `superseded` in `ironflow_scheduler_decisions_total`, counted once per
+  instant, and one `WARN` line per schedule and tick, `skipping missed
+  instants: at catch-up only the most recent one is decided`, with the fields
+  `schedule`, `superseded` (how many), `from` and `to` (the first and last
+  instant key), `superseded_by` (the instant decided in their place) and
+  `more_on_later_ticks`. There is no run and no event for a superseded
+  instant.
+- One tick records at most 64 superseded instants per schedule, oldest
+  first. A longer backlog is recorded over the following ticks
+  (`more_on_later_ticks=true`); the most recent instant is decided on the
+  first tick and does not wait for them.
+- An instant whose start was deferred and is still waiting when the next
+  instant becomes due is superseded by that next instant.
+
+Earlier releases evaluated every missed instant back to back, oldest first.
+The first one started a run, and each later one was skipped as `overlapped`
+while that run was active, or started another run if the first had already
+finished. A flow that must process every period should take the period from
+its own state (for example the last processed timestamp) and not from the
+number of scheduled runs.
 
 ##### Record retention and deleted runs
 
@@ -1472,7 +1510,9 @@ Redis claims expire independently through their atomic key TTL. Cleanup is
 best-effort and never changes whether an unexpired claim was won.
 
 **Skips are logged, never silent.** A skip states which rule caused it — grace,
-overlap, or capacity — and the instant involved, at `WARN`. A start deferred
+overlap, or capacity — and the instant involved, at `WARN`. Instants
+superseded at [catch-up](#catch-up) share one `WARN` line per schedule and
+tick. A start deferred
 for flow-load capacity is logged at `WARN` too, and is a delay rather than a
 skip. Losing a claim is
 logged at `debug`, because on N replicas it is the expected outcome N-1 times.
@@ -1516,8 +1556,9 @@ still full after that wait, for example because API validations are parsing
 slow flows, nothing has been parsed and no run exists; the instant is logged
 as deferred, counted as scheduler outcome `deferred`, and retried on each
 30-second tick until it starts or passes its `grace_seconds`, when it is
-skipped as late. Later instants of the same schedule wait behind a deferred
-one and start in order. A start that is waiting for a flow-load permit does
+skipped as late. If the next instant of the same schedule becomes due while
+one is still deferred, the deferred one is superseded by it (see
+[Catch-up](#catch-up)). A start that is waiting for a flow-load permit does
 not hold a run permit: it takes one only when it is about to parse the flow,
 so queued schedules do not use up `IRONFLOW_MAX_CONCURRENT_RUNS`.
 

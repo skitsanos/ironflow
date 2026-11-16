@@ -864,8 +864,15 @@ Rolling deployments must not mix pre-CAS and CAS-capable Redis writers: an old b
 `ironflow serve` evaluates configuration-only `schedules:` entries every 30
 seconds. Each scheduler keeps a local wall-clock watermark per schedule,
 enumerates only occurrences still reachable within that schedule's grace
-window, and caps one tick at 64 occurrences; excess occurrences are skipped,
-not queued. Cron expressions have five fields and traditional crontab
+window, and decides only the most recent of them. `scheduler/window.rs`
+splits the due occurrences: the latest is decided as usual, and every earlier
+one is superseded, which means claimed and marked as settled without a run.
+One tick marks at most 64 superseded occurrences per schedule, oldest first,
+and the watermark stops before the first one it did not reach, so a longer
+backlog is settled over the following ticks while the latest occurrence is
+decided at once. Occurrences that share a claim key (matched local times
+inside a daylight-saving gap) are one occurrence and never supersede each
+other. Cron expressions have five fields and traditional crontab
 day-of-month/day-of-week OR semantics; time zones use IANA names. Weekday
 numbers are 0 to 7, where 0 and 7 are Sunday and 1 to 6 are Monday to
 Saturday. The underlying `cron` crate numbers the week 1 to 7 from Sunday, so
@@ -964,8 +971,9 @@ occurrence instead of creating a backlog; each such skip is recorded in the
 claim and is final for every replica. The flow-load limit does not: a
 scheduled start waits up to five seconds for a load permit, where API requests
 fail fast, and a wait that expires defers the occurrence. Nothing was parsed
-and no run exists, so the watermark stops before it and later ticks retry it,
-in order, until it starts or falls outside grace. The start takes its run
+and no run exists, so the watermark stops before it and later ticks retry it
+until it starts, falls outside grace, or is superseded by the schedule's next
+occurrence. The start takes its run
 permit only after it holds a load permit and before the Lua VM is created: a
 queued start occupies no run capacity, and a start refused for run capacity
 returns its load permit without parsing. The run permit is never waited for,
