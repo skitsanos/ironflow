@@ -93,17 +93,7 @@ pub(super) fn redact_url_spans(text: &str, truncated: bool) -> String {
     while let Some((relative_start, prefix)) = URL_PREFIXES.find_first(&text[cursor..]) {
         let start = cursor + relative_start;
         output.push_str(&text[cursor..start]);
-        let end = text[start..]
-            .char_indices()
-            .find_map(|(offset, character)| {
-                (offset > 0
-                    && (character.is_whitespace()
-                        || character.is_control()
-                        || matches!(character, '\'' | '"' | '<' | '>')))
-                .then_some(start + offset)
-            })
-            .unwrap_or(text.len());
-        let end = joined_span_end(text, start + prefix.len(), end);
+        let end = span_end(text, start, start + prefix.len());
         let raw_url = &text[start..end];
         if truncated && end == text.len() {
             output.push_str(REDACTED_URL);
@@ -119,20 +109,28 @@ pub(super) fn redact_url_spans(text: &str, truncated: bool) -> String {
     output
 }
 
-/// URLs joined without whitespace are separate URLs. Read as one, the later
-/// ones would keep their credentials in the first one's path. The marker
-/// contains a space, so the search reads past the whitespace that ended the
-/// span and keeps only a stop that starts inside it.
-fn joined_span_end(text: &str, body_start: usize, end: usize) -> usize {
-    let mut window_end = (end + REDACTED_URL.len()).min(text.len());
-    while !text.is_char_boundary(window_end) {
-        window_end -= 1;
-    }
-    SPAN_STOPS
-        .find_first(&text[body_start..window_end])
-        .map(|(offset, _)| body_start + offset)
-        .filter(|stop| *stop < end)
-        .unwrap_or(end)
+/// End of the URL that starts at `start`: whitespace, a control character, a
+/// quote or an angle bracket, or the next [`SPAN_STOPS`] entry if that comes
+/// first. URLs joined without whitespace are separate URLs; read as one, the
+/// later ones would keep their credentials in the first one's path.
+///
+/// The stop is searched first and bounds the delimiter search, so the text
+/// between two URLs is read a constant number of times however many URLs
+/// share a run without whitespace.
+fn span_end(text: &str, start: usize, body_start: usize) -> usize {
+    let stop = SPAN_STOPS
+        .find_first(&text[body_start..])
+        .map_or(text.len(), |(offset, _)| body_start + offset);
+    text[start..stop]
+        .char_indices()
+        .find_map(|(offset, character)| {
+            (offset > 0
+                && (character.is_whitespace()
+                    || character.is_control()
+                    || matches!(character, '\'' | '"' | '<' | '>')))
+            .then_some(start + offset)
+        })
+        .unwrap_or(stop)
 }
 
 fn has_valid_percent_encoding(raw: &str) -> bool {

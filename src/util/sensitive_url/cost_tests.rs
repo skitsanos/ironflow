@@ -164,3 +164,22 @@ fn scrubbing_truncated_output_again_stays_bounded_and_clean() {
     assert!(twice.len() <= MAX_DIAGNOSTIC_BYTES + REDACTED.len() + TRUNCATED.len());
     assert!(twice.ends_with(TRUNCATED));
 }
+
+/// Ending a span where the next URL starts must not rescan the rest of the
+/// text for every URL: a mebibyte of URL prefixes with no whitespace between
+/// them is still read a constant number of times.
+#[test]
+fn urls_joined_without_whitespace_are_scanned_in_linear_time() {
+    for unit in [
+        "http://",
+        "postgres://u:p@h/d,",
+        "sqlite:",
+        "redis://h/0[REDACTED URL]",
+    ] {
+        let text = repeated(unit);
+
+        let redacted = within_budget(move || scrub(&text, false));
+
+        assert!(!redacted.contains("u:p@"), "unit: {unit}");
+    }
+}
