@@ -6,6 +6,8 @@ local flow = Flow.new("extract_pdf_demo")
 -- see IRONFLOW_MAX_PDF_DECOMPRESSED_STREAM_BYTES and IRONFLOW_MAX_PDF_OBJECTS.
 -- Font ToUnicode maps are measured before they are parsed and count against
 -- IRONFLOW_MAX_PDF_EXTRACT_CMAP_ENTRIES across the whole document.
+-- Lines follow the position of the text on the page: text on a new baseline
+-- starts a new line, and runs that continue a line are joined to it.
 flow:step("extract_text", nodes.extract_pdf({
     path = "${ctx._flow_dir}/../fixtures/ironflow-sample.pdf",
     format = "text",

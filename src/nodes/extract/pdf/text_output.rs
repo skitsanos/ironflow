@@ -59,6 +59,32 @@ impl Output {
         Ok(())
     }
 
+    pub(super) fn len(&self) -> usize {
+        self.text.len()
+    }
+
+    /// A word space, unless the line is empty or already ends with one.
+    pub(super) fn space(&mut self, budget: &Budget<'_>) -> Result<()> {
+        if !self.text.is_empty() && !self.text.ends_with(['\n', ' ']) {
+            self.push(" ", budget)?;
+        }
+        Ok(())
+    }
+
+    /// Break the line before the text appended from byte `index` on.
+    pub(super) fn break_at(&mut self, index: usize, budget: &Budget<'_>) -> Result<()> {
+        budget.checkpoint()?;
+        if self.text[..index].ends_with('\n') {
+            return Ok(());
+        }
+        self.admit(1)?;
+        self.text
+            .try_reserve(1)
+            .context("cannot reserve bounded PDF text output")?;
+        self.text.insert(index, '\n');
+        Ok(())
+    }
+
     pub(super) fn actual(
         &mut self,
         value: &Object,

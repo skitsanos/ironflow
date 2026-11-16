@@ -15,10 +15,12 @@ use crate::util::pdf_info::{INFO_FIELDS, decode_info_string};
 
 mod cmap_scan;
 mod fonts;
+mod layout;
 mod marked;
 mod resolve;
 mod text;
 mod text_output;
+mod widths;
 
 pub struct ExtractPdfNode;
 

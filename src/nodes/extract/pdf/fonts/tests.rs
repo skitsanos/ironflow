@@ -25,7 +25,11 @@ async fn show(font: Dictionary, doc: Document, operand: Vec<u8>, limit: usize) -
             .map_or(Ok(cmap_scan::MAX_TARGET_UNITS), |cost| {
                 cost.map(|cost| cost.longest_target)
             })?;
-        let decoder = Decoder::new(font.get_font_encoding(&doc)?, longest_target);
+        let decoder = Decoder::new(
+            font.get_font_encoding(&doc)?,
+            longest_target,
+            super::Widths::Unknown,
+        );
         let mut output = Output::new(limit);
         decoder.show(&operand, &mut output, &budget)?;
         let text = output.finish();

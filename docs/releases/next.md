@@ -668,9 +668,21 @@ publication is verified separately.
     of a text box or drawn shape that declares no bullet was reported as a
     list item and is now plain. Placeholders are unchanged: their inherited
     bullets are still approximated from `lvl`.
+  - `extract_pdf` builds lines from the position of the text. Every
+    `BT … ET` block used to be its own line and moves inside a block were
+    ignored, so a PDF whose writer ends a block at each font change (macOS
+    print-to-PDF does, for every glyph taken from a fallback font) returned
+    `Cas`, `ă` and ` mare` on three lines, and lines written in one block
+    with `Td` were glued together (`first linesecond line`). Text on a new
+    baseline now starts a new line, text that continues the last string is
+    joined to it (`Casă mare`), and a gap on one baseline is a single space.
+    Fonts without a usable width table keep one line per block. Extracted
+    PDF text and Markdown change for many documents: line breaks move, and
+    words that were split are whole.
 
   See [`extract_word`](../nodes/extract_word.md#style-inheritance-of-bold-italic-and-strikethrough),
-  [`pdf_metadata`](../nodes/pdf_metadata.md) and
+  [`pdf_metadata`](../nodes/pdf_metadata.md),
+  [`extract_pdf`](../nodes/extract_pdf.md#lines-and-word-spaces) and
   [`extract_pptx`](../nodes/extract_pptx.md#text-fidelity).
 
 - **Deleting a scheduled run no longer lets its occurrence run again**

@@ -6,7 +6,11 @@ use anyhow::{Result, bail, ensure};
 use lopdf::{Dictionary, Document, Encoding, Object, ObjectId};
 
 use super::super::resource::Budget;
-use super::{cmap_scan, text_output::Output};
+use super::{
+    cmap_scan,
+    text_output::Output,
+    widths::{Measure, Widths},
+};
 
 /// UTF-8 bytes one decoded UTF-16 unit can become. lopdf sniffs a byte-order
 /// mark in the decoded units, and a UTF-8 mark makes it replace each of a
@@ -71,7 +75,7 @@ impl<'a> Fonts<'a> {
         &mut self,
         font: &'a Dictionary,
         stream_limit: usize,
-        budget: &Budget<'_>,
+        budget: &mut Budget<'_>,
     ) -> Result<Decoder<'a>> {
         let mut longest_target = cmap_scan::MAX_TARGET_UNITS;
         // A stream that fails to decode here fails identically inside lopdf,
@@ -95,7 +99,8 @@ impl<'a> Fonts<'a> {
         budget.checkpoint()?;
         let encoding = font.get_font_encoding_with_limit(self.doc, stream_limit)?;
         budget.checkpoint()?;
-        Ok(Decoder::new(encoding, longest_target))
+        let widths = Widths::read(self.doc, font, budget)?;
+        Ok(Decoder::new(encoding, longest_target, widths))
     }
 }
 
@@ -105,10 +110,11 @@ pub(super) struct Decoder<'a> {
     expansion: usize,
     /// Each byte decodes on its own, so the string can be decoded in pieces.
     bytewise: bool,
+    widths: Widths,
 }
 
 impl<'a> Decoder<'a> {
-    fn new(encoding: Encoding<'a>, longest_target: usize) -> Self {
+    fn new(encoding: Encoding<'a>, longest_target: usize, widths: Widths) -> Self {
         let bytewise = !matches!(
             encoding,
             Encoding::UnicodeMapEncoding(_)
@@ -118,7 +124,13 @@ impl<'a> Decoder<'a> {
             expansion: expansion(&encoding, longest_target),
             encoding,
             bytewise,
+            widths,
         }
+    }
+
+    /// The summed glyph widths of one string, when the font has usable ones.
+    pub(super) fn measure(&self, bytes: &[u8]) -> Option<Measure> {
+        self.widths.measure(bytes)
     }
 
     /// Append the text of one glyph string. lopdf materializes a whole operand

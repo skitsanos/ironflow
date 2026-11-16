@@ -42,6 +42,33 @@ best-effort basis, but whitespace can be introduced or omitted when positioned
 glyph fragments are joined. Do not treat exact whitespace or byte-for-byte
 output as a stable document-identity representation.
 
+### Lines and word spaces
+
+Lines follow the position of the text, not the `BT … ET` blocks it is written
+in. The text matrix, the line matrix and the page transformation (`cm`, `q`,
+`Q`) are tracked, and each shown string is compared with the end of the one
+before it:
+
+- Text more than half its size off the last baseline starts a new line. This
+  holds for a move inside one block (`Td`, `TD`, `Tm`) as well as for a new
+  block; superscripts and subscripts stay on their line.
+- On the same baseline, text that starts where the last string ended is
+  joined to it, a gap wider than a fifth of the text size becomes one space,
+  and text that starts left of that end begins a new line. Writers such as
+  the macOS Quartz PDF context end a block at every font change, so a word
+  with one glyph from a fallback font is one word, not three lines.
+- `T*`, `'` and `"` always start a new line.
+
+The end of a string comes from its glyph widths: `/Widths` of a simple font,
+and `/W` with `/DW` of a Type0 font encoded `Identity-H`. For any other font
+(no width table, a Type3 font, another CMap) the end is unknown; a change of
+baseline still starts a new line, and otherwise the older rule applies: each
+`BT … ET` block is its own line and strings inside one block are joined
+without a separator. `/ActualText` replacement text has no position and is
+placed on a new line when a block ended before it. Reading order is stream
+order: columns and table cells are not reordered, and width entries count
+toward `IRONFLOW_MAX_EXTRACT_ITEMS`.
+
 When page marked-content sequences supply `/ActualText`, extraction uses that
 logical replacement string once instead of the enclosed glyphs. The outermost
 replacement wins for nested spans; an empty string deliberately suppresses the
