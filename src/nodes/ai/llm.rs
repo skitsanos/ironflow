@@ -86,7 +86,14 @@ impl Node for LlmNode {
 
         let messages = resolve_messages(config, ctx)?;
         if matches!(mode, LlmMode::Responses) && messages.is_some() {
-            anyhow::bail!("llm: 'messages' and 'messages_key' are supported only in chat mode");
+            // Responses mode sends `input` as text, so a `function_call` it
+            // reports cannot be answered: say so instead of only naming the
+            // parameter (IF-220).
+            anyhow::bail!(
+                "llm: 'messages' and 'messages_key' are supported only in chat mode. \
+                 Responses mode sends 'input' as text, so tool results cannot be returned \
+                 to the model; run a tool loop with mode = \"chat\""
+            );
         }
         let (messages, artifact_inputs) = match messages {
             Some(messages) => {

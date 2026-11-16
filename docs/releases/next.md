@@ -1037,6 +1037,13 @@ publication is verified separately.
   or keep it out of error text. See
   [Diagnostic scrubbing](../SECURITY.md#diagnostic-scrubbing).
 
+- `llm` says why responses mode cannot run a tool loop (IF-220). Responses
+  mode sends `input` as text, so the results of a reported `function_call`
+  cannot be returned to the model. `messages` and `messages_key` were already
+  refused there; the error now states that reason and names `mode = "chat"`,
+  and the node page documents the boundary. No request behaviour changes. See
+  [`llm`](../nodes/llm.md#chat-and-responses-parameters).
+
 - `html_sanitize` checks the type of `link_rel` and interpolates it (IF-220).
   A `link_rel` that was not a string, such as a number or a list, was ignored
   and the default `noopener noreferrer` applied; the step now fails with

@@ -449,3 +449,33 @@ async fn embedding_nodes_reject_unknown_and_non_string_providers_before_any_requ
         }
     }
 }
+
+/// IF-220 (p): responses mode sends `input` as text, so the results of a
+/// `function_call` cannot be returned to the model. The attempt is refused
+/// before a request, and the error says where a tool loop can run.
+#[tokio::test]
+async fn responses_mode_refuses_a_tool_loop_with_the_reason() {
+    let tool_results = json!([
+        {"role": "user", "content": "weather?"},
+        {"role": "tool", "tool_call_id": "call_1", "content": "sunny"}
+    ]);
+    let ctx = Context::from_iter([("conversation".to_string(), tool_results.clone())]);
+    for parameter in [
+        json!({"messages": tool_results}),
+        json!({"messages_key": "conversation"}),
+    ] {
+        let server = Server::start(None, success()).await;
+        let error = run_with(with(custom(&server, "responses"), parameter), &ctx)
+            .await
+            .unwrap_err();
+        let message = format!("{error:#}");
+        assert!(message.contains("supported only in chat mode"), "{message}");
+        assert!(
+            message.contains("tool results cannot be returned")
+                && message.contains("mode = \"chat\""),
+            "{message}"
+        );
+        assert!(!message.contains("sunny"), "{message}");
+        assert!(server.requests().is_empty(), "a request was still sent");
+    }
+}

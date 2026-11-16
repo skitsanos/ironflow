@@ -67,6 +67,17 @@ The Responses API uses different shapes for tools and structured output
 before a request is sent instead of being dropped. Pass the Responses-shaped
 fields through `extra`, as the web-search example below does.
 
+Responses mode cannot complete a tool loop. `input` is always the prompt
+text, so the `function_call` items a model returns for function tools given
+through `extra.tools` are reported as tool calls but their results cannot be
+sent back: `messages` and `messages_key` fail the step with `llm: 'messages'
+and 'messages_key' are supported only in chat mode. Responses mode sends
+'input' as text, so tool results cannot be returned to the model; run a tool
+loop with mode = "chat"`. Use responses mode for single requests, including
+provider-side tools such as web search and one-shot function calls whose
+arguments the flow reads itself, and use chat mode with
+[`tool_dispatch`](tool_dispatch.md) for a loop.
+
 ## Environment Variable Fallbacks
 
 | Config Key | Environment Variable | Provider |
