@@ -367,3 +367,81 @@ fn prune_rejects_scan_and_continuation_values_outside_their_contract() {
         assert!(stderr.contains(expected), "{stderr}");
     }
 }
+
+/// IF-220 (w), decided 2026-11-16: `--all` loops on the continuation digest
+/// until the store is covered, with every pass keeping its own `--scan` and
+/// `--limit`. Without it one invocation stays one bounded pass.
+#[tokio::test]
+async fn prune_all_covers_the_store_in_bounded_passes() {
+    let directory = tempfile::tempdir().unwrap();
+    let artifact_dir = directory.path().join("artifacts");
+    let run_dir = directory.path().join("runs");
+    let store = LocalArtifactStore::new(&artifact_dir).unwrap();
+    let retained = publish(&store, "retained", 12).await;
+    let orphans = publish(&store, "orphan", 9).await;
+    retain(&run_dir, serde_json::json!(retained)).await;
+
+    // The default is still one pass: at most two deletions, then a marker.
+    let single = prune(&artifact_dir, &run_dir, &["--scan", "4", "--limit", "2"]);
+    assert!(single.status.success());
+    assert!(continuation(&single).is_some());
+    let left = |orphans: &[ironflow::artifacts::ArtifactRef]| {
+        orphans
+            .iter()
+            .filter(|artifact| store.resolve(artifact).is_ok())
+            .count()
+    };
+    assert!(left(&orphans) >= 7, "one pass deleted more than its limit");
+
+    let all = prune(
+        &artifact_dir,
+        &run_dir,
+        &["--scan", "4", "--limit", "2", "--all"],
+    );
+    let stdout = String::from_utf8_lossy(&all.stdout);
+    assert!(
+        all.status.success(),
+        "{}",
+        String::from_utf8_lossy(&all.stderr)
+    );
+    assert_eq!(left(&orphans), 0, "{stdout}");
+    assert!(
+        retained
+            .iter()
+            .all(|artifact| store.resolve(artifact).is_ok())
+    );
+    // Several bounded passes ran, none above its deletion limit, and the
+    // command ends with the store covered and nothing to continue.
+    let passes: Vec<&str> = stdout
+        .lines()
+        .filter(|line| line.starts_with("Artifact prune inspected"))
+        .collect();
+    assert!(passes.len() > 2, "{stdout}");
+    assert!(
+        passes.iter().all(|line| !line.contains("deleted 3")
+            && (line.contains("deleted 0")
+                || line.contains("deleted 1")
+                || line.contains("deleted 2"))),
+        "{stdout}"
+    );
+    assert!(stdout.contains("reached the end of the store"), "{stdout}");
+    assert!(continuation(&all).is_none(), "{stdout}");
+    assert!(stdout.contains("passes"), "{stdout}");
+
+    // The offline assertion is still required.
+    let refused = Command::new(env!("CARGO_BIN_EXE_ironflow"))
+        .args([
+            "artifacts",
+            "prune",
+            "--before",
+            "2999-01-01T00:00:00Z",
+            "--all",
+        ])
+        .arg("--store-dir")
+        .arg(&run_dir)
+        .env("IRONFLOW_ARTIFACT_DIR", &artifact_dir)
+        .output()
+        .unwrap();
+    assert!(!refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("--confirm-offline"));
+}

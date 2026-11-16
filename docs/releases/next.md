@@ -1052,6 +1052,17 @@ publication is verified separately.
   or keep it out of error text. See
   [Diagnostic scrubbing](../SECURITY.md#diagnostic-scrubbing).
 
+- `ironflow artifacts prune --all` covers the whole store in one command
+  (IF-220, decided 2026-11-16). A store larger than `--scan` digests had to be
+  pruned by a wrapper that looped on the printed `--after` digest. The opt-in
+  `--all` flag runs that loop inside the command: bounded passes, each with
+  its own `--scan` and `--limit`, until a pass reaches the end of the store,
+  with a line per pass and a total. The default is unchanged, one bounded pass
+  per invocation, and `--confirm-offline` is still required. Every pass reads
+  every retained run once, so with `--all` the writers stay stopped for the
+  whole run. See [Covering the whole
+  store](../CLI_REFERENCE.md#covering-the-whole-store).
+
 - An empty `IRONFLOW_API_KEY` beside the unauthenticated opt-in no longer
   overrides a key in the config file (IF-220, decided 2026-11-16). With
   `IRONFLOW_ALLOW_UNAUTHENTICATED_API=true` (or `allow_unauthenticated_api:

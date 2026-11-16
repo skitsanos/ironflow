@@ -250,6 +250,7 @@ store.
 | `--scan <COUNT>` | no | `10000` | Most stored artifacts examined by this invocation, strictly 1–10000 |
 | `--after <SHA256>` | no | — | Resume after this digest, as printed by an incomplete invocation |
 | `--confirm-offline` | yes | — | Assert that no process can add a reference during the scan/delete window |
+| `--all` | no | off | Repeat bounded passes, each with its own `--scan` and `--limit`, until the whole store has been examined. See [Covering the whole store](#covering-the-whole-store) |
 | `--store-dir <DIR>` | no | `data/runs` | JSON/SQLite state location; normal store configuration and environment overrides still apply |
 
 Invalid arguments fail before either store is opened.
@@ -279,6 +280,24 @@ Artifact prune incomplete: examined 12 stored artifacts; continue with --after <
 | `examined` | Stored digests listed in this window, old or not, at most `--scan` |
 | `incomplete … --after <sha256>` | More of the store remains; pass the digest back to continue |
 | `complete …` | The window reached the end of the store and nothing was left over |
+
+#### Covering the whole store
+
+By default one invocation is one bounded pass, so its work is bounded by
+`--scan` and `--limit` however large the store is. `--all` (IF-220) runs the
+loop below inside the command: it repeats passes, each still bounded by
+`--scan` and `--limit`, resuming after the digest the previous pass reached,
+until a pass reaches the end of the store. It requires `--confirm-offline`
+like every prune, may be combined with `--after` to start part-way, and
+stops with an error if a pass fails. Each pass prints its `inspected` line;
+an intermediate pass then prints `Artifact prune pass <n>: examined <k>
+stored artifacts; continuing after <sha256>`, and the command ends with the
+`complete` line and a total, `Artifact prune --all: <n> passes, inspected
+<i>, retained <r>, deleted <d>.` What `--all` gives up is the bound on one
+invocation: it runs ⌈N / scan⌉ + ⌈D / limit⌉ passes at most, and every pass
+reads every retained run once, so the writers stay stopped for the whole of
+it. Use the default when the offline window is short and the store is
+large, and continue in the next window with the printed `--after`.
 
 **Progress guarantee.** Every incomplete invocation prints a digest greater
 than the one it was given, and everything up to that digest has been resolved.

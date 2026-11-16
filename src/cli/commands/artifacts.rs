@@ -1,8 +1,9 @@
 //! `ironflow artifacts prune`: bounded offline artifact retention.
 //!
-//! One invocation examines one window of the store in digest order, audits
-//! every retained run against that window, deletes what nothing references,
-//! and reports where the next invocation must resume (IF-200).
+//! One pass examines one window of the store in digest order, audits every
+//! retained run against that window, deletes what nothing references, and
+//! reports where the next pass must resume (IF-200). An invocation is one
+//! pass, or with `--all` as many passes as the store needs (IF-220).
 
 mod references;
 
@@ -39,6 +40,11 @@ pub struct ArtifactPruneOptions {
     /// Assert that every IronFlow writer sharing the stores is stopped
     #[arg(long)]
     confirm_offline: bool,
+
+    /// Repeat bounded passes, each with --scan and --limit, until the whole
+    /// store has been examined
+    #[arg(long)]
+    all: bool,
 }
 
 impl ArtifactPruneOptions {
@@ -85,18 +91,84 @@ pub(crate) async fn cmd_artifact_prune(
 ) -> Result<()> {
     options.validate()?;
     let cutoff = options.cutoff()?;
-    let (scan, after) = (options.scan, options.after.clone());
+    let mut after = options.after.clone();
+    let mut total = Outcome::default();
+    let mut passes = 0_usize;
+    loop {
+        let pass = prune_pass(store.as_ref(), &options, cutoff, after.clone()).await?;
+        passes += 1;
+        total.add(&pass.outcome);
+        println!(
+            "Artifact prune inspected {}, retained {}, deleted {}.",
+            pass.outcome.inspected, pass.outcome.retained, pass.outcome.deleted
+        );
+        match pass.next {
+            Some(digest) if options.all => {
+                // Digest order makes every pass resume strictly later; a
+                // marker that does not move would loop forever.
+                if after.as_deref() >= Some(digest.as_str()) {
+                    bail!("artifact prune made no progress after {digest}; stopping");
+                }
+                println!(
+                    "Artifact prune pass {passes}: examined {} stored artifacts; continuing after {digest}",
+                    pass.listed
+                );
+                after = Some(digest);
+            }
+            Some(digest) => {
+                println!(
+                    "Artifact prune incomplete: examined {} stored artifacts; continue with --after {digest}",
+                    pass.listed
+                );
+                return Ok(());
+            }
+            None => {
+                println!(
+                    "Artifact prune complete: examined {} stored artifacts and reached the end of the store.",
+                    pass.listed
+                );
+                break;
+            }
+        }
+    }
+    if options.all {
+        println!(
+            "Artifact prune --all: {passes} passes, inspected {}, retained {}, deleted {}.",
+            total.inspected, total.retained, total.deleted
+        );
+    }
+    Ok(())
+}
+
+/// What one bounded pass did and where the next one resumes.
+struct Pass {
+    outcome: Outcome,
+    /// Stored artifacts the pass examined.
+    listed: usize,
+    next: Option<String>,
+}
+
+/// One bounded pass: examine one window of at most `--scan` artifacts in
+/// digest order, audit every retained run against it and delete at most
+/// `--limit` unreferenced artifacts.
+async fn prune_pass(
+    store: &dyn StateStore,
+    options: &ArtifactPruneOptions,
+    cutoff: SystemTime,
+    after: Option<String>,
+) -> Result<Pass> {
+    let scan = options.scan;
     let (artifacts, window) = run_tracked_blocking_step(move |execution| {
         let artifacts = ArtifactStore::from_env()?;
         let window = artifacts.prune_window(cutoff, after.as_deref(), scan, &execution)?;
         Ok((artifacts, window))
     })
     .await?;
-    let audit = audit_references(store.as_ref(), &window.candidates).await?;
+    let audit = audit_references(store, &window.candidates).await?;
     audit.report_non_canonical();
 
     let mut outcome = Outcome::default();
-    // Where the next invocation resumes: after the window, or after the last
+    // Where the next pass resumes: after the window, or after the last
     // candidate resolved here when the deletion limit ends this one early.
     let mut next = window.next.clone();
     for candidate in &window.candidates {
@@ -118,21 +190,11 @@ pub(crate) async fn cmd_artifact_prune(
         }
         outcome.inspected += 1;
     }
-    println!(
-        "Artifact prune inspected {}, retained {}, deleted {}.",
-        outcome.inspected, outcome.retained, outcome.deleted
-    );
-    match next {
-        Some(digest) => println!(
-            "Artifact prune incomplete: examined {} stored artifacts; continue with --after {digest}",
-            window.listed
-        ),
-        None => println!(
-            "Artifact prune complete: examined {} stored artifacts and reached the end of the store.",
-            window.listed
-        ),
-    }
-    Ok(())
+    Ok(Pass {
+        outcome,
+        listed: window.listed,
+        next,
+    })
 }
 
 #[derive(Default)]
@@ -140,4 +202,12 @@ struct Outcome {
     inspected: usize,
     retained: usize,
     deleted: usize,
+}
+
+impl Outcome {
+    fn add(&mut self, other: &Self) {
+        self.inspected += other.inspected;
+        self.retained += other.retained;
+        self.deleted += other.deleted;
+    }
 }
