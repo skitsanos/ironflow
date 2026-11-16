@@ -27,6 +27,21 @@ static URL_PREFIXES: AsciiNeedles = AsciiNeedles::new(&[
     "sqlite:",
 ]);
 
+/// Where a URL span ends although no whitespace follows: the start of the
+/// next URL, or the marker an earlier pass left for one.
+static SPAN_STOPS: AsciiNeedles = AsciiNeedles::new(&[
+    "postgresql://",
+    "postgres://",
+    "rediss://",
+    "redis://",
+    "https://",
+    "http://",
+    "smtps://",
+    "smtp://",
+    "sqlite:",
+    REDACTED_URL,
+]);
+
 pub(super) fn redact_url(raw: &str, hide_path: bool) -> String {
     if raw == REDACTED_URL || raw.chars().any(char::is_control) || !has_valid_percent_encoding(raw)
     {
@@ -65,7 +80,8 @@ pub(super) fn redact_url(raw: &str, hide_path: bool) -> String {
 }
 
 /// Redact every URL span in `text`. Each search resumes after the previous
-/// span, so the text is read once.
+/// span, so the text is read a constant number of times. A span ends at
+/// whitespace, a quote, an angle bracket, or where the next URL starts.
 ///
 /// `truncated` says that `text` is a prefix of a longer diagnostic. A span
 /// that reaches the cut may have lost the `@` that separates user information
@@ -87,6 +103,7 @@ pub(super) fn redact_url_spans(text: &str, truncated: bool) -> String {
                 .then_some(start + offset)
             })
             .unwrap_or(text.len());
+        let end = joined_span_end(text, start + prefix.len(), end);
         let raw_url = &text[start..end];
         if truncated && end == text.len() {
             output.push_str(REDACTED_URL);
@@ -100,6 +117,22 @@ pub(super) fn redact_url_spans(text: &str, truncated: bool) -> String {
     }
     output.push_str(&text[cursor..]);
     output
+}
+
+/// URLs joined without whitespace are separate URLs. Read as one, the later
+/// ones would keep their credentials in the first one's path. The marker
+/// contains a space, so the search reads past the whitespace that ended the
+/// span and keeps only a stop that starts inside it.
+fn joined_span_end(text: &str, body_start: usize, end: usize) -> usize {
+    let mut window_end = (end + REDACTED_URL.len()).min(text.len());
+    while !text.is_char_boundary(window_end) {
+        window_end -= 1;
+    }
+    SPAN_STOPS
+        .find_first(&text[body_start..window_end])
+        .map(|(offset, _)| body_start + offset)
+        .filter(|stop| *stop < end)
+        .unwrap_or(end)
 }
 
 fn has_valid_percent_encoding(raw: &str) -> bool {
