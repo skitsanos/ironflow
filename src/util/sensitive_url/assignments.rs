@@ -1,5 +1,5 @@
-//! Redacts the value of every `key=value` and `key: value` assignment whose
-//! key names a credential.
+//! Redacts the value of every assignment whose key names a credential:
+//! `key=value`, `key: value` and the other forms listed in `values`.
 //!
 //! The text is read once, word by word, so the cost is linear in its length
 //! (IF-177). A word is a run of ASCII letters, digits, `_` and `-`, and it is
@@ -53,8 +53,10 @@ pub(super) fn redact_sensitive_assignments(text: &str) -> String {
             continue;
         }
         let key = Key {
+            start: key_start,
             end: key_end,
             authorization: ends_with_suffix(word, b"authorization"),
+            flag: word.starts_with(b"--"),
         };
         let Some(value) = assigned_value(text, key) else {
             continue;

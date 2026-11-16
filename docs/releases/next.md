@@ -783,6 +783,19 @@ publication is verified separately.
 
 ## Security
 
+- **The diagnostic scrubber recognizes more ways a tool prints a
+  credential** (IF-219). The value stayed in a stored task error, event or
+  log line when the key was a Lua bracket key (`["password"] = "pw"`), when
+  the separator was `=>` or `:=`, when a command-line flag was followed by
+  its argument (`--password pw`), when the value was wrapped as Rust `Debug`
+  output prints it (`password: Some("pw")`), and when it was the text of an
+  XML element (`<password>pw</password>`). For `=>`, `:=` and the wrapped
+  form the scrubber also inserted `[REDACTED]` next to the untouched value.
+  All of these are now replaced, in linear time. If a failing step may have
+  printed a credential in one of these forms under an older version, rotate
+  it and purge the affected run records and logs. The full list of shapes is
+  under [Diagnostic scrubbing](../SECURITY.md#diagnostic-scrubbing).
+
 - **Connection URLs joined without whitespace are each redacted** (found
   with IF-219). A diagnostic that listed URLs separated only by a comma or
   semicolon, such as `postgres://db1/app,postgres://user:pw@db2/app`, was

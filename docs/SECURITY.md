@@ -312,6 +312,11 @@ Guaranteed shapes:
 | Assignment with `=` or `:` | `db_password=pw`, `--token=pw`, `PGPASSWORD=pw`, `X-API-Key: pw` | The value up to the next whitespace or `&`, `;`, `,`, `<`, `>` or quote. |
 | `Bearer` or `Basic` value | `token=Bearer pw`, `Proxy-Authorization: Basic pw` | The scheme and the credential after it, as one value. |
 | `Authorization` header | `Authorization: Token pw`, `authorization=ApiKey pw` | Two words, whatever the scheme: a key that ends with `authorization` carries a scheme and its credential. |
+| Other separators | `password := pw`, `"password" => "pw"`, `"password" : "pw"` | As for `=` and `:`. Whitespace, including a line break, may surround the separator. |
+| Bracketed key | `["password"] = "pw"`, `headers[authorization] = Bearer pw` | As for a plain key: a Lua table constructor or an index expression. |
+| Command-line flag | `--password pw`, `--api-key 'p w'` | The next argument, unless it starts with `-`. |
+| Wrapped value | `password: Some("pw")`, `api_key=SecretString('pw')` | The quoted content after a word that ends with `(`, as Rust `Debug` output prints an optional value. |
+| XML element | `<password>pw</password>` | The element text up to the next tag or line end. |
 | Quoted value | `"client_secret": "pw"`, `password = 'p''w'` | The content between the quotes. A backslash escape or a doubled quote does not end it. |
 | JSON inside a JSON string | `{\"password\":\"pw\"}` | The content between the escaped quotes, at any escaping depth. |
 
@@ -322,6 +327,9 @@ A key is sensitive when it ends, in any letter case, with `access_key`,
 or nothing, so `X-API-Key`, `apiKey` and `aws_secret_access_key` are covered.
 Matching by ending covers compound names without a list of them and leaves
 `token_type`, `max_tokens`, `password_policy` and `secret_name` readable.
+
+The flag row also takes the word after a flag that prose mentions, as in
+`pass --token to the client`; that costs one word and leaks nothing.
 
 Every replaced value becomes `[REDACTED]`, and control characters become
 spaces so a diagnostic stays on one log line. Only the first 64 KiB of a
@@ -350,6 +358,9 @@ secrets. It does not recognise:
   passphrase with spaces, as in `password: correct horse`, loses only its
   first word. Until IF-219 a value after `:` ran to the next comma or line
   end, which also removed the ordinary words after a header credential;
+- an XML element with attributes or a namespace prefix (`<ns:password>`,
+  `<password type="x">`), a byte-string literal such as `b'pw'`, and
+  separators other than `=`, `:`, `:=` and `=>`;
 - the operand of a comparison: `password == pw` is not an assignment, and a
   sensitive key followed by `==` is left as written so an error that quotes
   a guard condition stays readable (IF-187). A value that starts with `=`,

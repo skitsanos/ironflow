@@ -151,6 +151,8 @@ fn redact_known_raw_url_errors(text: &str) -> Cow<'_, str> {
 #[cfg(test)]
 mod cost_tests;
 #[cfg(test)]
+mod form_tests;
+#[cfg(test)]
 mod repeat_tests;
 #[cfg(test)]
 mod shape_tests;
