@@ -1271,19 +1271,24 @@ child workflows. Matching is literal and case-sensitive.
 The JSON-escaped form of each secret is matched as well. Encoded, hashed,
 split, or otherwise transformed copies are not recognized.
 
-| Where a secret appears | Step output read by later steps | Stored task output and context, events, `GET /runs/{id}` |
+Redaction is record-only (IF-219): it applies where IronFlow records or
+returns a value, never to the data one step hands to the next.
+
+| Where a secret appears | Step output read by later steps, recovery handlers and parent runs | Stored task output and context, events, `GET /runs/{id}` and the other run responses |
 | --- | --- | --- |
-| The `_headers` key, at any depth | Removed | Removed |
-| Inside a string, including an error message | Each occurrence becomes `[REDACTED]` | Same |
-| Inside an object key | Key and value removed | Same |
+| The `_headers` key, at any depth | Unchanged | Removed |
+| Inside a string | Unchanged | Each occurrence becomes `[REDACTED]` |
+| Inside an object key | Unchanged | Key and value removed |
 | A JSON number equal to it | Unchanged | Replaced by the string `"[REDACTED]"` |
 | Top-level `_route_*` and `_condition_result_*` output | Unchanged | Redacted like any other field |
+| Inside the error message of a failed step | Each occurrence becomes `[REDACTED]`, also in `_error_message` and a child failure summary | Same text |
 
-Live step output therefore keeps its JSON types, and a forwarded header cannot
-rewrite the routing decision of `step_if`, `if_node` or `switch_node`. For
-example, with `X-Feature-Flags: beta=true,legacy=false` forwarded, a step that
-returns the whole value stores `[REDACTED]`, while the strings `true` and
-`false` and the header name stay untouched everywhere.
+A forwarded header therefore cannot blank text, change a JSON type or rewrite
+the routing decision of `step_if`, `if_node` or `switch_node`. For example,
+with `X-Feature-Flags: beta=true,legacy=false` forwarded, a step that returns
+the whole value hands it to the next step as it is and stores `[REDACTED]`,
+while the strings `true` and `false` and the header name stay untouched
+everywhere.
 
 Consequences for flow authors:
 
@@ -1291,12 +1296,17 @@ Consequences for flow authors:
   metadata you want to keep in the JSON body instead. A value below eight
   non-whitespace bytes is rejected with `400`, so short metadata cannot be
   forwarded at all.
-- A string of eight or more bytes that a sender puts in a forwarded header is
-  blanked wherever a later step outputs it, which can change a branch that
-  compares that string. Accept forwarded headers only from senders that the
-  `signature` policy or an upstream gateway authenticates.
-- A number that equals a forwarded value, such as a timestamp header, can
-  still be computed with in later steps; only records withhold it.
+- A copy of a forwarded value that a step returns is ordinary data for the
+  rest of the run. Later steps can compare it, compute with it and pass it
+  to a child workflow, and a node with an outside effect sends it as it is,
+  so do not hand a copy to a request, file or log line that must not carry
+  it. Only records withhold it.
+- A record shows `[REDACTED]` wherever text of eight or more bytes equals a
+  forwarded value or one of its components, even when the flow produced that
+  text itself. Until IF-219 the same replacement was made in the data later
+  steps read, so a sender could blank a string or flip a branch that compared
+  it; that no longer happens.
+- A transformed copy (encoded, hashed, split) is not recognized in a record.
 
 Runs created by older IronFlow versions may already contain request headers.
 Public run output hides legacy `_headers` values when they are still present,

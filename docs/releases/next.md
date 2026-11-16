@@ -944,6 +944,26 @@ publication is verified separately.
 
 ## Unreleased changes
 
+- Redaction of forwarded webhook headers is record-only (IF-219, decided
+  2026-11-16). A forwarded header value is still withheld from stored task
+  output, the stored context, task errors, events, the SSE stream and every
+  response that returns a run. It is no longer replaced in the data one step
+  hands to the next: step output, the `_error_output` of a failed step and
+  the result a child workflow returns to its parent now arrive exactly as
+  produced. Before this change a sender who controlled a forwarded header
+  could send any text of eight or more bytes and have it replaced by
+  `[REDACTED]` wherever a later step output it, which blanked values and
+  could skip a `step_if` branch that compared them. What changes for a flow:
+  a step that returns a copy of `ctx._headers[...]` now hands the real value
+  to later steps and child workflows instead of `[REDACTED]`, so a later
+  step that sends that copy somewhere (an HTTP request, a file, a log line)
+  sends the value; review flows that relied on the copy being blanked. A
+  step could always read `ctx._headers` directly, so this adds no new way to
+  store or send a value. The error message of a failed step is still
+  redacted before a recovery handler reads `_error_message`. See
+  [Forwarded webhook headers](../SECURITY.md#forwarded-webhook-headers) and
+  [`forwarded_header.lua`](../../examples/15-webhooks/forwarded_header.lua).
+
 - The diagnostic scrubber no longer removes ordinary text after a credential
   (IF-219). A task error is scrubbed by the node that raised it and again by
   the engine. The first pass turned a line break into a space, so the second

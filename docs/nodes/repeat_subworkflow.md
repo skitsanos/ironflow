@@ -73,7 +73,7 @@ For `output_key = "result"`:
 
 Iteration history is intentionally not retained.
 
-Carried state and the final child context use full, redacted live values, not
+Carried state and the final child context use full live values, not
 persisted inspection snapshots. `IRONFLOW_MAX_TASK_OUTPUT_BYTES` does not
 replace large state with a truncation marker between iterations. CLI/API
 inspection of the parent may still contain markers for large final values.

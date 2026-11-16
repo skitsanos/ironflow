@@ -14,14 +14,14 @@ pub(crate) use tokens::{MIN_SECRET_BYTES, meets_secret_floor};
 pub(crate) const REDACTED: &str = "[REDACTED]";
 
 /// Redacts invocation-only values before data crosses a durable, event, or
-/// public-response boundary.
+/// public-response boundary. It is never applied to data that stays inside
+/// a running workflow (IF-219).
 ///
 /// The overlay's own keys are removed at any depth. A complete overlay value,
 /// and any component of it of at least [`MIN_SECRET_BYTES`], is replaced
-/// wherever it occurs in a string, and an object key containing one is
-/// dropped. Names, object keys and shorter components are not secrets
-/// (IF-176). Record boundaries also replace a number that equals a secret;
-/// the live boundary in `owned` keeps JSON types and engine routing keys.
+/// wherever it occurs in a string, an object key containing one is dropped,
+/// and a number that equals one is replaced. Names, object keys and shorter
+/// components are not secrets (IF-176).
 #[derive(Clone, Debug, Default)]
 pub(crate) struct SecretRedactor {
     protected_keys: Arc<HashSet<String>>,

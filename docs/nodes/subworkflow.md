@@ -115,7 +115,7 @@ the child returns a broad flattened context that can also contain inherited
 input keys, so namespacing is the safest composition boundary when parallel
 results must coexist.
 
-Waiting composition receives full, redacted child values directly from the live
+Waiting composition receives full child values, as the child produced them, directly from the live
 execution after finalization, not from persisted inspection snapshots.
 `IRONFLOW_MAX_TASK_OUTPUT_BYTES` may replace large values in CLI/API inspection
 with truncation markers, but does not truncate the values consumed by parent

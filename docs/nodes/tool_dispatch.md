@@ -137,7 +137,7 @@ recovered errors are excluded. Cancellation or missing details retain the
 status-only fallback. The selected `result`, `content`, and tool-message content
 still come from child context; failure details do not replace those values.
 
-Selection uses full, redacted live child values after finalization. The
+Selection uses full live child values after finalization. The
 `IRONFLOW_MAX_TASK_OUTPUT_BYTES` inspection cap does not truncate results,
 the by-ID collection, or tool message content passed to later steps. Persisted
 CLI/API inspection may still show truncation markers. This in-process handoff

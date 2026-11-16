@@ -48,29 +48,29 @@ pub(super) fn prepare_final_context(
     if !retain_live {
         return (bound_context(overlay.redact_context_owned(context)), None);
     }
-    // A parent run reads the live values, which keep their JSON types; the
-    // stored snapshot gets the record form. Clone only values admitted to
+    // A parent run reads the values as the child produced them; only the
+    // stored snapshot is redacted (IF-219). Clone only values admitted to
     // inspection, never the oversized live values.
-    let live = overlay.redact_live_context(context);
     let limit = task_output_limit();
-    let snapshot = live
+    let snapshot = context
         .iter()
         .filter(|(key, _)| !overlay.withholds_record_key(key))
         .map(|(key, value)| (key.clone(), record_value(value, overlay, limit)))
         .collect();
-    (snapshot, Some(live))
+    (snapshot, Some(context))
 }
 
 /// Publish output to the running workflow and derive its task-history record.
 ///
-/// The live half keeps JSON types and engine routing keys, so an overlay
-/// value cannot reroute steps or change the shape of data between them
-/// (IF-176). The history half is the stricter record form.
+/// Redaction is record-only (IF-219). What a step returns reaches later
+/// steps, recovery handlers and a parent run exactly as returned: it is the
+/// flow's data, and rewriting it let whoever chose an invocation-only value
+/// blank matching text or flip a branch (IF-176). The history half is the
+/// record form, in which those values are withheld.
 pub(super) fn prepare_output(output: Context, overlay: &ExecutionOverlay) -> PreparedOutput {
-    let context = overlay.redact_live_context(output);
-    let task_value = bounded_task_value(&context, overlay);
+    let task_value = bounded_task_value(&output, overlay);
     PreparedOutput {
-        context,
+        context: output,
         task_value,
     }
 }

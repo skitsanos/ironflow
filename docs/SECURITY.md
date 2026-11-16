@@ -264,7 +264,11 @@ it. The value is an invocation-only input: it is merged into `ctx._headers`
 for each step and child workflow and is never written to the stored context,
 task history, events or run-detail responses (IF-011).
 
-Redaction contract (IF-176):
+Redaction is record-only ([IF-219](issues/IF-219.md), decided 2026-11-16).
+It applies where IronFlow records or returns a value, and never to the data
+one step hands to the next.
+
+Redaction contract (IF-176, IF-219):
 
 - Secrets are the complete header value and each component of at least eight
   non-whitespace bytes: the credential after `Bearer` or `Basic`, the value of
@@ -273,23 +277,45 @@ Redaction contract (IF-176):
 - Header names, JSON object keys, booleans, `null` and shorter components are
   not secrets. A webhook rejects a forwarded value below the same eight-byte
   floor with `400`, so every accepted value is matched wherever it occurs.
-- In step output that later steps read, a secret inside a string becomes
-  `[REDACTED]` and an object key containing one is removed. Numbers keep their
-  JSON type and top-level `_route_*` and `_condition_result_*` keys are never
-  dropped or rewritten, so a header cannot reroute a run or change the shape
-  of live data.
-- Records are stricter: task history, the stored context, events and
-  `GET /runs/{id}` also replace a number equal to a secret with `[REDACTED]`
-  and redact routing keys like any other field.
+- Data inside a running workflow is not redacted. What a step returns
+  reaches later steps, its recovery handler (`_error_output`) and, from a
+  child workflow, the parent step exactly as returned, including a copy of a
+  forwarded value. A header therefore cannot blank text, drop a key, reroute
+  a run or change a branch in a later step.
+- Records are redacted. In stored task output, the stored initial and final
+  context, and everything that returns them (`GET /runs/{id}`, `GET /runs`,
+  the webhook and `POST /flows/run` responses, `ironflow inspect`,
+  `ironflow run` and `ironflow list`), a secret inside a string becomes
+  `[REDACTED]`, an object key containing one is removed with its value, a
+  number equal to one becomes the string `"[REDACTED]"`, and the `_headers`
+  key is removed at any depth. Routing keys are redacted like any other
+  field.
+- Diagnostics are redacted before anything else sees them. The error text of
+  a failed attempt has every secret replaced once, and that one text is what
+  is logged, stored on the task, published in events and the SSE stream, and
+  handed to a recovery handler as `_error_message` and to a parent run as the
+  child failure summary. A handler never receives the unredacted message.
+
+What the stored context holds. The context is persisted twice, when the run
+starts and when it ends, and both writes are the record form above; it is not
+written between steps. `GET /runs/{id}` returns that stored record, so a
+forwarded value that a step copied into its output appears there as
+`[REDACTED]`. The same holds for a child workflow: a child keeps no run record
+of its own, and what it returns is recorded as the output of the parent step
+that ran it. Not redacted there or anywhere: a transformed copy. A step that
+returns an encoded, hashed, reversed or split form of a forwarded value
+stores that form. That was already so before IF-219, because every step
+receives `ctx._headers` directly; moving redaction to the records did not add
+a way to store a value that the previous contract kept out.
 
 Boundary. Matching is literal: an encoded, hashed or split copy of a value is
 not recognized, so flows must validate a forwarded value in place and not
-transform or send it elsewhere. Redaction also acts on text the sender chose.
-A sender who can set a forwarded header can blank a string of eight or more
-bytes in later step output, which can change a branch that compares that
-string. Forward headers only from senders that the webhook `signature` policy
-or an upstream gateway authenticates, and keep non-confidential metadata in
-the JSON body. The full table is in the
+transform or send it elsewhere. A step that passes a copy to a node with an
+outside effect (an HTTP request, a file, a log line, a cache entry) sends the
+value itself, as a step that reads `ctx._headers` directly always could. A
+sender can still make a *record* show `[REDACTED]` in place of matching text
+of eight or more bytes; the run's data and control flow are unaffected. Keep
+non-confidential metadata in the JSON body. The full table is in the
 [CLI reference](CLI_REFERENCE.md#forwarded-header-redaction).
 
 ## Diagnostic scrubbing

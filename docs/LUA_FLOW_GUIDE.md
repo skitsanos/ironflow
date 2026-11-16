@@ -171,8 +171,7 @@ The handler receives three invocation-local context values for every failure:
 - `_error_node_type` — the source node type.
 
 When a node returns a structured failure, the handler also receives
-`_error_output`: an object containing the final attempt's exact, redacted
-output. Those fields are also published under their normal context keys after
+`_error_output`: an object containing the final attempt's exact output. Those fields are also published under their normal context keys after
 retries are exhausted and the source phase settles. `_error_output` remains
 useful when parallel tasks use the same output-key prefix because it preserves
 the source task's exact output even if another task wins the shared-context
@@ -252,8 +251,9 @@ handler runs as for any other failure. Lua code meets
 [JSON nesting limit](CLI_REFERENCE.md#json-nesting-limit).
 
 Final inspection context uses the same cap per value. Waiting subworkflows,
-parallel children, repeated children, and tool handlers pass full, redacted
-results to the live parent instead of reading those inspection snapshots.
+parallel children, repeated children, and tool handlers pass full results,
+exactly as the child produced them, to the live parent instead of reading
+those inspection snapshots.
 Large child values and carried repeat state therefore stay intact for later
 steps, subject to the usual Lua memory/conversion and execution limits. See
 [`live_child_results.lua`](../examples/11-subworkflow/live_child_results.lua)
@@ -386,16 +386,18 @@ No request headers are forwarded by default. Separate non-authentication
 business headers can be allowlisted with `forward_headers`. Platform headers
 such as `Authorization` and `X-API-Key`, cookies, and proxy/session credentials
 are never workflow input. Configured header values are execution-only and are
-redacted from literal outputs, errors, child runs, stored context, events, and
-run-detail responses. Validate them in place; do not log, return, transform, or
-send their raw values elsewhere. The engine cannot recognize every derived or
-deliberately exfiltrated form of a secret.
+redacted from every record: stored task output, errors, stored context,
+events, and run-detail responses. Validate them in place; do not log,
+transform, or send their raw values elsewhere. The engine cannot recognize
+every derived or deliberately exfiltrated form of a secret.
 
-The complete value and each component of at least eight non-whitespace bytes
-are matched; header names, JSON keys and shorter components such as `true` or
-`1` are not. Step output keeps its JSON types and its `_route_*` and
-`_condition_result_*` keys, so a forwarded header cannot change which steps
-run. The exact rules are in the
+Redaction is record-only. The complete value and each component of at least
+eight non-whitespace bytes are matched in records; header names, JSON keys and
+shorter components such as `true` or `1` are not. The data a step returns
+reaches later steps, recovery handlers and parent runs unchanged, so a
+forwarded header cannot blank a value or change which steps run. Only the
+error message of a failed step is redacted before a handler reads it as
+`_error_message`. The exact rules are in the
 [CLI reference](CLI_REFERENCE.md#forwarded-header-redaction).
 
 `ctx._webhook` is durable workflow metadata. `ctx._headers` exists only during

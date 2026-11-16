@@ -15,8 +15,11 @@ tokio::task_local! {
 /// Invocation-only values and their persistence redaction policy.
 ///
 /// The values are merged into every node input, but never into the durable
-/// initial or final context. The task-local copy lets composition nodes carry
-/// the same policy into child workflow engines without widening the Node API.
+/// initial or final context. Redaction is record-only (IF-219): the values
+/// are withheld from task history, stored context, diagnostics and events,
+/// while the data steps hand to each other is never rewritten. The
+/// task-local copy lets composition nodes carry the same policy into child
+/// workflow engines without widening the Node API.
 #[derive(Clone, Debug)]
 pub(crate) struct ExecutionOverlay {
     values: Arc<Context>,
@@ -62,16 +65,6 @@ impl ExecutionOverlay {
 
     pub(crate) fn is_empty(&self) -> bool {
         self.values.is_empty()
-    }
-
-    /// Scrub values that later steps or a parent run will read. Strings and
-    /// keys are redacted as for a record, but JSON types and the engine's
-    /// routing keys are kept, so an overlay value cannot change control flow
-    /// or the shape of live data (IF-176). Records get the stricter form
-    /// through `redact_context`, `redact_context_owned` or
-    /// `redact_record_value`.
-    pub(crate) fn redact_live_context(&self, context: Context) -> Context {
-        self.redactor.redact_live_context(context)
     }
 
     /// Whether a key is left out of stored records.

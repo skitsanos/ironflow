@@ -110,28 +110,30 @@ fn structured_failure_output_is_taken_without_cloning() {
 }
 
 #[test]
-fn structured_failure_output_is_redacted_before_publication() {
+fn structured_failure_output_is_redacted_in_its_record_only() {
     let secret = "if022-secret-sentinel";
     let overlay = ExecutionOverlay::new(Context::from([(
         "_headers".to_string(),
         serde_json::json!({"authorization": secret}),
     )]));
-    let mut failure = anyhow::Error::new(NodeFailure::new(
-        "command failed",
-        Context::from([
-            ("shell_stderr".to_string(), serde_json::json!(secret)),
-            ("shell_stdout".to_string(), serde_json::json!("safe")),
-            ("_headers".to_string(), serde_json::json!({"copy": secret})),
-        ]),
-    ));
+    let output = Context::from([
+        ("shell_stderr".to_string(), serde_json::json!(secret)),
+        ("shell_stdout".to_string(), serde_json::json!("safe")),
+        ("_headers".to_string(), serde_json::json!({"copy": secret})),
+    ]);
+    let mut failure = anyhow::Error::new(NodeFailure::new("command failed", output.clone()));
 
     let prepared = prepare_failure_output(&mut failure, &overlay).unwrap();
-    let serialized = serde_json::to_string(&prepared.context).unwrap();
 
-    assert!(!serialized.contains(secret));
-    assert!(!prepared.context.contains_key("_headers"));
-    assert_eq!(prepared.context["shell_stderr"], "[REDACTED]");
-    assert_eq!(prepared.context["shell_stdout"], "safe");
+    // The recovery handler and later steps read what the node returned.
+    assert_eq!(prepared.context, output);
+    // Task history does not (IF-011).
+    let record = serde_json::to_string(&prepared.task_value).unwrap();
+    assert!(!record.contains(secret), "{record}");
+    assert_eq!(
+        prepared.task_value,
+        serde_json::json!({"shell_stderr": "[REDACTED]", "shell_stdout": "safe"})
+    );
 }
 
 fn numeric_header_overlay() -> ExecutionOverlay {
@@ -145,21 +147,19 @@ fn numeric_header_overlay() -> ExecutionOverlay {
 }
 
 #[test]
-fn published_output_keeps_types_and_routes_while_history_is_scrubbed() {
-    // IF-176: the live half feeds later steps and the scheduler.
-    let prepared = prepare_output(
-        Context::from([
-            ("_route_gate".to_string(), serde_json::json!("needs_review")),
-            ("event_time".to_string(), serde_json::json!(1731400000)),
-            ("copy".to_string(), serde_json::json!("at 1731400000")),
-            ("count".to_string(), serde_json::json!(3)),
-        ]),
-        &numeric_header_overlay(),
-    );
+fn published_output_is_what_the_step_returned_while_history_is_scrubbed() {
+    // IF-219: the live half feeds later steps and the scheduler untouched.
+    let output = Context::from([
+        ("_route_gate".to_string(), serde_json::json!("needs_review")),
+        ("event_time".to_string(), serde_json::json!(1731400000)),
+        ("copy".to_string(), serde_json::json!("at 1731400000")),
+        ("mode=needs_review".to_string(), serde_json::json!("by key")),
+        ("count".to_string(), serde_json::json!(3)),
+    ]);
 
-    assert_eq!(prepared.context["_route_gate"], "needs_review");
-    assert_eq!(prepared.context["event_time"], 1731400000);
-    assert_eq!(prepared.context["copy"], "at [REDACTED]");
+    let prepared = prepare_output(output.clone(), &numeric_header_overlay());
+
+    assert_eq!(prepared.context, output);
     assert_eq!(
         prepared.task_value,
         serde_json::json!({
@@ -172,25 +172,25 @@ fn published_output_keeps_types_and_routes_while_history_is_scrubbed() {
 }
 
 #[test]
-fn child_result_keeps_types_while_its_stored_snapshot_is_scrubbed() {
-    let context = Arc::new(Context::from([
+fn child_result_is_what_the_child_produced_while_its_stored_snapshot_is_scrubbed() {
+    let produced = Context::from([
         ("_route_gate".to_string(), serde_json::json!("needs_review")),
         ("event_time".to_string(), serde_json::json!(1731400000)),
         ("copy".to_string(), serde_json::json!("1731400000")),
         ("_headers".to_string(), serde_json::json!({"copy": "x"})),
-    ]));
+    ]);
+    let context = Arc::new(produced.clone());
 
     let (snapshot, live) = prepare_final_context(context.clone(), &numeric_header_overlay(), true);
-    let live = live.unwrap();
 
-    assert_eq!(live["_route_gate"], "needs_review");
-    assert_eq!(live["event_time"], 1731400000);
-    assert_eq!(live["copy"], "[REDACTED]");
-    assert!(!live.contains_key("_headers"));
+    // The parent step reads the child's values as they are.
+    assert_eq!(live.unwrap(), produced);
     let stored = serde_json::to_string(&snapshot).unwrap();
     assert!(!stored.contains("1731400000"), "{stored}");
     assert!(!stored.contains("needs_review"), "{stored}");
+    assert!(!stored.contains("_headers"), "{stored}");
     assert_eq!(snapshot["event_time"], "[REDACTED]");
+    assert_eq!(snapshot["copy"], "[REDACTED]");
 
     // A top-level run has no live reader: everything gets the record form.
     let (durable, live) = prepare_final_context(context, &numeric_header_overlay(), false);

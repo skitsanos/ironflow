@@ -1288,13 +1288,17 @@ Context is a `HashMap<String, serde_json::Value>` that flows through the entire 
 - Execution overlays are merged into each node snapshot, propagated to child
   workflow engines, and removed before initial/final context persistence
 - Literal overlay keys and values are redacted before task output/error, event,
-  context, and public run boundaries; redacted output is what downstream steps
-  receive, preventing simple credential laundering between tasks
-- Redaction has two boundaries (IF-176). The live boundary feeds later steps
-  and parent runs: it scrubs strings and keys but keeps JSON types and the
-  top-level `_route_*` and `_condition_result_*` keys, so an overlay value
-  cannot reroute steps. The record boundary feeds task history, the stored
-  context and public responses, and also replaces a number equal to a secret.
+  context, and public run boundaries
+- Redaction is record-only (IF-219). Step output, failure output and a child
+  run's result are published to the running workflow exactly as produced, so
+  an overlay value cannot rewrite data or reroute steps; every step receives
+  the overlay itself, so rewriting copies between steps protected nothing. The
+  record form feeds task history, the stored initial and final context and
+  public responses: it replaces a secret inside a string, drops an object key
+  that contains one, replaces a number equal to one and removes the overlay's
+  own keys. The stored context is written only at run start and run end, both
+  in the record form. Diagnostics are redacted once, before they are logged,
+  stored, published or handed to a recovery handler or parent run.
   Only a complete overlay value and its components of at least eight
   non-whitespace bytes are secrets; names and object keys are not. That floor
   is for text a remote party chose: a credential a node resolves itself, such

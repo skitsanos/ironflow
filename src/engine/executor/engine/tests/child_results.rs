@@ -34,7 +34,7 @@ fn flow(fail: bool) -> FlowDefinition {
 }
 
 #[tokio::test]
-async fn child_completion_is_redacted_and_independent_of_json_sqlite_and_null_history() {
+async fn child_completion_is_live_and_its_record_redacted_for_json_sqlite_and_null_history() {
     let directory = tempfile::tempdir().unwrap();
     let stores: Vec<Arc<dyn StateStore>> = vec![
         Arc::new(NullStateStore::new()),
@@ -82,8 +82,10 @@ async fn child_completion_is_redacted_and_independent_of_json_sqlite_and_null_hi
             let text = result.ctx["payload"].as_str().unwrap();
             assert_eq!(text.len(), BYTES);
             assert!(text.bytes().all(|byte| byte == b'x'));
-            assert_eq!(result.ctx["echoed"], "[REDACTED]");
-            assert!(!result.ctx.contains_key("_headers"));
+            // The parent step reads what the child produced (IF-219); the
+            // stored child record below withholds it.
+            assert_eq!(result.ctx["echoed"], "if116-secret-sentinel");
+            assert!(result.ctx.contains_key("_headers"));
             let info = store.get_run_info(&id).await.unwrap();
             assert_eq!(info.status, expected);
             assert!(info.finished.is_some());
@@ -92,11 +94,10 @@ async fn child_completion_is_redacted_and_independent_of_json_sqlite_and_null_hi
                 info.tasks["produce"].output.as_ref().unwrap()["_truncated"],
                 true
             );
-            assert!(
-                !serde_json::to_string(&info)
-                    .unwrap()
-                    .contains("if116-secret-sentinel")
-            );
+            let record = serde_json::to_string(&info).unwrap();
+            assert!(!record.contains("if116-secret-sentinel"));
+            assert!(!record.contains("_headers"));
+            assert_eq!(info.ctx["echoed"], "[REDACTED]");
         }
     }
 }

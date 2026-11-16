@@ -21,6 +21,8 @@ mod test_api_sse;
 mod test_blank_settings;
 #[path = "../test_flow_run_validation.rs"]
 mod test_flow_run_validation;
+#[path = "../test_record_only_redaction.rs"]
+mod test_record_only_redaction;
 #[path = "../test_request_context_depth.rs"]
 mod test_request_context_depth;
 #[path = "../test_run_id_api.rs"]

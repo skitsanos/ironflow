@@ -83,7 +83,7 @@ results array in the parent context and is not subject to this restriction.
 Existing workflows using a reserved child namespace must rename it; workflows
 needing flattened domain fields with these names must opt into namespacing.
 
-Both static and dynamic fan-out collect full, redacted live child results with
+Both static and dynamic fan-out collect full live child results with
 top-level `_`-prefixed keys removed. `IRONFLOW_MAX_TASK_OUTPUT_BYTES` bounds
 persisted task/final inspection snapshots, not the values delivered to parent
 steps. The existing `on_error` policy is unchanged: ignoring a failure does not

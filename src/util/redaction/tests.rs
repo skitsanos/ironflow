@@ -211,7 +211,6 @@ fn short_components_and_header_names_are_not_secrets() {
 
     assert_eq!(redactor.redact_context(&unrelated), unrelated);
     assert_eq!(redactor.redact_context_owned(unrelated.clone()), unrelated);
-    assert_eq!(redactor.redact_live_context(unrelated.clone()), unrelated);
     assert_eq!(redactor.redact_text("true is 1"), "true is 1");
 }
 
@@ -246,7 +245,6 @@ fn whole_values_and_long_components_are_still_redacted() {
     assert_eq!(redacted["parent"], REDACTED);
     assert_eq!(redacted["root"], format!("id {REDACTED} seen"));
     assert!(!redacted.contains_key("53995c3f42cd8ad8"));
-    assert_eq!(redactor.redact_live_context(context.clone()), redacted);
     assert_eq!(redactor.redact_context_owned(context), redacted);
 }
 
@@ -312,7 +310,10 @@ fn short_whole_values_match_exactly_and_never_as_substrings() {
 }
 
 #[test]
-fn live_boundary_keeps_json_types_and_routing_keys() {
+fn the_record_form_withholds_numbers_routing_keys_and_overlay_keys() {
+    // IF-219: there is no live form. Routing keys and numbers reach later
+    // steps untouched because nothing rewrites them; a record withholds them
+    // like any other field that equals a secret.
     let redactor = header_redactor(serde_json::json!({
         "x-request-timestamp": "1731400000",
         "x-feature-flags": "mode=needs_review"
@@ -333,24 +334,16 @@ fn live_boundary_keeps_json_types_and_routing_keys() {
         ("_headers".to_string(), serde_json::json!({"copy": "x"})),
     ]);
 
-    let live = redactor.redact_live_context(output.clone());
+    let record = redactor.redact_context(&output);
 
-    assert_eq!(live["_route_gate"], "needs_review");
-    assert_eq!(live["_condition_result_gate"], true);
-    assert_eq!(live["_route_needs_review"], "true");
-    assert_eq!(live["event_time"], 1731400000);
-    assert_eq!(live["nested"]["times"], serde_json::json!([1731400000, 5]));
-    // Only top-level routing keys are engine input; everything else is data.
-    assert_eq!(live["nested"]["_route_inner"], REDACTED);
-    assert_eq!(live["label"], REDACTED);
-    assert!(!live.contains_key("_headers"));
-
-    // The record boundary withholds what the live boundary had to keep.
-    let record = redactor.redact_context(&live);
     assert_eq!(record["_route_gate"], REDACTED);
+    assert_eq!(record["_condition_result_gate"], true);
     assert_eq!(record["event_time"], REDACTED);
     assert_eq!(record["nested"]["times"], serde_json::json!([REDACTED, 5]));
+    assert_eq!(record["nested"]["_route_inner"], REDACTED);
+    assert_eq!(record["label"], REDACTED);
     assert!(!record.contains_key("_route_needs_review"));
+    assert!(!record.contains_key("_headers"));
     assert_eq!(record, redactor.redact_context_owned(output));
 }
 

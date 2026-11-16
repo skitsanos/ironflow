@@ -49,7 +49,7 @@ identifies this failed task's exact output even if a later-declared parallel
 step wins a shared-context collision. It is not added to shared context unless
 the handler explicitly returns it. Task history still obeys
 `IRONFLOW_MAX_TASK_OUTPUT_BYTES`; when its copy is replaced by a truncation
-marker, a recovery handler still receives the exact redacted fields through
+marker, a recovery handler still receives the exact fields through
 `_error_output`; their normal shared keys remain subject to declaration-order
 collision precedence.
 

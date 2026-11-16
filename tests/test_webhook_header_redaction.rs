@@ -21,13 +21,13 @@ const REDACTED: &str = "[REDACTED]";
 
 /// Everything a run left behind: the stored record, the raw state files, the
 /// event log and the public run detail.
-struct RunEvidence {
-    status: String,
-    info: RunInfo,
-    durable_text: String,
+pub(crate) struct RunEvidence {
+    pub(crate) status: String,
+    pub(crate) info: RunInfo,
+    pub(crate) durable_text: String,
 }
 
-async fn run_webhook(
+pub(crate) async fn run_webhook(
     flow_source: &str,
     header: (&'static str, &'static str),
     body: &str,

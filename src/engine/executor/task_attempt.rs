@@ -60,12 +60,10 @@ pub(super) async fn record_success(
     output: Context,
     attempt: u32,
 ) -> Result<Context, TaskRunError> {
-    // Only explicit node output is published. An input overlay therefore
-    // stays local unless the node returns one of its values. Overlay keys
-    // and string copies of overlay values are redacted before publication so
-    // a later step cannot transform a copied credential past the persistence
-    // fence. Numbers and routing keys stay live and are scrubbed in the
-    // task record instead (IF-176).
+    // Only explicit node output is published, and it is published as the
+    // node returned it. An input overlay stays local unless the node returns
+    // one of its values; a returned copy is the flow's data between steps
+    // and is withheld from the task record and the stored context (IF-219).
     let prepared_output = prepare_output(output, runtime.execution_overlay);
     let (context, task_output) = prepared_output.into_parts();
 
