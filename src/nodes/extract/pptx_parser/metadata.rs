@@ -5,7 +5,7 @@ use anyhow::Result;
 use quick_xml::events::Event;
 
 use crate::nodes::extract::ooxml::Archive;
-use crate::nodes::extract::ooxml::core_properties::core_properties_part;
+use crate::nodes::extract::ooxml::core_properties::{core_properties_part, property_key};
 use crate::nodes::extract::ooxml::relationships::PPTX;
 use crate::nodes::extract::resource::Budget;
 use crate::util::execution::ExecutionControl;
@@ -35,7 +35,7 @@ fn parse_core_properties<R: BufRead>(
     budget: &mut Budget<'_>,
 ) -> Result<BTreeMap<String, serde_json::Value>> {
     let mut metadata = BTreeMap::<String, String>::new();
-    let mut reader = quick_xml::Reader::from_reader(xml);
+    let mut reader = quick_xml::NsReader::from_reader(xml);
     let mut decoder = Decoder::default();
     let mut buffer = Vec::new();
     let mut current = None;
@@ -55,7 +55,8 @@ fn parse_core_properties<R: BufRead>(
                 saw_element = true;
                 depth = depth.saturating_add(1);
                 budget.charge_item("PPTX metadata XML events")?;
-                current = metadata_key(event.name().as_ref().as_bytes());
+                let (namespace, local) = reader.resolver().resolve_element(event.name());
+                current = property_key(namespace, local.as_ref());
             }
             Ok(Event::Empty(_)) => {
                 saw_element = true;
@@ -96,20 +97,4 @@ fn parse_core_properties<R: BufRead>(
             (!text.is_empty()).then(|| (key, serde_json::Value::String(text.to_owned())))
         })
         .collect())
-}
-
-fn metadata_key(name: &[u8]) -> Option<&'static str> {
-    match name {
-        b"dc:title" => Some("title"),
-        b"dc:creator" => Some("author"),
-        b"dc:subject" => Some("subject"),
-        b"dc:description" => Some("description"),
-        b"cp:keywords" => Some("keywords"),
-        b"cp:lastModifiedBy" => Some("last_modified_by"),
-        b"dcterms:created" => Some("created"),
-        b"dcterms:modified" => Some("modified"),
-        b"cp:revision" => Some("revision"),
-        b"cp:category" => Some("category"),
-        _ => None,
-    }
 }

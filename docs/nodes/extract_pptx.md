@@ -93,7 +93,7 @@ deadline, and final serialized-output checks are unchanged.
 ## Context Output
 
 - `<output_key>` (default `content`) — slides as text / Markdown / JSON IR.
-- `<metadata_key>` (when set) — object with `slide_count` and (when present) `title`, `author`, `subject`, `description`, `keywords`, `last_modified_by`, `created`, `modified`, `revision`, `category`. The Dublin Core fields come from the part named by the package core-properties relationship in `_rels/.rels`, with `docProps/core.xml` as the fallback when there is none; the same internal-target rules as `extract_word` apply.
+- `<metadata_key>` (when set) — object with `slide_count` and (when present) `title`, `author`, `subject`, `description`, `keywords`, `last_modified_by`, `created`, `modified`, `revision`, `category`. The Dublin Core fields come from the part named by the package core-properties relationship in `_rels/.rels`, with `docProps/core.xml` as the fallback when there is none; the same internal-target and namespace-matching rules as `extract_word` apply.
 - `<comments_key>` (when set) — flat array of `PptxComment` (see below).
 
 ## JSON output shape

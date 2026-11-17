@@ -15,5 +15,9 @@ publication is verified separately.
   `docProps/core.xml`, so `metadata_key` is no longer empty for documents
   saved by Office for the web, which store it as a `.psmdcp` part
   (IF-225 (a)).
+- Core-property fields are matched by namespace instead of by prefix, so
+  `last_modified_by` is returned when Office for the web writes
+  `lastModifiedBy` unprefixed in the default namespace, and an element from
+  another namespace that reuses a `dc:` or `cp:` prefix is ignored (IF-225).
 
 Earlier changes remain in [the 1.21.0 notes](1.21.0.md).

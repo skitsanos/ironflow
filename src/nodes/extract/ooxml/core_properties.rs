@@ -6,6 +6,7 @@
 //! for packages without that relationship.
 
 use anyhow::Result;
+use quick_xml::name::ResolveResult;
 
 use super::Archive;
 use super::part_paths::resolve_part;
@@ -67,4 +68,33 @@ pub(in crate::nodes::extract) fn core_properties_part(
 
 fn is_core_properties(value: &str) -> bool {
     CORE_PROPERTIES_TYPES.contains(&value)
+}
+
+const DC: &str = "http://purl.org/dc/elements/1.1/";
+const DC_TERMS: &str = "http://purl.org/dc/terms/";
+const CORE: &str = "http://schemas.openxmlformats.org/package/2006/metadata/core-properties";
+
+/// Maps a core-properties element to its output key by namespace and local
+/// name, never by prefix: Office for the web writes `lastModifiedBy` in the
+/// default namespace without a `cp:` prefix.
+pub(in crate::nodes::extract) fn property_key(
+    namespace: ResolveResult<'_>,
+    local: &str,
+) -> Option<&'static str> {
+    let ResolveResult::Bound(namespace) = namespace else {
+        return None;
+    };
+    match (namespace.as_ref(), local) {
+        (DC, "title") => Some("title"),
+        (DC, "creator") => Some("author"),
+        (DC, "subject") => Some("subject"),
+        (DC, "description") => Some("description"),
+        (CORE, "keywords") => Some("keywords"),
+        (CORE, "lastModifiedBy") => Some("last_modified_by"),
+        (CORE, "revision") => Some("revision"),
+        (CORE, "category") => Some("category"),
+        (DC_TERMS, "created") => Some("created"),
+        (DC_TERMS, "modified") => Some("modified"),
+        _ => None,
+    }
 }

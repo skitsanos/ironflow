@@ -4,6 +4,10 @@ use serde_json::json;
 mod fixture;
 use fixture::{DECODED, ENCODED, execute, extract, package};
 
+// Core properties are matched by namespace, so the parts bind the real ones.
+const CORE_NS: &str = "http://schemas.openxmlformats.org/package/2006/metadata/core-properties";
+const DC_NS: &str = "http://purl.org/dc/elements/1.1/";
+
 #[path = "support/xml_cli.rs"]
 mod cli;
 #[path = "support/xlsx.rs"]
@@ -33,7 +37,7 @@ async fn word_body_metadata_comments_and_anchors_preserve_event_fragments() {
         </w:p></w:body></w:document>"
     );
     let metadata = format!(
-        "<cp:coreProperties xmlns:cp=\"urn:cp\" xmlns:dc=\"urn:dc\"><dc:title>{ENCODED}</dc:title></cp:coreProperties>"
+        "<cp:coreProperties xmlns:cp=\"{CORE_NS}\" xmlns:dc=\"{DC_NS}\"><dc:title>{ENCODED}</dc:title></cp:coreProperties>"
     );
     let comments = format!(
         "<w:comments xmlns:w=\"urn:test\"><w:comment w:id=\"1\" w:author=\"A&amp;B &#233;\">\
@@ -73,7 +77,7 @@ async fn pptx_slide_notes_metadata_comments_and_attributes_preserve_text() {
         <a:r><a:t> tail</a:t></a:r></a:p><a:p><a:r><a:t>Next</a:t></a:r></a:p></p:notes>"
     );
     let metadata = format!(
-        "<cp:coreProperties xmlns:cp=\"urn:cp\" xmlns:dc=\"urn:dc\"><dc:title>{ENCODED}</dc:title></cp:coreProperties>"
+        "<cp:coreProperties xmlns:cp=\"{CORE_NS}\" xmlns:dc=\"{DC_NS}\"><dc:title>{ENCODED}</dc:title></cp:coreProperties>"
     );
     let comments = format!(
         "<p:cmLst xmlns:p=\"urn:p\"><p:cm authorId=\"&#49;\"><p:text>{ENCODED}</p:text></p:cm></p:cmLst>"

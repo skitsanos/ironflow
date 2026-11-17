@@ -223,3 +223,38 @@ async fn package_relationships_are_not_read_without_metadata_key() {
         .unwrap();
     assert_eq!(output["content"], "Body");
 }
+
+/// Office for the web writes `lastModifiedBy` in the default namespace with
+/// no `cp:` prefix; any prefix may be bound, and a foreign namespace that
+/// reuses a familiar prefix is not a core property.
+fn namespaced_core() -> String {
+    "<?xml version=\"1.0\" encoding=\"UTF-8\"?><coreProperties \
+     xmlns=\"http://schemas.openxmlformats.org/package/2006/metadata/core-properties\" \
+     xmlns:d=\"http://purl.org/dc/elements/1.1/\" xmlns:t=\"http://purl.org/dc/terms/\">\
+     <lastModifiedBy>Web Editor</lastModifiedBy><d:title>Bound elsewhere</d:title>\
+     <t:modified>2026-11-17T00:00:00Z</t:modified>\
+     <dc:creator xmlns:dc=\"urn:example:not-dublin-core\">Decoy</dc:creator>\
+     <revision>3</revision></coreProperties>"
+        .to_string()
+}
+
+#[tokio::test]
+async fn core_properties_match_by_namespace_not_prefix() {
+    let expected = json!({
+        "last_modified_by": "Web Editor",
+        "title": "Bound elsewhere",
+        "modified": "2026-11-17T00:00:00Z",
+        "revision": "3",
+    });
+    let extra = vec![("docProps/core.xml", namespaced_core())];
+    let word = run("extract_word", &word_parts(extra.clone()))
+        .await
+        .unwrap();
+    assert_eq!(word, expected);
+    let mut deck = run("extract_pptx", &deck_parts(extra)).await.unwrap();
+    assert_eq!(
+        deck.as_object_mut().unwrap().remove("slide_count"),
+        Some(json!(1))
+    );
+    assert_eq!(deck, expected);
+}
