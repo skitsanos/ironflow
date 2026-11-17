@@ -294,6 +294,6 @@ async fn tracked_formatting_changes_do_not_apply_the_previous_properties() {
 
     assert_eq!(
         extract(&body, "markdown").await,
-        "# **Now a heading**\n\n\n## Was bold* then italic*"
+        "# **Now a heading**\n\n\n## Was bold *then italic*"
     );
 }

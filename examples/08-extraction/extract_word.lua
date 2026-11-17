@@ -9,6 +9,8 @@ local flow = Flow.new("extract_word_demo")
 -- Bold, italic and strikethrough are resolved through word/styles.xml
 -- (paragraph and character styles, w:basedOn chains, document defaults), so
 -- a run that is bold only through its style reports bold = true.
+-- In Markdown, adjacent runs with the same emphasis share one marker pair
+-- and spaces stay outside the markers, however Word split the runs.
 -- Metadata comes from the core-properties part named in _rels/.rels
 -- (Office for the web writes a .psmdcp part), else docProps/core.xml.
 flow:step("extract", nodes.extract_word({

@@ -19,5 +19,10 @@ publication is verified separately.
   `last_modified_by` is returned when Office for the web writes
   `lastModifiedBy` unprefixed in the default namespace, and an element from
   another namespace that reuses a `dc:` or `cp:` prefix is ignored (IF-225).
+- `extract_word` Markdown merges adjacent runs with the same emphasis, keeps
+  surrounding whitespace outside the markers and opens no marker for
+  whitespace-only runs, so Word's run splits no longer produce emphasis that
+  CommonMark leaves as literal asterisks (`*finished**units** *`,
+  `**expects **`) (IF-225 (b)).
 
 Earlier changes remain in [the 1.21.0 notes](1.21.0.md).

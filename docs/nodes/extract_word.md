@@ -97,6 +97,29 @@ a `Heading1` paragraph whose style is bold renders as `# Title`, not
 `# **Title**`, while emphasis that differs from the style (an italic run in
 that heading) keeps its markers. JSON reports the resolved flags on every run.
 
+### Markdown emphasis
+
+Word splits text into runs at arbitrary points (spell-check, revisions,
+editing in Office for the web), so Markdown treats a paragraph's runs as one
+stream rather than wrapping each run on its own:
+
+- Adjacent runs with the same bold, italic and strikethrough share one marker
+  pair: an italic run `finished` followed by an italic run ` units` renders as
+  `*finished units*`.
+- Leading and trailing whitespace stays outside the markers (`It **expects** a
+  value.`), and a run that holds only whitespace never opens a marker. A space
+  between two runs with the same emphasis joins the span.
+- When the emphasis changes, only the markers that end are closed, so the rest
+  stays nested: `**strong *both* strong**`. Bold and italic together open as
+  `***`; strikethrough is `~~` inside them.
+- Table cells apply the same rules and escape `|` as `\|`; headings leave out
+  the emphasis of their own style as described above.
+
+CommonMark cannot express two emphasis spans that overlap without a whitespace
+boundary (bold that ends in the middle of a word where italic continues);
+such a boundary is written as a close and reopen and may render with a literal
+`*`. JSON keeps every run and its flags unchanged.
+
 ### Text boxes
 
 A text box is stored inside a run of the paragraph that anchors it. The
