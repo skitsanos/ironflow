@@ -25,7 +25,6 @@ flow:step("probe", nodes.http_get({
 
 flow:step("route", nodes.if_http_status({
     status_key = "provider_status",
-    _step_name = "provider",
     default_route = "other",
     routes = {
         ["2xx"] = "ok",
