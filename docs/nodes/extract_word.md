@@ -159,7 +159,12 @@ Footnotes and endnotes are extracted by default. A reference in the body
 its position. Labels count in reference order and are not the `w:id`:
 footnotes are `1`, `2`, ..., endnotes `e1`, `e2`, ...; a note referenced again
 reuses its label. References inside a tracked deletion (`w:del`) or an
-`mc:Fallback` mark nothing. After the body, each referenced note is listed
+`mc:Fallback` mark nothing. A reference with `w:customMarkFollows` on is
+followed in its run by the mark Word shows instead of a number (for example
+`*`): that text is not repeated after the marker but kept as `mark` in JSON,
+on the reference and on the note, from the note's first reference. A mark
+written as a symbol (`w:sym`) is not read. With `notes = false` the mark stays
+in the text. After the body, each referenced note is listed
 once, footnotes first, as `[^label]: text`, its paragraphs (table cells
 included) joined by a space; that is the footnote syntax of GitHub Flavored
 Markdown, and the same lines are used in text. Notes nobody references, such
@@ -179,7 +184,7 @@ notes, footers. JSON keeps them apart:
 ```json
 {
   "blocks": [ /* body blocks; a referencing run has "note" */ ],
-  "footnotes": [ { "label": "1", "id": "6857", "blocks": [ /* paragraph and table blocks */ ] } ],
+  "footnotes": [ { "label": "1", "id": "6857", "mark": "*", "blocks": [ /* paragraph and table blocks */ ] } ],
   "endnotes": [ { "label": "e1", "id": "3", "blocks": [ /* ... */ ] } ],
   "headers": [ { "type": "default", "part": "word/header.xml", "blocks": [ /* ... */ ] } ],
   "footers": [ { "type": "default", "part": "word/footer.xml", "blocks": [ /* ... */ ] } ]
@@ -187,7 +192,7 @@ notes, footers. JSON keeps them apart:
 ```
 
 Each array is present only when it has entries. A run that holds a reference
-carries `"note": {"type": "footnote" | "endnote", "label": "1"}` and its text
+carries `"note": {"type": "footnote" | "endnote", "label": "1"}` (plus `"mark"` for a custom mark) and its text
 includes the marker, as does the paragraph `text`. `type` on a header or
 footer is the slot of its first reference.
 

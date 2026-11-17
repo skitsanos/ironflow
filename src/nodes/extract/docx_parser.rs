@@ -81,6 +81,8 @@ impl NoteKind {
 pub(super) struct NoteRef {
     pub(super) kind: NoteKind,
     pub(super) label: String,
+    /// The custom mark that follows a `w:customMarkFollows` reference.
+    pub(super) mark: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -105,6 +107,8 @@ pub(super) struct DocxReferences {
     pub(super) footnotes: Vec<String>,
     pub(super) endnotes: Vec<String>,
     pub(super) furniture: Vec<FurnitureRef>,
+    /// Custom mark per note label, from the note's first reference.
+    pub(super) marks: std::collections::HashMap<String, String>,
 }
 
 #[derive(Default, Clone)]
@@ -131,6 +135,7 @@ pub(super) enum DocxBlock {
 /// The text of one referenced footnote or endnote.
 pub(super) struct DocxNote {
     pub(super) label: String,
+    pub(super) mark: Option<String>,
     pub(super) id: String,
     pub(super) blocks: Vec<DocxBlock>,
 }

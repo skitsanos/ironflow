@@ -324,3 +324,55 @@ async fn unsafe_header_relationships_fail_the_step() {
         .unwrap_err();
     assert!(error.contains("external header relationship"), "{error}");
 }
+
+/// `w:customMarkFollows` makes the text after the reference, in the same
+/// run, the note's visible mark. The mark is kept as `mark`, not repeated
+/// after the `[^label]` marker; the note's own text keeps whatever it holds.
+fn custom_mark_parts(follows: &str) -> Vec<(String, String)> {
+    let body = format!(
+        "<w:p>{}<w:r><w:footnoteReference w:customMarkFollows=\"{follows}\" w:id=\"8\"/><w:t>*</w:t></w:r>{}{}</w:p>",
+        text_run("Claim"),
+        text_run(" end"),
+        reference("footnote", "3"),
+    );
+    let notes = "<w:footnote w:id=\"8\"><w:p><w:r><w:t>*</w:t></w:r>\
+        <w:r><w:t xml:space=\"preserve\"> Custom note.</w:t></w:r></w:p></w:footnote>"
+        .to_string()
+        + &note("footnote", "3", "Plain note.");
+    vec![
+        ("word/document.xml".into(), document(&body)),
+        ("word/footnotes.xml".into(), notes_part("footnote", &notes)),
+    ]
+}
+
+#[tokio::test]
+async fn a_custom_mark_is_kept_on_the_reference_not_repeated() {
+    let parts = custom_mark_parts("1");
+    let text = run(&parts, json!({})).await.unwrap();
+    assert_eq!(
+        text,
+        "Claim[^1] end[^2]\n\n[^1]: * Custom note.\n[^2]: Plain note."
+    );
+    let content = run(&parts, json!({"format": "json"})).await.unwrap();
+    assert_eq!(
+        content["blocks"][0]["runs"][1],
+        json!({"text": "[^1]", "note": {"type": "footnote", "label": "1", "mark": "*"}})
+    );
+    assert_eq!(content["footnotes"][0]["mark"], "*");
+    assert!(
+        content["blocks"][0]["runs"][3]["note"]
+            .get("mark")
+            .is_none()
+    );
+    assert!(content["footnotes"][1].get("mark").is_none());
+
+    // Without notes the mark is ordinary text, as Word shows it.
+    let text = run(&parts, json!({"notes": false})).await.unwrap();
+    assert_eq!(text, "Claim* end");
+    // customMarkFollows="0": an ordinary reference followed by text.
+    let text = run(&custom_mark_parts("0"), json!({})).await.unwrap();
+    assert!(
+        text.as_str().unwrap().starts_with("Claim[^1]* end[^2]"),
+        "{text}"
+    );
+}

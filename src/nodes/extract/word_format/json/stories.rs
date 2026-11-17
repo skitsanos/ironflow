@@ -28,6 +28,9 @@ pub(super) fn insert_note_ref(
         "DOCX JSON note labels",
         budget,
     )?;
+    if let Some(mark) = &note.mark {
+        insert_string(&mut value, "mark", mark, "DOCX JSON note marks", budget)?;
+    }
     insert_value(object, "note", Value::Object(value), budget)
 }
 
@@ -63,6 +66,9 @@ fn insert_notes(
             budget,
         )?;
         insert_string(&mut value, "id", &note.id, "DOCX JSON note ids", budget)?;
+        if let Some(mark) = &note.mark {
+            insert_string(&mut value, "mark", mark, "DOCX JSON note marks", budget)?;
+        }
         let blocks = blocks_array(&note.blocks, budget)?;
         insert_value(&mut value, "blocks", Value::Array(blocks), budget)?;
         values.push(Value::Object(value));

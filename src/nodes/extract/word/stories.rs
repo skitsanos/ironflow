@@ -48,8 +48,9 @@ impl Reader<'_, '_, '_> {
             return Ok(stories);
         }
         if notes {
-            stories.footnotes = self.notes(NoteKind::Footnote, &references.footnotes)?;
-            stories.endnotes = self.notes(NoteKind::Endnote, &references.endnotes)?;
+            stories.footnotes =
+                self.notes(NoteKind::Footnote, &references.footnotes, references)?;
+            stories.endnotes = self.notes(NoteKind::Endnote, &references.endnotes, references)?;
         }
         if furniture {
             self.furniture(references, &mut stories)?;
@@ -57,7 +58,12 @@ impl Reader<'_, '_, '_> {
         Ok(stories)
     }
 
-    fn notes(&mut self, kind: NoteKind, ids: &[String]) -> Result<Vec<DocxNote>> {
+    fn notes(
+        &mut self,
+        kind: NoteKind,
+        ids: &[String],
+        references: &DocxReferences,
+    ) -> Result<Vec<DocxNote>> {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -82,7 +88,9 @@ impl Reader<'_, '_, '_> {
             let label = kind.label(index + 1);
             self.budget
                 .charge_output((label.len() + id.len()) as u64, "DOCX note labels")?;
+            let mark = references.marks.get(&label).cloned();
             notes.push(DocxNote {
+                mark,
                 label,
                 id: id.clone(),
                 blocks,

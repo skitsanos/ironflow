@@ -39,6 +39,9 @@ struct Frame {
     in_text: bool,
     in_run_props: bool,
     in_para_props: bool,
+    /// Text after a note reference with `w:customMarkFollows`: the custom
+    /// mark, kept on the reference instead of repeated after its marker.
+    custom_mark: Option<String>,
     /// Text-box content anchored in this paragraph, emitted after it.
     boxed: Vec<DocxBlock>,
     /// Open cells and tables when the paragraph started. Anything deeper was
@@ -133,6 +136,7 @@ impl BlockBuilder {
                 frame.run = Some(DocxRun::default());
                 frame.format = RunFormat::default();
                 frame.in_run_props = false;
+                frame.custom_mark = None;
             }
             return Ok(());
         }
@@ -191,7 +195,10 @@ impl BlockBuilder {
             && frame.in_text
             && let Some(run) = frame.run.as_mut()
         {
-            run.text.push_str(text);
+            match frame.custom_mark.as_mut() {
+                Some(mark) => mark.push_str(text),
+                None => run.text.push_str(text),
+            }
         }
     }
 
@@ -243,6 +250,9 @@ impl BlockBuilder {
                 if let Some(mut run) = frame.run.take()
                     && !run.text.is_empty()
                 {
+                    if let Some(mark) = frame.custom_mark.take() {
+                        self.references.attach_mark(&mut run, mark);
+                    }
                     frame.format.resolve(&mut run, &frame.paragraph, styles);
                     frame.paragraph.runs.push(run);
                 }

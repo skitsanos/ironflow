@@ -11,8 +11,7 @@ use anyhow::Result;
 use quick_xml::events::BytesStart;
 
 use super::super::super::resource::Budget;
-use super::super::xml::attribute_value;
-use super::super::{DocxReferences, FurnitureKind, FurnitureRef, NoteKind, NoteRef};
+use super::super::{DocxReferences, DocxRun, FurnitureKind, FurnitureRef, NoteKind, NoteRef};
 use super::BlockBuilder;
 
 const PART: &str = "word/document.xml";
@@ -31,6 +30,23 @@ pub(super) struct References {
 impl References {
     pub(super) fn finish(self) -> DocxReferences {
         self.found
+    }
+
+    /// Keep the custom mark captured after a reference on the reference and,
+    /// for the first reference of the note, in `DocxReferences::marks`.
+    pub(super) fn attach_mark(&mut self, run: &mut DocxRun, mark: String) {
+        let mark = mark.trim();
+        let Some(note) = run.note.as_mut() else {
+            return;
+        };
+        if mark.is_empty() {
+            return;
+        }
+        note.mark = Some(mark.to_string());
+        self.found
+            .marks
+            .entry(note.label.clone())
+            .or_insert_with(|| mark.to_string());
     }
 
     pub(super) fn leave_deletion(&mut self) {
@@ -101,7 +117,17 @@ impl BlockBuilder {
         {
             return Ok(());
         }
-        let Some(id) = attribute_value(event, b"w:id", PART, version, budget)? else {
+        let mut id = None;
+        let mut custom_mark = false;
+        super::super::visit_attributes(event, PART, version, budget, |key, value, _| {
+            match key {
+                b"w:id" => id = Some(String::from_utf8_lossy(value).into_owned()),
+                b"w:customMarkFollows" => custom_mark = matches!(value, b"1" | b"true" | b"on"),
+                _ => {}
+            }
+            Ok(())
+        })?;
+        let Some(id) = id else {
             return Ok(());
         };
         let label = self.references.label(kind, id, budget)?;
@@ -110,7 +136,14 @@ impl BlockBuilder {
             run.text.push_str("[^");
             run.text.push_str(&label);
             run.text.push(']');
-            run.note = Some(NoteRef { kind, label });
+            run.note = Some(NoteRef {
+                kind,
+                label,
+                mark: None,
+            });
+        }
+        if custom_mark && let Some(frame) = self.frames.last_mut() {
+            frame.custom_mark = Some(String::new());
         }
         Ok(())
     }

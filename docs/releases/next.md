@@ -18,7 +18,9 @@ publication is verified separately.
   turns this off. The new `headers_footers = true` also extracts the header
   and footer parts the sections name: before and after the body in text and
   Markdown, `headers` and `footers` arrays in JSON. It is off by default.
-  Parts are resolved through the document relationships (IF-225 (c)).
+  Parts are resolved through the document relationships (IF-225 (c)). A
+  custom footnote mark (`w:customMarkFollows`) is reported as `mark` in JSON
+  instead of being repeated after the `[^label]` marker.
 
 ## Fixes
 
