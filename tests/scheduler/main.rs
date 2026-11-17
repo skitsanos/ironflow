@@ -20,6 +20,8 @@ mod test_schedule_run_records;
 mod test_schedule_timing;
 #[path = "../test_schedule_weekdays.rs"]
 mod test_schedule_weekdays;
+#[path = "../test_schedule_zone_parity.rs"]
+mod test_schedule_zone_parity;
 #[path = "../test_scheduler_availability.rs"]
 mod test_scheduler_availability;
 #[path = "../test_scheduler_decisions.rs"]
