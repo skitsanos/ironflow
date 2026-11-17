@@ -43,7 +43,8 @@ literal. Before `calamine` 0.38 only `_x00HH_` was decoded.
 | Fractional number | Float |
 | Text | String |
 | Boolean | Boolean |
-| Date-formatted cell | ISO-8601 string (`YYYY-MM-DDTHH:MM:SS`) |
+| Date, time or date-time format | ISO-8601 date-time string (`YYYY-MM-DDTHH:MM:SS`) — see [Dates, times and durations](#dates-times-and-durations) |
+| Elapsed-time format (`[h]:mm:ss`) | ISO-8601 duration string, for example `PT37H30M` — see below |
 | ISO 8601 date string | String (unchanged) — cells tagged with `DateTimeIso` type in the workbook |
 | ISO 8601 duration string | String (unchanged) — cells tagged with `DurationIso` type in the workbook |
 | Blank cell | `null` |
@@ -53,6 +54,22 @@ literal. Before `calamine` 0.38 only `_x00HH_` was decoded.
 Blanks and Excel errors both become `null`: a consumer treats "no usable value" uniformly rather than learning Excel's error taxonomy. The cost is that a flow auditing a workbook cannot tell a broken formula from an empty cell.
 
 Merged cells carry their value in the top-left cell of the span and `null` in every other cell it covers — that is the file's own on-disk representation; `extract_xlsx` does not attempt to fill it back in.
+
+## Dates, times and durations
+
+`.xlsx` stores these as numbers plus a number format, and the format decides what a caller receives:
+
+| Number format | Stored value | Returned |
+|---------------|--------------|----------|
+| Date (`14`, `dd mmm yyyy`, locale long date) | `46096` | `"2026-03-15T00:00:00"` |
+| Date and time (`22`) | `46096.6041…` | `"2026-03-15T14:30:00"` |
+| Time of day only (`20`, `h:mm`) | `0.6041…` | `"1899-12-31T14:30:00"` |
+| Elapsed time (`[h]:mm:ss`, `[mm]:ss.000`) | `1.5625` | `"PT37H30M"` |
+
+- **Time of day only** is returned on Excel's day zero, `1899-12-31` (`1904-01-01` in a workbook that uses the 1904 date system). The date part is a placeholder; keep the part after `T`. This is kept for compatibility with earlier releases.
+- **Elapsed time** is an ISO-8601 duration with hours as the largest unit, so durations over 24 hours keep their days (`PT37H30M`, not a date). Zero is `PT0S`; a negative span is prefixed with `-` (`-PT1H30M`); fractional seconds keep up to three digits (`PT0.5S`), the precision of the underlying conversion.
+- **1904 date system** (`<workbookPr date1904="1"/>`): dates are shifted by Excel's 1,462 days, so the same calendar date comes back whichever system the workbook uses. Durations do not depend on the epoch. This path is covered by a hand-built workbook; no workbook saved by Excel itself has been compared.
+- Dates before 1900-03-01 follow Excel's 1900 leap-year quirk (serial 60, the nonexistent 1900-02-29, comes back as `1900-02-28`).
 
 ## Text Dates vs. Excel Dates
 

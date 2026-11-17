@@ -18,6 +18,12 @@ pub(super) fn cell_value(cell: &Data) -> Value {
         // `.xlsx` has no date type — a date is a float plus a number-format
         // code. Emitting the serial would make every flow re-derive the format
         // lookup and the 1900-epoch leap-year quirk Excel preserves.
+        // An elapsed-time format (`[h]:mm:ss`) is a length of time, not a
+        // point on the calendar; reading it as a date drops whole days.
+        Data::DateTime(value) if value.is_duration() => match value.as_duration() {
+            Some(duration) => Value::String(iso_duration(duration.num_milliseconds())),
+            None => Value::Null,
+        },
         Data::DateTime(value) => match value.as_datetime() {
             Some(datetime) => Value::String(datetime.format("%Y-%m-%dT%H:%M:%S").to_string()),
             None => Value::Null,
@@ -25,6 +31,37 @@ pub(super) fn cell_value(cell: &Data) -> Value {
         Data::DateTimeIso(value) | Data::DurationIso(value) => Value::String(value.clone()),
         Data::Error(_) | Data::Empty => Value::Null,
     }
+}
+
+/// Render milliseconds as an ISO-8601 duration with hours as the largest unit
+/// (`PT37H30M`), so the value is exact and needs no calendar assumptions.
+/// Zero is `PT0S`, a negative span is prefixed with `-`, and fractional
+/// seconds keep up to three digits (calamine rounds to milliseconds).
+fn iso_duration(total_ms: i64) -> String {
+    let sign = if total_ms < 0 { "-" } else { "" };
+    let ms = total_ms.unsigned_abs();
+    let (hours, minutes) = (ms / 3_600_000, ms / 60_000 % 60);
+    let (seconds, millis) = (ms / 1000 % 60, ms % 1000);
+    if ms == 0 {
+        return "PT0S".to_string();
+    }
+    let mut text = format!("{sign}PT");
+    if hours > 0 {
+        text.push_str(&format!("{hours}H"));
+    }
+    if minutes > 0 {
+        text.push_str(&format!("{minutes}M"));
+    }
+    if seconds > 0 || millis > 0 {
+        text.push_str(&seconds.to_string());
+        if millis > 0 {
+            let fraction = format!("{millis:03}");
+            text.push('.');
+            text.push_str(fraction.trim_end_matches('0'));
+        }
+        text.push('S');
+    }
+    text
 }
 
 /// Emit a whole number as an integer when it round-trips exactly.
@@ -115,6 +152,23 @@ mod tests {
             cell_value(&Data::DateTime(day_61)),
             json!("1900-03-01T00:00:00")
         );
+    }
+
+    #[test]
+    fn durations_render_as_exact_iso_8601() {
+        let duration = |value: f64| {
+            cell_value(&Data::DateTime(ExcelDateTime::new(
+                value,
+                ExcelDateTimeType::TimeDelta,
+                false,
+            )))
+        };
+        assert_eq!(duration(1.5625), json!("PT37H30M"));
+        assert_eq!(duration(0.0), json!("PT0S"));
+        assert_eq!(duration(-0.0625), json!("-PT1H30M"));
+        assert_eq!(duration(1.0 / 86400.0), json!("PT1S"));
+        assert_eq!(duration(0.0005 / 86400.0 * 1000.0), json!("PT0.5S"));
+        assert_eq!(super::iso_duration(61_050), "PT1M1.05S");
     }
 
     #[test]

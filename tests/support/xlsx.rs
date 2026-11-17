@@ -98,6 +98,19 @@ pub fn write_workbook_with_styles(
     sheets: &[SheetSpec],
     styles_xml: &str,
 ) -> PathBuf {
+    write_workbook_with_properties(dir, name, sheets, styles_xml, "")
+}
+
+/// As `write_workbook_with_styles`, with `workbook_pr` (for example
+/// `<workbookPr date1904="1"/>`) placed before `<sheets>` in `workbook.xml`.
+#[allow(dead_code)]
+pub fn write_workbook_with_properties(
+    dir: &Path,
+    name: &str,
+    sheets: &[SheetSpec],
+    styles_xml: &str,
+    workbook_pr: &str,
+) -> PathBuf {
     let path = dir.join(name);
     let file = std::fs::File::create(&path).unwrap();
     let mut zip = zip::ZipWriter::new(file);
@@ -147,7 +160,7 @@ pub fn write_workbook_with_styles(
         &mut zip,
         "xl/workbook.xml",
         format!(
-            r#"<workbook xmlns="{NS}" xmlns:r="{RNS}"><sheets>{sheet_tags}</sheets></workbook>"#
+            r#"<workbook xmlns="{NS}" xmlns:r="{RNS}">{workbook_pr}<sheets>{sheet_tags}</sheets></workbook>"#
         ),
     );
 

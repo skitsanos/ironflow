@@ -26,6 +26,8 @@ mod test_extract_word_text_boxes;
 mod test_extract_xlsx;
 #[path = "../test_extract_xlsx_compound_prefix.rs"]
 mod test_extract_xlsx_compound_prefix;
+#[path = "../test_extract_xlsx_datetimes.rs"]
+mod test_extract_xlsx_datetimes;
 #[path = "../test_extract_xlsx_styles.rs"]
 mod test_extract_xlsx_styles;
 #[path = "../test_file_source_interpolation.rs"]
