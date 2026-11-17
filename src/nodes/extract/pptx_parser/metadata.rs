@@ -5,7 +5,7 @@ use anyhow::Result;
 use quick_xml::events::Event;
 
 use crate::nodes::extract::ooxml::Archive;
-use crate::nodes::extract::ooxml::core_properties::{core_properties_part, property_key};
+use crate::nodes::extract::ooxml::package::{core_properties_part, property_key};
 use crate::nodes::extract::ooxml::relationships::PPTX;
 use crate::nodes::extract::resource::Budget;
 use crate::util::execution::ExecutionControl;

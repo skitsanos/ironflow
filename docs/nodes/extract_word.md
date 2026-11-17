@@ -28,7 +28,7 @@ remain in force. There are no new configuration options.
 | `format` | string | no | `"text"` | Output format: `"text"` for plain text, `"markdown"` for Markdown with headings/lists/inline formatting, `"json"` for a structured block IR (see below). |
 | `output_key` | string | no | `"content"` | Context key where the extracted output is stored. For `text`/`markdown` the value is a string; for `json` it is an object. |
 | `metadata_key` | string | no | — | If set, document metadata (Dublin Core fields) is stored under this context key. |
-| `comments_key` | string | no | — | If set, document comments (from `word/comments.xml`) are stored under this context key as an array. See [Comments](#comments). |
+| `comments_key` | string | no | — | If set, document comments (from the comments part; see [Package parts](#package-parts)) are stored under this context key as an array. See [Comments](#comments). |
 | `notes` | boolean | no | `true` | Mark footnote and endnote references in the text and list the referenced notes after the body. `false` leaves no marker and reads no notes part. See [Footnotes, endnotes, headers and footers](#footnotes-endnotes-headers-and-footers). |
 | `headers_footers` | boolean | no | `false` | Also extract the header and footer parts that the document's sections name. Off by default because they are page furniture that repeats on every page. |
 
@@ -191,18 +191,38 @@ carries `"note": {"type": "footnote" | "endnote", "label": "1"}` and its text
 includes the marker, as does the paragraph `text`. `type` on a header or
 footer is the slot of its first reference.
 
-Parts are found through `word/_rels/document.xml.rels` (Office for the web
-writes `header.xml` and `footer.xml`, not `header1.xml`); the notes parts fall
-back to `word/footnotes.xml` and `word/endnotes.xml` when the document has no
-such relationship. Targets are untrusted: an external, escaping or wrong-type
+Parts are found through the main document's relationships (see
+[Package parts](#package-parts); Office for the web writes `header.xml` and
+`footer.xml`, not `header1.xml`). Targets are untrusted: an external, escaping or wrong-type
 relationship, or more than one footnotes or endnotes relationship, fails the
 step, while a relationship that names a missing part, or a section reference
 with no relationship, is skipped. These parts share the call's ZIP, XML event
 and output budgets, and only referenced notes are kept in memory.
 
+## Package parts
+
+No part is read from a fixed path when the package names it. The main
+document is the target of the `officeDocument` relationship in `_rels/.rels`
+(transitional or strict type). Its styles, numbering, theme, comments,
+footnotes and endnotes parts, and the header and footer parts its sections
+reference, are targets of the main document's own relationships part (for
+`word/document.xml`, `word/_rels/document.xml.rels`), resolved against the
+main part's folder. When the package or the document names no such part, the
+conventional path is used: `word/document.xml`, `word/styles.xml`,
+`word/numbering.xml`, `word/theme/theme1.xml`, `word/comments.xml`,
+`word/footnotes.xml`, `word/endnotes.xml`. The core-properties part follows
+the same rule (see `metadata_key`).
+
+`_rels/.rels` is read on every call. A malformed relationships part, an
+external or escaping target, or more than one relationship of a kind that has
+a single part (main document, core properties, styles, numbering, theme,
+comments, footnotes, endnotes) fails the step; a main part named by the
+package but absent is the usual missing-part error. Optional parts that are
+named but absent give empty data, as before.
+
 ## Comments
 
-When `comments_key` is set, the node also parses `word/comments.xml` (if present) and walks `word/document.xml` for `<w:commentRangeStart/End>` markers to capture the source text each comment is anchored to.
+When `comments_key` is set, the node also parses the comments part (if present) and walks the main document for `<w:commentRangeStart/End>` markers to capture the source text each comment is anchored to.
 
 Shape of `ctx[comments_key]`:
 
@@ -240,7 +260,7 @@ Run color is captured from `w:color`:
 
 - Explicit hex (`w:val="0066FF"`) is captured as uppercase hex.
 - `w:val="auto"` is dropped (no color field).
-- `w:themeColor` is resolved against `word/theme/theme1.xml`: theme names `dark1`, `light1`, `dark2`, `light2`, `accent1`...`accent6`, `hyperlink`, `followedHyperlink` are mapped to their concrete `srgbClr` / `sysClr` hex values from the document's color scheme. `themeShade` / `themeTint` adjustments are not currently applied.
+- `w:themeColor` is resolved against the theme part: theme names `dark1`, `light1`, `dark2`, `light2`, `accent1`...`accent6`, `hyperlink`, `followedHyperlink` are mapped to their concrete `srgbClr` / `sysClr` hex values from the document's color scheme. `themeShade` / `themeTint` adjustments are not currently applied.
 
 ## Resource and cancellation contract
 

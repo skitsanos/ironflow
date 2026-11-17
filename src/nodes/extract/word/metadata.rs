@@ -4,7 +4,7 @@ use std::io::BufRead;
 use anyhow::Result;
 
 use super::super::docx_parser::XmlDocument;
-use super::super::ooxml::core_properties::property_key;
+use super::super::ooxml::package::property_key;
 use super::super::resource::Budget;
 
 pub(super) fn extract_docx_metadata<R: BufRead>(

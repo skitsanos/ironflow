@@ -11,7 +11,7 @@ use crate::artifacts::FileSource;
 use crate::artifacts::{ArtifactRef, LocalArtifactStore};
 use crate::util::execution::ExecutionControl;
 
-pub(super) mod core_properties;
+pub(super) mod package;
 pub(super) mod part_paths;
 mod part_reader;
 pub(super) mod relationships;

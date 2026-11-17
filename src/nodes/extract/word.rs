@@ -1,6 +1,7 @@
 mod comments;
 mod content;
 mod metadata;
+mod package;
 mod stories;
 mod worker;
 

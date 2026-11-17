@@ -36,5 +36,10 @@ publication is verified separately.
   whitespace-only runs, so Word's run splits no longer produce emphasis that
   CommonMark leaves as literal asterisks (`*finished**units** *`,
   `**expects **`) (IF-225 (b)).
+- `extract_word` finds the main document through the package
+  `officeDocument` relationship and its styles, numbering, theme and comments
+  parts through the document's relationships, instead of fixed `word/...`
+  paths, which remain the fallback. `_rels/.rels` is now read on every call,
+  so a malformed one fails the step (IF-230).
 
 Earlier changes remain in [the 1.21.0 notes](1.21.0.md).

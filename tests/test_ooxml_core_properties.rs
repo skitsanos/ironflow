@@ -207,21 +207,27 @@ async fn untrusted_core_relationships_are_rejected() {
 }
 
 #[tokio::test]
-async fn package_relationships_are_not_read_without_metadata_key() {
-    // A broken `_rels/.rels` must not fail a run that never asked for metadata.
+async fn pptx_reads_package_relationships_only_for_metadata() {
+    // extract_pptx needs `_rels/.rels` only for metadata, so a broken one does
+    // not fail a run that never asked for it. extract_word always reads it,
+    // because it names the main document (IF-230).
     let extra = vec![("_rels/.rels", "<Relationships>".to_string())];
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("fixture.docx");
-    let parts = word_parts(extra);
+    let path = directory.path().join("fixture.pptx");
+    let parts = deck_parts(extra.clone());
     let borrowed: Vec<(&str, &str)> = parts.iter().map(|(n, v)| (*n, v.as_str())).collect();
     pptx::write(&path, &borrowed);
-    let output = NodeRegistry::with_builtins()
-        .get("extract_word")
+    NodeRegistry::with_builtins()
+        .get("extract_pptx")
         .unwrap()
         .execute(&json!({"path": path}), &Context::new())
         .await
         .unwrap();
-    assert_eq!(output["content"], "Body");
+    let error = run("extract_word", &word_parts(extra)).await.unwrap_err();
+    assert!(
+        error.contains("incomplete XML in package relationships"),
+        "{error}"
+    );
 }
 
 /// Office for the web writes `lastModifiedBy` in the default namespace with

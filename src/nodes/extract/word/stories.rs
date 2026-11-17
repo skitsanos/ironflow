@@ -2,29 +2,23 @@
 //! body references, and, when requested, the header and footer parts its
 //! sections name.
 //!
-//! Parts are found through `word/_rels/document.xml.rels` (Office for the
-//! web names them `header.xml` and `footer.xml`, not `header1.xml`). Targets
-//! are untrusted: internal only and inside the package. A reference whose
-//! relationship, part or note is missing is skipped; its note marker stays
-//! in the text without a definition.
+//! Parts are found through the main document's relationships (Office for
+//! the web names them `header.xml` and `footer.xml`, not `header1.xml`); see
+//! `package`. A reference whose relationship, part or note is missing is
+//! skipped; its note marker stays in the text without a definition.
 
 use anyhow::Result;
 
+use super::package::{DocxPackage, Linked};
 use crate::nodes::extract::docx_parser::{
     DocxBlock, DocxFurniture, DocxNote, DocxReferences, DocxStories, FurnitureKind, Lookups,
     NoteKind, parse_docx_notes, parse_docx_story,
 };
 use crate::nodes::extract::ooxml::Archive;
-use crate::nodes::extract::ooxml::part_paths::resolve_part;
-use crate::nodes::extract::ooxml::relationships::{
-    DOCX, Relationships, office_document_type, parse_relationships,
-};
 use crate::nodes::extract::resource::Budget;
 use crate::util::execution::ExecutionControl;
 
 const OPERATION: &str = "extract_word";
-const DOCUMENT: &str = "word/document.xml";
-const DOCUMENT_RELATIONSHIPS: &str = "word/_rels/document.xml.rels";
 
 #[derive(Clone, Copy)]
 pub(super) struct StoryOptions {
@@ -32,27 +26,9 @@ pub(super) struct StoryOptions {
     pub(super) headers_footers: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Linked {
-    Header,
-    Footer,
-    Footnotes,
-    Endnotes,
-    Other,
-}
-
-fn classify(value: &str) -> Linked {
-    match office_document_type(value) {
-        Some("header") => Linked::Header,
-        Some("footer") => Linked::Footer,
-        Some("footnotes") => Linked::Footnotes,
-        Some("endnotes") => Linked::Endnotes,
-        _ => Linked::Other,
-    }
-}
-
 pub(super) struct Reader<'a, 'b, 'c> {
     pub(super) archive: &'a mut Archive,
+    pub(super) package: &'a DocxPackage,
     pub(super) lookups: &'a Lookups<'b>,
     pub(super) budget: &'a mut Budget<'c>,
     pub(super) execution: &'a ExecutionControl,
@@ -71,31 +47,17 @@ impl Reader<'_, '_, '_> {
         if !notes && !furniture {
             return Ok(stories);
         }
-        let budget = &mut *self.budget;
-        let relationships = self
-            .archive
-            .with_optional_xml(DOCUMENT_RELATIONSHIPS, self.execution, |reader| {
-                parse_relationships(reader, &DOCX, classify, budget)
-            })?
-            .unwrap_or_default();
         if notes {
-            let footnotes = &references.footnotes;
-            stories.footnotes = self.notes(&relationships, NoteKind::Footnote, footnotes)?;
-            let endnotes = &references.endnotes;
-            stories.endnotes = self.notes(&relationships, NoteKind::Endnote, endnotes)?;
+            stories.footnotes = self.notes(NoteKind::Footnote, &references.footnotes)?;
+            stories.endnotes = self.notes(NoteKind::Endnote, &references.endnotes)?;
         }
         if furniture {
-            self.furniture(&relationships, references, &mut stories)?;
+            self.furniture(references, &mut stories)?;
         }
         Ok(stories)
     }
 
-    fn notes(
-        &mut self,
-        relationships: &Relationships<Linked>,
-        kind: NoteKind,
-        ids: &[String],
-    ) -> Result<Vec<DocxNote>> {
+    fn notes(&mut self, kind: NoteKind, ids: &[String]) -> Result<Vec<DocxNote>> {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -103,10 +65,7 @@ impl Reader<'_, '_, '_> {
             NoteKind::Footnote => (Linked::Footnotes, "word/footnotes.xml", "footnotes part"),
             NoteKind::Endnote => (Linked::Endnotes, "word/endnotes.xml", "endnotes part"),
         };
-        let part = match single_target(relationships, linked, kind.name())? {
-            Some(target) => self.resolve(target)?,
-            None => fallback.to_string(),
-        };
+        let part = self.package.part(linked, fallback, self.budget)?;
         let (lookups, budget) = (self.lookups, &mut *self.budget);
         let parsed = self
             .archive
@@ -132,16 +91,11 @@ impl Reader<'_, '_, '_> {
         Ok(notes)
     }
 
-    fn furniture(
-        &mut self,
-        relationships: &Relationships<Linked>,
-        references: &DocxReferences,
-        stories: &mut DocxStories,
-    ) -> Result<()> {
+    fn furniture(&mut self, references: &DocxReferences, stories: &mut DocxStories) -> Result<()> {
         let mut seen: Vec<String> = Vec::new();
         for reference in &references.furniture {
             self.budget.checkpoint()?;
-            let Some(relationship) = relationships.get(&reference.relationship_id) else {
+            let Some(relationship) = self.package.relationship(&reference.relationship_id) else {
                 continue;
             };
             let (expected, name, label) = match reference.kind {
@@ -157,7 +111,7 @@ impl Reader<'_, '_, '_> {
                 !relationship.external,
                 "{OPERATION}: external {name} relationship is not supported"
             );
-            let part = self.resolve(&relationship.target)?;
+            let part = self.package.resolve(&relationship.target, self.budget)?;
             if seen.contains(&part) {
                 continue;
             }
@@ -188,40 +142,6 @@ impl Reader<'_, '_, '_> {
         }
         Ok(())
     }
-
-    fn resolve(&mut self, target: &str) -> Result<String> {
-        self.budget.admit_output(
-            (DOCUMENT.len() + target.len()) as u64,
-            "DOCX resolved part paths",
-        )?;
-        let part = resolve_part(OPERATION, DOCUMENT, target)?;
-        self.budget
-            .charge_output(part.len() as u64, "DOCX retained part paths")?;
-        Ok(part)
-    }
-}
-
-fn single_target<'r>(
-    relationships: &'r Relationships<Linked>,
-    linked: Linked,
-    name: &str,
-) -> Result<Option<&'r str>> {
-    let mut found = None;
-    for relationship in relationships.values() {
-        if relationship.kind != linked {
-            continue;
-        }
-        anyhow::ensure!(
-            found.is_none(),
-            "{OPERATION}: multiple {name}s relationships on {DOCUMENT}"
-        );
-        anyhow::ensure!(
-            !relationship.external,
-            "{OPERATION}: external {name}s relationship is not supported"
-        );
-        found = Some(relationship.target.as_str());
-    }
-    Ok(found)
 }
 
 fn has_text(blocks: &[DocxBlock]) -> bool {
