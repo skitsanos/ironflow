@@ -39,7 +39,9 @@ publication is verified separately.
 - `extract_word` finds the main document through the package
   `officeDocument` relationship and its styles, numbering, theme and comments
   parts through the document's relationships, instead of fixed `word/...`
-  paths, which remain the fallback. `_rels/.rels` is now read on every call,
+  paths, which remain the fallback. `extract_pptx` likewise finds the
+  presentation part through the package relationship instead of only at
+  `ppt/presentation.xml`. Both nodes now read `_rels/.rels` on every call,
   so a malformed one fails the step (IF-230).
 
 Earlier changes remain in [the 1.21.0 notes](1.21.0.md).

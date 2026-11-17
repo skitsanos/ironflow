@@ -13,6 +13,12 @@ or `show="false"` on its `p:sld` root) carries `"hidden": true`; a shown slide h
 no `hidden` field. Text and Markdown do not mark hidden slides: use JSON to skip
 them. Orphan slide, note, and comment parts are not extracted.
 
+The presentation part is the target of the package `officeDocument`
+relationship in `_rels/.rels` (transitional or strict type), and its slide
+relationships are read from that part's own relationships part;
+`ppt/presentation.xml` is used only when the package names no main part.
+`_rels/.rels` is read on every call, so a malformed one fails the step, as
+does an external, escaping or duplicated main-document relationship.
 Slide parts may be renamed or stored in other package directories. Notes and
 legacy comments are followed through each slide's actual relationship part;
 comment authors are followed through the presentation's `commentAuthors`
@@ -93,7 +99,7 @@ deadline, and final serialized-output checks are unchanged.
 ## Context Output
 
 - `<output_key>` (default `content`) — slides as text / Markdown / JSON IR.
-- `<metadata_key>` (when set) — object with `slide_count` and (when present) `title`, `author`, `subject`, `description`, `keywords`, `last_modified_by`, `created`, `modified`, `revision`, `category`. The Dublin Core fields come from the part named by the package core-properties relationship in `_rels/.rels`, with `docProps/core.xml` as the fallback when there is none; the same internal-target and namespace-matching rules as `extract_word` apply.
+- `<metadata_key>` (when set) — object with `slide_count` and (when present) `title`, `author`, `subject`, `description`, `keywords`, `last_modified_by`, `created`, `modified`, `revision`, `category`. The Dublin Core fields come from the part named by the package core-properties relationship in `_rels/.rels`, with `docProps/core.xml` as the fallback when there is none; the same internal-target and namespace-matching rules as `extract_word` apply. The package relationships are read once per call for both the presentation and the core-properties part.
 - `<comments_key>` (when set) — flat array of `PptxComment` (see below).
 
 ## JSON output shape

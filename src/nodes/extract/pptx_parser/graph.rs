@@ -5,13 +5,19 @@ use anyhow::{Context, Result};
 use super::presentation::slide_ids;
 use super::relationships::{Kind, Relationship, Relationships, parse_pptx_rels};
 use crate::nodes::extract::ooxml::Archive;
+use crate::nodes::extract::ooxml::package::package_parts;
 use crate::nodes::extract::ooxml::part_paths::{relationships_part, resolve_part};
+use crate::nodes::extract::ooxml::relationships::PPTX;
 use crate::nodes::extract::resource::Budget;
 use crate::util::execution::ExecutionControl;
+
+const MAIN_FALLBACK: &str = "ppt/presentation.xml";
 
 pub(in crate::nodes::extract) struct Presentation {
     pub(super) slides: Vec<SlidePart>,
     pub(super) authors: Option<String>,
+    /// The core-properties part named in `_rels/.rels`, or `docProps/core.xml`.
+    pub(in crate::nodes::extract) core_properties: String,
 }
 
 pub(super) struct SlidePart {
@@ -27,15 +33,19 @@ pub(in crate::nodes::extract) fn load_presentation(
     budget: &mut Budget<'_>,
     execution: &ExecutionControl,
 ) -> Result<Presentation> {
-    const SOURCE: &str = "ppt/presentation.xml";
-    let ids = archive.with_required_xml(SOURCE, execution, |reader| slide_ids(reader, budget))?;
+    // The main part is named by the package `officeDocument` relationship;
+    // `ppt/presentation.xml` is the fallback when the package names none.
+    let package = package_parts(archive, &PPTX, budget, execution)?;
+    let source = package.main.as_deref().unwrap_or(MAIN_FALLBACK);
+    let ids = archive.with_required_xml(source, execution, |reader| slide_ids(reader, budget))?;
+    budget.admit_output(source.len() as u64 + 12, "PPTX relationship part names")?;
     let relationships =
-        archive.with_required_xml("ppt/_rels/presentation.xml.rels", execution, |reader| {
+        archive.with_required_xml(&relationships_part(source), execution, |reader| {
             parse_pptx_rels(reader, budget)
         })?;
     let authors = linked_part(
         archive,
-        SOURCE,
+        source,
         &relationships,
         Kind::Authors,
         budget,
@@ -55,7 +65,7 @@ pub(in crate::nodes::extract) fn load_presentation(
             relationship.kind == Kind::Slide,
             "extract_pptx: relationship '{id}' is not a slide"
         );
-        let part = required_target(archive, SOURCE, relationship, budget, execution)?;
+        let part = required_target(archive, source, relationship, budget, execution)?;
         budget.charge_output(part.len() as u64, "PPTX slide part identity copy")?;
         anyhow::ensure!(
             seen.insert(part.clone()),
@@ -85,7 +95,11 @@ pub(in crate::nodes::extract) fn load_presentation(
             comments,
         });
     }
-    Ok(Presentation { slides, authors })
+    Ok(Presentation {
+        slides,
+        authors,
+        core_properties: package.core_properties,
+    })
 }
 
 fn linked_part(

@@ -100,6 +100,8 @@ mod test_pptx_inherited_bullets;
 mod test_pptx_line_breaks;
 #[path = "../test_pptx_notes_placeholders.rs"]
 mod test_pptx_notes_placeholders;
+#[path = "../test_pptx_package_parts.rs"]
+mod test_pptx_package_parts;
 #[path = "../test_pptx_presentation.rs"]
 mod test_pptx_presentation;
 #[path = "../test_pptx_slide_furniture.rs"]

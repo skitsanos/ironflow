@@ -5,23 +5,22 @@ use anyhow::Result;
 use quick_xml::events::Event;
 
 use crate::nodes::extract::ooxml::Archive;
-use crate::nodes::extract::ooxml::package::{core_properties_part, property_key};
-use crate::nodes::extract::ooxml::relationships::PPTX;
+use crate::nodes::extract::ooxml::package::property_key;
 use crate::nodes::extract::resource::Budget;
 use crate::util::execution::ExecutionControl;
 use crate::util::xml::Decoder;
 
 pub(in crate::nodes::extract) fn extract_pptx_metadata(
     archive: &mut Archive,
+    part: &str,
     slide_count: usize,
     budget: &mut Budget<'_>,
     execution: &ExecutionControl,
 ) -> Result<BTreeMap<String, serde_json::Value>> {
     let mut metadata = BTreeMap::new();
     metadata.insert("slide_count".to_string(), serde_json::json!(slide_count));
-    let part = core_properties_part(archive, &PPTX, budget, execution)?;
-    let properties = archive.with_optional_xml(&part, execution, |xml| {
-        parse_core_properties(xml, &part, budget)
+    let properties = archive.with_optional_xml(part, execution, |xml| {
+        parse_core_properties(xml, part, budget)
     })?;
     if let Some(properties) = properties {
         metadata.extend(properties);

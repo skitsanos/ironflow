@@ -137,18 +137,24 @@ async fn relative_targets_resolve_against_the_package_root() {
 
 #[tokio::test]
 async fn fixed_path_is_the_fallback_without_a_core_relationship() {
-    let without_core = package_rels(&[("R1", &office("officeDocument"), "word/document.xml")]);
-    for rels in [None, Some(without_core)] {
-        let mut extra = vec![("docProps/core.xml", core("Fixed path"))];
-        if let Some(rels) = rels.clone() {
-            extra.push(("_rels/.rels", rels));
+    for with_rels in [false, true] {
+        for (node, main) in [
+            ("extract_word", "word/document.xml"),
+            ("extract_pptx", "ppt/presentation.xml"),
+        ] {
+            let mut extra = vec![("docProps/core.xml", core("Fixed path"))];
+            if with_rels {
+                let rels = package_rels(&[("R1", &office("officeDocument"), main)]);
+                extra.push(("_rels/.rels", rels));
+            }
+            let parts = if node == "extract_word" {
+                word_parts(extra)
+            } else {
+                deck_parts(extra)
+            };
+            let meta = run(node, &parts).await.unwrap();
+            assert_eq!(meta["title"], "Fixed path", "{node}: {meta}");
         }
-        let word = run("extract_word", &word_parts(extra.clone()))
-            .await
-            .unwrap();
-        assert_eq!(word["title"], "Fixed path", "{word}");
-        let deck = run("extract_pptx", &deck_parts(extra)).await.unwrap();
-        assert_eq!(deck["title"], "Fixed path", "{deck}");
     }
 }
 
@@ -207,27 +213,33 @@ async fn untrusted_core_relationships_are_rejected() {
 }
 
 #[tokio::test]
-async fn pptx_reads_package_relationships_only_for_metadata() {
-    // extract_pptx needs `_rels/.rels` only for metadata, so a broken one does
-    // not fail a run that never asked for it. extract_word always reads it,
-    // because it names the main document (IF-230).
+async fn a_malformed_package_relationships_part_fails_without_metadata_key() {
+    // Both readers find their main part through `_rels/.rels` (IF-230), so
+    // they read it on every call, not only for metadata.
     let extra = vec![("_rels/.rels", "<Relationships>".to_string())];
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("fixture.pptx");
-    let parts = deck_parts(extra.clone());
-    let borrowed: Vec<(&str, &str)> = parts.iter().map(|(n, v)| (*n, v.as_str())).collect();
-    pptx::write(&path, &borrowed);
-    NodeRegistry::with_builtins()
-        .get("extract_pptx")
-        .unwrap()
-        .execute(&json!({"path": path}), &Context::new())
-        .await
-        .unwrap();
-    let error = run("extract_word", &word_parts(extra)).await.unwrap_err();
-    assert!(
-        error.contains("incomplete XML in package relationships"),
-        "{error}"
-    );
+    for node in ["extract_word", "extract_pptx"] {
+        let parts = if node == "extract_word" {
+            word_parts(extra.clone())
+        } else {
+            deck_parts(extra.clone())
+        };
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("fixture.bin");
+        let borrowed: Vec<(&str, &str)> = parts.iter().map(|(n, v)| (*n, v.as_str())).collect();
+        pptx::write(&path, &borrowed);
+        let error = NodeRegistry::with_builtins()
+            .get(node)
+            .unwrap()
+            .execute(&json!({"path": path}), &Context::new())
+            .await
+            .err()
+            .map(|error| format!("{error:#}"))
+            .unwrap_or_default();
+        assert!(
+            error.contains("incomplete XML in package relationships"),
+            "{node}: {error}"
+        );
+    }
 }
 
 /// Office for the web writes `lastModifiedBy` in the default namespace with

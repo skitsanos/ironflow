@@ -87,18 +87,6 @@ pub(in crate::nodes::extract) fn package_parts(
     })
 }
 
-/// Returns the archive part that holds the core properties: the target of
-/// the package-level core-properties relationship, or `docProps/core.xml`
-/// when the package has no `_rels/.rels` or no such relationship.
-pub(in crate::nodes::extract) fn core_properties_part(
-    archive: &mut Archive,
-    labels: &Labels,
-    budget: &mut Budget<'_>,
-    execution: &ExecutionControl,
-) -> Result<String> {
-    Ok(package_parts(archive, labels, budget, execution)?.core_properties)
-}
-
 fn single_part(
     relationships: &Relationships<Kind>,
     kind: Kind,
