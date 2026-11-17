@@ -4,6 +4,19 @@ The approved 1.22.0 changes are recorded in [1.22.0.md](1.22.0.md).
 Development versions remain prereleases until release-branch finalization;
 publication is verified separately.
 
+## Dependencies
+
+- The Markdown parser `comrak` moves from 0.59 to 1.0. It caps the text that
+  reference links may expand to at the larger of the input size and 100 KB;
+  0.59 used the smaller of the two. A Markdown document that repeats a
+  reference link with a long target can therefore produce a longer
+  `markdown_to_pdf` or `markdown_to_docx` document than before: 600 links to
+  one 1.9 KB target in a 9 KB input give 32 pages, where 0.59 gave fewer than
+  10. The existing limits (256 KB input, 20,000 nodes, 32 MiB output) still
+  apply.
+- `zip` 9.6.1 (re-read recorded in IF-218), `noyalib` 0.0.62, the AWS SDK
+  crates, `clap` 4.6.8 and `uuid` 1.29.3.
+
 ## Fixed
 
 - `extract_xlsx` returns a cell with an elapsed-time format (`[h]:mm:ss`) as an ISO-8601 duration such as `PT37H30M`. It was returned as a date (`1900-01-01T13:30:00`), which dropped whole days (IF-227). The node page now documents what dates, times of day, durations and 1904-system workbooks return.

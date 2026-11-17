@@ -162,7 +162,7 @@ at the listed source.
 | either | MIT OR Apache-2.0 | MIT | https://github.com/rayon-rs/either |
 | elliptic-curve | Apache-2.0 OR MIT | MIT | https://github.com/RustCrypto/traits |
 | email-encoding | MIT OR Apache-2.0 | MIT | https://github.com/lettre/email-encoding |
-| email_address | MIT | MIT | https://github.com/johnstonskj/rust-email_address.git |
+| email_address | MIT OR Apache-2.0 | MIT | https://github.com/johnstonskj/rust-email_address.git |
 | encoding_rs | (Apache-2.0 OR MIT) AND BSD-3-Clause | MIT, BSD-3-Clause | https://github.com/hsivonen/encoding_rs |
 | entities | MIT | MIT | https://github.com/p-jackson/entities |
 | equivalent | Apache-2.0 OR MIT | MIT | https://github.com/indexmap-rs/equivalent |
