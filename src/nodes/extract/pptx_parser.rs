@@ -6,7 +6,6 @@ mod list_style;
 mod metadata;
 mod notes;
 mod package;
-mod part_paths;
 mod presentation;
 mod relationships;
 mod slide;

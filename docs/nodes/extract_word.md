@@ -39,7 +39,7 @@ remain in force. There are no new configuration options.
 ## Context Output
 
 - `<output_key>` (default `content`) — the extracted document text, Markdown, or JSON IR.
-- `<metadata_key>` (only when `metadata_key` is set) — an object with available fields: `title`, `author`, `subject`, `description`, `keywords`, `last_modified_by`, `created`, `modified`, `revision`, `category`.
+- `<metadata_key>` (only when `metadata_key` is set) — an object with available fields: `title`, `author`, `subject`, `description`, `keywords`, `last_modified_by`, `created`, `modified`, `revision`, `category`. The core-properties part is the target of the package relationship of type `http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties` in `_rels/.rels` (Office for the web names `package/services/metadata/core-properties/<id>.psmdcp`); `docProps/core.xml` is read only when the package has no such relationship. The target must be internal and resolve inside the package; an external, escaping or duplicated core-properties relationship fails the step, and a target part that is absent gives `{}`. `_rels/.rels` is read only when `metadata_key` is set.
 - `<comments_key>` (only when `comments_key` is set) — the comments array described below; an absent comments part produces an empty array.
 
 ## JSON format

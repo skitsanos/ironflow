@@ -21,13 +21,7 @@ const KNOWN_TAGS: [&str; 10] = [
 
 pub(super) fn extract_docx_metadata<R: BufRead>(
     xml: R,
-    budget: &mut Budget<'_>,
-) -> Result<BTreeMap<String, String>> {
-    parse_core_properties(xml, budget)
-}
-
-fn parse_core_properties<R: BufRead>(
-    xml: R,
+    part: &str,
     budget: &mut Budget<'_>,
 ) -> Result<BTreeMap<String, String>> {
     use quick_xml::events::Event;
@@ -38,12 +32,12 @@ fn parse_core_properties<R: BufRead>(
     let mut buf = Vec::new();
     let mut current_tag = String::new();
     let mut in_metadata = false;
-    let mut document = XmlDocument::new("docProps/core.xml");
+    let mut document = XmlDocument::new("core properties part");
     loop {
         budget.charge_item("DOCX metadata XML events")?;
         let event = reader
             .read_event_into(&mut buf)
-            .map_err(|error| anyhow::anyhow!("extract_word: invalid docProps/core.xml: {error}"))?;
+            .map_err(|error| anyhow::anyhow!("extract_word: invalid {part}: {error}"))?;
         let event = document.decode(event, budget)?;
         match event {
             Event::Start(ref event) => {

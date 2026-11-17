@@ -2,6 +2,8 @@ local flow = Flow.new("extract_pptx_demo")
 
 -- Extract a PowerPoint deck as structured JSON with metadata and comments.
 -- Slide text, notes, metadata and comments retain XML references and CDATA.
+-- Metadata is read from the core-properties part named in _rels/.rels,
+-- falling back to docProps/core.xml.
 -- Notes separate paragraphs rather than individual XML text fragments.
 -- A line break (a:br) inside a slide or notes paragraph is a newline in the
 -- text; in a table cell and in the slide title it is a space.

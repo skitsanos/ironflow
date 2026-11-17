@@ -9,6 +9,8 @@ use crate::nodes::extract::docx_parser::{
     parse_docx_blocks, parse_numbering_defs, parse_styles, parse_theme_colors,
 };
 use crate::nodes::extract::ooxml::Archive;
+use crate::nodes::extract::ooxml::core_properties::core_properties_part;
+use crate::nodes::extract::ooxml::relationships::DOCX;
 use crate::nodes::extract::resource::{Budget, Limits};
 use crate::util::execution::ExecutionControl;
 
@@ -76,9 +78,10 @@ pub(super) fn extract(request: Request, execution: ExecutionControl) -> Result<N
     let mut output = NodeOutput::new();
     output.insert(request.output_key, content);
     if let Some(key) = request.metadata_key {
+        let part = core_properties_part(&mut archive, &DOCX, &mut budget, &execution)?;
         let metadata = archive
-            .with_optional_xml("docProps/core.xml", &execution, |reader| {
-                extract_docx_metadata(reader, &mut budget)
+            .with_optional_xml(&part, &execution, |reader| {
+                extract_docx_metadata(reader, &part, &mut budget)
             })?
             .unwrap_or_default();
         output.insert(key, serde_json::to_value(metadata)?);

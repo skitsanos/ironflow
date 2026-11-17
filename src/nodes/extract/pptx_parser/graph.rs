@@ -2,10 +2,10 @@ use std::collections::HashSet;
 
 use anyhow::{Context, Result};
 
-use super::part_paths::{relationships_part, resolve_part};
 use super::presentation::slide_ids;
 use super::relationships::{Kind, Relationship, Relationships, parse_pptx_rels};
 use crate::nodes::extract::ooxml::Archive;
+use crate::nodes::extract::ooxml::part_paths::{relationships_part, resolve_part};
 use crate::nodes::extract::resource::Budget;
 use crate::util::execution::ExecutionControl;
 
@@ -143,7 +143,7 @@ pub(super) fn resolve_target(
         source.len() as u64 + target.len() as u64 + 1,
         "PPTX resolved part paths",
     )?;
-    let part = resolve_part(source, target)?;
+    let part = resolve_part("extract_pptx", source, target)?;
     budget.charge_output(part.len() as u64, "PPTX retained part paths")?;
     Ok(part)
 }

@@ -11,7 +11,10 @@ use crate::artifacts::FileSource;
 use crate::artifacts::{ArtifactRef, LocalArtifactStore};
 use crate::util::execution::ExecutionControl;
 
+pub(super) mod core_properties;
+pub(super) mod part_paths;
 mod part_reader;
+pub(super) mod relationships;
 
 pub(super) struct Archive {
     inner: zip::ZipArchive<File>,

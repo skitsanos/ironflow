@@ -56,6 +56,8 @@ mod test_markdown_docx_alignment;
 mod test_markdown_fonts;
 #[path = "../test_markdown_multilingual.rs"]
 mod test_markdown_multilingual;
+#[path = "../test_ooxml_core_properties.rs"]
+mod test_ooxml_core_properties;
 #[path = "../test_pdf_actual_text.rs"]
 mod test_pdf_actual_text;
 #[path = "../test_pdf_info_strings.rs"]

@@ -5,6 +5,8 @@ use anyhow::Result;
 use quick_xml::events::Event;
 
 use crate::nodes::extract::ooxml::Archive;
+use crate::nodes::extract::ooxml::core_properties::core_properties_part;
+use crate::nodes::extract::ooxml::relationships::PPTX;
 use crate::nodes::extract::resource::Budget;
 use crate::util::execution::ExecutionControl;
 use crate::util::xml::Decoder;
@@ -17,8 +19,9 @@ pub(in crate::nodes::extract) fn extract_pptx_metadata(
 ) -> Result<BTreeMap<String, serde_json::Value>> {
     let mut metadata = BTreeMap::new();
     metadata.insert("slide_count".to_string(), serde_json::json!(slide_count));
-    let properties = archive.with_optional_xml("docProps/core.xml", execution, |xml| {
-        parse_core_properties(xml, budget)
+    let part = core_properties_part(archive, &PPTX, budget, execution)?;
+    let properties = archive.with_optional_xml(&part, execution, |xml| {
+        parse_core_properties(xml, &part, budget)
     })?;
     if let Some(properties) = properties {
         metadata.extend(properties);
@@ -28,6 +31,7 @@ pub(in crate::nodes::extract) fn extract_pptx_metadata(
 
 fn parse_core_properties<R: BufRead>(
     xml: R,
+    part: &str,
     budget: &mut Budget<'_>,
 ) -> Result<BTreeMap<String, serde_json::Value>> {
     let mut metadata = BTreeMap::<String, String>::new();
@@ -72,18 +76,18 @@ fn parse_core_properties<R: BufRead>(
             Ok(Event::End(_)) => {
                 budget.charge_item("PPTX metadata XML events")?;
                 depth = depth.checked_sub(1).ok_or_else(|| {
-                    anyhow::anyhow!("extract_pptx: unmatched closing element in docProps/core.xml")
+                    anyhow::anyhow!("extract_pptx: unmatched closing element in {part}")
                 })?;
                 current = None;
             }
             Ok(Event::Eof) => break,
             Ok(_) => budget.charge_item("PPTX metadata XML events")?,
-            Err(error) => anyhow::bail!("extract_pptx: invalid XML in docProps/core.xml: {error}"),
+            Err(error) => anyhow::bail!("extract_pptx: invalid XML in {part}: {error}"),
         }
         buffer.clear();
     }
     if !saw_element || depth != 0 {
-        anyhow::bail!("extract_pptx: incomplete XML in docProps/core.xml");
+        anyhow::bail!("extract_pptx: incomplete XML in {part}");
     }
     Ok(metadata
         .into_iter()
