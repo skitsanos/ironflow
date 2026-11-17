@@ -902,7 +902,9 @@ backlog is settled over the following ticks while the latest occurrence is
 decided at once. Occurrences that share a claim key (matched local times
 inside a daylight-saving gap) are one occurrence and never supersede each
 other. Cron expressions have five fields and traditional crontab
-day-of-month/day-of-week OR semantics; time zones use IANA names. Weekday
+day-of-month/day-of-week OR semantics; time zones use IANA names, resolved
+by `scheduler/zone.rs` from the IANA database compiled into the binary
+(`jiff` with its bundled database only), never from the host. Weekday
 numbers are 0 to 7, where 0 and 7 are Sunday and 1 to 6 are Monday to
 Saturday. The underlying `cron` crate numbers the week 1 to 7 from Sunday, so
 `scheduler/weekday.rs` validates the weekday field and rewrites its numbers,

@@ -4,8 +4,29 @@ The approved 1.22.0 changes are recorded in [1.22.0.md](1.22.0.md).
 Development versions remain prereleases until release-branch finalization;
 publication is verified separately.
 
+## Changed
+
+- Schedule time zones are resolved by `jiff` instead of `chrono-tz`, which is
+  reported as unmaintained (IF-231). Fire instants and claim keys are
+  unchanged: both implementations were compared over 31 zones for 2012 to
+  2035 and over the daylight-saving, fractional-offset and skipped-day cases.
+  Rolling upgrades need no store migration.
+- The bundled IANA time zone data moves from 2025b to 2026f. Among the
+  compared zones this changes `America/Havana` only: the 2026f data keeps
+  Cuba on daylight time through the winter of 2026 to 2027, so between
+  1 November 2026 and 14 March 2027 a schedule in that zone fires one hour
+  earlier in UTC than under 1.22.0, at the same wall-clock time. Zone data
+  never comes from the host; see
+  [Time zones](../CLI_REFERENCE.md#time-zones).
+- Library API: `ScheduleConfig::timezone()` returns `&ScheduleZone` instead of
+  `chrono_tz::Tz`, `resolve_local` and `claim_key` take `&ScheduleZone`, and
+  `DueInstant::instant` is a `chrono::DateTime<FixedOffset>`. The CLI,
+  `ironflow.yaml` and stored records are unaffected.
+
 ## Dependencies
 
+- `chrono-tz` is removed and its audit exception (RUSTSEC-2026-0555) retired;
+  `jiff` 1.0 is added with only its bundled time zone database enabled.
 - The Markdown parser `comrak` moves from 0.59 to 1.0. It caps the text that
   reference links may expand to at the larger of the input size and 100 KB;
   0.59 used the smaller of the two. A Markdown document that repeats a

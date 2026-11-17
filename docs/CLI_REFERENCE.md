@@ -1392,7 +1392,7 @@ schedules:
 |---|---|---|---|
 | `flow` | yes | — | Resolved against `flows_dir`, so a schedule cannot escape it. Maximum 1,024 UTF-8 bytes |
 | `cron` | yes | — | Maximum 256 UTF-8 bytes. Five fields separated by spaces: minute hour day month weekday, each one token (see [Field syntax](#field-syntax)). Seconds are fixed at zero; six- and seven-field expressions are rejected, and so is a token that is not exactly one field. Weekday numbers are `0` to `7`: `0` and `7` are Sunday, `1` to `6` are Monday to Saturday (see [Weekday field](#weekday-field)). If day and weekday are both restricted, either matching fires the schedule, as in traditional crontab |
-| `timezone` | no | `UTC` | IANA name, maximum 128 UTF-8 bytes. Unknown names fail at startup |
+| `timezone` | no | `UTC` | IANA name spelled exactly as the database spells it, maximum 128 UTF-8 bytes. Unknown names fail at startup (see [Time zones](#time-zones)) |
 | `grace_seconds` | no | `300` | Maximum lateness for which a missed instant still fires. Of several missed instants only the most recent fires (see [Catch-up](#catch-up)). Range 60..=604,800 because the scheduler evaluates every 30 seconds and catch-up must remain bounded |
 | `context` | no | `{}` | Merged into the run's initial context, maximum 65,536 serialized JSON bytes. Must not define `_schedule` or `_flow_dir` |
 
@@ -1620,6 +1620,28 @@ configuration.
   the day.
 - *Fall back* — the configured time occurs twice. The schedule fires once, on
   the earlier instant.
+
+##### Time zones
+
+`timezone` takes a name from the IANA Time Zone Database, such as
+`Europe/Berlin`, `Asia/Kolkata` or the older link names (`US/Eastern`).
+
+- The name is case-sensitive and must match the database spelling:
+  `europe/berlin` and `utc` fail at startup with
+  `schedule timezone '...' is not a known IANA time zone name`. The name is
+  part of every schedule claim key, so one zone has exactly one spelling.
+  UTC offsets (`+02:00`) and POSIX `TZ` strings are not accepted.
+- Zone rules come from the IANA database compiled into the `ironflow` binary:
+  release **2026f**. The host's `/usr/share/zoneinfo`, `TZ` and `TZDIR` are
+  never read, so Linux, macOS, Windows and the container image behave
+  identically and every replica of one release agrees on when a schedule
+  fires.
+- Zone data is updated by upgrading IronFlow. A release that moves to a newer
+  IANA release names it in its release notes. Installing or updating `tzdata`
+  on the host changes nothing.
+- When a government changes its rules at short notice, a schedule in that
+  zone fires by the old rules until an IronFlow release carries the new ones.
+  A schedule in `UTC` is never affected.
 
 **Overlap.** If a previous run of the same schedule has not finished, the new
 instant is skipped rather than queued. At `IRONFLOW_MAX_CONCURRENT_RUNS`
