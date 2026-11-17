@@ -21,8 +21,11 @@ anyhow = "1.0.102"
 thiserror = "2.0.18"
 uuid = { version = "1.23.3", features = ["v4"] }
 chrono = { version = "0.4.45", features = ["serde"] }
-chrono-tz = "0.10"
 cron = "0.17"
+# Named time zones for schedules (IF-231). The IANA database is compiled in and
+# the host's copy is never read, so every replica of a release agrees on zone
+# rules and claim keys on every platform.
+jiff = { version = "1.0.0", default-features = false, features = ["std", "tzdb-bundle-always"] }
 async-trait = "0.1.89"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
@@ -108,6 +111,9 @@ redis = ["dep:redis", "redis/tokio-rustls-comp", "dep:rustls"]
 tokio = { version = "1.52.3", features = ["test-util"] }
 tempfile = "3"
 tower = "0.5"
+# Test-only view of the bundled IANA release and its zone names (IF-231); the
+# crate is already in the graph through `jiff`.
+jiff-tzdb = "1.0.0"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.186"

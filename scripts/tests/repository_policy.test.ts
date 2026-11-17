@@ -99,6 +99,11 @@ describe("repository integration policy", () => {
     expect(dependencies.comrak["default-features"]).toBeFalse();
     expect(dependencies.lopdf["default-features"]).toBeFalse();
     expect(dependencies.lopdf.features).toEqual(["chrono"]);
+    // IF-231: schedule zones come only from the IANA database compiled into
+    // the binary. A default feature would let the host's zoneinfo or TZ
+    // decide a claim key, differently on each replica.
+    expect(dependencies.jiff["default-features"]).toBeFalse();
+    expect(dependencies.jiff.features).toEqual(["std", "tzdb-bundle-always"]);
     expect(dependencies.parley["default-features"]).toBeFalse();
     expect(dependencies.parley.features).toEqual(["std", "complex-scripts"]);
     expect(dependencies.krilla["default-features"]).toBeFalse();
@@ -123,14 +128,15 @@ describe("repository integration policy", () => {
     const locked = (await read("Cargo.lock")).match(/name = "libsqlite3-sys"\nversion = "(\d+)\.(\d+)\.\d+"/);
     expect(locked).not.toBeNull();
     const fixed = Number(locked![1]) > 0 || Number(locked![2]) >= 39;
-    // IF-231: chrono and chrono-tz are reported as unmaintained and have no
-    // patched version. Each exception must go when its crate leaves the
-    // lockfile, and no unreviewed exception may join these three.
+    // IF-231: chrono is reported as unmaintained and has no patched version.
+    // The exception must go when the crate leaves the lockfile, and no
+    // unreviewed exception may join these two. chrono-tz carried a third
+    // until named zones moved to jiff; it must not come back.
     const lockfile = await read("Cargo.lock");
     const expected = fixed ? [] : ["RUSTSEC-2026-0459"];
     if (lockfile.includes('name = "chrono"\n')) expected.push("RUSTSEC-2026-0543");
-    if (lockfile.includes('name = "chrono-tz"\n')) expected.push("RUSTSEC-2026-0555");
     expect(advisories.ignore).toEqual(expected);
+    expect(lockfile).not.toContain('name = "chrono-tz"\n');
   });
 
   test("a scheduled run audits the default branch and runs no other job", async () => {

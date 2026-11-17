@@ -87,7 +87,8 @@ fn fall_back_fires_once_on_the_earlier_instant() {
 
 #[test]
 fn the_claim_key_is_local_wall_clock_so_a_repeated_hour_collapses_to_one_claim() {
-    let tz = chrono_tz::Europe::Berlin;
+    let schedule = daily_at_two("Europe/Berlin");
+    let tz = schedule.timezone();
     let key = claim_key(tz, local("2026-10-25 02:00:00"));
     assert_eq!(key, "Europe/Berlin@2026-10-25T02:00");
 
@@ -98,14 +99,15 @@ fn the_claim_key_is_local_wall_clock_so_a_repeated_hour_collapses_to_one_claim()
 
 #[test]
 fn distinct_days_and_zones_produce_distinct_keys() {
-    let berlin = chrono_tz::Europe::Berlin;
+    let (berlin, utc) = (daily_at_two("Europe/Berlin"), daily_at_two("UTC"));
+    let (berlin, utc) = (berlin.timezone(), utc.timezone());
     assert_ne!(
         claim_key(berlin, local("2026-10-25 02:00:00")),
         claim_key(berlin, local("2026-10-26 02:00:00"))
     );
     assert_ne!(
         claim_key(berlin, local("2026-10-25 02:00:00")),
-        claim_key(chrono_tz::UTC, local("2026-10-25 02:00:00"))
+        claim_key(utc, local("2026-10-25 02:00:00"))
     );
 }
 

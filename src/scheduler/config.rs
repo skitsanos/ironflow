@@ -1,11 +1,11 @@
 //! Schedule declarations loaded from `ironflow.yaml`.
 
-use chrono_tz::Tz;
 use serde::Deserialize;
 
 use crate::engine::types::Context;
 
 pub use super::cron::{CronSchedule, MAX_CRON_EXPRESSION_BYTES, parse_cron};
+pub use super::zone::ScheduleZone;
 
 /// Maximum number of configured schedule names.
 pub const MAX_SCHEDULES: usize = 256;
@@ -62,7 +62,7 @@ pub struct ScheduleConfig {
     flow: String,
     cron: CronSchedule,
     cron_source: String,
-    timezone: Tz,
+    timezone: ScheduleZone,
     grace_seconds: u64,
     context: Context,
 }
@@ -89,7 +89,7 @@ impl ScheduleConfig {
         let parsed = parse_cron(cron)?;
 
         let timezone = match timezone {
-            None => Tz::UTC,
+            None => ScheduleZone::utc(),
             Some(name) => {
                 if name.len() > MAX_SCHEDULE_TIMEZONE_BYTES {
                     return Err(format!(
@@ -98,9 +98,7 @@ impl ScheduleConfig {
                         name.len()
                     ));
                 }
-                name.parse::<Tz>().map_err(|_| {
-                    format!("schedule timezone '{name}' is not a known IANA time zone name")
-                })?
+                ScheduleZone::named(name)?
             }
         };
 
@@ -158,8 +156,8 @@ impl ScheduleConfig {
         &self.cron_source
     }
 
-    pub fn timezone(&self) -> Tz {
-        self.timezone
+    pub fn timezone(&self) -> &ScheduleZone {
+        &self.timezone
     }
 
     pub fn grace_seconds(&self) -> u64 {

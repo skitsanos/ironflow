@@ -9,7 +9,7 @@ tree, `OFL.txt` in the release archives, `fonts-OFL.txt` in the image).
 This file is generated from `Cargo.lock` by
 `bun --no-env-file scripts/third_party_notices.ts write`; do not edit it by
 hand. It covers every crate reachable from IronFlow through normal or build
-dependencies with all Cargo features enabled (549 crates), so it also lists
+dependencies with all Cargo features enabled (554 crates), so it also lists
 crates that only the `-full` archives and the container image include. Rows
 carry no version: the exact versions linked into a binary are those in the
 `Cargo.lock` of the source revision it was built from. Where a crate offers
@@ -111,7 +111,6 @@ at the listed source.
 | cfg_aliases | MIT | MIT | https://github.com/katharostech/cfg_aliases |
 | chacha20 | MIT OR Apache-2.0 | MIT | https://github.com/RustCrypto/stream-ciphers |
 | chrono | MIT OR Apache-2.0 | MIT | https://github.com/chronotope/chrono |
-| chrono-tz | MIT OR Apache-2.0 | MIT | https://github.com/chronotope/chrono-tz |
 | cipher | MIT OR Apache-2.0 | MIT | https://github.com/RustCrypto/traits |
 | clap | MIT OR Apache-2.0 | MIT | https://github.com/clap-rs/clap |
 | clap_builder | MIT OR Apache-2.0 | MIT | https://github.com/clap-rs/clap |
@@ -263,6 +262,10 @@ at the listed source.
 | ipnet | MIT OR Apache-2.0 | MIT | https://github.com/krisprice/ipnet |
 | is_terminal_polyfill | MIT OR Apache-2.0 | MIT | https://github.com/polyfill-rs/is_terminal_polyfill |
 | itoa | MIT OR Apache-2.0 | MIT | https://github.com/dtolnay/itoa |
+| jiff | Unlicense OR MIT | MIT | https://github.com/BurntSushi/jiff |
+| jiff-core | Unlicense OR MIT | MIT | https://github.com/BurntSushi/jiff |
+| jiff-static | Unlicense OR MIT | MIT | https://github.com/BurntSushi/jiff |
+| jiff-tzdb | Unlicense OR MIT | MIT | https://github.com/BurntSushi/jiff |
 | jni | MIT OR Apache-2.0 | MIT | https://github.com/jni-rs/jni-rs |
 | jni-macros | MIT OR Apache-2.0 | MIT | https://github.com/jni-rs/jni-rs |
 | jni-sys | MIT OR Apache-2.0 | MIT | https://github.com/jni-rs/jni-sys |
@@ -351,6 +354,8 @@ at the listed source.
 | pkg-config | MIT OR Apache-2.0 | MIT | https://github.com/rust-lang/pkg-config-rs |
 | png | MIT OR Apache-2.0 | MIT | https://github.com/image-rs/image-png |
 | polycool | MIT OR Apache-2.0 | MIT | https://github.com/linebender/kurbo |
+| portable-atomic | Apache-2.0 OR MIT | MIT | https://github.com/taiki-e/portable-atomic |
+| portable-atomic-util | Apache-2.0 OR MIT | MIT | https://github.com/taiki-e/portable-atomic-util |
 | potential_utf | Unicode-3.0 | Unicode-3.0 | https://github.com/unicode-org/icu4x |
 | powerfmt | MIT OR Apache-2.0 | MIT | https://github.com/jhpratt/powerfmt |
 | ppmd-rust | CC0-1.0 OR MIT-0 | MIT-0 | https://github.com/hasenbanck/ppmd-rust |
@@ -594,7 +599,7 @@ Each license below applies to the crates whose "Used under" column names it.
 
 ### MIT
 
-Used by 463 crates.
+Used by 468 crates.
 
 ```text
 MIT License

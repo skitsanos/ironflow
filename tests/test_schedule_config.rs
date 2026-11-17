@@ -91,7 +91,7 @@ fn config(cron: &str, timezone: Option<&str>) -> Result<ScheduleConfig, String> 
 fn defaults_are_utc_and_five_minutes_of_grace() {
     let schedule = config("0 2 * * *", None).unwrap();
     assert_eq!(schedule.flow(), "nightly.lua");
-    assert_eq!(schedule.timezone(), chrono_tz::UTC);
+    assert_eq!(schedule.timezone().name(), "UTC");
     assert_eq!(schedule.grace_seconds(), 300);
     assert_eq!(schedule.cron_source(), "0 2 * * *");
     assert!(schedule.context().is_empty());
@@ -99,12 +99,8 @@ fn defaults_are_utc_and_five_minutes_of_grace() {
 
 #[test]
 fn named_timezones_are_accepted_and_unknown_ones_fail() {
-    assert_eq!(
-        config("0 2 * * *", Some("Europe/Berlin"))
-            .unwrap()
-            .timezone(),
-        chrono_tz::Europe::Berlin
-    );
+    let schedule = config("0 2 * * *", Some("Europe/Berlin")).unwrap();
+    assert_eq!(schedule.timezone().name(), "Europe/Berlin");
 
     let error = config("0 2 * * *", Some("Europe/Atlantis")).unwrap_err();
     assert!(error.contains("Europe/Atlantis"), "{error}");
@@ -246,7 +242,7 @@ context:
 "#;
     let schedule: ScheduleConfig = noyalib::from_str(yaml).unwrap();
     assert_eq!(schedule.flow(), "reports/nightly.lua");
-    assert_eq!(schedule.timezone(), chrono_tz::Europe::Berlin);
+    assert_eq!(schedule.timezone().name(), "Europe/Berlin");
     assert_eq!(schedule.grace_seconds(), 3600);
     assert_eq!(schedule.context()["region"], serde_json::json!("eu"));
 }

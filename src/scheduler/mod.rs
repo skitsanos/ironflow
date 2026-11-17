@@ -17,6 +17,7 @@ pub mod startup;
 pub mod timing;
 mod weekday;
 mod window;
+mod zone;
 
 use std::collections::HashMap;
 use std::sync::Arc;

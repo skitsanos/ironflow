@@ -22,6 +22,8 @@ mod test_schedule_timing;
 mod test_schedule_weekdays;
 #[path = "../test_schedule_zone_parity.rs"]
 mod test_schedule_zone_parity;
+#[path = "../test_schedule_zones.rs"]
+mod test_schedule_zones;
 #[path = "../test_scheduler_availability.rs"]
 mod test_scheduler_availability;
 #[path = "../test_scheduler_decisions.rs"]

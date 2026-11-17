@@ -5,10 +5,9 @@
 //! `cron` drops an occurrence whose local time does not exist, so a daily 02:00
 //! job silently does not run on a spring-forward date.
 
-use chrono::{DateTime, Duration, LocalResult, NaiveDateTime, TimeZone, Utc};
-use chrono_tz::Tz;
+use chrono::{DateTime, Duration, FixedOffset, NaiveDateTime, TimeZone, Utc};
 
-use super::config::ScheduleConfig;
+use super::config::{ScheduleConfig, ScheduleZone};
 
 /// Maximum missed occurrences one tick settles for one schedule, besides the
 /// most recent one it decides.
@@ -27,8 +26,9 @@ const MAX_GAP_PROBE_MINUTES: i64 = 6 * 60;
 pub struct DueInstant {
     /// Local wall-clock time the expression matched. Identity of the fire.
     pub local: NaiveDateTime,
-    /// The real instant to fire at, after DST resolution.
-    pub instant: DateTime<Tz>,
+    /// The real instant to fire at, after DST resolution, carrying the
+    /// zone's offset at that instant.
+    pub instant: DateTime<FixedOffset>,
     /// Cross-replica claim key derived from `local`.
     pub key: String,
 }
@@ -37,28 +37,23 @@ pub struct DueInstant {
 ///
 /// Returns `None` only if a zone had a gap longer than
 /// `MAX_GAP_PROBE_MINUTES`, which no real zone does.
-pub fn resolve_local(tz: Tz, local: NaiveDateTime) -> Option<DateTime<Tz>> {
-    match tz.from_local_datetime(&local) {
-        LocalResult::Single(instant) => Some(instant),
-        // Fall back: the wall clock repeats, so this local time has two
-        // instants. Fire once, on the earlier — the later one shares a claim
-        // key and is refused.
-        LocalResult::Ambiguous(earlier, _later) => Some(earlier),
-        // Spring forward: this local time never occurs. Fire at the first
-        // instant that does, rather than skipping the day.
-        LocalResult::None => {
-            let mut probe = local;
-            for _ in 0..MAX_GAP_PROBE_MINUTES {
-                probe += Duration::minutes(1);
-                match tz.from_local_datetime(&probe) {
-                    LocalResult::Single(instant) => return Some(instant),
-                    LocalResult::Ambiguous(earlier, _) => return Some(earlier),
-                    LocalResult::None => {}
-                }
-            }
-            None
+pub fn resolve_local(zone: &ScheduleZone, local: NaiveDateTime) -> Option<DateTime<FixedOffset>> {
+    // An ordinary wall-clock time has one instant. One that repeats when
+    // clocks go back has two: fire once, on the earlier — the later one shares
+    // a claim key and is refused.
+    if let Some(instant) = zone.earliest_instant(local) {
+        return Some(instant);
+    }
+    // Spring forward: this local time never occurs. Fire at the first instant
+    // that does, rather than skipping the day.
+    let mut probe = local;
+    for _ in 0..MAX_GAP_PROBE_MINUTES {
+        probe += Duration::minutes(1);
+        if let Some(instant) = zone.earliest_instant(probe) {
+            return Some(instant);
         }
     }
+    None
 }
 
 /// Cross-replica identity of one fire.
@@ -67,8 +62,8 @@ pub fn resolve_local(tz: Tz, local: NaiveDateTime) -> Option<DateTime<Tz>> {
 /// the same local time maps to two distinct UTC instants; a UTC-keyed claim
 /// would treat them as different fires and run the schedule twice, which is
 /// precisely the duplicate the claim exists to prevent.
-pub fn claim_key(tz: Tz, local: NaiveDateTime) -> String {
-    format!("{}@{}", tz.name(), local.format("%Y-%m-%dT%H:%M"))
+pub fn claim_key(zone: &ScheduleZone, local: NaiveDateTime) -> String {
+    format!("{}@{}", zone.name(), local.format("%Y-%m-%dT%H:%M"))
 }
 
 /// The local instant before which a claim can no longer legitimately fire:
@@ -83,9 +78,7 @@ pub fn claim_key(tz: Tz, local: NaiveDateTime) -> String {
 /// horizon.
 pub(super) fn grace_floor(now: DateTime<Utc>, schedule: &ScheduleConfig) -> NaiveDateTime {
     let grace = Duration::seconds(schedule.grace_seconds_i64());
-    (now - grace)
-        .with_timezone(&schedule.timezone())
-        .naive_local()
+    schedule.timezone().local_time(now - grace)
 }
 
 /// The local time to advance a schedule's watermark to for one evaluated
@@ -125,7 +118,7 @@ pub(super) fn occurrences(
     after_local: NaiveDateTime,
     through_local: NaiveDateTime,
 ) -> impl Iterator<Item = DueInstant> + '_ {
-    let tz = schedule.timezone();
+    let zone = schedule.timezone();
     // Feed naive local times to `cron` as if they were UTC. The iterator then
     // walks wall-clock occurrences, which is the space the expression is
     // written in.
@@ -136,14 +129,14 @@ pub(super) fn occurrences(
         .map(|candidate| candidate.naive_utc())
         .take_while(move |local| *local <= through_local)
         .filter_map(move |local| {
-            let instant = resolve_local(tz, local)?;
+            let instant = resolve_local(zone, local)?;
             // Keyed on the *resolved* local time, not the matched one: inside a
             // spring-forward gap every matched local (02:00, 02:15, ...) maps to
             // the same real instant (03:00), and they must collapse onto one
             // claim or the gap fires once per gap-interior occurrence instead of
             // once. `DueInstant.local` stays the matched time — `evaluate`'s
             // watermark comparisons need that — only the key changes.
-            let key = claim_key(tz, instant.naive_local());
+            let key = claim_key(zone, instant.naive_local());
             Some(DueInstant {
                 local,
                 instant,

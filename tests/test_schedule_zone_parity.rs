@@ -4,10 +4,11 @@
 //! `tests/scheduler/fixtures/zone_parity.txt` was recorded before named zones
 //! moved to `jiff`. Replicas and existing stores compare claim keys byte for
 //! byte, so a difference here is a scheduler regression unless the zone data
-//! itself changed; `zone_data.rs` pins that data.
+//! itself changed; `test_schedule_zones.rs` pins the IANA release.
 //!
 //! To record again after a reviewed zone data update, run this test with
-//! `IRONFLOW_RECORD_ZONE_PARITY=1` and review the fixture diff line by line.
+//! `IRONFLOW_RECORD_ZONE_PARITY=1` and review the fixture diff line by line:
+//! only zones and years the new IANA release changed may differ.
 
 use std::fmt::Write as _;
 use std::path::PathBuf;
@@ -426,7 +427,9 @@ fn digest(lines: &[String]) -> u64 {
 fn render() -> String {
     let mut out = String::from(
         "# Scheduler occurrences recorded from the chrono-tz 0.10.4 implementation\n\
-         # (IANA 2025b) before IF-231 stage 1. See tests/test_schedule_zone_parity.rs.\n\
+         # (IANA 2025b) before IF-231 stage 1, then recorded again under IANA 2026f,\n\
+         # which changed only America/Havana in 2026 and 2027 (daylight time is\n\
+         # kept through that winter). See tests/test_schedule_zone_parity.rs.\n\
          #   exact:   matched wall clock | fired instant | claim key\n\
          #   resolve: wall clock | fired instant | claim key\n\
          #   local:   instant | wall clock\n\
@@ -458,7 +461,7 @@ fn render() -> String {
         let schedule = schedule(zone, "0 0 * * *");
         for index in 0..*count {
             let instant = (local(first) + Duration::minutes(index * step)).and_utc();
-            let shown = instant.with_timezone(&schedule.timezone()).naive_local();
+            let shown = schedule.timezone().local_time(instant);
             writeln!(out, "  {} | {shown}", instant.to_rfc3339()).unwrap();
         }
     }
@@ -497,7 +500,20 @@ fn occurrences_and_claim_keys_match_the_recorded_implementation() {
         if !expected.starts_with(' ') {
             heading = expected;
         }
-        if expected != actual {
+        if expected == actual {
+            continue;
+        }
+        if expected.starts_with("sweep") {
+            // Name the years that differ, not two lines of digests.
+            let years: Vec<String> = expected
+                .split(' ')
+                .zip(actual.split(' '))
+                .filter(|(expected, actual)| expected != actual)
+                .map(|(expected, actual)| format!("{expected} -> {actual}"))
+                .collect();
+            let sweep: Vec<&str> = expected.splitn(4, " | ").take(3).collect();
+            differences.push(format!("[{}]\n  {}", sweep.join(" | "), years.join("\n  ")));
+        } else {
             differences.push(format!(
                 "[{heading}]\n  recorded: {expected}\n  now:      {actual}"
             ));
