@@ -6,8 +6,8 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts generate` and verified with
 `bun run scripts/issues_registry.ts check`.
 
-- Total findings: 230
-- Active findings: 0
+- Total findings: 231
+- Active findings: 1
 
 ## Working agreement
 
@@ -258,3 +258,4 @@ priority, area, and title. The registry is generated with
 | [IF-228](./IF-228.md) | P3 | Resolved | Documents/extraction fidelity | Decide whether slide footer placeholder text belongs in extract_pptx slide text |
 | [IF-229](./IF-229.md) | P3 | Resolved | Documents/extraction fidelity | extract_pptx approximated bullets inherited from the layout and master |
 | [IF-230](./IF-230.md) | P3 | Resolved | Documents/extraction fidelity | extract_word and extract_pptx read the main document and its parts from fixed paths |
+| [IF-231](./IF-231.md) | P2 | Open | Dependencies/time handling | chrono and chrono-tz are reported as unmaintained |

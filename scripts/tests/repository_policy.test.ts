@@ -115,15 +115,22 @@ describe("repository integration policy", () => {
     expect(manifest).not.toContain("tls-native-tls");
   });
 
-  test("the one audit exception lasts only while no fixed SQLite binding resolves", async () => {
+  test("each audit exception lasts only while its crate cannot be fixed or removed", async () => {
     // IF-173: RUSTSEC-2026-0459 is fixed in libsqlite3-sys 0.39.0, which the
     // newest published sqlx-sqlite cannot resolve. The exception must go as
-    // soon as the lockfile holds a fixed version, and no other may join it.
+    // soon as the lockfile holds a fixed version.
     const { advisories } = Bun.TOML.parse(await read(".cargo/audit.toml")) as { advisories: { ignore: string[] } };
     const locked = (await read("Cargo.lock")).match(/name = "libsqlite3-sys"\nversion = "(\d+)\.(\d+)\.\d+"/);
     expect(locked).not.toBeNull();
     const fixed = Number(locked![1]) > 0 || Number(locked![2]) >= 39;
-    expect(advisories.ignore).toEqual(fixed ? [] : ["RUSTSEC-2026-0459"]);
+    // IF-231: chrono and chrono-tz are reported as unmaintained and have no
+    // patched version. Each exception must go when its crate leaves the
+    // lockfile, and no unreviewed exception may join these three.
+    const lockfile = await read("Cargo.lock");
+    const expected = fixed ? [] : ["RUSTSEC-2026-0459"];
+    if (lockfile.includes('name = "chrono"\n')) expected.push("RUSTSEC-2026-0543");
+    if (lockfile.includes('name = "chrono-tz"\n')) expected.push("RUSTSEC-2026-0555");
+    expect(advisories.ignore).toEqual(expected);
   });
 
   test("a scheduled run audits the default branch and runs no other job", async () => {

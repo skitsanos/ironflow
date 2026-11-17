@@ -3,7 +3,7 @@
 # resolved dependency graph, including rustls-webpki >= 0.103.16.
 # Keep the audit fail-closed; do not reintroduce exceptions without review.
 #
-# One reviewed exception is active (IF-173, reviewed 2026-11-12):
+# Reviewed exception (IF-173, reviewed 2026-11-12):
 #
 # RUSTSEC-2026-0459 (CVE-2026-119375), libsqlite3-sys 0.37.0, bundled SQLite
 # 3.51.3. SQLite before 3.54.0 can return uninitialized page-cache memory when
@@ -23,7 +23,21 @@
 # Exit: remove this entry when a published sqlx release resolves
 # libsqlite3-sys >= 0.39.0. scripts/tests/repository_policy.test.ts fails as
 # soon as the lockfile holds a fixed version while the entry remains, and
-# whenever a second entry appears. Review again by 2026-12-12 if no such
-# release exists.
+# whenever an entry not reviewed here appears. Review again by 2026-12-12 if
+# no such release exists.
+#
+# Two further reviewed exceptions are active (IF-231, reviewed 2026-11-17):
+#
+# RUSTSEC-2026-0543 (chrono 0.4.45) and RUSTSEC-2026-0555 (chrono-tz 0.10.4)
+# report both crates as unmaintained. Neither names a vulnerability and
+# neither has a patched version.
+#
+# Why they are not fixed: chrono is used throughout IronFlow and also arrives
+# through calamine, cron, lopdf and rmcp, so no update removes it from the
+# graph. IF-231 tracks the migration of IronFlow's own time handling.
+#
+# Exit: remove each entry when its crate leaves Cargo.lock;
+# scripts/tests/repository_policy.test.ts fails if an entry outlives its
+# crate. Review again by 2026-12-17.
 [advisories]
-ignore = ["RUSTSEC-2026-0459"]
+ignore = ["RUSTSEC-2026-0459", "RUSTSEC-2026-0543", "RUSTSEC-2026-0555"]

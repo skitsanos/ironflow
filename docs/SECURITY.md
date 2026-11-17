@@ -414,6 +414,14 @@ release were handled on 2026-11-12 ([IF-173](issues/IF-173.md)):
 | [RUSTSEC-2026-0436](https://rustsec.org/advisories/RUSTSEC-2026-0436.html) | `calamine` | Updated to 0.38.0. The defect is in the `.xls`/`.xlsb`/VBA container parser. `extract_xlsx` does not read those formats, but see the note below on the compound-file probe. |
 | [RUSTSEC-2026-0459](https://rustsec.org/advisories/RUSTSEC-2026-0459.html) | `libsqlite3-sys` | Not fixable yet; one reviewed exception, described below. |
 
+On 2026-11-17 two informational advisories appeared for crates IronFlow
+depends on directly ([IF-231](issues/IF-231.md)):
+
+| Advisory | Crate | Outcome |
+| --- | --- | --- |
+| [RUSTSEC-2026-0543](https://rustsec.org/advisories/RUSTSEC-2026-0543.html) | `chrono` | Reported as unmaintained; no vulnerability and no patched version. Reviewed exception until IronFlow and `calamine`, `cron`, `lopdf` and `rmcp` no longer resolve it. |
+| [RUSTSEC-2026-0555](https://rustsec.org/advisories/RUSTSEC-2026-0555.html) | `chrono-tz` | Reported as unmaintained; no vulnerability and no patched version. Reviewed exception until IronFlow's time zone handling is migrated. Its embedded IANA time zone data stops following new releases. |
+
 Updating `calamine` was not free of risk. Version 0.38 builds a style record
 for every cell format when a workbook opens and copies the font name and
 number-format code into each one, so a workbook of a few kilobytes could hold
