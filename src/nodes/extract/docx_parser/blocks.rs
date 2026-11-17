@@ -9,21 +9,23 @@ use quick_xml::events::BytesStart;
 use super::super::resource::Budget;
 use super::properties::{RunFormat, apply_paragraph_property, apply_run_property};
 use super::styles::StyleSheet;
-use super::{DocxBlock, DocxCell, DocxParagraph, DocxRow, DocxRun, DocxTable};
+use super::{DocxBlock, DocxCell, DocxParagraph, DocxReferences, DocxRow, DocxRun, DocxTable};
 
 mod placement;
+mod references;
 
 /// Elements whose content is never live. An `mc:Fallback` repeats its
 /// `mc:Choice` in an older vocabulary, and a tracked formatting change holds
-/// the previous `w:rPr` or `w:pPr`, not the current one.
-const SKIPPED: [&str; 3] = [FALLBACK, "w:rPrChange", "w:pPrChange"];
+/// the previous `w:rPr`, `w:pPr` or `w:sectPr` (with its header and footer
+/// references), not the current one.
+const SKIPPED: [&str; 4] = [FALLBACK, "w:rPrChange", "w:pPrChange", "w:sectPrChange"];
 pub(super) const FALLBACK: &str = "mc:Fallback";
 
 /// Document-wide lookups resolved before the walk starts.
-pub(super) struct Lookups<'a> {
-    pub(super) numbering_defs: &'a HashMap<String, bool>,
-    pub(super) theme_colors: &'a HashMap<String, String>,
-    pub(super) styles: &'a StyleSheet,
+pub(in crate::nodes::extract) struct Lookups<'a> {
+    pub(in crate::nodes::extract) numbering_defs: &'a HashMap<String, bool>,
+    pub(in crate::nodes::extract) theme_colors: &'a HashMap<String, String>,
+    pub(in crate::nodes::extract) styles: &'a StyleSheet,
 }
 
 /// One open `w:p`. A text box nests whole paragraphs inside a run of its
@@ -56,6 +58,7 @@ pub(super) struct BlockBuilder {
     table_stack: Vec<DocxTable>,
     row_stack: Vec<DocxRow>,
     cell_stack: Vec<DocxCell>,
+    references: references::References,
 }
 
 impl BlockBuilder {
@@ -91,6 +94,11 @@ impl BlockBuilder {
             | "w:b" | "w:i" | "w:u" | "w:strike" | "w:color" | "w:highlight" => {
                 self.open_property(name, event, is_empty, version, lookups, budget)
             }
+            "w:footnoteReference"
+            | "w:endnoteReference"
+            | "w:headerReference"
+            | "w:footerReference"
+            | "w:del" => self.open_reference(name, event, is_empty, version, budget),
             _ => Ok(()),
         }
     }
@@ -218,6 +226,7 @@ impl BlockBuilder {
                 }
             }
             "w:tbl" => self.finish_table(),
+            "w:del" => self.references.leave_deletion(),
             _ => {}
         }
     }
@@ -244,7 +253,18 @@ impl BlockBuilder {
         }
     }
 
-    pub(super) fn finish(self) -> Vec<DocxBlock> {
-        self.blocks
+    pub(super) fn marking_notes(mark_notes: bool) -> Self {
+        let mut builder = Self::default();
+        builder.references.mark_notes = mark_notes;
+        builder
+    }
+
+    /// Blocks finished so far, leaving the builder ready for the next note.
+    pub(super) fn take_blocks(&mut self) -> Vec<DocxBlock> {
+        std::mem::take(&mut self.blocks)
+    }
+
+    pub(super) fn finish(self) -> (Vec<DocxBlock>, DocxReferences) {
+        (self.blocks, self.references.finish())
     }
 }

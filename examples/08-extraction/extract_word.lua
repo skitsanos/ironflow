@@ -18,16 +18,24 @@ flow:step("extract", nodes.extract_word({
     format = "json",
     output_key = "document",
     metadata_key = "metadata",
-    comments_key = "comments"
+    comments_key = "comments",
+    -- Footnotes and endnotes are on by default (notes = true): a reference
+    -- is the marker [^1] (endnotes [^e1]) and JSON lists the notes under
+    -- footnotes / endnotes. Headers and footers are page furniture and are
+    -- read only on request; JSON then adds headers / footers arrays.
+    headers_footers = true
 }))
 
 -- Avoid logging the complete structured document.
 flow:step("summarize", function(ctx)
     local blocks = ctx.document and ctx.document.blocks or {}
     local comments = ctx.comments or {}
+    local footnotes = ctx.document and ctx.document.footnotes or {}
+    local headers = ctx.document and ctx.document.headers or {}
 
     return {
         word_summary = "Blocks: " .. #blocks .. ", comments: " .. #comments
+            .. ", footnotes: " .. #footnotes .. ", headers: " .. #headers
     }
 end):depends_on("extract")
 

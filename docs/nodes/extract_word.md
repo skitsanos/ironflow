@@ -29,11 +29,13 @@ remain in force. There are no new configuration options.
 | `output_key` | string | no | `"content"` | Context key where the extracted output is stored. For `text`/`markdown` the value is a string; for `json` it is an object. |
 | `metadata_key` | string | no | — | If set, document metadata (Dublin Core fields) is stored under this context key. |
 | `comments_key` | string | no | — | If set, document comments (from `word/comments.xml`) are stored under this context key as an array. See [Comments](#comments). |
+| `notes` | boolean | no | `true` | Mark footnote and endnote references in the text and list the referenced notes after the body. `false` leaves no marker and reads no notes part. See [Footnotes, endnotes, headers and footers](#footnotes-endnotes-headers-and-footers). |
+| `headers_footers` | boolean | no | `false` | Also extract the header and footer parts that the document's sections name. Off by default because they are page furniture that repeats on every page. |
 
 > Providing both `path` and `source_key` is an error.
 > Artifact inputs are opened and SHA-256 verified inside the tracked blocking worker; OOXML parsing consumes that same rewound handle rather than a resolved store pathname.
 > The `format` parameter accepts `"text"`, `"markdown"`, or `"json"`; any other value is rejected.
-> Present `format`, `output_key`, `metadata_key`, and `comments_key` values must be strings; a value of the wrong type is rejected instead of being treated as absent.
+> Present `format`, `output_key`, `metadata_key`, and `comments_key` values must be strings; a value of the wrong type is rejected instead of being treated as absent. `notes` and `headers_footers` take a native boolean or an interpolated boolean spelling (`true`/`false`, `yes`/`no`, `on`/`off`, `1`/`0`).
 > `output_key`, `metadata_key`, and `comments_key` must be pairwise distinct when the optional keys are set; collisions are rejected before extraction begins.
 
 ## Context Output
@@ -150,6 +152,54 @@ on the page is not used.
 
 Tables nested inside cells are flattened — inner paragraphs are appended to the surrounding cell's paragraph list; no nested table block is emitted.
 
+## Footnotes, endnotes, headers and footers
+
+Footnotes and endnotes are extracted by default. A reference in the body
+(`w:footnoteReference`, `w:endnoteReference`) becomes the marker `[^label]` at
+its position. Labels count in reference order and are not the `w:id`:
+footnotes are `1`, `2`, ..., endnotes `e1`, `e2`, ...; a note referenced again
+reuses its label. References inside a tracked deletion (`w:del`) or an
+`mc:Fallback` mark nothing. After the body, each referenced note is listed
+once, footnotes first, as `[^label]: text`, its paragraphs (table cells
+included) joined by a space; that is the footnote syntax of GitHub Flavored
+Markdown, and the same lines are used in text. Notes nobody references, such
+as the separator notes, are not returned. A reference whose note or notes part
+is missing keeps its marker without a definition.
+
+With `headers_footers = true`, the header and footer parts named by the
+`w:headerReference` and `w:footerReference` elements of every section are
+read, each part once in the order first referenced (`default`, `first` and
+`even` slots alike). A part without text is left out, and references inside a
+tracked section change (`w:sectPrChange`) are ignored. Text and Markdown put
+the headers before the body and the footers at the end, after the notes.
+
+Text and Markdown separate these sections with a blank line: headers, body,
+notes, footers. JSON keeps them apart:
+
+```json
+{
+  "blocks": [ /* body blocks; a referencing run has "note" */ ],
+  "footnotes": [ { "label": "1", "id": "6857", "blocks": [ /* paragraph and table blocks */ ] } ],
+  "endnotes": [ { "label": "e1", "id": "3", "blocks": [ /* ... */ ] } ],
+  "headers": [ { "type": "default", "part": "word/header.xml", "blocks": [ /* ... */ ] } ],
+  "footers": [ { "type": "default", "part": "word/footer.xml", "blocks": [ /* ... */ ] } ]
+}
+```
+
+Each array is present only when it has entries. A run that holds a reference
+carries `"note": {"type": "footnote" | "endnote", "label": "1"}` and its text
+includes the marker, as does the paragraph `text`. `type` on a header or
+footer is the slot of its first reference.
+
+Parts are found through `word/_rels/document.xml.rels` (Office for the web
+writes `header.xml` and `footer.xml`, not `header1.xml`); the notes parts fall
+back to `word/footnotes.xml` and `word/endnotes.xml` when the document has no
+such relationship. Targets are untrusted: an external, escaping or wrong-type
+relationship, or more than one footnotes or endnotes relationship, fails the
+step, while a relationship that names a missing part, or a section reference
+with no relationship, is skipped. These parts share the call's ZIP, XML event
+and output budgets, and only referenced notes are kept in memory.
+
 ## Comments
 
 When `comments_key` is set, the node also parses `word/comments.xml` (if present) and walks `word/document.xml` for `<w:commentRangeStart/End>` markers to capture the source text each comment is anchored to.
@@ -216,14 +266,14 @@ Run color is captured from `w:color`:
   part read. Every present XML part used by the node must be well-formed, have
   one root element, contain no DTD, and have valid attributes. A malformed,
   non-UTF-8, oversized, or unreadable present part is an error. Genuinely
-  missing optional numbering, theme, requested metadata, or requested comments
-  parts use empty/default data; failures are not converted into missing parts
+  missing optional numbering, theme, requested metadata, notes, header,
+  footer, or requested comments parts use empty/default data; failures are not converted into missing parts
   or partial output. `quick_xml` still buffers its current event, so one
   unusually large text or CDATA token can require memory proportional to that
   token, but not to the complete XML part.
 - `IRONFLOW_MAX_EXTRACT_ITEMS` (default `250000`) is shared across the call. It
-  counts DOCX XML events in document, numbering, theme, metadata, and comments
-  parsing, inspected attributes, parsed comments, list-indent formatting work,
+  counts DOCX XML events in document, numbering, theme, metadata, notes,
+  header, footer and comments parsing, inspected attributes, parsed comments, list-indent formatting work,
   and each open-comment-range/text-event fan-out. This bounds adversarial
   overlapping comment ranges as well as ordinary document structure.
 - `IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES` (default `52428800`, 50 MiB) bounds the

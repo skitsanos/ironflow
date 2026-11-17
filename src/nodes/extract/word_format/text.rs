@@ -1,18 +1,36 @@
 mod output;
+mod stories;
 
 use std::collections::HashMap;
 
 use anyhow::Result;
 
 use self::output::TextOutput;
-use super::super::docx_parser::{DocxBlock, DocxParagraph, Flags};
+use super::super::docx_parser::{DocxBlock, DocxParagraph, DocxStories, Flags};
 use super::super::resource::Budget;
 
+/// Plain text: headers (when requested), the body, the note definitions,
+/// then footers, each section after a blank line.
 pub(in crate::nodes::extract) fn blocks_to_text(
     blocks: &[DocxBlock],
+    stories: &DocxStories,
     budget: &mut Budget<'_>,
 ) -> Result<String> {
     let mut output = TextOutput::new(budget);
+    for header in &stories.headers {
+        text_blocks(&mut output, &header.blocks)?;
+    }
+    output.section_break()?;
+    text_blocks(&mut output, blocks)?;
+    output.append_notes(stories, false)?;
+    for footer in &stories.footers {
+        output.section_break()?;
+        text_blocks(&mut output, &footer.blocks)?;
+    }
+    Ok(output.finish())
+}
+
+fn text_blocks(output: &mut TextOutput<'_, '_>, blocks: &[DocxBlock]) -> Result<()> {
     for block in blocks {
         output.checkpoint()?;
         match block {
@@ -26,14 +44,31 @@ pub(in crate::nodes::extract) fn blocks_to_text(
             DocxBlock::Table(table) => output.plain_table(table)?,
         }
     }
-    Ok(output.finish())
+    Ok(())
 }
 
+/// Markdown in the same section order as text. Note references are
+/// `[^label]` and definitions `[^label]: text`, the footnote syntax of GFM.
 pub(in crate::nodes::extract) fn blocks_to_markdown(
     blocks: &[DocxBlock],
+    stories: &DocxStories,
     budget: &mut Budget<'_>,
 ) -> Result<String> {
     let mut output = TextOutput::new(budget);
+    for header in &stories.headers {
+        markdown_blocks(&mut output, &header.blocks)?;
+    }
+    output.section_break()?;
+    markdown_blocks(&mut output, blocks)?;
+    output.append_notes(stories, true)?;
+    for footer in &stories.footers {
+        output.section_break()?;
+        markdown_blocks(&mut output, &footer.blocks)?;
+    }
+    output.finish_trimmed()
+}
+
+fn markdown_blocks(output: &mut TextOutput<'_, '_>, blocks: &[DocxBlock]) -> Result<()> {
     let mut numbered_counters = HashMap::<u32, u32>::new();
 
     for block in blocks {
@@ -80,8 +115,7 @@ pub(in crate::nodes::extract) fn blocks_to_markdown(
             }
         }
     }
-
-    output.finish_trimmed()
+    Ok(())
 }
 
 fn heading_level(paragraph: &DocxParagraph) -> Option<usize> {

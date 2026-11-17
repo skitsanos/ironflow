@@ -3,10 +3,11 @@ use anyhow::Result;
 use super::comments::{attach_comment_anchors, parse_docx_comments, validated_comment_ids};
 use super::content::format_docx_content;
 use super::metadata::extract_docx_metadata;
+use super::stories::{Reader, StoryOptions};
 use crate::artifacts::FileSource;
 use crate::engine::types::NodeOutput;
 use crate::nodes::extract::docx_parser::{
-    parse_docx_blocks, parse_numbering_defs, parse_styles, parse_theme_colors,
+    Lookups, parse_docx_blocks, parse_numbering_defs, parse_styles, parse_theme_colors,
 };
 use crate::nodes::extract::ooxml::Archive;
 use crate::nodes::extract::ooxml::core_properties::core_properties_part;
@@ -20,6 +21,7 @@ pub(super) struct Request {
     pub(super) output_key: String,
     pub(super) metadata_key: Option<String>,
     pub(super) comments_key: Option<String>,
+    pub(super) stories: StoryOptions,
 }
 
 pub(super) fn extract(request: Request, execution: ExecutionControl) -> Result<NodeOutput> {
@@ -62,18 +64,31 @@ pub(super) fn extract(request: Request, execution: ExecutionControl) -> Result<N
             &theme,
             &styles,
             comment_ids.as_ref(),
+            request.stories.notes,
             &mut budget,
         )
     })?;
     drop(comment_ids);
     let anchors = document.anchors;
     let blocks = document.blocks;
+    let lookups = Lookups {
+        numbering_defs: &numbering,
+        theme_colors: &theme,
+        styles: &styles,
+    };
+    let stories = Reader {
+        archive: &mut archive,
+        lookups: &lookups,
+        budget: &mut budget,
+        execution: &execution,
+    }
+    .read(&document.references, request.stories)?;
     if let Some(comments) = comments.as_mut() {
         attach_comment_anchors(comments, &anchors, &budget)?;
     }
     drop(anchors);
-    let content = format_docx_content(&blocks, &request.format, &mut budget)?;
-    drop(blocks);
+    let content = format_docx_content(&blocks, &stories, &request.format, &mut budget)?;
+    drop((blocks, stories));
 
     let mut output = NodeOutput::new();
     output.insert(request.output_key, content);

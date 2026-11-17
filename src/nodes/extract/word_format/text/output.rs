@@ -58,6 +58,10 @@ impl<'a, 'b> TextOutput<'a, 'b> {
             .map_err(|_| anyhow::anyhow!("extract_word: failed to format list marker"))
     }
 
+    pub(super) fn has_line(&self) -> bool {
+        self.has_line
+    }
+
     pub(super) fn start_line(&mut self) -> Result<()> {
         if self.has_line {
             self.append("\n", "DOCX formatted line separators")?;
