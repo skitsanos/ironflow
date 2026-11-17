@@ -1,132 +1,32 @@
 # `pdf_split`
 
-Select PDF pages using individual numbers or ranges. Write one file per page by
-default, or opt into multipage slices with `pages_per_file`.
+Select PDF pages by number or range and write one file per page, or groups of pages with `pages_per_file`.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | one of `path` or `source_key` | — | File path to the PDF; supports `${ctx.key}` interpolation. |
-| `source_key` | string | one of `path` or `source_key` | — | Context key containing a file path, artifact URI, or artifact descriptor. A stored path is used as it is and is not interpolated. |
-| `output_dir` | string | yes | — | Directory for output files; supports `${ctx.key}` interpolation. |
-| `pages` | string | no | `"all"` | Page specification: `"all"`, a single page `"3"`, a range `"1-5"`, or a combination `"1-3,7,9-11"`. Pages are 1-based; supports `${ctx.key}` interpolation before parsing. |
-| `pages_per_file` | integer | no | `1` | Maximum selected pages in each output file, from `1` to `IRONFLOW_MAX_PDF_SPLIT_PAGES` (default `1000`). Values greater than `1` enable grouped output. Strings, null, fractions, zero, and negative values are errors. |
-| `output_key` | string | no | `"pdf_split"` | Context key prefix for output values. |
+| `path` | string | One of `path` or `source_key` | — | PDF file path or `artifact://` URI; supports `${ctx.key}` interpolation. |
+| `source_key` | string | One of `path` or `source_key` | — | Context key holding a path, artifact URI or artifact descriptor; used as stored, without interpolation. |
+| `output_dir` | string | Yes | — | Directory for output files; supports `${ctx.key}` interpolation. |
+| `pages` | string | No | `"all"` | `"all"`, `"3"`, `"1-5"`, or a list such as `"1-3,7,9-11"`; 1-based, interpolated before parsing. |
+| `pages_per_file` | integer | No | `1` | Pages per output file, from 1 to `IRONFLOW_MAX_PDF_SPLIT_PAGES`; values above 1 enable grouped output. |
+| `output_key` | string | No | `"pdf_split"` | Prefix for the context keys written by this node. |
 
-> Providing both `path` and `source_key` is an error.
-> Artifact inputs are opened and SHA-256 verified inside the tracked blocking worker; PDF parsing consumes that same rewound handle rather than a resolved store pathname.
-
-For example, `pages = "${ctx.range}"` with `range = "31-60"` creates 30 one-page
-files by default. Add `pages_per_file = 30` to produce one 30-page file instead.
-Missing or null context values resolve to empty text
-and fail the existing page-specification parser. Invalid resolved selectors fail
-before creating the output directory. Literal selectors retain their behavior,
-including ordering and repeated selections in the default single-page mode.
-
-## Grouped output
-
-With `pages_per_file > 1`, the node selects pages first and groups that sequence
-without sorting it. `pages = "all"` for a 243-page PDF with `pages_per_file = 30`
-creates nine files: eight with 30 pages and the last with three. A selector of
-`"5,1-3,9"` with `pages_per_file = 3` creates groups `[5,1,2]` and `[3,9]`.
-Repeated selections, including overlapping ranges, are rejected before creating
-the output directory. Multiple selected entries referencing the same source
-page object are also rejected in grouped mode.
-
-Grouped filenames are `<stem>_part_001.pdf`, `<stem>_part_002.pdf`, and so on,
-with a minimum three-digit part number. Part numbers describe selection order,
-not original page ranges; use the output metadata for exact source page numbers.
-The stem is the source filename without its extension for path inputs, or the
-SHA-256 digest for artifact inputs, matching legacy stem selection.
-The last group may be smaller than `pages_per_file`, including one page.
-
-Each group is flushed and synced to a temporary sibling file, then atomically
-published without overwriting. Existing files, final symlinks (including dangling
-ones), and nonregular destinations are refused. Destination checks occur per
-group, with collision protection at publication as well. Directory aliases are
-resolved using the shared rooted writer; on Unix the resolved directory is
-pinned by an open handle. Other platforms use the writer's checked-path fallback.
-On Unix each published group gets `0666` masked by the process umask (`0644`
-under umask `022`); the temporary file is mode `0600` until then.
-
-This is **per-file atomicity, not an all-or-nothing batch**: completed groups
-remain after a later collision, parse/write failure, or cancellation. Unfinished
-staging files are removed on normal error/cancellation unwinding, not guaranteed
-after a process crash. No success output or parts metadata is returned on node
-failure. Use a fresh output directory for each attempt; an automatic node retry
-does not resume and will encounter any files already published.
-
-Omitting `pages_per_file` or setting it to `1` preserves legacy filenames
-(`<stem>_<source-page>.pdf`), repeated file paths for duplicate selections,
-existing-file overwrite behavior, and the three original output keys.
-
-Single pages are written through the same rooted, staged writer as groups
-(IF-218). Each page is flushed and synced to a temporary sibling file and then
-renamed over its destination, so an existing regular file is replaced as a
-whole and never truncated in place. A destination that is a symlink (including
-a dangling one) or a nonregular file is refused and the step fails; pages
-published before it remain. Before IF-218 a symlinked destination was followed
-and its target overwritten. On Unix a new page file gets `0666` masked by the
-process umask, a replaced file keeps its permission bits, and a missing
-`output_dir` is created [`0755` masked by the process umask](write_file.md#created-directories), in both modes. Each page file is
-capped by `IRONFLOW_MAX_PDF_BYTES` while it is serialized. As with groups,
-this is per-file atomicity, not an all-or-nothing batch.
-
-## Limits and cancellation
-
-Page selection is bounded by `IRONFLOW_MAX_PDF_SPLIT_PAGES` (default `1000`).
-`"all"` and explicit or repeated ranges are rejected before the selector
-allocates more indices than that ceiling. The source must be a regular file and
-is capped by `IRONFLOW_MAX_PDF_BYTES` (default 100 MiB) before and during reads;
-post-open growth cannot cross the cap. Loading, object traversal, and writes run
-on a tracked blocking worker with cancellation checkpoints around opaque
-`lopdf` operations and between pages/groups. The source is loaded once; grouped
-output does not write or reparse intermediate one-page files. `lopdf` retains
-the bounded source document and one page/group's reachable cloned object graph
-while producing that output, so the source byte cap is not an exact RSS ceiling.
-A later failure
-does not roll back page files already written to `output_dir`.
-
-Before writing any pages, [shared PDF loading](../PDF_LOADING.md) enforces
-`IRONFLOW_MAX_PDF_DECOMPRESSED_STREAM_BYTES` (64 MiB) per object/cross-reference
-stream and rejects more than `IRONFLOW_MAX_PDF_OBJECTS` (250000) loaded objects
-after parsing. Strict parsing and bounded recovery checks prevent oversized
-streams from silently producing partial documents.
-
-Grouped output additionally applies `IRONFLOW_MAX_PDF_OBJECTS` to each retained
-group graph, counting shared resources once plus the new page tree and catalog.
-This check runs during graph collection, before cloning beyond that count.
-`IRONFLOW_MAX_PDF_BYTES` also caps each serialized grouped file during staged
-writes. It is not a cumulative output-directory byte limit, and grouping is by
-page count only: a too-large group fails rather than being automatically divided
-again. There is no hardcoded OCR-provider page limit.
-
-## Page isolation and fidelity
-
-Each output contains its selected pages and their reachable dependencies, without
-copying the source page tree, omitted pages, or their unique resources. Before
-reparenting, the node materializes the nearest inherited `Resources`, `MediaBox`,
-`CropBox`, and `Rotate` values. Explicit page values take precedence; null values
-are treated as absent. Broken or cyclic parent chains fail before that page/group is
-written. Graph collection and remapping include cancellation checkpoints.
-
-References to omitted pages, source page-tree nodes, or the source catalog become
-PDF nulls, so a cross-page annotation cannot pull an excluded page back into the
-file. Links between pages retained in the same group and annotation backlinks
-are remapped normally. Shared fonts and images are retained once per group.
-Document-level bookmarks, signatures, and source catalog features are not preserved. This is
-page extraction, not content redaction: retained shared resources, metadata, or
-streams may contain unused or hidden data and are not sanitized.
+`path` and `source_key` are mutually exclusive.
 
 ## Context Output
 
-- `<output_key>_files` (default `pdf_split_files`) — array of output PDF paths in selection/group order.
-- `<output_key>_page_count` (default `pdf_split_page_count`) — total selected pages, not file count.
-- `<output_key>_success` (default `pdf_split_success`) — `true` on success.
-- `<output_key>_parts` (default `pdf_split_parts`) — grouped mode only: one object per file, containing `path`, ordered 1-based source `pages`, and `page_count`.
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}_files` | array | Output file paths, in selection order. |
+| `{output_key}_page_count` | number | Total selected pages (not the file count). |
+| `{output_key}_success` | boolean | `true` on success. |
+| `{output_key}_parts` | array | Grouped mode only: one object per file. |
 
-For example, selecting `"5,1-3,9"` in groups of three returns:
+## Output Shape
+
+`pages = "5,1-3,9"` with `pages_per_file = 3` gives this `{output_key}_parts`:
 
 ```json
 [
@@ -135,7 +35,33 @@ For example, selecting `"5,1-3,9"` in groups of three returns:
 ]
 ```
 
-## Example
+`pages` lists the 1-based source page numbers in each file.
+
+## Behavior
+
+- Single-page mode writes `<stem>_<page>.pdf` and replaces an existing file with that name; repeated selections write the same file again.
+- Grouped mode writes `<stem>_part_001.pdf`, `<stem>_part_002.pdf`, ... in selection order without sorting; the last part may be smaller. An existing file with that name fails the step.
+- `<stem>` is the source file name without extension, or the SHA-256 digest for artifact inputs.
+- A page number of 0, a page past the end, a reversed range, or an empty selection fails the step before `output_dir` is created. In grouped mode a repeated page also fails.
+- A destination that is a symlink or not a regular file fails the step.
+- Files already written stay in place when a later page or group fails; use a fresh `output_dir` per attempt.
+- Each output keeps only its pages and the resources they use. Bookmarks, signatures and document-level features are not kept, and retained resources are not sanitized.
+- Missing directories are created as described in [Created directories](write_file.md#created-directories).
+
+## Limits
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `IRONFLOW_MAX_PDF_SPLIT_PAGES` | `1000` | Maximum selected pages, and the maximum `pages_per_file`. |
+| `IRONFLOW_MAX_PDF_BYTES` | 100 MiB | Maximum source size, and maximum size of each output file. |
+| `IRONFLOW_MAX_PDF_DECOMPRESSED_STREAM_BYTES` | 64 MiB | Maximum decompressed size of one PDF stream. |
+| `IRONFLOW_MAX_PDF_OBJECTS` | `250000` | Maximum objects in the source, and in each grouped output. |
+
+See [PDF loading](../PDF_LOADING.md) for how the source limits apply.
+
+## Examples
+
+### Split selected pages
 
 ```lua
 local flow = Flow.new("split_pdf")
@@ -157,16 +83,11 @@ flow:step("done", nodes.log({
 return flow
 ```
 
-For direct provider-sized slices, use the runnable
-[`pdf_split_grouped.lua`](../../examples/08-extraction/pdf_split_grouped.lua)
-example. It defaults to the bundled three-page fixture and groups of 30. To
-test another PDF, run from the repository root:
+### Grouped slices
+
+The runnable [`pdf_split_grouped.lua`](../../examples/08-extraction/pdf_split_grouped.lua) example splits a PDF into groups of 30 pages:
 
 ```bash
 ironflow run examples/08-extraction/pdf_split_grouped.lua \
   --context '{"input_path":"/absolute/path/document.pdf","pages_spec":"all"}'
 ```
-
-The example logs source-page metadata and uses a fresh temporary output
-directory per run. The same flow works through `serve` with `file` and `context`
-in `POST /flows/run` when its example directory is configured under `flows_dir`.

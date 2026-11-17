@@ -1,166 +1,71 @@
 # `extract_xlsx`
 
-Extract typed rows from an Excel (`.xlsx`) workbook, one sheet or every sheet.
-
-## Text Fidelity
-
-Inline and shared-string cells preserve built-in/numeric XML references and
-literal CDATA through Calamine's existing string decoder. Shared-string
-preflight and the XLSX cell/output budgets remain in force; no new decoder or
-configuration option is introduced for XLSX.
-
-Excel stores a character it cannot write literally as `_xHHHH_`, one escape
-per UTF-16 code unit. Every such escape is decoded, including surrogate pairs
-(`_xD83D__xDE00_` is one emoji), and `_x005F_` keeps a following sequence
-literal. Before `calamine` 0.38 only `_x00HH_` was decoded.
+Extract typed rows from an Excel (`.xlsx`) workbook, from one sheet or every sheet.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | one of `path` or `source_key` | — | File path to the `.xlsx` file; supports `${ctx.key}` interpolation. |
-| `source_key` | string | one of `path` or `source_key` | — | Context key containing a file path, artifact URI, or artifact descriptor. A stored path is used as it is and is not interpolated. |
-| `sheet` | string or number | no | all sheets | A string selects a sheet by name; a number selects a sheet by 0-based index. |
-| `has_header` | boolean | no | `true` | When `true`, the first row of each extracted sheet becomes object keys and rows are objects; when `false`, rows are plain arrays and no row is treated as a header. |
-| `output_key` | string | no | `"content"` | Context key where the extracted rows are stored. |
+| `path` | string | One of `path`/`source_key` | — | Path to the `.xlsx` file; supports `${ctx.key}` interpolation. |
+| `source_key` | string | One of `path`/`source_key` | — | Context key holding a file path, artifact URI, or artifact descriptor; the stored path is not interpolated. |
+| `sheet` | string or number | No | all sheets | A string selects a sheet by name, a whole number by 0-based index. |
+| `has_header` | boolean | No | `true` | `true` turns the first row into object keys; `false` returns rows as arrays. |
+| `output_key` | string | No | `"content"` | Context key for the extracted sheets. |
 
-> Providing both `path` and `source_key` is an error.
-> Artifact inputs are opened and SHA-256 verified inside the tracked blocking worker; the same rewound file handle is passed through XLSX preflight and Calamine, never a resolved store pathname.
-> A workbook containing a sheet literally named `"0"` stays reachable by passing the string `"0"` for `sheet` rather than the number `0`.
-> `has_header` accepts a native boolean or an interpolated boolean spelling (`true`/`false`, `yes`/`no`, `on`/`off`, or `1`/`0`, case-insensitive). A present invalid value is rejected instead of silently selecting the default.
-> A present `output_key` must be a string; a value of another type is rejected instead of silently selecting `content`.
+`path` and `source_key` are mutually exclusive. A sheet named `"0"` is selected with the string `"0"`, not the number `0`. `has_header` accepts a boolean or an interpolated `true`/`false`, `yes`/`no`, `on`/`off`, `1`/`0`; an invalid value fails the step, as does a non-string `output_key`.
 
 ## Context Output
 
-- `<output_key>` (default `content`) — an object keyed by sheet name, where each value is that sheet's array of rows. This holds even when `sheet` narrows the extraction to one sheet: the output is still keyed by that sheet's name, so downstream code never has to branch on whether narrowing happened.
-- `<output_key>_sheet_names` — an array of the extracted sheet names, in workbook order. Object key order does not survive the round trip into Lua, so a `foreach` over the sheets needs this array rather than iterating `<output_key>`'s keys directly.
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}` | object | Sheet name to array of rows; keyed by sheet name even when `sheet` selects one. |
+| `{output_key}_sheet_names` | array | Extracted sheet names in workbook order; use it to iterate, because object key order is not kept in Lua. |
 
-## Cell types
+## Output Shape
 
-| Excel value | JSON value |
-|-------------|------------|
-| Whole number | Integer — only when it round-trips exactly through `i64`. Every `.xlsx` number is stored as a double, so without this rule a quantity column would reach Lua as `3.0` rather than `3`. |
+```json
+{
+  "Summary": [
+    { "Region": "North", "Q1": 120, "Q1_2": 3.5, "Closed": "2026-03-15T00:00:00", "Time spent": "PT37H30M", "column_6": null }
+  ]
+}
+```
+
+| Excel value | Returned as |
+|-------------|-------------|
+| Whole number | Integer when it fits `i64` exactly, otherwise float |
 | Fractional number | Float |
-| Text | String |
-| Boolean | Boolean |
-| Date, time or date-time format | ISO-8601 date-time string (`YYYY-MM-DDTHH:MM:SS`) — see [Dates, times and durations](#dates-times-and-durations) |
-| Elapsed-time format (`[h]:mm:ss`) | ISO-8601 duration string, for example `PT37H30M` — see below |
-| ISO 8601 date string | String (unchanged) — cells tagged with `DateTimeIso` type in the workbook |
-| ISO 8601 duration string | String (unchanged) — cells tagged with `DurationIso` type in the workbook |
-| Blank cell | `null` |
-| Excel error (`#DIV/0!`, `#N/A`, ...) | `null` |
-| Formula | Its cached value, converted by the rules above — IronFlow does not evaluate formulas |
+| Text, boolean | String, boolean |
+| Date or date-time format | ISO-8601 string `YYYY-MM-DDTHH:MM:SS` |
+| Time-of-day-only format (`h:mm`) | ISO-8601 string on Excel day zero, `1899-12-31T14:30:00` (`1904-01-01` in a 1904-system workbook); keep the part after `T` |
+| Elapsed-time format (`[h]:mm:ss`) | ISO-8601 duration with hours as the largest unit: `PT37H30M`, `PT0S`, `-PT1H30M`, `PT0.5S` (up to three fractional digits) |
+| ISO date or duration string cell | String, unchanged |
+| Blank cell or Excel error | `null` |
+| Formula | Its cached value, converted as above; formulas are not evaluated |
 
-Blanks and Excel errors both become `null`: a consumer treats "no usable value" uniformly rather than learning Excel's error taxonomy. The cost is that a flow auditing a workbook cannot tell a broken formula from an empty cell.
+## Behavior
 
-Merged cells carry their value in the top-left cell of the span and `null` in every other cell it covers — that is the file's own on-disk representation; `extract_xlsx` does not attempt to fill it back in.
+- With `has_header = true`, a blank header cell becomes `column_{n}` (1-based), a duplicate header gains `_2`, `_3`, ..., and a data column past the end of the header row is `column_{n}`.
+- Dates in a 1904-system workbook return the same calendar date as in a 1900-system one. Serial 60 (Excel's nonexistent 1900-02-29) returns `1900-02-28`.
+- Dates stored as text (for example `"8/30/2024, 9:01 PM"`) are returned unchanged; parse them with [`date_format`](date_format.md) and a custom `input_format`.
+- A merged range has its value in the top-left cell and `null` in the other cells.
+- `_xHHHH_` escapes in strings are decoded, including surrogate pairs; `_x005F_` keeps the following sequence literal.
+- An unknown sheet name fails the step and lists up to four available names; an out-of-range index, a negative or fractional number, or any other `sheet` type also fails the step.
+- A file starting with an OLE compound-file header (a legacy `.xls` or a password-protected workbook) is refused; convert it to a plain `.xlsx` first.
+- A malformed or oversized part, or a breached limit, fails the step; no partial rows are returned. The error names the sheet, the value, and the variable to raise.
 
-## Dates, times and durations
+## Limits
 
-`.xlsx` stores these as numbers plus a number format, and the format decides what a caller receives:
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `IRONFLOW_MAX_XLSX_ROWS` | `50000` | Highest row position accepted in a sheet, counting empty rows above it. |
+| `IRONFLOW_MAX_XLSX_CELLS` | `33000` | Total cells (height × width) across all extracted sheets; select one sheet to lower the cost. |
+| `IRONFLOW_MAX_XLSX_OUTPUT_BYTES` | `52428800` | Decoded and result bytes for the workbook, also each part and the expanded style table. |
+| `IRONFLOW_MAX_XLSX_ARCHIVE_METADATA_BYTES` | `8388608` | ZIP file names, extra fields and comments. |
+| `IRONFLOW_MAX_ZIP_ENTRIES` | `10000` | Maximum entries in the workbook. |
+| `IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES` | `536870912` | Maximum file size and total uncompressed size. |
 
-| Number format | Stored value | Returned |
-|---------------|--------------|----------|
-| Date (`14`, `dd mmm yyyy`, locale long date) | `46096` | `"2026-03-15T00:00:00"` |
-| Date and time (`22`) | `46096.6041…` | `"2026-03-15T14:30:00"` |
-| Time of day only (`20`, `h:mm`) | `0.6041…` | `"1899-12-31T14:30:00"` |
-| Elapsed time (`[h]:mm:ss`, `[mm]:ss.000`) | `1.5625` | `"PT37H30M"` |
-
-- **Time of day only** is returned on Excel's day zero, `1899-12-31` (`1904-01-01` in a workbook that uses the 1904 date system). The date part is a placeholder; keep the part after `T`. This is kept for compatibility with earlier releases.
-- **Elapsed time** is an ISO-8601 duration with hours as the largest unit, so durations over 24 hours keep their days (`PT37H30M`, not a date). Zero is `PT0S`; a negative span is prefixed with `-` (`-PT1H30M`); fractional seconds keep up to three digits (`PT0.5S`), the precision of the underlying conversion.
-- **1904 date system** (`<workbookPr date1904="1"/>`): dates are shifted by Excel's 1,462 days, so the same calendar date comes back whichever system the workbook uses. Durations do not depend on the epoch. This path is covered by a hand-built workbook; no workbook saved by Excel itself has been compared.
-- Dates before 1900-03-01 follow Excel's 1900 leap-year quirk (serial 60, the nonexistent 1900-02-29, comes back as `1900-02-28`).
-
-## Text Dates vs. Excel Dates
-
-The rows above describe how `extract_xlsx` handles cells Excel explicitly typed as dates — those return ISO-8601 strings. However, many real workbooks, especially exports from reporting systems, store dates as plain text rather than as Excel date values. In those cases, the node returns the text unchanged.
-
-For example, a column labeled `"FMV Approval Date"` in an exported report might contain values like:
-
-```
-"8/30/2024, 9:01 PM"
-"4/20/2023, 11:10 AM"
-"4/11/2025, 9:05 PM"
-```
-
-These arrive as strings, not ISO-8601 formatted dates. To tell the difference: if a date column returns ISO-8601 strings like `"2024-08-30T21:01:00"`, Excel typed that cell as a date. If it returns text like `"8/30/2024, 9:01 PM"`, the cell was text in the source file.
-
-Text dates can be parsed downstream with the `date_format` node. That node can parse dates from custom `input_format` strings — for the example shape above, `input_format = "%m/%d/%Y, %I:%M %p"` would work, though the auto-detected formats do not include this pattern. See `docs/nodes/date_format.md` for the formats it recognizes and how to provide a custom strftime pattern.
-
-## Headers
-
-When `has_header = true`, the first row of a sheet becomes its object keys, with two rules that differ from `csv_parse` because spreadsheets are not CSVs:
-
-- A blank header cell becomes `column_{n}` (1-based) rather than an empty-string key.
-- A duplicate header gains a `_2`, `_3`, ... suffix rather than overwriting the earlier column — repeated group headers (two columns both labeled `Q1`) are common, and last-wins would silently drop real data.
-
-Columns present in a data row but past the end of the header row keep the same `column_{n}` convention `csv_parse` uses.
-
-## Ceilings
-
-Four `extract_xlsx`-specific environment variables bound how much a single call can extract, in addition to the ZIP guards every OOXML node shares:
-
-- `IRONFLOW_MAX_XLSX_ARCHIVE_METADATA_BYTES` (default `8388608`, 8 MiB) — maximum cumulative bytes occupied by every central-directory filename, extra field, and file comment, plus the archive comment and ZIP64 end-record extensions. IronFlow traverses each central header without allocating those fields and requires the walk to end exactly at the declared directory boundary before constructing `ZipArchive` or Calamine metadata. This is independent of the `IRONFLOW_MAX_ZIP_METADATA_BYTES` setting used by `zip_list` and `zip_extract`.
-- `IRONFLOW_MAX_XLSX_ROWS` (default `50000`) — highest row *position* accepted in one sheet (1-based; row 1 counts as 1), not a count of populated rows. Row 50,000 is accepted at the default and row 50,001 is rejected even if every row below it is empty. The reader streams cells in file order, so a position can be checked as soon as each cell arrives. Breaching the ceiling names the sheet, row position, and limit.
-- `IRONFLOW_MAX_XLSX_CELLS` (default `33000`) — maximum total cells (`height × width`) across every sheet a single call extracts, independent of `has_header`. The budget is shared across sheets, so narrowing with `sheet` lowers the cost, and a workbook too large to read whole can still be read one sheet at a time.
-- `IRONFLOW_MAX_XLSX_OUTPUT_BYTES` (default `52428800`, 50 MiB) — maximum cumulative decoded and result bytes across the workbook. It is also a conservative compressed and uncompressed ceiling for every individual workbook part, enforced before `calamine` can decode one large inline string or XML part at the broader archive limit. A decoded cell is charged when retained and its result representation is charged again while rows are built. Shared-string references are charged for every cell that uses the string rather than once for the ZIP entry. The same budget bounds the style table `calamine` builds when it opens the workbook: each font, fill, border and cell format (`xf`) in `styles.xml` is charged 320 bytes, and the longest font name and number-format code in the part are charged once per cell format, because the reader copies both into every format record. A workbook at Excel's own limits (65,490 cell formats, 255-character format codes, 31-character font names) fits the default; a style table that would expand past the budget is refused before the workbook is opened, with an error that names `styles.xml` and this variable ([IF-173](../issues/IF-173.md)).
-
-The general `IRONFLOW_MAX_EXTRACT_ITEMS` and
-`IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES` settings govern the non-XLSX extractors;
-`extract_xlsx` uses the dedicated row, cell, and output budgets above.
-
-`IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES` and `IRONFLOW_MAX_ZIP_ENTRIES` also apply. A bounded EOCD/ZIP64 pre-flight validates the raw workbook size, central-directory bounds, and entry count before the ZIP library can allocate metadata from those fields. The pre-flight accepts only the last end record in the file, which must end at EOF with its comment, and a central directory that ends exactly where that record begins; the opened archive's directory offset and raw entry count must then match the validated ones. Workbooks with trailing bytes, prepended data, or a second end record inside the archive comment are rejected. IronFlow then streams every part, checking its declared and actual uncompressed bytes. For XLSX, the uncompressed-byte setting also caps the raw archive itself; this prevents compressed input and central-directory work from escaping the process ceiling.
-
-A file that starts with an OLE compound-file header is rejected before the
-workbook is opened (IF-218): a legacy `.xls`, a password-protected workbook,
-or a ZIP package with such a header in front of its first entry. Calamine
-probes every workbook for a compound file before it opens the ZIP, and that
-probe is not bounded against a looping sector chain. Convert legacy or
-encrypted workbooks to a plain `.xlsx` first.
-
-Sheet selection reads borrowed Calamine metadata and clones only the selected
-name (or all names only when all sheets are requested). Invalid selectors show
-at most four available name previews, each truncated to 160 UTF-8 bytes, so an
-error cannot recreate an unbounded metadata copy. Row position, bounding-area
-cell count, and decoded-value cost are admitted before IronFlow asks Calamine
-to clone a borrowed `DataRef` into the owned result value.
-
-`sharedStrings.xml` receives an additional streaming pre-flight before
-`calamine` opens the workbook. It checks declared and actual bytes, declared
-`uniqueCount`, actual string entries, and decoded text against the XLSX
-ceilings. This prevents a crafted count from making the parser reserve an
-attacker-sized string table before ordinary cell/output accounting begins.
-
-`styles.xml` receives its own streaming pre-flight for the same reason. Since
-`calamine` 0.38 the workbook open builds one style record per cell format and
-copies the format's font name and number-format code into it, so a few
-kilobytes of XML can expand to gigabytes. IronFlow counts the records and the
-longest strings in every part named `styles.xml`, in any directory and letter
-case, and refuses the workbook when their product exceeds
-`IRONFLOW_MAX_XLSX_OUTPUT_BYTES`. The bound is deliberately an overestimate:
-it counts formats wherever they appear and assumes each one copies the longest
-name and code.
-
-Breaching any of these ceilings raises an error naming the offending sheet (where applicable), the observed count, the limit, and the environment variable to raise.
-
-The input must resolve to a regular file; FIFOs and devices are rejected before
-ZIP parsing. On Unix and Windows, IronFlow also refuses to follow a final
-path-component symlink/reparse point; other platforms enforce the opened-handle regular-file check. A
-malformed, oversized, or unreadable present part fails the call rather than
-producing partial rows.
-
-ZIP/XML decoding and workbook parsing are synchronous library work, so the node
-runs that phase on a tracked blocking worker. It checks cancellation and the
-step/run deadline between archive chunks, shared-string and style XML events,
-worksheet records (including filtered empty cells), and output rows. The third-party
-workbook-open and worksheet-reader calls cannot be interrupted midway. Calamine
-still eagerly builds its ZIP/path cache, shared strings, formats, styles, and
-workbook metadata, and its public cell API requires an owned value after IronFlow's
-admission checks. IronFlow checks immediately before and after those calls, while the raw, per-part,
-shared-string, style, row, cell, and output ceilings bound work between checkpoints.
-Task and run admission remain occupied until the physical worker stops.
-
-`IRONFLOW_MAX_XLSX_CELLS`'s default is kept well below `IRONFLOW_MAX_CONVERSION_NODES` (default `100000`, see `docs/CLI_REFERENCE.md`) on purpose. Extracted rows are converted from JSON into Lua after parsing, at a cost of roughly `rows * (cols + 1)` conversion nodes per sheet — worst at a single column, where it collapses to `rows * 2`, i.e. twice the cell count — so a cell ceiling that sits above (or too close to) the conversion budget can be beaten by conversion cost first, at width 1 worst of all, and the resulting failure names a JSON path deep in the converter instead of the sheet this ceiling is meant to name. Raising `IRONFLOW_MAX_XLSX_CELLS` without also raising `IRONFLOW_MAX_CONVERSION_NODES` (or the reverse) mostly just relocates where an oversized workbook fails.
+`IRONFLOW_MAX_EXTRACT_ITEMS` and `IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES` do not apply. Rows are converted into Lua afterwards, so raising `IRONFLOW_MAX_XLSX_CELLS` may also need a higher `IRONFLOW_MAX_CONVERSION_NODES` (see [CLI_REFERENCE.md](../CLI_REFERENCE.md)).
 
 ## Examples
 

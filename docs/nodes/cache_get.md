@@ -1,57 +1,46 @@
 # `cache_get`
 
-Retrieve a value from the cache (memory or file-based).
+Read a value stored by [`cache_set`](cache_set.md) from the memory or file cache.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `key` | string | yes | — | Cache key to look up. Supports `${ctx.key}` interpolation. |
-| `output_key` | string | no | `"cached_value"` | Context key where the retrieved value is stored. |
-| `backend` | string | no | `"memory"` | Storage backend: `"memory"` (process-global bounded cache) or `"file"` (JSON files on disk). |
-| `cache_dir` | string | no | `IRONFLOW_CACHE_DIR` / `".ironflow_cache"` | Directory for file-based cache entries. Only used when `backend` is `"file"`. Per-node value overrides the env var. |
-
-> Expired memory entries and verified expired file entries are removed on access.
-
-`cache_get` and `cache_set` apply the same interpolation rules to `key`, so a value stored with `key = "llm:${ctx.prompt_hash}"` can be read back with the same expression. The interpolated key is also returned by `cache_set` as `cache_key`.
-
-## File Identity and Upgrades
-
-File entries use `<cache_dir>/v1/<sha256>.json`, where the lowercase hex digest
-is SHA-256 of the interpolated key's exact UTF-8 bytes. Punctuation, case,
-Unicode normalization forms, and path-like text remain distinct; the key is not
-sanitized or interpreted as a filesystem path.
-
-Each JSON record contains `schema_version: 1`, the original `key`, `value`, and
-optional `expires_at`. A read verifies the version and exact key before returning
-a hit or cleaning up an expired file. Missing/mismatched identity or a missing/
-unsupported version produces a miss and leaves the record untouched. Malformed
-JSON or incompatible field types remain errors rather than hits.
-
-Legacy root-level `<sanitized_key>.json` files are **not read, migrated, or
-deleted**. Their original keys are ambiguous, so upgrading causes a cache miss
-until the workflow repopulates the versioned cache. Legacy files can be removed
-separately after they are no longer needed by older binaries.
-
-The file backend is a best-effort cache, not a transactional state store. File
-work uses tracked blocking workers, with cancellation/deadline checks before
-and after I/O; an in-progress synchronous operation cannot be preempted or
-rolled back. `cache_set` writes each record to a temporary sibling file and
-renames it over the entry (IF-218), so a reader, in this or another process,
-sees the previous record or the new one and never a partially written file.
-Writers are otherwise not coordinated: concurrent writes of one key are
-last-writer-wins, and expiry cleanup can remove a record that was replaced a
-moment earlier. A symlink or nonregular file at an entry name fails
-`cache_set` instead of being followed. Keep the cache directory trusted and
-access-controlled: keys and values remain plaintext inside records, and the
-digest is not authentication or encryption.
+| `key` | string | Yes | — | Cache key; supports `${ctx.key}` interpolation, the same way as `cache_set`. |
+| `output_key` | string | No | `"cached_value"` | Context key for the retrieved value. |
+| `backend` | string | No | `"memory"` | `"memory"` (process-global) or `"file"` (JSON files on disk). |
+| `cache_dir` | string | No | `IRONFLOW_CACHE_DIR` or `".ironflow_cache"` | Directory for the file backend; ignored by the memory backend. |
 
 ## Context Output
 
-- `<output_key>` (default `cached_value`) — the cached value, or `null` if not found / expired.
-- `cache_hit` — `true` if a valid (non-expired) entry was found, `false` otherwise.
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}` | any | The cached value, or `null` on a miss or expired entry. |
+| `cache_hit` | boolean | `true` when a non-expired entry was found. |
 
-## Example
+## Behavior
+
+- A miss is not an error; check `cache_hit`.
+- Expired entries are removed when read.
+- The memory cache is shared by all runs in one IronFlow process and is lost on restart.
+- An unknown `backend` fails the step.
+
+## File Identity and Upgrades
+
+- Each entry is stored at `<cache_dir>/v1/<sha256>.json`, where the digest is SHA-256 of the interpolated key's exact UTF-8 bytes. Keys are not sanitized, so `report:a/b` and `report:a?b` are different entries.
+- A record holds `schema_version: 1`, the original `key`, `value`, and optional `expires_at`. A record whose version or stored key does not match is a miss and is left untouched.
+- A malformed record fails the step instead of returning a miss.
+- Root-level `<sanitized_key>.json` files from older releases are not read, migrated or deleted; the first lookup after upgrading is a miss.
+- Keys and values are plaintext inside records; keep the cache directory access-controlled.
+
+## Limits
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `IRONFLOW_CACHE_MAX_ENTRIES` | `10000` | Maximum entries in the memory cache; the least recently used entry is evicted. |
+| `IRONFLOW_CACHE_DIR` | `.ironflow_cache` | Default `cache_dir` for the file backend. |
+
+## Examples
 
 ### Memory backend
 
@@ -70,11 +59,6 @@ flow:step("done", nodes.log({
 
 return flow
 ```
-
-## Environment
-
-- `IRONFLOW_CACHE_MAX_ENTRIES` controls the process-global memory backend size. Default: `10000`.
-- `IRONFLOW_CACHE_DIR` controls the default file backend directory when `cache_dir` is not set. Default: `.ironflow_cache`.
 
 ### File backend
 

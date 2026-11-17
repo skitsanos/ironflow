@@ -259,8 +259,6 @@ IPv4-compatible and IPv4-translated forms, `64:ff9b:1::/48`, `100::/64`,
 `2001::/23`, `2001:db8::/32` and `3fff::/20`. IPv4-mapped (`::ffff:0:0/96`),
 NAT64 (`64:ff9b::/96`) and 6to4 (`2002::/16`) addresses are refused when the
 IPv4 address they embed is in a refused IPv4 range and allowed otherwise.
-The node reference describes each range under
-[Private-network blocking](nodes/http_request.md#private-network-blocking).
 
 ## Forwarded webhook headers
 
@@ -421,7 +419,7 @@ for every cell format when a workbook opens and copies the font name and
 number-format code into each one, so a workbook of a few kilobytes could hold
 gigabytes before a cell was read. `extract_xlsx` now bounds that table against
 `IRONFLOW_MAX_XLSX_OUTPUT_BYTES` before the workbook is opened; see
-[`extract_xlsx`](nodes/extract_xlsx.md#ceilings).
+[`extract_xlsx`](nodes/extract_xlsx.md#limits).
 
 The compound-file (OLE) parser is not entirely out of reach of
 `extract_xlsx`, as first recorded here. `calamine::Xlsx::new` probes every

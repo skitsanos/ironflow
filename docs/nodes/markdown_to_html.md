@@ -1,31 +1,30 @@
 # `markdown_to_html`
 
-Convert Markdown text to HTML using CommonMark + GFM extensions (strikethrough, tables, autolinks, task lists).
+Convert Markdown to HTML using CommonMark with the GFM strikethrough, table, autolink and task-list extensions.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `input` | string | one of `input` or `source_key` | — | Literal Markdown string; supports `${ctx.key}` interpolation. |
-| `source_key` | string | one of `input` or `source_key` | — | Context key whose value contains the Markdown text. |
-| `output_key` | string | no | `"html"` | Context key where the resulting HTML is stored. |
-| `sanitize` | bool | no | `false` | When `true`, sanitize the HTML output with ammonia to remove unsafe tags/attributes. |
-
-> Providing both `input` and `source_key` is an error.
+| `input` | string | One of `input` or `source_key` | — | Literal Markdown; supports `${ctx.key}` interpolation. |
+| `source_key` | string | One of `input` or `source_key` | — | Context key holding the Markdown; a non-string value is serialized as JSON first. |
+| `output_key` | string | No | `"html"` | Context key for the HTML. |
+| `sanitize` | boolean | No | `false` | When `true`, clean the HTML with ammonia's default allow-list, as [`html_sanitize`](html_sanitize.md) does with no options. |
 
 ## Context Output
 
-- `<output_key>` (default `html`) — the generated HTML string.
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}` | string | Generated HTML. |
 
-## Execution
+## Behavior
 
-Parsing and sanitizing run as tracked work on the blocking pool, not on an
-async runtime thread. The conversion has no cancellation checkpoint: a step
-that times out or is cancelled while it converts reports its result, starts
-its `on_error` handler and releases its admission when the conversion has
-returned.
+- Setting both `input` and `source_key`, or neither, fails the step; so does a `source_key` that is not in the context.
+- A timed-out or cancelled step finishes only after the conversion returns; the conversion itself cannot be interrupted.
 
-## Example
+## Examples
+
+### Render and sanitize
 
 ```lua
 local flow = Flow.new("convert_markdown")

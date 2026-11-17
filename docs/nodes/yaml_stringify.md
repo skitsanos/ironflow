@@ -1,30 +1,30 @@
 # `yaml_stringify`
 
-Convert a JSON value from context to a YAML string.
+Convert a value from context to a YAML string.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `source_key` | string | yes | — | Context key containing the JSON value to convert. |
-| `output_key` | string | no | `"yaml"` | Context key for the YAML string output. |
+| `source_key` | string | Yes | — | Context key holding the value to convert |
+| `output_key` | string | No | `"yaml"` | Context key for the YAML string |
 
 ## Context Output
 
-- `<output_key>` (default `yaml`) — the YAML string representation.
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}` | string | The YAML text |
 
-## Numbers
+## Behavior
 
-Integers in the signed 64-bit range and finite floats are written as YAML
-numbers. An integer above that range (up to the unsigned 64-bit maximum,
-which `json_parse` can produce) fails the step with a message that names the
-value, because [`yaml_parse`](yaml_parse.md#numbers-that-json-cannot-hold)
-would not read it back as the same number; convert it to a string first.
-Strings that look like numbers or keywords (`".inf"`, `"1e999"`,
-`"12345678901234567890"`, `"~"`, `"true"`) are quoted, so they are read back
-as the same strings.
+- The step fails when `source_key` is not in context.
+- Integers in the signed 64-bit range and finite floats are written as YAML numbers.
+- An integer above the signed 64-bit range (which `json_parse` can produce) fails the step with a message naming the value; convert it to a string first.
+- Strings that look like numbers or keywords (`".inf"`, `"1e999"`, `"12345678901234567890"`, `"~"`, `"true"`) are quoted, so [`yaml_parse`](yaml_parse.md#behavior) reads them back as the same strings.
 
-## Example
+## Examples
+
+### Convert parsed JSON to YAML
 
 ```lua
 local flow = Flow.new("stringify_yaml")

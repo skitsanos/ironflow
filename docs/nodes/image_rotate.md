@@ -1,35 +1,50 @@
 # `image_rotate`
 
-Rotate a single image by 90-degree increments.
+Rotate a single image clockwise by 90, 180 or 270 degrees and write it as PNG or JPEG.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | one of `path` or `source_key` | — | Source image path |
-| `source_key` | string | one of `path` or `source_key` | — | Context key containing a source path, artifact URI/descriptor, or explicit Base64 object. A stored path is used as it is and is not interpolated. |
-| `output_path` | string | yes | — | Destination image path |
-| `angle` | number | no | `90` | One of `90`, `180`, `270` |
-| `format` | string | no | inferred / `png` | `png` or `jpeg`/`jpg` |
-| `output_key` | string | no | `"rotated_image"` | Prefix for output values |
-
-Artifact inputs are opened and SHA-256 verified inside the tracked blocking
-worker; decoding consumes that same rewound handle rather than a resolved store
-pathname.
-
-Supported source formats are BMP, Farbfeld, GIF, HDR, ICO, JPEG, PNG, PNM,
-QOI, TGA, TIFF, and WebP. Output remains restricted to PNG or JPEG.
+| `path` | string | One of `path` or `source_key` | — | Source image path; supports `${ctx.key}` interpolation. |
+| `source_key` | string | One of `path` or `source_key` | — | Context key holding a path, an artifact (URI, descriptor or `{ artifact = ... }`), or `{ base64 = "..." }`; a stored path is not interpolated. |
+| `output_path` | string | Yes | — | Destination file; supports `${ctx.key}` interpolation. |
+| `angle` | number | No | `90` | `90`, `180` or `270`; any other value fails the step. |
+| `format` | string | No | from `output_path`, else `png` | Output format: `png`, `jpeg` or `jpg`. |
+| `output_key` | string | No | `"rotated_image"` | Prefix for the context output keys. |
 
 ## Context Output
 
-- `<output_key>` — output file path
-- `<output_key>_angle` — angle used
-- `<output_key>_width` / `<output_key>_height` — output dimensions
-- `<output_key>_source_width` / `<output_key>_source_height`
-- `<output_key>_format`
-- `<output_key>_success`
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}` | string | Output file path. |
+| `{output_key}_angle` | number | Angle applied. |
+| `{output_key}_width` | number | Output width in pixels. |
+| `{output_key}_height` | number | Output height in pixels. |
+| `{output_key}_source_width` | number | Source width in pixels. |
+| `{output_key}_source_height` | number | Source height in pixels. |
+| `{output_key}_format` | string | `"png"` or `"jpeg"`. |
+| `{output_key}_success` | boolean | `true` on success. |
 
-## Example
+## Behavior
+
+- `angle = 0` is treated as `90`, not as no rotation.
+- Setting both `path` and `source_key` fails the step.
+- Input formats are detected from the content: BMP, Farbfeld, GIF, HDR, ICO, JPEG, PNG, PNM, QOI, TGA, TIFF and WebP.
+- Without `format`, a `.png`, `.jpg` or `.jpeg` extension selects the format, no extension writes PNG, and any other extension fails the step.
+- The destination directory must exist. A destination that is a symlink or not a regular file fails the step; a failure leaves an existing file unchanged.
+
+## Limits
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `IRONFLOW_MAX_IMAGE_ENCODED_BYTES` | 50 MiB | Maximum encoded source size, including decoded Base64. |
+| `IRONFLOW_MAX_IMAGE_PIXELS` | 25,000,000 | Maximum pixels in the source. |
+| `IRONFLOW_MAX_IMAGE_DECODE_ALLOCATION_BYTES` | 128 MiB | Maximum decoded source plus output memory. |
+
+## Examples
+
+### Rotate a quarter turn
 
 ```lua
 local flow = Flow.new("image_rotate_demo")
@@ -47,38 +62,3 @@ flow:step("log", nodes.log({
 
 return flow
 ```
-
-## Destination contract
-
-`output_path` is published through the same rooted, atomic writer as
-[`write_file`](write_file.md), inside the tracked blocking worker: the rotated
-image is encoded into a staged file beside the destination, flushed and
-synchronized, then renamed over it.
-
-- The destination directory must already exist. The node creates no
-  directories and fails with `image_rotate: destination directory '<dir>' does
-  not exist`. Directory aliases, including macOS `/tmp`, are resolved first.
-- A destination that is a symlink (dangling or not), FIFO, device or directory
-  is refused and its target is left untouched. An existing regular file is
-  replaced.
-- An encoder or write failure, an expired step deadline or cancellation
-  removes the staged file and leaves an existing destination unchanged.
-- On Unix the published file has the mode a plain write would have left: a
-  new file gets `0666` masked by the process umask (`0644` under umask `022`)
-  and a replaced file keeps its permission bits, without any setuid, setgid
-  or sticky bit. The staged file is mode `0600` until it is published. Other
-  platforms use their native permission semantics.
-- Unix pins the resolved directory and stages relative to that handle. Other
-  platforms revalidate the observed path immediately before an atomic
-  replacement and cannot close a hostile parent-directory swap race; protect
-  destination trees from same-identity mutation.
-
-## Resource contract
-
-The encoded source, decoded pixels/allocation, and rotated output buffer are
-checked against `IRONFLOW_MAX_IMAGE_ENCODED_BYTES` (50 MiB),
-`IRONFLOW_MAX_IMAGE_PIXELS` (25 million), and
-`IRONFLOW_MAX_IMAGE_DECODE_ALLOCATION_BYTES` (128 MiB). The working estimate
-includes retained source plus rotated output. Decode, rotation, and
-encode run on a tracked blocking worker with cancellation checkpoints between
-opaque operations.

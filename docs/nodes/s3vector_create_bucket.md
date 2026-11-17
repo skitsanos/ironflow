@@ -1,43 +1,38 @@
 # `s3vector_create_bucket`
 
-Create a new Amazon S3 Vector bucket.
+Create an Amazon S3 Vectors bucket.
 
 ## Parameters
 
-| Parameter | Type   | Required | Default | Description |
-|-----------|--------|----------|---------|-------------|
-| `vector_bucket_name` | string | yes | environment-only fallback | Bucket name. When no target field is configured, uses `S3VECTOR_BUCKET_NAME`, then legacy `S3_BUCKET`. |
-| `bucket` | string | no | no | Alias for `vector_bucket_name`. |
-| `region` | string | no | AWS region chain | Override `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, or `AWS_DEFAULT_REGION`. The environment is used only when the parameter is absent: a value that is not a string, or is empty after interpolation, fails the step before the client is built. |
-| `endpoint_url` | string | no | `AWS_ENDPOINT_URL` env var | Override the S3 Vectors service endpoint. A value that is not a string, or is empty after interpolation, fails the step instead of falling back to the environment or the default AWS endpoint. |
-| `output_key` | string | no | `s3vector` | Prefix for context output keys. |
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `vector_bucket_name` | string | Yes* | `S3VECTOR_BUCKET_NAME`, then `S3_BUCKET` | Name of the bucket to create |
+| `bucket` | string | No | — | Alias for `vector_bucket_name`; both must resolve to the same value |
+| `region` | string | No | AWS region chain | Region; when absent, `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, then `AWS_DEFAULT_REGION` |
+| `endpoint_url` | string | No | `AWS_ENDPOINT_URL` | Service endpoint override |
+| `output_key` | string | No | `"s3vector"` | Prefix for output keys |
 
-## Target Resolution
-
-The only supported target is a bucket name supplied as
-`vector_bucket_name`/`bucket`. If either field is configured, its interpolated
-value is the complete target and bucket identifier environment variables are
-not consulted. Otherwise, the node uses `S3VECTOR_BUCKET_NAME`, then the legacy
-`S3_BUCKET` alias. A configured target that is non-string or resolves to a blank
-value fails before the AWS client is built.
+\* The environment variables are used only when neither `vector_bucket_name`
+nor `bucket` is set.
 
 ## Context Output
 
-- `{output_key}_bucket_name` — Bucket name used/created.
-- `{output_key}_bucket_arn` — Bucket ARN if returned by the service.
-- `{output_key}_success` — `true` on success.
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}_bucket_name` | string | Bucket name sent in the request |
+| `{output_key}_bucket_arn` | string | Bucket ARN, when the service returns one |
+| `{output_key}_success` | boolean | `true` on success |
 
-## Outbound destination policy
+## Behavior
 
-When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, `endpoint_url`
-(or `AWS_ENDPOINT_URL`) is refused when it is `localhost` or not a public
-unicast address, and every DNS answer of the service client is validated
-and pinned. An S3-compatible endpoint on a private address must be listed by
-the operator in `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` (for example
-`minio.internal:9000`). See
-[Outbound destinations](../SECURITY.md#outbound-destinations).
+- `vector_bucket_arn` is not accepted; a bucket is created by name only.
+- A target, `region`, or `endpoint_url` that is not a string or is blank after interpolation fails the step before any request.
+- Credentials come from the AWS SDK credential chain.
+- With `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, a private endpoint needs an operator allowlist entry; see [Outbound destinations](../SECURITY.md#outbound-destinations).
 
-## Example
+## Examples
+
+### Create a bucket
 
 ```lua
 local flow = Flow.new("s3vector_create_bucket_example")

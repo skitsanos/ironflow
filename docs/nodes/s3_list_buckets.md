@@ -1,54 +1,48 @@
 # `s3_list_buckets`
 
-List buckets visible to the current credentials.
-
-Account-level bucket listing uses regional SigV4; this node does not enumerate
-or manage MRAPs. Other S3 object nodes support MRAP ARN signing with SigV4a;
-see [S3 signing](../SECURITY.md#s3-signing).
-
-This read-only node contacts an S3-compatible external service and uses the AWS
-SDK credential chain plus the configured region/endpoint. On AWS S3 it requires
-the account-level `s3:ListAllMyBuckets` permission. The runnable
-[`s3_put_get_list.lua`](../../examples/04-file-operations/s3_put_get_list.lua)
-workflow also creates and deletes a remote object. Its cleanup is a normal
-success-dependent flow step, so a failed or interrupted run can leave the
-object behind.
+List the buckets visible to the current credentials.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `region` | string | no | `S3_REGION` / `AWS_REGION` | Explicit AWS/S3 region override. |
-| `endpoint_url` | string | no | env `AWS_ENDPOINT_URL` | Optional custom endpoint (for S3-compatible services). |
-| `force_path_style` | bool | no | `false` | Force path-style bucket addressing. |
-| `output_key` | string | no | `"s3"` | Prefix for context output keys. |
+| `region` | string | No | env `S3_REGION`, `AWS_REGION`, `AWS_DEFAULT_REGION` | Region override. |
+| `endpoint_url` | string | No | env `AWS_ENDPOINT_URL` | Endpoint of an S3-compatible service. |
+| `force_path_style` | boolean | No | env `AWS_S3_FORCE_PATH_STYLE`, else `false` | Use path-style bucket addressing. |
+| `output_key` | string | No | `"s3"` | Prefix for the context output keys. |
 
 ## Context Output
 
-- `{output_key}_count` — Number of buckets returned.
-- `{output_key}_buckets` — Array of buckets (`name`, `creation_date`).
-- `{output_key}_success` — `true` on success.
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}_count` | number | Number of buckets. |
+| `{output_key}_buckets` | array | Bucket entries; see Output Shape. |
+| `{output_key}_success` | boolean | `true` on success. |
+
+## Output Shape
+
+One entry of `{output_key}_buckets`:
+
+```json
+{"name": "my-bucket", "creation_date": "2026-01-05T10:00:00Z"}
+```
+
+## Behavior
+
+- On AWS the credentials need the `s3:ListAllMyBuckets` permission.
+- Multi-Region Access Points are not listed.
+- Credentials come from the AWS SDK default chain.
+- With `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, a private `endpoint_url` must be allow-listed; see [Outbound destinations](../SECURITY.md#outbound-destinations).
 
 ## Limits
 
-The response body may be at most `IRONFLOW_MAX_S3_LIST_PAGE_BYTES` (default
-`16777216`, 16 MiB), the limit one `s3_list_objects` page has. A larger
-response fails the step with `s3_list_buckets: a list page exceeds
-IRONFLOW_MAX_S3_LIST_PAGE_BYTES (16777216)` before the SDK reads it whole.
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `IRONFLOW_MAX_S3_LIST_PAGE_BYTES` | 16 MiB | Maximum response body; a larger response fails the step. |
 
-## Outbound destination policy
+## Examples
 
-When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, `endpoint_url`
-(or `AWS_ENDPOINT_URL`) is refused when it is `localhost` or not a public
-unicast address, and every DNS answer of the service client is validated
-and pinned. An S3-compatible endpoint on a private address must be listed by
-the operator in `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` (for example
-`minio.internal:9000`). See
-[Outbound destinations](../SECURITY.md#outbound-destinations).
-
-## Example
-
-See the linked workflow for the executable, cataloged example. Minimal use:
+### Count buckets
 
 ```lua
 local flow = Flow.new("s3_buckets")
@@ -63,3 +57,5 @@ flow:step("log", nodes.log({
 
 return flow
 ```
+
+The runnable [`s3_put_get_list.lua`](../../examples/04-file-operations/s3_put_get_list.lua) also uploads, reads and deletes an object.

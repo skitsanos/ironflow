@@ -1,39 +1,38 @@
 # `read_file`
 
-Read a file as text, explicitly encode it as Base64, or stream it into the configured content-addressed artifact store.
+Read a regular file as UTF-8 text or Base64, or stream it into the content-addressed artifact store.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | yes | — | Path to a regular file. Supports `${ctx.key}` interpolation. |
-| `output_key` | string | no | `"file"` | Prefix used for the context keys written by this node. |
-| `encoding` | string | no | `"text"` | `"text"` reads UTF-8, `"base64"` explicitly places encoded bytes in context, and `"artifact"` streams bytes to the artifact store without materializing them in `NodeOutput`. |
-| `mime_type` | string | no | — | Optional media type saved in the artifact descriptor. Valid only with `encoding = "artifact"`; when present it must be 1–255 visible ASCII bytes with no surrounding whitespace. |
+| `path` | string | Yes | — | Path to a regular file; supports `${ctx.key}` interpolation. |
+| `output_key` | string | No | `"file"` | Prefix for the context keys written by this node. |
+| `encoding` | string | No | `"text"` | `"text"` (UTF-8), `"base64"` (encoded string in context), or `"artifact"` (bytes go to the artifact store, not context). |
+| `mime_type` | string | No | — | Media type saved in the artifact descriptor; only valid with `encoding = "artifact"`, 1 to 255 visible ASCII bytes. |
 
 ## Context Output
 
-- `{output_key}_content` — The file contents as a string for `text` or `base64`; absent in artifact mode.
-- `{output_key}_artifact` — An object with `artifact_uri`, `sha256`, `size_bytes`, and optional `mime_type` in artifact mode; absent for inline encodings.
-- `{output_key}_path` — The resolved file path (after interpolation).
-- `{output_key}_success` — `true` when the file was read successfully.
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}_content` | string | File contents for `text` or `base64`; absent in artifact mode. |
+| `{output_key}_artifact` | object | `artifact_uri`, `sha256`, `size_bytes`, optional `mime_type`; artifact mode only. |
+| `{output_key}_path` | string | The path after interpolation. |
+| `{output_key}_success` | boolean | `true` on success. |
 
-## Resource and file-type limits
+## Behavior
 
-`read_file` accepts regular files only. FIFOs, devices and directories are
-rejected before their contents are read. Final-path symlinks are also rejected
-on Unix and Windows. Actual bytes are additionally bounded by
-`IRONFLOW_MAX_FILE_BYTES` (50 MiB by
-default), so a file that grows after its metadata check still cannot exceed the
-configured raw-byte ceiling. Text and Base64 modes retain inline output in
-memory; Base64 can temporarily coexist with its raw input and expanded encoded
-string. Artifact mode instead copies in bounded chunks on a tracked worker,
-hashes while copying, and atomically publishes immutable local content under
-`IRONFLOW_ARTIFACT_DIR` (default `data/artifacts`). With
-`IRONFLOW_ARTIFACT_BACKEND=s3`, that verified handle is streamed to the shared
-bucket/prefix and the directory becomes private staging/cache. Operators can
-run the bounded offline `ironflow artifacts prune` command; local deployments
-otherwise require a shared mount when another host must consume the artifact.
+- Directories, FIFOs, devices and final-path symlinks fail the step.
+- `text` fails the step when the file is not valid UTF-8.
+- `mime_type` without `encoding = "artifact"` fails the step.
+- Artifact mode stores content under `IRONFLOW_ARTIFACT_DIR` (default `data/artifacts`) or the S3 backend; see [`docs/CLI_REFERENCE.md`](../CLI_REFERENCE.md).
+- Prefer `artifact` over `base64` for large binaries; Base64 keeps the whole encoded string in context.
+
+## Limits
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `IRONFLOW_MAX_FILE_BYTES` | 50 MiB | Maximum bytes read from the file in any mode. |
 
 ## Examples
 
@@ -73,8 +72,3 @@ flow:step("show", nodes.log({
 
 return flow
 ```
-
-Use `encoding = "base64"` only when an external API specifically requires an
-inline Base64 payload. Its raw bytes, encoded string, workflow value, and
-persistence serialization can coexist temporarily, so it is not the
-memory-stable handoff for large binaries.

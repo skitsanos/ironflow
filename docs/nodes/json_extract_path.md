@@ -1,23 +1,40 @@
 # `json_extract_path`
 
-Extract a nested JSON value from a context field and write it to a new context key.
+Extract a nested value from a context value by a dotted path and write it to a new context key.
 
 ## Parameters
 
-| Parameter  | Type    | Required | Default | Description |
-|------------|---------|----------|---------|-------------|
-| `source_key` | string | Yes | -- | Context key containing the source JSON value |
-| `path` | string | Yes | -- | Path to extract (supports dotted fields and array indexes, for example `user.profile.name` or `items[0].id`) |
-| `output_key` | string | Yes | -- | Context key where the extracted value is written |
-| `required` | bool | No | `false` | If `true`, missing path causes a node failure |
-| `default` | any | No | `null` | Value to write when path is missing and `required = false` |
-| `parse_json` | bool | No | `false` | If source is a JSON string, parse it before extraction. The text may hold at most `IRONFLOW_MAX_JSON_PARSE_NODES` values (default `1000000`), counted before anything is built, as for [`json_parse`](json_parse.md#limits). An integer outside `-9223372036854775808` to `18446744073709551615` is kept as a string of its digits, as for [`json_parse`](json_parse.md#numbers) |
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `source_key` | string | Yes | — | Context key holding the source value |
+| `path` | string | Yes | — | Dotted fields with optional array indexes, for example `user.profile.name` or `items[0].id`; an empty path returns the whole value |
+| `output_key` | string | Yes | — | Context key where the extracted value is written |
+| `required` | bool | No | `false` | Fail the step when the path is not found |
+| `default` | any | No | `null` | Value written when the path is not found and `required` is `false` |
+| `parse_json` | bool | No | `false` | Parse the source as JSON first when it is a string |
 
 ## Context Output
 
-- `{output_key}` -- extracted value, or `default`/`null`/error when not found
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}` | any | The extracted value, or `default` (`null` when unset) when the path is not found |
 
-## Example
+## Behavior
+
+- The step fails when `source_key` is not in context, or when the path is not found and `required = true`.
+- A path segment that names a missing key, indexes a non-array, or uses an index past the end counts as not found.
+- With `parse_json = true`, a JSON syntax error fails the step; a non-string source is used as is.
+- Parsing follows the number rules of [`json_parse`](json_parse.md#behavior): an integer outside the 64-bit range is kept as a string of its digits.
+
+## Limits
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `IRONFLOW_MAX_JSON_PARSE_NODES` | `1000000` | Maximum number of values in the text when `parse_json = true` |
+
+## Examples
+
+### Extract fields with a default
 
 ```lua
 local flow = Flow.new("json_extract_path_example")

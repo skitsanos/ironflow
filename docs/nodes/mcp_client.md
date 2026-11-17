@@ -1,163 +1,81 @@
 # `mcp_client`
 
-Stateful client for the stable
-[MCP 2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25/)
-contract over `stdio` or Streamable HTTP.
-
-`initialize` performs the complete MCP handshake atomically: it sends the
-`initialize` request, validates the negotiated protocol and capabilities, and
-sends `notifications/initialized`. It returns an opaque IronFlow session handle
-in `{output_key}_session`. Pass that handle to later `list_tools`, `call_tool`,
-and `close` actions. The server's HTTP session ID and JSON-RPC envelopes are
-kept inside the client and are not written to workflow context.
+Connect to an [MCP 2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25/) server over `stdio` or Streamable HTTP, list and call its tools, and close the session. `initialize` completes the handshake and returns a session handle for the later actions.
 
 ## Parameters
 
-### Common parameters
+All string values are interpolated.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `action` | string | no | `"initialize"` | One of `initialize`, `list_tools`, `call_tool`, or `close`. |
-| `output_key` | string | no | `"mcp"` | Prefix for output context keys. |
-| `timeout` | number | no | `30` | Positive per-action timeout in seconds. A shorter enclosing step timeout wins. |
-| `session` | string | for non-initialize actions | none | Opaque `{output_key}_session` returned by `initialize`. |
+| `action` | string | No | `"initialize"` | `initialize`, `list_tools`, `call_tool` or `close`. |
+| `session` | string | For actions other than `initialize` | — | The `{output_key}_session` returned by `initialize`. |
+| `output_key` | string | No | `"mcp"` | Prefix for output keys. |
+| `timeout` | number | No | `30` | Positive per-action timeout in seconds. |
+| `transport` | string | No | `"stdio"` | `initialize` only: `stdio` or `streamable_http` (alias `http`). |
+| `command` | string | For `stdio` | — | Executable that starts the server. |
+| `args` | string array | No | `[]` | Server arguments. |
+| `env` | string map | No | — | Extra environment variables for the server. |
+| `cwd` | string | No | IronFlow's working directory | Server working directory. |
+| `url` | string | For `streamable_http` | — | MCP endpoint URL. |
+| `headers` | string map | No | — | Extra HTTP headers; `Accept`, `Content-Type`, `MCP-Session-Id` and `MCP-Protocol-Version` are refused. |
+| `protocol_version` | string | No | `"2025-11-25"` | Only `2025-11-25` is accepted. |
+| `client_name` | string | No | `"ironflow"` | Client name sent in the handshake. |
+| `client_version` | string | No | IronFlow version | Client version sent in the handshake. |
+| `params` | object | No | — | Handshake fields `protocolVersion`, `capabilities` and `clientInfo`; for `call_tool`, fallback `name` and `arguments`. |
+| `tool_name` | string | For `call_tool` | — | Tool to call. |
+| `arguments` | object | No | `{}` | Tool arguments. |
 
-### Initialization parameters
+## Context Output
 
-Initialization reads the following parameters. The `params.name` and
-`params.arguments` fallbacks described under tool calls are the only later use
-of `params`; transport configuration is initialization-only.
+Every action writes:
 
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `transport` | string | no | `"stdio"` | `stdio` or `streamable_http`. `http` is accepted as an alias; the obsolete `sse` name is rejected. |
-| `protocol_version` | string | no | `"2025-11-25"` | Must be `2025-11-25`, the stable revision supported by this build. |
-| `client_name` | string | no | `"ironflow"` | Client implementation name sent during initialization. |
-| `client_version` | string | no | crate version | Client implementation version sent during initialization. |
-| `params` | object | no | `{}` | Optional initialization fields. `protocolVersion`, `capabilities`, and `clientInfo` are validated against the supported MCP model. |
-| `command` | string | stdio only | none | Executable used to start the MCP server. |
-| `args` | string array | no | `[]` | Arguments passed to the stdio server. |
-| `env` | string map | no | `{}` | Environment variables passed to the stdio server. |
-| `cwd` | string | no | current directory | Working directory for the stdio server. |
-| `url` | string | Streamable HTTP only | none | MCP Streamable HTTP endpoint. |
-| `headers` | string map | no | `{}` | Additional HTTP headers, such as `Authorization`. Transport-managed headers cannot be overridden. |
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}_transport` | string | `stdio` or `streamable_http` |
+| `{output_key}_action` | string | The action run |
+| `{output_key}_session` | string | Session handle (after `close`, the closed handle) |
+| `{output_key}_result` | object | Typed action result |
+| `{output_key}_success` | boolean | `true` |
 
-IronFlow rejects custom `Accept`, `Content-Type`, `MCP-Session-Id`, and
-`MCP-Protocol-Version` headers. The transport owns these fields so callers
-cannot weaken content negotiation, corrupt response correlation, or substitute
-another server session.
+Action-specific keys:
 
-### Tool-call parameters
+| Action | Key | Type | Description |
+|--------|-----|------|-------------|
+| `initialize` | `{output_key}_protocol_version` | string | Negotiated version |
+| `initialize` | `{output_key}_capabilities` | object | Server capabilities |
+| `initialize` | `{output_key}_server_info` | object | Server name and version, or `null` |
+| `list_tools` | `{output_key}_tools` | array | Tool definitions |
+| `list_tools` | `{output_key}_tool_names` | array | Tool names |
+| `list_tools` | `{output_key}_tool_count` | number | Number of tools |
+| `call_tool` | `{output_key}_tool_name` | string | Tool called |
+| `call_tool` | `{output_key}_tool_result` | object | Tool result |
+| `call_tool` | `{output_key}_tool_content` | array | Result content blocks |
+| `call_tool` | `{output_key}_tool_text` | string | Text blocks joined with newlines, or `null` |
+| `close` | `{output_key}_closed` | boolean | `true` |
 
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `tool_name` | string | yes* | none | Tool to invoke. `params.name` is accepted as a fallback. |
-| `arguments` | object | no | `{}` | Tool arguments. Non-object values are rejected. `params.arguments` is accepted as a fallback. |
+## Behavior
 
-\*Required for `action = "call_tool"`.
+- `list_tools` and `call_tool` fail when the server did not negotiate the `tools` capability.
+- Sessions live in the IronFlow process; a handle does not survive a restart.
+- A failed, timed-out or cancelled action ends its session. A tool's side effect is not rolled back.
+- A result larger than `IRONFLOW_MAX_MCP_RESULT_BYTES` fails the step and writes nothing; the session stays usable, except after `initialize`.
+- Call `close` after the last action; for `stdio` it stops the server process.
+- The `sse` transport name and the `initialized` action are refused.
+- The operator's [outbound destination policy](../SECURITY.md#outbound-destinations) applies to Streamable HTTP, not to `stdio`.
 
-`list_tools` and `call_tool` also require the server to have negotiated the
-MCP `tools` capability.
+## Limits
 
-## Session lifecycle
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `IRONFLOW_MAX_MCP_RESULT_BYTES` | `4194304` | Maximum JSON size of one action result written to context |
+| `IRONFLOW_MAX_SHELL_OUTPUT_BYTES` | `10485760` | Maximum size of one `stdio` message in either direction |
+| `IRONFLOW_MCP_SESSION_CACHE_SIZE` | `1024` | Open sessions; a new one closes the least recently used when full |
+| `IRONFLOW_MCP_SESSION_TTL_SECS` | `3600` | Idle seconds before a session is closed |
 
-- `initialize` creates one isolated session and returns its opaque handle.
-- A stdio session keeps the same child process and pipes for the entire MCP
-  lifecycle. JSON-RPC frames are newline-delimited, strictly correlated, and
-  bounded by `IRONFLOW_MAX_SHELL_OUTPUT_BYTES` in each direction. Server stderr
-  remains attached as logging and is not interpreted as a protocol response.
-- Partial stdio frames remain buffered while IronFlow writes outgoing messages,
-  including replies to server pings. The input size limit applies to the whole
-  accumulated frame, including its newline delimiter, not each read fragment.
-  Writing an outgoing message does not itself cancel the MCP operation or
-  invalidate its session. EOF before the delimiter or an input error fails the
-  transport and invalidates the affected operation's session.
-- A Streamable HTTP session retains its negotiated version, transport-managed
-  headers, and server-issued session ID internally. Request responses may be
-  `application/json` or `text/event-stream` as defined by MCP 2025-11-25.
-- Streamable HTTP responses are bounded before they are held in memory. One
-  `application/json` response may carry at most 16 MiB (16,777,216 bytes), the
-  body of a non-2xx response at most 64 KiB, and one `text/event-stream` event
-  at most 16 MiB. Bytes are counted while streaming, after decompression. A
-  JSON response that declares or reaches a larger size fails the action with
-  `HTTP response body exceeded the maximum size of 16777216 bytes` and is not
-  read to the end; an oversized error body is discarded and the failure
-  reports the HTTP status instead. The limits come from the MCP client library
-  (`rmcp` 3.9.0 or later) and are not configurable. See
-  [IF-173](../issues/IF-173.md).
-- The result of one action may be at most `IRONFLOW_MAX_MCP_RESULT_BYTES`
-  in its JSON form (default `4194304`, 4 MiB). The limits above bound a reply
-  on the wire; this one bounds what enters workflow context, where a result
-  is written under several keys (`call_tool` stores it as
-  `{output_key}_result` and `{output_key}_tool_result`, and its content again
-  as `{output_key}_tool_content` and `{output_key}_tool_text`). It applies to
-  the server description returned by `initialize`, to `list_tools` and to
-  `call_tool`, on both transports. A larger result fails the step with
-  `mcp_client: call_tool result exceeds IRONFLOW_MAX_MCP_RESULT_BYTES
-  (4194304)` and nothing is written to context. After `list_tools` or
-  `call_tool` the session stays usable, because the reply itself was
-  complete; after `initialize` the session is closed. A tool's side effect
-  has already happened when its result is refused.
-- Sessions are process-local. A handle persisted in run context cannot restore
-  a session after IronFlow restarts.
-- Call `close` after the final operation. For stdio, shutdown closes stdin,
-  waits for the server, and escalates process termination if necessary. The
-  session handle is invalid after close.
-- A timed-out, failed, or cancelled operation invalidates its session and
-  cleans up the owned transport. A completed external tool side effect cannot
-  be rolled back.
-- `IRONFLOW_MCP_SESSION_CACHE_SIZE` and `IRONFLOW_MCP_SESSION_TTL_SECS` bound
-  abandoned sessions as a safety net. Idle expiry is swept when another
-  session is inserted or leased; it is not a replacement for `close`.
+## Examples
 
-## Context output
-
-Every successful action writes:
-
-- `{output_key}_transport` — `"stdio"` or `"streamable_http"`.
-- `{output_key}_action` — resolved action.
-- `{output_key}_session` — opaque IronFlow session handle. The `close` result
-  reports the handle that was closed; it is no longer usable.
-- `{output_key}_result` — typed action result, without a raw JSON-RPC envelope.
-- `{output_key}_success` — `true`.
-
-Action-specific output:
-
-- `initialize`
-  - `{output_key}_protocol_version`
-  - `{output_key}_capabilities`
-  - `{output_key}_server_info` — the server's implementation identity, or `null`
-    when the server does not supply one (the MCP handshake treats it as
-    optional)
-- `list_tools`
-  - `{output_key}_tools`
-  - `{output_key}_tool_names`
-  - `{output_key}_tool_count`
-- `call_tool`
-  - `{output_key}_tool_name`
-  - `{output_key}_tool_result`
-  - `{output_key}_tool_content`
-  - `{output_key}_tool_text` — text content blocks joined with newlines, or
-    `null` when no text block is present.
-- `close`
-  - `{output_key}_closed` — `true`.
-
-Raw JSON-RPC request IDs, request and response envelopes, and server-issued
-HTTP session IDs are intentionally not exposed.
-
-## Outbound destination policy
-
-When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, this node
-refuses a destination that is not a public unicast address before it
-connects: a literal private, loopback or link-local address, `localhost`,
-and a host name whose DNS answer contains such an address. The validated
-answer is the one connected to, and the node connects directly, ignoring a
-system proxy. This covers the Streamable HTTP transport and its same-origin `307`/`308`
-redirects. The stdio transport starts a subprocess and is not covered. An internal destination must be listed by the operator in
-`IRONFLOW_PRIVATE_NETWORK_ALLOWLIST`; nothing in the flow can add one. See
-[Outbound destinations](../SECURITY.md#outbound-destinations).
-
-## Example: persistent stdio session
+### Persistent stdio session
 
 ```lua
 local flow = Flow.new("mcp_stdio_demo")
@@ -170,19 +88,13 @@ flow:step("initialize", nodes.mcp_client({
     output_key = "mcp_init"
 }))
 
-flow:step("list_tools", nodes.mcp_client({
-    action = "list_tools",
-    session = "${ctx.mcp_init_session}",
-    output_key = "mcp_tools"
-})):depends_on("initialize")
-
 flow:step("call_tool", nodes.mcp_client({
     action = "call_tool",
     session = "${ctx.mcp_init_session}",
     tool_name = "search",
     arguments = { query = "IronFlow MCP integration" },
     output_key = "mcp_call"
-})):depends_on("list_tools")
+})):depends_on("initialize")
 
 flow:step("close", nodes.mcp_client({
     action = "close",
@@ -193,18 +105,13 @@ flow:step("close", nodes.mcp_client({
 return flow
 ```
 
-## Example: Streamable HTTP
+### Streamable HTTP
 
 ```lua
-local flow = Flow.new("mcp_streamable_http_demo")
-
 flow:step("initialize", nodes.mcp_client({
     transport = "streamable_http",
     url = env("MCP_STREAMABLE_HTTP_URL"),
-    action = "initialize",
-    headers = {
-        Authorization = "Bearer " .. env("MCP_TOKEN")
-    },
+    headers = { Authorization = "Bearer " .. env("MCP_TOKEN") },
     output_key = "mcp_remote_init"
 }))
 
@@ -213,12 +120,4 @@ flow:step("list_tools", nodes.mcp_client({
     session = "${ctx.mcp_remote_init_session}",
     output_key = "mcp_remote_tools"
 })):depends_on("initialize")
-
-flow:step("close", nodes.mcp_client({
-    action = "close",
-    session = "${ctx.mcp_remote_init_session}",
-    output_key = "mcp_remote_close"
-})):depends_on("list_tools")
-
-return flow
 ```

@@ -1,60 +1,46 @@
 # `s3_presign_url`
 
-Generate a presigned URL (or presigned DELETE/HEAD/PUT URL) for S3 operations.
-
-Uses regional SigV4 signing, or SigV4a when `bucket` is an MRAP ARN;
-see [S3 signing](../SECURITY.md#s3-signing).
+Generate a presigned URL for a `GET`, `PUT`, `HEAD` or `DELETE` request on one object. No request is sent to S3.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `bucket` | string | yes | env `S3_BUCKET` | Regional bucket name or MRAP ARN used for signing. |
-| `key` | string | yes | -- | Object key to access. |
-| `method` | string | no | `"GET"` | One of `GET`, `PUT`, `HEAD`, `DELETE`. |
-| `expires_in` | number | no | `3600` | URL validity in seconds (`1..604800`). |
-| `content_type` | string | no | `"application/octet-stream"` | Optional content type for presigned `PUT`. |
-| `content_length` | number | no | -- | Optional content length hint for presigned `PUT`. |
-| `region` | string | no | `S3_REGION` / `AWS_REGION` | Explicit AWS/S3 region override. |
-| `endpoint_url` | string | no | env `AWS_ENDPOINT_URL` | Optional custom S3-compatible endpoint. |
-| `force_path_style` | bool | no | `false` | Force path-style bucket addressing. |
-| `output_key` | string | no | `"s3"` | Prefix for context output keys. |
+| `bucket` | string | Yes | env `S3_BUCKET` | Bucket name or MRAP ARN; supports `${ctx.key}` interpolation. |
+| `key` | string | Yes | — | Object key; supports `${ctx.key}` interpolation. |
+| `method` | string | No | `"GET"` | `GET`, `PUT`, `HEAD` or `DELETE`; case-insensitive. |
+| `expires_in` | number | No | `3600` | URL validity in seconds, 1 to 604800 (7 days). |
+| `content_type` | string | No | `"application/octet-stream"` | Content type signed into a `PUT` URL. |
+| `content_length` | number | No | — | Content length signed into a `PUT` URL; alias `contentLength`. |
+| `region` | string | No | env `S3_REGION`, `AWS_REGION`, `AWS_DEFAULT_REGION` | Region override. |
+| `endpoint_url` | string | No | env `AWS_ENDPOINT_URL` | Endpoint of an S3-compatible service. |
+| `force_path_style` | boolean | No | env `AWS_S3_FORCE_PATH_STYLE`, else `false` | Use path-style bucket addressing. |
+| `output_key` | string | No | `"s3"` | Prefix for the context output keys. |
 
 ## Context Output
 
-- `{output_key}_bucket` — Bucket used for signing.
-- `{output_key}_key` — Object key used for signing.
-- `{output_key}_method` — HTTP method used.
-- `{output_key}_expires_in` — Expiration window in seconds.
-- `{output_key}_url` — Presigned URL string.
-- `{output_key}_headers` — Required headers for signing (if any).
-- `{output_key}_success` — `true` on success.
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}_bucket` | string | Bucket signed for. |
+| `{output_key}_key` | string | Object key signed for. |
+| `{output_key}_method` | string | Method, uppercased. |
+| `{output_key}_expires_in` | number | Validity in seconds. |
+| `{output_key}_url` | string | Presigned URL. |
+| `{output_key}_headers` | object | Headers the request must send with the URL; may be empty. |
+| `{output_key}_success` | boolean | `true` on success. |
 
-## Multi-Region Access Points
+## Behavior
 
-Use an ARN such as `arn:aws:s3::123456789012:accesspoint/fixture.mrap` for
-`bucket`, with path-style addressing disabled and no custom endpoint. The
-SDK generates an `AWS4-ECDSA-P256-SHA256` signature and a signing region set;
-regional buckets continue to use `AWS4-HMAC-SHA256`. GET, PUT, HEAD and DELETE
-are supported. Forward `{output_key}_headers` along with the URL when sending
-the request, and keep the URL private until it expires.
+- An unsupported `method` or an `expires_in` outside 1 to 604800 fails the step.
+- A `PUT` URL is signed with `content_type` (and `content_length` when set), so the upload must send the same values; forward `{output_key}_headers` with the request.
+- An MRAP ARN as `bucket` produces a SigV4a (`AWS4-ECDSA-P256-SHA256`) URL; use it without `endpoint_url` or path-style addressing. See [S3 signing](../SECURITY.md#s3-signing).
+- Presigning does not check that the object or bucket exists or that the request will be allowed.
+- Credentials come from the AWS SDK default chain; static credentials sign without any network call.
+- With `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, a private `endpoint_url` must be allow-listed; see [Outbound destinations](../SECURITY.md#outbound-destinations).
 
-The [MRAP presigning example](../../examples/04-file-operations/s3_mrap_presign.lua)
-generates all four URL types without contacting S3. Static credentials make
-signing network-free; other credential providers may contact their identity
-service. Presigning does not verify that the MRAP exists or that its policy
-permits the eventual request.
+## Examples
 
-## Outbound destination policy
-
-Presigning sends no request, but the client is built the same way as for the
-other S3 nodes: when the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`,
-an `endpoint_url` (or `AWS_ENDPOINT_URL`) that is `localhost` or not a public
-unicast address is refused unless the operator lists it in
-`IRONFLOW_PRIVATE_NETWORK_ALLOWLIST`. See
-[Outbound destinations](../SECURITY.md#outbound-destinations).
-
-## Example
+### Presign a download
 
 ```lua
 local flow = Flow.new("s3_presign")
@@ -91,3 +77,5 @@ flow:step("log", nodes.log({
 
 return flow
 ```
+
+The [MRAP presigning example](../../examples/04-file-operations/s3_mrap_presign.lua) generates all four URL types without contacting S3.

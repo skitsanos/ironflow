@@ -1,52 +1,49 @@
 # `s3vector_delete_vectors`
 
-Delete vectors by keys from an Amazon S3 Vector index.
-
-For complete teardown, run this node before `s3vector_delete_index`, then run
-`s3vector_delete_bucket` after every index in the bucket has been deleted.
+Delete vectors by key from an Amazon S3 Vectors index.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `vector_bucket_name` | string | yes* | -- | Explicit bucket name that owns a named index. |
-| `bucket` | string | no | no | Alias for `vector_bucket_name`. |
-| `index_name` | string | yes* | -- | Explicit target index name. |
-| `index` | string | no | no | Alias for `index_name`. |
-| `index_arn` | string | yes* | -- | Explicit self-contained alternative target. |
-| `keys` | array<string> | yes | -- | Keys to delete from the index. Each configured key supports `${ctx.key}` interpolation. |
-| `keys_source_key` | string | no | -- | Context key containing string-array keys. Stored keys are used as they are and are not interpolated. |
-| `region` | string | no | AWS region chain | Override `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, or `AWS_DEFAULT_REGION`. The environment is used only when the parameter is absent: a value that is not a string, or is empty after interpolation, fails the step before the client is built. |
-| `endpoint_url` | string | no | `AWS_ENDPOINT_URL` env var | Override the S3 Vectors service endpoint. A value that is not a string, or is empty after interpolation, fails the step instead of falling back to the environment or the default AWS endpoint. |
-| `output_key` | string | no | `s3vector` | Prefix for context output keys. |
+| `vector_bucket_name` | string | With `index_name`* | — | Bucket that owns the named index |
+| `bucket` | string | No | — | Alias for `vector_bucket_name`; both must resolve to the same value |
+| `index_name` | string | One of* | — | Index name |
+| `index` | string | No | — | Alias for `index_name`; both must resolve to the same value |
+| `index_arn` | string | One of* | — | Index ARN, used alone instead of bucket and index names |
+| `keys` | array of strings | One of | — | Keys to delete; each item supports `${ctx.key}` |
+| `keys_source_key` | string | One of | — | Context key holding a string array of keys; items are used as stored |
+| `region` | string | No | AWS region chain | Region; when absent, `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, then `AWS_DEFAULT_REGION` |
+| `endpoint_url` | string | No | `AWS_ENDPOINT_URL` | Service endpoint override |
+| `output_key` | string | No | `"s3vector"` | Prefix for output keys |
 
-## Target Resolution and Safety
-
-Use exactly one explicit configured shape after interpolation:
-`vector_bucket_name`/`bucket` plus `index_name`/`index`, or `index_arn` by
-itself. Bucket ARN plus index name is not supported. Resource identifier
-environment variables are deliberately never consulted for vector deletion;
-region, endpoint, and AWS credentials may still come from the environment.
-Conflicting forms and non-string, incomplete, or blank targets fail before the
-AWS client is built.
+\* Give a bucket name plus an index name, or `index_arn` alone, in the step.
+A bucket ARN is not accepted. Bucket and index environment variables are never
+used for deletion.
 
 ## Context Output
 
-- `{output_key}_deleted_count` — Number of keys submitted for deletion.
-- `{output_key}_deleted_keys` — Key list.
-- `{output_key}_success` — `true` on success.
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}_deleted_count` | number | Number of keys submitted for deletion |
+| `{output_key}_deleted_keys` | array | Keys submitted, in order |
+| `{output_key}_success` | boolean | `true` on success |
 
-## Outbound destination policy
+## Behavior
 
-When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, `endpoint_url`
-(or `AWS_ENDPOINT_URL`) is refused when it is `localhost` or not a public
-unicast address, and every DNS answer of the service client is validated
-and pinned. An S3-compatible endpoint on a private address must be listed by
-the operator in `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` (for example
-`minio.internal:9000`). See
-[Outbound destinations](../SECURITY.md#outbound-destinations).
+- `keys` wins when both `keys` and `keys_source_key` are set.
+- An empty key list, a non-string key, or a missing source key fails the step before any request.
+- A missing, incomplete, or conflicting target, or one that is not a string or is blank after interpolation, fails the step.
+- A `region` or `endpoint_url` that is not a string or is blank fails the step; the environment is used only when the parameter is absent.
+- Credentials come from the AWS SDK credential chain.
+- With `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, a private endpoint needs an operator allowlist entry; see [Outbound destinations](../SECURITY.md#outbound-destinations).
 
-## Example
+For full teardown, run this node, then [`s3vector_delete_index`](s3vector_delete_index.md),
+then [`s3vector_delete_bucket`](s3vector_delete_bucket.md).
+
+## Examples
+
+### Delete two keys
 
 ```lua
 local flow = Flow.new("s3vector_delete_vectors_example")

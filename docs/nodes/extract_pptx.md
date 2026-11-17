@@ -1,110 +1,31 @@
 # `extract_pptx`
 
-Extract slides, speaker notes, and comments from a PowerPoint (`.pptx`) deck.
-
-## Presentation Order
-
-`ppt/presentation.xml` and `ppt/_rels/presentation.xml.rels` are required. The
-presentation's slide list determines membership and order in every output
-format. `slide_index` is the one-based position in that list, not a part filename
-suffix or the presentation's internal slide ID. Hidden slides that remain in the
-list are included and counted in `slide_count`. In JSON a hidden slide (`show="0"`
-or `show="false"` on its `p:sld` root) carries `"hidden": true`; a shown slide has
-no `hidden` field. Text and Markdown do not mark hidden slides: use JSON to skip
-them. Orphan slide, note, and comment parts are not extracted.
-
-The presentation part is the target of the package `officeDocument`
-relationship in `_rels/.rels` (transitional or strict type), and its slide
-relationships are read from that part's own relationships part;
-`ppt/presentation.xml` is used only when the package names no main part.
-`_rels/.rels` is read on every call, so a malformed one fails the step, as
-does an external, escaping or duplicated main-document relationship.
-Slide parts may be renamed or stored in other package directories. Notes,
-legacy comments and modern comments are followed through each slide's actual
-relationship part; comment authors are followed through the presentation's
-`commentAuthors` (legacy) and `authors` (modern) relationships. Image
-relationships are also relative to the actual slide part.
-An absent notes/comments relationship means no associated content, even if a
-similarly numbered file exists in the ZIP.
-
-Missing/empty manifests, duplicate slide IDs, relationship IDs or normalized
-slide targets, missing referenced parts, wrong slide relationship types, and
-external slide/notes/comments/authors targets, legacy or modern, are errors.
-Multiple notes, legacy comments, modern comments, legacy author-list or modern
-author-list relationships on their respective source are rejected as
-ambiguous. There is no filename-based fallback. Slide, note, comment, and
-author-list references are checked before slide media is published; later
-content or output errors still do not roll back already published artifacts.
-
-Presentation and slide-reference namespaces accept transitional and strict OOXML
-URIs with arbitrary prefixes. Relationship XML accepts the OPC namespace and
-legacy unqualified elements, but not foreign namespaces. Presentation nesting is
-capped at 128 elements. This is structural extraction, not slide rendering or a
-complete OOXML schema validator; visual reading order within a slide is
-outside this contract.
-
-## Text Fidelity
-
-Slide text, table cells, speaker notes, metadata and comments decode built-in XML
-entities and numeric references once and preserve literal CDATA. Adjacent events
-and runs do not introduce spaces or newlines; speaker-note paragraphs are
-separated by newlines, and a line break element is rendered as described below. Metadata outer whitespace is trimmed after accumulation.
-Picture descriptions, embed IDs, list levels and comment attributes use the
-part's declared XML-version normalization (1.0 by default).
-
-Speaker notes are the text runs of the notes slide's body placeholder
-(`<p:ph type="body">`). The slide-image, slide-number, date, header and footer
-placeholders, placeholders of any other type and shapes without a placeholder
-are not notes. Field runs (`a:fld`, for example a slide number or date
-inside the notes text) are generated values and are skipped, as they are in
-slide text. A slide whose body placeholder is empty has no `speaker_notes`.
-Text in a notes part that contains no shapes at all is still read.
-
-Slide text leaves out the footer, date, slide-number and header placeholders
-(`<p:ph type="ftr">`, `dt`, `sldNum`, `hdr`) in every format, as speaker notes
-do: they are page furniture that repeats on every slide. No `text_block` is
-returned for them, whether they hold a field or typed text. Text typed into
-any other shape, including a text box placed in the footer area, is slide text.
-
-A DrawingML line break (`a:br`) between two runs of a paragraph is a newline
-in that paragraph's `text` and in `speaker_notes`. It is a single space in a
-table cell and in the slide `title`, which are one line in every format; the
-paragraphs of a table cell are joined by a single space in the same way. A
-break with no text after it in its paragraph adds nothing, and a paragraph
-that holds only breaks is empty. In Markdown the text after a break continues
-on the next line of the same paragraph or list item.
-
-Unknown/invalid text references and DTDs return errors; no custom or external
-entities are expanded. Decoding and retained attribute values are admitted
-before allocation against existing output budgets. Table-text copies, generated
-separators and comment fan-out are charged. ZIP byte/entry, XML event/item,
-deadline, and final serialized-output checks are unchanged.
+Extract slide text, tables, images, speaker notes, and comments from a PowerPoint (`.pptx`) deck as text, Markdown, or JSON.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | one of `path` or `source_key` | — | File path to the `.pptx` file; supports `${ctx.key}` interpolation. |
-| `source_key` | string | one of `path` or `source_key` | — | Context key containing a file path, artifact URI, or artifact descriptor. A stored path is used as it is and is not interpolated. |
-| `format` | string | no | `"text"` | Output format: `"text"` (flattened slide text), `"markdown"` (one section per slide), or `"json"` (structured IR). |
-| `output_key` | string | no | `"content"` | Context key where the extracted output is stored. For `text`/`markdown` the value is a string; for `json` it is an object. |
-| `metadata_key` | string | no | — | If set, deck metadata (slide count + Dublin Core fields) is stored under this context key. |
-| `comments_key` | string | no | — | If set, relationship-linked slide comments (legacy and modern, see [Comments](#comments)) with their author lookup are stored under this context key as a flat array in presentation order. Comments are also attached per-slide in the JSON output. |
-| `media_mode` | string | no | `"none"` | Embedded-media handling: `"none"` keeps relationship metadata only; `"artifact"` streams each resolved image to the disk-backed artifact store and adds an `artifact` descriptor. Artifact mode requires `format = "json"`. |
-| `include_image_bytes` | boolean | no | `false` | Deprecated compatibility input. `false` is accepted; `true` is rejected with a migration error because extraction no longer materializes inline Base64 media. |
+| `path` | string | One of `path`/`source_key` | — | Path to the `.pptx` file; supports `${ctx.key}` interpolation. |
+| `source_key` | string | One of `path`/`source_key` | — | Context key holding a file path, artifact URI, or artifact descriptor; the stored path is not interpolated. |
+| `format` | string | No | `"text"` | `"text"`, `"markdown"`, or `"json"`; any other value fails the step. |
+| `output_key` | string | No | `"content"` | Context key for the result (string for text/Markdown, object for JSON). |
+| `metadata_key` | string | No | — | When set, store deck properties and `slide_count` under this key. |
+| `comments_key` | string | No | — | When set, also store all slide comments as one flat array under this key. |
+| `media_mode` | string | No | `"none"` | `"none"` reports image metadata only; `"artifact"` stores each embedded image in the artifact store. `"artifact"` requires `format = "json"`. |
+| `include_image_bytes` | boolean | No | `false` | Deprecated; `true` fails the step with a pointer to `media_mode = "artifact"`. |
 
-> Providing both `path` and `source_key` is an error. `format` accepts `"text"`, `"markdown"`, or `"json"`.
-> Artifact inputs are opened and SHA-256 verified inside the tracked blocking worker; OOXML parsing consumes that same rewound handle rather than a resolved store pathname.
-> Present `format`, `media_mode`, `output_key`, `metadata_key`, and `comments_key` values must be strings. The deprecated `include_image_bytes` input accepts a native boolean or an interpolated boolean spelling (`true`/`false`, `yes`/`no`, `on`/`off`, or `1`/`0`, case-insensitive). Present values of the wrong type are rejected instead of being treated as absent.
-> `output_key`, `metadata_key`, and `comments_key` must be pairwise distinct when the optional keys are set. `media_mode = "artifact"` is rejected unless `format = "json"`.
+`path` and `source_key` are mutually exclusive. `output_key`, `metadata_key` and `comments_key` must name different keys. String parameters of the wrong type fail the step.
 
 ## Context Output
 
-- `<output_key>` (default `content`) — slides as text / Markdown / JSON IR.
-- `<metadata_key>` (when set) — object with `slide_count` and (when present) `title`, `author`, `subject`, `description`, `keywords`, `last_modified_by`, `created`, `modified`, `revision`, `category`. The Dublin Core fields come from the part named by the package core-properties relationship in `_rels/.rels`, with `docProps/core.xml` as the fallback when there is none; the same internal-target and namespace-matching rules as `extract_word` apply. The package relationships are read once per call for both the presentation and the core-properties part.
-- `<comments_key>` (when set) — flat array of `PptxComment` (see below).
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}` | string or object | Slides as text, Markdown, or JSON. |
+| `{metadata_key}` | object | `slide_count` plus available `title`, `author`, `subject`, `description`, `keywords`, `last_modified_by`, `created`, `modified`, `revision`, `category`. |
+| `{comments_key}` | array | Every comment in presentation order, each with its `slide_index`. |
 
-## JSON output shape
+## Output Shape
 
 ```json
 {
@@ -113,214 +34,56 @@ deadline, and final serialized-output checks are unchanged.
       "slide_index": 1,
       "title": "STIMULUS 1A",
       "elements": [
-        {
-          "type": "image",
-          "alt_text": "Clinical scan",
-          "embed_id": "rId3",
+        { "type": "text_block", "placeholder": "body",
+          "paragraphs": [ { "text": "First point", "list_level": 0 } ] },
+        { "type": "table", "rows": [["Field", "Value"], ["Age", "75"]] },
+        { "type": "image", "alt_text": "Clinical scan", "embed_id": "rId3",
           "embedded_path": "ppt/media/image1.png",
-          "artifact": {
-            "artifact_uri": "artifact://sha256/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-            "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-            "size_bytes": 184322,
-            "mime_type": "image/png"
-          }
-        }
+          "artifact": { "artifact_uri": "artifact://sha256/0123…", "sha256": "0123…",
+                        "size_bytes": 184322, "mime_type": "image/png" } }
       ],
       "speaker_notes": "Moderator: probe on rationale per group.",
       "comments": [
-        {
-          "slide_index": 1,
-          "idx": "1",
-          "author_id": "0",
-          "author": "Reviewer A",
-          "initials": "RA",
-          "date": "2026-04-02T14:20:00",
-          "text": "Make sure to clarify 'group' wording."
-        }
+        { "slide_index": 1, "id": "{6F1A…01}", "author_id": "{6F1A…A1}",
+          "author": "Reviewer A", "initials": "RA", "date": "2026-11-17T09:00:00.000",
+          "status": "resolved", "text": "Check the chart",
+          "replies": [ { "id": "{6F1A…02}", "author": "Reviewer B", "initials": "RB",
+                         "date": "2026-11-17T09:05:00.000", "text": "Updated." } ] }
       ]
     },
-    {
-      "slide_index": 2,
-      "hidden": true,
-      "title": "Patient Profile A",
-      "elements": [
-        {
-          "type": "table",
-          "rows": [
-            ["Field", "Value"],
-            ["Age", "75"],
-            ["Diagnosis", "Bilateral GA, juxtafoveal"]
-          ]
-        }
-      ]
-    }
+    { "slide_index": 2, "hidden": true, "elements": [] }
   ]
 }
 ```
 
-### Element types
+- `slide_index` is the one-based position in the slide list. `hidden: true` marks a slide hidden from the slide show; shown slides have no `hidden` field.
+- `title` comes from the `title` or `ctrTitle` placeholder. `title`, `speaker_notes` and `comments` are omitted when empty.
+- `placeholder` is the placeholder type when the shape has one. `list_level` (0-based) is present only on bulleted or numbered paragraphs, including bullets inherited from the slide layout and master.
+- `embedded_path` is present when the image resolves to a part in the package; `artifact` only with `media_mode = "artifact"`.
+- Legacy comments carry `idx` and no `id`, `status` or `replies`. Modern comments carry `id`, `status` when written (`active`, `resolved`, `closed`), and `replies` when they have any; replies have the comment fields without `slide_index`, `idx` and `replies`.
 
-- `text_block` — a non-title shape's text. `placeholder` carries the OOXML placeholder type (`subTitle`, `body`, etc.) when present and is omitted otherwise. Footer, date, slide-number and header placeholders are never returned (see [Text Fidelity](#text-fidelity)). `paragraphs[]` carry `text` and optional `list_level` (0-based indent for bulleted items). A paragraph is a list item when a bullet is declared for it: `a:buChar`, `a:buAutoNum` or `a:buBlip` in its own `a:pPr`, or in the level of the shape's `a:lstStyle` that the paragraph uses. `list_level` is then its `lvl` attribute, and `0` when it has none (PowerPoint writes no `lvl` on a first-level bullet). `a:buNone`, in the paragraph or in that level of the list style, switches the bullet off: the paragraph has no `list_level` and is plain text in Markdown. A placeholder paragraph that declares nothing inherits: the first declaration for its level is taken from the matching placeholder of the slide layout (same `idx`, or else the first of the same `type`), then from the slide master's placeholder of the same role, then from the master's `p:txStyles` (`p:titleStyle`, `p:bodyStyle` for body, subtitle and content placeholders, `p:otherStyle` for the rest). A body paragraph without `lvl` is therefore a first-level list item when the master bullets that level, and a subtitle whose layout sets `a:buNone` is plain. A level nothing declares is plain. The layout and master are followed through the slide's `slideLayout` and the layout's `slideMaster` relationship and each part is read once per call, within the same budgets as slides; malformed XML in one of them fails the step. When a slide has no single internal layout relationship, or the layout or master part is absent, nothing can be inherited and the old approximation applies: such a paragraph is a list item when it carries `lvl`. A text box or drawn shape inherits no bullet, so there a level alone is indentation, not a list item; the presentation's `p:defaultTextStyle` is not read. Numbered items (`a:buAutoNum`) are reported like bullets, without their number.
-- `table` — rendered as `rows: [[string]]`.
-- `image` — picture shape metadata. `alt_text` and `embed_id` are included when available. `embedded_path` is included only when that ID resolves through an internal OOXML image relationship. With `media_mode = "artifact"`, a resolved embedded image also has an `artifact` object containing its canonical URI, SHA-256 digest, decoded byte size, and MIME type. Binary bytes are not placed in `NodeOutput`.
+## Behavior
 
-The slide's `title` is taken from the placeholder with `type="title"` or `type="ctrTitle"`. If no title placeholder exists, the `title` field is omitted.
+- Hidden slides are included and counted; only JSON marks them.
+- Footer, date, slide-number and header placeholders are left out of slide text and speaker notes in every format. Field values such as slide numbers are skipped.
+- Speaker notes are the body placeholder of the notes slide.
+- A line break is a newline in paragraph text and notes, and a space in titles and table cells.
+- Comments appear in every format. A slide with modern comments reports only those, even if it also keeps a legacy copy. An author missing from the author list leaves `author_id` only; text and Markdown show `?`.
+- Text writes `===== SLIDE N =====`, `--- NOTES ---`, and comments as `[COMMENT by <author> @ <date> (<status>)]: <text>` with replies as `  [REPLY by ...]`.
+- Markdown writes `## Slide N`, the title as `###`, list items, pipe tables, `*(image)*`, `**Speaker notes:**`, and comments as `> 💬 **<author>** (<date>, <status>): <text>` with replies as `>   ↳ ...`.
+- A malformed part, a DTD, a missing slide or linked notes/comments part, or an external or escaping relationship fails the step. Images already stored as artifacts stay stored when a later check fails.
 
-### Comments
+## Limits
 
-Two comment formats are read, each through relationships rather than
-conventional part names:
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `IRONFLOW_MAX_FILE_BYTES` | `52428800` | Maximum input file size. |
+| `IRONFLOW_MAX_ZIP_ENTRIES` | `10000` | Maximum entries in the package. |
+| `IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES` | `536870912` | Maximum total declared uncompressed size. |
+| `IRONFLOW_MAX_EXTRACT_ITEMS` | `250000` | XML events and parsed items per call. |
+| `IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES` | `52428800` | Maximum serialized result, content plus metadata and comments. |
 
-- **Legacy comments**: the slide's `comments` relationship (`p:cmLst`/`p:cm`,
-  text in `p:text`), with authors from the presentation's `commentAuthors`
-  relationship (`p:cmAuthor`). Such a comment carries `idx` and `date` (the
-  `dt` attribute).
-- **Modern comments**, which current PowerPoint and PowerPoint for the web
-  write ([MS-PPTX] 2.16.3): the slide's
-  `http://schemas.microsoft.com/office/2018/10/relationships/comments`
-  relationship (`p188:cmLst`/`p188:cm`), with authors from the presentation's
-  `http://schemas.microsoft.com/office/2018/10/relationships/authors`
-  relationship (`p188:authorLst`/`p188:author`). Such a comment carries `id`,
-  `date` (the `created` attribute), `status` when the attribute is present
-  (`active`, `resolved` or `closed`, returned as written), and `replies`
-  when it has any. The part's root element must be `cmLst`.
-
-A modern comment's text is the text runs of its `p188:txBody`; paragraphs are
-separated by a newline, and a line break is a newline. Anchor monikers
-(`pc:sldMk`, `ac:spMk` and the like) and extension lists are not returned.
-`replies` is an array, in document order, of objects with the same fields as
-a comment except `slide_index`, `idx` and `replies`:
-
-```json
-{
-  "slide_index": 1,
-  "id": "{6F1A2B3C-0000-4000-8000-000000000001}",
-  "author_id": "{6F1A2B3C-0000-4000-8000-0000000000A1}",
-  "author": "Reviewer A",
-  "initials": "RA",
-  "date": "2026-11-17T09:00:00.000",
-  "status": "resolved",
-  "text": "Check the chart",
-  "replies": [
-    {
-      "id": "{6F1A2B3C-0000-4000-8000-000000000002}",
-      "author_id": "{6F1A2B3C-0000-4000-8000-0000000000B2}",
-      "author": "Reviewer B",
-      "initials": "RB",
-      "date": "2026-11-17T09:05:00.000",
-      "text": "Updated."
-    }
-  ]
-}
-```
-
-Replies are nested only; the flat `comments_key` array holds one entry per
-comment, not per reply. When an author ID is not in the linked author list, or
-no author list is linked, `author` and `initials` are omitted and `author_id`
-is kept; text and Markdown show the author as `?`.
-
-**Both formats on one slide.** PowerPoint can keep a legacy copy of a modern
-comment thread for older readers, and the two formats share no identifier to
-match them by. A slide with a modern comments relationship therefore reports
-only its modern comments; its legacy comments part must still be internal and
-present, but it is not read. A slide with only a legacy part reports its
-legacy comments, so a deck can return legacy comments on one slide and modern
-comments on another.
-
-Text renders a comment as `[COMMENT by <author> @ <date> (<status>)]: <text>`
-and each reply on the next line as `  [REPLY by <author> @ <date>]: <text>`.
-Markdown renders `> 💬 **<author>** (<date>, <status>): <text>` and each reply
-as `>   ↳ **<author>** (<date>): <text>`. The date and status parts appear
-only when present.
-
-`slide_index` on each comment is the referring slide's one-based presentation
-position, in both the flat comments array and the per-slide JSON output.
-
-## Resource and cancellation contract
-
-- The input must be a regular file. Its raw size and central directory are
-  bounded by `IRONFLOW_MAX_FILE_BYTES` (default `52428800`, 50 MiB) before the
-  ZIP library allocates archive metadata. On Unix and Windows, IronFlow also
-  refuses to follow a final path-component symlink/reparse point; other platforms enforce the
-  opened-handle regular-file check.
-- The EOCD/ZIP64 preflight validates central-directory bounds and
-  `IRONFLOW_MAX_ZIP_ENTRIES` (default `10000`). It accepts only the last end
-  record in the file, which must end at EOF with its comment, and a central
-  directory that ends exactly where that record begins; the opened archive's
-  directory offset and raw entry count must then match the validated ones.
-  Packages with trailing bytes, prepended data, or a second end record inside
-  the archive comment are rejected. IronFlow then rejects duplicate
-  part names, symlink or special-file parts, and a cumulative declared
-  uncompressed size above `IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES` (default
-  `536870912`, 512 MiB). These archive-wide admission checks include orphan parts,
-  even though their XML and media are not read during extraction.
-- XML parts are parsed directly from bounded ZIP-entry readers; IronFlow does
-  not first materialize a complete part as a byte vector or string. Each part
-  is capped by the smaller of the remaining cumulative ZIP budget and the
-  extraction-output budget, and actual decoded bytes accumulate across every
-  part read. All read, UTF-8, and XML parse errors in the manifest and consumed
-  slide, notes, relationship, comment, author, and core-properties parts propagate.
-  Unlinked notes/comments/authors and missing optional metadata remain absent or
-  empty; linked notes/comments/authors must exist. Errors and limit
-  breaches never become partial output. `quick_xml` still buffers its current
-  event, so one unusually large text or CDATA token can require memory
-  proportional to that token, but not to the complete XML part.
-- `IRONFLOW_MAX_EXTRACT_ITEMS` (default `250000`) is shared across presentation
-  membership, presentation/slide/relationship/content-type XML events,
-  content-type definitions, slides, elements, paragraphs, table rows and cells,
-  relationships, comments and authors, metadata fields, and embedded media
-  occurrences. Content-type work occurs only when artifact media is requested.
-- `IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES` (default `52428800`, 50 MiB) bounds
-  retained fields and formatting work and, authoritatively, the complete
-  serialized `NodeOutput`. That final result includes the slide output,
-  metadata, and the optional flat comments copy. This is a logical result
-  limit, not a process-RSS limit and not the later
-  `IRONFLOW_MAX_TASK_OUTPUT_BYTES` persistence limit.
-- Embedded media is decoded only when `format = "json"` and
-  `media_mode = "artifact"`. It is copied from the ZIP entry to a private
-  artifact-store staging file in bounded chunks while cancellation, cumulative
-  decoded ZIP bytes, and the per-part limit are enforced. The bytes are hashed
-  during that copy and published atomically under `IRONFLOW_ARTIFACT_DIR`
-  (default `data/artifacts`) as
-  `sha256/<digest>`. Repeated references to the same normalized package part
-  reuse one descriptor and one stored file. Relationship attributes are XML
-  decoded before use, duplicate relationship IDs are rejected, and only the
-  transitional or strict OOXML `image` relationship type is eligible for
-  `embedded_path` or artifact publication. For image elements, non-image
-  relationships and external targets are ignored and never opened or fetched.
-  In artifact mode, a referenced internal image whose media part is missing is
-  an error; metadata-only mode does not open the image bytes.
-  Relationship elements must contain non-empty `Id`, `Type`, and `Target`
-  attributes; an unknown `TargetMode` is rejected instead of being treated as
-  internal. Internal targets resolve relative to their actual source part; a
-  single leading `/` denotes the package root, never the host filesystem.
-  Paths cannot escape the package root or contain URI schemes, backslashes,
-  ASCII control characters, queries, fragments, empty segments, or terminal
-  dot segments. Case, Unicode, and percent-looking sequences are preserved;
-  targets are not URL-decoded before ZIP member lookup. Relationship fields,
-  slide identities, and normalized retained paths share the output budget.
-- In artifact mode, the descriptor MIME type comes from the matching
-  `[Content_Types].xml` override or extension default when one is declared;
-  both lookups follow the package's ASCII case-insensitive matching rules and
-  an override takes precedence.
-  IronFlow falls back to its built-in image-extension mapping when the package
-  omits a matching declaration, and to `application/octet-stream` when neither
-  source recognizes the extension. MIME content is not inferred from the
-  binary payload. A present malformed content-types part is an extraction
-  error.
-- Artifact descriptors are small JSON values; the media itself is never
-  Base64-encoded or retained in the extraction model. Artifacts are immutable
-  and content-addressed. The local backend does not automatically expire or
-  garbage-collect them, so operators own retention. A recovered or multi-host
-  workflow must mount the same artifact directory on every worker; Redis or
-  PostgreSQL context persistence does not copy local artifact files. Artifact
-  publication is not rolled back if a later slide or output check fails, so a
-  retention sweep must also reclaim unreferenced files.
-- ZIP and XML work runs on a tracked blocking worker. Archive reads and parser
-  loops check cancellation and the step/run deadline between chunks and XML
-  events; synchronous ZIP-library construction cannot be interrupted inside
-  the call and is bracketed by checkpoints. Task and run admission remain
-  occupied until the physical worker stops.
+Artifact images are written under `IRONFLOW_ARTIFACT_DIR` (see [CLI_REFERENCE.md](../CLI_REFERENCE.md)); archive validation rules are in [SECURITY.md](../SECURITY.md).
 
 ## Examples
 
@@ -350,5 +113,3 @@ flow:step("preview", nodes.extract_pptx({
     output_key = "md"
 }))
 ```
-
-Produces one `## Slide N` section per slide with the title as an `###` header, body paragraphs (bullets if list-leveled), tables as Markdown pipe tables, and speaker notes appended.

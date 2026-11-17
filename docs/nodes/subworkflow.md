@@ -1,246 +1,79 @@
 # `subworkflow`
 
-Load and execute another `.lua` flow as a reusable module.
-
-The subworkflow node allows you to compose workflows by calling one flow from another. The child flow is resolved relative to the parent flow's directory (via the injected `_flow_dir` context key), making it easy to organize related flows in the same folder.
+Load and run another `.lua` flow as a child of the current step. The child's
+public context comes back into the parent context, merged or namespaced.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `flow` | string | yes | — | Path to the `.lua` flow file to execute. Resolved relative to the parent flow's directory. |
-| `wait` | bool | no | `true` | When `true`, the parent blocks until the subworkflow completes. When `false`, the subworkflow is launched in the background (fire-and-forget). |
-| `input` | object | no | `nil` | Key mapping from parent context to child context. Each entry maps `child_key = "parent_key"`; the parent key must exist. See [Input mapping](#input-mapping). Without `input` the child inherits the parent context. |
-| `output_key` | string | no | `nil` | If set, the child's output context is namespaced under this key instead of being merged directly into the parent context. Recommended for parallel subworkflows. |
-| `on_error` | string | no | see below | `"fail_fast"` fails the parent step when the child run fails; `"ignore"` continues with the child's partial context. |
+| `flow` | string | Yes | — | Path to the child `.lua` file; a relative path resolves against the parent flow's directory (`_flow_dir`). |
+| `wait` | boolean | No | `true` | `true` runs the child to completion; `false` launches it in the background. |
+| `input` | object | No | — | Builds the child context from parent keys (see [Input mapping](#input-mapping)); without it the child inherits the whole parent context. |
+| `output_key` | string | No | — | Namespace the child's context under this key instead of merging it. |
+| `on_error` | string | No | see Behavior | `"fail_fast"` fails the step when the child fails; `"ignore"` continues with the child's partial context. |
 
-## Error Handling
+### Input mapping
 
-A failed child does **not** always fail the parent step. Set `on_error`
-explicitly to say which you want:
+Each entry is `child_key = <mapping value>`. `subworkflow`,
+[`parallel_subworkflows`](parallel_subworkflows.md) and
+[`repeat_subworkflow`](repeat_subworkflow.md) share this contract.
 
-| `on_error` | Behaviour when the child run fails |
+| Mapping value | Meaning |
 |---|---|
-| `"fail_fast"` | The parent step returns an error. |
-| `"ignore"` | The parent step succeeds; branch on `subworkflow_success` (or `{output_key}_success`) and read `subworkflow_error` (also `{output_key}_error` when namespaced) for the reason. |
+| `"parent_key"` | The top-level parent context key. It must exist (a key holding `null` exists), otherwise the step fails. |
+| `{ optional = "parent_key" }` | The parent key when it exists; otherwise the child key is omitted. Must be a non-empty string. |
+| `{ literal = <value> }` | The value as written, of any type. Use it for a literal string. |
+| number, boolean, array, other object | Passed as written; strings nested inside are not looked up. |
 
-**When `on_error` is omitted, `output_key` decides it** — the historical
-behaviour, kept for compatibility:
-
-- no `output_key` → behaves as `fail_fast`
-- `output_key` set → behaves as `ignore`
-
-That coupling is easy to miss: adding `output_key` purely to namespace a
-child's output also silently turns off error propagation, and a downstream step
-then reads an empty value and continues. If a failed child should stop the
-flow, say so with `on_error = "fail_fast"` rather than relying on the absence
-of `output_key`.
-
-A tolerated failure is logged at `WARN` by the parent (the child's own run
-records the underlying error).
-
-Failure descriptions include the child's status and unresolved task errors,
-for example `Subworkflow 'child' finished with status: failed: task 'parse': ...boom`.
-The same description is used for `fail_fast`, `subworkflow_error`, and
-`{output_key}_error`. Errors resolved by a successful recovery handler are not
-included, even though the original task remains failed in inspection history.
-
-The live summary contains at most eight failures in task-name order. Each
-task name is limited to 128 UTF-8 bytes and each error to 768 UTF-8 bytes,
-including any `...[truncated]` marker; omitted failures are counted. The task
-summary stays below 8 KiB, independent of the inspection output cap. Credential
-and execution-overlay redaction run before truncation. It carries existing
-task diagnostics, not additional provider response bodies or child context.
-Cancellation or missing task details retain the status-only description.
-No context/history reload is used to reconstruct failure details.
-
-```lua
--- Namespace the output AND still fail the step if the child fails.
-flow:step("score", nodes.subworkflow({
-    flow = "score_one.lua",
-    input = { id = "record_id" },
-    output_key = "score",
-    on_error = "fail_fast"
-}))
-
--- Tolerate a failure and branch on it yourself.
-flow:step("enrich", nodes.subworkflow({
-    flow = "optional_enrichment.lua",
-    output_key = "extra",
-    on_error = "ignore"
-}))
-
-flow:step("check", function(ctx)
-    if not ctx.extra_success then
-        log("enrichment unavailable: " .. tostring(ctx.extra_error))
-    end
-    return { enriched = ctx.extra_success == true }
-end):depends_on("enrich")
-```
-
-## Context Injection
-
-The engine automatically injects `_flow_dir` into the context when running a flow from a file. This is the directory containing the parent flow script and is used by the subworkflow node to resolve relative `flow` paths.
+Only an object with exactly one key, `optional` or `literal`, is a form; to pass
+such an object as data, wrap it: `{ literal = { literal = 1 } }`. An `input` that
+is not an object fails the step. Mapping errors are raised before the child is
+loaded and are not suppressed by `on_error = "ignore"`.
+[`input_mapping_forms.lua`](../../examples/11-subworkflow/input_mapping_forms.lua)
+runs every form.
 
 ## Context Output
 
-When `wait = true` (default):
+With `wait = true`:
 
-- Public child context keys (including inherited input, excluding `_`-prefixed keys) are merged into the parent context or namespaced under `output_key`.
-- `subworkflow_name` — the name of the executed subworkflow.
-- `subworkflow_success` — `true` when the child run succeeded. Always present, so the outcome is checkable even without `output_key`.
-- `subworkflow_error` — a string holding the status and bounded, redacted unresolved task-error summary when the child did not succeed; JSON `null` when it succeeded. Always present, with or without `output_key`.
-- `{output_key}_success` — same flag, namespaced. Only when `output_key` is set.
-- `{output_key}_error` — the same value as `subworkflow_error` (string on failure, `null` on success). Only when `output_key` is set.
+| Key | Type | Description |
+|-----|------|-------------|
+| child keys | any | The child's public context (keys not starting with `_`), merged into the parent when `output_key` is unset. |
+| `{output_key}` | object | The child's public context, when `output_key` is set. |
+| `subworkflow_name` | string | Name of the child flow. |
+| `subworkflow_success` | boolean | `true` when the child run succeeded. |
+| `subworkflow_error` | string or null | Child status and unresolved task errors on failure; `null` on success. |
+| `{output_key}_success` | boolean | Same as `subworkflow_success`, when `output_key` is set. |
+| `{output_key}_error` | string or null | Same as `subworkflow_error`, when `output_key` is set. |
 
-Branch on `subworkflow_success`, not on the presence of the error key. Node
-outputs merge into the run context by key and cannot remove keys, so the error
-slot is written on every call: a later successful `subworkflow` step overwrites
-an earlier tolerated failure's text with `null` instead of leaving it beside
-`subworkflow_success = true`. In Lua handlers and `code` steps a JSON `null`
-arrives as the `json_null` sentinel, which is not `nil` and is truthy;
-`if ctx.subworkflow_error then` therefore does not detect a failure, while
-`type(ctx.subworkflow_error) == "string"` or `ctx.subworkflow_error ~= json_null`
-does. `${ctx.subworkflow_error}` interpolation renders `null` as an empty string.
+With `wait = false`: `subworkflow_name` (string) and `subworkflow_async` (`true`).
 
-Without `output_key`, the child's own `subworkflow_name`, `subworkflow_success`,
-`subworkflow_error`, and `subworkflow_async` keys (describing a grandchild it
-ran) are not merged into the parent; the parent's keys describe its direct
-child only. With `output_key`, the child's full public context, including those
-keys, stays under `output_key`.
+## Behavior
 
-The subworkflow's returned map follows the normal phase collision contract: a
-later-declared parallel parent step wins duplicate keys. Without `output_key`,
-the child returns a broad flattened context that can also contain inherited
-input keys, so namespacing is the safest composition boundary when parallel
-results must coexist.
+- When `on_error` is omitted, `output_key` decides it: no `output_key` behaves as `fail_fast`, `output_key` set behaves as `ignore`. Set `on_error` explicitly when you namespace output but still want failures to stop the flow.
+- Any other `on_error` value fails the step.
+- The error text (`Subworkflow 'child' finished with status: failed: task 'parse': ...`) lists at most eight unresolved task errors, truncated and redacted.
+- Branch on `subworkflow_success`: the error key is always written, and in Lua a JSON `null` is the truthy `json_null`.
+- Without `output_key`, the child's own `subworkflow_*` keys are not merged into the parent.
+- Parent steps receive child values in full; `IRONFLOW_MAX_TASK_OUTPUT_BYTES` only truncates inspection.
+- With `wait = false` the child is still resolved, mapped and loaded first, so a missing or invalid child fails the step. Later failures are only logged.
+- A waiting child shares the parent step's deadline and is cancelled with it; the step ends only after the child stops. A detached child inherits no deadline.
 
-Waiting composition receives full child values, as the child produced them, directly from the live
-execution after finalization, not from persisted inspection snapshots.
-`IRONFLOW_MAX_TASK_OUTPUT_BYTES` may replace large values in CLI/API inspection
-with truncation markers, but does not truncate the values consumed by parent
-steps. With `on_error = "ignore"`, a failed child's prior committed values are
-also kept in full while its success flags remain false. Infrastructure/finalization errors
-still fail the step; they are not successful partial child results.
+## Limits
 
-This handoff is in-process, not a durable result-recovery API. Existing Lua
-memory/conversion limits and parent cancellation/timeouts still apply. Large
-values consume memory; use artifact references for bulky payloads rather than
-treating the inspection cap as an execution-memory limit.
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `IRONFLOW_MAX_SUBWORKFLOW_DEPTH` | `16` | Child levels below the top-level run across all composition nodes; a deeper child fails its step before loading, even with `on_error = "ignore"`. |
+| `IRONFLOW_MAX_LIVE_CHILD_RUNS` | `4096` | Child runs alive at once in the process; a child with no free slot fails instead of waiting. |
+| `IRONFLOW_MAX_DETACHED_SUBWORKFLOWS` | `64` | Detached (`wait = false`) children running at once; over the limit the step fails. |
 
-When `wait = false`:
-
-- `subworkflow_name` — the name of the subworkflow that was launched.
-- `subworkflow_async` — set to `true`, indicating the subworkflow is running in the background.
-
-## Nesting limit and waiting
-
-A child flow may start children of its own. Each child run is one level below
-the run that started it, and a child more than `IRONFLOW_MAX_SUBWORKFLOW_DEPTH`
-levels (default `16`) below the top-level run is refused. The limit covers
-every composition node (`subworkflow`, `parallel_subworkflows`,
-`repeat_subworkflow` and `tool_dispatch`) in any combination, and a detached
-`wait = false` child keeps the level of the step that started it, so a flow
-that calls itself, directly or through other flows, fails instead of
-descending until memory runs out. `ironflow validate` does not load child
-flows and cannot report such a cycle.
-
-The refusal is an error of the step that tried to start the child:
-
-```text
-subworkflow: child workflow nesting depth 17 exceeds the limit of 16 (IRONFLOW_MAX_SUBWORKFLOW_DEPTH); check for a flow that calls itself
-```
-
-It is raised before the child flow is resolved or loaded, and `on_error =
-"ignore"` on that step does not suppress it. The run that contains the step
-fails like any other, so a level further up may tolerate it with its own
-`on_error = "ignore"`. Each level reports the refusal alone in its error text,
-not the chain of sixteen wrapped child failures that led to it. Raise the
-limit only for a design that really nests that deeply: every level holds a
-loaded flow, its context and a run coordinator for as long as its child runs.
-The limit bounds depth, not the number of children; the
-[live child run limit](#live-child-run-limit) bounds that.
-
-## Live child run limit
-
-At most `IRONFLOW_MAX_LIVE_CHILD_RUNS` child runs (default `4096`) are alive
-at once in the process. The count covers every composition node, waiting
-and detached children, all nesting levels and all top-level runs together:
-a wide `parallel_subworkflows` at each of several levels multiplies, and
-neither the nesting limit nor the fan-out limit of one step bounds the
-product. A child run holds its slot from the moment it is admitted until it
-has finalized.
-
-A child that finds no free slot is not started:
-
-```text
-child workflow run limit reached: 4096 child runs are live (IRONFLOW_MAX_LIVE_CHILD_RUNS)
-```
-
-It counts as a failed child of the step that asked for it, so the step
-fails, or records the failure where it tolerates failed children
-(`on_error = "ignore"`, `output_key`). The step does not wait for a slot: it
-keeps its own run alive while it waits, and that run may itself be a child
-holding a slot, so waiting parents could never free one. Lower
-`max_concurrent` on the fan-out steps, or raise the limit when the host has
-the memory for more loaded flows, contexts and coordinators. Top-level runs
-do not take a slot.
-
-A waiting child is part of the step that started it. When that step times
-out, or its run is cancelled or reaches `IRONFLOW_MAX_RUN_SECONDS`, the child
-is cancelled, and the step does not end until the child run has stopped: its
-tracked blocking workers have exited, including in children it started
-itself, and it has finalized. Until then the step's `on_error` handler does
-not start, dependent steps do not run, the run is not finalized, and its task
-and run admission stay held, exactly as for the same node placed directly in
-the parent. A worker that cannot be interrupted therefore delays the timeout
-result by the time it needs to return. A `wait = false` child is independent
-by contract and never holds the step that launched it.
-
-### Parent deadline
-
-The steps of a waiting child observe the deadline of the parent step. A child
-step without a `timeout` of its own sees the parent step's deadline; a child
-step with one sees whichever comes first; a child of that child inherits the
-same deadline, at every level. This is the deadline that work inside a step
-reads: cooperative blocking workers and Lua code stop with `step deadline
-exceeded` when it passes, and deadline-aware requests do not plan past it.
-It does not change which step reports the timeout: the parent step times out
-on its own `timeout` and cancels the child, and a child step still fails with
-its own timeout message only when its own `timeout` elapses. A parent step
-without a `timeout` adds no deadline, and a `wait = false` child inherits
-none. `IRONFLOW_MAX_RUN_SECONDS` is enforced by cancelling the run, not
-through this deadline.
-
-[`nesting_limit.lua`](../../examples/11-subworkflow/nesting_limit.lua) calls
-itself, tolerates the refusal one level above the ceiling and reports it to the
-top-level run.
-
-`ironflow validate` loads child flows named with a literal path and reports
-recursion before a run: as an error when the flow always starts itself again
-and nothing tolerates the failure, otherwise as a warning (the example above
-validates with one). See
-[Child flows](../CLI_REFERENCE.md#child-flows).
+`ironflow validate` reports recursion between child flows named with a literal
+path; see [Child flows](../CLI_REFERENCE.md#child-flows).
 
 ## Examples
 
-[`if135_child_error_details.lua`](../../examples/11-subworkflow/if135_child_error_details.lua)
-and its [`if135_error_child.lua`](../../examples/11-subworkflow/if135_error_child.lua)
-helper form a self-contained offline example of tolerated failures. The parent
-asserts task names and error messages for namespaced, unnamespaced, and parallel
-calls, retains partial child context, and checks a successful child's result.
-Run the parent with a build containing IF-135; it should finish successfully
-with `child_error_details_verified = true`. No external service or credential
-is required.
-
-[`live_child_results.lua`](../../examples/11-subworkflow/live_child_results.lua)
-and its helper verify a 3 MiB result in a downstream parent step. The final CLI
-context shows a truncation marker under `child` at the default inspection cap,
-alongside `child_bytes = 3145728` and `live_result_verified = true`.
-
 ### Basic usage
-
-Call a helper flow and use its output:
 
 ```lua
 local flow = Flow.new("basic_subworkflow")
@@ -266,106 +99,28 @@ flow:step("show_result", nodes.log({
 return flow
 ```
 
-### Fire-and-forget
-
-Launch a subworkflow in the background without waiting for it to finish:
+### Namespaced output with explicit error policy
 
 ```lua
-flow:step("async_greet", nodes.subworkflow({
-    flow = "greet.lua",
-    wait = false,
-    input = {
-        name = "name"
-    }
-})):depends_on("prepare")
-```
-
-When `wait = false`, the parent step completes with `subworkflow_async = true`
-in the context as soon as the child is admitted; it does not wait for the
-child's steps. Before that it resolves the child's path, checks the input
-mapping, and loads and validates the child's flow file, so a child that is
-missing, does not parse or is invalid fails the launching step instead of
-only being logged. That load holds the launching step for as long as it
-takes. It is bounded like every flow load: by the source size limit
-(`IRONFLOW_MAX_FLOW_SOURCE_BYTES`), the Lua instruction, time and memory
-budgets (`IRONFLOW_LUA_MAX_INSTRUCTIONS`, `IRONFLOW_LUA_MAX_SECONDS`, 10
-seconds by default, and `IRONFLOW_LUA_MAX_MEMORY_BYTES`) and the step's own
-`timeout`.
-
-### Input mapping
-
-Map specific parent context keys into the child flow's context:
-
-```lua
-flow:step("call_child", nodes.subworkflow({
-    flow = "process_order.lua",
-    input = {
-        order_id = "current_order_id",          -- child sees ctx.order_id
-        customer = "user_info",                 -- child sees ctx.customer
-        coupon = { optional = "coupon_code" },  -- omitted when absent
-        channel = { literal = "web" },          -- the text "web"
-        retries = 3                             -- non-string values are literals
-    }
-}))
-```
-
-`subworkflow`, [`parallel_subworkflows`](parallel_subworkflows.md) and
-[`repeat_subworkflow`](repeat_subworkflow.md) share one mapping contract:
-
-| Mapping value | Meaning |
-|---|---|
-| `"parent_key"` | The top-level parent context key. It must exist; a key holding JSON `null` exists. |
-| `{ optional = "parent_key" }` | The parent key when it exists; otherwise the child key is omitted (`nil` in the child). |
-| `{ literal = <value> }` | The value as written, of any type. Use it for a literal string. |
-| number, boolean, array, any other object | Passed as written. Strings nested inside are not looked up. |
-
-A string that names no parent key **fails the step** with
-`subworkflow: input '<child_key>' references a parent context value that does
-not exist; ...`. The check runs before the child flow is loaded, so no child
-run is created, for `wait = false` as well. It is a step error: `on_error =
-"ignore"` on the node does not suppress it, and the message names the mapping
-entry, never the configured string or a context value. In earlier releases a
-missing key was dropped silently here, and passed as a literal string by the
-other two nodes.
-
-Only an object with exactly one key, `optional` or `literal`, is a form. To
-pass such an object as data, wrap it: `{ literal = { literal = 1 } }`.
-`optional` must be a non-empty string. An `input` that is not an object is
-rejected; it used to be ignored, which gave the child the whole parent
-context. [`input_mapping_forms.lua`](../../examples/11-subworkflow/input_mapping_forms.lua)
-runs every form.
-
-### Output namespacing with output_key
-
-Avoid key collisions by namespacing the child's output:
-
-```lua
-flow:step("call_child", nodes.subworkflow({
-    flow = "greet.lua",
-    input = { name = "name" },
-    output_key = "greet_result"
-})):depends_on("set_name")
-
--- Access the child's output under ctx.greet_result.greeting
-flow:step("show", nodes.log({
-    message = "Result: ${ctx.greet_result.greeting}"
-})):depends_on("call_child")
-```
-
-### Reusable helper flow (greet.lua)
-
-```lua
--- greet.lua — A simple reusable subworkflow
--- Expects "name" in context, outputs a greeting message.
-
-local flow = Flow.new("greet")
-
-flow:step("build_greeting", nodes.code({
-    source = [[
-        local name = ctx.name or "World"
-        return { greeting = "Hello, " .. name .. "!" }
-    ]]
+-- Namespace the output AND still fail the step if the child fails.
+flow:step("score", nodes.subworkflow({
+    flow = "score_one.lua",
+    input = { id = "record_id" },
+    output_key = "score",
+    on_error = "fail_fast"
 }))
 
-return flow
+-- Tolerate a failure and branch on it yourself.
+flow:step("enrich", nodes.subworkflow({
+    flow = "optional_enrichment.lua",
+    output_key = "extra",
+    on_error = "ignore"
+}))
+
+flow:step("check", function(ctx)
+    if not ctx.extra_success then
+        log("enrichment unavailable: " .. tostring(ctx.extra_error))
+    end
+    return { enriched = ctx.extra_success == true }
+end):depends_on("enrich")
 ```

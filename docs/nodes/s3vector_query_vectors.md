@@ -1,109 +1,105 @@
 # `s3vector_query_vectors`
 
-Run vector similarity search on an Amazon S3 Vector index.
+Find the nearest vectors to a query vector in an Amazon S3 Vectors index,
+optionally scoped by a metadata filter.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `vector_bucket_name` | string | yes* | environment-only fallback | Bucket that owns a named index. Uses `S3VECTOR_BUCKET_NAME`, then legacy `S3_BUCKET`, only when no target field is configured. |
-| `bucket` | string | no | no | Alias for `vector_bucket_name`. |
-| `index_name` | string | yes* | environment-only fallback | Target index name. Uses `S3VECTOR_INDEX_NAME` only when no target field is configured. |
-| `index` | string | no | no | Alias for `index_name`. |
-| `index_arn` | string | yes* | environment-only fallback | Self-contained alternative target. Uses `S3VECTOR_INDEX_ARN` only when no target field is configured. |
-| `top_k` | integer | yes | -- | Number of nearest neighbors to return (`> 0` and at most 2147483647; a larger value is refused, not wrapped). |
-| `query_vector` | array<number> | no* | -- | Query embedding vector. |
-| `query_vector_key` | string | no* | -- | Context key containing a query embedding array. |
-| `filter` | object | no | -- | Optional metadata filter, written in the flow. String values support `${ctx.key}` interpolation, and a placeholder that does not resolve fails the step; see [Metadata Filter](#metadata-filter). |
-| `filter_key` | string | no | -- | Context key that holds the metadata filter object. When set, the key must exist and hold a non-empty object; see [Metadata Filter](#metadata-filter). |
-| `return_metadata` | bool | no | `false` | Include vector metadata in results. See [Boolean Flags](#boolean-flags). |
-| `return_distance` | bool | no | `false` | Include distance values in results. See [Boolean Flags](#boolean-flags). |
-| `min_similarity` | number | no | -- | Optional minimum cosine similarity threshold between query vector and results. Only supported for cosine-index metrics (`min_similarity = 1 - distance`). Fewer results may be returned than `top_k`. |
-| `strict` | bool | no | `false` | When `true`, require a cosine index for `min_similarity`; otherwise `min_similarity` is ignored for non-cosine indexes. See [Boolean Flags](#boolean-flags). |
-| `region` | string | no | AWS region chain | Override `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, or `AWS_DEFAULT_REGION`. The environment is used only when the parameter is absent: a value that is not a string, or is empty after interpolation, fails the step before the client is built. |
-| `endpoint_url` | string | no | `AWS_ENDPOINT_URL` env var | Override the S3 Vectors service endpoint. A value that is not a string, or is empty after interpolation, fails the step instead of falling back to the environment or the default AWS endpoint. |
-| `output_key` | string | no | `s3vector` | Prefix for context output keys. |
+| `vector_bucket_name` | string | With `index_name`* | `S3VECTOR_BUCKET_NAME`, then `S3_BUCKET` | Bucket that owns the named index |
+| `bucket` | string | No | — | Alias for `vector_bucket_name`; both must resolve to the same value |
+| `index_name` | string | One of* | `S3VECTOR_INDEX_NAME` | Index name |
+| `index` | string | No | — | Alias for `index_name`; both must resolve to the same value |
+| `index_arn` | string | One of* | `S3VECTOR_INDEX_ARN` | Index ARN, used alone instead of bucket and index names |
+| `top_k` | integer | Yes | — | Number of nearest neighbors, 1 to 2147483647; accepts an interpolated integer string |
+| `query_vector` | array of numbers | One of | — | Non-empty query embedding of finite numbers |
+| `query_vector_key` | string | One of | — | Context key holding the query embedding array |
+| `filter` | object | No | — | Metadata filter written in the flow; string values are interpolated |
+| `filter_key` | string | No | — | Context key holding the filter object |
+| `return_metadata` | boolean | No | `false` | Include each result's metadata |
+| `return_distance` | boolean | No | `false` | Include each result's distance |
+| `min_similarity` | number | No | — | Drop results whose cosine similarity (`1 - distance`) is below this value, 0 to 1 |
+| `strict` | boolean | No | `false` | With `min_similarity`, fail on a non-cosine index instead of ignoring the threshold |
+| `region` | string | No | AWS region chain | Region; when absent, `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, then `AWS_DEFAULT_REGION` |
+| `endpoint_url` | string | No | `AWS_ENDPOINT_URL` | Service endpoint override |
+| `output_key` | string | No | `"s3vector"` | Prefix for output keys |
 
-## Target Resolution
+\* Give a bucket name plus an index name, or `index_arn` alone. A bucket ARN
+is not accepted. If any target parameter is set, the whole target must come
+from the step; the environment variables are used only when none is set.
 
-Use exactly one supported shape: `vector_bucket_name`/`bucket` plus
-`index_name`/`index`, or `index_arn` by itself. Bucket ARN plus index name is not
-supported. If any target field is configured, the complete shape must come from
-node configuration after interpolation; identifier environment variables
-neither complete nor override it. With no configured target field, the node
-accepts the same coherent environment-only shapes from
-`S3VECTOR_BUCKET_NAME` (falling back to legacy `S3_BUCKET`) plus
-`S3VECTOR_INDEX_NAME`, or from `S3VECTOR_INDEX_ARN` alone. Conflicting forms and
-non-string, incomplete, or blank targets fail before the AWS client is built.
+## Context Output
 
-## Query Vector
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}_vectors` | array | Result objects with `key`, plus `distance` and `metadata` when requested |
+| `{output_key}_count` | number | Number of results after `min_similarity` filtering |
+| `{output_key}_distance_metric` | string | Index distance metric, when the service returns it |
+| `{output_key}_min_similarity` | number | Threshold, when `min_similarity` is set |
+| `{output_key}_min_similarity_applied` | boolean | Whether the threshold was applied, when `min_similarity` is set |
+| `{output_key}_success` | boolean | `true` on success |
 
-At least one of `query_vector` or `query_vector_key` is required.
+## Behavior
+
+- `query_vector` wins when both it and `query_vector_key` are set; a missing context key fails the step.
+- `min_similarity` applies only to a cosine index; on another metric it is ignored (`_min_similarity_applied = false`) unless `strict = true`, which fails the step. Fewer than `top_k` results may remain.
+- A target, `top_k`, query vector, flag, or filter that fails validation fails the step before any request.
+- A `region` or `endpoint_url` that is not a string or is blank fails the step; the environment is used only when the parameter is absent.
+- Credentials come from the AWS SDK credential chain.
+- With `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, a private endpoint needs an operator allowlist entry; see [Outbound destinations](../SECURITY.md#outbound-destinations).
 
 ## Boolean Flags
 
-`strict`, `return_metadata` and `return_distance` default to `false` only
-when the parameter is absent (in Lua, `nil`). A present value must be a
-boolean, one of the strings `true`/`yes`/`on`/`1` or `false`/`no`/`off`/`0`
-(case-insensitive), or a `${ctx.key}` template that resolves to one of them.
-Anything else, including a number, JSON `null`, a misspelling such as
-`"tru"` and a template whose key is missing, fails the step with
-`s3vector_query_vectors requires '<flag>' to be a boolean` before the AWS
-client is built, so no request is sent. A malformed `strict` therefore can
-no longer turn off the cosine requirement for `min_similarity`.
+`return_metadata`, `return_distance`, and `strict` default to `false` only when
+absent. A set value must be a boolean, one of the strings `true`/`yes`/`on`/`1`
+or `false`/`no`/`off`/`0` (any case), or a `${ctx.key}` template resolving to
+one. Anything else, including a number or a misspelling, fails the step.
 
 ## Metadata Filter
 
-Without `filter` and `filter_key` the query covers the whole index.
+Without `filter` and `filter_key` the query covers the whole index. When both
+are set, `filter` is used and `filter_key` is not read.
 
-`filter` is written in the flow, so its string values are templates:
+`filter` (inline):
+
+- Every string value, at any depth, is interpolated once; object keys are sent as written. `\${ctx.key}` keeps a literal `${ctx.key}`.
+- A placeholder must resolve to a string, number, or boolean. A missing, `null`, object, or array value fails the step instead of becoming an empty string.
+- Interpolation produces text: `"${ctx.year}"` sends `"2026"`. For typed values or a whole sub-filter, build the filter in a step and use `filter_key`.
+
+`filter_key` (from context):
+
+- The key must exist and hold a non-empty object; a missing key, `null`, `{}`, an array, or a scalar fails the step.
+- The stored object is sent as is; placeholders inside it are not expanded.
 
 ```lua
 filter = {
-    tenant = "${ctx.tenant_id}",            -- resolved before the request
+    tenant = "${ctx.tenant_id}",
     ["$and"] = { { kind = "note-${ctx.kind}" } }
 }
 ```
 
-- Every string value is interpolated once, at any depth, in objects and
-  arrays. Object keys are structural and are sent as written. A placeholder
-  inside a resolved value is not read again, and `\${ctx.key}` keeps a
-  literal `${ctx.key}`.
-- A placeholder must resolve to a string, number or boolean. When the value
-  is missing from context, is JSON `null`, or is an object or array, the step
-  fails with `s3vector_query_vectors could not interpolate
-  'filter.<entry>': ...` before the AWS client is built, and no request is
-  sent. Unlike other parameters, a missing value does not become an empty
-  string, because an empty or literal value would change what the query
-  returns. The message names the filter entry and the expression, never a
-  context value.
-- Interpolation produces text: `"${ctx.year}"` sends the string `"2026"`.
-  For a typed number or boolean, or a whole sub-filter, build the filter in a
-  step and pass it with `filter_key`.
+## Examples
 
-In earlier releases the inline filter was not interpolated and
-`"${ctx.tenant_id}"` was sent as that literal text.
+### Query with distances and metadata
 
-`filter_key` reads the filter from context, and a configured `filter_key` is
-a requirement, not a hint: the step fails before the AWS client is built, and
-no request is sent, unless the key resolves to a filter.
+```lua
+local flow = Flow.new("s3vector_query_vectors_example")
 
-| `filter_key` case | Result |
-|-------------------|--------|
-| Names a context key holding a non-empty object | The object is sent as the request filter. |
-| Names a key that is absent from context | Fails: `requires filter_key '<key>' to exist in context`. |
-| The context value is `null`, an empty object `{}`, an array, a string, a number or a boolean | Fails: `requires filter_key '<key>' to hold a non-empty filter object`. |
-| Not a string, or empty after `${ctx.key}` interpolation | Fails: `requires 'filter_key' to be a non-empty string`. |
+flow:step("query_vectors", nodes.s3vector_query_vectors({
+    vector_bucket_name = "ironflow-vectors-demo",
+    index_name = "ironflow-demo-index",
+    top_k = 2,
+    query_vector = { 0.14, 0.25, 0.31 },
+    return_metadata = true,
+    return_distance = true,
+    output_key = "query"
+}))
 
-An empty object is refused because it restricts nothing: a flow that builds a
-tenant or access filter upstream and ends up with `{}` would otherwise query
-every vector. Error messages name the context key and never include its
-value. The context value is used as stored; `${ctx.key}` placeholders inside
-it are not expanded.
+return flow
+```
 
-When both are configured, `filter` is used and `filter_key` is not read. Leave
-`filter_key` out of the step (in Lua, `nil`) for a query that is meant to be
-unfiltered.
+### Filter built in an earlier step
 
 ```lua
 flow:step("scope", nodes.code({
@@ -120,41 +116,4 @@ flow:step("query_vectors", nodes.s3vector_query_vectors({
     filter_key = "tenant_filter",
     output_key = "query"
 })):depends_on("scope")
-```
-
-## Context Output
-
-- `{output_key}_distance_metric` — Similarity metric used.
-- `{output_key}_min_similarity` — Configured minimum cosine similarity threshold (when set).
-- `{output_key}_min_similarity_applied` — `true` when cosine filtering was actually applied.
-- `{output_key}_count` — Number of returned result entries.
-- `{output_key}_vectors` — Array of result objects (`key`, optional `distance`, optional `metadata`).
-- `{output_key}_success` — `true` on success.
-
-## Outbound destination policy
-
-When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, `endpoint_url`
-(or `AWS_ENDPOINT_URL`) is refused when it is `localhost` or not a public
-unicast address, and every DNS answer of the service client is validated
-and pinned. An S3-compatible endpoint on a private address must be listed by
-the operator in `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` (for example
-`minio.internal:9000`). See
-[Outbound destinations](../SECURITY.md#outbound-destinations).
-
-## Example
-
-```lua
-local flow = Flow.new("s3vector_query_vectors_example")
-
-flow:step("query_vectors", nodes.s3vector_query_vectors({
-    vector_bucket_name = "ironflow-vectors-demo",
-    index_name = "ironflow-demo-index",
-    top_k = 2,
-    query_vector = { 0.14, 0.25, 0.31 },
-    return_metadata = true,
-    return_distance = true,
-    output_key = "query"
-}))
-
-return flow
 ```

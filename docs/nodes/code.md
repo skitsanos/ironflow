@@ -1,250 +1,78 @@
 # `code`
 
-Execute inline Lua code with access to the workflow context.
+Run Lua code in a sandbox with a snapshot of the workflow context and merge its
+return value into the context.
 
 ## Parameters
 
-| Parameter      | Type   | Required | Default | Description                                                         |
-|----------------|--------|----------|---------|---------------------------------------------------------------------|
-| `source`       | string/function | Yes | --      | Lua source code string **or inline function** to evaluate              |
-| `context_keys` | array of strings | No | Full context | Literal top-level context keys to expose to Lua. An empty list keeps only `_error_message`, `_error_step`, `_error_node_type` and `_flow_dir`, when present |
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `source` | string or function | Yes | — | Lua chunk whose last value is the output, or a Lua function called with `ctx`. |
+| `context_keys` | array of strings | No | full context | Top-level context keys to expose to Lua; `{}` exposes none. |
 
-`source` is the only way to supply code. `bytecode_b64` is an internal step
-field, not a parameter: it is how IronFlow carries a function handler from the
-flow file to the step. See [Function handler mode](#function-handler-mode).
-
-### Source mode
-
-When `source` is provided, one of two forms are supported:
-
-- Lua source string, evaluated as an expression/chunk. The last expression's value becomes the node output.
-- Lua function, which is compiled to bytecode and executed with sandboxed context as the script body.
-
-Validation compiles string-valued source without executing it and rejects
-invalid syntax. Undefined global reads produce warnings with the step name and
-line/column positions relative to the decoded source string. Use
-`ironflow validate --strict` to reject those warnings.
-
-### Function handler mode
-
-When `source` is a Lua function, or a function is passed directly as a step
-handler (`flow:step("name", function(ctx) ... end)`), IronFlow compiles it to
-bytecode while the flow file loads and stores it in the step as `bytecode_b64`,
-signed with a key that exists only inside the running process. At execution
-the signature is checked, the function is loaded in a fresh sandbox and called
-with the `ctx` table as its sole argument, and its return value becomes the
-node output.
-
-A flow author cannot supply `bytecode_b64`. Loading Lua bytecode that the
-process did not compile is memory-unsafe, so a value written into a flow file,
-or copied from another process or an earlier start of the same server, fails
-the step with `Function bytecode failed authentication (only handlers compiled
-by this process may run)` (or `Function bytecode is not authenticated by this
-process` for a value too short to carry a signature). Pass the function itself.
-
-Inline function handlers must not capture locals from the enclosing flow file;
-IronFlow rejects such handlers because captured upvalues cannot survive
-serialization. Declare constants inside the handler or pass values through
-`ctx`. During validation, reads of undefined globals inside inline functions
-produce source-positioned warnings; `ironflow validate --strict` treats them as
-failures.
-
-The same self-contained function may be used by multiple code nodes or step
-handlers. Validation reports its source warnings once. Distinct function
-definitions must have distinguishable start/end line ranges; move same-range
-definitions onto separate lines if validation reports ambiguity. See
-[`reused_callbacks.lua`](../../examples/07-advanced/reused_callbacks.lua).
-
-### Context projection
-
-By default, the entire accumulated context is converted before Lua runs, even
-if the code reads only one key. Opt in to `context_keys` when earlier steps
-produce large values that this handler does not need:
-
-```lua
-flow:step("inspect", nodes.code({
-    context_keys = {"embed_count", "embed_dimension"},
-    source = function(ctx)
-        return { checked_count = ctx.embed_count, dimension = ctx.embed_dimension }
-    end
-})):depends_on("embed")
-```
-
-The shorthand function-handler API supports the same projection through its
-chainable builder, including handlers created with `flow:step_if`:
-
-```lua
-flow:step("inspect", function(ctx)
-    return { checked_count = ctx.embed_count }
-end):context_keys({"embed_count"}):depends_on("embed")
-
-flow:step("constant", function(ctx)
-    return { ready = true }
-end):context_keys({}):depends_on("inspect")
-```
-
-- Omit `context_keys` to preserve the full-context default. Lua `{}` (JSON `[]`)
-  exposes no user keys, not the default context.
-- Four small engine diagnostics pass through regardless of the list:
-  `_error_message`, `_error_step`, `_error_node_type` and `_flow_dir`, so a
-  projected `on_error` handler keeps its diagnostics and relative paths still
-  resolve. Every other key, including bulky engine payloads such as
-  `_error_output` (the failing step's output) and invocation overlays
-  (`_headers`, `_webhook`, `_schedule`), is hidden unless listed, so a
-  projection can always exclude a large value. Listing an always-present key
-  explicitly is harmless. Projection is a conversion-budget control, not a
-  secrecy boundary.
-- Keys are exact, case-sensitive top-level names, not paths or templates.
-  `"a.b"` selects `ctx["a.b"]`, not `ctx.a.b`. Missing keys remain absent (`nil`);
-  duplicate names are selected once. Invalid lists fail loading/validation or
-  direct node execution rather than silently exposing the full context.
-- A builder's projection belongs only to that step, even when multiple steps
-  reuse the same `nodes.code` descriptor.
-- Both the global `ctx` and the handler function's argument refer to the same
-  isolated snapshot. Projection does not remove data from the workflow context,
-  and Lua mutations do not modify stored input values. Outputs merge normally.
-- Conversion remains eager for selected values. The object root and **all**
-  selected keys share one `IRONFLOW_MAX_CONVERSION_NODES` budget (default
-  `100000`) and the original `IRONFLOW_MAX_CONVERSION_DEPTH` limit (default `64`).
-  There is no per-key reset. Selecting a 200,000-number array still fails before
-  the handler runs, even if it would read only its first element or nothing.
-- Projection does not bypass Lua memory/instruction/time limits or output
-  conversion limits, change step dependencies, or project a `step_if` guard.
-  It is available on code nodes and function handlers only. Declaring
-  `context_keys` on any other node type, whether through the builder or a
-  descriptor such as `nodes.log({ context_keys = {...} })` or
-  `nodes.foreach({ context_keys = {...} })`, is rejected at load time with
-  `Step '<name>': context_keys is only supported for code nodes and function
-  handlers`, so `ironflow validate` fails instead of silently running with the
-  full context.
-
-See the self-contained
-[`context_projection.lua`](../../examples/07-advanced/context_projection.lua)
-example, which retains a 200,000-number native-node output while subsequent
-handlers inspect only a scalar or use an empty snapshot.
-
-## Sandboxing
-
-The Lua VM starts from an allowlist containing computation-oriented table,
-string, UTF-8, and math functionality. In particular, the following capabilities
-are unavailable:
-
-- `os`
-- `io`
-- `debug`
-- `package`
-- `require`
-- `load`
-- `loadfile`
-- `dofile`
-- `collectgarbage`
-- `string.dump`
-
-### Available globals
-
-- `ctx` -- isolated table snapshot of the workflow context, optionally projected with `context_keys` (JSON values are converted to Lua types)
-- `env(key)` -- function to read environment variables; returns the value as a string or `nil` if not set
-- `json_parse(str)` -- parse JSON text into a Lua table. The values are built inside the Lua state while the text is read, so `IRONFLOW_MAX_CONVERSION_NODES`, `IRONFLOW_MAX_CONVERSION_DEPTH` and `IRONFLOW_LUA_MAX_MEMORY_BYTES` bound the work; text over a budget fails with the budget's error and nothing of it is kept. A syntax error is reported first, then the [JSON nesting limit](../CLI_REFERENCE.md#json-nesting-limit), then the conversion budget. An integer above `9223372036854775807` or below `-9223372036854775808` has no exact Lua number and is returned as a string of its digits (it used to be the nearest float); the same applies to such an integer in `ctx`. For an object that repeats a key the last value is used, and every repeated value counts toward the node budget
-- `json_stringify(value)` -- serialize a Lua value to JSON text
-- `json_array(table)` -- mark a dense Lua table, including `{}`, as a JSON array
-- `json_object(table)` -- mark a string-keyed Lua table, including `{}`, as a JSON object
-- `json_null` -- non-`nil` sentinel that preserves JSON null fields and array entries
-- `base64_encode(str)` -- encode bytes/text to base64
-- `base64_decode(str)` -- decode base64 to bytes/text
-- `log([level], message...)` -- write a Lua log line
-- `uuid4()` -- generate a random UUID string
-- `now_rfc3339()` -- current UTC timestamp in RFC3339 format
-- `now_unix_ms()` -- current Unix timestamp in milliseconds
-
-`Flow` and `nodes` exist only while the flow definition is loaded and are not
-available in the isolated handler VM.
-
-### Execution limits
-
-Lua execution runs on Tokio's blocking pool and uses process-wide budgets:
-
-- `IRONFLOW_LUA_MAX_INSTRUCTIONS` — default `5000000`; `0` disables.
-- `IRONFLOW_LUA_MAX_SECONDS` — default `10`; `0` disables.
-- `IRONFLOW_LUA_MAX_MEMORY_BYTES` — default `134217728`; `0` disables.
-- `IRONFLOW_LUA_MAX_PATTERN_STEPS` — default `50000000`; `0` disables.
-- `IRONFLOW_LUA_HOOK_INTERVAL` — default `10000`.
-- `IRONFLOW_LUA_GC_AFTER_EXECUTION` — default `true`.
-
-When the flow step also uses `:timeout(seconds)`, the Lua instruction hook
-checks that total step deadline in addition to these limits. Dropping the node
-future (for example, explicit workflow cancellation) signals the same hook, so
-an infinite loop is interrupted without occupying a Tokio runtime worker. Hook
-checks occur every `IRONFLOW_LUA_HOOK_INTERVAL` instructions, so cancellation
-latency is cooperative rather than instruction-exact.
-
-The hook runs between Lua instructions and cannot run inside a library call.
-The library calls that could do unbounded work inside one call are therefore
-replaced in the sandbox:
-
-- **Pattern matching** (`string.find`, `string.match`, `string.gmatch`,
-  `string.gsub`, also as methods such as `s:find(...)`) runs on a matcher
-  that counts one step per pattern item it tries. It accepts the Lua 5.4
-  pattern syntax and returns the same results. A Lua state may spend
-  `IRONFLOW_LUA_MAX_PATTERN_STEPS` steps in total; beyond that the call fails
-  with `Lua pattern matching exceeded step budget of 50000000
-  (IRONFLOW_LUA_MAX_PATTERN_STEPS)`. Matching that is linear in its subject
-  costs a few steps per byte, so the default covers tens of megabytes; a
-  pattern with several unbounded repeats, such as `^.-.-.-b`, can need
-  billions of steps for a few thousand bytes and runs out. Every few
-  thousand steps the matcher also checks the step timeout, run cancellation
-  and `IRONFLOW_LUA_MAX_SECONDS`, so those end a match in progress even when
-  the step budget is disabled. A `string.gsub` result is limited by
-  `IRONFLOW_LUA_MAX_MEMORY_BYTES`.
-- **`string.rep`** with an empty string and an empty or absent separator
-  returns `""` at once instead of counting to `n`.
-- **`table.move`** over more than 100,000 positions, and **`table.insert`**
-  and **`table.remove`** on a table that has a metatable (where `__len` can
-  claim any length), run as Lua loops, which the instruction budget, the time
-  budget, a step timeout and cancellation stop.
-
-These errors are ordinary Lua errors: `pcall` catches them, but a spent
-pattern budget stays spent for that Lua state. An error raised by one of the
-replaced functions names the calling line unless the call is in tail
-position (`return s:find(p)`).
-
-Every other library call (`table.concat`, `table.sort`, `table.unpack`,
-`string.format`, `string.upper`, `string.pack`, `utf8.len` and so on) does
-work proportional to data that `IRONFLOW_LUA_MAX_MEMORY_BYTES` already
-bounds. Such a call cannot be interrupted, but with the default memory cap it
-takes a fraction of a second. If the memory cap is disabled, those calls are
-bounded only by the memory of the host.
-
-Lua is tracked work of its step: when the step times out or its run is
-cancelled, the step's timeout result, its `on_error` handler, dependent
-steps and the end of the run wait until the Lua worker has returned, and task
-and run admission stay held, as for a built-in blocking node. Function
-handlers and `foreach` transforms behave the same. See
-[`lua_pattern_budget.lua`](../../examples/07-advanced/lua_pattern_budget.lua).
-
-## Return Value Handling
-
-| Return type | Behavior                                                        |
-|-------------|-----------------------------------------------------------------|
-| Object table | Each key-value pair is merged into the context output          |
-| Array table | The array is stored under `result`                              |
-| `nil`       | No output is produced                                           |
-| Other       | The value is stored under the key `result` in the context output |
-
-Tables must have one JSON-compatible shape: a dense 1-based array or an object
-with string keys. Cyclic, over-deep, sparse, mixed-key, non-finite, and
-unsupported values fail the node with a path-rich error instead of being
-silently discarded.
+A function passed as `source`, or directly as a step handler
+(`flow:step("name", function(ctx) ... end)`), is compiled when the flow loads
+and can run only in the process that compiled it.
 
 ## Context Output
 
-- When returning an object table: each key becomes a context key
-- When returning an array table: `result` -- the returned array
-- When returning a scalar: `result` -- the returned value
-- When returning `nil`: no keys are added
+| Return value | Context output |
+|--------------|----------------|
+| object table | Each key is merged into the context. |
+| array table | `result` holds the array. |
+| other value | `result` holds the value. |
+| `nil` | Nothing is added. |
 
-## Example
+## Behavior
 
-Inline source:
+- Tables must be a dense 1-based array or an object with string keys. Cyclic, sparse, mixed-key, too deep or non-finite values fail the step with an error naming the path.
+- Functions must be self-contained: captured locals from the flow file are rejected. Declare constants inside or read them from `ctx`.
+- `ironflow validate` compiles string sources and reports undefined globals with line and column; `--strict` makes those warnings failures.
+- `context_keys` names exact top-level keys (`"a.b"` is `ctx["a.b"]`). Missing keys are absent. `_error_message`, `_error_step`, `_error_node_type` and `_flow_dir` are always passed; every other key, including `_error_output` and `_headers`, must be listed. Use it to avoid converting large values the code does not read.
+- `context_keys` is accepted only on `code` nodes and function handlers (also via the builder, `:context_keys({...})`); on any other node it fails loading.
+- `ctx` is a copy: changing it in Lua does not change the workflow context; only the return value is merged.
+
+### Available globals
+
+| Global | Description |
+|--------|-------------|
+| `ctx` | Snapshot of the workflow context (or the `context_keys` projection). |
+| `env(key)` | Environment variable as a string, or `nil`; restricted by `IRONFLOW_ENV_ALLOWLIST` when set. |
+| `json_parse(str)` | Parse JSON text to a Lua value; integers outside the 64-bit range come back as digit strings. |
+| `json_stringify(value)` | Serialize a Lua value to JSON text. |
+| `json_array(t)`, `json_object(t)` | Mark a table, including `{}`, as a JSON array or object. |
+| `json_null` | Non-`nil` sentinel for JSON `null`. |
+| `base64_encode(s)`, `base64_decode(s)` | Base64 encoding of bytes or text. |
+| `log([level], ...)` | Write a log line. |
+| `uuid4()` | Random UUID string. |
+| `now_rfc3339()`, `now_unix_ms()` | Current UTC time as RFC 3339 text or Unix milliseconds. |
+
+The `table`, `string`, `utf8` and `math` libraries are available. `os`, `io`,
+`debug`, `package`, `require`, `load`, `loadfile`, `dofile`, `collectgarbage`
+and `string.dump` are not. `Flow` and `nodes` exist only while the flow file
+loads.
+
+## Limits
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `IRONFLOW_LUA_MAX_INSTRUCTIONS` | `5000000` | Lua instructions per execution; `0` disables. |
+| `IRONFLOW_LUA_MAX_SECONDS` | `10` | Wall-clock seconds per Lua state; `0` disables. |
+| `IRONFLOW_LUA_MAX_MEMORY_BYTES` | `134217728` | Lua memory per state; `0` disables. |
+| `IRONFLOW_LUA_MAX_PATTERN_STEPS` | `50000000` | Total steps of `string.find`, `match`, `gmatch` and `gsub` per state; `0` disables. |
+| `IRONFLOW_LUA_HOOK_INTERVAL` | `10000` | Instructions between limit, timeout and cancellation checks. |
+| `IRONFLOW_LUA_GC_AFTER_EXECUTION` | `true` | Run a garbage-collection cycle after execution. |
+| `IRONFLOW_MAX_CONVERSION_NODES` | `100000` | Values converted between JSON and Lua, shared by all selected context keys. |
+| `IRONFLOW_MAX_CONVERSION_DEPTH` | `64` | Nesting depth of converted values. |
+
+A step `timeout` and run cancellation also stop running Lua, including inside a
+pattern match. Limit errors are ordinary Lua errors that `pcall` can catch, but
+a spent pattern budget stays spent for that state. See
+[CLI reference](../CLI_REFERENCE.md) for the full variable list.
+
+## Examples
+
+### Compute from context
 
 ```lua
 local flow = Flow.new("calculate_total")
@@ -263,7 +91,7 @@ flow:step("done", nodes.log({
 return flow
 ```
 
-Reading an environment variable:
+### Read an environment variable
 
 ```lua
 local flow = Flow.new("env_check")
@@ -282,16 +110,17 @@ flow:step("done", nodes.log({
 return flow
 ```
 
-Function handler mode, where the function receives `ctx` as its argument:
+### Project the context
 
 ```lua
-local flow = Flow.new("handler_demo")
-
-flow:step("run", nodes.code({
+flow:step("inspect", nodes.code({
+    context_keys = {"embed_count", "embed_dimension"},
     source = function(ctx)
-        return { greeting = "Hello, " .. ctx.name }
+        return { checked_count = ctx.embed_count, dimension = ctx.embed_dimension }
     end
-}))
+})):depends_on("embed")
 
-return flow
+flow:step("constant", function(ctx)
+    return { ready = true }
+end):context_keys({}):depends_on("inspect")
 ```

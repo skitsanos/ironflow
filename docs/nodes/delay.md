@@ -4,15 +4,19 @@ Pause workflow execution for a specified duration.
 
 ## Parameters
 
-| Parameter | Type  | Required | Default | Description                         |
-|-----------|-------|----------|---------|-------------------------------------|
-| `seconds` | float | No       | `1.0`   | Number of seconds to pause (supports fractional values) |
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `seconds` | number | No | `1.0` | Seconds to pause; fractional values work. Must be non-negative and finite. |
 
 ## Context Output
 
-- `delay_seconds` -- the actual number of seconds the node paused for
+| Key | Type | Description |
+|-----|------|-------------|
+| `delay_seconds` | number | The configured pause, in seconds. |
 
-## Example
+## Examples
+
+### Pause between steps
 
 ```lua
 local flow = Flow.new("rate_limited")

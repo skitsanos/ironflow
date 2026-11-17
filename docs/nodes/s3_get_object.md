@@ -1,52 +1,50 @@
 # `s3_get_object`
 
-Download object content from S3 (or S3-compatible storage).
-
-Uses regional SigV4 signing, or SigV4a when `bucket` is an MRAP ARN;
-see [S3 signing](../SECURITY.md#s3-signing).
+Download an object from S3 or an S3-compatible service into the context as text or Base64.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `bucket` | string | yes | env `S3_BUCKET` | Bucket name or MRAP ARN. |
-| `key` | string | yes | -- | Object key inside the bucket. |
-| `region` | string | no | `S3_REGION` / `AWS_REGION` | Explicit AWS/S3 region override. |
-| `endpoint_url` | string | no | env `AWS_ENDPOINT_URL` | Optional custom endpoint (for S3-compatible services). |
-| `force_path_style` | bool | no | `false` | Force path-style bucket addressing. |
-| `encoding` | string | no | `"text"` | `"text"` or `"base64"` for downloaded body output. |
-| `output_key` | string | no | `"s3"` | Prefix for context output keys. |
+| `bucket` | string | Yes | env `S3_BUCKET` | Bucket name or MRAP ARN; supports `${ctx.key}` interpolation. |
+| `key` | string | Yes | — | Object key; supports `${ctx.key}` interpolation. |
+| `encoding` | string | No | `"text"` | Body encoding in the context: `text` or `base64`. |
+| `region` | string | No | env `S3_REGION`, `AWS_REGION`, `AWS_DEFAULT_REGION` | Region override. |
+| `endpoint_url` | string | No | env `AWS_ENDPOINT_URL` | Endpoint of an S3-compatible service. |
+| `force_path_style` | boolean | No | env `AWS_S3_FORCE_PATH_STYLE`, else `false` | Use path-style bucket addressing. |
+| `output_key` | string | No | `"s3"` | Prefix for the context output keys. |
 
 ## Context Output
 
-- `{output_key}_bucket` — Bucket name or ARN used.
-- `{output_key}_key` — Object key used.
-- `{output_key}_content` — Object body (text or base64 depending on `encoding`).
-- `{output_key}_encoding` — Body encoding used (`text` or `base64`).
-- `{output_key}_size` — Byte size of the downloaded content.
-- `{output_key}_content_type` — Optional `Content-Type` response header.
-- `{output_key}_content_length` — Optional content length.
-- `{output_key}_etag` — Optional object ETag.
-- `{output_key}_last_modified` — Optional last modified timestamp.
-- `{output_key}_success` — `true` on success.
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}_bucket` | string | Bucket used. |
+| `{output_key}_key` | string | Object key used. |
+| `{output_key}_content` | string | Object body, as text or Base64. |
+| `{output_key}_encoding` | string | `"text"` or `"base64"`. |
+| `{output_key}_size` | number | Body size in bytes. |
+| `{output_key}_content_type` | string | `Content-Type` of the object, when returned. |
+| `{output_key}_content_length` | number | Declared content length, when returned. |
+| `{output_key}_etag` | string | Object ETag, when returned. |
+| `{output_key}_last_modified` | string | Last-modified timestamp, when returned. |
+| `{output_key}_success` | boolean | `true` on success. |
 
-The object body is bounded by `IRONFLOW_MAX_FILE_BYTES` (default 52,428,800
-bytes). A declared `Content-Length` above the limit is rejected before reading,
-and every body chunk is counted while streaming, so missing or inaccurate
-metadata cannot bypass the ceiling. The complete bounded body is then decoded
-as text or base64.
+## Behavior
 
-## Outbound destination policy
+- With `encoding = "text"`, a body that is not valid UTF-8 fails the step; use `base64` for binary objects.
+- An `encoding` other than `text` or `base64` fails the step after the download.
+- Credentials come from the AWS SDK default chain. An MRAP ARN is signed with SigV4a; see [S3 signing](../SECURITY.md#s3-signing).
+- With `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, a private `endpoint_url` must be allow-listed; see [Outbound destinations](../SECURITY.md#outbound-destinations).
 
-When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, `endpoint_url`
-(or `AWS_ENDPOINT_URL`) is refused when it is `localhost` or not a public
-unicast address, and every DNS answer of the service client is validated
-and pinned. An S3-compatible endpoint on a private address must be listed by
-the operator in `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` (for example
-`minio.internal:9000`). See
-[Outbound destinations](../SECURITY.md#outbound-destinations).
+## Limits
 
-## Example
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `IRONFLOW_MAX_FILE_BYTES` | 50 MiB | Maximum object body size; a larger declared length or streamed body fails the step. |
+
+## Examples
+
+### Download a text object
 
 ```lua
 local flow = Flow.new("s3_download")

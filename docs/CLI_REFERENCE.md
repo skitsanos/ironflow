@@ -1712,7 +1712,7 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_LUA_MAX_INSTRUCTIONS` | `5000000` | Max Lua VM instructions per flow parse/code execution; `0` disables |
 | `IRONFLOW_LUA_MAX_SECONDS` | `10` | Max wall-clock seconds per Lua state; `0` disables |
 | `IRONFLOW_LUA_MAX_MEMORY_BYTES` | `134217728` | Max Lua VM memory per Lua state; `0` disables |
-| `IRONFLOW_LUA_MAX_PATTERN_STEPS` | `50000000` | Max pattern-matching steps per Lua state, summed over `string.find`, `string.match`, `string.gmatch` and `string.gsub`; `0` disables. A pattern that backtracks without bound fails with the budget error instead of holding its step. A step timeout, cancellation and `IRONFLOW_LUA_MAX_SECONDS` also end a match in progress. Invalid values fail startup. See [Execution limits](nodes/code.md#execution-limits) |
+| `IRONFLOW_LUA_MAX_PATTERN_STEPS` | `50000000` | Max pattern-matching steps per Lua state, summed over `string.find`, `string.match`, `string.gmatch` and `string.gsub`; `0` disables. A pattern that backtracks without bound fails with the budget error instead of holding its step. A step timeout, cancellation and `IRONFLOW_LUA_MAX_SECONDS` also end a match in progress. Invalid values fail startup. See [Execution limits](nodes/code.md#limits) |
 | `IRONFLOW_ENV_ALLOWLIST` | unset (all) | Comma-separated variable names the Lua `env()` global may read. When set, `env()` returns `nil` for any other key; when unset, any process variable is readable (the default). |
 | `IRONFLOW_LUA_HOOK_INTERVAL` | `10000` | Instruction interval for budget checks |
 | `IRONFLOW_LUA_GC_AFTER_EXECUTION` | `true` | Run a Lua garbage-collection cycle after flow parsing/code execution; accepts only `true` or `false` |

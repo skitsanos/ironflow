@@ -1,59 +1,48 @@
 # `xml_parse`
 
-Parse an XML string into a JSON object.
+Parse an XML string into a JSON object keyed by the root element name.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `input` | string | one of `input` or `source_key` | — | XML string; supports `${ctx.key}` interpolation. |
-| `source_key` | string | one of `input` or `source_key` | — | Context key containing the XML string. |
-| `output_key` | string | no | `"xml_data"` | Context key for the parsed JSON output. |
+| `input` | string | One of | — | XML text; supports `${ctx.key}` interpolation |
+| `source_key` | string | One of | — | Context key holding the XML text |
+| `output_key` | string | No | `"xml_data"` | Context key for the parsed object |
 
-> Providing both `input` and `source_key` is an error.
+Give exactly one of `input` or `source_key`; both, or neither, fails the step.
 
 ## Context Output
 
-- `<output_key>` (default `xml_data`) — the parsed JSON object.
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}` | object | The parsed document |
 
-## XML to JSON Mapping
+## Output Shape
 
-- Elements become JSON objects keyed by tag name.
-- Attributes are prefixed with `@` (e.g., `@id`, `@lang`).
-- Text content uses `#text` when mixed with attributes or child elements.
-- Simple text-only elements are simplified to string values.
-- Repeated sibling elements with the same tag become JSON arrays.
-- The document must have exactly one root element; a second root element is
-  an error.
+`<book id="7"><title>Rust</title><tag>a</tag><tag>b</tag><note/></book>` gives:
 
-## Text Fidelity and Limits
+```json
+{ "book": { "@id": "7", "title": "Rust", "tag": ["a", "b"], "note": null } }
+```
 
-Text, CDATA and entity-reference events are concatenated in source order within
-each element. The five predefined XML entities (`amp`, `lt`, `gt`, `apos`,
-`quot`) and decimal/hexadecimal character references are decoded once. CDATA
-is literal: `<![CDATA[&amp;]]>` yields `&amp;`, not `&`. Outer text whitespace is
-trimmed after accumulation, so spaces next to references and between fragments
-are no longer lost. Attributes use XML-version-aware value normalization,
-including entity decoding and whitespace normalization. XML declarations select
-1.0 or 1.1 newline rules; absent declarations use 1.0.
+- Attributes are keys prefixed with `@`.
+- A text-only element becomes a string; text next to attributes or children goes in `#text`.
+- Repeated sibling elements become an array; an empty element without attributes becomes `null`.
 
-Mixed content remains a JSON projection, not a lossless XML document model:
-direct text is accumulated in `#text`, while children remain separate keys.
-Their relative interleaving cannot be reconstructed from this representation.
-Unknown entities, invalid references and malformed attributes return node errors.
-DTDs and custom/external entities are unsupported and rejected; no entity
-resolver opens files or accesses the network.
+## Behavior
 
-Parsing runs in a tracked blocking worker with cooperative deadline/cancellation
-checks between events. The nesting limit remains 128, including empty elements.
-Each element becomes one JSON object, and step output may nest at most 123
-levels (see [JSON nesting limit](../CLI_REFERENCE.md#json-nesting-limit)), so
-a document nested deeper than that parses and the step then fails with
-`step output refused`.
-Decoded text and attribute admission is bounded by the input's UTF-8 byte length;
-this is not a new configurable input-size or total JSON-memory limit.
+- The document must have exactly one root element; a second root, text outside the root, or an unclosed element fails the step.
+- Text, CDATA and references are joined in source order and trimmed at both ends. The five predefined entities and character references are decoded once; CDATA is literal (`<![CDATA[&amp;]]>` gives `&amp;`).
+- Attribute values are normalized per the declared XML version (1.0 when absent).
+- Mixed content is not round-trippable: the order of text relative to child elements is lost.
+- Unknown entities, invalid references, malformed attributes, DTDs, and custom or external entities fail the step. Nothing is fetched from files or the network.
+- Element nesting deeper than 128 fails the step. Step output may nest at most 123 levels ([JSON nesting limit](../CLI_REFERENCE.md#json-nesting-limit)), so a document nested deeper than that fails with `step output refused`.
+- A non-string value under `source_key` is serialized to JSON text before parsing.
 
-## Example
+## Examples
+
+### Parse inline XML
 
 ```lua
 local flow = Flow.new("parse_xml")

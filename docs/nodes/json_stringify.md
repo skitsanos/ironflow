@@ -1,19 +1,27 @@
 # `json_stringify`
 
-Serialize a context value to a JSON string.
+Serialize a context value to a compact JSON string.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `source_key` | string | yes | — | Context key holding the value to serialize |
-| `output_key` | string | yes | — | Context key where the JSON string will be stored |
+| `source_key` | string | Yes | — | Context key holding the value to serialize |
+| `output_key` | string | Yes | — | Context key where the JSON string is stored |
 
 ## Context Output
 
-- `{output_key}` — the serialized JSON string
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}` | string | The serialized JSON string, without whitespace or indentation |
 
-## Example
+## Behavior
+
+- The step fails when `source_key` is not in context.
+
+## Examples
+
+### Serialize an object
 
 ```lua
 flow:step("stringify_payload", nodes.json_stringify({

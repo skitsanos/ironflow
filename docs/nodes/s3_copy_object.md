@@ -1,71 +1,46 @@
 # `s3_copy_object`
 
-Copy an existing object to another key or bucket.
-
-Uses regional SigV4 signing, or SigV4a for an MRAP destination ARN. MRAP copy
-sources are unsupported by AWS;
-see [S3 signing](../SECURITY.md#s3-signing).
+Copy an object to another key or bucket inside S3 or an S3-compatible service, without downloading it.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `source_bucket` | string | no | env `S3_BUCKET` | Source bucket name, not URL-encoded. Supports `${ctx.key}` interpolation. |
-| `source_key` | string | yes | -- | Literal source object key, not a URL or pre-encoded path. Supports `${ctx.key}` interpolation. |
-| `bucket` | string | no | env `S3_BUCKET` | Destination bucket name or MRAP ARN. |
-| `key` | string | yes | -- | Destination object key. |
-| `region` | string | no | `S3_REGION` / `AWS_REGION` | Explicit AWS/S3 region override. |
-| `endpoint_url` | string | no | env `AWS_ENDPOINT_URL` | Optional custom endpoint (for S3-compatible services). |
-| `force_path_style` | bool | no | `false` | Force path-style bucket addressing. |
-| `output_key` | string | no | `"s3"` | Prefix for context output keys. |
-
-## Source Key Encoding
-
-IronFlow percent-encodes the source bucket/key path once before the AWS SDK
-signs and sends `x-amz-copy-source`, as required by the
-[S3 CopyObject contract](https://docs.aws.amazon.com/AmazonS3/latest/API/API_CopyObject.html#API_CopyObject_RequestSyntax).
-Use the original key, just as for `s3_put_object` or `s3_get_object`:
-
-- Spaces become `%20`, not `+`, and Unicode is encoded from its UTF-8 bytes.
-- Literal percent signs are escaped: a key containing `%2F` is sent as `%252F`,
-  not interpreted as a slash. Do not pre-encode input keys.
-- Slashes and unreserved characters (`A-Z`, `a-z`, `0-9`, `-`, `.`, `_`, `~`)
-  are retained. Repeated slashes and dot segments in the source key are not
-  normalized.
-- `?`, `#`, `&`, `=`, and `+` are key bytes, not query/fragment syntax. A key
-  containing `?versionId=old` is copied literally. The node has no input version
-  selector and copies the current source version; the optional
-  `{output_key}_source_version_id` is response metadata, not a selector.
-
-Context output keeps the original, unencoded bucket/key values. Destination
-bucket/key encoding remains handled by the AWS SDK. Failed copies publish no
-success output; service permissions, versioning, and copy constraints still
-apply.
+| `source_bucket` | string | Yes | env `S3_BUCKET` | Source bucket name; supports `${ctx.key}` interpolation. |
+| `source_key` | string | Yes | — | Source object key, not URL-encoded; supports `${ctx.key}` interpolation. |
+| `bucket` | string | Yes | env `S3_BUCKET` | Destination bucket name or MRAP ARN; supports `${ctx.key}` interpolation. |
+| `key` | string | Yes | — | Destination object key; supports `${ctx.key}` interpolation. |
+| `region` | string | No | env `S3_REGION`, `AWS_REGION`, `AWS_DEFAULT_REGION` | Region override. |
+| `endpoint_url` | string | No | env `AWS_ENDPOINT_URL` | Endpoint of an S3-compatible service. |
+| `force_path_style` | boolean | No | env `AWS_S3_FORCE_PATH_STYLE`, else `false` | Use path-style bucket addressing. |
+| `output_key` | string | No | `"s3"` | Prefix for the context output keys. |
 
 ## Context Output
 
-- `{output_key}_source_bucket` — Source bucket.
-- `{output_key}_source_key` — Source key.
-- `{output_key}_destination_bucket` — Destination bucket.
-- `{output_key}_destination_key` — Destination key.
-- `{output_key}_version_id` — Optional destination version id.
-- `{output_key}_source_version_id` — Optional source version id.
-- `{output_key}_etag` — Optional destination object ETag.
-- `{output_key}_expiration` — Optional expiration metadata.
-- `{output_key}_last_modified` — Optional copy operation timestamp.
-- `{output_key}_success` — `true` on success.
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}_source_bucket` | string | Source bucket, as given. |
+| `{output_key}_source_key` | string | Source key, as given. |
+| `{output_key}_destination_bucket` | string | Destination bucket. |
+| `{output_key}_destination_key` | string | Destination key. |
+| `{output_key}_etag` | string | ETag of the new object, when returned. |
+| `{output_key}_last_modified` | string | Timestamp of the copy, when returned. |
+| `{output_key}_version_id` | string | Version ID of the new object, when returned. |
+| `{output_key}_source_version_id` | string | Version ID of the copied source, when returned. |
+| `{output_key}_expiration` | string | Expiration metadata, when returned. |
+| `{output_key}_success` | boolean | `true` on success. |
 
-## Outbound destination policy
+## Behavior
 
-When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, `endpoint_url`
-(or `AWS_ENDPOINT_URL`) is refused when it is `localhost` or not a public
-unicast address, and every DNS answer of the service client is validated
-and pinned. An S3-compatible endpoint on a private address must be listed by
-the operator in `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` (for example
-`minio.internal:9000`). See
-[Outbound destinations](../SECURITY.md#outbound-destinations).
+- Pass the literal source key; do not pre-encode it. The node percent-encodes it once: a space becomes `%20`, and a key containing `%2F` stays a literal `%2F`, not a slash.
+- `?`, `#`, `&`, `=` and `+` are part of the key. There is no source version selector; the current version is copied.
+- An MRAP ARN works as the destination (signed with SigV4a), not as the source; see [S3 signing](../SECURITY.md#s3-signing).
+- Credentials come from the AWS SDK default chain.
+- With `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, a private `endpoint_url` must be allow-listed; see [Outbound destinations](../SECURITY.md#outbound-destinations).
 
-## Example
+## Examples
+
+### Copy a key with literal special characters
 
 ```lua
 local flow = Flow.new("s3_copy")
@@ -85,6 +60,4 @@ flow:step("log", nodes.log({
 return flow
 ```
 
-The runnable [S3 copy example](../../examples/04-file-operations/s3_copy.lua)
-uploads a literal space/percent key, copies it, downloads and verifies its
-contents, lists the run-owned prefix, and deletes both objects on success.
+The runnable [S3 copy example](../../examples/04-file-operations/s3_copy.lua) uploads, copies, verifies and cleans up.

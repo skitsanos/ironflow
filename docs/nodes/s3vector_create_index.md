@@ -1,57 +1,51 @@
 # `s3vector_create_index`
 
-Create an Amazon S3 Vector index inside a bucket.
+Create a vector index inside an Amazon S3 Vectors bucket.
 
 ## Parameters
 
-| Parameter | Type   | Required | Default | Description |
-|-----------|--------|----------|---------|-------------|
-| `vector_bucket_name` | string | yes* | environment-only fallback | Target bucket name. Uses `S3VECTOR_BUCKET_NAME`, then legacy `S3_BUCKET`, only when no target field is configured. |
-| `bucket` | string | no | no | Alias for `vector_bucket_name`. |
-| `vector_bucket_arn` | string | yes* | environment-only fallback | Alternative target bucket ARN. Uses `S3VECTOR_BUCKET_ARN` only when no target field is configured. |
-| `index_name` | string | yes | environment-only fallback | Name for the new index. Uses `S3VECTOR_INDEX_NAME` only when no target field is configured. |
-| `index` | string | no | no | Alias for `index_name`. |
-| `data_type` | string | yes | -- | Vector type (for example: `float32`). |
-| `distance_metric` | string | yes | -- | Similarity metric (for example: `euclidean`, `cosine`). |
-| `dimension` | integer | yes | -- | Vector dimension (must be > 0 and at most 2147483647; a larger value is refused, not wrapped). |
-| `region` | string | no | AWS region chain | Override `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, or `AWS_DEFAULT_REGION`. The environment is used only when the parameter is absent: a value that is not a string, or is empty after interpolation, fails the step before the client is built. |
-| `endpoint_url` | string | no | `AWS_ENDPOINT_URL` env var | Override the S3 Vectors service endpoint. A value that is not a string, or is empty after interpolation, fails the step instead of falling back to the environment or the default AWS endpoint. |
-| `output_key` | string | no | `s3vector` | Prefix for context output keys. |
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `vector_bucket_name` | string | One of* | `S3VECTOR_BUCKET_NAME`, then `S3_BUCKET` | Bucket name |
+| `bucket` | string | No | — | Alias for `vector_bucket_name`; both must resolve to the same value |
+| `vector_bucket_arn` | string | One of* | `S3VECTOR_BUCKET_ARN` | Bucket ARN, instead of a name |
+| `index_name` | string | Yes* | `S3VECTOR_INDEX_NAME` | Name of the new index |
+| `index` | string | No | — | Alias for `index_name`; both must resolve to the same value |
+| `data_type` | string | Yes | — | Vector element type; `float32` is the only value |
+| `distance_metric` | string | Yes | — | `cosine` or `euclidean` |
+| `dimension` | integer | Yes | — | Vector dimension, 1 to 2147483647; accepts an interpolated integer string |
+| `region` | string | No | AWS region chain | Region; when absent, `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, then `AWS_DEFAULT_REGION` |
+| `endpoint_url` | string | No | `AWS_ENDPOINT_URL` | Service endpoint override |
+| `output_key` | string | No | `"s3vector"` | Prefix for output keys |
 
-## Target Resolution
-
-The supported target shapes are a bucket name plus an index name, or a bucket
-ARN plus an index name. If any bucket or index target field is configured, all
-fields needed by that shape must come from node configuration after
-interpolation; identifier environment variables neither complete nor override
-it. With no configured target field, the node accepts the same coherent
-environment-only shapes from `S3VECTOR_INDEX_NAME` plus either
-`S3VECTOR_BUCKET_NAME` (falling back to legacy `S3_BUCKET`) or
-`S3VECTOR_BUCKET_ARN`. Conflicting forms and non-string, incomplete, or blank
-targets fail before the AWS client is built.
+\* Give an index name plus exactly one of bucket name or bucket ARN. If any
+bucket or index parameter is set, the whole target must come from the step;
+the environment variables are used only when none is set.
 
 ## Context Output
 
-- `{output_key}_index_name` — Created index name.
-- `{output_key}_bucket_name` — Bucket name used for the name target form.
-- `{output_key}_bucket_arn` — Bucket ARN used for the ARN target form.
-- `{output_key}_index_arn` — ARN of created index.
-- `{output_key}_distance_metric` — Configured distance metric.
-- `{output_key}_data_type` — Configured data type.
-- `{output_key}_dimension` — Configured vector dimension.
-- `{output_key}_success` — `true` on success.
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}_index_name` | string | Created index name |
+| `{output_key}_bucket_name` | string | Bucket name, when the step used a name |
+| `{output_key}_bucket_arn` | string | Bucket ARN, when the step used an ARN |
+| `{output_key}_index_arn` | string | Index ARN, when the service returns one |
+| `{output_key}_data_type` | string | Data type sent |
+| `{output_key}_distance_metric` | string | Distance metric sent |
+| `{output_key}_dimension` | number | Dimension sent |
+| `{output_key}_success` | boolean | `true` on success |
 
-## Outbound destination policy
+## Behavior
 
-When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, `endpoint_url`
-(or `AWS_ENDPOINT_URL`) is refused when it is `localhost` or not a public
-unicast address, and every DNS answer of the service client is validated
-and pinned. An S3-compatible endpoint on a private address must be listed by
-the operator in `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` (for example
-`minio.internal:9000`). See
-[Outbound destinations](../SECURITY.md#outbound-destinations).
+- `index_arn` is not accepted; an index is created by name.
+- An unknown `data_type` or `distance_metric`, a dimension of `0` or above 2147483647, or an incomplete or conflicting target fails the step before any request.
+- A `region` or `endpoint_url` that is not a string or is blank fails the step; the environment is used only when the parameter is absent.
+- Credentials come from the AWS SDK credential chain.
+- With `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, a private endpoint needs an operator allowlist entry; see [Outbound destinations](../SECURITY.md#outbound-destinations).
 
-## Example
+## Examples
+
+### Create a cosine index
 
 ```lua
 local flow = Flow.new("s3vector_create_index_example")

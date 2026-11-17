@@ -1,23 +1,54 @@
 # `markdown_to_docx`
 
-Generate an editable Word document from CommonMark/GFM Markdown. Headings,
-formatted runs, tables, hyperlinks and images are written as native OOXML, not
-HTML wrapped in a `.docx` file. No Word, LibreOffice or external converter is
-required to generate the document.
+Render CommonMark/GFM Markdown to an editable Word (`.docx`) document with native headings, formatted runs, tables, hyperlinks and images. No external converter is needed.
 
-See [Markdown Documents](../MARKDOWN_DOCUMENTS.md) for all parameters, supported
-syntax, fixed resource limits, cancellation and durability guarantees. Lists and
-task items currently use literal markers in indented paragraphs, not native Word
-numbering or interactive controls. The consuming viewer supplies fonts and
-decides pagination. `direction` (`auto`, `ltr`, `rtl`) and `language` control
-multilingual layout. Explicit bidi/run fonts and language metadata support mixed
-English/RTL, CJK and Ukrainian content. Fonts are not embedded; install the
-corresponding Noto families or provide suitable viewer fallback.
-LTR paragraphs/code align left; RTL paragraphs align right, with logical OOXML
-alignment for modern readers and physical paragraph-style/compatibility
-fallbacks for simpler importers. A default Normal style keeps body text from
-inheriting heading formatting. Previewers that discard these properties may
-still differ; PDF remains the fixed-layout reference.
+## Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `input` | string | One of `input` or `source_key` | — | Literal Markdown; supports `${ctx.key}` interpolation. |
+| `source_key` | string | One of `input` or `source_key` | — | Context key holding a Markdown string; its content is not interpolated. |
+| `output_path` | string | Yes | — | Destination file; supports interpolation. Missing parent directories are created. |
+| `output_key` | string | No | `"document"` | Prefix for the output keys. |
+| `overwrite` | boolean | No | `false` | Allow replacing an existing regular file. |
+| `page_size` | string | No | `"a4"` | `"a4"` or `"letter"`, portrait. |
+| `margin` | number | No | `54` | Page margins in points, 18 to 144. |
+| `font_size` | number | No | `11` | Body font size in points, 8 to 24. |
+| `language` | string | No | `"und"` | Document language tag, such as `uk`, `ar`, `ja` or `zh-CN`. |
+| `direction` | string | No | `"auto"` | `"auto"` (from each paragraph's first strong character), `"ltr"` or `"rtl"`. |
+| `title` | string | No | `"IronFlow document"` | Title metadata, at most 1024 bytes. |
+| `author` | string | No | `""` | Author metadata, at most 1024 bytes. |
+| `images` | object | No | `{}` | Maps Markdown image references to a path, artifact URI, or artifact descriptor; at most 16. |
+
+## Context Output
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}` | string | Path of the published document. |
+| `{output_key}_success` | boolean | `true` once the file is published. |
+| `{output_key}_metadata` | object | `format` (`"docx"`), `bytes`, `pages` (always `null`), `blocks`, `images`. |
+
+## Behavior
+
+- Supplying both or neither of `input` and `source_key`, an out-of-range or wrongly typed value, or an existing `output_path` without `overwrite = true` fails the step.
+- Raw HTML, links other than `http`, `https` or `mailto`, unbound image references, and images inside lists, quotes, headings or links fail the step.
+- Hyperlinks are clickable. Lists and task items use literal markers in indented paragraphs, not Word numbering or checkboxes.
+- Fonts are not embedded: the viewer supplies them and decides pagination, so `pages` is `null`. Install the Noto families for CJK or right-to-left text.
+- Right-to-left paragraphs align right and carry explicit direction; previewers that drop these properties may still differ. Use [`markdown_to_pdf`](markdown_to_pdf.md) for fixed layout.
+- The file is written atomically; a symlink or non-regular destination is refused even with `overwrite`. On Unix a new file gets `0666` masked by the umask and a replaced file keeps its mode.
+- Supported syntax and the fixed limits (256 KiB source, 32 MiB output) are listed in [Markdown Documents](../MARKDOWN_DOCUMENTS.md).
+
+## Limits
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `IRONFLOW_MAX_IMAGE_ENCODED_BYTES` | `52428800` (50 MiB) | Maximum size of each image input; the fixed 16 MiB combined cap also applies. |
+| `IRONFLOW_MAX_IMAGE_PIXELS` | `25000000` | Maximum pixels per image; the fixed 8 million combined cap also applies. |
+| `IRONFLOW_MAX_IMAGE_DECODE_ALLOCATION_BYTES` | `134217728` (128 MiB) | Maximum decoder memory per image. |
+
+## Examples
+
+### Render a report
 
 ```lua
 local flow = Flow.new("markdown_docx")
@@ -32,12 +63,3 @@ flow:step("render", nodes.markdown_to_docx({
 
 return flow
 ```
-
-Outputs are `docx` (path), `docx_success` and `docx_metadata`. The metadata's
-`pages` is JSON null, not a guessed page count. Existing output files require
-explicit `overwrite = true`. On Unix a new document gets `0666` masked by the
-process umask (`0644` under umask `022`) and a replaced one keeps its
-permission bits; the staged file is mode `0600` until it is published.
-Missing parent directories are created
-[`0755` masked by the process umask](write_file.md#created-directories). Use [markdown_to_pdf](markdown_to_pdf.md) for
-fixed-layout searchable PDF output.

@@ -5,7 +5,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 /// True when `ip` is not a public unicast destination: the local host, a
 /// private or shared network, or any other special-purpose range. This is the
 /// single classifier behind the opt-in SSRF guard, applied to literal hosts,
-/// redirect targets and every DNS answer. `docs/nodes/http_request.md` lists
+/// redirect targets and every DNS answer. `docs/SECURITY.md` (Refused ranges) lists
 /// the refused ranges; keep the two in step.
 pub(crate) fn ip_is_internal(ip: IpAddr) -> bool {
     match ip {

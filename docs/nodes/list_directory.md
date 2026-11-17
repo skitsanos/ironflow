@@ -1,25 +1,51 @@
 # `list_directory`
 
-List files and directories within a given path.
+List the entries of a directory, optionally recursing into subdirectories.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | yes | — | Directory to list. Supports `${ctx.key}` interpolation. |
-| `recursive` | bool | no | `false` | When `true`, descend into subdirectories and include their entries as well. |
-| `output_key` | string | no | `"files"` | Context key where the resulting array is stored. |
-| `max_entries` | number | no | `IRONFLOW_MAX_DIRECTORY_ENTRIES` / `10000` | Maximum entries returned before failing. |
-| `max_depth` | number | no | `IRONFLOW_MAX_DIRECTORY_DEPTH` / `32` | Maximum recursive traversal depth. |
+| `path` | string | Yes | — | Directory to list; supports `${ctx.key}` interpolation. |
+| `recursive` | boolean | No | `false` | Also list the entries of subdirectories. |
+| `output_key` | string | No | `"files"` | Context key for the result array. |
+| `max_entries` | number | No | `IRONFLOW_MAX_DIRECTORY_ENTRIES` | Maximum number of entries; more fails the step. |
+| `max_depth` | number | No | `IRONFLOW_MAX_DIRECTORY_DEPTH` | Maximum recursion depth; deeper fails the step. |
 
 ## Context Output
 
-- `{output_key}` — A JSON array of entry objects. Each object contains:
-  - `name` — File or directory name (string).
-  - `type` — Either `"file"` or `"directory"`.
-  - `path` — Absolute path to the entry (string).
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}` | array | One object per entry. |
 
-## Example
+## Output Shape
+
+```json
+[
+  { "name": "report.txt", "type": "file", "path": "/tmp/data/report.txt" },
+  { "name": "archive", "type": "directory", "path": "/tmp/data/archive" }
+]
+```
+
+`path` is the listed `path` joined with the entry name, so it is relative when `path` is relative.
+
+## Behavior
+
+- `type` is `"file"` for regular files and `"directory"` for everything else, including symlinks.
+- Recursion follows real subdirectories only, not symlinks.
+- Entries appear in the order the filesystem returns them; sort downstream if order matters.
+- A missing path or a path that is not a directory fails the step.
+
+## Limits
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `IRONFLOW_MAX_DIRECTORY_ENTRIES` | `10000` | Default for `max_entries`. |
+| `IRONFLOW_MAX_DIRECTORY_DEPTH` | `32` | Default for `max_depth`. |
+
+## Examples
+
+### List a directory
 
 ```lua
 local flow = Flow.new("list_demo")
@@ -37,7 +63,3 @@ flow:step("show", nodes.log({
 
 return flow
 ```
-
-## Limits
-
-`list_directory` accumulates entries into workflow context, so recursive listings are capped by default. Raise `max_entries` / `max_depth` for a trusted workflow, or set `IRONFLOW_MAX_DIRECTORY_ENTRIES` / `IRONFLOW_MAX_DIRECTORY_DEPTH` for the process.

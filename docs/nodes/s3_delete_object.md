@@ -1,40 +1,36 @@
 # `s3_delete_object`
 
-Delete a single object from S3 (or S3-compatible storage).
-
-Uses regional SigV4 signing, or SigV4a when `bucket` is an MRAP ARN;
-see [S3 signing](../SECURITY.md#s3-signing).
+Delete one object from S3 or an S3-compatible service.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `bucket` | string | yes | env `S3_BUCKET` | Target bucket name or MRAP ARN. |
-| `key` | string | yes | -- | Object key to delete. |
-| `version_id` | string | no | -- | Optional version ID for versioned buckets. |
-| `region` | string | no | `S3_REGION` / `AWS_REGION` | Explicit AWS/S3 region override. |
-| `endpoint_url` | string | no | env `AWS_ENDPOINT_URL` | Optional custom endpoint (for S3-compatible services). |
-| `force_path_style` | bool | no | `false` | Force path-style bucket addressing. |
-| `output_key` | string | no | `"s3"` | Prefix for context output keys. |
+| `bucket` | string | Yes | env `S3_BUCKET` | Bucket name or MRAP ARN; supports `${ctx.key}` interpolation. |
+| `key` | string | Yes | — | Object key; supports `${ctx.key}` interpolation. |
+| `version_id` | string | No | — | Version to delete in a versioned bucket. |
+| `region` | string | No | env `S3_REGION`, `AWS_REGION`, `AWS_DEFAULT_REGION` | Region override. |
+| `endpoint_url` | string | No | env `AWS_ENDPOINT_URL` | Endpoint of an S3-compatible service. |
+| `force_path_style` | boolean | No | env `AWS_S3_FORCE_PATH_STYLE`, else `false` | Use path-style bucket addressing. |
+| `output_key` | string | No | `"s3"` | Prefix for the context output keys. |
 
 ## Context Output
 
-- `{output_key}_bucket` — Target bucket.
-- `{output_key}_key` — Deleted object key.
-- `{output_key}_delete_marker` — Whether delete marker was returned.
-- `{output_key}_success` — `true` on success.
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}_bucket` | string | Bucket used. |
+| `{output_key}_key` | string | Object key deleted. |
+| `{output_key}_delete_marker` | boolean | Whether a delete marker was involved, when the service reports it. |
+| `{output_key}_success` | boolean | `true` on success. |
 
-## Outbound destination policy
+## Behavior
 
-When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, `endpoint_url`
-(or `AWS_ENDPOINT_URL`) is refused when it is `localhost` or not a public
-unicast address, and every DNS answer of the service client is validated
-and pinned. An S3-compatible endpoint on a private address must be listed by
-the operator in `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` (for example
-`minio.internal:9000`). See
-[Outbound destinations](../SECURITY.md#outbound-destinations).
+- Credentials come from the AWS SDK default chain. An MRAP ARN is signed with SigV4a; see [S3 signing](../SECURITY.md#s3-signing).
+- With `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, a private `endpoint_url` must be allow-listed; see [Outbound destinations](../SECURITY.md#outbound-destinations).
 
-## Example
+## Examples
+
+### Delete an object
 
 ```lua
 local flow = Flow.new("s3_delete")

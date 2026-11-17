@@ -1,64 +1,41 @@
 # `date_format`
 
-Parse and format dates/timestamps.
+Parse a date or timestamp string and format it, optionally converting it to another UTC offset.
 
 ## Parameters
 
-| Parameter       | Type   | Required | Default                  | Description                                                                 |
-|-----------------|--------|----------|--------------------------|-----------------------------------------------------------------------------|
-| `input`         | string | No*      | --                       | Date string to parse; supports `${ctx.key}` interpolation. Use `"now"` for current time |
-| `source_key`    | string | No*      | --                       | Context key whose value will be used as the date string                     |
-| `input_format`  | string | No       | auto-detect              | strftime format of the input date string; see [Input formats and offsets](#input-formats-and-offsets) |
-| `output_format` | string | No       | `"%Y-%m-%d %H:%M:%S"`   | strftime format for the output; an invalid format fails the step            |
-| `output_key`    | string | No       | `"formatted_date"`       | Context key under which the formatted date is stored                        |
-| `timezone`      | string | No       | the input's own offset   | Offset to convert the result to: `"UTC"`, `"+02:00"`, `"-05:00"`. Without it the result keeps the offset the input carried, and UTC when it carried none |
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `input` | string | One of | — | Date string; supports `${ctx.key}` interpolation; `"now"` (any case) is the current time |
+| `source_key` | string | One of | — | Context key holding the date string |
+| `input_format` | string | No | auto-detect | strftime format of the input |
+| `output_format` | string | No | `"%Y-%m-%d %H:%M:%S"` | strftime format of the result |
+| `output_key` | string | No | `"formatted_date"` | Context key for the formatted date |
+| `timezone` | string | No | the input's offset | Offset to convert to: `"UTC"`, `"Z"`, `"+HH:MM"` or `"-HH:MM"` |
 
-*Exactly one of `input` or `source_key` must be provided. Providing both is an error.
-
-## Auto-detected Input Formats
-
-When `input_format` is not specified, the node tries these formats in order:
-
-1. RFC 3339 (`2024-06-15T10:30:00Z`, `2024-06-15T10:30:00+02:00`)
-2. RFC 2822 (`Sat, 15 Jun 2024 10:30:00 +0000`)
-3. `%Y-%m-%d %H:%M:%S` (`2024-06-15 10:30:00`)
-4. `%Y-%m-%dT%H:%M:%S` (`2024-06-15T10:30:00`)
-5. `%Y-%m-%d` (`2024-06-15`)
-
-## Input formats and offsets
-
-`input_format` and `output_format` use chrono's
-[strftime specifiers](https://docs.rs/chrono/latest/chrono/format/strftime/index.html).
-
-- A numeric offset in the input (`%z` for `+0200`, `%:z` for `+02:00`, `%#z`
-  for `+02`, or `%+` for a whole RFC 3339 value) is applied: `10:30:00 +0200`
-  is the instant `08:30:00Z`. The result keeps that offset unless `timezone`
-  converts it, exactly as an auto-detected RFC 3339 input does.
-- An input without an offset is read as UTC. A date without a time is
-  midnight, at the parsed offset when the format has one.
-- `%Z` reads a zone name, which cannot be converted to an offset. `UTC`,
-  `GMT`, `UT` and `Z` (any case) are accepted as UTC, and so is a name next to
-  a numeric offset (`%z %Z`), where the offset decides. Any other name, such
-  as `CEST` or `Europe/Berlin`, fails the step instead of being read as UTC.
-
-## Failure behavior
-
-The step fails with a node error, which retries and `on_error` handle like
-any other step failure, when:
-
-- the input does not match `input_format` or none of the auto-detected formats;
-- `input_format` reads a non-UTC zone name with `%Z`;
-- `output_format` has an unknown specifier (`%i`), a trailing `%`, an
-  unsupported modifier or width (`%#m`, `%03d`), or a specifier that only
-  parses (`%#z`);
-- `timezone` is not `UTC`, `Z`, `+HH:MM` or `-HH:MM` within a day of UTC.
+Give exactly one of `input` or `source_key`; both, or neither, fails the step. Both format strings use chrono's [strftime specifiers](https://docs.rs/chrono/latest/chrono/format/strftime/index.html).
 
 ## Context Output
 
-- `{output_key}` -- formatted date string
-- `{output_key}_unix` -- unix timestamp in seconds
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}` | string | The formatted date |
+| `{output_key}_unix` | number | Unix timestamp in seconds |
 
-## Example
+## Behavior
+
+- Without `input_format`, these are tried in order: RFC 3339 (`2024-06-15T10:30:00+02:00`), RFC 2822 (`Sat, 15 Jun 2024 10:30:00 +0000`), `%Y-%m-%d %H:%M:%S`, `%Y-%m-%dT%H:%M:%S`, `%Y-%m-%d`.
+- A numeric offset in the input (`%z`, `%:z`, `%#z`, or `%+`) is applied: `10:30:00 +0200` is `08:30:00Z`. The result keeps that offset unless `timezone` converts it.
+- An input without an offset is read as UTC. A date without a time is midnight.
+- `%Z` accepts only `UTC`, `GMT`, `UT` and `Z` (any case), or any name next to a numeric offset, where the offset decides. Other names (`CEST`, `Europe/Berlin`) fail the step.
+- The step fails when the input matches neither `input_format` nor any auto-detected format.
+- The step fails when `output_format` has an unknown specifier (`%i`), a trailing `%`, an unsupported modifier or width (`%#m`, `%03d`), or a parse-only specifier (`%#z`).
+- The step fails when `timezone` is not one of the accepted forms or is a day or more from UTC.
+- A non-string value under `source_key` is converted to its JSON text before parsing.
+
+## Examples
+
+### Current time and an RFC 3339 input
 
 ```lua
 local flow = Flow.new("date_demo")
@@ -83,7 +60,7 @@ flow:step("log", nodes.log({
 return flow
 ```
 
-Parsing an input that carries an offset:
+### Input with an offset, converted to UTC
 
 ```lua
 flow:step("to_utc", nodes.date_format({
@@ -94,18 +71,4 @@ flow:step("to_utc", nodes.date_format({
     output_key = "utc_time"
 }))
 -- utc_time = "2024-06-15T08:30:00Z", utc_time_unix = 1718440200
-```
-
-Using `source_key`:
-
-```lua
-local flow = Flow.new("date_from_ctx")
-
-flow:step("format_it", nodes.date_format({
-    source_key = "event_timestamp",
-    output_format = "%Y-%m-%d",
-    output_key = "event_date"
-}))
-
-return flow
 ```

@@ -1,46 +1,43 @@
 # `cache_set`
 
-Store a value in the cache (memory or file-based) with optional TTL.
+Store a value in the memory or file cache with an optional time-to-live.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `key` | string | yes | — | Cache key to store the value under. Supports `${ctx.key}` interpolation. |
-| `source_key` | string | one of `source_key` or `value` | — | Context key whose value will be cached. |
-| `value` | any | one of `source_key` or `value` | — | Literal JSON value to cache. |
-| `ttl` | integer | no | — | Time-to-live in seconds. When omitted the entry never expires. |
-| `backend` | string | no | `"memory"` | Storage backend: `"memory"` (process-global bounded cache) or `"file"` (JSON files on disk). |
-| `cache_dir` | string | no | `IRONFLOW_CACHE_DIR` / `".ironflow_cache"` | Directory for file-based cache entries. Only used when `backend` is `"file"`. Per-node value overrides the env var. |
+| `key` | string | Yes | — | Cache key; supports `${ctx.key}` interpolation, the same way as `cache_get`. |
+| `source_key` | string | One of `source_key` or `value` | — | Context key whose value is cached; takes precedence over `value`. |
+| `value` | any | One of `source_key` or `value` | — | Literal value to cache. |
+| `ttl` | integer | No | — | Time-to-live in seconds; omitted means the entry never expires, `0` expires it immediately. |
+| `backend` | string | No | `"memory"` | `"memory"` (process-global) or `"file"` (JSON files on disk). |
+| `cache_dir` | string | No | `IRONFLOW_CACHE_DIR` or `".ironflow_cache"` | Directory for the file backend; ignored by the memory backend. |
 
 ## Context Output
 
-- `cache_key` — the interpolated cache key that was written.
-- `cache_stored` — always `true` on success.
-- `cache_size` — current memory cache entry count; only returned for the `"memory"` backend.
+| Key | Type | Description |
+|-----|------|-------------|
+| `cache_key` | string | The interpolated key that was written. |
+| `cache_stored` | boolean | `true` on success. |
+| `cache_size` | number | Entries in the memory cache; memory backend only. |
 
-`cache_set` and `cache_get` apply the same interpolation rules to `key`, so wrappers can compute a key once from context and use the same expression for both write and read. For example, `llm:${ctx.prompt_hash}` writes and reads the concrete key `llm:<hash>`.
+## Behavior
 
-## File Storage
+- A missing `source_key` in context, or neither `source_key` nor `value`, fails the step.
+- Writing an existing key replaces its value and TTL.
+- The memory cache is shared by all runs in one IronFlow process and is lost on restart.
+- The file backend writes each record atomically, so a concurrent `cache_get` never reads a partial record. Concurrent writes of one key are last-writer-wins.
+- A symlink or non-regular file at the entry path fails the step.
+- File layout and upgrade behavior are described in [`cache_get`](cache_get.md#file-identity-and-upgrades). Missing directories are created as described in [Created directories](write_file.md#created-directories).
 
-The file backend writes `<cache_dir>/v1/<sha256>.json`, using SHA-256 of the
-interpolated key's exact UTF-8 bytes. Each record stores `schema_version: 1`,
-the original `key`, `value`, and optional `expires_at`; reads verify identity
-before accepting the value. For example, `report:a/b` and `report:a?b` occupy
-different files instead of replacing each other. Rewriting the same logical key
-replaces its cached value: the record is staged in a temporary sibling file and
-renamed over the entry, so a concurrent `cache_get` never reads a partial
-record, and a symlink at the entry name fails the step instead of being
-followed. On Unix a missing cache directory is created
-[`0755` masked by the process umask](write_file.md#created-directories).
+## Limits
 
-Legacy root-level sanitized filenames are left untouched. They are not migrated
-or used as a fallback; workflows repopulate the new namespace on a miss. See
-[file identity, upgrades, and filesystem boundaries](cache_get.md#file-identity-and-upgrades).
-The memory backend and configuration defaults are unchanged. Omitting `ttl`
-keeps an entry indefinitely; `ttl = 0` expires it immediately.
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `IRONFLOW_CACHE_MAX_ENTRIES` | `10000` | Maximum entries in the memory cache; the least recently used entry is evicted. |
+| `IRONFLOW_CACHE_DIR` | `.ironflow_cache` | Default `cache_dir` for the file backend. |
 
-## Example
+## Examples
 
 ### Memory backend
 
@@ -60,11 +57,6 @@ flow:step("done", nodes.log({
 
 return flow
 ```
-
-## Environment
-
-- `IRONFLOW_CACHE_MAX_ENTRIES` controls the process-global memory backend size. Default: `10000`.
-- `IRONFLOW_CACHE_DIR` controls the default file backend directory when `cache_dir` is not set. Default: `.ironflow_cache`.
 
 ### File backend
 

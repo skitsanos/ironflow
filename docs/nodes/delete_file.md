@@ -6,14 +6,23 @@ Delete a file.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | yes | — | Path to the file to delete. Supports `${ctx.key}` interpolation. |
+| `path` | string | Yes | — | Path to the file to delete; supports `${ctx.key}` interpolation. |
 
 ## Context Output
 
-- `delete_file_path` — The resolved file path (after interpolation).
-- `delete_file_success` — `true` when the file was deleted successfully.
+| Key | Type | Description |
+|-----|------|-------------|
+| `delete_file_path` | string | Path after interpolation. |
+| `delete_file_success` | boolean | `true` after the file is deleted. |
 
-## Example
+## Behavior
+
+- A missing file or a directory fails the step.
+- A symlink path removes the link, not its target.
+
+## Examples
+
+### Delete a file
 
 ```lua
 local flow = Flow.new("delete_demo")

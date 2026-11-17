@@ -1,104 +1,66 @@
 # `send_email`
 
-Send an email via the Resend API or SMTP.
+Send an email through the Resend API or an SMTP relay.
 
 ## Parameters
 
-### Common Parameters
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `provider` | string | No | `"resend"` | `resend` or `smtp`. |
+| `to` | string or array | Yes | — | Recipient address or addresses; interpolated. |
+| `subject` | string | Yes | — | Subject line; interpolated. |
+| `from` | string | No | `SENDER_EMAIL`, else `"onboarding@resend.dev"` | Sender address; interpolated. |
+| `html` | string | No | — | HTML body; interpolated. |
+| `text` | string | No | — | Plain-text body; interpolated. |
+| `cc` | string or array | No | — | CC recipients. |
+| `bcc` | string or array | No | — | BCC recipients. |
+| `reply_to` | string or array | No | — | Reply-To address; SMTP takes a single string. |
+| `timeout` | number | No | `30` | Seconds; must be positive. |
+| `output_key` | string | No | `"email"` | Prefix for output keys. |
+
+### Resend
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `provider` | string | no | `"resend"` | Email provider: `"resend"` or `"smtp"`. |
-| `to` | string or array | **yes** | -- | Recipient email address(es). Supports `${ctx.key}` interpolation. |
-| `subject` | string | **yes** | -- | Email subject line. Supports interpolation. |
-| `from` | string | no | env `SENDER_EMAIL` or `"onboarding@resend.dev"` | Sender email address. |
-| `html` | string | no | -- | HTML body content. Supports interpolation. |
-| `text` | string | no | -- | Plain text body content. Supports interpolation. |
-| `cc` | string or array | no | -- | CC recipient(s). |
-| `bcc` | string or array | no | -- | BCC recipient(s). |
-| `reply_to` | string or array | no | -- | Reply-To address(es). |
-| `timeout` | number | no | `30` | Request timeout in seconds. |
-| `output_key` | string | no | `"email"` | Prefix for context output keys. |
+| `api_key` | string | Yes | `RESEND_API_KEY` | Resend API key. |
+| `api_url` | string | No | `"https://api.resend.com/emails"` | Resend-compatible endpoint. |
 
-### Resend-specific Parameters
+### SMTP
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `api_key` | string | no | env `RESEND_API_KEY` | Resend API key. |
-| `api_url` | string | no | `"https://api.resend.com/emails"` | Explicit Resend-compatible endpoint, including a local test fixture. |
-
-### SMTP-specific Parameters
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `smtp_server` | string | no | env `SMTP_SERVER` | SMTP server hostname. |
-| `smtp_port` | number | no | env `SMTP_PORT` or provider default | SMTP port (587 for STARTTLS, 465 for TLS, 25 for none). |
-| `smtp_username` | string | no | env `SMTP_USERNAME` | SMTP authentication username. |
-| `smtp_password` | string | no | env `SMTP_PASSWORD` | SMTP authentication password. |
-| `smtp_tls` | string | no | `"starttls"` | TLS mode: `"starttls"` (default), `"tls"` (implicit), or `"none"`. |
-
-## HTTP Transport
-
-Resend API requests follow redirects only within the original scheme, host,
-and effective port, with at most 10 hops. Cross-origin redirects fail before
-replaying email content; automatic `Referer` is disabled. Configure the final
-API endpoint explicitly when its origin changes. This policy does not change
-the SMTP provider.
-
-Resend success and error response bodies share `IRONFLOW_MAX_HTTP_BODY_BYTES`
-(default `52428800`, 50 MiB). An oversized `Content-Length` fails before body
-collection; actual bytes are checked before each chunk is retained, including
-chunked responses. Exceeding the cap, an interrupted body, timeout, or run
-cancellation fails or cancels the step without publishing partial email output.
-The limit counts received body bytes before charset/BOM decoding. It is not a
-total-memory or decoded-JSON limit. The SMTP provider is unaffected.
-
-Within-limit non-2xx responses still fail with their status and redacted body
-detail; the error keeps the first 64 KiB of that body (see
-[diagnostic scrubbing](../SECURITY.md#diagnostic-scrubbing)). Oversized responses fail with the size error before provider body parsing.
-A failed response read does not prove the email was not delivered; retrying can
-send the email again.
+| `smtp_server` | string | Yes | `SMTP_SERVER` | Relay host name. |
+| `smtp_port` | number | No | `SMTP_PORT`, else 587, 465 or 25 by `smtp_tls` | Relay port. |
+| `smtp_username` | string | No | `SMTP_USERNAME` | Login user; used only with a password. |
+| `smtp_password` | string | No | `SMTP_PASSWORD` | Login password. |
+| `smtp_tls` | string | No | `"starttls"` | `starttls`, `tls` (implicit TLS) or `none`; any other value means `starttls`. |
 
 ## Context Output
 
-- `{output_key}_status` — HTTP status code (Resend) or SMTP response code.
-- `{output_key}_data` — Response body (Resend JSON if parseable, otherwise decoded text) or SMTP response details.
-- `{output_key}_success` — `true` on success.
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}_status` | number or string | Resend HTTP status (number) or SMTP reply code (string) |
+| `{output_key}_data` | any | Resend response body (JSON if parseable, else text), or SMTP `{ code, message }` |
+| `{output_key}_success` | boolean | `true` |
 
-## Environment Variables
+## Behavior
 
-| Variable | Description |
-|----------|-------------|
-| `RESEND_API_KEY` | Resend API key (fallback when `api_key` is not in config) |
-| `SENDER_EMAIL` | Default sender address (fallback when `from` is not in config) |
-| `SMTP_SERVER` | SMTP server hostname |
-| `SMTP_PORT` | SMTP server port |
-| `SMTP_USERNAME` | SMTP authentication username |
-| `SMTP_PASSWORD` | SMTP authentication password |
+- An unknown `provider` fails the step.
+- A non-2xx Resend response or a negative SMTP reply fails the step with the status and redacted detail.
+- A failed read of the Resend response does not prove the email was not sent; retrying can send it twice.
+- With SMTP, `html` and `text` together are sent as `multipart/alternative`.
+- Resend follows redirects only within the same origin, up to 10.
+- The operator's [outbound destination policy](../SECURITY.md#outbound-destinations) applies to `api_url` and `smtp_server`.
 
-## Outbound destination policy
+## Limits
 
-When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, both providers
-refuse a destination that is not a public unicast address before connecting:
-a literal private, loopback or link-local address, `localhost`, and a host
-name whose DNS answer contains such an address. The Resend `api_url` is
-checked like any HTTP destination and its validated DNS answer is pinned.
-For SMTP the `smtp_server` name is resolved and checked once and the
-transport connects to the first validated address, so the name is not
-resolved a second time; TLS still verifies the configured name. An internal
-relay must be listed by the operator in `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST`
-(for example `mail.internal:587`); nothing in the flow can add one. See
-[Outbound destinations](../SECURITY.md#outbound-destinations).
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `IRONFLOW_MAX_HTTP_BODY_BYTES` | `52428800` | Maximum Resend response body; does not apply to SMTP |
 
 ## Examples
 
 ### Resend API
-
-The runnable [Resend example](../../examples/14-notifications/send_email_resend.lua)
-reads the optional `RESEND_API_URL` environment variable into `api_url` for a local
-HTTP fixture; omitting it retains the normal API endpoint. This variable is an
-example convention, not a node-level fallback. Keep API credentials synthetic
-when testing against an alternate endpoint.
 
 ```lua
 local flow = Flow.new("send_email_resend")
@@ -120,8 +82,6 @@ return flow
 ### SMTP
 
 ```lua
-local flow = Flow.new("send_email_smtp")
-
 flow:step("send", nodes.send_email({
     provider = "smtp",
     to = env("SENDER_EMAIL"),
@@ -129,8 +89,6 @@ flow:step("send", nodes.send_email({
     html = "<h1>Hello!</h1><p>Sent via SMTP.</p>",
     text = "Hello! Sent via SMTP."
 }))
-
-return flow
 ```
 
 ### Multiple recipients

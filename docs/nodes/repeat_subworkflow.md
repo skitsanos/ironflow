@@ -1,84 +1,57 @@
 # `repeat_subworkflow`
 
-Execute one child workflow sequentially until it returns an explicit completion
-decision. Each iteration receives static input, a one-based iteration number,
-and only the state value returned by the preceding iteration.
-
-Use this node for bounded model/tool turns, pagination, and short polling loops.
-It is an in-process composition primitive, not durable suspension or an
-exactly-once side-effect mechanism.
+Run one child flow repeatedly, one iteration at a time, until it returns an
+explicit completion flag. Only the state value the child returns is carried
+into the next iteration.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `flow` | string | yes | - | Child `.lua` flow, resolved relative to the parent flow directory. |
-| `max_iterations` | positive integer | yes | - | Maximum child runs before the step fails. Cannot exceed `IRONFLOW_MAX_REPEAT_ITERATIONS`. |
-| `input` | object | no | parent context | Static child input mapping. A string value names a parent key that must exist; `{ optional = "key" }` omits the entry when the key is absent and `{ literal = value }` passes a value as written. |
-| `output_key` | string | no | `"repeat_result"` | Namespace for the final public child context and output metadata. |
-| `state_key` | string | no | `"repeat_state"` | Child input key containing the current carried state. |
-| `next_state_key` | string | no | `"repeat_next_state"` | Child output key containing the state for the next iteration. |
-| `until_key` | string | no | `"repeat_done"` | Child output key containing the required boolean completion decision. |
-| `iteration_key` | string | no | `"repeat_iteration"` | Child input key containing the one-based iteration number. |
-| `delay_seconds` | number | no | `0` | Delay after an incomplete iteration and before the next child run. |
-| `backoff_factor` | number | no | `1` | Delay multiplier after each wait; must be at least `1`. |
-| `max_delay_seconds` | number | no | `max(delay_seconds, 60)` | Per-wait delay ceiling, with an absolute maximum of 3600 seconds. |
+| `flow` | string | Yes | — | Child `.lua` flow, relative to the parent flow's directory. |
+| `max_iterations` | integer | Yes | — | Maximum child runs; must be at least 1 and at most `IRONFLOW_MAX_REPEAT_ITERATIONS`. |
+| `input` | object | No | parent context | Static child input (see [Input mapping](subworkflow.md#input-mapping)); cannot set `next_state_key`, `until_key` or `iteration_key`. |
+| `output_key` | string | No | `"repeat_result"` | Prefix for the output keys. |
+| `state_key` | string | No | `"repeat_state"` | Child key holding the current state; its initial value comes from `input` or the parent context. |
+| `next_state_key` | string | No | `"repeat_next_state"` | Child output key holding the state for the next iteration. |
+| `until_key` | string | No | `"repeat_done"` | Child output key holding the boolean completion flag. |
+| `iteration_key` | string | No | `"repeat_iteration"` | Child key holding the 1-based iteration number. |
+| `delay_seconds` | number | No | `0` | Wait after an incomplete iteration; must be non-negative. |
+| `backoff_factor` | number | No | `1` | Multiplier applied to the wait after each iteration; must be at least `1`. |
+| `max_delay_seconds` | number | No | `max(delay_seconds, 60)` | Ceiling for one wait; at least `delay_seconds`, at most `3600`. |
 
-`state_key`, `next_state_key`, `until_key`, and `iteration_key` must be
-distinct. Explicit `input` cannot set the latter three runtime-owned keys.
-
-`input` follows the [`subworkflow` input mapping](subworkflow.md#input-mapping)
-contract. A string that names no parent key fails the step with
-`repeat_subworkflow: input '<child_key>' references a parent context value
-that does not exist; ...` before the child flow is loaded, so no iteration
-runs. In earlier releases such a string was passed to the child as literal text.
-Map the initial state with `{ optional = "key" }` when a first run may start
-without one.
-
-## Child Contract
-
-For every iteration the child must return a boolean under `until_key`:
-
-- `true` completes the node. If `next_state_key` is present, that value is the
-  final state; otherwise the current state is retained.
-- `false` continues and requires `next_state_key`. Only that value is carried
-  into the next iteration.
-
-Other child output is not carried forward. Failed child runs, missing or
-non-boolean completion values, a missing next state, and exhaustion of
-`max_iterations` fail the parent step without publishing a partial successful
-result.
-
-Failed-child errors include the child name, iteration, status, and the bounded,
-redacted unresolved task-error summary described under
-[`subworkflow` error handling](subworkflow.md#error-handling). Recovered errors
-are excluded; cancellation or missing details retain the status-only fallback.
-The summary arrives with the live child result, without reloading history.
-
-All registered composition nodes are available inside the child. Parent step
-timeouts and cancellation remain authoritative over active child runs and
-inter-iteration delays.
+The four key names must be distinct non-empty strings.
 
 ## Context Output
 
-For `output_key = "result"`:
-
 | Key | Type | Description |
 |-----|------|-------------|
-| `result` | object | Final child context with `_`-prefixed private keys removed. |
-| `result_state` | any | Final carried state, or `null` when no state was supplied. |
-| `result_iterations` | integer | Number of child runs performed. |
-| `result_completed` | boolean | Always `true` on successful node completion. |
-| `result_flow` | string | Child flow name. |
+| `{output_key}` | object | Final child context, without `_`-prefixed keys. |
+| `{output_key}_state` | any | Final state, or `null` when no state was ever supplied. |
+| `{output_key}_iterations` | integer | Number of child runs. |
+| `{output_key}_completed` | boolean | Always `true` on success. |
+| `{output_key}_flow` | string | Child flow name. |
 
-Iteration history is intentionally not retained.
+## Behavior
 
-Carried state and the final child context use full live values, not
-persisted inspection snapshots. `IRONFLOW_MAX_TASK_OUTPUT_BYTES` does not
-replace large state with a truncation marker between iterations. CLI/API
-inspection of the parent may still contain markers for large final values.
+- Every iteration must return a boolean under `until_key`; a missing or non-boolean value fails the step.
+- `true` completes the node; the final state is `next_state_key` if returned, otherwise the current state.
+- `false` requires `next_state_key`; only that value is carried forward. Other child output is dropped.
+- A failed child run, or reaching `max_iterations` without completion, fails the step; no partial result is published. The error names the child, the iteration and its failed tasks.
+- A string mapping that names no parent key fails the step before the child is loaded; use `{ optional = "key" }` for an initial state that may be absent.
+- Child limits, deadline and cancellation follow [`subworkflow`](subworkflow.md#behavior); a step timeout also ends a pending delay.
 
-## Example
+## Limits
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `IRONFLOW_MAX_REPEAT_ITERATIONS` | `128` | Highest allowed `max_iterations`; valid range 1 to 1024, checked at startup. |
+| `IRONFLOW_MAX_SUBWORKFLOW_DEPTH` | `16` | Child nesting depth across all composition nodes. |
+| `IRONFLOW_MAX_LIVE_CHILD_RUNS` | `4096` | Child runs alive at once in the process. |
+
+## Examples
+
+### Bounded counter
 
 Parent flow:
 
@@ -120,31 +93,5 @@ end)
 return flow
 ```
 
-The complete runnable pair is in
+The runnable pair is
 [`examples/11-subworkflow/repeat_subworkflow.lua`](../../examples/11-subworkflow/repeat_subworkflow.lua).
-
-## Operational Bounds
-
-`IRONFLOW_MAX_REPEAT_ITERATIONS` defaults to `128` and must be between `1` and
-the compiled absolute ceiling of `1024`. A malformed or out-of-range value
-stops startup of every command with a message that names the variable; it is
-no longer discovered by the first `repeat_subworkflow` step. A node may choose a lower
-`max_iterations`, but cannot raise the process limit. The node stores only the
-current state and final child context; payload growth inside that state remains
-the workflow author's responsibility.
-
-Each iteration's child counts towards the
-[child workflow nesting limit](subworkflow.md#nesting-limit-and-waiting)
-(`IRONFLOW_MAX_SUBWORKFLOW_DEPTH`, default `16`): a child flow that repeats
-itself is refused at that depth with `repeat_subworkflow: child workflow
-nesting depth 17 exceeds the limit of 16 (IRONFLOW_MAX_SUBWORKFLOW_DEPTH);
-check for a flow that calls itself`, whatever `max_iterations` allows. When
-the step times out or its run is cancelled, the active iteration is cancelled
-and the step does not end, start its `on_error` handler or release its
-admission until that child has stopped, tracked blocking workers included.
-The child's steps observe this step's deadline; see
-[Parent deadline](subworkflow.md#parent-deadline).
-
-The inspection cap is not an execution-memory limit. Existing Lua
-memory/conversion limits, parent timeouts, and cancellation remain enforced;
-use artifact references when carried payloads would otherwise grow too large.

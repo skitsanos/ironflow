@@ -1,38 +1,53 @@
 # `image_crop`
 
-Crop a single image file.
+Crop a rectangle from a single image and write it as PNG or JPEG.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | one of `path` or `source_key` | — | Source image path (supports `${ctx.key}` interpolation). |
-| `source_key` | string | one of `path` or `source_key` | — | Context key containing a path, artifact URI/descriptor, `{ artifact = ... }`, or an explicit `{ base64 = "..." }` object. A stored path is used as it is and is not interpolated. |
-| `output_path` | string | yes | — | Destination file path for the cropped image. |
-| `x` | number | no | `0` | Left offset in pixels. |
-| `y` | number | no | `0` | Top offset in pixels. |
-| `crop_width` | number | no | alias: `width` | Crop width in pixels. |
-| `crop_height` | number | no | alias: `height` | Crop height in pixels. |
-| `format` | string | no | inferred from `output_path` or `png` | Output format: `png`, `jpeg`, or `jpg`. |
-| `output_key` | string | no | `"cropped_image"` | Prefix for the generated context output keys. |
-
-> If both `path` and `source_key` are provided, execution fails.
-> Artifact inputs are opened and SHA-256 verified inside the tracked blocking worker; decoding consumes that same rewound handle rather than a resolved store pathname.
-
-Supported source formats are BMP, Farbfeld, GIF, HDR, ICO, JPEG, PNG, PNM,
-QOI, TGA, TIFF, and WebP. Output remains restricted to PNG or JPEG.
+| `path` | string | One of `path` or `source_key` | — | Source image path; supports `${ctx.key}` interpolation. |
+| `source_key` | string | One of `path` or `source_key` | — | Context key holding a path, an artifact (URI, descriptor or `{ artifact = ... }`), or `{ base64 = "..." }`; a stored path is not interpolated. |
+| `output_path` | string | Yes | — | Destination file; supports `${ctx.key}` interpolation. |
+| `x` | number | No | `0` | Left offset in pixels. |
+| `y` | number | No | `0` | Top offset in pixels. |
+| `crop_width` | number | Yes (or `width`) | — | Crop width in pixels (at least 1); `width` is an alias. |
+| `crop_height` | number | Yes (or `height`) | — | Crop height in pixels (at least 1); `height` is an alias. |
+| `format` | string | No | from `output_path`, else `png` | Output format: `png`, `jpeg` or `jpg`. |
+| `output_key` | string | No | `"cropped_image"` | Prefix for the context output keys. |
 
 ## Context Output
 
-- `<output_key>` — output file path.
-- `<output_key>_width` — crop width.
-- `<output_key>_height` — crop height.
-- `<output_key>_x` — x offset used.
-- `<output_key>_y` — y offset used.
-- `<output_key>_format` — output format (`"png"` or `"jpeg"`).
-- `<output_key>_success` — `true` on success.
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}` | string | Output file path. |
+| `{output_key}_width` | number | Crop width. |
+| `{output_key}_height` | number | Crop height. |
+| `{output_key}_x` | number | Left offset used. |
+| `{output_key}_y` | number | Top offset used. |
+| `{output_key}_format` | string | `"png"` or `"jpeg"`. |
+| `{output_key}_success` | boolean | `true` on success. |
 
-## Example
+## Behavior
+
+- The rectangle must fit inside the image: a start point outside it, or a width or height that runs past its edge, fails the step. The crop is not clipped.
+- `crop_width` and `crop_height` win over `width` and `height` when both are set.
+- Setting both `path` and `source_key` fails the step.
+- Input formats are detected from the content: BMP, Farbfeld, GIF, HDR, ICO, JPEG, PNG, PNM, QOI, TGA, TIFF and WebP.
+- Without `format`, a `.png`, `.jpg` or `.jpeg` extension selects the format, no extension writes PNG, and any other extension fails the step.
+- The destination directory must exist. A destination that is a symlink or not a regular file fails the step; a failure leaves an existing file unchanged.
+
+## Limits
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `IRONFLOW_MAX_IMAGE_ENCODED_BYTES` | 50 MiB | Maximum encoded source size, including decoded Base64. |
+| `IRONFLOW_MAX_IMAGE_PIXELS` | 25,000,000 | Maximum pixels in the source. |
+| `IRONFLOW_MAX_IMAGE_DECODE_ALLOCATION_BYTES` | 128 MiB | Maximum decoded source plus output memory. |
+
+## Examples
+
+### Crop a region
 
 ```lua
 local flow = Flow.new("image_crop_demo")
@@ -52,38 +67,3 @@ flow:step("log", nodes.log({
 
 return flow
 ```
-
-## Destination contract
-
-`output_path` is published through the same rooted, atomic writer as
-[`write_file`](write_file.md), inside the tracked blocking worker: the cropped
-image is encoded into a staged file beside the destination, flushed and
-synchronized, then renamed over it.
-
-- The destination directory must already exist. The node creates no
-  directories and fails with `image_crop: destination directory '<dir>' does
-  not exist`. Directory aliases, including macOS `/tmp`, are resolved first.
-- A destination that is a symlink (dangling or not), FIFO, device or directory
-  is refused and its target is left untouched. An existing regular file is
-  replaced.
-- An encoder or write failure, an expired step deadline or cancellation
-  removes the staged file and leaves an existing destination unchanged.
-- On Unix the published file has the mode a plain write would have left: a
-  new file gets `0666` masked by the process umask (`0644` under umask `022`)
-  and a replaced file keeps its permission bits, without any setuid, setgid
-  or sticky bit. The staged file is mode `0600` until it is published. Other
-  platforms use their native permission semantics.
-- Unix pins the resolved directory and stages relative to that handle. Other
-  platforms revalidate the observed path immediately before an atomic
-  replacement and cannot close a hostile parent-directory swap race; protect
-  destination trees from same-identity mutation.
-
-## Resource contract
-
-The encoded source, decoded pixels/allocation, crop bounds, and output buffer
-are checked against `IRONFLOW_MAX_IMAGE_ENCODED_BYTES` (50 MiB),
-`IRONFLOW_MAX_IMAGE_PIXELS` (25 million), and
-`IRONFLOW_MAX_IMAGE_DECODE_ALLOCATION_BYTES` (128 MiB). The working estimate
-includes the retained source plus crop output. Decode, crop, and encode
-run on a tracked blocking worker with cancellation checkpoints between opaque
-operations.

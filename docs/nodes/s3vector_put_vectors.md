@@ -1,58 +1,54 @@
 # `s3vector_put_vectors`
 
-Store vectors in an Amazon S3 Vector index.
+Store vectors, with optional metadata, in an Amazon S3 Vectors index.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `vector_bucket_name` | string | yes* | environment-only fallback | Bucket that owns a named index. Uses `S3VECTOR_BUCKET_NAME`, then legacy `S3_BUCKET`, only when no target field is configured. |
-| `bucket` | string | no | no | Alias for `vector_bucket_name`. |
-| `index_name` | string | yes* | environment-only fallback | Target index name. Uses `S3VECTOR_INDEX_NAME` only when no target field is configured. |
-| `index` | string | no | no | Alias for `index_name`. |
-| `index_arn` | string | yes* | environment-only fallback | Self-contained alternative target. Uses `S3VECTOR_INDEX_ARN` only when no target field is configured. |
-| `vectors` | array<object> | yes | -- | Vector payload list. Each item requires `key` and `data`, optional `metadata`. A configured `key` supports `${ctx.key}` interpolation. |
-| `vectors_source_key` | string | no | -- | Context key containing the vector array (alternative to `vectors`). Stored keys are used as they are and are not interpolated. |
-| `region` | string | no | AWS region chain | Override `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, or `AWS_DEFAULT_REGION`. The environment is used only when the parameter is absent: a value that is not a string, or is empty after interpolation, fails the step before the client is built. |
-| `endpoint_url` | string | no | `AWS_ENDPOINT_URL` env var | Override the S3 Vectors service endpoint. A value that is not a string, or is empty after interpolation, fails the step instead of falling back to the environment or the default AWS endpoint. |
-| `output_key` | string | no | `s3vector` | Prefix for context output keys. |
+| `vector_bucket_name` | string | With `index_name`* | `S3VECTOR_BUCKET_NAME`, then `S3_BUCKET` | Bucket that owns the named index |
+| `bucket` | string | No | — | Alias for `vector_bucket_name`; both must resolve to the same value |
+| `index_name` | string | One of* | `S3VECTOR_INDEX_NAME` | Index name |
+| `index` | string | No | — | Alias for `index_name`; both must resolve to the same value |
+| `index_arn` | string | One of* | `S3VECTOR_INDEX_ARN` | Index ARN, used alone instead of bucket and index names |
+| `vectors` | array | One of | — | Vector objects (see below); each `key` supports `${ctx.key}` |
+| `vectors_source_key` | string | One of | — | Context key holding the vector array; its keys are used as stored, not interpolated |
+| `region` | string | No | AWS region chain | Region; when absent, `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, then `AWS_DEFAULT_REGION` |
+| `endpoint_url` | string | No | `AWS_ENDPOINT_URL` | Service endpoint override |
+| `output_key` | string | No | `"s3vector"` | Prefix for output keys |
 
-## Target Resolution
+\* Give a bucket name plus an index name, or `index_arn` alone. A bucket ARN
+is not accepted. If any target parameter is set, the whole target must come
+from the step; the environment variables are used only when none is set.
 
-Use exactly one supported shape: `vector_bucket_name`/`bucket` plus
-`index_name`/`index`, or `index_arn` by itself. Bucket ARN plus index name is not
-supported. If any target field is configured, the complete shape must come from
-node configuration after interpolation; identifier environment variables
-neither complete nor override it. With no configured target field, the node
-accepts the same coherent environment-only shapes from
-`S3VECTOR_BUCKET_NAME` (falling back to legacy `S3_BUCKET`) plus
-`S3VECTOR_INDEX_NAME`, or from `S3VECTOR_INDEX_ARN` alone. Conflicting forms and
-non-string, incomplete, or blank targets fail before the AWS client is built.
+Each vector object has:
 
-## Vector Payload
-
-Each vector object in `vectors` must contain:
-- `key` (string): vector key.
-- `data` (array<number>): numeric vector values.
-- `metadata` (object, optional): metadata map associated with the vector.
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `key` | string | Yes | Vector key |
+| `data` | array of numbers | Yes | Non-empty list of finite numbers, sent as `float32` |
+| `metadata` | any JSON value | No | Metadata stored with the vector, usually an object |
 
 ## Context Output
 
-- `{output_key}_vector_count` — Number of vectors attempted to store.
-- `{output_key}_vector_keys` — List of vector keys sent.
-- `{output_key}_success` — `true` on success.
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}_vector_count` | number | Number of vectors sent |
+| `{output_key}_vector_keys` | array | Keys sent, in order |
+| `{output_key}_success` | boolean | `true` on success |
 
-## Outbound destination policy
+## Behavior
 
-When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, `endpoint_url`
-(or `AWS_ENDPOINT_URL`) is refused when it is `localhost` or not a public
-unicast address, and every DNS answer of the service client is validated
-and pinned. An S3-compatible endpoint on a private address must be listed by
-the operator in `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` (for example
-`minio.internal:9000`). See
-[Outbound destinations](../SECURITY.md#outbound-destinations).
+- `vectors` wins when both `vectors` and `vectors_source_key` are set.
+- An empty vector list, a missing `key` or `data`, empty `data`, or a non-numeric or non-finite value fails the step before any request.
+- An incomplete or conflicting target, or one that is not a string or is blank after interpolation, fails the step.
+- A `region` or `endpoint_url` that is not a string or is blank fails the step; the environment is used only when the parameter is absent.
+- Credentials come from the AWS SDK credential chain.
+- With `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, a private endpoint needs an operator allowlist entry; see [Outbound destinations](../SECURITY.md#outbound-destinations).
 
-## Example
+## Examples
+
+### Store two vectors
 
 ```lua
 local flow = Flow.new("s3vector_put_vectors_example")

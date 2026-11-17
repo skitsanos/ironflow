@@ -1,41 +1,52 @@
 # `ai_chunk`
 
-Split text into chunks using fixed-size, delimiter, or subtitle cue strategies.
+Split text into chunks by size or by delimiter, or group subtitle cues into timestamped chunks.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `mode` | string | No | `"fixed"` | Chunking strategy: `"fixed"`, `"split"`, or `"cues"` |
-| `source_key` | string | Yes | — | Context key holding text to chunk (`fixed`/`split`) or a subtitle cues array (`cues`) |
-| `output_key` | string | No | `"chunks"` | Prefix for output context keys |
-| `size` | number | No | `4096` | Target chunk size in bytes (mode=fixed) |
-| `delimiters` | string | No | see below | Delimiter characters (e.g. `"\n."`) |
-| `prefix` | bool | No | `false` | Put delimiter at start of next chunk (mode=fixed) |
-| `min_chars` | number | No | `0` | Minimum characters per segment (mode=split) |
-
-### Delimiter defaults
-
-- **mode=fixed**: no delimiters (hard split at size boundary)
-- **mode=split**: `"\n.?"`
+| `mode` | string | No | `"fixed"` | `fixed`, `split` or `cues`. |
+| `source_key` | string | Yes | — | Context key holding the text (`fixed`, `split`) or a cues array (`cues`). |
+| `output_key` | string | No | `"chunks"` | Prefix for output keys. |
+| `size` | number | No | `4096` (`fixed`), `1200` (`cues`) | Maximum chunk size: bytes for `fixed`, characters for `cues`; must be positive. |
+| `delimiters` | string | No | `""` (`fixed`), `"\n.?"` (`split`) | Characters to split at. |
+| `prefix` | boolean | No | `false` | `fixed` only: start the next chunk with the delimiter instead of ending this one with it. |
+| `min_chars` | number | No | `0` | `split` only: merge segments shorter than this many characters into the previous one. |
 
 ## Context Output
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `{output_key}` | array | Array of chunk strings (`fixed`/`split`) or cue segment objects (`cues`) |
+| `{output_key}` | array | Chunk strings (`fixed`, `split`) or segment objects (`cues`) |
+| `{output_key}_texts` | array | `cues` only: the segment texts, ready for [`ai_embed`](ai_embed.md) |
 | `{output_key}_count` | number | Number of chunks |
-| `{output_key}_success` | boolean | `true` on success |
+| `{output_key}_success` | boolean | `true` |
 
-## Modes
+## Output Shape
 
-### `fixed` — Size-based chunking
+A `cues` segment:
 
-Walks the text in `size`-byte windows. In each window, searches backward for a delimiter byte. If found, splits there; otherwise hard-splits at the size boundary.
+```json
+{
+  "text": "We propose the new telemetry pipeline ...",
+  "ts_start": "00:03:12.120",
+  "ts_end": "00:03:27.940",
+  "start_ms": 192120,
+  "end_ms": 207940,
+  "cue_count": 3
+}
+```
 
-### `split` — Delimiter splitting
+`text` joins the cue texts with spaces; `ts_start`/`start_ms` come from the first cue and `ts_end`/`end_ms` from the last.
 
-Splits text at every occurrence of a delimiter character. Short segments (below `min_chars`) are merged into the previous segment.
+## Behavior
+
+- `fixed` cuts `size`-byte windows at the last delimiter in each window, or at the window end when there is none; a UTF-8 character is never split.
+- `split` cuts after every delimiter character, keeping the delimiter at the end of its segment.
+- `cues` reads the cue arrays produced by [`extract_vtt`](extract_vtt.md) and [`extract_srt`](extract_srt.md). Every cue needs a string `text` and integer `start_ms` and `end_ms`; `start` and `end` supply the timecodes.
+- A cue is never split; a cue longer than `size` becomes its own chunk.
+- An empty text returns no chunks. A missing or non-string `source_key` value, or an unknown `mode`, fails the step.
 
 ## Examples
 
@@ -63,38 +74,13 @@ flow:step("split", nodes.ai_chunk({
 }))
 ```
 
-## Mode: `cues` (timestamp-preserving)
+### Subtitle cues
 
-Groups an ordered array of subtitle **cues** (as produced by `extract_vtt` /
-`extract_srt` under their `cues_key`, default `cues`) into size-bounded chunks
-that keep each chunk's start/end timecodes. A single cue is never split; a cue
-whose text alone exceeds `size` becomes its own chunk.
-
-**Parameters**
-
-| Param | Type | Default | Notes |
-|-------|------|---------|-------|
-| `mode` | string | — | Set to `"cues"`. |
-| `source_key` | string | — | Context key holding the cues array (each cue: `text`, `start_ms`, `end_ms`, `start`, `end`). |
-| `size` | number | `1200` | Max characters per chunk (cue boundaries are respected). |
-| `output_key` | string | `chunks` | Base key for outputs. |
-
-**Output**
-
-- `<output_key>` — array of `{ text, ts_start, ts_end, start_ms, end_ms, cue_count }`
-- `<output_key>_texts` — parallel array of the chunk text strings (feed straight into `ai_embed`'s `input_key`)
-- `<output_key>_count` — number of chunks
-- `<output_key>_success` — `true`
-
-**Sample segment**
-
-```json
-{
-  "text": "We propose the new telemetry pipeline ...",
-  "ts_start": "00:03:12.120",
-  "ts_end": "00:03:27.940",
-  "start_ms": 192120,
-  "end_ms": 207940,
-  "cue_count": 3
-}
+```lua
+flow:step("chunk", nodes.ai_chunk({
+    mode = "cues",
+    source_key = "cues",
+    output_key = "segments",
+    size = 1200
+})):depends_on("extract")
 ```
