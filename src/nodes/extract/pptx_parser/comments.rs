@@ -1,17 +1,21 @@
-use std::collections::HashMap;
+//! Slide comments. A slide's modern comments part (MS-PPTX) takes
+//! precedence over its legacy `comments` part: PowerPoint can keep a legacy
+//! copy of the same thread for older readers, and the two formats share no
+//! identifier to deduplicate by, so the legacy part of such a slide is not read.
+
 use std::io::BufRead;
 
 use anyhow::{Context, Result};
 use quick_xml::events::{BytesStart, Event};
 
 use super::PptxComment;
+use super::authors::{AuthorList, Authors, assign_author, local_name, read_authors};
 use super::graph::Presentation;
+use super::modern_comments::parse_modern_comments;
 use crate::nodes::extract::ooxml::Archive;
 use crate::nodes::extract::resource::Budget;
 use crate::util::execution::ExecutionControl;
 use crate::util::xml::{Decoder, attribute_value};
-
-type Author = (Option<String>, Option<String>);
 
 pub(in crate::nodes::extract) fn extract_pptx_comments(
     archive: &mut Archive,
@@ -19,125 +23,44 @@ pub(in crate::nodes::extract) fn extract_pptx_comments(
     budget: &mut Budget<'_>,
     execution: &ExecutionControl,
 ) -> Result<Vec<PptxComment>> {
-    let authors = read_authors(archive, presentation.authors.as_deref(), budget, execution)?;
+    let legacy_authors = read_authors(
+        archive,
+        presentation.authors.as_deref(),
+        AuthorList::Legacy,
+        budget,
+        execution,
+    )?;
+    let modern_authors = read_authors(
+        archive,
+        presentation.modern_authors.as_deref(),
+        AuthorList::Modern,
+        budget,
+        execution,
+    )?;
 
     let mut comments = Vec::new();
     for slide in &presentation.slides {
         budget.checkpoint()?;
-        let Some(name) = &slide.comments else {
+        let parsed = if let Some(name) = &slide.modern_comments {
+            archive.with_required_xml(name, execution, |reader| {
+                parse_modern_comments(reader, slide.index, &modern_authors, budget)
+            })?
+        } else if let Some(name) = &slide.comments {
+            archive.with_required_xml(name, execution, |reader| {
+                parse_comments(reader, slide.index, &legacy_authors, budget)
+            })?
+        } else {
             continue;
         };
-        let parsed = archive.with_required_xml(name, execution, |reader| {
-            parse_comments(reader, slide.index, &authors, budget)
-        })?;
         comments.extend(parsed);
     }
     Ok(comments)
 }
 
-fn read_authors(
-    archive: &mut Archive,
-    name: Option<&str>,
-    budget: &mut Budget<'_>,
-    execution: &ExecutionControl,
-) -> Result<HashMap<String, Author>> {
-    Ok(name
-        .map(|name| {
-            archive.with_required_xml(name, execution, |reader| parse_authors(reader, budget))
-        })
-        .transpose()?
-        .unwrap_or_default())
-}
-
-fn parse_authors<R: BufRead>(xml: R, budget: &mut Budget<'_>) -> Result<HashMap<String, Author>> {
-    let mut authors = HashMap::new();
-    let mut reader = quick_xml::Reader::from_reader(xml);
-    let mut decoder = Decoder::default();
-    let mut buffer = Vec::new();
-    let mut saw_element = false;
-    let mut depth = 0_u64;
-    loop {
-        budget.checkpoint()?;
-        match reader
-            .read_event_into(&mut buffer)
-            .map_err(anyhow::Error::from)
-            .and_then(|event| {
-                decoder.decode(event, |bytes| {
-                    budget.charge_output(bytes, "PPTX decoded author text")
-                })
-            }) {
-            Ok(Event::Start(event)) => {
-                saw_element = true;
-                depth = depth.saturating_add(1);
-                budget.charge_item("PPTX comment-author XML events")?;
-                if local_name(event.name().as_ref().as_bytes()) == b"cmAuthor"
-                    && let Some((id, author)) = parse_author(&event, decoder.version, budget)?
-                {
-                    budget.charge_item("PPTX comment authors")?;
-                    authors.insert(id, author);
-                }
-            }
-            Ok(Event::Empty(event)) => {
-                saw_element = true;
-                budget.charge_item("PPTX comment-author XML events")?;
-                if local_name(event.name().as_ref().as_bytes()) == b"cmAuthor"
-                    && let Some((id, author)) = parse_author(&event, decoder.version, budget)?
-                {
-                    budget.charge_item("PPTX comment authors")?;
-                    authors.insert(id, author);
-                }
-            }
-            Ok(Event::End(_)) => {
-                budget.charge_item("PPTX comment-author XML events")?;
-                depth = depth.checked_sub(1).ok_or_else(|| {
-                    anyhow::anyhow!("extract_pptx: unmatched closing element in comment authors")
-                })?;
-            }
-            Ok(Event::Eof) => break,
-            Ok(_) => budget.charge_item("PPTX comment-author XML events")?,
-            Err(error) => {
-                anyhow::bail!("extract_pptx: invalid XML in comment authors: {error}")
-            }
-        }
-        buffer.clear();
-    }
-    if !saw_element || depth != 0 {
-        anyhow::bail!("extract_pptx: incomplete XML in comment authors part");
-    }
-    Ok(authors)
-}
-
-fn parse_author(
-    event: &BytesStart<'_>,
-    version: quick_xml::XmlVersion,
-    budget: &mut Budget<'_>,
-) -> Result<Option<(String, Author)>> {
-    let mut id = None;
-    let mut name = None;
-    let mut initials = None;
-    for attribute in event.attributes() {
-        let attribute = attribute.context("extract_pptx: invalid comment-author attribute")?;
-        let value = attribute_value(&attribute, version, |bytes| {
-            budget.charge_output(bytes, "PPTX author attribute decoding")
-        })?
-        .into_owned();
-        match attribute.key.as_ref().as_bytes() {
-            b"id" => id = Some(value),
-            b"name" => name = Some(value),
-            b"initials" => initials = Some(value),
-            _ => {}
-        }
-    }
-    let Some(id) = id.filter(|value| !value.is_empty()) else {
-        return Ok(None);
-    };
-    Ok(Some((id, (name, initials))))
-}
-
 fn parse_comments<R: BufRead>(
     xml: R,
     slide_index: u32,
-    authors: &HashMap<String, Author>,
+    authors: &Authors,
     budget: &mut Budget<'_>,
 ) -> Result<Vec<PptxComment>> {
     let mut comments = Vec::new();
@@ -192,7 +115,7 @@ fn parse_comments<R: BufRead>(
             Ok(Event::Text(event)) if in_text => {
                 budget.charge_item("PPTX comment XML events")?;
                 if let Some(comment) = current.as_mut() {
-                    comment.text.push_str(event.as_ref());
+                    comment.entry.text.push_str(event.as_ref());
                 }
             }
             Ok(Event::End(event)) => {
@@ -226,7 +149,7 @@ fn parse_comments<R: BufRead>(
 fn parse_comment(
     event: &BytesStart<'_>,
     slide_index: u32,
-    authors: &HashMap<String, Author>,
+    authors: &Authors,
     version: quick_xml::XmlVersion,
     budget: &mut Budget<'_>,
 ) -> Result<PptxComment> {
@@ -241,26 +164,10 @@ fn parse_comment(
         })?
         .into_owned();
         match attribute.key.as_ref().as_bytes() {
-            b"authorId" => {
-                if let Some((name, initials)) = authors.get(&value) {
-                    if let Some(name) = name {
-                        budget.charge_output(name.len() as u64, "PPTX retained comment authors")?;
-                    }
-                    if let Some(initials) = initials {
-                        budget.charge_output(
-                            initials.len() as u64,
-                            "PPTX retained comment initials",
-                        )?;
-                    }
-                    comment.author = name.clone();
-                    comment.initials = initials.clone();
-                }
-                budget.charge_output(value.len() as u64, "PPTX retained comment attributes")?;
-                comment.author_id = Some(value);
-            }
+            b"authorId" => assign_author(&mut comment.entry, authors, value, budget)?,
             b"dt" => {
                 budget.charge_output(value.len() as u64, "PPTX retained comment attributes")?;
-                comment.date = Some(value);
+                comment.entry.date = Some(value);
             }
             b"idx" => {
                 budget.charge_output(value.len() as u64, "PPTX retained comment attributes")?;
@@ -270,8 +177,4 @@ fn parse_comment(
         }
     }
     Ok(comment)
-}
-
-fn local_name(name: &[u8]) -> &[u8] {
-    name.rsplit(|byte| *byte == b':').next().unwrap_or(name)
 }

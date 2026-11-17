@@ -329,3 +329,84 @@ async fn reject_special_inputs(directory: &Path, target: &Path) {
     let error = result.unwrap_err().to_string();
     assert!(error.contains("not a regular file"), "{error}");
 }
+
+/// IF-226: modern comments, their replies and the flat copy are charged to
+/// the item and output budgets like legacy comments.
+#[tokio::test]
+async fn modern_comments_are_bounded_by_item_and_output_budgets() {
+    let _environment = Environment::capture(&[ITEM_LIMIT, OUTPUT_LIMIT]);
+    const P188: &str = "http://schemas.microsoft.com/office/powerpoint/2018/8/main";
+    const DML: &str = "http://schemas.openxmlformats.org/drawingml/2006/main";
+    const PML: &str = "http://schemas.openxmlformats.org/presentationml/2006/main";
+    const REL: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+    let reply = "<p188:reply id=\"r\" authorId=\"a\"><p188:txBody><a:p><a:r><a:t>reply</a:t></a:r></a:p></p188:txBody></p188:reply>";
+    let comment = format!(
+        "<p188:cm id=\"c\" authorId=\"a\"><p188:replyLst>{}</p188:replyLst><p188:txBody><a:p><a:r><a:t>{}</a:t></a:r></a:p></p188:txBody></p188:cm>",
+        reply.repeat(20),
+        "x".repeat(200)
+    );
+    let comments = format!(
+        "<p188:cmLst xmlns:a=\"{DML}\" xmlns:p188=\"{P188}\">{}</p188:cmLst>",
+        comment.repeat(20)
+    );
+    let manifest = format!(
+        "<p:presentation xmlns:p=\"{PML}\" xmlns:r=\"{REL}\"><p:sldIdLst><p:sldId id=\"256\" r:id=\"s\"/></p:sldIdLst></p:presentation>"
+    );
+    let root = format!(
+        "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"s\" Type=\"{REL}/slide\" Target=\"slides/slide1.xml\"/></Relationships>"
+    );
+    let slide_rels = "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"m\" Type=\"http://schemas.microsoft.com/office/2018/10/relationships/comments\" Target=\"../comments/modernComment_1.xml\"/></Relationships>";
+    let slide = compact_slide("bounded");
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("modern.pptx");
+    write_pptx(
+        &path,
+        &[
+            ("ppt/presentation.xml", manifest.as_bytes()),
+            ("ppt/_rels/presentation.xml.rels", root.as_bytes()),
+            ("ppt/slides/slide1.xml", slide.as_bytes()),
+            ("ppt/slides/_rels/slide1.xml.rels", slide_rels.as_bytes()),
+            ("ppt/comments/modernComment_1.xml", comments.as_bytes()),
+        ],
+    );
+    let config = serde_json::json!({ "format": "json", "comments_key": "comments" });
+
+    Environment::set(ITEM_LIMIT, "100000");
+    Environment::set(OUTPUT_LIMIT, "1048576");
+    let output = execute(&path, config.clone()).await.unwrap();
+    assert_eq!(output["comments"].as_array().unwrap().len(), 20);
+    assert_eq!(
+        output["comments"][0]["replies"].as_array().unwrap().len(),
+        20
+    );
+
+    Environment::set(ITEM_LIMIT, "200");
+    let error = execute(&path, config.clone())
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains(ITEM_LIMIT), "{error}");
+
+    Environment::set(ITEM_LIMIT, "100000");
+    // The part fits, but the nested replies and their flat copy do not.
+    Environment::set(OUTPUT_LIMIT, "60000");
+    let error = execute(&path, config.clone())
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains(OUTPUT_LIMIT), "{error}");
+    let fits = execute(&path, serde_json::json!({ "format": "json" })).await;
+    assert!(
+        fits.is_ok(),
+        "without the flat copy the result fits: {fits:?}"
+    );
+
+    // The output ceiling also caps each decoded part, so a comment part
+    // larger than the result may hold stops before it is parsed.
+    Environment::set(OUTPUT_LIMIT, "6000");
+    let error = execute(&path, config).await.unwrap_err().to_string();
+    assert!(
+        error.contains("exceeds the cumulative or per-part extraction limit"),
+        "{error}"
+    );
+}

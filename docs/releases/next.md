@@ -22,6 +22,15 @@ publication is verified separately.
   custom footnote mark (`w:customMarkFollows`) is reported as `mark` in JSON
   instead of being repeated after the `[^label]` marker.
 
+  Parts are resolved through the document relationships (IF-225 (c)).
+- `extract_pptx` reads PowerPoint modern comments, the format current
+  PowerPoint and PowerPoint for the web write. Such decks used to return no
+  comments. Each comment carries its author, initials, creation date, text,
+  `status` when set (for example `resolved`) and nested `replies`, in JSON,
+  the `comments_key` array, and the text and Markdown renderings. When a slide
+  has both a modern and a legacy comments part, only the modern one is read
+  (IF-226).
+
 ## Fixes
 
 - `extract_word` and `extract_pptx` find the core-properties part through the

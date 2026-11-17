@@ -19,18 +19,20 @@ relationships are read from that part's own relationships part;
 `ppt/presentation.xml` is used only when the package names no main part.
 `_rels/.rels` is read on every call, so a malformed one fails the step, as
 does an external, escaping or duplicated main-document relationship.
-Slide parts may be renamed or stored in other package directories. Notes and
-legacy comments are followed through each slide's actual relationship part;
-comment authors are followed through the presentation's `commentAuthors`
-relationship. Image relationships are also relative to the actual slide part.
+Slide parts may be renamed or stored in other package directories. Notes,
+legacy comments and modern comments are followed through each slide's actual
+relationship part; comment authors are followed through the presentation's
+`commentAuthors` (legacy) and `authors` (modern) relationships. Image
+relationships are also relative to the actual slide part.
 An absent notes/comments relationship means no associated content, even if a
 similarly numbered file exists in the ZIP.
 
 Missing/empty manifests, duplicate slide IDs, relationship IDs or normalized
 slide targets, missing referenced parts, wrong slide relationship types, and
-external slide/notes/comments/authors targets are errors. Multiple notes,
-comments, or author-list relationships on their respective source are rejected
-as ambiguous. There is no filename-based fallback. Slide, note, comment, and
+external slide/notes/comments/authors targets, legacy or modern, are errors.
+Multiple notes, legacy comments, modern comments, legacy author-list or modern
+author-list relationships on their respective source are rejected as
+ambiguous. There is no filename-based fallback. Slide, note, comment, and
 author-list references are checked before slide media is published; later
 content or output errors still do not roll back already published artifacts.
 
@@ -38,8 +40,8 @@ Presentation and slide-reference namespaces accept transitional and strict OOXML
 URIs with arbitrary prefixes. Relationship XML accepts the OPC namespace and
 legacy unqualified elements, but not foreign namespaces. Presentation nesting is
 capped at 128 elements. This is structural extraction, not slide rendering or a
-complete OOXML schema validator; visual reading order within a slide and modern
-comments are outside this contract.
+complete OOXML schema validator; visual reading order within a slide is
+outside this contract.
 
 ## Text Fidelity
 
@@ -87,7 +89,7 @@ deadline, and final serialized-output checks are unchanged.
 | `format` | string | no | `"text"` | Output format: `"text"` (flattened slide text), `"markdown"` (one section per slide), or `"json"` (structured IR). |
 | `output_key` | string | no | `"content"` | Context key where the extracted output is stored. For `text`/`markdown` the value is a string; for `json` it is an object. |
 | `metadata_key` | string | no | — | If set, deck metadata (slide count + Dublin Core fields) is stored under this context key. |
-| `comments_key` | string | no | — | If set, relationship-linked legacy slide comments and their author lookup are stored under this context key as a flat array in presentation order. Comments are also attached per-slide in the JSON output. |
+| `comments_key` | string | no | — | If set, relationship-linked slide comments (legacy and modern, see [Comments](#comments)) with their author lookup are stored under this context key as a flat array in presentation order. Comments are also attached per-slide in the JSON output. |
 | `media_mode` | string | no | `"none"` | Embedded-media handling: `"none"` keeps relationship metadata only; `"artifact"` streams each resolved image to the disk-backed artifact store and adds an `artifact` descriptor. Artifact mode requires `format = "json"`. |
 | `include_image_bytes` | boolean | no | `false` | Deprecated compatibility input. `false` is accepted; `true` is rejected with a migration error because extraction no longer materializes inline Base64 media. |
 
@@ -166,10 +168,70 @@ The slide's `title` is taken from the placeholder with `type="title"` or `type="
 
 ### Comments
 
-The node currently parses **legacy** comments through `comments` relationships
-and authors through the presentation's `commentAuthors` relationship. Conventional
-part names such as `ppt/comments/comment3.xml` and `ppt/commentAuthors.xml` are
-not required. PowerPoint's newer "modern comments" format is not yet supported.
+Two comment formats are read, each through relationships rather than
+conventional part names:
+
+- **Legacy comments**: the slide's `comments` relationship (`p:cmLst`/`p:cm`,
+  text in `p:text`), with authors from the presentation's `commentAuthors`
+  relationship (`p:cmAuthor`). Such a comment carries `idx` and `date` (the
+  `dt` attribute).
+- **Modern comments**, which current PowerPoint and PowerPoint for the web
+  write ([MS-PPTX] 2.16.3): the slide's
+  `http://schemas.microsoft.com/office/2018/10/relationships/comments`
+  relationship (`p188:cmLst`/`p188:cm`), with authors from the presentation's
+  `http://schemas.microsoft.com/office/2018/10/relationships/authors`
+  relationship (`p188:authorLst`/`p188:author`). Such a comment carries `id`,
+  `date` (the `created` attribute), `status` when the attribute is present
+  (`active`, `resolved` or `closed`, returned as written), and `replies`
+  when it has any. The part's root element must be `cmLst`.
+
+A modern comment's text is the text runs of its `p188:txBody`; paragraphs are
+separated by a newline, and a line break is a newline. Anchor monikers
+(`pc:sldMk`, `ac:spMk` and the like) and extension lists are not returned.
+`replies` is an array, in document order, of objects with the same fields as
+a comment except `slide_index`, `idx` and `replies`:
+
+```json
+{
+  "slide_index": 1,
+  "id": "{6F1A2B3C-0000-4000-8000-000000000001}",
+  "author_id": "{6F1A2B3C-0000-4000-8000-0000000000A1}",
+  "author": "Reviewer A",
+  "initials": "RA",
+  "date": "2026-11-17T09:00:00.000",
+  "status": "resolved",
+  "text": "Check the chart",
+  "replies": [
+    {
+      "id": "{6F1A2B3C-0000-4000-8000-000000000002}",
+      "author_id": "{6F1A2B3C-0000-4000-8000-0000000000B2}",
+      "author": "Reviewer B",
+      "initials": "RB",
+      "date": "2026-11-17T09:05:00.000",
+      "text": "Updated."
+    }
+  ]
+}
+```
+
+Replies are nested only; the flat `comments_key` array holds one entry per
+comment, not per reply. When an author ID is not in the linked author list, or
+no author list is linked, `author` and `initials` are omitted and `author_id`
+is kept; text and Markdown show the author as `?`.
+
+**Both formats on one slide.** PowerPoint can keep a legacy copy of a modern
+comment thread for older readers, and the two formats share no identifier to
+match them by. A slide with a modern comments relationship therefore reports
+only its modern comments; its legacy comments part must still be internal and
+present, but it is not read. A slide with only a legacy part reports its
+legacy comments, so a deck can return legacy comments on one slide and modern
+comments on another.
+
+Text renders a comment as `[COMMENT by <author> @ <date> (<status>)]: <text>`
+and each reply on the next line as `  [REPLY by <author> @ <date>]: <text>`.
+Markdown renders `> 💬 **<author>** (<date>, <status>): <text>` and each reply
+as `>   ↳ **<author>** (<date>): <text>`. The date and status parts appear
+only when present.
 
 `slide_index` on each comment is the referring slide's one-based presentation
 position, in both the flat comments array and the per-slide JSON output.

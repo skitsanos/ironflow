@@ -19,6 +19,10 @@ local flow = Flow.new("extract_pptx_demo")
 -- In JSON a hidden slide carries hidden = true; a shown slide has no such
 -- field. Text and Markdown do not mark hidden slides.
 -- Notes/comments/images follow relationships, not matching filename numbers.
+-- Both comment formats are read: legacy comments (idx) and PowerPoint modern
+-- comments (id, optional status such as "resolved", replies nested under
+-- the comment). A slide with a modern comments part reports only those; its
+-- legacy copy, if any, is not read.
 -- Embedded media, when present, is streamed to IRONFLOW_ARTIFACT_DIR and
 -- represented by a small artifact descriptor; binary bytes never enter the
 -- workflow context. Only internal OOXML image relationships are published;
@@ -44,6 +48,10 @@ flow:step("summarize", function(ctx)
         assert(slide.hidden == nil or slide.hidden == true, "hidden is set only on hidden slides")
         for _, comment in ipairs(slide.comments or {}) do
             assert(comment.slide_index == index, "Comment must refer to its slide position")
+            assert(comment.replies == nil or comment.id ~= nil, "Only modern comments have replies")
+            for _, reply in ipairs(comment.replies or {}) do
+                assert(reply.slide_index == nil, "Replies are nested, not flat comments")
+            end
         end
     end
 

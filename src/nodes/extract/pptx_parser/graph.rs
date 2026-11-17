@@ -18,6 +18,7 @@ pub(in crate::nodes::extract) struct Presentation {
     pub(super) authors: Option<String>,
     /// The core-properties part named in `_rels/.rels`, or `docProps/core.xml`.
     pub(in crate::nodes::extract) core_properties: String,
+    pub(super) modern_authors: Option<String>,
 }
 
 pub(super) struct SlidePart {
@@ -26,6 +27,7 @@ pub(super) struct SlidePart {
     pub(super) relationships: Relationships,
     pub(super) notes: Option<String>,
     pub(super) comments: Option<String>,
+    pub(super) modern_comments: Option<String>,
 }
 
 pub(in crate::nodes::extract) fn load_presentation(
@@ -48,6 +50,14 @@ pub(in crate::nodes::extract) fn load_presentation(
         source,
         &relationships,
         Kind::Authors,
+        budget,
+        execution,
+    )?;
+    let modern_authors = linked_part(
+        archive,
+        source,
+        &relationships,
+        Kind::ModernAuthors,
         budget,
         execution,
     )?;
@@ -87,18 +97,28 @@ pub(in crate::nodes::extract) fn load_presentation(
             budget,
             execution,
         )?;
+        let modern_comments = linked_part(
+            archive,
+            &part,
+            &slide_rels,
+            Kind::ModernComments,
+            budget,
+            execution,
+        )?;
         slides.push(SlidePart {
             index: u32::try_from(slides.len() + 1).context("extract_pptx: too many slides")?,
             part,
             relationships: slide_rels,
             notes,
             comments,
+            modern_comments,
         });
     }
     Ok(Presentation {
         slides,
         authors,
         core_properties: package.core_properties,
+        modern_authors,
     })
 }
 

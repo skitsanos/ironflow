@@ -98,6 +98,8 @@ mod test_pptx_hidden;
 mod test_pptx_inherited_bullets;
 #[path = "../test_pptx_line_breaks.rs"]
 mod test_pptx_line_breaks;
+#[path = "../test_pptx_modern_comments.rs"]
+mod test_pptx_modern_comments;
 #[path = "../test_pptx_notes_placeholders.rs"]
 mod test_pptx_notes_placeholders;
 #[path = "../test_pptx_package_parts.rs"]

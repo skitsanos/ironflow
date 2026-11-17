@@ -13,6 +13,10 @@ pub(super) enum Kind {
     Notes,
     Comments,
     Authors,
+    /// PowerPoint modern comments (MS-PPTX 2.1.3.13).
+    ModernComments,
+    /// PowerPoint modern comment authors (MS-PPTX 2.1.3.12).
+    ModernAuthors,
     Image,
     Layout,
     Master,
@@ -29,7 +33,18 @@ pub(super) fn parse_pptx_rels<R: BufRead>(
     relationships::parse_relationships(xml, &PPTX, relationship_kind, budget)
 }
 
+/// Relationship types PowerPoint 2019 and later define outside the
+/// officeDocument namespace (MS-PPTX). Matched exactly; their targets go
+/// through the same internal-only resolution as every other part.
+const MODERN_COMMENTS: &str = "http://schemas.microsoft.com/office/2018/10/relationships/comments";
+const MODERN_AUTHORS: &str = "http://schemas.microsoft.com/office/2018/10/relationships/authors";
+
 fn relationship_kind(value: &str) -> Kind {
+    match value {
+        MODERN_COMMENTS => return Kind::ModernComments,
+        MODERN_AUTHORS => return Kind::ModernAuthors,
+        _ => {}
+    }
     match office_document_type(value) {
         Some("slide") => Kind::Slide,
         Some("notesSlide") => Kind::Notes,

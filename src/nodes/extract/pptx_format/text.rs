@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use super::super::pptx_parser::{PptxElement, PptxSlide};
+use super::super::pptx_parser::{PptxCommentEntry, PptxElement, PptxSlide};
 use super::super::resource::Budget;
 
 pub(in crate::nodes::extract) fn pptx_slides_to_text(
@@ -35,14 +35,10 @@ pub(in crate::nodes::extract) fn pptx_slides_to_text(
             output.retained_line(notes)?;
         }
         for comment in &slide.comments {
-            output.generated("[COMMENT by ")?;
-            output.retained(comment.author.as_deref().unwrap_or("?"));
-            if let Some(date) = &comment.date {
-                output.generated(" @ ")?;
-                output.retained(date);
+            text_comment(&mut output, "[COMMENT by ", &comment.entry)?;
+            for reply in &comment.replies {
+                text_comment(&mut output, "  [REPLY by ", reply)?;
             }
-            output.generated("]: ")?;
-            output.retained_line(&comment.text)?;
         }
     }
     Ok(output.finish())
@@ -85,19 +81,56 @@ pub(in crate::nodes::extract) fn pptx_slides_to_markdown(
             output.generated_line("")?;
         }
         for comment in &slide.comments {
-            output.generated("> 💬 **")?;
-            output.retained(comment.author.as_deref().unwrap_or("?"));
-            output.generated("**")?;
-            if let Some(date) = &comment.date {
-                output.generated(" (")?;
-                output.retained(date);
-                output.generated(")")?;
+            markdown_comment(&mut output, "> 💬 **", &comment.entry)?;
+            for reply in &comment.replies {
+                markdown_comment(&mut output, ">   ↳ **", reply)?;
             }
-            output.generated(": ")?;
-            output.retained_line(&comment.text)?;
         }
     }
     Ok(output.finish_trimmed())
+}
+
+fn text_comment(
+    output: &mut TextOutput<'_, '_>,
+    lead: &str,
+    entry: &PptxCommentEntry,
+) -> Result<()> {
+    output.generated(lead)?;
+    output.retained(entry.author.as_deref().unwrap_or("?"));
+    if let Some(date) = &entry.date {
+        output.generated(" @ ")?;
+        output.retained(date);
+    }
+    if let Some(status) = &entry.status {
+        output.generated(" (")?;
+        output.retained(status);
+        output.generated(")")?;
+    }
+    output.generated("]: ")?;
+    output.retained_line(&entry.text)
+}
+
+fn markdown_comment(
+    output: &mut TextOutput<'_, '_>,
+    lead: &str,
+    entry: &PptxCommentEntry,
+) -> Result<()> {
+    output.generated(lead)?;
+    output.retained(entry.author.as_deref().unwrap_or("?"));
+    output.generated("**")?;
+    let details = [entry.date.as_deref(), entry.status.as_deref()];
+    let mut details = details.into_iter().flatten();
+    if let Some(first) = details.next() {
+        output.generated(" (")?;
+        output.retained(first);
+        for detail in details {
+            output.generated(", ")?;
+            output.retained(detail);
+        }
+        output.generated(")")?;
+    }
+    output.generated(": ")?;
+    output.retained_line(&entry.text)
 }
 
 struct TextOutput<'a, 'b> {
