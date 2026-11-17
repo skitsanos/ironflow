@@ -55,6 +55,14 @@ flow:step("summarize", function(ctx)
         end
     end
 
+    -- The sample deck has one modern comment thread on slide 1.
+    local replies = 0
+    for _, comment in ipairs(comments) do
+        assert(comment.id ~= nil and comment.author ~= nil, "Modern comments resolve their author")
+        replies = replies + #(comment.replies or {})
+    end
+    assert(#comments == 1 and replies == 1, "Sample deck has one comment with one reply")
+
     if #slides > 0 and slides[1].title then
         first_title = slides[1].title
     end
@@ -62,6 +70,7 @@ flow:step("summarize", function(ctx)
     return {
         deck_summary = "Slides: " .. #slides
             .. ", comments: " .. #comments
+            .. ", replies: " .. replies
             .. ", first slide: " .. first_title
     }
 end):depends_on("extract_deck")
