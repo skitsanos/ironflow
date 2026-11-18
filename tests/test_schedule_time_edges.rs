@@ -342,3 +342,28 @@ fn a_wall_clock_time_resolves_up_to_the_last_instant_jiff_represents() {
     assert!(resolve_local(zone, local("9999-12-31 11:00:00")).is_some());
     assert_eq!(resolve_local(zone, local("9999-12-31 11:00:01")), None);
 }
+
+#[test]
+fn a_wall_clock_time_before_the_first_instant_is_not_resolved_as_a_gap() {
+    // A time with no instant because it is out of range is not a time that a
+    // clock change skipped. Probing forward as for a spring-forward gap would
+    // return the first representable instant, up to six hours away from the
+    // time that was asked for.
+    let utc = schedule("0 0 * * *", "UTC", None);
+    let zone = utc.timezone();
+    for before_the_first in [
+        "-009999-01-02 01:59:58",
+        "-009999-01-02 01:00:00",
+        "-009999-01-01 20:00:00",
+    ] {
+        assert_eq!(
+            resolve_local(zone, local(before_the_first)),
+            None,
+            "{before_the_first}"
+        );
+    }
+    // A real gap still resolves to the first instant after it.
+    let berlin = schedule("0 0 * * *", "Europe/Berlin", None);
+    let after_the_gap = resolve_local(berlin.timezone(), local("2026-03-29 02:30:00")).unwrap();
+    assert_eq!(after_the_gap.datetime(), local("2026-03-29 03:00:00"));
+}

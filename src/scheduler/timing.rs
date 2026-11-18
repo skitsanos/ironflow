@@ -15,6 +15,7 @@
 use jiff::{SignedDuration, Timestamp, ZonedDateTime, civil};
 
 use super::config::{ScheduleConfig, ScheduleZone};
+use super::zone::WallClock;
 
 /// Maximum missed occurrences one tick settles for one schedule, besides the
 /// most recent one it decides.
@@ -43,22 +44,22 @@ pub struct DueInstant {
 
 /// Resolve a local wall-clock time to the instant it should fire at.
 ///
-/// Returns `None` only if a zone had a gap longer than
-/// `MAX_GAP_PROBE_MINUTES`, which no real zone does.
+/// Returns `None` if the instant is outside the range `jiff` represents, or
+/// if a zone had a gap longer than `MAX_GAP_PROBE_MINUTES`, which no real
+/// zone does.
 pub fn resolve_local(zone: &ScheduleZone, local: civil::DateTime) -> Option<ZonedDateTime> {
     // An ordinary wall-clock time has one instant. One that repeats when
     // clocks go back has two: fire once, on the earlier — the later one shares
     // a claim key and is refused.
-    if let Some(instant) = zone.earliest_instant(local) {
-        return Some(instant);
-    }
-    // Spring forward: this local time never occurs. Fire at the first instant
-    // that does, rather than skipping the day.
     let mut probe = local;
-    for _ in 0..MAX_GAP_PROBE_MINUTES {
-        probe = probe.checked_add(SignedDuration::from_mins(1)).ok()?;
-        if let Some(instant) = zone.earliest_instant(probe) {
-            return Some(instant);
+    for _ in 0..=MAX_GAP_PROBE_MINUTES {
+        match zone.resolve(probe) {
+            WallClock::At(instant) => return Some(instant),
+            // Not a gap: there is no later instant that stands for this time.
+            WallClock::OutOfRange => return None,
+            // Spring forward: this local time never occurs. Fire at the first
+            // instant that does, rather than skipping the day.
+            WallClock::Skipped => probe = probe.checked_add(SignedDuration::from_mins(1)).ok()?,
         }
     }
     None

@@ -61,19 +61,41 @@ impl ScheduleZone {
     /// none, and neither has one whose instant lies outside the years `jiff`
     /// covers.
     pub fn earliest_instant(&self, local: civil::DateTime) -> Option<ZonedDateTime> {
+        match self.resolve(local) {
+            WallClock::At(instant) => Some(instant),
+            WallClock::Skipped | WallClock::OutOfRange => None,
+        }
+    }
+
+    /// `earliest_instant`, telling a skipped wall-clock time from one that is
+    /// out of range: only the first has a next instant worth looking for.
+    pub(super) fn resolve(&self, local: civil::DateTime) -> WallClock {
         let offset = match self.rules.to_ambiguous_timestamp(local).offset() {
             AmbiguousOffset::Unambiguous { offset } => offset,
             AmbiguousOffset::Fold { before, .. } => before,
-            AmbiguousOffset::Gap { .. } => return None,
+            AmbiguousOffset::Gap { .. } => return WallClock::Skipped,
         };
-        let instant = offset.to_timestamp(local).ok()?;
-        Some(instant.to_zoned_datetime(self.rules.clone()))
+        match offset.to_timestamp(local) {
+            Ok(instant) => WallClock::At(instant.to_zoned_datetime(self.rules.clone())),
+            Err(_) => WallClock::OutOfRange,
+        }
     }
 
     /// The wall-clock time this zone shows at `instant`.
     pub fn local_time(&self, instant: Timestamp) -> civil::DateTime {
         self.rules.to_datetime(instant)
     }
+}
+
+/// What a zone's wall clock makes of one wall-clock time.
+pub(super) enum WallClock {
+    /// The clock shows it, first at this instant.
+    At(ZonedDateTime),
+    /// The clock never shows it: clocks went forward over it.
+    Skipped,
+    /// Its instant is before the first or after the last one `jiff`
+    /// represents (the years -9999 to 9999, less 26 hours at each end).
+    OutOfRange,
 }
 
 impl PartialEq for ScheduleZone {
