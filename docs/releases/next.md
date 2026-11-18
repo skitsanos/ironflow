@@ -77,6 +77,9 @@ publication is verified separately.
   (IF-231). `lopdf` and `calamine` no longer enable theirs. The crate stays
   in the dependency graph through `cron` and `rmcp`, so its audit exception
   (RUSTSEC-2026-0543) stays, reviewed on 2026-11-18.
+- `lettre` moves to 0.11.24, which fixes six advisories published on
+  2026-11-17 in its SMTP client and message builder (IF-235). `send_email`
+  with the SMTP provider uses that code; the Resend provider does not.
 - The Markdown parser `comrak` moves from 0.59 to 1.0. It caps the text that
   reference links may expand to at the larger of the input size and 100 KB;
   0.59 used the smaller of the two. A Markdown document that repeats a

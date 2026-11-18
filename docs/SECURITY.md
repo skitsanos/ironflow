@@ -439,6 +439,12 @@ memory is exhausted, and a ZIP package may begin with such a header.
 signature before the workbook is opened ([IF-218](issues/IF-218.md)). This has
 not been reported upstream.
 
+On 2026-11-18 six advisories against `lettre` 0.11.23 (RUSTSEC-2026-0560 to
+RUSTSEC-2026-0565), published the day before, failed the audit. They cover
+the SMTP client and message builder that `send_email` uses with the SMTP
+provider. `lettre` was updated to 0.11.24, which fixes all six, and that
+version is now the required minimum ([IF-235](issues/IF-235.md)).
+
 ### SQLite exception (RUSTSEC-2026-0459)
 
 The bundled SQLite is 3.51.3. Before 3.54.0, SQLite can return uninitialized

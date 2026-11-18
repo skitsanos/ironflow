@@ -6,7 +6,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts generate` and verified with
 `bun run scripts/issues_registry.ts check`.
 
-- Total findings: 234
+- Total findings: 235
 - Active findings: 0
 
 ## Working agreement
@@ -262,3 +262,4 @@ priority, area, and title. The registry is generated with
 | [IF-232](./IF-232.md) | P3 | Resolved | Storage/retention | prune_before compares a different precision in the JSON and Redis stores than in SQL |
 | [IF-233](./IF-233.md) | P3 | Resolved | Document extraction/extract_xlsx | extract_xlsx fails the step on a date or elapsed-time cell with an extreme value |
 | [IF-234](./IF-234.md) | P3 | Resolved | Utility nodes/date_format | date_format writes the century of a year before 0000 as characters that are not a number |
+| [IF-235](./IF-235.md) | P1 | Resolved | Dependency security | Six lettre advisories fail the audit gate; send_email over SMTP uses the affected code |
