@@ -6,7 +6,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts generate` and verified with
 `bun run scripts/issues_registry.ts check`.
 
-- Total findings: 231
+- Total findings: 232
 - Active findings: 1
 
 ## Working agreement
@@ -259,3 +259,4 @@ priority, area, and title. The registry is generated with
 | [IF-229](./IF-229.md) | P3 | Resolved | Documents/extraction fidelity | extract_pptx approximated bullets inherited from the layout and master |
 | [IF-230](./IF-230.md) | P3 | Resolved | Documents/extraction fidelity | extract_word and extract_pptx read the main document and its parts from fixed paths |
 | [IF-231](./IF-231.md) | P2 | Open | Dependencies/time handling | chrono and chrono-tz are reported as unmaintained |
+| [IF-232](./IF-232.md) | P3 | Resolved | Storage/retention | prune_before compares a different precision in the JSON and Redis stores than in SQL |

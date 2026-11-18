@@ -409,7 +409,8 @@ nine digits, whichever is the shortest that is exact. Readers accept all
 three text forms in any column, with `Z` or a numeric offset. Nothing is
 ordered by timestamp text except the one-time backfill of SQL event rows
 written before publication sequences existed; every other order uses the
-microsecond integer or a sequence. SQL and Redis lease deadlines are stamped
+microsecond integer or a sequence, and `prune_before` compares the same
+microsecond integer in every store (IF-232). SQL and Redis lease deadlines are stamped
 and compared with the store's clock, not a replica's; the single-host JSON
 store uses the process clock.
 

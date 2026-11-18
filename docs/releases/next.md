@@ -49,6 +49,11 @@ publication is verified separately.
   and HTTP dates are accepted as before. `--before` refuses a tenth fraction
   digit, which used to be dropped, and accepts a few more ISO 8601
   spellings, such as a time without seconds.
+- Library API: `StateStore::prune_before` compares whole microseconds in
+  every store (IF-232). The JSON and Redis stores compared nanoseconds, so a
+  cutoff later in a run's own microsecond deleted a run that SQLite and
+  PostgreSQL kept; all four keep it now. IronFlow itself does not call this
+  method.
 - Library API: `RunInfo`, `RunSummary` and `TaskState` (`started`,
   `finished`), `RunEvent::timestamp`, `RunCursor::started`, `RunLease::at`
   and `expires_at`, `StateStore::prune_before` and
