@@ -124,3 +124,43 @@ async fn redis_event_store_keeps_its_timestamp_form() {
     );
     fixture.cleanup().await;
 }
+
+/// IF-232: a cutoff later in a run's own microsecond keeps the run, as in
+/// the SQL and JSON stores.
+#[tokio::test]
+async fn redis_state_store_prunes_by_whole_microseconds() {
+    let Some(fixture) = RedisTest::connect("timestamp_prune").await else {
+        return;
+    };
+    let mut conn = fixture.connection().await.unwrap();
+    for (id, started) in [
+        ("edge", "2026-01-02T03:04:05.000000500Z"),
+        ("older", "2026-01-02T03:04:04Z"),
+    ] {
+        let info = format!(
+            r#"{{"id":"{id}","flow_name":"f","status":"success","started":"{started}","finished":null,"ctx":{{}},"tasks":{{}}}}"#
+        );
+        let _: () = redis::pipe()
+            .cmd("HSET")
+            .arg(format!("{}runs:{id}", fixture.prefix))
+            .arg("info")
+            .arg(info)
+            .cmd("SADD")
+            .arg(format!("{}runs:index", fixture.prefix))
+            .arg(id)
+            .query_async(&mut conn)
+            .await
+            .unwrap();
+    }
+    let store = fixture.state_store(None).await;
+
+    let inside = timestamps::instant(1_767_323_045, 900);
+    assert_eq!(store.prune_before(inside).await.unwrap(), 1);
+    assert!(store.get_run_info("older").await.is_err());
+    assert!(store.get_run_info("edge").await.is_ok());
+
+    let next_microsecond = timestamps::instant(1_767_323_045, 1_000);
+    assert_eq!(store.prune_before(next_microsecond).await.unwrap(), 1);
+    assert!(store.get_run_info("edge").await.is_err());
+    fixture.cleanup().await;
+}

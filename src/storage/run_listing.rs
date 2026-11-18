@@ -179,6 +179,15 @@ pub(crate) fn normalized_started(started: Option<Timestamp>) -> Option<i64> {
     started.map(crate::util::timestamp::unix_micros)
 }
 
+/// Whether a run that started at `started` is older than a retention
+/// `cutoff`. Both are taken as whole microseconds, the precision every store
+/// lists and indexes by, so a cutoff later in a run's own microsecond keeps
+/// the run on every backend (IF-232). A run without a start time is kept.
+pub(crate) fn started_before(started: Option<Timestamp>, cutoff: Timestamp) -> bool {
+    normalized_started(started)
+        .is_some_and(|started| started < crate::util::timestamp::unix_micros(cutoff))
+}
+
 #[cfg(test)]
 mod tests {
     use jiff::Timestamp;

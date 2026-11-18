@@ -536,3 +536,89 @@ async fn postgres_event_store_keeps_its_timestamp_forms() {
     }
     pool.close().await;
 }
+
+// ===== Retention cutoff (IF-232) =====
+
+/// `edge` started 500 ns into a microsecond; `older` one second earlier.
+const PRUNE_EDGE: &str = "2026-01-02T03:04:05.000000500Z";
+const PRUNE_OLDER: &str = "2026-01-02T03:04:04Z";
+
+/// Every store prunes by the microsecond its listing orders by: a cutoff
+/// later in a run's own microsecond keeps the run, on every backend.
+pub async fn assert_prune_cutoff_is_whole_microseconds(store: &dyn StateStore) {
+    let inside = instant(1_767_323_045, 900);
+    assert_eq!(store.prune_before(inside).await.unwrap(), 1);
+    assert!(store.get_run_info("older").await.is_err());
+    assert!(store.get_run_info("edge").await.is_ok());
+
+    let next_microsecond = instant(1_767_323_045, 1_000);
+    assert_eq!(store.prune_before(next_microsecond).await.unwrap(), 1);
+    assert!(store.get_run_info("edge").await.is_err());
+}
+
+#[tokio::test]
+async fn json_store_prunes_by_whole_microseconds() {
+    let dir = tempfile::tempdir().unwrap();
+    for (id, started) in [("edge", PRUNE_EDGE), ("older", PRUNE_OLDER)] {
+        std::fs::write(
+            dir.path().join(format!("{id}.json")),
+            format!(
+                r#"{{"id":"{id}","flow_name":"f","status":"success","started":"{started}","finished":null,"ctx":{{}},"tasks":{{}}}}"#
+            ),
+        )
+        .unwrap();
+    }
+    assert_prune_cutoff_is_whole_microseconds(&JsonStateStore::new(dir.path())).await;
+}
+
+async fn assert_sql_prunes_by_whole_microseconds(target: SqlTarget) {
+    let store = target.store().await;
+    let pool = target.pool().await;
+    for (id, started, micros) in [
+        ("edge", PRUNE_EDGE, 1_767_323_045_000_000_i64),
+        ("older", PRUNE_OLDER, 1_767_323_044_000_000),
+    ] {
+        execute(
+            &pool,
+            format!(
+                "INSERT INTO {} (id, flow_name, status, started, started_micros, finished, ctx) \
+                 VALUES ('{id}', 'f', 'success', '{started}', {micros}, NULL, '{{}}')",
+                target.runs
+            ),
+        )
+        .await;
+    }
+    assert_prune_cutoff_is_whole_microseconds(&store).await;
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn sqlite_state_store_prunes_by_whole_microseconds() {
+    let dir = tempfile::tempdir().unwrap();
+    assert_sql_prunes_by_whole_microseconds(SqlTarget {
+        url: format!(
+            "sqlite://{}?mode=rwc",
+            dir.path().join("prune.sqlite").to_string_lossy()
+        ),
+        runs: "ironflow_runs".to_string(),
+        tasks: "ironflow_tasks".to_string(),
+        prefix: None,
+    })
+    .await;
+}
+
+#[cfg(feature = "postgres")]
+#[tokio::test]
+async fn postgres_state_store_prunes_by_whole_microseconds() {
+    let Some(fixture) = postgres_support::PostgresStateTest::from_env("ts_prune") else {
+        return;
+    };
+    assert_sql_prunes_by_whole_microseconds(SqlTarget {
+        url: fixture.url().to_string(),
+        runs: fixture.table("runs"),
+        tasks: fixture.table("tasks"),
+        prefix: Some(fixture.table("")),
+    })
+    .await;
+    fixture.cleanup().await.unwrap();
+}
