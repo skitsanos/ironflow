@@ -1,0 +1,22 @@
+{
+  "_ironflow_revision": "c208f4f4-93d8-419d-8dd7-ab861659cfac",
+  "_ironflow_summary_digest": "85d06c05f663ab6eac18c0e06431ed8797260ff45943b570b1fb48e7455b2aee",
+  "id": "golden-whole",
+  "flow_name": "golden",
+  "status": "running",
+  "started": "2026-01-02T03:04:05Z",
+  "finished": null,
+  "ctx": {
+    "k": "v"
+  },
+  "tasks": {
+    "step": {
+      "name": "step",
+      "status": "success",
+      "attempt": 0,
+      "node_type": "log",
+      "started": "2026-01-02T03:04:05.500Z",
+      "finished": "2026-01-02T03:04:06.000000001Z"
+    }
+  }
+}

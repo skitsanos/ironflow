@@ -50,6 +50,30 @@ mod tests {
 
     use super::*;
 
+    /// Recorded before the engine's timestamps moved to `jiff` (IF-231).
+    #[test]
+    fn task_duration_is_whole_milliseconds_and_never_negative() {
+        use chrono::TimeZone as _;
+        let at = |seconds, nanos| Some(Utc.timestamp_opt(seconds, nanos).unwrap());
+
+        assert_eq!(task_duration_ms(at(10, 0), at(10, 0)), Some(0));
+        assert_eq!(
+            task_duration_ms(at(10, 0), at(11, 500_999_999)),
+            Some(1_500)
+        );
+        assert_eq!(
+            task_duration_ms(at(10, 999_999), at(10, 1_000_000)),
+            Some(0)
+        );
+        assert_eq!(
+            task_duration_ms(at(-1, 999_000_000), at(0, 1_000_000)),
+            Some(2)
+        );
+        assert_eq!(task_duration_ms(at(10, 1_000_000), at(10, 0)), None);
+        assert_eq!(task_duration_ms(None, at(10, 0)), None);
+        assert_eq!(task_duration_ms(at(10, 0), None), None);
+    }
+
     #[test]
     fn input_overlays_do_not_mutate_the_phase_snapshot() {
         let shared = Arc::new(Context::from([

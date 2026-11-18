@@ -25,6 +25,8 @@ mod recovery_concurrency_tests;
 mod resilience_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod timestamp_tests;
 
 pub(super) use format::CatalogRecord;
 pub(super) use page::list_page;

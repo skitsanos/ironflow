@@ -30,3 +30,7 @@ mod test_sql_event_migration;
 mod test_sql_state_concurrency;
 #[path = "../test_state_stores.rs"]
 mod test_state_stores;
+#[path = "../test_timestamp_forms.rs"]
+mod test_timestamp_forms;
+#[path = "../test_timestamp_stores.rs"]
+mod test_timestamp_stores;

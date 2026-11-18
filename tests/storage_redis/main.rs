@@ -18,3 +18,5 @@ mod test_redis_lease_atomicity;
 mod test_redis_response_timeout;
 #[path = "../test_redis_store.rs"]
 mod test_redis_store;
+#[path = "../test_redis_timestamp_forms.rs"]
+mod test_redis_timestamp_forms;

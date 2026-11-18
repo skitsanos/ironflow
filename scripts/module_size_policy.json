@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exception_budget": 5,
+  "exception_budget": 4,
   "exceptions": [
     {
       "path": "src/nodes/cloud/s3_objects.rs",
@@ -16,11 +16,6 @@
       "path": "src/storage/json_store/fs.rs",
       "max_lines": 344,
       "rationale": "IF-028 review: one secure no-follow and durable-directory abstraction; split by responsibility before adding another filesystem operation family."
-    },
-    {
-      "path": "src/storage/redis_store/listing.rs",
-      "max_lines": 316,
-      "rationale": "IF-028 review: one ordered catalog paging and repair boundary with inline ordering tests; extract tests or repair logic before adding listing behavior."
     },
     {
       "path": "src/storage/redis_store/rebuild.rs",

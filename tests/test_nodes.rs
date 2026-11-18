@@ -1203,6 +1203,49 @@ async fn code_node_source_string() {
     assert_eq!(result.get("result").unwrap(), &serde_json::json!(42));
 }
 
+/// `now_rfc3339()` spells UTC as `+00:00` after 0, 3, 6 or 9 fraction digits
+/// and `now_unix_ms()` is whole milliseconds. Recorded before the sandbox
+/// clock moved from `chrono` to `jiff` (IF-231).
+#[tokio::test]
+async fn code_node_clock_helpers_keep_their_forms() {
+    fn unix_millis() -> i64 {
+        let elapsed = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap();
+        i64::try_from(elapsed.as_millis()).unwrap()
+    }
+
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("code").unwrap();
+    let config = serde_json::json!({
+        "source": "return { ts = now_rfc3339(), ms = now_unix_ms() }"
+    });
+
+    let before = unix_millis();
+    let result = node.execute(&config, &empty_ctx()).await.unwrap();
+    let after = unix_millis();
+
+    let ms = result.get("ms").unwrap().as_i64().unwrap();
+    assert!(
+        (before..=after).contains(&ms),
+        "{before} <= {ms} <= {after}"
+    );
+
+    let ts = result.get("ts").unwrap().as_str().unwrap();
+    let (date_time, fraction) = ts.strip_suffix("+00:00").expect(ts).split_at(19);
+    let shape: String = date_time
+        .chars()
+        .map(|c| if c.is_ascii_digit() { '0' } else { c })
+        .collect();
+    assert_eq!(shape, "0000-00-00T00:00:00", "{ts}");
+    assert!(matches!(fraction.len(), 0 | 4 | 7 | 10), "{ts}");
+    if let Some(digits) = fraction.strip_prefix('.') {
+        assert!(digits.bytes().all(|byte| byte.is_ascii_digit()), "{ts}");
+    } else {
+        assert!(fraction.is_empty(), "{ts}");
+    }
+}
+
 #[tokio::test]
 async fn code_node_has_json_helpers() {
     let reg = NodeRegistry::with_builtins();

@@ -1,0 +1,22 @@
+{
+  "_ironflow_revision": "840147cd-cc39-460a-980f-db4599f2ade7",
+  "_ironflow_summary_digest": "f264f195e261ae04d9b15bdd83104166da4d87ec4ab6b3085e025363d5c5bf07",
+  "id": "golden-millis",
+  "flow_name": "golden",
+  "status": "running",
+  "started": "2026-01-02T03:04:05.120Z",
+  "finished": null,
+  "ctx": {
+    "k": "v"
+  },
+  "tasks": {
+    "step": {
+      "name": "step",
+      "status": "success",
+      "attempt": 0,
+      "node_type": "log",
+      "started": "2026-01-02T03:04:05.500Z",
+      "finished": "2026-01-02T03:04:06.000000001Z"
+    }
+  }
+}

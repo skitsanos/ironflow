@@ -154,4 +154,36 @@ mod tests {
         assert_eq!(retry_after("invalid"), None);
         assert_eq!(retry_after("-1"), None);
     }
+
+    /// Date forms recorded as accepted or refused before the parser moved
+    /// from `chrono` to `jiff` (IF-231). All of them are in the past.
+    #[test]
+    fn retry_after_date_forms() {
+        for past in [
+            "Wed, 21 Oct 2015 07:28:00 +0000",
+            "Wed, 21 Oct 2015 07:28:00 -0000",
+            "Wed, 21 Oct 2015 07:28:00 UT",
+            "Wed, 21 Oct 2015 02:28:00 EST",
+            "21 Oct 2015 07:28:00 GMT",
+            "Wed, 21 Oct 2015 07:28 GMT",
+            "Wed, 21 Oct 15 07:28:00 GMT",
+            "wed, 21 oct 2015 07:28:00 gmt",
+        ] {
+            assert_eq!(retry_after(past), Some(Duration::ZERO), "{past}");
+        }
+        for refused in [
+            "Thu, 21 Oct 2015 07:28:00 GMT",
+            "Wednesday, 21-Oct-15 07:28:00 GMT",
+            "2015-10-21T07:28:00Z",
+            "",
+        ] {
+            assert_eq!(retry_after(refused), None, "{refused}");
+        }
+    }
+
+    #[test]
+    fn retry_after_waits_until_a_future_date() {
+        let wait = retry_after("31 Dec 9998 00:00:00 GMT").unwrap();
+        assert!(wait > Duration::from_secs(1_000 * 365 * 86_400));
+    }
 }

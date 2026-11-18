@@ -83,6 +83,49 @@ fn list_is_bounded_by_default_and_cursor_can_reach_older_records() {
     assert_eq!(second["has_more"], false);
 }
 
+/// The table and JSON forms of a start time, recorded before the storage
+/// types moved from `chrono` to `jiff` (IF-231).
+#[test]
+fn list_renders_start_times_in_their_recorded_forms() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("runs");
+    seed_runs(&store, 3);
+    fs::write(
+        store.join("fraction.json"),
+        r#"{"id":"fraction","flow_name":"cli-list","status":"success","started":"2026-01-01T00:00:09.987654321Z","finished":null,"ctx":{},"tasks":{}}"#,
+    )
+    .unwrap();
+
+    let table = base_list_command(temp.path(), &store).output().unwrap();
+    assert!(table.status.success());
+    let table = String::from_utf8(table.stdout).unwrap();
+    let started: Vec<String> = table
+        .lines()
+        .filter(|line| line.contains("cli-list"))
+        .map(|line| {
+            let field: Vec<&str> = line.split_whitespace().collect();
+            field[field.len() - 2..].join(" ")
+        })
+        .collect();
+    assert_eq!(
+        started,
+        [
+            "2026-01-01 00:00:09",
+            "2026-01-01 00:00:02",
+            "2026-01-01 00:00:01",
+            "2026-01-01 00:00:00",
+        ],
+        "{table}"
+    );
+
+    let listed = json(&list_command(temp.path(), &store).output().unwrap());
+    assert_eq!(
+        listed["runs"][0]["started"],
+        "2026-01-01T00:00:09.987654321Z"
+    );
+    assert_eq!(listed["runs"][1]["started"], "2026-01-01T00:00:02Z");
+}
+
 #[test]
 fn list_cap_override_and_invalid_values_are_enforced() {
     let temp = tempfile::tempdir().unwrap();
