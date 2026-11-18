@@ -49,6 +49,12 @@ publication is verified separately.
   and HTTP dates are accepted as before. `--before` refuses a tenth fraction
   digit, which used to be dropped, and accepts a few more ISO 8601
   spellings, such as a time without seconds.
+- `date_format` no longer uses `chrono` (IF-231). Its `input_format` and
+  `output_format` specifiers, the auto-detected input formats, the accepted
+  spellings and the error texts are unchanged; the node page now lists the
+  specifiers itself. One difference: dates are held for the years -9999 to
+  9999, where -262143 to 262142 were accepted. An input outside that range,
+  or a `timezone` that moves the result outside it, fails the step.
 - Library API: `StateStore::prune_before` compares whole microseconds in
   every store (IF-232). The JSON and Redis stores compared nanoseconds, so a
   cutoff later in a run's own microsecond deleted a run that SQLite and
@@ -66,10 +72,11 @@ publication is verified separately.
 
 - `chrono-tz` is removed and its audit exception (RUSTSEC-2026-0555) retired;
   `jiff` 1.0 is added with only its bundled time zone database enabled.
-- `chrono` no longer has its `serde` feature enabled. IronFlow uses it only
-  for the `date_format` node and to exchange values with `cron`; it stays in
-  the dependency graph, and its audit exception (RUSTSEC-2026-0543) stays,
-  through those and `calamine`, `lopdf` and `rmcp`.
+- `chrono` is no longer used by IronFlow except in the adapter that hands
+  wall-clock values to `cron`, and none of its optional features is enabled
+  (IF-231). `lopdf` and `calamine` no longer enable theirs. The crate stays
+  in the dependency graph through `cron` and `rmcp`, so its audit exception
+  (RUSTSEC-2026-0543) stays, reviewed on 2026-11-18.
 - The Markdown parser `comrak` moves from 0.59 to 1.0. It caps the text that
   reference links may expand to at the larger of the input size and 100 KB;
   0.59 used the smaller of the two. A Markdown document that repeats a
@@ -84,6 +91,14 @@ publication is verified separately.
 ## Fixed
 
 - `extract_xlsx` returns a cell with an elapsed-time format (`[h]:mm:ss`) as an ISO-8601 duration such as `PT37H30M`. It was returned as a date (`1900-01-01T13:30:00`), which dropped whole days (IF-227). The node page now documents what dates, times of day, durations and 1904-system workbooks return.
+
+- `date_format` writes `%C` for a year before 0000 as a number (`-1` for the
+  year -0001). It was written as two characters that are not a number (`I5`)
+  (IF-234).
+- `extract_xlsx` returns `null` for a date or elapsed-time cell whose value no
+  calendar holds. A cell such as `-1e300` failed the whole step (IF-233). A
+  date after the year 9999 is `null` as well; it was written with a sign
+  (`+10000-01-01T00:00:00`).
 
 ## Added
 

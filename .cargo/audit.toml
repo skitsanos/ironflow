@@ -26,19 +26,23 @@
 # whenever an entry not reviewed here appears. Review again by 2026-12-12 if
 # no such release exists.
 #
-# One further reviewed exception is active (IF-231, reviewed 2026-11-17):
+# One further reviewed exception is active (IF-231, reviewed 2026-11-18):
 #
 # RUSTSEC-2026-0543 (chrono 0.4.45) reports the crate as unmaintained. It
 # names no vulnerability and has no patched version.
 #
-# Why it is not fixed: chrono is used throughout IronFlow and also arrives
-# through calamine, cron, lopdf and rmcp, so no update removes it from the
-# graph. IF-231 tracks the migration of IronFlow's own time handling. Its first
-# stage moved named time zones to jiff and removed chrono-tz, which retired
-# the RUSTSEC-2026-0555 exception.
+# Why it is not fixed: IronFlow's own time handling moved to jiff (IF-231,
+# finished 2026-11-18), but the cron crate evaluates schedules over chrono
+# types and rmcp reads the clock through it, so no update removes chrono from
+# the graph. IronFlow's only use is src/scheduler/cron_boundary.rs, which
+# exchanges wall-clock values with cron and enables no chrono feature.
 #
-# Exit: remove the entry when chrono leaves Cargo.lock;
-# scripts/tests/repository_policy.test.ts fails if the entry outlives the
-# crate. Review again by 2026-12-17.
+# Exposure: none known. IronFlow parses and formats no date with chrono.
+#
+# Exit: remove the entry when cron and rmcp no longer resolve chrono, or when
+# the advisory is withdrawn. scripts/tests/repository_policy.test.ts fails if
+# the entry outlives the crate, if another crate resolves chrono, if a chrono
+# feature is enabled here, or if another module imports it. Review again by
+# 2026-12-17.
 [advisories]
 ignore = ["RUSTSEC-2026-0459", "RUSTSEC-2026-0543"]

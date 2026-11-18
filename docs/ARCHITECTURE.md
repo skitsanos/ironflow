@@ -240,6 +240,19 @@ its worst-case decoded size ([IF-178](issues/IF-178.md)). Shared extraction
 budgets cover operations, property hops and text, with cooperative checkpoints
 outside opaque content/font decoding calls.
 
+`date_format` reads `input_format` and `output_format` itself
+(`nodes/utility/strftime/`): the two strings are a public contract, and the
+strftime dialects of `chrono`, which the node used until
+[IF-231](issues/IF-231.md), and of `jiff` differ in specifiers, padding,
+accepted spellings and error text. The module splits a format into items,
+reads an input into fields, resolves the fields to one date with the rule
+that every field given must agree, and writes the result; `jiff` supplies the
+calendar (dates, weekdays, ISO weeks, arithmetic) and holds the years -9999 to
+9999. `tests/test_date_format_golden.rs` compares 2638 cases with a recording
+taken from the `chrono` implementation. `extract_xlsx` converts date serials
+the same way, in `nodes/extract/xlsx/cells.rs`. `chrono` is imported only by
+`scheduler/cron_boundary.rs`.
+
 ### 3. Lua Runtime (`lua/`)
 
 - Uses `mlua` crate with Lua 5.4

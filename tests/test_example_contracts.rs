@@ -287,7 +287,7 @@ fn date_format_example_reports_its_summary_as_the_final_log_message() {
     let flow = "examples/20-date/date_format.lua";
     let source = fs::read_to_string(repository_root().join(flow)).unwrap();
     assert!(
-        source.contains(r#":depends_on("offset", "format_failed")"#),
+        source.contains(r#":depends_on("calendar", "format_failed")"#),
         "the summary log must run after the failure handler"
     );
 

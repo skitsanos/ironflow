@@ -419,7 +419,7 @@ depended on directly ([IF-231](issues/IF-231.md)):
 
 | Advisory | Crate | Outcome |
 | --- | --- | --- |
-| [RUSTSEC-2026-0543](https://rustsec.org/advisories/RUSTSEC-2026-0543.html) | `chrono` | Reported as unmaintained; no vulnerability and no patched version. IronFlow itself now uses it only for the `date_format` node and to exchange values with `cron`; stored and published timestamps use `jiff`. Reviewed exception until IronFlow and `calamine`, `cron`, `lopdf` and `rmcp` no longer resolve it. |
+| [RUSTSEC-2026-0543](https://rustsec.org/advisories/RUSTSEC-2026-0543.html) | `chrono` | Reported as unmaintained; no vulnerability and no patched version. IronFlow's own time handling moved to `jiff` in four stages, finished on 2026-11-18: the only module that still uses `chrono` is the adapter that hands wall-clock values to `cron`, with no optional feature enabled. The crate stays in `Cargo.lock` through `cron` and `rmcp`, so one reviewed exception remains, described below. |
 | [RUSTSEC-2026-0555](https://rustsec.org/advisories/RUSTSEC-2026-0555.html) | `chrono-tz` | Removed. Schedule time zones now use `jiff` with the IANA database compiled into the binary, and the exception is retired. The policy test fails if `chrono-tz` returns to `Cargo.lock`. |
 
 Updating `calamine` was not free of risk. Version 0.38 builds a style record
@@ -458,9 +458,26 @@ no fixed version resolves. The `sqlx` development branch already accepts it.
   are not affected.
 - **Exit.** The entry is removed when a published `sqlx` release resolves
   `libsqlite3-sys` 0.39.0 or later. A repository policy test fails as soon as
-  the lockfile holds a fixed version while the entry remains, and whenever a
-  second entry is added. The exception is reviewed again by 2026-12-12 if no
-  such release exists.
+  the lockfile holds a fixed version while the entry remains, and whenever an
+  entry that is not reviewed here is added. The exception is reviewed again
+  by 2026-12-12 if no such release exists.
+
+### chrono exception (RUSTSEC-2026-0543)
+
+The advisory reports `chrono` as unmaintained. It names no vulnerability and
+no version fixes it ([IF-231](issues/IF-231.md)).
+
+- **Exposure.** None known. IronFlow parses no date and formats none with
+  `chrono`: `scheduler/cron_boundary.rs` passes it wall-clock values built
+  field by field and reads the next match back. The `cron` crate does its
+  calendar arithmetic on `chrono` types, and `rmcp` reads the clock through
+  it. A future defect in that arithmetic would not be fixed upstream.
+- **Exit.** The entry is removed when `cron` and `rmcp` no longer resolve
+  `chrono`, or when the advisory is withdrawn. A repository policy test fails
+  if the entry outlives the crate in `Cargo.lock`, if any crate other than
+  `cron`, `rmcp` and IronFlow itself resolves it, if IronFlow enables one of
+  its features, or if a module other than the adapter imports it. Reviewed on
+  2026-11-18; reviewed again by 2026-12-17.
 
 ### Scheduled audit
 

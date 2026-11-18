@@ -7,7 +7,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts check`.
 
 - Total findings: 234
-- Active findings: 1
+- Active findings: 0
 
 ## Working agreement
 
@@ -258,7 +258,7 @@ priority, area, and title. The registry is generated with
 | [IF-228](./IF-228.md) | P3 | Resolved | Documents/extraction fidelity | Decide whether slide footer placeholder text belongs in extract_pptx slide text |
 | [IF-229](./IF-229.md) | P3 | Resolved | Documents/extraction fidelity | extract_pptx approximated bullets inherited from the layout and master |
 | [IF-230](./IF-230.md) | P3 | Resolved | Documents/extraction fidelity | extract_word and extract_pptx read the main document and its parts from fixed paths |
-| [IF-231](./IF-231.md) | P2 | Open | Dependencies/time handling | chrono and chrono-tz are reported as unmaintained |
+| [IF-231](./IF-231.md) | P2 | Resolved | Dependencies/time handling | chrono and chrono-tz are reported as unmaintained |
 | [IF-232](./IF-232.md) | P3 | Resolved | Storage/retention | prune_before compares a different precision in the JSON and Redis stores than in SQL |
 | [IF-233](./IF-233.md) | P3 | Resolved | Document extraction/extract_xlsx | extract_xlsx fails the step on a date or elapsed-time cell with an extreme value |
 | [IF-234](./IF-234.md) | P3 | Resolved | Utility nodes/date_format | date_format writes the century of a year before 0000 as characters that are not a number |
