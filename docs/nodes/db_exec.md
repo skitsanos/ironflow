@@ -25,7 +25,6 @@ The output keys are fixed; a later `db_exec` step overwrites them.
 - A database error, a failed connection, or an array or object in `params` fails the step.
 - Booleans are bound with the driver's native type (SQLite stores `0`/`1`).
 - PostgreSQL requires a build with the `postgres` feature; it supports `sslmode=require`, `verify-ca` and `verify-full`, with `sslrootcert=` for a private CA.
-- Open only SQLite files written by IronFlow or a trusted party; see [Dependency advisories](../SECURITY.md#dependency-advisories).
 - With `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, every host in the connection URL (including PostgreSQL `host` and `hostaddr`) must be public or allowlisted; SQLite files and Unix sockets are unaffected. See [Outbound destinations](../SECURITY.md#outbound-destinations).
 
 ## Examples

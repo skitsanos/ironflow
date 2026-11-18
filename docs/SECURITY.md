@@ -412,7 +412,7 @@ release were handled on 2026-11-12 ([IF-173](issues/IF-173.md)):
 | --- | --- | --- |
 | [RUSTSEC-2026-0462](https://rustsec.org/advisories/RUSTSEC-2026-0462.html) | `rmcp` | Updated to 3.9.0 and required as the minimum. `mcp_client` over Streamable HTTP was affected: JSON and error bodies were read without a limit. They are now capped at 16 MiB and 64 KiB. |
 | [RUSTSEC-2026-0436](https://rustsec.org/advisories/RUSTSEC-2026-0436.html) | `calamine` | Updated to 0.38.0. The defect is in the `.xls`/`.xlsb`/VBA container parser. `extract_xlsx` does not read those formats, but see the note below on the compound-file probe. |
-| [RUSTSEC-2026-0459](https://rustsec.org/advisories/RUSTSEC-2026-0459.html) | `libsqlite3-sys` | Not fixable yet; one reviewed exception, described below. |
+| [RUSTSEC-2026-0459](https://rustsec.org/advisories/RUSTSEC-2026-0459.html) | `libsqlite3-sys` | Fixed on 2026-11-18: `sqlx` 0.9.1 resolves `libsqlite3-sys` 0.40.0 with SQLite 3.54.1, and the reviewed exception was retired. |
 
 On 2026-11-17 two informational advisories appeared for crates IronFlow
 depended on directly ([IF-231](issues/IF-231.md)):
@@ -445,28 +445,14 @@ the SMTP client and message builder that `send_email` uses with the SMTP
 provider. `lettre` was updated to 0.11.24, which fixes all six, and that
 version is now the required minimum ([IF-235](issues/IF-235.md)).
 
-### SQLite exception (RUSTSEC-2026-0459)
+### SQLite exception (RUSTSEC-2026-0459), retired
 
-The bundled SQLite is 3.51.3. Before 3.54.0, SQLite can return uninitialized
-page-cache memory when a database is opened together with a crafted sibling
-`-wal` file (CVE-2026-119375). The fix ships in `libsqlite3-sys` 0.39.0, but
-the newest published `sqlx-sqlite` (0.9.0) requires a version below 0.38, so
-no fixed version resolves. The `sqlx` development branch already accepts it.
-
-- **Exposure.** An attacker must write both the database file and its `-wal`
-  file, and IronFlow must then open them. The state and event stores live in
-  an owner-only directory (IF-163) and are not exposed by this. The exposed
-  path is a `db_query` or `db_exec` flow whose `connection` names a SQLite
-  file that a less trusted party could have written: its rows could carry
-  stale memory of the IronFlow process into workflow context.
-- **Until it is fixed.** Do not point `db_query` or `db_exec` at SQLite files,
-  or at directories, that an untrusted party can write. PostgreSQL connections
-  are not affected.
-- **Exit.** The entry is removed when a published `sqlx` release resolves
-  `libsqlite3-sys` 0.39.0 or later. A repository policy test fails as soon as
-  the lockfile holds a fixed version while the entry remains, and whenever an
-  entry that is not reviewed here is added. The exception is reviewed again
-  by 2026-12-12 if no such release exists.
+Before 3.54.0, SQLite could return uninitialized page-cache memory when a
+database was opened together with a crafted sibling `-wal` file
+(CVE-2026-119375). IronFlow carried a reviewed audit exception from 2026-11-12
+until 2026-11-18, when `sqlx` 0.9.1 resolved `libsqlite3-sys` 0.40.0 (SQLite
+3.54.1). Releases up to 1.22.0 bundle SQLite 3.51.3: with those, do not point
+`db_query` or `db_exec` at SQLite files that an untrusted party can write.
 
 ### chrono exception (RUSTSEC-2026-0543)
 

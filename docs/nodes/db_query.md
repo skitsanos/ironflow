@@ -45,7 +45,6 @@ supported, even when NULL. Cast them in SQL: `::text` to keep exact digits, or
 - Arrays and objects in `params` fail the step.
 - A per-step `max_rows` or `max_result_bytes` of `0` falls back to the global setting.
 - PostgreSQL requires a build with the `postgres` feature; it supports `sslmode=require`, `verify-ca` and `verify-full`, with `sslrootcert=` for a private CA.
-- Open only SQLite files written by IronFlow or a trusted party; see [Dependency advisories](../SECURITY.md#dependency-advisories).
 - With `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, every host in the connection URL (including PostgreSQL `host` and `hostaddr`) must be public or allowlisted; SQLite files and Unix sockets are unaffected. See [Outbound destinations](../SECURITY.md#outbound-destinations).
 
 ## Limits

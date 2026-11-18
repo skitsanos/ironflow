@@ -95,10 +95,27 @@ test("Rust workflow pins and the Docker builder stay in one update group", async
   expect(resolve(rules, { manager: "dockerfile", datasource: "docker", name: "debian" }).groupName).toBeUndefined();
 });
 
+test("the rmcp deferral excludes only 3.11.0 and keeps later releases eligible", async () => {
+  // IF-236: 3.11.0 reads a JSON error body up to the full response limit.
+  const rules = await packageRules();
+  const lock = Bun.TOML.parse(await Bun.file(join(repository, "Cargo.lock")).text()) as {
+    package: { name: string; version: string }[];
+  };
+  const { allowedVersions, description } = resolve(rules, cargo("rmcp"));
+  expect(allowedVersions).toBe("!/^3\\.11\\.0$/");
+  expect(admits(allowedVersions!, "3.11.0")).toBeFalse();
+  expect(admits(allowedVersions!, "3.10.0")).toBeTrue();
+  expect(admits(allowedVersions!, "3.11.1")).toBeTrue();
+  expect(admits(allowedVersions!, lock.package.find((entry) => entry.name === "rmcp")!.version)).toBeTrue();
+  expect(description).toContain("IF-236");
+  expect(description).toContain("Later releases remain eligible");
+});
+
 test("deferrals are exact exclusions, never version ceilings", async () => {
   const rules = await packageRules();
   const exclusions = rules.filter((rule) => rule.allowedVersions !== undefined);
-  expect(exclusions).toHaveLength(deferred.length);
+  // The AWS cohort plus the rmcp deferral.
+  expect(exclusions).toHaveLength(deferred.length + 1);
   for (const rule of exclusions) {
     expect(rule.matchManagers).toEqual(["cargo"]);
     expect(rule.matchPackageNames).toHaveLength(1);

@@ -9,7 +9,7 @@ tree, `OFL.txt` in the release archives, `fonts-OFL.txt` in the image).
 This file is generated from `Cargo.lock` by
 `bun --no-env-file scripts/third_party_notices.ts write`; do not edit it by
 hand. It covers every crate reachable from IronFlow through normal or build
-dependencies with all Cargo features enabled (554 crates), so it also lists
+dependencies with all Cargo features enabled (557 crates), so it also lists
 crates that only the `-full` archives and the container image include. Rows
 carry no version: the exact versions linked into a binary are those in the
 `Cargo.lock` of the source revision it was built from. Where a crate offers
@@ -281,6 +281,7 @@ at the listed source.
 | lettre | MIT | MIT | https://github.com/lettre/lettre |
 | libbz2-rs-sys | bzip2-1.0.6 | bzip2-1.0.6 | https://github.com/trifectatechfoundation/libbzip2-rs |
 | libc | MIT OR Apache-2.0 | MIT | https://github.com/rust-lang/libc |
+| libredox | MIT | MIT | https://gitlab.redox-os.org/redox-os/libredox.git |
 | libsqlite3-sys | MIT | MIT | https://github.com/rusqlite/rusqlite |
 | linebender_resource_handle | Apache-2.0 OR MIT | MIT | https://github.com/linebender/raw_resource_handle |
 | litemap | Unicode-3.0 | Unicode-3.0 | https://github.com/unicode-org/icu4x |
@@ -324,6 +325,8 @@ at the listed source.
 | num-iter | MIT OR Apache-2.0 | MIT | https://github.com/rust-num/num-iter |
 | num-rational | MIT OR Apache-2.0 | MIT | https://github.com/rust-num/num-rational |
 | num-traits | MIT OR Apache-2.0 | MIT | https://github.com/rust-num/num-traits |
+| objc2-core-foundation | Zlib OR Apache-2.0 OR MIT | MIT | https://github.com/madsmtm/objc2 |
+| objc2-system-configuration | Zlib OR Apache-2.0 OR MIT | MIT | https://github.com/madsmtm/objc2 |
 | once_cell | MIT OR Apache-2.0 | MIT | https://github.com/matklad/once_cell |
 | once_cell_polyfill | MIT OR Apache-2.0 | MIT | https://github.com/polyfill-rs/once_cell_polyfill |
 | openssl-probe | MIT OR Apache-2.0 | MIT | https://github.com/rustls/openssl-probe |
@@ -433,7 +436,7 @@ at the listed source.
 | siphasher | MIT OR Apache-2.0 | MIT | https://github.com/jedisct1/rust-siphash |
 | skrifa | MIT OR Apache-2.0 | MIT | https://github.com/googlefonts/fontations |
 | slab | MIT | MIT | https://github.com/tokio-rs/slab |
-| smallvec | MIT OR Apache-2.0 | MIT | https://github.com/servo/rust-smallvec |
+| smallvec | MIT OR Apache-2.0 | MIT | https://github.com/smallvec/smallvec |
 | socket2 | MIT OR Apache-2.0 | MIT | https://github.com/rust-lang/socket2 |
 | spin | MIT | MIT | https://github.com/mvdnes/spin-rs.git |
 | spki | Apache-2.0 OR MIT | MIT | https://github.com/RustCrypto/formats |
@@ -599,7 +602,7 @@ Each license below applies to the crates whose "Used under" column names it.
 
 ### MIT
 
-Used by 468 crates.
+Used by 471 crates.
 
 ```text
 MIT License

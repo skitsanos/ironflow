@@ -88,8 +88,14 @@ publication is verified separately.
   one 1.9 KB target in a 9 KB input give 32 pages, where 0.59 gave fewer than
   10. The existing limits (256 KB input, 20,000 nodes, 32 MiB output) still
   apply.
-- `zip` 9.6.1 (re-read recorded in IF-218), `noyalib` 0.0.62, the AWS SDK
-  crates, `clap` 4.6.8 and `uuid` 1.29.3.
+- `sqlx` 0.9.1 resolves a SQLite binding that bundles SQLite 3.54.1, which
+  fixes RUSTSEC-2026-0459 (uninitialized page-cache memory through a crafted
+  `-wal` file). The audit exception carried since 1.21.0 is retired, and the
+  advice not to open untrusted SQLite files with `db_query` or `db_exec`
+  applies only to releases up to 1.22.0.
+- `zip` 9.7.0 (re-reads recorded in IF-218), `jiff` 1.0.1, `noyalib` 0.0.62,
+  the AWS SDK crates, `clap` 4.6.8 and `uuid` 1.29.3. `rmcp` stays at 3.10.0:
+  3.11.0 reads a JSON error body up to the full response limit (IF-236).
 
 ## Fixed
 
