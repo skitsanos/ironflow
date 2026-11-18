@@ -11,11 +11,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use chrono::{DateTime, TimeZone as _, Utc};
 use ironflow::engine::types::Context;
 use ironflow::scheduler::config::ScheduleConfig;
 use ironflow::scheduler::{Decision, Outcome, ScheduleExecutor, ScheduleRun, Scheduler};
 use ironflow::storage::StateStore;
+use jiff::{SignedDuration, Timestamp};
 
 #[cfg(feature = "redis")]
 #[path = "support/redis.rs"]
@@ -89,9 +89,9 @@ impl ScheduleExecutor for Replica {
     }
 }
 
-fn at(hour: u32, minute: u32, second: u32) -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(2026, 5, 1, hour, minute, second)
-        .unwrap()
+fn at(hour: i8, minute: i8, second: i8) -> Timestamp {
+    let wall_clock = jiff::civil::datetime(2026, 5, 1, hour, minute, second, 0);
+    jiff::tz::Offset::UTC.to_timestamp(wall_clock).unwrap()
 }
 
 /// A replica's scheduler, started at `started` and so catching up over the
@@ -101,7 +101,7 @@ fn scheduler(
     grace_seconds: u64,
     store: &Arc<dyn StateStore>,
     replica: &Arc<Replica>,
-    started: DateTime<Utc>,
+    started: Timestamp,
 ) -> Scheduler {
     let schedule = ScheduleConfig::new(
         "report.lua",
@@ -212,7 +212,7 @@ fn minute_key(hour: u32, minute: u32) -> String {
 /// Evaluate `scheduler` at `now` until a tick records no further superseded
 /// instant, and return every decision in order. One tick records a bounded
 /// number of them, so a long catch-up takes several.
-async fn catch_up(scheduler: &mut Scheduler, now: DateTime<Utc>) -> Vec<Decision> {
+async fn catch_up(scheduler: &mut Scheduler, now: Timestamp) -> Vec<Decision> {
     let mut all = Vec::new();
     for _tick in 0..32 {
         let decisions = scheduler.evaluate(now).await;
@@ -262,8 +262,8 @@ async fn catch_up_starts_only_the_latest_instant(store: Arc<dyn StateStore>, mis
         .collect::<Vec<_>>();
     let expected = (1..missed)
         .map(|back| {
-            let instant = at(4, 0, 0) - chrono::Duration::minutes(i64::from(missed - back));
-            format!("UTC@{}", instant.format("%Y-%m-%dT%H:%M"))
+            let instant = at(4, 0, 0) - SignedDuration::from_mins(i64::from(missed - back));
+            format!("UTC@{}", instant.strftime("%Y-%m-%dT%H:%M"))
         })
         .collect::<Vec<_>>();
     assert_eq!(

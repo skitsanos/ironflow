@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use chrono::{TimeZone as _, Utc};
+use jiff::Timestamp;
 
 use super::*;
 use crate::scheduler::{Outcome, Scheduler};
@@ -40,7 +40,7 @@ async fn a_draining_replica_defers_the_instant_and_records_nothing() {
         crate::engine::types::Context::new(),
     )
     .unwrap();
-    let now = Utc.with_ymd_and_hms(2026, 5, 1, 2, 0, 5).unwrap();
+    let now = utc_at(2026, 5, 1, 2, 0, 5);
     let mut scheduler = Scheduler::new(
         HashMap::from([("nightly".to_string(), schedule)]),
         store.clone(),
@@ -58,4 +58,9 @@ async fn a_draining_replica_defers_the_instant_and_records_nothing() {
     );
     assert!(!store.schedule_run_recorded("nightly", KEY).await.unwrap());
     assert!(store.list_runs(None).await.unwrap().is_empty());
+}
+
+fn utc_at(year: i16, month: i8, day: i8, hour: i8, minute: i8, second: i8) -> Timestamp {
+    let wall_clock = jiff::civil::datetime(year, month, day, hour, minute, second, 0);
+    jiff::tz::Offset::UTC.to_timestamp(wall_clock).unwrap()
 }

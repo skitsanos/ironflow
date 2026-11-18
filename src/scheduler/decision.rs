@@ -1,6 +1,6 @@
 //! The decision for one due instant: claim, skip or start.
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 
 use super::config::ScheduleConfig;
 use super::timing::DueInstant;
@@ -22,7 +22,7 @@ impl Scheduler {
         name: &str,
         schedule: &ScheduleConfig,
         instant: &DueInstant,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> Outcome {
         let claimed = match self.claim(name, schedule, instant).await {
             Ok(claimed) => claimed,
@@ -120,9 +120,11 @@ impl Scheduler {
         name: &str,
         schedule: &ScheduleConfig,
         instant: &DueInstant,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> Option<Outcome> {
-        let lateness_seconds = (now - instant.instant.with_timezone(&Utc)).num_seconds();
+        // Whole elapsed seconds, dropping the fraction: 300.9 seconds late
+        // is 300, and a clock that reads earlier than the instant is negative.
+        let lateness_seconds = now.duration_since(instant.instant.timestamp()).as_secs();
         if lateness_seconds > schedule.grace_seconds_i64() {
             tracing::warn!(
                 schedule = %name,

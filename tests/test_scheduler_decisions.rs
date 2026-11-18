@@ -2,12 +2,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use chrono::{DateTime, TimeZone as _, Utc};
 use ironflow::engine::types::Context;
 use ironflow::scheduler::config::ScheduleConfig;
 use ironflow::scheduler::{Outcome, ScheduleExecutor, ScheduleRun, Scheduler};
 use ironflow::storage::StateStore;
 use ironflow::storage::null_store::NullStateStore;
+use jiff::{SignedDuration, Timestamp};
 
 #[derive(Default)]
 struct StubExecutor {
@@ -55,8 +55,13 @@ impl ScheduleExecutor for StubExecutor {
     }
 }
 
-fn utc(y: i32, m: u32, d: u32, h: u32, min: u32) -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(y, m, d, h, min, 0).unwrap()
+fn utc(y: i16, m: i8, d: i8, h: i8, min: i8) -> Timestamp {
+    utc_at(y, m, d, h, min, 0)
+}
+
+fn utc_at(year: i16, month: i8, day: i8, hour: i8, minute: i8, second: i8) -> Timestamp {
+    let wall_clock = jiff::civil::datetime(year, month, day, hour, minute, second, 0);
+    jiff::tz::Offset::UTC.to_timestamp(wall_clock).unwrap()
 }
 
 fn daily_at_two() -> HashMap<String, ScheduleConfig> {
@@ -76,7 +81,7 @@ fn daily_at_two() -> HashMap<String, ScheduleConfig> {
 fn scheduler(
     store: Arc<dyn StateStore>,
     executor: Arc<StubExecutor>,
-    start: DateTime<Utc>,
+    start: Timestamp,
 ) -> Scheduler {
     Scheduler::new(daily_at_two(), store, executor, start)
 }
@@ -215,7 +220,7 @@ async fn an_instant_just_inside_the_grace_window_still_fires() {
 
     // 299 seconds late, one second inside the 300-second default.
     let decisions = scheduler
-        .evaluate(utc(2026, 5, 1, 2, 4) + chrono::Duration::seconds(59))
+        .evaluate(utc(2026, 5, 1, 2, 4) + SignedDuration::from_secs(59))
         .await;
 
     assert!(matches!(decisions[0].outcome, Outcome::Fired { .. }));
@@ -360,7 +365,7 @@ async fn catch_up_seeding_measures_real_elapsed_time_across_a_dst_gap() {
         Context::new(),
     )
     .unwrap();
-    let now = Utc.with_ymd_and_hms(2026, 3, 29, 1, 30, 0).unwrap();
+    let now = utc_at(2026, 3, 29, 1, 30, 0);
 
     let mut scheduler = Scheduler::new(
         HashMap::from([("nightly".to_string(), schedule)]),
@@ -603,14 +608,14 @@ async fn an_instant_aged_out_of_grace_stops_pinning_the_watermark() {
         schedules,
         store,
         executor.clone(),
-        utc(2026, 5, 1, 2, 4) + chrono::Duration::seconds(59),
+        utc(2026, 5, 1, 2, 4) + SignedDuration::from_secs(59),
     );
 
     let stale_key = "UTC@2026-05-01T02:00";
 
     // Tick near the instant: it is the only thing due, and its claim fails.
     let first = scheduler
-        .evaluate(utc(2026, 5, 1, 2, 0) + chrono::Duration::seconds(15))
+        .evaluate(utc(2026, 5, 1, 2, 0) + SignedDuration::from_secs(15))
         .await;
     assert_eq!(first.len(), 1);
     assert_eq!(first[0].key, stale_key);
@@ -622,7 +627,7 @@ async fn an_instant_aged_out_of_grace_stops_pinning_the_watermark() {
     // describes, and no single tick can avoid it once a backlog exists. What
     // the fix changes is whether the *next* tick keeps doing this.
     let second = scheduler
-        .evaluate(utc(2026, 5, 1, 2, 40) + chrono::Duration::seconds(15))
+        .evaluate(utc(2026, 5, 1, 2, 40) + SignedDuration::from_secs(15))
         .await;
     assert!(
         second.iter().any(|d| d.key == stale_key),
@@ -636,7 +641,7 @@ async fn an_instant_aged_out_of_grace_stops_pinning_the_watermark() {
     // Floored, the watermark advanced past grace during the previous tick,
     // so this tick's window is small and the stale instant is gone for good.
     let third = scheduler
-        .evaluate(utc(2026, 5, 1, 2, 40) + chrono::Duration::seconds(45))
+        .evaluate(utc(2026, 5, 1, 2, 40) + SignedDuration::from_secs(45))
         .await;
     assert!(
         !third.iter().any(|d| d.key == stale_key),
@@ -661,7 +666,7 @@ async fn a_deferred_start_is_retried_and_only_the_latest_missed_instant_fires() 
         ScheduleConfig::new("f.lua", "* * * * *", Some("UTC"), None, Context::new()).unwrap(),
     )]);
     let executor = Arc::new(StubExecutor::default());
-    let start = utc(2026, 5, 1, 2, 0) + chrono::Duration::seconds(30);
+    let start = utc(2026, 5, 1, 2, 0) + SignedDuration::from_secs(30);
     // The default 300-second grace seeds a five-instant catch-up window.
     let mut scheduler = Scheduler::new(schedules, store, executor.clone(), start);
     let outcomes = |decisions: &[ironflow::scheduler::Decision]| {
@@ -697,7 +702,7 @@ async fn a_deferred_start_is_retried_and_only_the_latest_missed_instant_fires() 
     // The deferred instant is retried on the next tick and fires.
     executor.defer.store(false, Ordering::SeqCst);
     let second = scheduler
-        .evaluate(start + chrono::Duration::seconds(15))
+        .evaluate(start + SignedDuration::from_secs(15))
         .await;
     assert_eq!(second.len(), 1, "{second:?}");
     assert_eq!(second[0].key, "UTC@2026-05-01T02:00");
@@ -705,7 +710,7 @@ async fn a_deferred_start_is_retried_and_only_the_latest_missed_instant_fires() 
     assert_eq!(executor.runs.load(Ordering::SeqCst), 1);
 
     let third = scheduler
-        .evaluate(start + chrono::Duration::seconds(30))
+        .evaluate(start + SignedDuration::from_secs(30))
         .await;
     assert_eq!(third.len(), 1, "{third:?}");
     assert_eq!(third[0].key, "UTC@2026-05-01T02:01");
@@ -724,11 +729,11 @@ async fn an_instant_still_deferred_when_the_next_is_due_is_superseded_by_it() {
         ScheduleConfig::new("f.lua", "* * * * *", Some("UTC"), None, Context::new()).unwrap(),
     )]);
     let executor = Arc::new(StubExecutor::default());
-    let start = utc(2026, 5, 1, 2, 0) + chrono::Duration::seconds(5);
+    let start = utc(2026, 5, 1, 2, 0) + SignedDuration::from_secs(5);
     let mut scheduler = Scheduler::new(schedules, store, executor.clone(), start);
     // Settle the catch-up window first, so only 02:00 is due below.
     scheduler
-        .evaluate(start - chrono::Duration::seconds(10))
+        .evaluate(start - SignedDuration::from_secs(10))
         .await;
     let before = executor.runs.load(Ordering::SeqCst);
 
@@ -743,7 +748,7 @@ async fn an_instant_still_deferred_when_the_next_is_due_is_superseded_by_it() {
     // deferred 02:00 is a missed instant now, and 02:01 is the one that runs.
     executor.defer.store(false, Ordering::SeqCst);
     let second = scheduler
-        .evaluate(start + chrono::Duration::seconds(60))
+        .evaluate(start + SignedDuration::from_secs(60))
         .await;
     let outcomes = second
         .iter()

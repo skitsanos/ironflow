@@ -4,8 +4,15 @@
 //! to real instants. Iterating in the target zone directly is not equivalent:
 //! `cron` drops an occurrence whose local time does not exist, so a daily 02:00
 //! job silently does not run on a spring-forward date.
+//!
+//! Wall-clock times are `jiff::civil::DateTime` and instants are
+//! `jiff::Timestamp` or `jiff::ZonedDateTime`, so the two cannot be mixed up.
+//! All arithmetic uses `jiff::SignedDuration`, an exact number of seconds:
+//! on an instant it is elapsed time, and on a wall-clock time it moves the
+//! clock reading by that much with no zone involved. No calendar unit (a
+//! "day" that may be 23 or 25 hours) is used anywhere in the scheduler.
 
-use chrono::{DateTime, Duration, FixedOffset, NaiveDateTime, TimeZone, Utc};
+use jiff::{SignedDuration, Timestamp, ZonedDateTime, civil};
 
 use super::config::{ScheduleConfig, ScheduleZone};
 
@@ -25,10 +32,11 @@ const MAX_GAP_PROBE_MINUTES: i64 = 6 * 60;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DueInstant {
     /// Local wall-clock time the expression matched. Identity of the fire.
-    pub local: NaiveDateTime,
-    /// The real instant to fire at, after DST resolution, carrying the
-    /// zone's offset at that instant.
-    pub instant: DateTime<FixedOffset>,
+    pub local: civil::DateTime,
+    /// The real instant to fire at, after DST resolution, in the schedule's
+    /// zone: `timestamp()` is the instant and `datetime()` the wall-clock
+    /// time the zone shows at it.
+    pub instant: ZonedDateTime,
     /// Cross-replica claim key derived from `local`.
     pub key: String,
 }
@@ -37,7 +45,7 @@ pub struct DueInstant {
 ///
 /// Returns `None` only if a zone had a gap longer than
 /// `MAX_GAP_PROBE_MINUTES`, which no real zone does.
-pub fn resolve_local(zone: &ScheduleZone, local: NaiveDateTime) -> Option<DateTime<FixedOffset>> {
+pub fn resolve_local(zone: &ScheduleZone, local: civil::DateTime) -> Option<ZonedDateTime> {
     // An ordinary wall-clock time has one instant. One that repeats when
     // clocks go back has two: fire once, on the earlier — the later one shares
     // a claim key and is refused.
@@ -48,7 +56,7 @@ pub fn resolve_local(zone: &ScheduleZone, local: NaiveDateTime) -> Option<DateTi
     // that does, rather than skipping the day.
     let mut probe = local;
     for _ in 0..MAX_GAP_PROBE_MINUTES {
-        probe += Duration::minutes(1);
+        probe = probe.checked_add(SignedDuration::from_mins(1)).ok()?;
         if let Some(instant) = zone.earliest_instant(probe) {
             return Some(instant);
         }
@@ -62,8 +70,24 @@ pub fn resolve_local(zone: &ScheduleZone, local: NaiveDateTime) -> Option<DateTi
 /// the same local time maps to two distinct UTC instants; a UTC-keyed claim
 /// would treat them as different fires and run the schedule twice, which is
 /// precisely the duplicate the claim exists to prevent.
-pub fn claim_key(zone: &ScheduleZone, local: NaiveDateTime) -> String {
-    format!("{}@{}", zone.name(), local.format("%Y-%m-%dT%H:%M"))
+///
+/// The form is `<zone>@YYYY-MM-DDTHH:MM`. Stored claims and peer replicas
+/// compare it byte for byte, so it is written out here rather than left to a
+/// library's formatter.
+pub fn claim_key(zone: &ScheduleZone, local: civil::DateTime) -> String {
+    format!("{}@{}", zone.name(), minute_text(local))
+}
+
+/// `YYYY-MM-DDTHH:MM`, the precision a five-field expression can match.
+pub(super) fn minute_text(local: civil::DateTime) -> String {
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}",
+        local.year(),
+        local.month(),
+        local.day(),
+        local.hour(),
+        local.minute()
+    )
 }
 
 /// The local instant before which a claim can no longer legitimately fire:
@@ -76,9 +100,12 @@ pub fn claim_key(zone: &ScheduleZone, local: NaiveDateTime) -> String {
 /// startup, and `evaluate`'s claim-error floor below, which stops a
 /// permanently failing claim from pinning the watermark past this same
 /// horizon.
-pub(super) fn grace_floor(now: DateTime<Utc>, schedule: &ScheduleConfig) -> NaiveDateTime {
-    let grace = Duration::seconds(schedule.grace_seconds_i64());
-    schedule.timezone().local_time(now - grace)
+pub(super) fn grace_floor(now: Timestamp, schedule: &ScheduleConfig) -> civil::DateTime {
+    let grace = SignedDuration::from_secs(schedule.grace_seconds_i64());
+    // Only a clock within a week of the earliest instant `jiff` represents
+    // could overflow; the floor then is that earliest instant.
+    let floor = now.checked_sub(grace).unwrap_or(Timestamp::MIN);
+    schedule.timezone().local_time(floor)
 }
 
 /// The local time to advance a schedule's watermark to for one evaluated
@@ -101,12 +128,17 @@ pub(super) fn grace_floor(now: DateTime<Utc>, schedule: &ScheduleConfig) -> Naiv
 /// `grace_floor` it can no longer legitimately fire anyway, so nothing is
 /// lost by letting the watermark pass it.
 pub(super) fn watermark_target(
-    through: NaiveDateTime,
-    grace_floor: NaiveDateTime,
-    earliest_retry: Option<NaiveDateTime>,
-) -> NaiveDateTime {
+    through: civil::DateTime,
+    grace_floor: civil::DateTime,
+    earliest_retry: Option<civil::DateTime>,
+) -> civil::DateTime {
     match earliest_retry {
-        Some(errored) => through.min((errored - Duration::seconds(1)).max(grace_floor)),
+        Some(errored) => {
+            let before = errored
+                .checked_sub(SignedDuration::from_secs(1))
+                .unwrap_or(civil::DateTime::MIN);
+            through.min(before.max(grace_floor))
+        }
         None => through,
     }
 }
@@ -115,18 +147,15 @@ pub(super) fn watermark_target(
 /// through_local]`, oldest first, resolved to the instant it fires at.
 pub(super) fn occurrences(
     schedule: &ScheduleConfig,
-    after_local: NaiveDateTime,
-    through_local: NaiveDateTime,
+    after_local: civil::DateTime,
+    through_local: civil::DateTime,
 ) -> impl Iterator<Item = DueInstant> + '_ {
     let zone = schedule.timezone();
-    // Feed naive local times to `cron` as if they were UTC. The iterator then
-    // walks wall-clock occurrences, which is the space the expression is
-    // written in.
-    let cursor = Utc.from_utc_datetime(&after_local);
+    // The expression is walked in wall-clock space, the space it is written
+    // in; each match is resolved to an instant afterwards.
     schedule
         .cron()
-        .after(&cursor)
-        .map(|candidate| candidate.naive_utc())
+        .after(after_local)
         .take_while(move |local| *local <= through_local)
         .filter_map(move |local| {
             let instant = resolve_local(zone, local)?;
@@ -136,7 +165,7 @@ pub(super) fn occurrences(
             // claim or the gap fires once per gap-interior occurrence instead of
             // once. `DueInstant.local` stays the matched time — `evaluate`'s
             // watermark comparisons need that — only the key changes.
-            let key = claim_key(zone, instant.naive_local());
+            let key = claim_key(zone, instant.datetime());
             Some(DueInstant {
                 local,
                 instant,
@@ -151,8 +180,8 @@ pub(super) fn occurrences(
 /// result.
 pub fn due_instants(
     schedule: &ScheduleConfig,
-    after_local: NaiveDateTime,
-    through_local: NaiveDateTime,
+    after_local: civil::DateTime,
+    through_local: civil::DateTime,
 ) -> (Vec<DueInstant>, bool) {
     if through_local <= after_local {
         return (Vec::new(), false);

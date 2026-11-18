@@ -8,7 +8,7 @@
 //! due instant is decided as usual, and every earlier one is superseded,
 //! recorded as settled and never started.
 
-use chrono::NaiveDateTime;
+use jiff::civil;
 
 use super::config::ScheduleConfig;
 use super::timing::{self, DueInstant, MAX_INSTANTS_PER_TICK};
@@ -29,17 +29,17 @@ pub(super) struct DueWindow {
     pub superseded: Vec<DueInstant>,
     /// Local time of the oldest superseded occurrence that did not fit in
     /// this tick. The watermark must stop before it.
-    pub resume_at: Option<NaiveDateTime>,
+    pub resume_at: Option<civil::DateTime>,
     /// Local time the enumeration reached: `through_local`, unless
     /// `MAX_WINDOW_OCCURRENCES` cut it short.
-    pub through: NaiveDateTime,
+    pub through: civil::DateTime,
 }
 
 /// Split the occurrences due in `(after_local, through_local]`.
 pub(super) fn due_window(
     schedule: &ScheduleConfig,
-    after_local: NaiveDateTime,
-    through_local: NaiveDateTime,
+    after_local: civil::DateTime,
+    through_local: civil::DateTime,
 ) -> DueWindow {
     let mut window = DueWindow {
         current: Vec::new(),
@@ -79,8 +79,8 @@ pub(super) fn due_window(
 mod tests {
     use super::*;
 
-    fn local(text: &str) -> NaiveDateTime {
-        NaiveDateTime::parse_from_str(text, "%Y-%m-%d %H:%M:%S").unwrap()
+    fn local(text: &str) -> civil::DateTime {
+        text.parse().unwrap()
     }
 
     fn schedule(cron: &str, zone: &str) -> ScheduleConfig {

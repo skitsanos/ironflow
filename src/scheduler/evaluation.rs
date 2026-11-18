@@ -2,8 +2,8 @@
 
 use std::sync::{Mutex, PoisonError};
 
-use chrono::{DateTime, NaiveDateTime, Utc};
 use futures_util::future::join_all;
+use jiff::{Timestamp, civil};
 
 use super::config::ScheduleConfig;
 use super::timing::{self, DueInstant};
@@ -12,7 +12,7 @@ use super::{Decision, Outcome, Scheduler};
 
 struct Evaluation {
     name: String,
-    target: NaiveDateTime,
+    target: civil::DateTime,
     decisions: Vec<Decision>,
     /// The budget expired and what was undecided stays due.
     budget_deferred: bool,
@@ -26,7 +26,7 @@ struct Progress {
     current: Vec<Decision>,
     /// The loop over `DueWindow::current` ran to its end.
     current_done: bool,
-    earliest_retry: Option<NaiveDateTime>,
+    earliest_retry: Option<civil::DateTime>,
 }
 
 type SharedProgress = Mutex<Progress>;
@@ -42,7 +42,7 @@ impl Scheduler {
     /// Evaluate every schedule once and return deterministic, name-sorted
     /// decisions. Names execute concurrently so one stalled backend call does
     /// not hold unrelated schedules behind it.
-    pub async fn evaluate(&mut self, now: DateTime<Utc>) -> Vec<Decision> {
+    pub async fn evaluate(&mut self, now: Timestamp) -> Vec<Decision> {
         let mut names: Vec<String> = self.schedules.keys().cloned().collect();
         names.sort();
 
@@ -78,7 +78,7 @@ impl Scheduler {
         decisions
     }
 
-    async fn evaluate_name(&self, name: &str, now: DateTime<Utc>) -> Evaluation {
+    async fn evaluate_name(&self, name: &str, now: Timestamp) -> Evaluation {
         let schedule = &self.schedules[name];
         let through = schedule.timezone().local_time(now);
         let window = due_window(schedule, self.evaluated_through[name], through);
@@ -159,7 +159,7 @@ impl Scheduler {
         name: &str,
         schedule: &ScheduleConfig,
         window: &DueWindow,
-        now: DateTime<Utc>,
+        now: Timestamp,
         progress: &SharedProgress,
     ) {
         for instant in &window.current {
@@ -234,7 +234,7 @@ fn decision(name: &str, instant: &DueInstant, outcome: Outcome) -> Decision {
     }
 }
 
-fn earliest(a: Option<NaiveDateTime>, b: Option<NaiveDateTime>) -> Option<NaiveDateTime> {
+fn earliest(a: Option<civil::DateTime>, b: Option<civil::DateTime>) -> Option<civil::DateTime> {
     match (a, b) {
         (Some(a), Some(b)) => Some(a.min(b)),
         (a, b) => a.or(b),

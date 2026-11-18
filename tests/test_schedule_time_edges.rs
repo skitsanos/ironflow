@@ -4,36 +4,36 @@
 //! last years the cron evaluator enumerates (1970 and 2100).
 //!
 //! Every expectation here was recorded from the `chrono` implementation
-//! before the scheduler's own types moved to `jiff`. Only the three helpers
-//! that build a time know which library is in use.
+//! before the scheduler's own types moved to `jiff`, and none was changed by
+//! the move: only the three helpers that build a time were.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use chrono::{DateTime, NaiveDateTime, Utc};
 use ironflow::engine::types::Context;
 use ironflow::scheduler::config::ScheduleConfig;
-use ironflow::scheduler::timing::due_instants;
+use ironflow::scheduler::timing::{claim_key, due_instants, resolve_local};
 use ironflow::scheduler::{Outcome, ScheduleExecutor, ScheduleRun, Scheduler};
 use ironflow::storage::null_store::NullStateStore;
+use jiff::{SignedDuration, Timestamp, civil};
 
-type Local = NaiveDateTime;
-type Instant = DateTime<Utc>;
+type Local = civil::DateTime;
+type Instant = Timestamp;
 
 /// A wall-clock time such as `2026-05-01 02:00:00` or `2026-05-01 02:00:00.5`.
 fn local(text: &str) -> Local {
-    NaiveDateTime::parse_from_str(text, "%Y-%m-%d %H:%M:%S%.f").unwrap()
+    text.parse().unwrap()
 }
 
 /// The UTC instant written as a wall-clock time.
 fn at(text: &str) -> Instant {
-    local(text).and_utc()
+    jiff::tz::Offset::UTC.to_timestamp(local(text)).unwrap()
 }
 
 /// The smallest step either library represents.
 fn one_nanosecond_before(time: Local) -> Local {
-    time - chrono::Duration::nanoseconds(1)
+    time - SignedDuration::from_nanos(1)
 }
 
 fn schedule(cron: &str, zone: &str, grace_seconds: Option<u64>) -> ScheduleConfig {
@@ -314,4 +314,31 @@ async fn the_startup_watermark_is_now_minus_grace_to_the_fraction() {
             fired("UTC@2026-05-01T02:01", 0),
         ]
     );
+}
+
+#[test]
+fn a_wall_clock_time_resolves_up_to_the_last_instant_jiff_represents() {
+    // Not recorded from `chrono`, whose instants ran on past the year 9999:
+    // this is the one place the move to `jiff` changed a result (IF-231).
+    // `jiff::Timestamp` ends 26 hours before the end of 9999 and starts 26
+    // hours after the start of -9999, so that every instant has a wall-clock
+    // time under every offset. No schedule reaches either end, because the
+    // cron evaluator covers 1970 to 2100.
+    let utc = schedule("0 0 * * *", "UTC", None);
+    let zone = utc.timezone();
+
+    let last = resolve_local(zone, local("9999-12-30 22:00:00")).unwrap();
+    assert_eq!(last.timestamp().as_second(), Timestamp::MAX.as_second());
+    assert_eq!(claim_key(zone, last.datetime()), "UTC@9999-12-30T22:00");
+    assert_eq!(resolve_local(zone, local("9999-12-30 22:00:01")), None);
+    assert_eq!(resolve_local(zone, local("9999-12-31 23:59:59")), None);
+
+    let first = resolve_local(zone, local("-009999-01-02 01:59:59")).unwrap();
+    assert_eq!(first.timestamp(), Timestamp::MIN);
+
+    // In a zone ahead of UTC the last wall-clock time is later by its offset.
+    let auckland = schedule("0 0 * * *", "Pacific/Auckland", None);
+    let zone = auckland.timezone();
+    assert!(resolve_local(zone, local("9999-12-31 11:00:00")).is_some());
+    assert_eq!(resolve_local(zone, local("9999-12-31 11:00:01")), None);
 }

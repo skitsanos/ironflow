@@ -13,10 +13,11 @@
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
-use chrono::{Duration, NaiveDateTime};
 use ironflow::engine::types::Context;
 use ironflow::scheduler::config::ScheduleConfig;
 use ironflow::scheduler::timing::{DueInstant, claim_key, due_instants, resolve_local};
+use jiff::civil::DateTime;
+use jiff::{SignedDuration, ZonedDateTime};
 
 /// Windows recorded occurrence by occurrence: `(zone, cron, after, through)`.
 const EXACT: &[(&str, &str, &str, &str)] = &[
@@ -371,12 +372,49 @@ const SWEEP_EXPRESSIONS: &[&str] = &[
 
 const SWEEP_YEARS: std::ops::Range<i32> = 2012..2036;
 
+/// The only recorded lines this implementation does not reproduce, as
+/// `(recorded, now)`. The recording itself is unchanged.
+///
+/// `jiff::Timestamp` ends at 9999-12-30T22:00:00.999999999Z, so that every
+/// instant has a wall-clock time under every legal offset. The recorded
+/// implementation's instants ran on for 250,000 years. A wall-clock time in
+/// the last 26 hours of the year 9999 therefore has no instant any more. No
+/// schedule can reach one: the cron evaluator stops after 2100. Only a direct
+/// caller of `resolve_local` can observe it (IF-231).
+const BEYOND_THE_LAST_INSTANT: &[(&str, &str)] = &[
+    (
+        "  9999-12-31T22:00:00 | 9999-12-31T22:00:00+00:00 | UTC@9999-12-31T22:00",
+        "  9999-12-31T22:00:00 | never",
+    ),
+    (
+        "  9999-12-31T23:00:00 | 9999-12-31T23:00:00+00:00 | UTC@9999-12-31T23:00",
+        "  9999-12-31T23:00:00 | never",
+    ),
+];
+
+/// RFC 3339 as the recorded implementation printed it: the offset is written
+/// `+02:00`, rounded to the nearest minute. Only the text is rounded. A zone
+/// whose offset has seconds (local mean time, or Monrovia's -00:44:30 until
+/// 1972) still fires at the exact instant, which the recorded wall-clock time
+/// and claim key beside it pin.
+fn rfc3339(instant: &ZonedDateTime) -> String {
+    let seconds = instant.offset().seconds();
+    let minutes = (seconds.unsigned_abs() + 30) / 60;
+    format!(
+        "{}{}{:02}:{:02}",
+        instant.strftime("%Y-%m-%dT%H:%M:%S"),
+        if seconds < 0 { '-' } else { '+' },
+        minutes / 60,
+        minutes % 60
+    )
+}
+
 fn fixture_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/scheduler/fixtures/zone_parity.txt")
 }
 
-fn local(text: &str) -> NaiveDateTime {
-    NaiveDateTime::parse_from_str(text, "%Y-%m-%d %H:%M").unwrap()
+fn local(text: &str) -> DateTime {
+    text.parse().unwrap()
 }
 
 fn schedule(zone: &str, cron: &str) -> ScheduleConfig {
@@ -386,11 +424,7 @@ fn schedule(zone: &str, cron: &str) -> ScheduleConfig {
 
 /// Every occurrence in `(after, through]`, read through the public, capped
 /// entry point the scheduler itself uses.
-fn all_due(
-    schedule: &ScheduleConfig,
-    after: NaiveDateTime,
-    through: NaiveDateTime,
-) -> Vec<DueInstant> {
+fn all_due(schedule: &ScheduleConfig, after: DateTime, through: DateTime) -> Vec<DueInstant> {
     let mut all = Vec::new();
     let mut cursor = after;
     loop {
@@ -408,8 +442,8 @@ fn all_due(
 fn line(due: &DueInstant) -> String {
     format!(
         "{} | {} | {}",
-        due.local.format("%Y-%m-%dT%H:%M:%S"),
-        due.instant.to_rfc3339(),
+        due.local.strftime("%Y-%m-%dT%H:%M:%S"),
+        rfc3339(&due.instant),
         due.key
     )
 }
@@ -445,12 +479,12 @@ fn render() -> String {
         writeln!(out, "resolve | {zone} | {first} | {step} | {count}").unwrap();
         let schedule = schedule(zone, "0 0 * * *");
         for index in 0..*count {
-            let local = local(first) + Duration::minutes(index * step);
-            let shown = local.format("%Y-%m-%dT%H:%M:%S");
+            let local = local(first) + SignedDuration::from_mins(index * step);
+            let shown = local.strftime("%Y-%m-%dT%H:%M:%S");
             match resolve_local(schedule.timezone(), local) {
                 Some(instant) => {
-                    let key = claim_key(schedule.timezone(), instant.naive_local());
-                    writeln!(out, "  {shown} | {} | {key}", instant.to_rfc3339()).unwrap();
+                    let key = claim_key(schedule.timezone(), instant.datetime());
+                    writeln!(out, "  {shown} | {} | {key}", rfc3339(&instant)).unwrap();
                 }
                 None => writeln!(out, "  {shown} | never").unwrap(),
             }
@@ -460,9 +494,18 @@ fn render() -> String {
         writeln!(out, "local | {zone} | {first} | {step} | {count}").unwrap();
         let schedule = schedule(zone, "0 0 * * *");
         for index in 0..*count {
-            let instant = (local(first) + Duration::minutes(index * step)).and_utc();
+            let wall_clock = local(first) + SignedDuration::from_mins(index * step);
+            let instant = jiff::tz::Offset::UTC.to_timestamp(wall_clock).unwrap();
             let shown = schedule.timezone().local_time(instant);
-            writeln!(out, "  {} | {shown}", instant.to_rfc3339()).unwrap();
+            // The recording shows a UTC instant with `+00:00` and a wall-clock
+            // time with a space, as the recorded implementation printed them.
+            writeln!(
+                out,
+                "  {}+00:00 | {}",
+                instant.strftime("%Y-%m-%dT%H:%M:%S"),
+                shown.strftime("%Y-%m-%d %H:%M:%S")
+            )
+            .unwrap();
         }
     }
     for zone in SWEEP_ZONES {
@@ -495,12 +538,17 @@ fn occurrences_and_claim_keys_match_the_recorded_implementation() {
     }
     let expected = std::fs::read_to_string(&path).unwrap();
     let mut differences = Vec::new();
+    let mut accepted = 0;
     let mut heading = "";
     for (expected, actual) in expected.lines().zip(actual.lines()) {
         if !expected.starts_with(' ') {
             heading = expected;
         }
         if expected == actual {
+            continue;
+        }
+        if BEYOND_THE_LAST_INSTANT.contains(&(expected, actual)) {
+            accepted += 1;
             continue;
         }
         if expected.starts_with("sweep") {
@@ -529,5 +577,10 @@ fn occurrences_and_claim_keys_match_the_recorded_implementation() {
         expected.lines().count(),
         actual.lines().count(),
         "the number of recorded occurrences changed"
+    );
+    assert_eq!(
+        accepted,
+        BEYOND_THE_LAST_INSTANT.len(),
+        "an accepted difference from the recording no longer occurs; remove it"
     );
 }

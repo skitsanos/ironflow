@@ -139,6 +139,20 @@ describe("repository integration policy", () => {
     expect(lockfile).not.toContain('name = "chrono-tz"\n');
   });
 
+  test("the scheduler uses chrono only at the cron boundary", async () => {
+    // IF-231 stage 2: the scheduler's own time types are jiff. The cron crate
+    // still evaluates over chrono, so one adapter converts for it. A chrono
+    // type anywhere else in the scheduler would let naive-as-UTC values leak
+    // back into zone arithmetic.
+    const offenders: string[] = [];
+    for await (const file of new Bun.Glob("src/scheduler/**/*.rs").scan(repository)) {
+      if (file === "src/scheduler/cron_boundary.rs") continue;
+      if (/\bchrono::|\buse chrono\b/.test(await read(file))) offenders.push(file);
+    }
+    expect(offenders).toEqual([]);
+    expect(await read("src/scheduler/cron_boundary.rs")).toContain("use chrono::");
+  });
+
   test("a scheduled run audits the default branch and runs no other job", async () => {
     // IF-173: advisories are published against released code, so the audit and
     // license gates also run on a schedule. Every other job must opt out, or a

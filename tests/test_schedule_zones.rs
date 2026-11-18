@@ -1,17 +1,17 @@
 //! IF-231: which time zone names a schedule accepts, and where their rules
 //! come from.
 
-use chrono::NaiveDateTime;
 use ironflow::engine::types::Context;
 use ironflow::scheduler::config::ScheduleConfig;
 use ironflow::scheduler::timing::resolve_local;
+use jiff::civil::DateTime;
 
 fn zone(name: &str) -> Result<ScheduleConfig, String> {
     ScheduleConfig::new("f.lua", "0 2 * * *", Some(name), None, Context::new())
 }
 
-fn local(text: &str) -> NaiveDateTime {
-    NaiveDateTime::parse_from_str(text, "%Y-%m-%d %H:%M").unwrap()
+fn local(text: &str) -> DateTime {
+    text.parse().unwrap()
 }
 
 /// The parity recording in `tests/scheduler/fixtures/zone_parity.txt` holds for
@@ -88,7 +88,8 @@ fn daylight_saving_rules_continue_after_2100() {
     let resolved = |text: &str| {
         resolve_local(berlin.timezone(), local(text))
             .unwrap()
-            .to_rfc3339()
+            .strftime("%Y-%m-%dT%H:%M:%S%:z")
+            .to_string()
     };
     assert_eq!(resolved("2150-03-29 02:30"), "2150-03-29T03:00:00+02:00");
     assert_eq!(resolved("2150-07-01 02:30"), "2150-07-01T02:30:00+02:00");

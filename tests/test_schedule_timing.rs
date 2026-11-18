@@ -1,10 +1,17 @@
-use chrono::NaiveDateTime;
 use ironflow::engine::types::Context;
 use ironflow::scheduler::config::ScheduleConfig;
 use ironflow::scheduler::timing::{MAX_INSTANTS_PER_TICK, claim_key, due_instants, resolve_local};
+use jiff::ZonedDateTime;
+use jiff::civil::DateTime;
 
-fn local(text: &str) -> NaiveDateTime {
-    NaiveDateTime::parse_from_str(text, "%Y-%m-%d %H:%M:%S").unwrap()
+fn local(text: &str) -> DateTime {
+    text.parse().unwrap()
+}
+
+/// The instant as RFC 3339 with its zone's offset, such as
+/// `2026-05-01T02:00:00+02:00`.
+fn rfc3339(instant: &ZonedDateTime) -> String {
+    instant.strftime("%Y-%m-%dT%H:%M:%S%:z").to_string()
 }
 
 fn daily_at_two(zone: &str) -> ScheduleConfig {
@@ -23,7 +30,7 @@ fn ordinary_days_resolve_to_the_configured_wall_clock_time() {
     assert!(!truncated);
     assert_eq!(due.len(), 2);
     assert_eq!(due[0].local, local("2026-05-01 02:00:00"));
-    assert_eq!(due[0].instant.to_rfc3339(), "2026-05-01T02:00:00+02:00");
+    assert_eq!(rfc3339(&due[0].instant), "2026-05-01T02:00:00+02:00");
 }
 
 #[test]
@@ -38,7 +45,7 @@ fn spring_forward_fires_after_the_gap_instead_of_vanishing() {
 
     assert_eq!(due.len(), 1, "the gap day must still produce a fire");
     assert_eq!(due[0].local, local("2026-03-29 02:00:00"));
-    assert_eq!(due[0].instant.to_rfc3339(), "2026-03-29T03:00:00+02:00");
+    assert_eq!(rfc3339(&due[0].instant), "2026-03-29T03:00:00+02:00");
 
     // Second zone, so the logic is not tuned to Berlin: New York skips
     // 02:00–03:00 on 2026-03-08.
@@ -49,7 +56,7 @@ fn spring_forward_fires_after_the_gap_instead_of_vanishing() {
         local("2026-03-08 23:00:00"),
     );
     assert_eq!(due.len(), 1);
-    assert_eq!(due[0].instant.to_rfc3339(), "2026-03-08T03:00:00-04:00");
+    assert_eq!(rfc3339(&due[0].instant), "2026-03-08T03:00:00-04:00");
 }
 
 #[test]
@@ -64,8 +71,11 @@ fn fall_back_fires_once_on_the_earlier_instant() {
     );
 
     assert_eq!(due.len(), 1, "the repeated hour must not fire twice");
-    assert_eq!(due[0].instant.to_rfc3339(), "2026-10-25T02:00:00+02:00");
-    assert_eq!(due[0].instant.naive_utc(), local("2026-10-25 00:00:00"));
+    assert_eq!(rfc3339(&due[0].instant), "2026-10-25T02:00:00+02:00");
+    assert_eq!(
+        jiff::tz::Offset::UTC.to_datetime(due[0].instant.timestamp()),
+        local("2026-10-25 00:00:00")
+    );
 
     // New York repeats 01:00–02:00 on 2026-11-01, so probe 01:00 there.
     let schedule = ScheduleConfig::new(
@@ -82,7 +92,7 @@ fn fall_back_fires_once_on_the_earlier_instant() {
         local("2026-11-01 23:00:00"),
     );
     assert_eq!(due.len(), 1);
-    assert_eq!(due[0].instant.to_rfc3339(), "2026-11-01T01:00:00-04:00");
+    assert_eq!(rfc3339(&due[0].instant), "2026-11-01T01:00:00-04:00");
 }
 
 #[test]
@@ -94,7 +104,7 @@ fn the_claim_key_is_local_wall_clock_so_a_repeated_hour_collapses_to_one_claim()
 
     // The two real instants of the repeated hour must share one key.
     let earlier = resolve_local(tz, local("2026-10-25 02:00:00")).unwrap();
-    assert_eq!(claim_key(tz, earlier.naive_local()), key);
+    assert_eq!(claim_key(tz, earlier.datetime()), key);
 }
 
 #[test]
@@ -168,7 +178,7 @@ fn a_dst_gap_collapses_sub_hourly_occurrences_onto_one_claim() {
 
     let gap_fires: Vec<_> = due
         .iter()
-        .filter(|d| d.instant.to_rfc3339() == "2026-03-29T03:00:00+02:00")
+        .filter(|d| rfc3339(&d.instant) == "2026-03-29T03:00:00+02:00")
         .collect();
     assert_eq!(
         gap_fires.len(),
