@@ -98,7 +98,12 @@ describe("repository integration policy", () => {
     // IF-164: document dependencies carry only the features the nodes use.
     expect(dependencies.comrak["default-features"]).toBeFalse();
     expect(dependencies.lopdf["default-features"]).toBeFalse();
-    expect(dependencies.lopdf.features).toEqual(["chrono"]);
+    // IF-231: neither document crate may bring chrono back. lopdf's chrono
+    // feature only converts PDF date objects, which IronFlow reads as text,
+    // and calamine's dates feature is replaced by xlsx/cells.rs (IF-233).
+    expect(dependencies.lopdf.features).toBeUndefined();
+    expect(dependencies.calamine["default-features"]).toBeFalse();
+    expect(dependencies.calamine.features).toBeUndefined();
     // IF-231: schedule zones come only from the IANA database compiled into
     // the binary. A default feature would let the host's zoneinfo or TZ
     // decide a claim key, differently on each replica.
@@ -158,8 +163,21 @@ describe("repository integration policy", () => {
     // Nothing of IronFlow's own serializes a chrono value any more, and
     // jiff's serde feature stays off (the manifest test pins it), so a timestamp field
     // without an explicit form does not compile.
-    const { dependencies } = Bun.TOML.parse(await read("Cargo.toml")) as { dependencies: Record<string, unknown> };
-    expect(dependencies.chrono).toBeString();
+    // The adapter needs chrono's types only: no clock, serde or locale
+    // feature may be turned on for IronFlow's own use.
+    const { dependencies } = Bun.TOML.parse(await read("Cargo.toml")) as {
+      dependencies: Record<string, { "default-features"?: boolean; features?: string[] }>;
+    };
+    expect(dependencies.chrono["default-features"]).toBeFalse();
+    expect(dependencies.chrono.features).toBeUndefined();
+    // chrono reaches the graph through cron and rmcp only. Another parent
+    // means a dependency or feature brought it back.
+    const parents = (await read("Cargo.lock"))
+      .split("[[package]]")
+      .filter((block) => /^ "chrono"(,| \d)/m.test(block))
+      .map((block) => block.match(/name = "([^"]+)"/)![1])
+      .sort();
+    expect(parents).toEqual(["cron", "ironflow", "rmcp"]);
   });
 
   test("a scheduled run audits the default branch and runs no other job", async () => {

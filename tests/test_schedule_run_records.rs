@@ -155,7 +155,7 @@ async fn a_claims_table_from_an_older_binary_is_upgraded_in_place() {
          VALUES ('nightly', ?, ?)",
     )
     .bind(KEY)
-    .bind(chrono::Utc::now().timestamp_micros())
+    .bind(jiff::Timestamp::now().as_microsecond())
     .execute(&pool)
     .await
     .unwrap();
