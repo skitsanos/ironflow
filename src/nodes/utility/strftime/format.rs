@@ -67,21 +67,6 @@ fn write_number(out: &mut String, width: usize, value: i64, pad: Pad, signed: bo
     };
 }
 
-/// A value of 0 to 99 in two characters.
-///
-/// Only a century can leave that range, in a year before 0000. It is then
-/// written as the earlier implementation wrote it, which is not a number.
-fn write_two(out: &mut String, value: i64, pad: Pad) {
-    let byte = value.rem_euclid(256);
-    let (tens, ones) = (byte / 10, byte % 10);
-    match (tens, pad) {
-        (0, Pad::None) => {}
-        (0, Pad::Space) => out.push(' '),
-        _ => out.push(char::from(b'0' + u8::try_from(tens).unwrap_or(0))),
-    }
-    out.push(char::from(b'0' + u8::try_from(ones).unwrap_or(0)));
-}
-
 /// A year: four digits, and a sign outside 0000 to 9999.
 fn write_year(out: &mut String, year: i64, pad: Pad) {
     write_number(out, 4, year, pad, !(0..10_000).contains(&year));
@@ -92,7 +77,8 @@ fn write_numeric(out: &mut String, moment: &Moment, numeric: Numeric, pad: Pad) 
     let time = moment.local.time();
     let year = i64::from(date.year());
     let iso = date.iso_week_date();
-    let two = |out: &mut String, value: i64| write_two(out, value, pad);
+    // Only a century leaves 0 to 99: in a year before 0000 it is negative.
+    let two = |out: &mut String, value: i64| write_number(out, 2, value, pad, false);
     let digit =
         |out: &mut String, value: i8| write_number(out, 1, i64::from(value), Pad::None, false);
     match numeric {

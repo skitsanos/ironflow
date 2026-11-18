@@ -463,3 +463,27 @@ async fn date_format_failures_reach_the_on_error_handler() {
         assert_eq!(info.ctx["failed_step"], "format", "{step}");
     }
 }
+
+/// IF-234: the century of a year before 0000 was written as two characters
+/// that are not a number (`I5` for the year -0001).
+#[tokio::test]
+async fn date_format_century_of_a_year_before_zero_is_a_number() {
+    let cases = [
+        ("-0001-12-31", "%C|%-C|%_C|%0C|%y", "-1|-1|-1|-1|99"),
+        ("-0100-01-01", "%C %y", "-1 00"),
+        ("-0101-01-01", "%C %y", "-2 99"),
+        ("-9999-01-01", "%C %y", "-100 01"),
+        ("0000-01-01", "%C|%-C|%_C %y", "00|0| 0 00"),
+        ("0999-01-01", "%C %y", "09 99"),
+    ];
+    for (input, output_format, expected) in cases {
+        let (formatted, _) = run_date(serde_json::json!({
+            "input": input,
+            "input_format": "%Y-%m-%d",
+            "output_format": output_format
+        }))
+        .await
+        .unwrap_or_else(|e| panic!("{input}: {e}"));
+        assert_eq!(formatted, expected, "{input} / {output_format}");
+    }
+}

@@ -4,8 +4,9 @@
 //! `chrono` implementation before the node moved to `jiff`. Each line is a
 //! case and what the node returned for it: the formatted text and Unix
 //! seconds, or the error text. The cases are built here; the fixture holds
-//! only what was observed. The one accepted difference is the year range:
-//! see `beyond_the_range`.
+//! only what was observed. Two things differ from it: the year range (see
+//! `beyond_the_range`) and the century of a year before 0000 (see
+//! `with_numeric_century`).
 //!
 //! To record again after an intended change, run
 //! `cargo test --test nodes test_date_format_golden::record -- --ignored`
@@ -937,6 +938,18 @@ fn beyond_the_range(case: &Value) -> Option<String> {
     })
 }
 
+/// The corrected defect in the recording (IF-234): `%C` in a year before
+/// 0000 was written as `I5` (years -0100 to -0001) or `?6` (year -9999),
+/// neither of which is a number. The century is now `-1` or `-100`. No other
+/// output in the fixture contains those two characters together.
+fn with_numeric_century(recorded: &Value) -> Value {
+    let Some(text) = recorded["ok"][0].as_str() else {
+        return recorded.clone();
+    };
+    let corrected = text.replace("I5", "-1").replace("?6", "-100");
+    json!({ "ok": [corrected, recorded["ok"][1]] })
+}
+
 #[test]
 fn date_format_matches_the_recorded_behaviour() {
     let recorded = std::fs::read_to_string(fixture_path()).expect("golden fixture");
@@ -961,7 +974,7 @@ fn date_format_matches_the_recorded_behaviour() {
                 beyond += 1;
                 json!({ "err": error })
             }
-            _ => line[1].clone(),
+            _ => with_numeric_century(&line[1]),
         };
         if observed != expected {
             differences.push(format!(
