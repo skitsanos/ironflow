@@ -99,6 +99,10 @@ async fn the_1904_date_system_shifts_dates_and_leaves_durations_alone() {
 /// `chrono` (IF-231): both sides of the day Excel invents in 1900, rounding
 /// at a second and at a day, both ends of the calendar, and values no
 /// calendar holds.
+///
+/// Differences from that recording (IF-233): a date after the year 9999,
+/// which Excel itself cannot show, was written with a sign (`+10000-01-01`)
+/// and is `null`; `NaN` was read as day zero and is `null`.
 const DATE_SERIALS: [(&str, Option<&str>, Option<&str>); 34] = [
     (
         "0",
@@ -195,34 +199,14 @@ const DATE_SERIALS: [(&str, Option<&str>, Option<&str>); 34] = [
         Some("9995-12-30T12:00:00"),
         Some("9999-12-31T12:00:00"),
     ),
-    (
-        "2958465",
-        Some("9999-12-31T00:00:00"),
-        Some("+10004-01-01T00:00:00"),
-    ),
-    (
-        "2958465.99999",
-        Some("9999-12-31T23:59:59"),
-        Some("+10004-01-01T23:59:59"),
-    ),
-    (
-        "2958466",
-        Some("+10000-01-01T00:00:00"),
-        Some("+10004-01-02T00:00:00"),
-    ),
-    (
-        "3000000",
-        Some("+10113-09-19T00:00:00"),
-        Some("+10117-09-20T00:00:00"),
-    ),
+    ("2958465", Some("9999-12-31T00:00:00"), None),
+    ("2958465.99999", Some("9999-12-31T23:59:59"), None),
+    ("2958466", None, None),
+    ("3000000", None, None),
     ("10000000000", None, None),
     ("1e300", None, None),
     ("inf", None, None),
-    (
-        "NaN",
-        Some("1899-12-30T00:00:00"),
-        Some("1899-12-30T00:00:00"),
-    ),
+    ("NaN", None, None),
     (
         "-0.5",
         Some("1899-12-30T12:00:00"),
@@ -257,13 +241,16 @@ const DATE_SERIALS: [(&str, Option<&str>, Option<&str>); 34] = [
 ];
 
 /// Elapsed-time cells at the edge of what milliseconds in 64 bits hold.
-const DURATION_SERIALS: [(&str, &str); 6] = [
-    ("10000000000", "PT240000000000H"),
-    ("-10000000000", "-PT240000000000H"),
-    ("106751991167.3", "PT2562047788015H12M0.512S"),
-    ("-106751991167.3", "-PT2562047788015H12M0.512S"),
-    ("106751991168", "PT2562047788015H12M55.807S"),
-    ("NaN", "PT0S"),
+/// The last two were recorded as `PT2562047788015H12M55.807S` (the count
+/// clamped to the largest `i64`) and `PT0S`; neither is a length of time, and
+/// both are `null` (IF-233).
+const DURATION_SERIALS: [(&str, Option<&str>); 6] = [
+    ("10000000000", Some("PT240000000000H")),
+    ("-10000000000", Some("-PT240000000000H")),
+    ("106751991167.3", Some("PT2562047788015H12M0.512S")),
+    ("-106751991167.3", Some("-PT2562047788015H12M0.512S")),
+    ("106751991168", None),
+    ("NaN", None),
 ];
 
 /// One cell per row, so a failure names its serial.
@@ -271,27 +258,40 @@ async fn single_cell(style: u8, serial: &str, workbook_pr: &str) -> serde_json::
     first_row(&[cell("A1", style, serial)], workbook_pr).await[0].clone()
 }
 
+fn text_or_null(text: Option<&str>) -> serde_json::Value {
+    text.map_or(serde_json::Value::Null, Into::into)
+}
+
 #[tokio::test]
 async fn date_serials_keep_their_recorded_text() {
+    let pr = r#"<workbookPr date1904="1"/>"#;
     for (serial, in_1900, in_1904) in DATE_SERIALS {
-        let expected = |text: Option<&str>| text.map_or(serde_json::Value::Null, Into::into);
-        assert_eq!(
-            single_cell(3, serial, "").await,
-            expected(in_1900),
-            "{serial}, 1900"
-        );
-        let pr = r#"<workbookPr date1904="1"/>"#;
-        assert_eq!(
-            single_cell(3, serial, pr).await,
-            expected(in_1904),
-            "{serial}, 1904"
-        );
+        let read = single_cell(3, serial, "").await;
+        assert_eq!(read, text_or_null(in_1900), "{serial}, 1900");
+        let read = single_cell(3, serial, pr).await;
+        assert_eq!(read, text_or_null(in_1904), "{serial}, 1904");
     }
 }
 
 #[tokio::test]
 async fn extreme_durations_keep_their_recorded_text() {
     for (serial, expected) in DURATION_SERIALS {
-        assert_eq!(single_cell(1, serial, "").await, expected, "{serial}");
+        let read = single_cell(1, serial, "").await;
+        assert_eq!(read, text_or_null(expected), "{serial}");
+    }
+}
+
+/// IF-233: a serial far below zero overflowed the millisecond count and
+/// panicked in the worker, which failed the whole step.
+#[tokio::test]
+async fn a_serial_no_calendar_holds_is_null_not_a_failed_step() {
+    for serial in ["-1e300", "-inf", "-106751991168"] {
+        for pr in ["", r#"<workbookPr date1904="1"/>"#] {
+            assert!(single_cell(3, serial, pr).await.is_null(), "date {serial}");
+            assert!(
+                single_cell(1, serial, pr).await.is_null(),
+                "elapsed {serial}"
+            );
+        }
     }
 }

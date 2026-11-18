@@ -47,6 +47,7 @@ Extract typed rows from an Excel (`.xlsx`) workbook, from one sheet or every she
 
 - With `has_header = true`, a blank header cell becomes `column_{n}` (1-based), a duplicate header gains `_2`, `_3`, ..., and a data column past the end of the header row is `column_{n}`.
 - Dates in a 1904-system workbook return the same calendar date as in a 1900-system one. Serial 60 (Excel's nonexistent 1900-02-29) returns `1900-02-28`.
+- A date cell outside the years -9999 to 9999 is `null`, as is a date or elapsed-time cell whose value is not a number or does not fit 64-bit milliseconds. Excel itself shows no date after 9999-12-31.
 - Dates stored as text (for example `"8/30/2024, 9:01 PM"`) are returned unchanged; parse them with [`date_format`](date_format.md) and a custom `input_format`.
 - A merged range has its value in the top-left cell and `null` in the other cells.
 - `_xHHHH_` escapes in strings are decoded, including surrogate pairs; `_x005F_` keeps the following sequence literal.
