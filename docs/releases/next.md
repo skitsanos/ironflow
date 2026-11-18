@@ -18,10 +18,16 @@ publication is verified separately.
   earlier in UTC than under 1.22.0, at the same wall-clock time. Zone data
   never comes from the host; see
   [Time zones](../CLI_REFERENCE.md#time-zones).
-- Library API: `ScheduleConfig::timezone()` returns `&ScheduleZone` instead of
-  `chrono_tz::Tz`, `resolve_local` and `claim_key` take `&ScheduleZone`, and
-  `DueInstant::instant` is a `chrono::DateTime<FixedOffset>`. The CLI,
-  `ironflow.yaml` and stored records are unaffected.
+- Library API: the scheduler's time types are `jiff` types instead of
+  `chrono` ones (IF-231). `ScheduleConfig::timezone()` returns `&ScheduleZone`
+  instead of `chrono_tz::Tz`. `Scheduler::new` and `Scheduler::evaluate` take
+  a `jiff::Timestamp`. `CronSchedule::after`, `due_instants`, `resolve_local`
+  and `claim_key` take wall-clock times as `jiff::civil::DateTime`, the last
+  two with a `&ScheduleZone`, and `DueInstant::instant` is a
+  `jiff::ZonedDateTime`. `resolve_local` returns `None` for a wall-clock time
+  in the last 26 hours of the year 9999, which no schedule reaches. The CLI,
+  `ironflow.yaml`, fire instants, claim keys and stored records are
+  unaffected.
 
 ## Dependencies
 

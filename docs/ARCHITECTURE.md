@@ -916,6 +916,23 @@ as `5*/2` fails at startup instead of shifting every field after it. A repeated
 fall-back wall-clock instant resolves to the earlier occurrence, while a
 spring-forward gap resolves to the first real instant after the gap.
 
+The scheduler keeps two kinds of time apart by type (IF-231). A wall-clock
+time (the watermark, a matched occurrence, the claim key's time) is a
+`jiff::civil::DateTime`, which has no zone. An instant (the clock reading
+passed to `Scheduler::evaluate`, the instant an occurrence fires at) is a
+`jiff::Timestamp` or a `jiff::ZonedDateTime`. Grace and lateness are measured
+between instants; the window `(watermark, now]` is compared in wall-clock
+time. All arithmetic uses `jiff::SignedDuration`, an exact number of seconds,
+and never a calendar unit. Lateness is whole elapsed seconds with the
+fraction dropped, and an occurrence is late only when that exceeds the grace.
+`scheduler/cron_boundary.rs` is the only scheduler module that uses `chrono`:
+the `cron` crate evaluates over `chrono` values, so the adapter labels a
+wall-clock time as UTC for it and reads the next match back. `cron` thus
+walks the space the expression is written in, for the years 1970 to 2100, and
+applies no zone rule. The scheduler passes claim keys, TTLs in seconds and
+whole-second lateness to stores, the engine, logs and metrics, and no time
+value.
+
 Configuration admits at most 256 schedules. Names are at most 48 UTF-8 bytes,
 flow paths 1,024 bytes, cron expressions 256 bytes, timezone names 128 bytes,
 and serialized initial contexts 65,536 bytes. Grace is bounded to

@@ -272,7 +272,7 @@ const EXACT: &[(&str, &str, &str, &str)] = &[
 ];
 
 /// Wall-clock times resolved one by one, outside the years `cron` enumerates
-/// (1970 to 2099) as well as inside: `(zone, first, step minutes, count)`.
+/// (1970 to 2100) as well as inside: `(zone, first, step minutes, count)`.
 const RESOLVE: &[(&str, &str, i64, i64)] = &[
     // Before 1970, including local mean time and offsets with seconds.
     ("America/New_York", "1969-04-27 01:30", 15, 8),

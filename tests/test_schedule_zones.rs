@@ -80,8 +80,8 @@ fn a_zone_name_must_be_spelled_exactly() {
 
 /// The one difference from the previous implementation: its rules stopped at
 /// 2100, after which a zone kept its standard offset all year. Zone rules now
-/// continue. No schedule reaches these dates, because `cron` enumerates the
-/// years 1970 to 2099.
+/// continue. `cron` enumerates the years 1970 to 2100, so at most the year
+/// 2100 itself is within a schedule's reach; it was not compared.
 #[test]
 fn daylight_saving_rules_continue_after_2100() {
     let berlin = zone("Europe/Berlin").unwrap();
