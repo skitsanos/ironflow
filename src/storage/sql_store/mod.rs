@@ -95,7 +95,7 @@ impl SqlStateStore {
             .bind(&info.flow_name)
             .bind(info.status.to_string())
             .bind(datetime_to_string(info.started))
-            .bind(info.started.map(|started| started.timestamp_micros()))
+            .bind(info.started.map(crate::util::timestamp::unix_micros))
             .bind(datetime_to_string(info.finished))
             .bind(serde_json::to_string(&info.ctx).map_err(|error| {
                 StorageError::backend(

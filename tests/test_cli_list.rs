@@ -2,19 +2,18 @@ use std::collections::HashMap;
 use std::fs;
 use std::process::{Command, Output};
 
-use chrono::{Duration, TimeZone as _, Utc};
 use ironflow::engine::types::{RunInfo, RunStatus, RunSummary};
 
 fn seed_runs(directory: &std::path::Path, count: usize) {
     fs::create_dir_all(directory).unwrap();
-    let base = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
+    let base = jiff::Timestamp::from_second(1_767_225_600).unwrap();
     for index in 0..count {
         let id = format!("run-{index:03}");
         let info = RunInfo {
             id: id.clone(),
             flow_name: "cli-list".to_string(),
             status: RunStatus::Success,
-            started: Some(base + Duration::seconds(index as i64)),
+            started: Some(base + std::time::Duration::from_secs(index as u64)),
             finished: None,
             ctx: HashMap::from([("large".to_string(), serde_json::json!("private-context"))]),
             tasks: HashMap::new(),

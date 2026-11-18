@@ -183,10 +183,11 @@ fn other_spellings_of_an_instant_still_read() {
     }
 }
 
-/// Spellings only the old `chrono` reader took. None of them was ever written
-/// by IronFlow; they could only come from a record edited by hand.
+/// Accepted difference: spellings only the old `chrono` reader took are now
+/// refused. None of them was ever written by IronFlow; they could only come
+/// from a record edited by hand.
 #[test]
-fn spellings_only_the_old_reader_accepted() {
+fn spellings_only_the_old_reader_accepted_are_refused() {
     for text in [
         " 2026-01-02T03:04:05Z",
         "2026-01-02T03:04:05Z ",
@@ -194,14 +195,15 @@ fn spellings_only_the_old_reader_accepted() {
         "2026-01-02T3:04:05Z",
         "2026-01-02T03:04:05.1234567891Z",
     ] {
-        assert!(summary_with_started(text).is_ok(), "{text}");
+        assert!(summary_with_started(text).is_err(), "{text}");
     }
 }
 
-/// Instants beyond the range the new type can hold. `chrono` wrote and read
-/// years -262143 to 262142; nothing but a hand-made record carries them.
+/// Accepted difference: instants beyond the range the new type holds are now
+/// refused. `chrono` wrote and read years -262143 to 262142; nothing but a
+/// hand-made record carries them.
 #[test]
-fn instants_outside_years_minus_9999_to_9999() {
+fn instants_outside_years_minus_9999_to_9999_are_refused() {
     for text in [
         "9999-12-30T22:00:01Z",
         "9999-12-31T23:59:59.999999999Z",
@@ -210,13 +212,7 @@ fn instants_outside_years_minus_9999_to_9999() {
         "-9999-01-02T01:59:58Z",
         "-262143-01-01T00:00:00Z",
     ] {
-        let read = summary_with_started(text).unwrap();
-        assert_eq!(
-            serde_json::to_string(&read).unwrap(),
-            format!(
-                r#"{{"id":"r","flow_name":"f","status":"success","started":"{text}","finished":null,"task_count":0}}"#
-            )
-        );
+        assert!(summary_with_started(text).is_err(), "{text}");
     }
 }
 

@@ -18,5 +18,6 @@ pub(crate) mod redaction;
 pub mod runtime_config;
 pub(crate) mod s3_page_limit;
 pub mod sensitive_url;
+pub mod timestamp;
 pub(crate) mod xml;
 pub(crate) mod zip_preflight;

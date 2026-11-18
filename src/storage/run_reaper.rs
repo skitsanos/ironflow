@@ -29,7 +29,7 @@ async fn reconcile_loop(store: Arc<dyn StateStore>, interval: Duration) {
         ticker.tick().await;
         match tokio::time::timeout(
             interval,
-            store.reconcile_expired_run_leases(chrono::Utc::now()),
+            store.reconcile_expired_run_leases(jiff::Timestamp::now()),
         )
         .await
         {
@@ -92,10 +92,7 @@ mod tests {
         async fn delete_run(&self, _: &str) -> StorageResult<()> {
             unreachable!()
         }
-        async fn reconcile_expired_run_leases(
-            &self,
-            _: chrono::DateTime<chrono::Utc>,
-        ) -> StorageResult<usize> {
+        async fn reconcile_expired_run_leases(&self, _: jiff::Timestamp) -> StorageResult<usize> {
             if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
                 std::future::pending::<()>().await;
                 unreachable!("the first reconciliation is cancelled by its timeout");

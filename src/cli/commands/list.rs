@@ -83,7 +83,7 @@ pub(crate) async fn cmd_list(store: Arc<dyn StateStore>, prepared: PreparedList)
     for run in &page.items {
         let started = run
             .started
-            .map(|t| t.format("%Y-%m-%d %H:%M:%S").to_string())
+            .map(|t| t.strftime("%Y-%m-%d %H:%M:%S").to_string())
             .unwrap_or_else(|| "-".to_string());
 
         println!(

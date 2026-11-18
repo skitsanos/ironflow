@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use chrono::{TimeZone as _, Utc};
+use jiff::Timestamp;
 use uuid::Uuid;
 
 use super::*;
@@ -12,7 +12,7 @@ fn summary(id: &str, micros: Option<i64>) -> RunSummary {
         id: id.to_string(),
         flow_name: "flow".to_string(),
         status: RunStatus::Pending,
-        started: micros.map(|micros| Utc.timestamp_micros(micros).single().unwrap()),
+        started: micros.map(|micros| Timestamp::from_microsecond(micros).unwrap()),
         finished: None,
         task_count: 0,
     }
@@ -29,7 +29,7 @@ fn ordered_members_floor_to_the_microsecond_on_both_sides_of_the_epoch() {
         (-2, 999_999_001, "1:7ffffffffff0bdbf:r"),
     ] {
         let mut value = summary("r", None);
-        value.started = Some(Utc.timestamp_opt(seconds, nanos).unwrap());
+        value.started = Some(Timestamp::new(seconds, nanos).unwrap());
         assert_eq!(ordered_member(&value), expected);
     }
 }

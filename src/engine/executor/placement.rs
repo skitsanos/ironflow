@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use anyhow::Context as _;
-use chrono::Utc;
+use jiff::Timestamp;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
 
@@ -110,7 +110,7 @@ impl RunCoordinator {
     async fn mark_skipped(&self, step: &StepDefinition, reason: &str) -> anyhow::Result<()> {
         let mut task_state = TaskState::new(&step.name, &step.node_type);
         task_state.status = TaskStatus::Skipped;
-        task_state.finished = Some(Utc::now());
+        task_state.finished = Some(Timestamp::now());
         super::lease::persist_task(
             self.store.as_ref(),
             &self.run_id,

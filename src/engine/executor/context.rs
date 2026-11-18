@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use chrono::Utc;
+use jiff::Timestamp;
 
 use crate::engine::types::Context;
 
@@ -37,11 +37,10 @@ pub(super) fn task_input_context(
 
 /// Compute duration in milliseconds between two optional timestamps.
 pub(super) fn task_duration_ms(
-    started: Option<chrono::DateTime<Utc>>,
-    finished: Option<chrono::DateTime<Utc>>,
+    started: Option<Timestamp>,
+    finished: Option<Timestamp>,
 ) -> Option<u64> {
-    let duration = finished?.signed_duration_since(started?);
-    duration.num_milliseconds().try_into().ok()
+    crate::util::timestamp::elapsed_millis(started?, finished?)
 }
 
 #[cfg(test)]
@@ -53,8 +52,7 @@ mod tests {
     /// Recorded before the engine's timestamps moved to `jiff` (IF-231).
     #[test]
     fn task_duration_is_whole_milliseconds_and_never_negative() {
-        use chrono::TimeZone as _;
-        let at = |seconds, nanos| Some(Utc.timestamp_opt(seconds, nanos).unwrap());
+        let at = |seconds, nanos| Some(Timestamp::new(seconds, nanos).unwrap());
 
         assert_eq!(task_duration_ms(at(10, 0), at(10, 0)), Some(0));
         assert_eq!(

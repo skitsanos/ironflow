@@ -1,26 +1,19 @@
-use chrono::{DateTime, SecondsFormat, Utc};
+use jiff::Timestamp;
 use sqlx::Row as _;
 
 use crate::engine::types::{RunStatus, TaskStatus};
 use crate::storage::{StorageError, StorageResult};
 
-pub(super) fn datetime_to_string(value: Option<DateTime<Utc>>) -> Option<String> {
-    value.map(|datetime| datetime.to_rfc3339_opts(SecondsFormat::Nanos, true))
+pub(super) fn datetime_to_string(value: Option<Timestamp>) -> Option<String> {
+    value.map(crate::util::timestamp::rfc3339_nanos_z)
 }
 
-pub(super) fn parse_optional_datetime(
-    value: Option<String>,
-) -> StorageResult<Option<DateTime<Utc>>> {
+pub(super) fn parse_optional_datetime(value: Option<String>) -> StorageResult<Option<Timestamp>> {
     value
         .map(|raw| {
-            DateTime::parse_from_rfc3339(&raw)
-                .map(|datetime| datetime.with_timezone(&Utc))
-                .map_err(|error| {
-                    StorageError::corruption(
-                        format_args!("Invalid stored timestamp '{raw}'"),
-                        error,
-                    )
-                })
+            crate::util::timestamp::parse_rfc3339(&raw).map_err(|error| {
+                StorageError::corruption(format_args!("Invalid stored timestamp '{raw}'"), error)
+            })
         })
         .transpose()
 }

@@ -15,7 +15,10 @@ impl Drop for NotifyOnDrop {
 async fn live_renewal_proceeds_while_expired_backlog_is_reaped() {
     let directory = tempfile::tempdir().unwrap();
     let store = Arc::new(JsonStateStore::new(directory.path()));
-    let expired = RunLease::at("expired-owner", Utc::now() - chrono::Duration::seconds(1));
+    let expired = RunLease::at(
+        "expired-owner",
+        Timestamp::now() - std::time::Duration::from_secs(1),
+    );
     for index in 0..32 {
         store
             .init_run_owned(
@@ -42,8 +45,11 @@ async fn live_renewal_proceeds_while_expired_backlog_is_reaped() {
     let _resume_on_drop = NotifyOnDrop(resume.clone());
     *store.lease_reap_hook.lock().unwrap() = Some((reached.clone(), resume.clone()));
     let reaper_store = store.clone();
-    let reaper =
-        tokio::spawn(async move { reaper_store.reconcile_expired_run_leases(Utc::now()).await });
+    let reaper = tokio::spawn(async move {
+        reaper_store
+            .reconcile_expired_run_leases(Timestamp::now())
+            .await
+    });
     // The hook proves ordering; these are deadlock watchdogs, not latency SLAs.
     tokio::time::timeout(std::time::Duration::from_secs(30), reached.notified())
         .await

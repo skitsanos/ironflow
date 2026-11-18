@@ -1,5 +1,5 @@
 use anyhow::Result;
-use chrono::Utc;
+use jiff::Timestamp;
 use tracing::{info, warn};
 
 use crate::engine::events::{RunEvent, RunEventType};
@@ -195,7 +195,7 @@ impl RunCoordinator {
                 _ => "task stopped before the workflow could complete".to_string(),
             });
         }
-        task.finished = Some(Utc::now());
+        task.finished = Some(Timestamp::now());
 
         super::lease::persist_task(self.store.as_ref(), &self.run_id, &task, &self.lease_owner)
             .await?;

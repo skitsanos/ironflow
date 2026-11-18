@@ -41,7 +41,7 @@ impl StateStore for NullStateStore {
             id: run_id.to_string(),
             flow_name: flow_name.to_string(),
             status: RunStatus::Pending,
-            started: Some(chrono::Utc::now()),
+            started: Some(jiff::Timestamp::now()),
             finished: None,
             ctx: ctx.clone(),
             tasks: HashMap::new(),
@@ -64,7 +64,7 @@ impl StateStore for NullStateStore {
         let is_terminal = status.is_terminal();
         run.status = status;
         if is_terminal && run.finished.is_none() {
-            run.finished = Some(chrono::Utc::now());
+            run.finished = Some(jiff::Timestamp::now());
         }
         Ok(())
     }

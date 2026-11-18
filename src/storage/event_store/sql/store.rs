@@ -57,7 +57,7 @@ impl SqlEventStore {
             .bind(&event.run_id)
             .bind(event.event_type.as_sse_name())
             .bind(&raw_event)
-            .bind(event.timestamp.to_rfc3339())
+            .bind(crate::util::timestamp::rfc3339_offset(event.timestamp))
             .bind(sequence)
             .execute(&mut *transaction)
             .await

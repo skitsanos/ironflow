@@ -132,12 +132,8 @@ fn retry_after(value: &str) -> Option<Duration> {
     if let Ok(seconds) = value.parse::<u64>() {
         return Some(Duration::from_secs(seconds));
     }
-    let at = chrono::DateTime::parse_from_rfc2822(value).ok()?;
-    Some(
-        (at.with_timezone(&chrono::Utc) - chrono::Utc::now())
-            .to_std()
-            .unwrap_or_default(),
-    )
+    let at = jiff::fmt::rfc2822::parse(value).ok()?.timestamp();
+    Some(Duration::try_from(at.duration_since(jiff::Timestamp::now())).unwrap_or_default())
 }
 
 #[cfg(test)]

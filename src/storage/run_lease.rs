@@ -1,4 +1,4 @@
-use chrono::{DateTime, Duration, Utc};
+use jiff::Timestamp;
 use uuid::Uuid;
 
 /// How long a workflow coordinator owns its durable run without a heartbeat.
@@ -19,7 +19,7 @@ pub(crate) const RUN_LEASE_KEY_SAFETY: std::time::Duration = std::time::Duration
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RunLease {
     owner: String,
-    expires_at: DateTime<Utc>,
+    expires_at: Timestamp,
 }
 
 impl RunLease {
@@ -29,17 +29,18 @@ impl RunLease {
     }
 
     /// Extend `owner` from the current wall clock by the standard TTL.
-    #[allow(clippy::expect_used)] // Infallible: run lease TTL fits chrono.
     pub fn renewed(owner: String) -> Self {
-        let ttl = Duration::from_std(RUN_LEASE_TTL).expect("run lease TTL fits chrono");
         Self {
             owner,
-            expires_at: Utc::now() + ttl,
+            // A duration cannot fail to add; only a calendar span can.
+            expires_at: Timestamp::now()
+                .saturating_add(RUN_LEASE_TTL)
+                .unwrap_or(Timestamp::MAX),
         }
     }
 
     /// Build deterministic lease metadata for storage-contract tests.
-    pub fn at(owner: impl Into<String>, expires_at: DateTime<Utc>) -> Self {
+    pub fn at(owner: impl Into<String>, expires_at: Timestamp) -> Self {
         Self {
             owner: owner.into(),
             expires_at,
@@ -50,11 +51,11 @@ impl RunLease {
         &self.owner
     }
 
-    pub fn expires_at(&self) -> DateTime<Utc> {
+    pub fn expires_at(&self) -> Timestamp {
         self.expires_at
     }
 
     pub fn expires_micros(&self) -> i64 {
-        self.expires_at.timestamp_micros()
+        crate::util::timestamp::unix_micros(self.expires_at)
     }
 }

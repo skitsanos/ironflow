@@ -20,7 +20,7 @@ use depth_support::{REPORTED_DEPTH, nested_value};
 fn expired_lease() -> RunLease {
     RunLease::at(
         "dead-owner",
-        chrono::Utc::now() - chrono::Duration::seconds(1),
+        jiff::Timestamp::now() - std::time::Duration::from_secs(1),
     )
 }
 
@@ -67,7 +67,7 @@ async fn json_reconciliation_skips_an_undecodable_record_and_delete_removes_it()
     );
 
     let reconciled = store
-        .reconcile_expired_run_leases(chrono::Utc::now())
+        .reconcile_expired_run_leases(jiff::Timestamp::now())
         .await
         .expect("an undecodable record must not abort the reconciliation pass");
     assert_eq!(reconciled, 1);
@@ -78,7 +78,7 @@ async fn json_reconciliation_skips_an_undecodable_record_and_delete_removes_it()
     // The skipped record is left for the operator and does not fail later passes.
     assert_eq!(
         store
-            .reconcile_expired_run_leases(chrono::Utc::now())
+            .reconcile_expired_run_leases(jiff::Timestamp::now())
             .await
             .unwrap(),
         0
@@ -153,7 +153,7 @@ async fn json_reconciliation_skips_a_damaged_lease_file_and_delete_removes_it() 
 
     for expected in [1, 0] {
         let reconciled = store
-            .reconcile_expired_run_leases(chrono::Utc::now())
+            .reconcile_expired_run_leases(jiff::Timestamp::now())
             .await
             .expect("a damaged lease file must not abort the reconciliation pass");
         assert_eq!(reconciled, expected);

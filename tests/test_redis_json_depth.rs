@@ -131,7 +131,7 @@ async fn redis_reconciliation_skips_an_undecodable_record_and_delete_removes_it(
     );
 
     let reconciled = store
-        .reconcile_expired_run_leases(chrono::Utc::now())
+        .reconcile_expired_run_leases(jiff::Timestamp::now())
         .await
         .expect("an undecodable record must not abort the reconciliation pass");
     assert_eq!(reconciled, 1);
@@ -142,7 +142,7 @@ async fn redis_reconciliation_skips_an_undecodable_record_and_delete_removes_it(
     // The skipped record is left for the operator and does not fail later passes.
     assert_eq!(
         store
-            .reconcile_expired_run_leases(chrono::Utc::now())
+            .reconcile_expired_run_leases(jiff::Timestamp::now())
             .await
             .unwrap(),
         0
@@ -219,7 +219,7 @@ async fn redis_reconciliation_reaches_leases_behind_a_full_batch_of_undecodable_
 
     let reconciled = tokio::time::timeout(
         std::time::Duration::from_secs(30),
-        store.reconcile_expired_run_leases(chrono::Utc::now()),
+        store.reconcile_expired_run_leases(jiff::Timestamp::now()),
     )
     .await
     .expect("skipped records must not keep the pass from ending")

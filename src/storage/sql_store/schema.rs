@@ -267,9 +267,10 @@ impl SqlStateStore {
             for row in rows {
                 let id: String = row_value(&row, "id", "run", "unknown")?;
                 let raw: String = row_value(&row, "started", "run", &id)?;
-                let micros = parse_optional_datetime(Some(raw))?
-                    .expect("the backfill query excludes NULL timestamps")
-                    .timestamp_micros();
+                let micros = crate::util::timestamp::unix_micros(
+                    parse_optional_datetime(Some(raw))?
+                        .expect("the backfill query excludes NULL timestamps"),
+                );
                 let sql = format!(
                     "UPDATE {} SET started_micros = {} WHERE id = {} AND started_micros IS NULL",
                     self.tables.runs,

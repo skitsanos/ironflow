@@ -80,10 +80,7 @@ impl StateStore for ObservedStateStore {
         self.observe(StorageOperation::RenewRunLease, result)
     }
 
-    async fn reconcile_expired_run_leases(
-        &self,
-        now: chrono::DateTime<chrono::Utc>,
-    ) -> StorageResult<usize> {
+    async fn reconcile_expired_run_leases(&self, now: jiff::Timestamp) -> StorageResult<usize> {
         let result = self.inner.reconcile_expired_run_leases(now).await;
         self.observe(StorageOperation::ReconcileExpiredRunLeases, result)
     }
@@ -156,7 +153,7 @@ impl StateStore for ObservedStateStore {
         self.observe(StorageOperation::DeleteRun, result)
     }
 
-    async fn prune_before(&self, cutoff: chrono::DateTime<chrono::Utc>) -> StorageResult<usize> {
+    async fn prune_before(&self, cutoff: jiff::Timestamp) -> StorageResult<usize> {
         let result = self.inner.prune_before(cutoff).await;
         self.observe(StorageOperation::PruneBefore, result)
     }

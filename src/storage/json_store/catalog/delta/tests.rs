@@ -1,4 +1,4 @@
-use chrono::{TimeZone as _, Utc};
+use jiff::Timestamp;
 use uuid::Uuid;
 
 use crate::engine::types::RunStatus;
@@ -13,7 +13,7 @@ fn record(id: &str, status: RunStatus, micros: Option<i64>) -> CatalogRecord {
     CatalogRecord {
         id: id.to_string(),
         status,
-        started: micros.map(|value| Utc.timestamp_micros(value).unwrap()),
+        started: micros.map(|value| Timestamp::from_microsecond(value).unwrap()),
     }
 }
 

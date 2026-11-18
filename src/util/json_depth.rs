@@ -122,7 +122,7 @@ fn reported_key(key: &str) -> String {
 mod tests {
     use std::collections::HashMap;
 
-    use chrono::Utc;
+    use jiff::Timestamp;
 
     use super::*;
     use crate::engine::types::{RunInfo, RunStatus, TaskState};
@@ -142,7 +142,7 @@ mod tests {
             id: "run".to_string(),
             flow_name: "flow".to_string(),
             status: RunStatus::Running,
-            started: Some(Utc::now()),
+            started: Some(Timestamp::now()),
             finished: None,
             ctx: HashMap::from([("a".to_string(), arrays(context_depth))]),
             tasks: HashMap::from([("step".to_string(), task)]),

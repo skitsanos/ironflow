@@ -42,7 +42,7 @@ async fn insert_legacy_event(pool: &sqlx::AnyPool, event: &RunEvent) {
     .bind(&event.run_id)
     .bind(event.event_type.as_sse_name())
     .bind(serde_json::to_string(event).unwrap())
-    .bind(event.timestamp.to_rfc3339())
+    .bind(ironflow::util::timestamp::rfc3339_offset(event.timestamp))
     .execute(pool)
     .await
     .unwrap();

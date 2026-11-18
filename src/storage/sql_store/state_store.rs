@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use chrono::Utc;
+use jiff::Timestamp;
 
 use super::SqlStateStore;
 use crate::engine::types::{Context, RunInfo, RunStatus, RunSummary, TaskState};
@@ -28,7 +28,7 @@ impl StateStore for SqlStateStore {
             id: run_id.to_string(),
             flow_name: flow_name.to_string(),
             status: RunStatus::Pending,
-            started: Some(Utc::now()),
+            started: Some(Timestamp::now()),
             finished: None,
             ctx: ctx.clone(),
             tasks: HashMap::new(),
@@ -68,10 +68,7 @@ impl StateStore for SqlStateStore {
         self.renew_owned_run(run_id, lease).await
     }
 
-    async fn reconcile_expired_run_leases(
-        &self,
-        now: chrono::DateTime<chrono::Utc>,
-    ) -> StorageResult<usize> {
+    async fn reconcile_expired_run_leases(&self, now: jiff::Timestamp) -> StorageResult<usize> {
         self.reconcile_owned_runs(now).await
     }
 
@@ -186,7 +183,7 @@ impl StateStore for SqlStateStore {
         self.delete_run_transactional(run_id).await
     }
 
-    async fn prune_before(&self, cutoff: chrono::DateTime<Utc>) -> StorageResult<usize> {
+    async fn prune_before(&self, cutoff: jiff::Timestamp) -> StorageResult<usize> {
         self.prune_before_transactional(cutoff).await
     }
 

@@ -14,7 +14,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicUsize};
 
 use async_trait::async_trait;
-use chrono::Utc;
+use jiff::Timestamp;
 use tokio::sync::RwLock;
 
 use crate::engine::types::*;
@@ -99,7 +99,7 @@ impl StateStore for JsonStateStore {
             id: run_id.to_string(),
             flow_name: flow_name.to_string(),
             status: RunStatus::Pending,
-            started: Some(Utc::now()),
+            started: Some(Timestamp::now()),
             finished: None,
             ctx: ctx.clone(),
             tasks: HashMap::new(),
@@ -131,7 +131,7 @@ impl StateStore for JsonStateStore {
         // Preserve the first terminal transition's timestamp; a repeated
         // terminal write must not move `finished` (IF-052).
         if is_terminal && info.finished.is_none() {
-            info.finished = Some(Utc::now());
+            info.finished = Some(Timestamp::now());
         }
         let record = self.write_existing_run(&mut catalog, run_id, &info).await?;
         self.upsert_catalog_best_effort(run_id, catalog, record)
@@ -156,10 +156,7 @@ impl StateStore for JsonStateStore {
         self.renew_lease_file(run_id, lease).await
     }
 
-    async fn reconcile_expired_run_leases(
-        &self,
-        now: chrono::DateTime<chrono::Utc>,
-    ) -> StorageResult<usize> {
+    async fn reconcile_expired_run_leases(&self, now: jiff::Timestamp) -> StorageResult<usize> {
         self.reconcile_lease_files(now).await
     }
 
@@ -268,7 +265,7 @@ impl StateStore for JsonStateStore {
 
     /// Prune via bounded summary pages rather than the default full-catalog scan
     /// (IF-051).
-    async fn prune_before(&self, cutoff: chrono::DateTime<chrono::Utc>) -> StorageResult<usize> {
+    async fn prune_before(&self, cutoff: jiff::Timestamp) -> StorageResult<usize> {
         crate::storage::prune_before_via_summary_pages(self, cutoff).await
     }
 

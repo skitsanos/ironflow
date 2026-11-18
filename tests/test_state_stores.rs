@@ -238,7 +238,7 @@ async fn json_store_prune_before_removes_only_old_terminal_runs() {
         .unwrap();
 
     // Future cutoff: all runs started before it, but only terminal runs prune.
-    let cutoff = chrono::Utc::now() + chrono::Duration::minutes(1);
+    let cutoff = jiff::Timestamp::now() + std::time::Duration::from_secs(60);
     assert_eq!(store.prune_before(cutoff).await.unwrap(), 2);
     assert!(store.get_run_info("done-1").await.is_err());
     assert!(store.get_run_info("done-2").await.is_err());
@@ -262,7 +262,7 @@ async fn json_store_prune_before_keeps_runs_newer_than_cutoff() {
         .unwrap();
 
     // Past cutoff: nothing is old enough to prune.
-    let cutoff = chrono::Utc::now() - chrono::Duration::minutes(5);
+    let cutoff = jiff::Timestamp::now() - std::time::Duration::from_secs(300);
     assert_eq!(store.prune_before(cutoff).await.unwrap(), 0);
     assert!(store.get_run_info("recent").await.is_ok());
 }
@@ -295,7 +295,7 @@ async fn assert_run_lease_contract<F, Fut>(
 
     let attempted_renewal = RunLease::at(
         "original-owner",
-        chrono::Utc::now() + chrono::Duration::minutes(5),
+        jiff::Timestamp::now() + std::time::Duration::from_secs(300),
     );
     assert!(
         !owner
@@ -315,7 +315,7 @@ async fn assert_run_lease_contract<F, Fut>(
     }
 
     assert_eq!(
-        peer.reconcile_expired_run_leases(chrono::Utc::now())
+        peer.reconcile_expired_run_leases(jiff::Timestamp::now())
             .await
             .unwrap(),
         1
@@ -371,7 +371,7 @@ async fn assert_run_lease_contract<F, Fut>(
 
     let live = RunLease::at(
         "live-owner",
-        chrono::Utc::now() + chrono::Duration::minutes(5),
+        jiff::Timestamp::now() + std::time::Duration::from_secs(300),
     );
     owner
         .init_run_owned(&live_id, "flow", &Context::new(), &live)
@@ -384,7 +384,7 @@ async fn assert_run_lease_contract<F, Fut>(
             .unwrap()
     );
     assert_eq!(
-        peer.reconcile_expired_run_leases(chrono::Utc::now())
+        peer.reconcile_expired_run_leases(jiff::Timestamp::now())
             .await
             .unwrap(),
         0
@@ -444,7 +444,7 @@ async fn json_run_leases_protect_live_peers_and_reconcile_expired_owners() {
     let peer = JsonStateStore::new(dir.path());
     let expired = RunLease::at(
         "original-owner",
-        chrono::Utc::now() - chrono::Duration::seconds(1),
+        jiff::Timestamp::now() - std::time::Duration::from_secs(1),
     );
     assert_run_lease_contract(&owner, &peer, "json", expired, |_| async {}).await;
 }
@@ -462,7 +462,7 @@ async fn sql_run_leases_protect_live_peers_and_reconcile_expired_owners() {
         "sql",
         RunLease::at(
             "original-owner",
-            chrono::Utc::now() + chrono::Duration::minutes(5),
+            jiff::Timestamp::now() + std::time::Duration::from_secs(300),
         ),
         move |run_id| {
             let expiry_url = expiry_url.clone();
@@ -496,7 +496,7 @@ async fn postgres_run_leases_protect_live_peers_and_reconcile_expired_owners() {
         "postgres",
         RunLease::at(
             "original-owner",
-            chrono::Utc::now() + chrono::Duration::minutes(5),
+            jiff::Timestamp::now() + std::time::Duration::from_secs(300),
         ),
         move |run_id| {
             let expiry_url = expiry_url.clone();
@@ -610,7 +610,7 @@ async fn sql_run_lease_reconciliation_drains_more_than_one_batch() {
 
     assert_eq!(
         store
-            .reconcile_expired_run_leases(chrono::Utc::now())
+            .reconcile_expired_run_leases(jiff::Timestamp::now())
             .await
             .unwrap(),
         RUN_COUNT
@@ -938,7 +938,7 @@ async fn sql_delete_and_prune_failures_roll_back_tasks_and_runs() {
 
     assert_eq!(
         store
-            .prune_before(chrono::Utc::now())
+            .prune_before(jiff::Timestamp::now())
             .await
             .unwrap_err()
             .kind(),
@@ -953,7 +953,7 @@ async fn sql_delete_and_prune_failures_roll_back_tasks_and_runs() {
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(store.prune_before(chrono::Utc::now()).await.unwrap(), 2);
+    assert_eq!(store.prune_before(jiff::Timestamp::now()).await.unwrap(), 2);
     for id in ["prune-a", "prune-b"] {
         assert_eq!(
             store.get_run_info(id).await.unwrap_err().kind(),
@@ -988,7 +988,7 @@ async fn sql_delete_and_prune_failures_roll_back_tasks_and_runs() {
 
     assert_eq!(
         store
-            .prune_before(chrono::Utc::now())
+            .prune_before(jiff::Timestamp::now())
             .await
             .unwrap_err()
             .kind(),
@@ -1000,7 +1000,7 @@ async fn sql_delete_and_prune_failures_roll_back_tasks_and_runs() {
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(store.prune_before(chrono::Utc::now()).await.unwrap(), 1);
+    assert_eq!(store.prune_before(jiff::Timestamp::now()).await.unwrap(), 1);
 
     store
         .init_run("prune-tasks-ignored", "flow", &Context::new())
@@ -1027,7 +1027,7 @@ async fn sql_delete_and_prune_failures_roll_back_tasks_and_runs() {
     .unwrap();
     assert_eq!(
         store
-            .prune_before(chrono::Utc::now())
+            .prune_before(jiff::Timestamp::now())
             .await
             .unwrap_err()
             .kind(),
@@ -1045,7 +1045,7 @@ async fn sql_delete_and_prune_failures_roll_back_tasks_and_runs() {
         .execute(&pool)
         .await
         .unwrap();
-    assert_eq!(store.prune_before(chrono::Utc::now()).await.unwrap(), 1);
+    assert_eq!(store.prune_before(jiff::Timestamp::now()).await.unwrap(), 1);
     assert!(store.get_run_info("delete-failure").await.is_ok());
 }
 

@@ -78,7 +78,7 @@ async fn reconciliation_preflights_secondary_keys_before_stalling_a_run() {
         let before = fixture.snapshot().await;
         let result = fixture
             .store
-            .reconcile_expired_run_leases(chrono::Utc::now())
+            .reconcile_expired_run_leases(jiff::Timestamp::now())
             .await;
         fixture
             .assert_unchanged(before, &format!("reconcile key={index}"))

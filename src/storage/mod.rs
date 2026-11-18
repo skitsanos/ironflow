@@ -93,10 +93,7 @@ pub trait StateStore: Send + Sync {
     /// Atomically stall only non-terminal runs whose ownership lease expired.
     /// Unleased legacy runs are deliberately ignored for rolling-upgrade
     /// safety: a new replica cannot know whether an old replica is still live.
-    async fn reconcile_expired_run_leases(
-        &self,
-        _now: chrono::DateTime<chrono::Utc>,
-    ) -> StorageResult<usize> {
+    async fn reconcile_expired_run_leases(&self, _now: jiff::Timestamp) -> StorageResult<usize> {
         Ok(0)
     }
 
@@ -175,7 +172,7 @@ pub trait StateStore: Send + Sync {
     /// Delete runs older than the given cutoff (UTC). Returns the number
     /// removed. Default implementation scans via `list_runs`; stores that
     /// track metadata separately MAY override with an index-only path.
-    async fn prune_before(&self, cutoff: chrono::DateTime<chrono::Utc>) -> StorageResult<usize> {
+    async fn prune_before(&self, cutoff: jiff::Timestamp) -> StorageResult<usize> {
         let runs = self.list_runs(None).await?;
         let mut removed = 0;
         for r in runs {
@@ -255,7 +252,7 @@ pub trait StateStore: Send + Sync {
 /// position of later pages (IF-051).
 pub(crate) async fn prune_before_via_summary_pages(
     store: &(impl StateStore + ?Sized),
-    cutoff: chrono::DateTime<chrono::Utc>,
+    cutoff: jiff::Timestamp,
 ) -> StorageResult<usize> {
     let page_size = PageSize::new(256)?;
     let mut removed = 0;
@@ -288,5 +285,7 @@ pub(crate) async fn prune_before_via_summary_pages(
 pub async fn reconcile_nonterminal_runs(
     store: &(impl StateStore + ?Sized),
 ) -> StorageResult<usize> {
-    store.reconcile_expired_run_leases(chrono::Utc::now()).await
+    store
+        .reconcile_expired_run_leases(jiff::Timestamp::now())
+        .await
 }

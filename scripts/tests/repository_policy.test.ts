@@ -139,18 +139,26 @@ describe("repository integration policy", () => {
     expect(lockfile).not.toContain('name = "chrono-tz"\n');
   });
 
-  test("the scheduler uses chrono only at the cron boundary", async () => {
+  test("chrono is used only at the cron boundary and in the date_format node", async () => {
     // IF-231 stage 2: the scheduler's own time types are jiff. The cron crate
     // still evaluates over chrono, so one adapter converts for it. A chrono
     // type anywhere else in the scheduler would let naive-as-UTC values leak
     // back into zone arithmetic.
-    const offenders: string[] = [];
-    for await (const file of new Bun.Glob("src/scheduler/**/*.rs").scan(repository)) {
-      if (file === "src/scheduler/cron_boundary.rs") continue;
-      if (/\bchrono::|\buse chrono\b/.test(await read(file))) offenders.push(file);
+    // IF-231 stage 3: records, wire payloads, leases and clocks are jiff, and
+    // every stored form is written by src/util/timestamp.rs. A chrono type in
+    // another module would bring back a second formatter for the same bytes.
+    // The date_format node keeps chrono until stage 4.
+    const allowed = ["src/nodes/utility/date.rs", "src/nodes/utility/date_input.rs", "src/scheduler/cron_boundary.rs"];
+    const users: string[] = [];
+    for await (const file of new Bun.Glob("src/**/*.rs").scan(repository)) {
+      if (/\bchrono::|\buse chrono\b/.test(await read(file))) users.push(file);
     }
-    expect(offenders).toEqual([]);
-    expect(await read("src/scheduler/cron_boundary.rs")).toContain("use chrono::");
+    expect(users.sort()).toEqual(allowed);
+    // Nothing of IronFlow's own serializes a chrono value any more, and
+    // jiff's serde feature stays off (the manifest test pins it), so a timestamp field
+    // without an explicit form does not compile.
+    const { dependencies } = Bun.TOML.parse(await read("Cargo.toml")) as { dependencies: Record<string, unknown> };
+    expect(dependencies.chrono).toBeString();
   });
 
   test("a scheduled run audits the default branch and runs no other job", async () => {

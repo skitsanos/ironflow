@@ -6,13 +6,11 @@
 //! [`Instant`] and [`instant`] in this file.
 #![allow(dead_code)]
 
-use chrono::TimeZone as _;
-
-pub type Instant = chrono::DateTime<chrono::Utc>;
+pub type Instant = jiff::Timestamp;
 
 /// The instant `seconds` after the Unix epoch plus `nanos` nanoseconds.
 pub fn instant(seconds: i64, nanos: u32) -> Instant {
-    chrono::Utc.timestamp_opt(seconds, nanos).unwrap()
+    jiff::Timestamp::new(seconds, i32::try_from(nanos).unwrap()).unwrap()
 }
 
 /// One recorded instant and the forms the `chrono` implementation gave it.

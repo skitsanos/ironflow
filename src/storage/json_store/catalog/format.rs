@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use chrono::{DateTime, TimeZone as _, Utc};
+use jiff::Timestamp;
 use sha2::{Digest as _, Sha256};
 
 use crate::engine::types::{RunStatus, RunSummary};
@@ -20,7 +20,7 @@ const FLAG_STARTED: u8 = 1;
 pub(crate) struct CatalogRecord {
     pub id: String,
     pub status: RunStatus,
-    pub started: Option<DateTime<Utc>>,
+    pub started: Option<Timestamp>,
 }
 
 impl CatalogRecord {
@@ -89,8 +89,7 @@ pub(super) fn decode_record(data: &[u8]) -> StorageResult<CatalogRecord> {
     let raw_started = i64::from_be_bytes(data[4..12].try_into().expect("fixed timestamp"));
     let started = if flags & FLAG_STARTED != 0 {
         Some(
-            Utc.timestamp_micros(raw_started)
-                .single()
+            crate::util::timestamp::from_unix_micros(raw_started)
                 .ok_or_else(|| corrupt("catalog timestamp is out of range"))?,
         )
     } else {
@@ -132,7 +131,7 @@ pub(super) fn encode_record(record: &CatalogRecord) -> StorageResult<Vec<u8>> {
     let mut flags = 0;
     let started = record.started.map_or(0, |value| {
         flags |= FLAG_STARTED;
-        value.timestamp_micros()
+        crate::util::timestamp::unix_micros(value)
     });
     let mut data = Vec::with_capacity(RECORD_BYTES);
     data.push(flags);

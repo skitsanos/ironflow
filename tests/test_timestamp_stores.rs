@@ -269,9 +269,18 @@ async fn assert_sql_state_store_forms(target: SqlTarget) {
         assert_eq!(task.started, Some(row.instant), "{}", row.label);
         assert_eq!(task.finished, Some(row.instant), "{}", row.label);
     }
-    // Recorded behaviour: the old reader rejected the signed year its own
-    // writer produced, so such a run could not be loaded.
-    assert!(store.get_run_info("golden-negative").await.is_err());
+    // Accepted difference: the old reader rejected the signed year its own
+    // writer produced, so such a run could not be loaded. It loads now.
+    let negative = store.get_run_info("golden-negative").await.unwrap();
+    assert_eq!(negative.tasks.len(), 2);
+    for (index, row) in rows
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| row.negative_year())
+    {
+        let task = &negative.tasks[&format!("t{index}")];
+        assert_eq!(task.started, Some(row.instant), "{}", row.label);
+    }
     store.delete_run("golden-negative").await.unwrap();
 
     // Reader: rows as the old code wrote them, plus the other two text forms.
@@ -422,6 +431,7 @@ async fn assert_sql_event_store_forms(url: &str, prefix: Option<&str>, events_ta
     let pool = sqlx::AnyPool::connect(url).await.unwrap();
 
     let mut expected = Vec::new();
+    let mut negative = Vec::new();
     for row in &rows {
         let run = if row.negative_year() {
             "golden-negative"
@@ -430,7 +440,9 @@ async fn assert_sql_event_store_forms(url: &str, prefix: Option<&str>, events_ta
         };
         let event = event(run, row);
         store.publish(event.clone()).await.unwrap();
-        if !row.negative_year() {
+        if row.negative_year() {
+            negative.push(event);
+        } else {
             expected.push(event);
         }
     }
@@ -455,13 +467,15 @@ async fn assert_sql_event_store_forms(url: &str, prefix: Option<&str>, events_ta
         store.list_since("golden", None, 100).await.unwrap(),
         expected
     );
-    // Recorded behaviour: as in the state store, the old reader rejected the
-    // signed year its own writer produced.
-    assert!(
+    // Accepted difference: as in the state store, the old reader rejected
+    // the signed year its own writer produced. It reads now.
+    assert_eq!(negative.len(), 2);
+    assert_eq!(
         store
             .list_since("golden-negative", None, 100)
             .await
-            .is_err()
+            .unwrap(),
+        negative
     );
 
     // A row whose column and payload spell the same instant differently, as

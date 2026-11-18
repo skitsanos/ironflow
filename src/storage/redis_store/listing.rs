@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 
 use super::RedisStateStore;
 use super::catalog::{CatalogSnapshot, CatalogUpsert};
@@ -13,7 +13,7 @@ pub(super) fn ordered_member(summary: &RunSummary) -> String {
     ordered_member_parts(summary.started, &summary.id)
 }
 
-fn ordered_member_parts(started: Option<DateTime<Utc>>, run_id: &str) -> String {
+fn ordered_member_parts(started: Option<Timestamp>, run_id: &str) -> String {
     match normalized_started(started) {
         Some(micros) => {
             let sortable = (micros as u64) ^ (1_u64 << 63);

@@ -3,7 +3,6 @@
 //! Committed against the `chrono` implementation; the migration changed only
 //! `instant` and the expectation marked as an accepted difference.
 
-use chrono::TimeZone as _;
 use sha2::{Digest as _, Sha256};
 
 use crate::engine::types::RunStatus;
@@ -17,8 +16,8 @@ const CATALOG: &[u8] = include_bytes!(
     "../../../../tests/storage/fixtures/timestamps/json_store/.ironflow-run-catalog-v1.bin"
 );
 
-fn instant(seconds: i64, nanos: u32) -> chrono::DateTime<chrono::Utc> {
-    chrono::Utc.timestamp_opt(seconds, nanos).unwrap()
+fn instant(seconds: i64, nanos: u32) -> jiff::Timestamp {
+    jiff::Timestamp::new(seconds, i32::try_from(nanos).unwrap()).unwrap()
 }
 
 /// `(label, seconds, nanoseconds, recorded microseconds)`.
@@ -127,10 +126,14 @@ fn stored_microseconds_at_the_range_limits() {
             micros.to_be_bytes()
         );
     }
-    // One microsecond beyond either limit: `chrono` reached year 262142.
-    for micros in [-377_705_023_201_000_001, 253_402_207_201_000_000] {
-        assert!(decode_record(&raw_record(micros)).is_ok(), "{micros}");
+    // Accepted difference: one microsecond beyond either limit was readable
+    // while `chrono` held the value (to year 262142) and is corruption now.
+    for micros in [
+        -377_705_023_201_000_001,
+        253_402_207_201_000_000,
+        i64::MAX,
+        i64::MIN,
+    ] {
+        assert!(decode_record(&raw_record(micros)).is_err(), "{micros}");
     }
-    assert!(decode_record(&raw_record(i64::MAX)).is_err());
-    assert!(decode_record(&raw_record(i64::MIN)).is_err());
 }

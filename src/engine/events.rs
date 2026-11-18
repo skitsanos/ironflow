@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -18,7 +18,8 @@ pub struct RunEvent {
     pub run_id: String,
     #[serde(rename = "type")]
     pub event_type: RunEventType,
-    pub timestamp: DateTime<Utc>,
+    #[serde(with = "crate::util::timestamp::serde_instant")]
+    pub timestamp: Timestamp,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub flow_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -45,7 +46,7 @@ impl RunEvent {
             id: Uuid::new_v4().to_string(),
             run_id: run_id.to_string(),
             event_type,
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
             flow_name: Some(flow_name.to_string()),
             run_status: Some(status),
             step: None,
@@ -70,7 +71,7 @@ impl RunEvent {
             id: Uuid::new_v4().to_string(),
             run_id: run_id.to_string(),
             event_type,
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
             flow_name: None,
             run_status: None,
             step: Some(step.to_string()),

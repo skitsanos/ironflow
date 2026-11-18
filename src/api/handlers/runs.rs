@@ -48,8 +48,8 @@ pub async fn list_runs(
                 "id": r.id,
                 "flow_name": r.flow_name,
                 "status": r.status,
-                "started": r.started,
-                "finished": r.finished,
+                "started": r.started.map(crate::util::timestamp::rfc3339_z),
+                "finished": r.finished.map(crate::util::timestamp::rfc3339_z),
                 "task_count": r.task_count,
             })
         })

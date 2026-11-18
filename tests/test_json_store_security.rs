@@ -118,7 +118,10 @@ async fn control_directories_reject_symlinks_without_writing_outside_the_store()
     std::fs::create_dir(&leases_root).unwrap();
     symlink(outside.path(), leases_root.join(".ironflow-run-leases-v1")).unwrap();
     let leases = JsonStateStore::new(&leases_root);
-    let lease = RunLease::at("owner", chrono::Utc::now() + chrono::Duration::minutes(1));
+    let lease = RunLease::at(
+        "owner",
+        jiff::Timestamp::now() + std::time::Duration::from_secs(60),
+    );
     assert_eq!(
         leases
             .init_run_owned("run", "flow", &Context::new(), &lease)
