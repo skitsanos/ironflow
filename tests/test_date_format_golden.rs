@@ -4,7 +4,8 @@
 //! `chrono` implementation before the node moved to `jiff`. Each line is a
 //! case and what the node returned for it: the formatted text and Unix
 //! seconds, or the error text. The cases are built here; the fixture holds
-//! only what was observed.
+//! only what was observed. The one accepted difference is the year range:
+//! see `beyond_the_range`.
 //!
 //! To record again after an intended change, run
 //! `cargo test --test nodes test_date_format_golden::record -- --ignored`
@@ -881,6 +882,61 @@ fn record() {
     std::fs::write(fixture_path(), text).unwrap();
 }
 
+/// Inputs that name a year outside -9999 to 9999.
+const BEYOND_THE_RANGE: [&str; 14] = [
+    "-10000-12-31 23:59:59",
+    "+10000-01-01 00:00:00",
+    "+12345-06-07 01:02:03",
+    "+262142-12-31 23:59:59",
+    "-262143-01-01 00:00:00",
+    "+12345-06-15",
+    "+10000-01-01",
+    "-10000-01-01",
+    "+262142-12-31",
+    "-262143-01-01",
+    "253402300800",
+    "8210266876799",
+    "+12345-06-15T10:30:00Z",
+    "15 Jun 12345 10:30:00 +0000",
+];
+
+/// Inputs inside the range that a `timezone` moves out of it.
+const LEAVES_THE_RANGE: [(&str, &str); 4] = [
+    ("9999-12-31T23:59:59Z", "+05:30"),
+    ("9999-12-31T23:59:59Z", "+14:00"),
+    ("-9999-01-01 00:00:00", "-08:00"),
+    ("-9999-01-01 00:00:00", "-00:01"),
+];
+
+/// The accepted difference from the recording (IF-231): `chrono` held the
+/// years -262143 to 262142 and `jiff` holds -9999 to 9999, so a date
+/// outside them is an error now. Returns the error such a case must give.
+fn beyond_the_range(case: &Value) -> Option<String> {
+    let config = &case["config"];
+    let input = config["input"].as_str()?;
+    let format = config["input_format"].as_str();
+    if BEYOND_THE_RANGE.contains(&input) {
+        return Some(match format {
+            // A timestamp alone falls back to "a date without a time".
+            Some("%s") => format!(
+                "Failed to parse '{input}' with format '%s': input is not enough for unique \
+                 date and time"
+            ),
+            Some(format) => {
+                format!("Failed to parse '{input}' with format '{format}': input is out of range")
+            }
+            None => format!(
+                "Could not parse '{input}' as a date. Supported formats: RFC3339, RFC2822, \
+                 YYYY-MM-DD HH:MM:SS, YYYY-MM-DDTHH:MM:SS, YYYY-MM-DD"
+            ),
+        });
+    }
+    let zone = config["timezone"].as_str()?;
+    LEAVES_THE_RANGE.contains(&(input, zone)).then(|| {
+        format!("date_format: the date at timezone '{zone}' is outside the years -9999 to 9999")
+    })
+}
+
 #[test]
 fn date_format_matches_the_recorded_behaviour() {
     let recorded = std::fs::read_to_string(fixture_path()).expect("golden fixture");
@@ -896,13 +952,20 @@ fn date_format_matches_the_recorded_behaviour() {
     );
 
     let mut differences = Vec::new();
+    let mut beyond = 0;
     for (case, line) in cases.into_iter().zip(&recorded) {
         assert_eq!(&line[0], &case, "fixture is out of step with the case list");
         let observed = observe_isolated(case.clone());
-        if observed != line[1] {
+        let expected = match beyond_the_range(&case) {
+            Some(error) if line[1].get("ok").is_some() => {
+                beyond += 1;
+                json!({ "err": error })
+            }
+            _ => line[1].clone(),
+        };
+        if observed != expected {
             differences.push(format!(
-                "case     {case}\nrecorded {}\nobserved {observed}",
-                line[1]
+                "case     {case}\nexpected {expected}\nobserved {observed}"
             ));
         }
     }
@@ -913,4 +976,6 @@ fn date_format_matches_the_recorded_behaviour() {
         recorded.len(),
         differences.join("\n\n")
     );
+    // Every listed case was recorded as a value; none is silently skipped.
+    assert_eq!(beyond, 81, "cases beyond the year range");
 }

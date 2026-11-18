@@ -139,7 +139,7 @@ describe("repository integration policy", () => {
     expect(lockfile).not.toContain('name = "chrono-tz"\n');
   });
 
-  test("chrono is used only at the cron boundary and in the date_format node", async () => {
+  test("chrono is used only at the cron boundary", async () => {
     // IF-231 stage 2: the scheduler's own time types are jiff. The cron crate
     // still evaluates over chrono, so one adapter converts for it. A chrono
     // type anywhere else in the scheduler would let naive-as-UTC values leak
@@ -147,8 +147,9 @@ describe("repository integration policy", () => {
     // IF-231 stage 3: records, wire payloads, leases and clocks are jiff, and
     // every stored form is written by src/util/timestamp.rs. A chrono type in
     // another module would bring back a second formatter for the same bytes.
-    // The date_format node keeps chrono until stage 4.
-    const allowed = ["src/nodes/utility/date.rs", "src/nodes/utility/date_input.rs", "src/scheduler/cron_boundary.rs"];
+    // IF-231 stage 4: the date_format node reads its own strftime dialect
+    // (src/nodes/utility/strftime) over jiff types.
+    const allowed = ["src/scheduler/cron_boundary.rs"];
     const users: string[] = [];
     for await (const file of new Bun.Glob("src/**/*.rs").scan(repository)) {
       if (/\bchrono::|\buse chrono\b/.test(await read(file))) users.push(file);

@@ -10,6 +10,7 @@ mod log;
 mod markdown;
 mod markdown_document;
 mod shell;
+mod strftime;
 mod template;
 mod validate;
 

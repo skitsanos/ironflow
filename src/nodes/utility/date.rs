@@ -1,61 +1,23 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Offset as _, Utc};
+use jiff::tz::Offset;
 
 use crate::engine::types::{Context, NodeOutput};
 use crate::lua::interpolate::interpolate_ctx;
 use crate::nodes::Node;
 
-use super::date_input::{format_output, offset_seconds, parse_with_format};
+use super::date_input::{auto_parse, format_output, parse_timezone, parse_with_format};
+use super::strftime::Moment;
 
 pub struct DateFormatNode;
 
-/// Try to parse a date string using common formats, returning a DateTime<FixedOffset>.
-fn auto_parse(input: &str) -> Option<DateTime<FixedOffset>> {
-    // RFC3339 (e.g. "2024-06-15T10:30:00Z" or "2024-06-15T10:30:00+02:00")
-    if let Ok(dt) = DateTime::parse_from_rfc3339(input) {
-        return Some(dt);
+/// The current time, read at UTC.
+fn now() -> Moment {
+    Moment {
+        local: Offset::UTC.to_datetime(jiff::Timestamp::now()),
+        offset: 0,
+        leap: false,
     }
-    // RFC2822 (e.g. "Sat, 15 Jun 2024 10:30:00 +0000")
-    if let Ok(dt) = DateTime::parse_from_rfc2822(input) {
-        return Some(dt);
-    }
-    // Common datetime formats (naive — assume UTC)
-    for fmt in &["%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"] {
-        if let Ok(ndt) = NaiveDateTime::parse_from_str(input, fmt) {
-            return Some(ndt.and_utc().fixed_offset());
-        }
-    }
-    // Date only
-    if let Ok(nd) = NaiveDate::parse_from_str(input, "%Y-%m-%d") {
-        let ndt = nd.and_time(NaiveTime::MIN);
-        return Some(ndt.and_utc().fixed_offset());
-    }
-    None
-}
-
-/// Parse a timezone string like "+02:00", "-05:00", or "UTC" into a FixedOffset.
-fn parse_timezone(tz: &str) -> Result<FixedOffset> {
-    let trimmed = tz.trim();
-    if trimmed.eq_ignore_ascii_case("utc") || trimmed == "Z" {
-        return Ok(Utc.fix());
-    }
-    // Parse "+HH:MM" or "-HH:MM"
-    if (trimmed.starts_with('+') || trimmed.starts_with('-')) && trimmed.len() >= 5 {
-        let sign = if trimmed.starts_with('-') { -1 } else { 1 };
-        let rest = &trimmed[1..];
-        let parts: Vec<&str> = rest.split(':').collect();
-        if parts.len() == 2
-            && let (Ok(h), Ok(m)) = (parts[0].parse::<i32>(), parts[1].parse::<i32>())
-            && let Some(offset) = offset_seconds(sign, h, m).and_then(FixedOffset::east_opt)
-        {
-            return Ok(offset);
-        }
-    }
-    anyhow::bail!(
-        "Invalid timezone '{}'. Use 'UTC', '+HH:MM', or '-HH:MM'",
-        tz
-    )
 }
 
 #[async_trait]
@@ -104,8 +66,8 @@ impl Node for DateFormatNode {
         };
 
         // Parse the date
-        let dt: DateTime<FixedOffset> = if raw_input.eq_ignore_ascii_case("now") {
-            Utc::now().fixed_offset()
+        let dt = if raw_input.eq_ignore_ascii_case("now") {
+            now()
         } else if let Some(input_fmt) = config.get("input_format").and_then(|v| v.as_str()) {
             parse_with_format(&raw_input, input_fmt)?
         } else {
@@ -121,13 +83,17 @@ impl Node for DateFormatNode {
         // Apply timezone conversion if requested
         let dt = if let Some(tz_str) = timezone {
             let offset = parse_timezone(tz_str)?;
-            dt.with_timezone(&offset)
+            dt.at_offset(offset).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "date_format: the date at timezone '{tz_str}' is outside the years -9999 to 9999"
+                )
+            })?
         } else {
             dt
         };
 
         let formatted = format_output(&dt, output_format)?;
-        let unix_ts = dt.timestamp();
+        let unix_ts = dt.unix_seconds();
 
         let mut output = NodeOutput::new();
         output.insert(output_key.to_string(), serde_json::json!(formatted));
