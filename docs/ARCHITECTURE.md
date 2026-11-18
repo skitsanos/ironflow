@@ -309,7 +309,7 @@ pub trait StateStore: Send + Sync {
     async fn renew_run_lease(&self, run_id: &str, lease: &RunLease) -> StorageResult<bool>;
     async fn reconcile_expired_run_leases(
         &self,
-        now: chrono::DateTime<chrono::Utc>,
+        now: jiff::Timestamp,
     ) -> StorageResult<usize>;
     async fn upsert_task(&self, run_id: &str, task: &TaskState) -> StorageResult<()>;
     async fn upsert_task_owned(
@@ -334,7 +334,7 @@ pub trait StateStore: Send + Sync {
         query: &RunListQuery,
     ) -> StorageResult<RunSummaryPage>;
     async fn delete_run(&self, run_id: &str) -> StorageResult<()>;
-    async fn prune_before(&self, cutoff: chrono::DateTime<chrono::Utc>) -> StorageResult<usize>;
+    async fn prune_before(&self, cutoff: jiff::Timestamp) -> StorageResult<usize>;
     async fn claim_schedule(
         &self,
         name: &str,
@@ -389,6 +389,34 @@ fixed-record base, reads at most `limit + 1 + K` base entries, and merges its
 checksummed delta, where `K <= 128` is the overlay entry count. A clean page
 therefore uses O(log N + page size + K) catalog reads and O(page size + K)
 memory without enumerating the store directory.
+
+#### Stored timestamp forms
+
+An instant is a `jiff::Timestamp` in memory (IF-231). `jiff`'s own text form
+and integer conversions are never used for anything stored or published:
+`util/timestamp.rs` writes every form, byte for byte as the earlier `chrono`
+implementation did, so replicas on either implementation share a store.
+
+| Form | Example | Where |
+| --- | --- | --- |
+| `Z`, shortest fraction | `2026-01-02T03:04:05.120Z` | JSON store records and summaries, Redis `info` and summary values, Redis events, API and SSE bodies, `ironflow list --format json`, run-list cursors |
+| `+00:00`, shortest fraction | `2026-01-02T03:04:05.120+00:00` | SQL event `timestamp` column, Lua `now_rfc3339()` |
+| `Z`, nine fraction digits | `2026-01-02T03:04:05.120000000Z` | SQL run and task `started` and `finished` columns |
+| Whole microseconds since 1970, rounded down | `1767323045120000` | SQL `started_micros`, `expires_micros`, `claimed_micros` and `run_micros`; JSON catalog, delta and lease records; Redis ordered-catalog members |
+
+"Shortest fraction" is none for a whole second and otherwise three, six or
+nine digits, whichever is the shortest that is exact. Readers accept all
+three text forms in any column, with `Z` or a numeric offset. Nothing is
+ordered by timestamp text except the one-time backfill of SQL event rows
+written before publication sequences existed; every other order uses the
+microsecond integer or a sequence. SQL and Redis lease deadlines are stamped
+and compared with the store's clock, not a replica's; the single-host JSON
+store uses the process clock.
+
+`jiff` holds -9999-01-02T01:59:59Z to 9999-12-30T22:00:00.999999999Z, where
+`chrono` reached the years -262143 to 262142. A stored value outside that
+range is reported as corruption. IronFlow only stores clock readings, so
+such a value can only have been written by hand.
 
 Both `StateStore` and `EventStore` return `StorageResult`. `StorageError`
 preserves one of five boundary-safe categories: `InvalidInput`, `NotFound`,

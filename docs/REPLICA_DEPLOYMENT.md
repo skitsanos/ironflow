@@ -145,6 +145,17 @@ no allowlist entry. A present but empty value of either variable stops the
 replica at startup, like the variables above. See
 [Outbound destinations](SECURITY.md#outbound-destinations).
 
+## Stored timestamps across versions
+
+Replicas on different IronFlow versions may share a store during a rolling
+upgrade. The move of IronFlow's own time handling from `chrono` to `jiff`
+(IF-231) changed no stored or published timestamp: text columns, JSON
+records, Redis values, run-list cursors and microsecond sort keys keep their
+exact bytes, and each implementation reads what the other writes and lists
+runs in the same order. No migration or ordering of the upgrade is needed.
+[Stored timestamp forms](ARCHITECTURE.md#stored-timestamp-forms) lists the
+forms.
+
 ## Failure semantics
 
 An executing process owns its run through a fenced durable lease. A live owner

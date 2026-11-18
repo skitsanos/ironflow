@@ -419,7 +419,7 @@ depended on directly ([IF-231](issues/IF-231.md)):
 
 | Advisory | Crate | Outcome |
 | --- | --- | --- |
-| [RUSTSEC-2026-0543](https://rustsec.org/advisories/RUSTSEC-2026-0543.html) | `chrono` | Reported as unmaintained; no vulnerability and no patched version. Reviewed exception until IronFlow and `calamine`, `cron`, `lopdf` and `rmcp` no longer resolve it. |
+| [RUSTSEC-2026-0543](https://rustsec.org/advisories/RUSTSEC-2026-0543.html) | `chrono` | Reported as unmaintained; no vulnerability and no patched version. IronFlow itself now uses it only for the `date_format` node and to exchange values with `cron`; stored and published timestamps use `jiff`. Reviewed exception until IronFlow and `calamine`, `cron`, `lopdf` and `rmcp` no longer resolve it. |
 | [RUSTSEC-2026-0555](https://rustsec.org/advisories/RUSTSEC-2026-0555.html) | `chrono-tz` | Removed. Schedule time zones now use `jiff` with the IANA database compiled into the binary, and the exception is retired. The policy test fails if `chrono-tz` returns to `Cargo.lock`. |
 
 Updating `calamine` was not free of risk. Version 0.38 builds a style record

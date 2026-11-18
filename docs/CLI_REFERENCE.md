@@ -245,7 +245,7 @@ store.
 
 | Flag | Required | Default | Description |
 |------|----------|---------|-------------|
-| `--before <RFC3339>` | yes | — | Delete only artifacts last modified before this instant |
+| `--before <RFC3339>` | yes | — | Delete only artifacts last modified before this instant, written with `Z` or a numeric offset, for example `2026-01-02T03:04:05Z` |
 | `--limit <COUNT>` | no | `100` | Most artifacts deleted by this invocation, strictly 1–100 |
 | `--scan <COUNT>` | no | `10000` | Most stored artifacts examined by this invocation, strictly 1–10000 |
 | `--after <SHA256>` | no | — | Resume after this digest, as printed by an incomplete invocation |

@@ -29,10 +29,42 @@ publication is verified separately.
   `ironflow.yaml`, fire instants, claim keys and stored records are
   unaffected.
 
+- Stored and published timestamps are produced by `jiff` instead of `chrono`
+  (IF-231), with no change to any of them: run, task and event records in the
+  JSON, SQLite, PostgreSQL and Redis stores, API and SSE bodies, run-list
+  cursors, `ironflow list` output and Lua `now_rfc3339()` keep their exact
+  text, and run ordering keeps its microsecond keys. Records written by
+  earlier versions load unchanged and replicas on both versions can share a
+  store during a rolling upgrade. Golden tests recorded from the previous
+  implementation cover each form on all four stores.
+- Timestamps outside the years -9999 to 9999 are no longer accepted. IronFlow
+  never wrote one, since it stores only clock readings; a record edited by
+  hand to carry one is now reported as corrupt, and
+  `ironflow artifacts prune --before` refuses one. Hand-edited timestamps
+  with surrounding spaces, a one-digit hour or more than nine fraction digits
+  are refused as well. SQL run and event rows dated before the year 0000,
+  which earlier versions wrote but could not read back, now load.
+- `ironflow artifacts prune --before` and the embeddings `Retry-After` date
+  are parsed by `jiff`. RFC 3339 instants with up to nine fraction digits
+  and HTTP dates are accepted as before. `--before` refuses a tenth fraction
+  digit, which used to be dropped, and accepts a few more ISO 8601
+  spellings, such as a time without seconds.
+- Library API: `RunInfo`, `RunSummary` and `TaskState` (`started`,
+  `finished`), `RunEvent::timestamp`, `RunCursor::started`, `RunLease::at`
+  and `expires_at`, `StateStore::prune_before` and
+  `reconcile_expired_run_leases` use `jiff::Timestamp` instead of
+  `chrono::DateTime<Utc>` (IF-231). `ironflow::util::timestamp` holds the
+  text and integer forms; `jiff`'s own `Display` and `as_microsecond` differ
+  from them and must not be used for stored values.
+
 ## Dependencies
 
 - `chrono-tz` is removed and its audit exception (RUSTSEC-2026-0555) retired;
   `jiff` 1.0 is added with only its bundled time zone database enabled.
+- `chrono` no longer has its `serde` feature enabled. IronFlow uses it only
+  for the `date_format` node and to exchange values with `cron`; it stays in
+  the dependency graph, and its audit exception (RUSTSEC-2026-0543) stays,
+  through those and `calamine`, `lopdf` and `rmcp`.
 - The Markdown parser `comrak` moves from 0.59 to 1.0. It caps the text that
   reference links may expand to at the larger of the input size and 100 KB;
   0.59 used the smaller of the two. A Markdown document that repeats a
