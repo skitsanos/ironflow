@@ -410,7 +410,7 @@ release were handled on 2026-11-12 ([IF-173](issues/IF-173.md)):
 
 | Advisory | Crate | Outcome |
 | --- | --- | --- |
-| [RUSTSEC-2026-0462](https://rustsec.org/advisories/RUSTSEC-2026-0462.html) | `rmcp` | Updated to 3.9.0 and required as the minimum. `mcp_client` over Streamable HTTP was affected: JSON and error bodies were read without a limit. They are now capped at 16 MiB and 64 KiB. |
+| [RUSTSEC-2026-0462](https://rustsec.org/advisories/RUSTSEC-2026-0462.html) | `rmcp` | Updated to 3.9.0 and required as the minimum. `mcp_client` over Streamable HTTP was affected: JSON and error bodies were read without a limit. A JSON response is capped at 16 MiB. Since `rmcp` 3.11 a JSON error body is read within that same cap, so its JSON-RPC error can be parsed, and at most 64 KiB of its text is kept ([IF-236](issues/IF-236.md)); with 3.9 and 3.10 the client stopped reading an error body at 64 KiB. |
 | [RUSTSEC-2026-0436](https://rustsec.org/advisories/RUSTSEC-2026-0436.html) | `calamine` | Updated to 0.38.0. The defect is in the `.xls`/`.xlsb`/VBA container parser. `extract_xlsx` does not read those formats, but see the note below on the compound-file probe. |
 | [RUSTSEC-2026-0459](https://rustsec.org/advisories/RUSTSEC-2026-0459.html) | `libsqlite3-sys` | Fixed on 2026-11-18: `sqlx` 0.9.1 resolves `libsqlite3-sys` 0.40.0 with SQLite 3.54.1, and the reviewed exception was retired. |
 

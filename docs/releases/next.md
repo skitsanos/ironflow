@@ -94,8 +94,12 @@ publication is verified separately.
   advice not to open untrusted SQLite files with `db_query` or `db_exec`
   applies only to releases up to 1.22.0.
 - `zip` 9.7.0 (re-reads recorded in IF-218), `jiff` 1.0.1, `noyalib` 0.0.62,
-  the AWS SDK crates, `clap` 4.6.8 and `uuid` 1.29.3. `rmcp` stays at 3.10.0:
-  3.11.0 reads a JSON error body up to the full response limit (IF-236).
+  the AWS SDK crates, `clap` 4.6.8, `uuid` 1.29.3 and `rmcp` 3.11.0.
+- With `rmcp` 3.11, `mcp_client` over Streamable HTTP reads the JSON body of
+  an error response within the 16 MiB response cap, where 3.10 stopped at
+  64 KiB, so a failing server can make the client buffer up to 16 MiB before
+  the step fails. At most 64 KiB of the error text is kept, and the failure
+  message stays short (IF-236, accepted by the maintainer on 2026-11-18).
 
 ## Fixed
 

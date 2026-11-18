@@ -66,6 +66,8 @@ Action-specific keys:
 
 ## Limits
 
+Over `streamable_http`, one JSON response, including the JSON body of an error response, is read up to 16 MiB; at most 64 KiB of an error body is kept in the failure.
+
 | Variable | Default | Effect |
 |----------|---------|--------|
 | `IRONFLOW_MAX_MCP_RESULT_BYTES` | `4194304` | Maximum JSON size of one action result written to context |

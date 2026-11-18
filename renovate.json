@@ -58,12 +58,6 @@
       "matchManagers": ["cargo"],
       "matchPackageNames": ["aws-smithy-types"],
       "allowedVersions": "!/^1\\.7\\.0$/"
-    },
-    {
-      "description": "rmcp 3.11.0 reads a JSON error body up to the 16 MiB response limit instead of 64 KiB, which fails tests/test_mcp_response_limits.rs (IF-236). Later releases remain eligible.",
-      "matchManagers": ["cargo"],
-      "matchPackageNames": ["rmcp"],
-      "allowedVersions": "!/^3\\.11\\.0$/"
     }
   ]
 }

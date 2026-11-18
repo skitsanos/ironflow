@@ -7,7 +7,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts check`.
 
 - Total findings: 236
-- Active findings: 1
+- Active findings: 0
 
 ## Working agreement
 
@@ -263,4 +263,4 @@ priority, area, and title. The registry is generated with
 | [IF-233](./IF-233.md) | P3 | Resolved | Document extraction/extract_xlsx | extract_xlsx fails the step on a date or elapsed-time cell with an extreme value |
 | [IF-234](./IF-234.md) | P3 | Resolved | Utility nodes/date_format | date_format writes the century of a year before 0000 as characters that are not a number |
 | [IF-235](./IF-235.md) | P1 | Resolved | Dependency security | Six lettre advisories fail the audit gate; send_email over SMTP uses the affected code |
-| [IF-236](./IF-236.md) | P3 | Open | MCP/resource bounds | rmcp 3.11.0 reads a JSON error body up to the full response limit |
+| [IF-236](./IF-236.md) | P3 | Resolved | MCP/resource bounds | rmcp 3.11.0 reads a JSON error body up to the full response limit |
