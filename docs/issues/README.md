@@ -6,8 +6,8 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts generate` and verified with
 `bun run scripts/issues_registry.ts check`.
 
-- Total findings: 236
-- Active findings: 0
+- Total findings: 237
+- Active findings: 1
 
 ## Working agreement
 
@@ -264,3 +264,4 @@ priority, area, and title. The registry is generated with
 | [IF-234](./IF-234.md) | P3 | Resolved | Utility nodes/date_format | date_format writes the century of a year before 0000 as characters that are not a number |
 | [IF-235](./IF-235.md) | P1 | Resolved | Dependency security | Six lettre advisories fail the audit gate; send_email over SMTP uses the affected code |
 | [IF-236](./IF-236.md) | P3 | Resolved | MCP/resource bounds | rmcp 3.11.0 reads a JSON error body up to the full response limit |
+| [IF-237](./IF-237.md) | P3 | Open | Documents/HTML conversion | htmd 0.6 no longer accepts IronFlow's depth-capped HTML tree |
