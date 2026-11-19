@@ -57,7 +57,7 @@ Send an HTTP request and write the response to the context.
 | Key | Type | Description |
 |-----|------|-------------|
 | `{output_key}_status` | number | HTTP status code |
-| `{output_key}_headers` | object | Lowercase field names. A single field is a string; repeated fields are an array of strings in receipt order. |
+| `{output_key}_headers` | object | Lowercase field names. Text values are strings; non-text values are `{"base64":"..."}` objects. Repeated fields are arrays in receipt order. |
 | `{output_key}_success` | boolean | `true` for 2xx |
 | `{output_key}_attempts` | number | Requests sent, including status retries |
 | `{output_key}_data` | any | Inline mode: parsed JSON, else a string |
@@ -66,6 +66,7 @@ Send an HTTP request and write the response to the context.
 ## Behavior
 
 - Header values are neither split nor joined on commas. For example, two `Set-Cookie` fields yield `{"set-cookie":["alpha=one","beta=two"]}`, while one `Vary: Accept, Origin` field yields `{"vary":"Accept, Origin"}`. This applies in both inline and artifact modes.
+- An empty field is `""`. If the HTTP client cannot read a value as text, its object contains the original value bytes in standard padded Base64. For example, two fields with the same name, one containing `first` and one containing the bytes `63 61 66 e9`, yield `["first",{"base64":"Y2Fm6Q=="}]`. Base64 is not redaction.
 - A non-2xx final response fails the step unless `fail_on_status = false`.
 - Only statuses in `retry_statuses` are retried. Transport errors and timeouts fail the step.
 - Retry delay is `status_retry_backoff * 2^retry` or `Retry-After`, capped at `max_retry_after`; with retries on, both settings must be at least `0.01`.

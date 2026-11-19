@@ -2,8 +2,8 @@
 
 local flow = Flow.new("http_methods")
 
--- generic_headers["content-type"] is a string for a single field. Multiple
--- Set-Cookie fields are available separately in generic_headers["set-cookie"].
+-- A single text header is a string; a non-text header is a table with a
+-- base64 field. Repeated values form a list, as with multiple Set-Cookie fields.
 flow:step("generic_get", nodes.http_request({
     method = "GET",
     url = "https://httpbin.org/get",

@@ -278,6 +278,48 @@ async fn download() -> Response<Body> {
 }
 
 #[tokio::test]
+async fn non_text_response_headers_preserve_bytes_in_both_modes() {
+    let _lock = ENV_LOCK.lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let _environment = Environment::local_artifacts(directory.path());
+    let server = spawn(Router::new().route(
+        "/",
+        get(|| async {
+            Response::builder()
+                .header("x-label", b"caf\xe9".as_slice())
+                .header("x-empty", "")
+                .header("x-text", "Y2Fm6Q==")
+                .header("x-mixed", "first")
+                .header("x-mixed", b"caf\xe9".as_slice())
+                .header("x-mixed", "")
+                .body(Body::from("ok"))
+                .unwrap()
+        }),
+    ))
+    .await;
+
+    for mode in ["inline", "artifact"] {
+        let output = execute(
+            "http_get",
+            serde_json::json!({"url": server.url, "proxy_mode": "direct", "response_mode": mode}),
+            &Context::new(),
+        )
+        .await
+        .unwrap();
+        let headers = &output["http_headers"];
+        let encoded = serde_json::json!({"base64": "Y2Fm6Q=="});
+        assert_eq!(headers["x-label"], encoded, "{mode}");
+        assert_eq!(headers["x-empty"], "", "{mode}");
+        assert_eq!(headers["x-text"], "Y2Fm6Q==", "{mode}");
+        assert_eq!(
+            headers["x-mixed"],
+            serde_json::json!(["first", encoded, ""]),
+            "{mode}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn artifact_response_preserves_binary_without_inline_data() {
     let _lock = ENV_LOCK.lock().await;
     let directory = tempfile::tempdir().unwrap();
