@@ -7,7 +7,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts check`.
 
 - Total findings: 259
-- Active findings: 6
+- Active findings: 5
 
 ## Working agreement
 
@@ -273,7 +273,7 @@ priority, area, and title. The registry is generated with
 | [IF-243](./IF-243.md) | P2 | Resolved | Nodes/CSV | CSV header escaping can collapse distinct object keys |
 | [IF-244](./IF-244.md) | P2 | Resolved | Nodes/XLSX | XLSX date and duration headers acquire literal JSON quotes |
 | [IF-245](./IF-245.md) | P2 | Resolved | API/idempotency | A small task output cap breaks replay of completed API requests |
-| [IF-246](./IF-246.md) | P2 | Open | CLI/validation | Child-flow validation can miss invalid descendants depending on declaration order |
+| [IF-246](./IF-246.md) | P2 | Resolved | CLI/validation | Child-flow validation can miss invalid descendants depending on declaration order |
 | [IF-247](./IF-247.md) | P2 | Open | Lua/static validation | Strict Lua validation rejects the implicit self parameter of colon methods |
 | [IF-248](./IF-248.md) | P2 | Open | Nodes/Azure OpenAI | Azure Responses can name different deployments in the request URL and body |
 | [IF-249](./IF-249.md) | P2 | Resolved | Nodes/database | db_query silently drops columns with duplicate labels |

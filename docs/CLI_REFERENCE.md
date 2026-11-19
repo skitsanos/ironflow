@@ -111,8 +111,9 @@ is used as it is, a relative one is joined to the directory of the flow that
 names it. Each distinct child is loaded and checked once for the errors
 listed above and reported as `child flow <file>: ...`; the output adds
 `Child flows: <n>`. The walk stops at `IRONFLOW_MAX_SUBWORKFLOW_DEPTH` levels
-(default 16), the depth at which a run refuses a child, so flows below that
-level are not loaded.
+(default 16) on each path. If a shared child is also reachable by a shorter
+path, its descendants within that path's limit are checked regardless of
+step declaration order. Files reachable only beyond the limit are not loaded.
 
 | Finding | Result |
 |---------|--------|
