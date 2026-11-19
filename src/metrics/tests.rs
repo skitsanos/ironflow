@@ -1,5 +1,7 @@
 use super::*;
 
+mod child_attempts;
+
 struct StubScheduleExecutor;
 
 #[async_trait::async_trait]

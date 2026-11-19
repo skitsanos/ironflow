@@ -52,6 +52,14 @@ credentials, or other caller-controlled data as labels.
 | `ironflow_storage_failures_total` | counter | `store`, `operation`, `error_kind` | Errors returned by state and event-store operations |
 | `ironflow_event_admissions_total` | counter | `outcome` | Runs admitted to their event stream at start; `failed` runs execute but may publish no events |
 
+Task-attempt counters and durations include the calling step and each attempt
+inside a child workflow. This also applies to parallel, repeated, and
+tool-dispatched flows. A detached child (`wait=false`) can record attempts
+after its parent finishes. For example, if a subworkflow step succeeds after
+its only child task fails once and retries successfully, the totals increase
+by two successes and one failure. Child tasks also contribute to active task
+work, but these internal runs do not increment the top-level run counter.
+
 Label values are stable and bounded:
 
 | Label | Values |

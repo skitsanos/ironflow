@@ -5,18 +5,20 @@
 //! own task and hands it to the engine with each child it starts.
 
 use std::future::Future;
+use std::sync::Arc;
 
 use anyhow::{Result, bail};
 
 use tokio::time::Instant;
 
+use crate::metrics::Metrics;
 use crate::util::execution::{
     CooperativeWorkerGuards, ExecutionWorkerSets, current_execution_deadline,
 };
 
 tokio::task_local! {
-    /// Child levels between this run and its top-level run; unset at level 0.
-    static NESTING_DEPTH: usize;
+    /// Depth and task registry captured by composition steps before spawning.
+    static RUN_SCOPE: (usize, Option<Arc<Metrics>>);
     /// Deadline of the step that waits for this child run, if it has one.
     static INHERITED_DEADLINE: Option<Instant>;
 }
@@ -47,11 +49,15 @@ pub(super) fn step_deadline(own: Option<Instant>) -> Option<Instant> {
 }
 
 /// Run `future` as a workflow `depth` child levels below its top-level run.
-pub(super) async fn with_nesting_depth<F>(depth: usize, future: F) -> F::Output
+pub(super) async fn with_run_scope<F>(
+    depth: usize,
+    metrics: Option<Arc<Metrics>>,
+    future: F,
+) -> F::Output
 where
     F: Future,
 {
-    NESTING_DEPTH.scope(depth, future).await
+    RUN_SCOPE.scope((depth, metrics), future).await
 }
 
 const REFUSAL_START: &str = "child workflow nesting depth ";
@@ -69,10 +75,6 @@ pub(super) fn refusal_in(failure: &str) -> Option<&str> {
     Some(&failure[start..end])
 }
 
-fn current_depth() -> usize {
-    NESTING_DEPTH.try_with(|depth| *depth).unwrap_or(0)
-}
-
 /// The nesting level of a child run, and the worker sets and deadline of the
 /// step that starts it.
 #[derive(Clone, Debug)]
@@ -80,6 +82,7 @@ pub(crate) struct ChildLink {
     depth: usize,
     parent_workers: ExecutionWorkerSets,
     deadline: Option<Instant>,
+    pub(super) task_metrics: Option<Arc<Metrics>>,
 }
 
 impl ChildLink {
@@ -89,13 +92,11 @@ impl ChildLink {
     /// `IRONFLOW_MAX_SUBWORKFLOW_DEPTH`, which is what stops a flow that
     /// calls itself, directly or through other flows.
     pub(crate) fn for_current_step(node: &str) -> Result<Self> {
-        let link = Self::below(
-            node,
-            current_depth(),
-            ExecutionWorkerSets::for_current_task(),
-        )?;
+        let (depth, task_metrics) = RUN_SCOPE.try_with(Clone::clone).unwrap_or_default();
+        let link = Self::below(node, depth, ExecutionWorkerSets::for_current_task())?;
         Ok(Self {
             deadline: current_execution_deadline(),
+            task_metrics,
             ..link
         })
     }
@@ -113,6 +114,7 @@ impl ChildLink {
             depth,
             parent_workers,
             deadline: None,
+            task_metrics: None,
         })
     }
 
@@ -120,9 +122,9 @@ impl ChildLink {
     /// neither holds the starting step open nor inherits its deadline.
     pub(crate) fn detached(self) -> Self {
         Self {
-            depth: self.depth,
             parent_workers: ExecutionWorkerSets::default(),
             deadline: None,
+            ..self
         }
     }
 
@@ -152,7 +154,6 @@ mod tests {
 
     #[tokio::test]
     async fn a_step_outside_any_child_run_starts_children_at_level_one() {
-        assert_eq!(current_depth(), 0);
         assert_eq!(
             ChildLink::for_current_step("subworkflow").unwrap().depth(),
             1
@@ -161,9 +162,11 @@ mod tests {
 
     #[tokio::test]
     async fn a_child_run_starts_its_own_children_one_level_deeper() {
-        let link = with_nesting_depth(3, async { ChildLink::for_current_step("subworkflow") })
-            .await
-            .unwrap();
+        let link = with_run_scope(3, None, async {
+            ChildLink::for_current_step("subworkflow")
+        })
+        .await
+        .unwrap();
         assert_eq!(link.depth(), 4);
         assert_eq!(link.detached().depth(), 4);
     }

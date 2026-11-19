@@ -16,7 +16,7 @@ use crate::util::execution::{CooperativeWorkerSet, with_run_worker_set};
 
 use super::child_runs::LiveChildRun;
 use super::handle::{ChildRunResult, RunHandle};
-use super::nesting::{ChildLink, with_inherited_deadline, with_nesting_depth};
+use super::nesting::{ChildLink, with_inherited_deadline, with_run_scope};
 use super::overlay::ExecutionOverlay;
 use super::panic_payload::panic_message;
 use super::signal::{ExecutionOutcome, ExecutionSignal, request_cancellation, stop_requested};
@@ -94,6 +94,14 @@ impl RunCoordinator {
     pub(super) fn with_child_result(mut self, enabled: bool) -> Self {
         self.retain_child_result = enabled;
         self
+    }
+
+    /// Internal child runs share task observations, not run or lease observations.
+    pub(super) fn task_metrics(&self) -> Option<&Arc<crate::metrics::Metrics>> {
+        self.child_link
+            .as_ref()
+            .and_then(|link| link.task_metrics.as_ref())
+            .or(self.metrics.as_ref())
     }
 
     /// Mark this run as a child of the step that captured `link`.
@@ -205,8 +213,9 @@ impl RunCoordinator {
         let deadline = self.child_link.as_ref().and_then(ChildLink::deadline);
         let execution = with_run_worker_set(
             workers.clone(),
-            with_nesting_depth(
+            with_run_scope(
                 depth,
+                self.task_metrics().cloned(),
                 with_inherited_deadline(deadline, self.run(&mut execution_cancel)),
             ),
         );
