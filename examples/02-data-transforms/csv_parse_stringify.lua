@@ -31,8 +31,9 @@ flow:step("parse_users", nodes.csv_parse({
 -- Text that a spreadsheet would run as a formula is written with a leading
 -- apostrophe: the notes "=A1+B1", "@carol" and "-" become "'=A1+B1",
 -- "'@carol" and "'-". The negative balances are numbers and are written as
--- they are. Set escape_formulas = false only when the consumer is a program
--- that needs the raw text.
+-- they are. If raw_csv has both @region and '@region as headers, this step
+-- fails: escaping would make the two columns indistinguishable. Rename one
+-- source field before export; quoting the CSV does not resolve the collision.
 flow:step("export_users", nodes.csv_stringify({
     source_key = "users",
     output_key = "normalized_csv",

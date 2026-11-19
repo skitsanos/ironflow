@@ -34,6 +34,7 @@ Serialize an object or array from context into CSV text.
 - A scalar source, or an array that mixes objects, arrays and scalars, fails the step.
 - With `escape_formulas` on, a text cell (header names included) that begins with `=`, `+`, `-`, `@`, a tab, CR, LF, or full-width `＝`, `＋`, `－`, `＠` gets a leading `'`, following the [OWASP CSV injection guidance](https://owasp.org/www-community/attacks/CSV_Injection). Quoting is applied after.
 - Exempt: number values (`-5`), text that is entirely one decimal number (`"-5"`, `"+1.5e3"`, `"-.25"`), and text whose first character is not a trigger (`"a=b"`, `" =1+1"`). `"-"`, `"-5+1"` and `"@user"` are prefixed.
+- If two distinct object keys produce the same escaped header, the step fails without returning CSV. For example, `@region` and `'@region` would both be written as `'@region`, even if the keys occur in different rows. The error identifies the two columns by their one-based positions in export order. Rename one field before exporting. With `include_headers = false` there is no header to collide; both value columns are still written and text values are still protected.
 - [`csv_parse`](csv_parse.md) does not remove the apostrophe: `"=1+1"` written and parsed again is `"'=1+1"`. Set `escape_formulas = false` for raw cells only when the output is never opened in a spreadsheet or the data is trusted.
 
 ## Examples

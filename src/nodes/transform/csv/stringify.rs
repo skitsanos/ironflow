@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -102,8 +102,7 @@ fn write_object_rows(
     include_headers: bool,
     cells: Cells,
 ) -> Result<()> {
-    let mut headers = Vec::new();
-    let mut seen = HashSet::new();
+    let mut fields = HashSet::new();
     let mut rows = Vec::new();
     for value in values {
         let object = value.as_object().ok_or_else(|| {
@@ -111,22 +110,19 @@ fn write_object_rows(
                 "csv_stringify expects array elements to be objects when source is an array of objects"
             )
         })?;
-        for field in object.keys() {
-            if seen.insert(field.clone()) {
-                headers.push(field.clone());
-            }
-        }
+        fields.extend(object.keys().map(String::as_str));
         rows.push(object);
     }
+    let mut headers: Vec<_> = fields.into_iter().collect();
     headers.sort_unstable();
     if include_headers {
-        writer.write_record(headers.iter().map(|header| cells.text(header).into_owned()))?;
+        write_object_headers(writer, &headers, cells)?;
     }
     for row in rows {
         writer.write_record(
             headers
                 .iter()
-                .map(|field| cells.value(row.get(field).unwrap_or(&serde_json::Value::Null))),
+                .map(|field| cells.value(row.get(*field).unwrap_or(&serde_json::Value::Null))),
         )?;
     }
     Ok(())
@@ -165,16 +161,39 @@ fn write_object(
     include_headers: bool,
     cells: Cells,
 ) -> Result<()> {
-    let mut headers: Vec<_> = object.keys().cloned().collect();
+    let mut headers: Vec<_> = object.keys().map(String::as_str).collect();
     headers.sort_unstable();
     if include_headers {
-        writer.write_record(headers.iter().map(|header| cells.text(header).into_owned()))?;
+        write_object_headers(writer, &headers, cells)?;
     }
     writer.write_record(
         headers
             .iter()
-            .map(|field| cells.value(object.get(field).unwrap_or(&serde_json::Value::Null))),
+            .map(|field| cells.value(object.get(*field).unwrap_or(&serde_json::Value::Null))),
     )?;
+    Ok(())
+}
+
+fn write_object_headers(
+    writer: &mut csv::Writer<Vec<u8>>,
+    headers: &[&str],
+    cells: Cells,
+) -> Result<()> {
+    if !cells.escape_formulas {
+        writer.write_record(headers)?;
+        return Ok(());
+    }
+    let labels: Vec<_> = headers.iter().map(|header| cells.text(header)).collect();
+    let mut positions = HashMap::with_capacity(labels.len());
+    for (index, label) in labels.iter().enumerate() {
+        let column = index + 1;
+        if let Some(first) = positions.insert(label.as_ref(), column) {
+            anyhow::bail!(
+                "csv_stringify: header collision after formula escaping in columns {first} and {column}; rename one source field before exporting"
+            );
+        }
+    }
+    writer.write_record(labels.iter().map(|label| label.as_bytes()))?;
     Ok(())
 }
 

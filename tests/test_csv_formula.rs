@@ -159,3 +159,59 @@ async fn csv_parse_returns_the_prefix_as_part_of_the_text() {
         .unwrap();
     assert_eq!(parse(&raw, json!({"infer_types": true})).await, rows);
 }
+
+async fn assert_header_collision(source: Value, options: Value, columns: &str) {
+    let error = stringify(source, options).await.unwrap_err().to_string();
+    assert!(error.contains("header collision"), "{error}");
+    assert!(error.contains(columns), "{error}");
+}
+
+#[tokio::test]
+async fn single_object_rejects_colliding_escaped_headers() {
+    assert_header_collision(
+        json!({"@region":"first", "'@region":"second"}),
+        json!({}),
+        "columns 1 and 2",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn object_array_checks_escaped_headers_across_rows_even_when_quoted() {
+    assert_header_collision(
+        json!([{"@region":"first", "0":"between"}, {"'@region":"second"}]),
+        json!({"quote_all":true}),
+        "columns 1 and 3",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn headerless_and_raw_exports_preserve_both_columns() {
+    let row = json!({"@region":"@east", "'@region":"west"});
+    for source in [row.clone(), json!([row.clone()])] {
+        let headerless = stringify(source.clone(), json!({"include_headers":false}))
+            .await
+            .unwrap();
+        assert_eq!(
+            parse(&headerless, json!({"has_header":false})).await,
+            json!([["west", "'@east"]])
+        );
+        let raw = stringify(source, json!({"escape_formulas":false}))
+            .await
+            .unwrap();
+        assert_eq!(parse(&raw, json!({})).await, json!([row.clone()]));
+    }
+}
+
+#[tokio::test]
+async fn repeated_source_keys_and_distinct_escaped_headers_still_round_trip() {
+    let source = json!([{"@region":"east", "'note":"1"}, {"@region":"west", "'note":"2"}]);
+    let csv = stringify(source, json!({})).await.unwrap();
+    assert_eq!(
+        parse(&csv, json!({})).await,
+        json!([
+            {"'@region":"east", "'note":"1"}, {"'@region":"west", "'note":"2"}
+        ])
+    );
+}
