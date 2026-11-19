@@ -40,16 +40,6 @@ pub(super) struct ResponseMetadata {
 
 impl ResponseMetadata {
     pub(super) fn from_response(response: &reqwest::Response) -> Self {
-        let headers = response
-            .headers()
-            .iter()
-            .map(|(name, value)| {
-                (
-                    name.to_string(),
-                    serde_json::Value::String(value.to_str().unwrap_or("").to_owned()),
-                )
-            })
-            .collect();
         let mime_type = response
             .headers()
             .get(reqwest::header::CONTENT_TYPE)
@@ -67,10 +57,32 @@ impl ResponseMetadata {
                 .and_then(|value| value.parse::<f64>().ok())
                 .filter(|value| *value >= 0.0),
             content_length: response.content_length(),
-            headers,
+            headers: response_headers(response.headers()),
             mime_type,
         }
     }
+}
+
+fn response_headers(
+    headers: &reqwest::header::HeaderMap,
+) -> serde_json::Map<String, serde_json::Value> {
+    headers
+        .keys()
+        .filter_map(|name| {
+            let mut values = headers
+                .get_all(name)
+                .iter()
+                .map(|value| serde_json::Value::from(value.to_str().unwrap_or("")));
+            let first = values.next()?;
+            let field = match values.next() {
+                None => first,
+                Some(second) => {
+                    serde_json::Value::Array([first, second].into_iter().chain(values).collect())
+                }
+            };
+            Some((name.to_string(), field))
+        })
+        .collect()
 }
 
 pub(super) async fn response_to_output(

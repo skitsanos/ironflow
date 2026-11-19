@@ -2,7 +2,8 @@
 
 local flow = Flow.new("http_methods")
 
--- Generic http_request with explicit method
+-- generic_headers["content-type"] is a string for a single field. Multiple
+-- Set-Cookie fields are available separately in generic_headers["set-cookie"].
 flow:step("generic_get", nodes.http_request({
     method = "GET",
     url = "https://httpbin.org/get",

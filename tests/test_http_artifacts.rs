@@ -271,6 +271,8 @@ async fn download() -> Response<Body> {
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/x-ironflow-binary")
+        .header("x-tag", "first")
+        .header("x-tag", "second")
         .body(Body::from(DOWNLOAD_BYTES))
         .unwrap()
 }
@@ -299,6 +301,14 @@ async fn artifact_response_preserves_binary_without_inline_data() {
     assert!(!output.contains_key("download_data"));
     assert_eq!(output["download_status"], 200);
     assert_eq!(output["download_attempts"], 1);
+    assert_eq!(
+        output["download_headers"]["x-tag"],
+        serde_json::json!(["first", "second"])
+    );
+    assert_eq!(
+        output["download_headers"]["content-type"],
+        "application/x-ironflow-binary"
+    );
     assert_eq!(
         output["download_artifact"]["mime_type"],
         "application/x-ironflow-binary"

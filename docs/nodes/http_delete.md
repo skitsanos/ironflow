@@ -26,7 +26,7 @@ The others are `body_key`, `parts`, `retry_statuses`, `status_retries`, `max_sta
 | Key | Type | Description |
 |-----|------|-------------|
 | `{output_key}_status` | number | HTTP status code |
-| `{output_key}_headers` | object | Response headers |
+| `{output_key}_headers` | object | Lowercase field names. A single field is a string; repeated fields are an array of strings in receipt order. |
 | `{output_key}_success` | boolean | `true` for 2xx |
 | `{output_key}_attempts` | number | Requests sent, including status retries |
 | `{output_key}_data` | any | Inline mode: parsed JSON, else a string |
