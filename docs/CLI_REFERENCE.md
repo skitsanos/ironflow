@@ -94,6 +94,10 @@ Parse and validate a flow file without executing it. Checks for:
 - Child flows that fail to load or validate, and child-flow recursion (see
   [Child flows](#child-flows) below)
 
+In Lua handlers and string-valued `code` sources, `function item:get()`
+binds a local `self`, just like `function item.get(self)`. A dot declaration
+without that parameter introduces no receiver.
+
 Undefined globals are warnings by default, so validation still exits
 successfully while reporting the source line and column. Embedded code-source
 locations use `step[NAME].source:LINE:COLUMN`; their positions are relative to
