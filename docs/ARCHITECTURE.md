@@ -963,9 +963,13 @@ time (the watermark, a matched occurrence, the claim key's time) is a
 `jiff::civil::DateTime`, which has no zone. An instant (the clock reading
 passed to `Scheduler::evaluate`, the instant an occurrence fires at) is a
 `jiff::Timestamp` or a `jiff::ZonedDateTime`. Grace and lateness are measured
-between instants; the window `(watermark, now]` is compared in wall-clock
-time. All arithmetic uses `jiff::SignedDuration`, an exact number of seconds,
-and never a calendar unit. Lateness is whole elapsed seconds with the
+between instants. For the wall-clock enumeration, both the grace floor and
+the tick use the latest local reading reached by their respective instants.
+On the second pass through a repeated hour this is the last reading before
+the rollback, not the earlier reading now on the clock. This keeps the
+exclusive lower and inclusive upper bounds ordered without changing claim
+keys or admitting future occurrences. Arithmetic uses exact durations
+(`jiff::SignedDuration`), never calendar units. Lateness is whole elapsed seconds with the
 fraction dropped, and an occurrence is late only when that exceeds the grace.
 `scheduler/cron_boundary.rs` is the only scheduler module that uses `chrono`:
 the `cron` crate evaluates over `chrono` values, so the adapter labels a

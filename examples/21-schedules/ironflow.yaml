@@ -42,3 +42,12 @@ schedules:
     timezone: "UTC"
     context:
       audience: "the weekend shift"
+  # At a fall-back transition the first 02:30 counts; a restart during the
+  # second pass can recover it within 45 real minutes, but cannot fire it twice.
+  hello_berlin_night_shift:
+    flow: "scheduled_hello.lua"
+    cron: "30 2 * * *"
+    timezone: "Europe/Berlin"
+    grace_seconds: 2700
+    context:
+      audience: "the Berlin night shift"

@@ -1619,7 +1619,10 @@ configuration.
   in `Europe/Berlin` fires at 03:00 on the transition date rather than skipping
   the day.
 - *Fall back* — the configured time occurs twice. The schedule fires once, on
-  the earlier instant.
+  the earlier instant. Restarting during the second pass still recovers that
+  first occurrence if it is inside the catch-up window and was not settled.
+  For example, with 45 minutes of grace, a Berlin schedule for 02:30 can
+  recover at the second 02:05: the first 02:30 was 35 real minutes ago.
 
 ##### Time zones
 

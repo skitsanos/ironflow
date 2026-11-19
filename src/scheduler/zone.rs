@@ -12,7 +12,7 @@
 use std::sync::Arc;
 
 use jiff::tz::{AmbiguousOffset, TimeZone, TimeZoneDatabase};
-use jiff::{Timestamp, ZonedDateTime, civil};
+use jiff::{SignedDuration, Timestamp, ZonedDateTime, civil};
 
 /// One IANA time zone, identified by the exact name it was configured with.
 #[derive(Clone, Debug)]
@@ -84,6 +84,25 @@ impl ScheduleZone {
     /// The wall-clock time this zone shows at `instant`.
     pub fn local_time(&self, instant: Timestamp) -> civil::DateTime {
         self.rules.to_datetime(instant)
+    }
+
+    /// Latest wall-clock reading reached by `instant`. Cron matches repeated
+    /// times on their first pass, so on the second pass the enumeration bound
+    /// stays just before the rollback until the clock catches up.
+    pub(super) fn cron_watermark(&self, instant: Timestamp) -> civil::DateTime {
+        let local = self.local_time(instant);
+        if let AmbiguousOffset::Fold { before, .. } =
+            self.rules.to_ambiguous_timestamp(local).offset()
+            && let Ok(first) = before.to_timestamp(local)
+            && first < instant
+            && let Some(rollback) = self.rules.following(first).next()
+            && let Ok(last) = rollback
+                .timestamp()
+                .checked_sub(SignedDuration::from_nanos(1))
+        {
+            return self.local_time(last);
+        }
+        local
     }
 }
 

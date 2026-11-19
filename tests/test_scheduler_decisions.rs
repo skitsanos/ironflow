@@ -9,6 +9,9 @@ use ironflow::storage::StateStore;
 use ironflow::storage::null_store::NullStateStore;
 use jiff::{SignedDuration, Timestamp};
 
+#[path = "scheduler/fall_back.rs"]
+mod fall_back;
+
 #[derive(Default)]
 struct StubExecutor {
     runs: AtomicUsize,

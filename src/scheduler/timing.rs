@@ -91,11 +91,9 @@ pub(super) fn minute_text(local: civil::DateTime) -> String {
     )
 }
 
-/// The local instant before which a claim can no longer legitimately fire:
-/// `now - grace_seconds`, converted to the schedule's local time. Grace
-/// measures real elapsed time, not wall-clock, so the subtraction happens in
-/// UTC, before converting to local — the two only agree when the UTC offset
-/// is constant across the grace window.
+/// The exclusive cron watermark at `now - grace_seconds`. Subtract real
+/// elapsed time first, then find how far the wall clock had advanced by that
+/// instant, including on the second pass through a repeated hour.
 ///
 /// Shared by `Scheduler::new`, which seeds a schedule's watermark here at
 /// startup, and `evaluate`'s claim-error floor below, which stops a
@@ -106,7 +104,7 @@ pub(super) fn grace_floor(now: Timestamp, schedule: &ScheduleConfig) -> civil::D
     // Only a clock within a week of the earliest instant `jiff` represents
     // could overflow; the floor then is that earliest instant.
     let floor = now.checked_sub(grace).unwrap_or(Timestamp::MIN);
-    schedule.timezone().local_time(floor)
+    schedule.timezone().cron_watermark(floor)
 }
 
 /// The local time to advance a schedule's watermark to for one evaluated

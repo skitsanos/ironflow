@@ -80,7 +80,7 @@ impl Scheduler {
 
     async fn evaluate_name(&self, name: &str, now: Timestamp) -> Evaluation {
         let schedule = &self.schedules[name];
-        let through = schedule.timezone().local_time(now);
+        let through = schedule.timezone().cron_watermark(now);
         let window = due_window(schedule, self.evaluated_through[name], through);
         let grace_floor = timing::grace_floor(now, schedule);
         let progress = SharedProgress::default();
