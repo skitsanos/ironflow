@@ -52,7 +52,7 @@ async fn child_failures_exclude_recovered_tasks_even_when_history_still_marks_th
                 Context::new(),
                 ExecutionOverlay::default(),
                 id.clone(),
-                true,
+                LiveChild,
                 None,
             )
             .await
@@ -204,7 +204,7 @@ async fn cancelled_child_has_no_task_failure_summary() {
             Context::new(),
             ExecutionOverlay::default(),
             Uuid::new_v4().to_string(),
-            true,
+            LiveChild,
             None,
         )
         .await

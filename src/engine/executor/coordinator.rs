@@ -17,6 +17,7 @@ use crate::util::execution::{CooperativeWorkerSet, with_run_worker_set};
 use super::child_runs::LiveChildRun;
 use super::handle::{ChildRunResult, RunHandle};
 use super::nesting::{ChildLink, with_inherited_deadline, with_run_scope};
+use super::output::FinalContext;
 use super::overlay::ExecutionOverlay;
 use super::panic_payload::panic_message;
 use super::signal::{ExecutionOutcome, ExecutionSignal, request_cancellation, stop_requested};
@@ -37,7 +38,7 @@ pub(super) struct RunCoordinator {
     pub(super) run_deadline: Option<std::time::Duration>,
     pub(super) metrics: Option<Arc<crate::metrics::Metrics>>,
     pub(super) run_observation: Option<Arc<crate::metrics::RunObservation>>,
-    pub(super) retain_child_result: bool,
+    pub(super) final_context: FinalContext,
     child_link: Option<ChildLink>,
     /// The process-wide slot a child run holds until it has finished.
     live_child: Option<LiveChildRun>,
@@ -79,7 +80,7 @@ impl RunCoordinator {
             run_deadline,
             metrics,
             run_observation,
-            retain_child_result: false,
+            final_context: FinalContext::Snapshot,
             child_link: None,
             live_child: None,
             finalization_timeout: FINALIZATION_TIMEOUT,
@@ -91,8 +92,8 @@ impl RunCoordinator {
         }
     }
 
-    pub(super) fn with_child_result(mut self, enabled: bool) -> Self {
-        self.retain_child_result = enabled;
+    pub(super) fn with_final_context(mut self, mode: FinalContext) -> Self {
+        self.final_context = mode;
         self
     }
 

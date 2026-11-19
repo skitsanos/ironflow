@@ -99,7 +99,7 @@ impl RunCoordinator {
         let (durable_final_ctx, live_ctx) = super::output::prepare_final_context(
             final_ctx,
             &self.execution_overlay,
-            self.retain_child_result,
+            self.final_context,
         );
         match super::lease::persist_context(
             self.store.as_ref(),

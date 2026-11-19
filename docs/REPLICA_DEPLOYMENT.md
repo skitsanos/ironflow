@@ -174,6 +174,9 @@ ASCII letters, digits, `-`, `_`, `.`, or `:`. The raw key is never stored. Its
 digest identifies the durable run, and a request fingerprint is committed with
 that run. Concurrent or later same-key/same-request submissions return the same
 run. Reusing the key for another source, file name, or context returns HTTP 409.
+The fingerprint is set at admission; task output and its size limit cannot
+replace it. If an older version already truncated a run's fingerprint, the
+original request cannot be verified, and retries still return HTTP 409.
 The identity is retained for the lifetime of the run record; explicitly deleting
 the run also releases that identity. A later submission with the same key
 starts a new run under the same run ID, on any replica, and its events and

@@ -8,7 +8,11 @@ fn live_final_result_moves_large_values_without_copying_them_into_history() {
         ("large".into(), Value::String(text)),
         ("small".into(), Value::from(7)),
     ]));
-    let (snapshot, live) = prepare_final_context(context, &ExecutionOverlay::default(), true);
+    let (snapshot, live) = prepare_final_context(
+        context,
+        &ExecutionOverlay::default(),
+        FinalContext::LiveChild,
+    );
     let live = live.unwrap();
     assert_eq!(live["large"].as_str().unwrap().as_ptr(), pointer);
     assert_eq!(snapshot["large"]["_truncated"], true);
@@ -21,7 +25,11 @@ fn public_final_snapshot_does_not_retain_live_values() {
         "large".into(),
         Value::String("x".repeat(3 * 1024 * 1024)),
     )]));
-    let (snapshot, live) = prepare_final_context(context, &ExecutionOverlay::default(), false);
+    let (snapshot, live) = prepare_final_context(
+        context,
+        &ExecutionOverlay::default(),
+        FinalContext::Snapshot,
+    );
     assert!(live.is_none());
     assert_eq!(snapshot["large"]["_truncated"], true);
 }
@@ -181,7 +189,11 @@ fn child_result_is_what_the_child_produced_while_its_stored_snapshot_is_scrubbed
     ]);
     let context = Arc::new(produced.clone());
 
-    let (snapshot, live) = prepare_final_context(context.clone(), &numeric_header_overlay(), true);
+    let (snapshot, live) = prepare_final_context(
+        context.clone(),
+        &numeric_header_overlay(),
+        FinalContext::LiveChild,
+    );
 
     // The parent step reads the child's values as they are.
     assert_eq!(live.unwrap(), produced);
@@ -193,7 +205,8 @@ fn child_result_is_what_the_child_produced_while_its_stored_snapshot_is_scrubbed
     assert_eq!(snapshot["copy"], "[REDACTED]");
 
     // A top-level run has no live reader: everything gets the record form.
-    let (durable, live) = prepare_final_context(context, &numeric_header_overlay(), false);
+    let (durable, live) =
+        prepare_final_context(context, &numeric_header_overlay(), FinalContext::Snapshot);
     assert!(live.is_none());
     assert_eq!(durable, snapshot);
 }

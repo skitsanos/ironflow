@@ -24,6 +24,8 @@ mod test_cli_precedence;
 mod test_cli_run;
 #[path = "../test_config.rs"]
 mod test_config;
+#[path = "../test_idempotency_replay_cli.rs"]
+mod test_idempotency_replay_cli;
 #[path = "../test_parallel_literal_cli.rs"]
 mod test_parallel_literal_cli;
 #[path = "../test_parallel_result_cli.rs"]

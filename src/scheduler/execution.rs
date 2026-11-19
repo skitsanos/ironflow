@@ -213,7 +213,7 @@ impl ScheduleExecutor for FlowExecutor {
         // task needs.
         let run_id = super::identity::run_id(schedule_name, instant_key);
         let Some(handle) = engine
-            .start_with_run_id(&flow, initial_ctx, run_id.clone())
+            .start_with_run_id(&flow, initial_ctx, run_id.clone(), None)
             .await
             .map_err(|error| format!("{error:#}"))?
         else {

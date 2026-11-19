@@ -169,7 +169,12 @@ pub async fn run_flow(
     .with_metrics(state.metrics.clone());
     let handle = match &identity {
         Some(identity) => match engine
-            .start_with_run_id(&flow, initial_ctx, identity.run_id.clone())
+            .start_with_run_id(
+                &flow,
+                initial_ctx,
+                identity.run_id.clone(),
+                Some(super::super::idempotency::CONTEXT_KEY),
+            )
             .await?
         {
             Some(handle) => handle,

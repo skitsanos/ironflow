@@ -500,6 +500,8 @@ portable ASCII characters (`A-Z`, `a-z`, `0-9`, `-`, `_`, `.`, `:`). The key is
 hashed rather than stored; its deterministic run ID and request fingerprint are
 created atomically. A same-key/same-body retry returns that run from any
 replica, while a different source/file/context receives `409 conflict`.
+`IRONFLOW_MAX_TASK_OUTPUT_BYTES` limits stored output, not the request
+fingerprint used for replay.
 Deleting the run releases the retained identity: the same key then starts a
 new run under the same run ID, with its own complete event stream. See
 [Replica deployment](REPLICA_DEPLOYMENT.md) for the complete boundary.

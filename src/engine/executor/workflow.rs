@@ -184,8 +184,7 @@ impl RunCoordinator {
         } else {
             RunStatus::Success
         };
-        let failure_summary = self
-            .retain_child_result
+        let failure_summary = (self.final_context == super::output::FinalContext::LiveChild)
             .then(|| state.failure_summary(&self.execution_overlay))
             .flatten();
         ExecutionOutcome::Completed {

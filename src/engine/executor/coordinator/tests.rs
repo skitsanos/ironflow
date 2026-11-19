@@ -68,15 +68,15 @@ impl StateStore for HangingWritesStore {
 
 #[tokio::test]
 async fn deadline_preempts_hanging_task_and_finalizer_writes() {
-    assert_hanging_writes_settle(false).await;
+    assert_hanging_writes_settle(FinalContext::Snapshot).await;
 }
 
 #[tokio::test]
 async fn child_result_is_not_delivered_when_finalization_times_out() {
-    assert_hanging_writes_settle(true).await;
+    assert_hanging_writes_settle(FinalContext::LiveChild).await;
 }
 
-async fn assert_hanging_writes_settle(retain_child_result: bool) {
+async fn assert_hanging_writes_settle(mode: FinalContext) {
     let store = Arc::new(HangingWritesStore::default());
     let flow = FlowDefinition {
         name: "hanging-state".to_string(),
@@ -107,13 +107,13 @@ async fn assert_hanging_writes_settle(retain_child_result: bool) {
         None,
     )
     .with_finalization_timeout(std::time::Duration::from_millis(20))
-    .with_child_result(retain_child_result);
+    .with_final_context(mode);
     let handle = coordinator.spawn();
     let admission = Arc::new(tokio::sync::Semaphore::new(1));
     let permit = admission.clone().acquire_owned().await.unwrap();
     let waiter = tokio::spawn(async move {
         let _permit = permit;
-        if retain_child_result {
+        if mode == FinalContext::LiveChild {
             handle.wait_child_cancel_on_drop().await.map(|_| ())
         } else {
             handle.wait().await.map(|_| ())
