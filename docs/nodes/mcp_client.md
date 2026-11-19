@@ -60,7 +60,7 @@ Action-specific keys:
 - `list_tools` and `call_tool` fail when the server did not negotiate the `tools` capability.
 - Each `list_tools` call returns one page. Stop when `nextCursor` is absent; the tool names and count describe only the current page.
 - Sessions live in the IronFlow process; a handle does not survive a restart.
-- A failed, timed-out or cancelled action ends its session. A tool's side effect is not rolled back.
+- Session actions share one timeout across waiting for the session and executing the request. A timeout or cancellation while queued sends nothing and leaves the session usable, including when waiting to close. Once admitted, a failed, timed-out or cancelled request ends the session. A tool's side effect is not rolled back.
 - A result larger than `IRONFLOW_MAX_MCP_RESULT_BYTES` fails the step and writes nothing; the session stays usable, except after `initialize`.
 - Call `close` after the last action; for `stdio` it stops the server process.
 - The `sse` transport name and the `initialized` action are refused.

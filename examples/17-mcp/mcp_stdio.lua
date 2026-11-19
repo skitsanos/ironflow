@@ -52,6 +52,7 @@ flow:step("call_tool", nodes.mcp_client({
 --[[ Step 4: close stdin and stop the owned MCP server process ]]
 flow:step("close", nodes.mcp_client({
     action = "close",
+    timeout = 3, -- Includes waiting for any active action on this session.
     session = "${ctx.mcp_init_session}",
     output_key = "mcp_close"
 })):depends_on("call_tool")

@@ -373,6 +373,64 @@ async fn failed_tool_request_invalidates_the_session() {
 }
 
 #[tokio::test]
+async fn queued_actions_expire_without_sending_or_invalidating_the_session() {
+    use tokio::time::{Duration, sleep, timeout};
+    let dir = tempfile::tempdir().unwrap();
+    let trace = dir.path().join("trace");
+    let node = NodeRegistry::with_builtins().get("mcp_client").unwrap();
+    let init = node
+        .execute(
+            &initialize_config(&trace, "slow-call", "init"),
+            &empty_context(),
+        )
+        .await
+        .unwrap();
+    let handle = session_from(&init, "init_session");
+    let call = json!({"action":"call_tool","session":handle,"tool_name":"echo","arguments":{"query":"holder"}});
+    let holder = tokio::spawn({
+        let node = node.clone();
+        async move { node.execute(&call, &empty_context()).await.unwrap() }
+    });
+    timeout(Duration::from_secs(3), async {
+        while !read_trace(&trace)
+            .iter()
+            .any(|e| e["method"] == "tools/call")
+        {
+            sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    for action in ["list_tools", "call_tool", "close"] {
+        let request =
+            json!({"action":action, "session":handle, "timeout":0.02, "tool_name":"echo"});
+        let ctx = empty_context();
+        let err = timeout(Duration::from_millis(500), node.execute(&request, &ctx))
+            .await
+            .expect("action waited past its queue deadline")
+            .unwrap_err();
+        assert!(err.to_string().contains("timed out"), "{err}");
+    }
+    assert_eq!(holder.await.unwrap()["mcp_tool_text"], "Echo: holder");
+    let list = json!({"action":"list_tools","session":handle});
+    assert_eq!(
+        node.execute(&list, &empty_context()).await.unwrap()["mcp_tool_count"],
+        2
+    );
+    node.execute(
+        &json!({"action":"close","session":handle}),
+        &empty_context(),
+    )
+    .await
+    .unwrap();
+    let events = read_trace(&trace);
+    for method in ["tools/list", "tools/call"] {
+        assert_eq!(events.iter().filter(|e| e["method"] == method).count(), 1);
+    }
+    assert!(events.iter().any(|e| e["event"] == "eof"));
+}
+
+#[tokio::test]
 async fn session_actions_require_an_opaque_handle() {
     let node = NodeRegistry::with_builtins().get("mcp_client").unwrap();
     let error = node
