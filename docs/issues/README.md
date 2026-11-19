@@ -7,7 +7,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts check`.
 
 - Total findings: 259
-- Active findings: 4
+- Active findings: 3
 
 ## Working agreement
 
@@ -275,7 +275,7 @@ priority, area, and title. The registry is generated with
 | [IF-245](./IF-245.md) | P2 | Resolved | API/idempotency | A small task output cap breaks replay of completed API requests |
 | [IF-246](./IF-246.md) | P2 | Resolved | CLI/validation | Child-flow validation can miss invalid descendants depending on declaration order |
 | [IF-247](./IF-247.md) | P2 | Resolved | Lua/static validation | Strict Lua validation rejects the implicit self parameter of colon methods |
-| [IF-248](./IF-248.md) | P2 | Open | Nodes/Azure OpenAI | Azure Responses can name different deployments in the request URL and body |
+| [IF-248](./IF-248.md) | P2 | Resolved | Nodes/Azure OpenAI | Azure Responses can name different deployments in the request URL and body |
 | [IF-249](./IF-249.md) | P2 | Resolved | Nodes/database | db_query silently drops columns with duplicate labels |
 | [IF-250](./IF-250.md) | P2 | Resolved | Nodes/HTTP | HTTP response metadata silently discards repeated headers |
 | [IF-251](./IF-251.md) | P2 | Open | Nodes/MCP | MCP list_tools cannot discover tools beyond the first page |

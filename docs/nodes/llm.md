@@ -8,7 +8,7 @@ Send a Chat Completions or Responses request to OpenAI, Azure OpenAI or an OpenA
 |-----------|------|----------|---------|-------------|
 | `provider` | string | No | `"openai"` | `openai`, `openai_compatible` (alias `compatible`), `azure` or `custom`. |
 | `mode` | string | No | `"chat"` | `chat`, `responses` or `auto` (`responses` only with `responses_input = true` and no `messages`). |
-| `model` | string | No | `"gpt-5-mini"` | Model; else `chat_model`/`responses_model` or the Azure deployment. |
+| `model` | string | No | Selected Azure deployment; otherwise `"gpt-5-mini"` | Overrides the mode-specific `chat_model` or `responses_model`. |
 | `prompt` | string | No | — | User prompt; interpolated. |
 | `input_key` | string | No | — | Context key holding the prompt, when `prompt` is absent. |
 | `messages` | array | No | — | Chat messages; interpolated. |
@@ -41,6 +41,8 @@ The endpoint and, except for `custom`, the credential are required.
 | `custom` | `base_url` or `LLM_BASE_URL`, plus `chat_path`/`responses_path` or `path` (default `/chat/completions`, `/responses`); an absolute path replaces `base_url` | `api_key` (no environment fallback) per `auth_type`: `bearer` (default), `api_key` (header `auth_header`, default `x-api-key`) or `none` |
 
 ### Chat and Responses parameters
+
+Azure routes each mode to its matching deployment. If only one deployment is configured, both modes use it. By default the request body and `{output_key}_model` use that deployment name. Setting `model` or the mode-specific model overrides this name without changing the deployment in the URL.
 
 | Parameter | Chat mode | Responses mode |
 |-----------|-----------|----------------|
