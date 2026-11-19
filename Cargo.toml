@@ -71,10 +71,14 @@ unicode-script = "0.5.8"
 # HTML-to-Markdown conversion and the shared rcdom tree walked by extract_html.
 # Both are permissively licensed; the GPL html2md crate was removed in IF-161.
 # html5ever is the parser htmd already uses: IronFlow drives it directly so
-# nesting is capped while parsing (IF-174). Keep all three on one release line.
-htmd = "0.5.6"
-markup5ever_rcdom = "0.38"
-html5ever = "0.38"
+# nesting is capped while parsing (IF-174) and hands htmd the finished rcdom
+# tree. htmd accepts that tree only through its `rcdom` feature, which is why
+# the default `ego-tree` backend is off (IF-237). Keep all three, and ammonia's
+# html5ever, on one release line: a second html5ever in the graph means htmd
+# and IronFlow no longer share one tree type.
+htmd = { version = "0.6.0", default-features = false, features = ["rcdom"] }
+markup5ever_rcdom = "0.40"
+html5ever = "0.40"
 ammonia = "4.1.2"
 zip = "9.0.5"
 quick-xml = "0.42.0"

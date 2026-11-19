@@ -58,12 +58,6 @@
       "matchManagers": ["cargo"],
       "matchPackageNames": ["aws-smithy-types"],
       "allowedVersions": "!/^1\\.7\\.0$/"
-    },
-    {
-      "description": "htmd 0.6.0 makes tree_to_markdown private, so IronFlow can no longer hand it the depth-capped HTML tree (IF-237). Later releases remain eligible.",
-      "matchManagers": ["cargo"],
-      "matchPackageNames": ["htmd"],
-      "allowedVersions": "!/^0\\.6\\.0$/"
     }
   ]
 }
