@@ -44,6 +44,8 @@ flow:step("query_all", nodes.db_query({
     output_key = "users"
 })):depends_on("insert_alice"):depends_on("insert_bob")
 
+-- These AS labels become JSON keys. Give columns distinct labels, including
+-- when selecting identically named columns from different tables in a join.
 flow:step("query_statistics", nodes.db_query({
     connection = db,
     query = "SELECT COUNT(*) AS count, SUM(id) AS total_id, AVG(id) AS average_id FROM users",

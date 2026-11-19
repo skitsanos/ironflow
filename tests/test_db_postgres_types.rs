@@ -34,6 +34,28 @@ async fn query(url: &str, sql: &str, params: Value) -> anyhow::Result<NodeOutput
 }
 
 #[tokio::test]
+async fn postgres_duplicate_join_labels_require_distinct_aliases() {
+    let Some(url) = connection() else { return };
+    let from = "FROM (VALUES (11)) AS a(id) CROSS JOIN (VALUES (22)) AS b(id)";
+    let error = query(&url, &format!("SELECT a.id, b.id {from}"), json!([]))
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("duplicate column label") && error.contains("AS"),
+        "{error}"
+    );
+    let output = query(
+        &url,
+        &format!("SELECT a.id AS left_id, b.id AS right_id {from}"),
+        json!([]),
+    )
+    .await
+    .unwrap();
+    assert_eq!(output["rows"], json!([{"left_id":11,"right_id":22}]));
+}
+
+#[tokio::test]
 async fn postgres_supported_scalars_preserve_values_and_nulls() {
     let Some(url) = connection() else { return };
     let output = query(

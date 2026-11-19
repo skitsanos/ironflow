@@ -41,6 +41,7 @@ supported, even when NULL. Cast them in SQL: `::text` to keep exact digits, or
 
 ## Behavior
 
+- Each returned row must have distinct column labels. If two columns have the same label, the step fails without returning partial rows. Use aliases in joins, for example `SELECT users.id AS user_id, orders.id AS order_id FROM users JOIN orders ON orders.user_id = users.id`. Labels are compared exactly as returned by the driver; an empty result still returns `[]`.
 - A cell that cannot be decoded (invalid text, unsupported type, `NaN` or infinity) fails the step; no partial rows are returned.
 - Arrays and objects in `params` fail the step.
 - A per-step `max_rows` or `max_result_bytes` of `0` falls back to the global setting.

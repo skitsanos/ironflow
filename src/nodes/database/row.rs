@@ -7,6 +7,12 @@ pub(super) fn row_to_json(row: &AnyRow) -> Result<Value> {
     let mut map = Map::new();
     for column in row.columns() {
         let index = column.ordinal();
+        let serde_json::map::Entry::Vacant(field) = map.entry(column.name()) else {
+            anyhow::bail!(
+                "db_query: duplicate column label at result column {}; use distinct AS aliases",
+                index + 1
+            );
+        };
         let raw = row
             .try_get_raw(index)
             .map_err(|_| anyhow::anyhow!("db_query could not read column at index {index}"))?;
@@ -23,7 +29,7 @@ pub(super) fn row_to_json(row: &AnyRow) -> Result<Value> {
             AnyTypeInfoKind::Text => Value::String(decode::<String>(row, index)?),
             AnyTypeInfoKind::Blob => json!(decode::<Vec<u8>>(row, index)?),
         };
-        map.insert(column.name().to_owned(), value);
+        field.insert(value);
     }
     Ok(Value::Object(map))
 }

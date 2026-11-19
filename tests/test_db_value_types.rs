@@ -12,6 +12,30 @@ async fn query(connection: &str, sql: &str) -> anyhow::Result<NodeOutput> {
 }
 
 #[tokio::test]
+async fn sqlite_duplicate_labels_require_distinct_aliases() {
+    let error = query(
+        "sqlite::memory:",
+        "SELECT 11 AS id, NULL AS other, 22 AS id",
+    )
+    .await
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("duplicate column label") && error.contains("AS"),
+        "{error}"
+    );
+    let output = query("sqlite::memory:", r#"SELECT 11 AS id, 22 AS "ID""#)
+        .await
+        .unwrap();
+    assert_eq!(output["rows"], json!([{"id":11,"ID":22}]));
+    let empty = query("sqlite::memory:", "SELECT 11 AS id, 22 AS id WHERE 0")
+        .await
+        .unwrap();
+    assert_eq!(empty["rows"], json!([]));
+    assert_eq!(empty["rows_count"], 0);
+}
+
+#[tokio::test]
 async fn sqlite_aggregates_and_expressions_preserve_numeric_types() {
     let output = query(
         "sqlite::memory:",
