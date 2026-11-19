@@ -6,7 +6,7 @@
 #[path = "support/xlsx.rs"]
 mod xlsx_support;
 
-use xlsx_support::{SheetSpec, row, write_workbook_with_properties};
+use xlsx_support::{SheetSpec, number, row, text, write_workbook_with_properties};
 
 use ironflow::engine::types::Context;
 use ironflow::nodes::NodeRegistry;
@@ -26,23 +26,57 @@ fn cell(reference: &str, style: u8, value: &str) -> String {
 }
 
 async fn first_row(cells: &[String], workbook_pr: &str) -> serde_json::Value {
+    extract_first_row(row(1, cells), workbook_pr, false).await
+}
+
+async fn extract_first_row(rows: String, workbook_pr: &str, has_header: bool) -> serde_json::Value {
     let dir = tempfile::tempdir().unwrap();
     let path = write_workbook_with_properties(
         dir.path(),
         "dates.xlsx",
-        &[SheetSpec::new("Data", row(1, cells))],
+        &[SheetSpec::new("Data", rows)],
         &styles(),
         workbook_pr,
     );
     let node = NodeRegistry::with_builtins().get("extract_xlsx").unwrap();
     let ctx = node
         .execute(
-            &serde_json::json!({ "path": path.to_str().unwrap(), "has_header": false }),
+            &serde_json::json!({ "path": path.to_str().unwrap(), "has_header": has_header }),
             &Context::new(),
         )
         .await
         .unwrap();
     ctx["content"]["Data"][0].clone()
+}
+
+#[tokio::test]
+async fn date_and_duration_headers_use_iso_text_as_row_keys() {
+    let headers = row(
+        1,
+        &[
+            cell("A1", 3, "46237.5"),
+            cell("B1", 1, "1.5625"),
+            text("C1", "PT37H30M"),
+            number("E1", "42"),
+        ],
+    );
+    let values = row(
+        2,
+        &[
+            number("A2", "1"),
+            number("B2", "2"),
+            number("C2", "3"),
+            number("D2", "4"),
+            number("E2", "5"),
+        ],
+    );
+    let result = extract_first_row(headers + &values, "", true).await;
+    assert_eq!(
+        result,
+        serde_json::json!({
+            "2026-08-03T12:00:00": 1, "PT37H30M": 2, "PT37H30M_2": 3, "column_4": 4, "42": 5
+        })
+    );
 }
 
 #[tokio::test]
