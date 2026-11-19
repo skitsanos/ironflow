@@ -209,6 +209,9 @@ its filter, so every continuation command must repeat the same `--status`.
 ### `ironflow inspect <RUN_ID>`
 
 Show full details for a specific run, including context, tasks, timing, and errors.
+On SQLite and PostgreSQL, each inspection reads the run and its tasks from one
+snapshot. If a run is deleted and its ID reused, inspection never combines
+the original run's context with the replacement's tasks.
 
 | Argument / Flag | Required | Default | Description |
 |-----------------|----------|---------|-------------|

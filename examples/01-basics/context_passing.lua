@@ -18,3 +18,5 @@ return flow
 -- Run with:
 --   ironflow run examples/01-basics/context_passing.lua \
 --     --context '{"first_name":"John","last_name":"Doe"}'
+-- Use the Run ID printed above to inspect the persisted greeting and both tasks:
+--   ironflow inspect <RUN_ID>

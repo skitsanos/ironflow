@@ -107,21 +107,7 @@ impl StateStore for SqlStateStore {
     }
 
     async fn get_run_info(&self, run_id: &str) -> StorageResult<RunInfo> {
-        let sql = format!(
-            "SELECT id, flow_name, status, started, finished, ctx FROM {} WHERE id = {}",
-            self.tables.runs,
-            self.placeholder(1)
-        );
-        let row = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
-            .bind(run_id)
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(|error| {
-                StorageError::backend(format_args!("Failed to read run '{run_id}'"), error)
-            })?
-            .ok_or_else(|| StorageError::not_found(format_args!("Run '{run_id}' not found")))?;
-        let tasks = self.read_tasks(run_id).await?;
-        Self::row_to_run_info(&row, tasks)
+        self.begin_inspection(run_id).await?.finish().await
     }
 
     async fn list_runs(&self, status_filter: Option<RunStatus>) -> StorageResult<Vec<RunInfo>> {
