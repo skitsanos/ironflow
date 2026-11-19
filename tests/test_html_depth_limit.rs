@@ -139,6 +139,59 @@ async fn every_block_kind_converts_at_the_cap() {
     }
 }
 
+#[tokio::test]
+async fn parser_recovery_cannot_carry_nesting_past_the_cap() {
+    // IF-237: the tree the converter receives is the one the HTML5 recovery
+    // rules build, not the one the tags spell, so the cap is pinned for the
+    // shapes where those differ.
+    let refused = [
+        // Formatting elements are reopened inside every later block.
+        format!("{}<p>leaf</p>", "<b>".repeat(127)),
+        // Misnested end tags run the adoption agency algorithm.
+        format!("{}leaf{}", "<b><i>".repeat(70), "</b></i>".repeat(70)),
+        // Each unclosed cell implies `<tbody>` and `<tr>` as well.
+        "<table><td>".repeat(40) + "leaf",
+        // Inert template content is a separate fragment in the tree.
+        format!("<template>{}</template>", nested_divs(126)),
+        nested("<template>", "</template>", 127),
+        // Unclosed list items inside lists do not close each other.
+        "<ul><li>".repeat(70) + "leaf",
+    ];
+    for html in refused {
+        assert_nesting_error("html_to_markdown", 0, html_to_markdown(&html).await);
+        assert_nesting_error("extract_html", 0, extract_html(&html, "markdown").await);
+    }
+
+    // Implied end tags keep these flat, however many there are.
+    let accepted = [
+        ("<p>leaf".repeat(1_000), 1_000),
+        (format!("<ul>{}</ul>", "<li>leaf".repeat(1_000)), 1_000),
+        (
+            format!("<table>{}</table>", "<tr><td>leaf".repeat(1_000)),
+            1_000,
+        ),
+        (
+            format!("<dl>{}</dl>", "<dt>leaf<dd>leaf".repeat(500)),
+            1_000,
+        ),
+        // An end tag that matches nothing is dropped.
+        (format!("{}leaf", "</div>".repeat(1_000)), 1),
+        // Formatting elements closed out of order stay within the cap.
+        (
+            format!("{}leaf{}", "<b><i>".repeat(60), "</b></i>".repeat(60)),
+            1,
+        ),
+    ];
+    for (html, leaves) in accepted {
+        for markdown in [
+            html_to_markdown(&html).await.unwrap(),
+            extract_html(&html, "markdown").await.unwrap(),
+        ] {
+            assert_eq!(markdown.matches("leaf").count(), leaves, "{markdown}");
+        }
+    }
+}
+
 /// Default `IRONFLOW_MAX_HTML_TEXT_DEPTH`, counting `<html>` and `<body>`.
 const MAX_TEXT_DEPTH: usize = 1_024;
 
@@ -180,6 +233,28 @@ async fn extract_html_text_rejects_pathological_nesting_quickly() {
         "took {:?}",
         started.elapsed()
     );
+}
+
+#[tokio::test]
+async fn extract_html_observes_an_expired_step_deadline_in_both_formats() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("page.html");
+    std::fs::write(&path, "<p>bounded</p>").unwrap();
+    let registry = NodeRegistry::with_builtins();
+    let node = registry.get("extract_html").unwrap();
+    for format in ["markdown", "text"] {
+        let error = with_execution_deadline(
+            Some(tokio::time::Instant::now()),
+            node.execute(&json!({ "path": path, "format": format }), &Context::new()),
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains("step deadline exceeded"),
+            "{format}: {error}"
+        );
+    }
 }
 
 #[tokio::test]

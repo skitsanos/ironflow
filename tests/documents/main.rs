@@ -38,6 +38,8 @@ mod test_extract_xlsx_datetimes;
 mod test_extract_xlsx_styles;
 #[path = "../test_file_source_interpolation.rs"]
 mod test_file_source_interpolation;
+#[path = "../test_html_conversion_golden.rs"]
+mod test_html_conversion_golden;
 #[path = "../test_html_depth_limit.rs"]
 mod test_html_depth_limit;
 #[path = "../test_html_markdown_output_budget.rs"]

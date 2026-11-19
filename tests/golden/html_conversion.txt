@@ -1,0 +1,380 @@
+## headings_all_levels
+html_to_markdown ok "# One\n\n## Two\n\n### Three\n\n#### Four\n\n##### Five\n\n###### Six"
+extract_html markdown ok "# One\n\n## Two\n\n### Three\n\n#### Four\n\n##### Five\n\n###### Six"
+extract_html text ok "One\n\nTwo\n\nThree\n\nFour\n\nFive\n\nSix"
+## heading_with_inline_markup
+html_to_markdown ok "## A *fine* `title` with [a link](/x)\n\nAfter"
+extract_html markdown ok "## A *fine* `title` with [a link](/x)\n\nAfter"
+extract_html text ok "A fine title with a link\n\nAfter"
+## heading_with_break_and_whitespace
+html_to_markdown ok "# Line one  \nline two\n\n### \n\n## # hash"
+extract_html markdown ok "# Line one  \nline two\n\n### \n\n## # hash"
+extract_html text ok "Line one\nline two\n\n# hash"
+## heading_inside_link
+html_to_markdown ok "[## Linked heading](/h)"
+extract_html markdown ok "[## Linked heading](/h)"
+extract_html text ok "Linked heading"
+## paragraphs_and_breaks
+html_to_markdown ok "First  \nsecond  \n  \nfourth\n\nNext\n\ntext\n\nlast"
+extract_html markdown ok "First  \nsecond  \n  \nfourth\n\nNext\n\ntext\n\nlast"
+extract_html text ok "First\nsecond\n\nfourth\n\nNext\n\ntext\n\nlast"
+## whitespace_collapsing
+html_to_markdown ok "a b c \n\nd  e\n\n f g"
+extract_html markdown ok "a b c \n\nd  e\n\n f g"
+extract_html text ok "a b c\n\nd  e\n\nf g"
+## crlf_and_tabs
+html_to_markdown ok "one two \n\na\n\tb\n\nthree"
+extract_html markdown ok "one two \n\na\n\tb\n\nthree"
+extract_html text ok "one two\n\na\n\tb\n\nthree"
+## bare_text
+html_to_markdown ok "just text, no markup"
+extract_html markdown ok "just text, no markup"
+extract_html text ok "just text, no markup"
+## empty_document
+html_to_markdown ok ""
+extract_html markdown ok ""
+extract_html text ok ""
+## whitespace_only
+html_to_markdown ok ""
+extract_html markdown ok ""
+extract_html text ok ""
+## divs_and_sections
+html_to_markdown ok "a\n\nb\n\nc\n\nd\n\nef"
+extract_html markdown ok "a\n\nb\n\nc\n\nd\n\nef"
+extract_html text ok "a\nb\nc\n\nd\n\nef"
+## horizontal_rules
+html_to_markdown ok "a\n\n* * *\n\nb\n\n* * *\n\n* * *\n\nc"
+extract_html markdown ok "a\n\n* * *\n\nb\n\n* * *\n\n* * *\n\nc"
+extract_html text ok "a\n\nb\n\nc"
+## emphasis_basic
+html_to_markdown ok "**bold** **strong** *italic* *em* under strike del mark"
+extract_html markdown ok "**bold** **strong** *italic* *em* under strike del mark"
+extract_html text ok "bold strong italic em under strike del mark"
+## emphasis_nested_and_adjacent
+html_to_markdown ok "***both*** ***both2*** **ab** *cd* x**mid**y"
+extract_html markdown ok "***both*** ***both2*** **ab** *cd* x**mid**y"
+extract_html text ok "both both2 ab cd xmidy"
+## emphasis_with_inner_whitespace
+html_to_markdown ok "a **padded** b *spaced* c d"
+extract_html markdown ok "a **padded** b *spaced* c d"
+extract_html text ok "a padded b spaced c d"
+## emphasis_across_blocks
+html_to_markdown ok "**bold paragraph\n\nsecond**\n\n*italic div*"
+extract_html markdown ok "**bold paragraph\n\nsecond**\n\n*italic div*"
+extract_html text ok "bold paragraph\n\nsecond\n\nitalic div"
+## sub_sup_small_abbr
+html_to_markdown ok "H2O x2 fine AB quoted Ctrl v c"
+extract_html markdown ok "H2O x2 fine AB quoted Ctrl v c"
+extract_html text ok "H2O x2 fine AB quoted Ctrl v c"
+## links_basic
+html_to_markdown ok "[site](https://example.com/) [relative](/rel?a=1&b=2#frag) [mail](mailto:a@example.com)"
+extract_html markdown ok "[site](https://example.com/) [relative](/rel?a=1&b=2#frag) [mail](mailto:a@example.com)"
+extract_html text ok "site relative mail"
+## links_titles_and_odd_urls
+html_to_markdown ok "[spaced](<https://example.com/a b> \"A \\\"title\\\"\") [parens](https://example.com/x_\\(y\\)) [empty]() none [](#)"
+extract_html markdown ok "[spaced](<https://example.com/a b> \"A \\\"title\\\"\") [parens](https://example.com/x_\\(y\\)) [empty]() none [](#)"
+extract_html text ok "spaced parens empty none"
+## link_text_with_markup
+html_to_markdown ok "[**bold** and \\[brackets\\] and `code`](/a)"
+extract_html markdown ok "[**bold** and \\[brackets\\] and `code`](/a)"
+extract_html text ok "bold and [brackets] and code"
+## link_wrapping_blocks
+html_to_markdown ok "[### Card\n\nBody text](/card)"
+extract_html markdown ok "[### Card\n\nBody text](/card)"
+extract_html text ok "Card\n\nBody text"
+## link_url_as_text
+html_to_markdown ok "[https://example.com/path](https://example.com/path)"
+extract_html markdown ok "[https://example.com/path](https://example.com/path)"
+extract_html text ok "https://example.com/path"
+## images
+html_to_markdown ok "![Alt text](a.png) ![](b.png) ![t](c.png \"Title\")"
+extract_html markdown ok "![Alt text](a.png) ![](b.png) ![t](c.png \"Title\")"
+extract_html text ok "Alt text no source t"
+## image_inside_link
+html_to_markdown ok "[![Thumb](thumb.png)](/full)"
+extract_html markdown ok "[![Thumb](thumb.png)](/full)"
+extract_html text ok "Thumb"
+## image_odd_attributes
+html_to_markdown ok "![line one\nline two [x]](data:image/png;base64,AAAA)![sp](<a b.png>)"
+extract_html markdown ok "![line one\nline two [x]](data:image/png;base64,AAAA)![sp](<a b.png>)"
+extract_html text ok "line one\nline two [x]sp"
+## inline_code
+html_to_markdown ok "Use `cargo test`, ``a `tick` b``, `*x*_y_` and `spaced`."
+extract_html markdown ok "Use `cargo test`, ``a `tick` b``, `*x*_y_` and `spaced`."
+extract_html text ok "Use cargo test, a `tick` b, *x*_y_ and spaced ."
+## pre_plain
+html_to_markdown ok "line one\n  indented\n\nafter blank"
+extract_html markdown ok "line one\n  indented\n\nafter blank"
+extract_html text ok "line one\n  indented\n\nafter blank"
+## pre_code_with_language
+html_to_markdown ok "```rust\nfn main() {\n    println!(\"<hi>\");\n}\n```"
+extract_html markdown ok "```rust\nfn main() {\n    println!(\"<hi>\");\n}\n```"
+extract_html text ok "fn main() {\n    println!(\"<hi>\");\n}"
+## pre_with_fences_and_markup
+html_to_markdown ok "````\n```\ninner fence\n```\n# not heading\n*not em*\n````\n\na **bold** b"
+extract_html markdown ok "````\n```\ninner fence\n```\n# not heading\n*not em*\n````\n\na **bold** b"
+extract_html text ok "```\ninner fence\n```\n# not heading\n*not em*\n\na bold b"
+## pre_leading_newline
+html_to_markdown ok "first"
+extract_html markdown ok "first"
+extract_html text ok "first"
+## code_inside_other_blocks
+html_to_markdown ok "*   in\n    list\n\n> in\n> quote"
+extract_html markdown ok "*   in\n    list\n\n> in\n> quote"
+extract_html text ok "in\nlist\n\nin\nquote"
+## samp_and_tt
+html_to_markdown ok "output teletype\n\n`bare code`"
+extract_html markdown ok "output teletype\n\n`bare code`"
+extract_html text ok "output teletype\n\nbare code"
+## list_unordered
+html_to_markdown ok "*   one\n*   two\n*   three"
+extract_html markdown ok "*   one\n*   two\n*   three"
+extract_html text ok "one\ntwo\nthree"
+## list_ordered
+html_to_markdown ok "1.  one\n2.  two\n3.  three"
+extract_html markdown ok "1.  one\n2.  two\n3.  three"
+extract_html text ok "one\ntwo\nthree"
+## list_ordered_start_and_many
+html_to_markdown ok "9.   nine\n10.  ten\n11.  eleven\n\n1.  zero\n\n1.  bad\n\n1.  r"
+extract_html markdown ok "9.   nine\n10.  ten\n11.  eleven\n\n1.  zero\n\n1.  bad\n\n1.  r"
+extract_html text ok "nine\nten\neleven\n\nzero\n\nbad\n\nr"
+## list_nested_unordered
+html_to_markdown ok "*   a\n    *   b\n        *   c\n    *   d\n*   e"
+extract_html markdown ok "*   a\n    *   b\n        *   c\n    *   d\n*   e"
+extract_html text ok "a\n\nb\n\nc\n\nd\n\ne"
+## list_nested_ordered
+html_to_markdown ok "1.  a\n    1.  b\n        1.  c\n    2.  d\n2.  e"
+extract_html markdown ok "1.  a\n    1.  b\n        1.  c\n    2.  d\n2.  e"
+extract_html text ok "a\n\nb\n\nc\n\nd\n\ne"
+## list_mixed
+html_to_markdown ok "*   u1\n    1.  o1\n        *   u2\n    2.  o2\n\n1.  o\n    *   u\n    tail"
+extract_html markdown ok "*   u1\n    1.  o1\n        *   u2\n    2.  o2\n\n1.  o\n    *   u\n    tail"
+extract_html text ok "u1\n\no1\n\nu2\n\no2\n\no\n\nu\n\ntail"
+## list_deep
+html_to_markdown ok "*   1\n    *   2\n        *   3\n            *   4\n                *   5\n                    1.  6\n                        1.  7"
+extract_html markdown ok "*   1\n    *   2\n        *   3\n            *   4\n                *   5\n                    1.  6\n                        1.  7"
+extract_html text ok "1\n\n2\n\n3\n\n4\n\n5\n\n6\n\n7"
+## list_items_with_blocks
+html_to_markdown ok "*   para one\n\n    para two\n\n*   line\n    break\n*   ### heading\n\n    text\n*\n*"
+extract_html markdown ok "*   para one\n\n    para two\n\n*   line\n    break\n*   ### heading\n\n    text\n*\n*"
+extract_html text ok "para one\n\npara two\n\nline\nbreak\n\nheading\n\ntext"
+## list_malformed
+html_to_markdown ok "*   unclosed\n*   second\n    *   inner\n    stray text\n\n    para in ul\n\n*   third\n\n*   orphan item\n\ntext only"
+extract_html markdown ok "*   unclosed\n*   second\n    *   inner\n    stray text\n\n    para in ul\n\n*   third\n\n*   orphan item\n\ntext only"
+extract_html text ok "unclosed\nsecond\n\ninner\n\nstray text\n\npara in ul\n\nthird\n\norphan item\n\ntext only"
+## list_nested_directly
+html_to_markdown ok "*   a\n\n*   b\n\n*   c\n\n1.  x\n\n1.  y"
+extract_html markdown ok "*   a\n\n*   b\n\n*   c\n\n1.  x\n\n1.  y"
+extract_html text ok "a\n\nb\n\nc\n\nx\n\ny"
+## definition_list
+html_to_markdown ok "Term\n\nDefinition\n\nOther\n\nOne\n\nTwo"
+extract_html markdown ok "Term\n\nDefinition\n\nOther\n\nOne\n\nTwo"
+extract_html text ok "Term\nDefinition\nOther\nOne\nTwo"
+## list_ten_ordered_items
+html_to_markdown ok "1.   a\n2.   b\n3.   c\n4.   d\n5.   e\n6.   f\n7.   g\n8.   h\n9.   i\n10.  j\n     k"
+extract_html markdown ok "1.   a\n2.   b\n3.   c\n4.   d\n5.   e\n6.   f\n7.   g\n8.   h\n9.   i\n10.  j\n     k"
+extract_html text ok "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk"
+## quote_simple
+html_to_markdown ok "> quoted text\n\nafter"
+extract_html markdown ok "> quoted text\n\nafter"
+extract_html text ok "quoted text\n\nafter"
+## quote_nested
+html_to_markdown ok "> one\n> \n> > two\n> > \n> > > three\n> \n> back"
+extract_html markdown ok "> one\n> \n> > two\n> > \n> > > three\n> \n> back"
+extract_html text ok "one\n\ntwo\n\nthree\n\nback"
+## quote_with_blocks
+html_to_markdown ok "> ## Title\n> \n> *   a\n> *   b\n> \n> code\n> \n> more\n> \n> end"
+extract_html markdown ok "> ## Title\n> \n> *   a\n> *   b\n> \n> code\n> \n> more\n> \n> end"
+extract_html text ok "Title\n\na\nb\n\ncode\n\nmore\n\nend"
+## quote_empty_and_inline
+html_to_markdown ok "a b"
+extract_html markdown ok "a b"
+extract_html text ok "a b"
+## table_with_thead
+html_to_markdown ok "| Name  | Count |\n| ----- | ----- |\n| Alpha | 1     |\n| Beta  | 22    |"
+extract_html markdown ok "| Name  | Count |\n| ----- | ----- |\n| Alpha | 1     |\n| Beta  | 22    |"
+extract_html text ok "Name Count\nAlpha 1\nBeta 22"
+## table_header_row_only_th
+html_to_markdown ok "| A | B |\n| - | - |\n| 1 | 2 |"
+extract_html markdown ok "| A | B |\n| - | - |\n| 1 | 2 |"
+extract_html text ok "A B\n1 2"
+## table_without_headers
+html_to_markdown ok "a\n\nb\n\nc\n\nd"
+extract_html markdown ok "a\n\nb\n\nc\n\nd"
+extract_html text ok "a b\nc d"
+## table_caption_and_tfoot
+html_to_markdown ok "Totals **2026**\n| K   | V |\n| --- | - |\n| sum | 3 |\n| a   | 1 |"
+extract_html markdown ok "Totals **2026**\n| K   | V |\n| --- | - |\n| sum | 3 |\n| a   | 1 |"
+extract_html text ok "Totals 2026\nK V\nsum 3\na 1"
+## table_cells_with_markup
+html_to_markdown ok "| H *1*            | pipe &#124; here |\n| ---------------- | ----------- |\n| [link](/l)   two | `a&#124;b` **x** |\n| *   li           | p1  p2      |"
+extract_html markdown ok "| H *1*            | pipe &#124; here |\n| ---------------- | ----------- |\n| [link](/l)   two | `a&#124;b` **x** |\n| *   li           | p1  p2      |"
+extract_html text ok "H 1 pipe | here\nlink\ntwo a|b x\n\nli\n\np1\n\np2"
+## table_ragged_rows
+html_to_markdown ok "| A | B | C |   |\n| - | - | - | - |\n| 1 |   |   |   |\n| 1 | 2 | 3 | 4 |\n|   |   |   |   |"
+extract_html markdown ok "| A | B | C |   |\n| - | - | - | - |\n| 1 |   |   |   |\n| 1 | 2 | 3 | 4 |\n|   |   |   |   |"
+extract_html text ok "A B C\n1\n1 2 3 4"
+## table_spans
+html_to_markdown ok "| Wide | C  |   |\n| ---- | -- | - |\n| tall | b  | c |\n| b2   | c2 |   |"
+extract_html markdown ok "| Wide | C  |   |\n| ---- | -- | - |\n| tall | b  | c |\n| b2   | c2 |   |"
+extract_html text ok "Wide C\ntall b c\nb2 c2"
+## table_nested_in_cell
+html_to_markdown ok "| Outer    |\n| -------- |\n| Inner  x |"
+extract_html markdown ok "| Outer    |\n| -------- |\n| Inner  x |"
+extract_html text ok "Outer\n\nInner\nx"
+## table_nested_layout
+html_to_markdown ok "a\n\nb\n\nc"
+extract_html markdown ok "a\n\nb\n\nc"
+extract_html text ok "a b\n\nc"
+## table_malformed
+html_to_markdown ok "| h                |\n| ---------------- |\n| cell without row |\n\nstray text\n\nfoster\n\nx\n\nrowless"
+extract_html markdown ok "| h                |\n| ---------------- |\n| cell without row |\n\nstray text\n\nfoster\n\nx\n\nrowless"
+extract_html text ok "cell without row\nh d\n\nstray text\nfoster\n\nx\n\nrowless"
+## table_header_in_tbody_and_mixed_cells
+html_to_markdown ok "| H1 |\n| -- |\n| d1 |"
+extract_html markdown ok "| H1 |\n| -- |\n| d1 |"
+extract_html text ok "H1 d0\nrow head d1"
+## table_multiple_sections
+html_to_markdown ok "| late |\n| ---- |\n| 1    |\n| 2    |"
+extract_html markdown ok "| late |\n| ---- |\n| 1    |\n| 2    |"
+extract_html text ok "A\nA2\n1\n2\nlate"
+## table_empty_and_headers_only
+html_to_markdown ok "| only | heads |\n| ---- | ----- |\n\n| x |\n\n|  |   |\n|  | - |\n|  | v |"
+extract_html markdown ok "| only | heads |\n| ---- | ----- |\n\n| x |\n\n|  |   |\n|  | - |\n|  | v |"
+extract_html text ok "only heads\n\nx\n\nv"
+## table_unicode_width
+html_to_markdown ok "| 名前     | é |\n| ------ | - |\n| 日本語のセル | 😀 |"
+extract_html markdown ok "| 名前     | é |\n| ------ | - |\n| 日本語のセル | 😀 |"
+extract_html text ok "名前 é\n日本語のセル 😀"
+## table_inside_list_and_quote
+html_to_markdown ok "*   | A |\n    | - |\n    | 1 |\n\n> | B |\n> | - |\n> | 2 |"
+extract_html markdown ok "*   | A |\n    | - |\n    | 1 |\n\n> | B |\n> | - |\n> | 2 |"
+extract_html text ok "A\n1\n\nB\n2"
+## entities
+html_to_markdown ok "& \\<tag> \"q\" ' © © 😀  | ¬anentity; &amp; AT&T"
+extract_html markdown ok "& \\<tag> \"q\" ' © © 😀  | ¬anentity; &amp; AT&T"
+extract_html text ok "& <tag> \"q\" ' © © 😀  | ¬anentity; &amp; AT&T"
+## markdown_punctuation_in_text
+html_to_markdown ok "\\# not heading\n\n\\*stars\\* \\_under\\_ \\`tick\\` \\[brackets\\](parens) ~tilde~ \\\\backslash\n\n1\\. not a list\n\n\\- dash\n\n\\+ plus\n\n\\> quote\n\na\\_b\\_c snake\\_case 2\\*3\\*4\n\n\\<div> !\\[img\\](x)\n\n--- === \\_\\_\\_"
+extract_html markdown ok "\\# not heading\n\n\\*stars\\* \\_under\\_ \\`tick\\` \\[brackets\\](parens) ~tilde~ \\\\backslash\n\n1\\. not a list\n\n\\- dash\n\n\\+ plus\n\n\\> quote\n\na\\_b\\_c snake\\_case 2\\*3\\*4\n\n\\<div> !\\[img\\](x)\n\n--- === \\_\\_\\_"
+extract_html text ok "# not heading\n\n*stars* _under_ `tick` [brackets](parens) ~tilde~ \\backslash\n\n1. not a list\n\n- dash\n\n+ plus\n\n> quote\n\na_b_c snake_case 2*3*4\n\n<div> ![img](x)\n\n--- === ___"
+## markdown_punctuation_after_break
+html_to_markdown ok "a  \n\\# b  \n\\- c  \n1\\. d  \n\\> e\n\n10\\. ten\n\n1) paren"
+extract_html markdown ok "a  \n\\# b  \n\\- c  \n1\\. d  \n\\> e\n\n10\\. ten\n\n1) paren"
+extract_html text ok "a\n# b\n- c\n1. d\n> e\n\n10. ten\n1) paren"
+## unicode_text
+html_to_markdown ok "café 中文 العربية 😀 á ​zero nbsp"
+extract_html markdown ok "café 中文 العربية 😀 á ​zero nbsp"
+extract_html text ok "café 中文 العربية 😀 á ​zero nbsp"
+## currency_ampersand_and_tilde_text
+html_to_markdown ok "Cost $5 and $10; a$b$c\n\n100% & R&D < 3 ~ 4 ~~double~~ a&b ©"
+extract_html markdown ok "Cost $5 and $10; a$b$c\n\n100% & R&D < 3 ~ 4 ~~double~~ a&b ©"
+extract_html text ok "Cost $5 and $10; a$b$c\n\n100% & R&D < 3 ~ 4 ~~double~~ a&b ©"
+## markers_at_block_starts
+html_to_markdown ok "# 1\\. Numbered\n\n## \\- dash\n\n### Trailing #\n\n*   1\\. one\n*   \\- two\n*   \\# three\n\n> \\> four\n\n| \\# h |\n| ---- |\n| \\- d |"
+extract_html markdown ok "# 1\\. Numbered\n\n## \\- dash\n\n### Trailing #\n\n*   1\\. one\n*   \\- two\n*   \\# three\n\n> \\> four\n\n| \\# h |\n| ---- |\n| \\- d |"
+extract_html text ok "1. Numbered\n\n- dash\n\nTrailing #\n\n1. one\n- two\n# three\n\n> four\n\n# h\n- d"
+## emphasis_flanking_punctuation
+html_to_markdown ok "a**!**b **\"q\"**c *x*y **s**. *(p)*z 1**2**3"
+extract_html markdown ok "a**!**b **\"q\"**c *x*y **s**. *(p)*z 1**2**3"
+extract_html text ok "a!b \"q\"c xy s. (p)z 123"
+## math_spans
+html_to_markdown ok "$x^2$ and $$a_b$$ plain"
+extract_html markdown ok "$x^2$ and $$a_b$$ plain"
+extract_html text ok "x^2 and a_b plain"
+## link_with_line_breaks
+html_to_markdown ok "[line one  \nline two](/x) [spaced text](/y)"
+extract_html markdown ok "[line one  \nline two](/x) [spaced text](/y)"
+extract_html text ok "line one\nline two spaced text"
+## link_wrapping_simple_blocks
+html_to_markdown ok "[Para link](/p)\n\n[Div link](/d)\n\n[*   item](/l)"
+extract_html markdown ok "[Para link](/p)\n\n[Div link](/d)\n\n[*   item](/l)"
+extract_html text ok "Para link\n\nDiv link\n\nitem"
+## links_and_code_inside_emphasis
+html_to_markdown ok "**[bold link](/b)** [`code link`](/c) `**bold code**` *`em code`*"
+extract_html markdown ok "**[bold link](/b)** [`code link`](/c) `**bold code**` *`em code`*"
+extract_html text ok "bold link code link bold code em code"
+## breaks_at_block_ends
+html_to_markdown ok "end  \n\nx  \n  \n\n*   item\n\n| h   |\n| --- |\n| a b |\n\n## a"
+extract_html markdown ok "end  \n\nx  \n  \n\n*   item\n\n| h   |\n| --- |\n| a b |\n\n## a"
+extract_html text ok "end\n\nx\n\nitem\n\nh\n\na\nb\n\na"
+## full_document_with_head
+html_to_markdown ok "# Body\n\nVisible"
+extract_html markdown ok "# Body\n\nVisible"
+extract_html text ok "Body\n\nVisible"
+## non_content_inside_content
+html_to_markdown ok "abcde\n\n*   x\n\npq"
+extract_html markdown ok "abcde\n\n*   x\n\npq"
+extract_html text ok "abcde\n\nx\n\npq"
+## comments
+html_to_markdown ok "ab\n\n*   x\n\nc"
+extract_html markdown ok "ab\n\n*   x\n\nc"
+extract_html text ok "ab\n\nx\n\nc"
+## doctype_cdata_and_pi
+html_to_markdown ok "a\n\nb"
+extract_html markdown ok "a\n\nb"
+extract_html text ok "a\n\nb"
+## svg_and_math
+html_to_markdown ok "before\n\nsvg textx+1\n\nafter"
+extract_html markdown ok "before\n\nsvg textx+1\n\nafter"
+extract_html text ok "before\n\nsvg textx+1\n\nafter"
+## forms_and_controls
+html_to_markdown ok "Name\n\narea text\n\none\n\ntwo\n\nSend"
+extract_html markdown ok "Name\n\narea text\n\none\n\ntwo\n\nSend"
+extract_html text ok "Name area textonetwoSend"
+## embedded_content
+html_to_markdown ok "frame fallback\n\nvideo fallbackobject fallbackcanvas fallback"
+extract_html markdown ok "frame fallback\n\nvideo fallbackobject fallbackcanvas fallback"
+extract_html text ok "frame fallbackvideo fallbackobject fallbackcanvas fallback"
+## details_figure_and_semantic_blocks
+html_to_markdown ok "Sum\n\nHidden body\n\n![Fig](f.png)\n\nCaption\n\nAddr  \nline\n\n[Home](/)\n\nfoot"
+extract_html markdown ok "Sum\n\nHidden body\n\n![Fig](f.png)\n\nCaption\n\nAddr  \nline\n\n[Home](/)\n\nfoot"
+extract_html text ok "Sum\n\nHidden body\n\nFig\n\nCaption\n\nAddr\nline\n\nHome\n\nfoot"
+## unclosed_tags
+html_to_markdown ok "one\n\ntwo**bold*both***\n\n***three* still**\n\n**divspan**"
+extract_html markdown ok "one\n\ntwo**bold*both***\n\n***three* still**\n\n**divspan**"
+extract_html text ok "one\n\ntwoboldboth\n\nthree still\n\ndivspan"
+## misnested_formatting
+html_to_markdown ok "**a*b****c*d\n\n**x**y\n\n[one](/1)[two](/2)"
+extract_html markdown ok "**a*b****c*d\n\n**x**y\n\n[one](/1)[two](/2)"
+extract_html text ok "abcd\n\nxy\n\nonetwo"
+## stray_end_tags
+html_to_markdown ok "text\n\npara\n\ntailafter"
+extract_html markdown ok "text\n\npara\n\ntailafter"
+extract_html text ok "text\n\npara\n\ntailafter"
+## broken_tags_and_attributes
+html_to_markdown ok "[bare](x)![z/](y)\n\nodd\n\n<3 heart <->"
+extract_html markdown ok "[bare](x)![z/](y)\n\nodd\n\n<3 heart <->"
+extract_html text ok "barez/\n\nodd\n\n<3 heart <->"
+## duplicate_and_odd_attributes
+html_to_markdown ok "[dup](/1)![Upper](u.png)\n\nupper tag\n\n[single](/single)"
+extract_html markdown ok "[dup](/1)![Upper](u.png)\n\nupper tag\n\n[single](/single)"
+extract_html text ok "dupUpper\n\nupper tag\n\nsingle"
+## nested_paragraph_recovery
+html_to_markdown ok "outer\n\ndiv in p\n\nafter\n\n# h\n\n## nested heading\n\n*   bare li\n\nbare dd"
+extract_html markdown ok "outer\n\ndiv in p\n\nafter\n\n# h\n\n## nested heading\n\n*   bare li\n\nbare dd"
+extract_html text ok "outer\n\ndiv in p\nafter\n\nh\n\nnested heading\n\nbare li\nbare dd"
+## body_and_html_repeated
+html_to_markdown ok "one\n\ntwo\n\nthree"
+extract_html markdown ok "one\n\ntwo\n\nthree"
+extract_html text ok "one\n\ntwo\n\nthree"
+## null_and_control_characters
+html_to_markdown ok "ab\u0001cd e"
+extract_html markdown ok "ab\u0001cd e"
+extract_html text ok "ab\u0001cd e"
+## frameset_and_plaintext
+html_to_markdown ok "before\n\n\\<p>not parsed\\</p>\\<b>raw"
+extract_html markdown ok "before\n\n\\<p>not parsed\\</p>\\<b>raw"
+extract_html text ok "before\n\n<p>not parsed</p><b>raw"
+## select_and_table_recovery
+html_to_markdown ok "p in select\n\no\n\nt\n\nx"
+extract_html markdown ok "p in select\n\no\n\nt\n\nx"
+extract_html text ok "p in select\n\no\n\nt\n\nx"
+## fixture_static_website_index
+html_to_markdown ok "[IronFlow](/) Local service \n\nRuntime\n\n# Service status\n\n**Checking** \n\nContacting /health...\n\nRefresh"
+extract_html markdown ok "[IronFlow](/) Local service \n\nRuntime\n\n# Service status\n\n**Checking** \n\nContacting /health...\n\nRefresh"
+extract_html text ok "IronFlow Local service\n\nRuntime\n\nService status\n\nChecking\n\nContacting /health...\n\nRefresh"
+## fixture_benchmark_pathological
+html_to_markdown err "html_to_markdown: HTML element nesting exceeds 128 levels"
+extract_html markdown err "extract_html: HTML element nesting exceeds 128 levels"
+extract_html text ok bytes=94890 sha256=d43b774e110ccbcf8fba939bbe5c35236ff856630aad62a3f9db404b34f34f0f
