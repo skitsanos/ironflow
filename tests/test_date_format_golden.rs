@@ -5,7 +5,8 @@
 //! case and what the node returned for it: the formatted text and Unix
 //! seconds, or the error text. The cases are built here; the fixture holds
 //! only what was observed. Intended differences are the year range, the
-//! century of a year before 0000, and malformed output timezone offsets.
+//! century of a year before 0000, malformed output timezone offsets, and
+//! date-time errors no longer hidden by the date-only fallback.
 //!
 //! To record again after an intended change, run
 //! `cargo test --test nodes test_date_format_golden::record -- --ignored`
@@ -917,11 +918,6 @@ fn beyond_the_range(case: &Value) -> Option<String> {
     let format = config["input_format"].as_str();
     if BEYOND_THE_RANGE.contains(&input) {
         return Some(match format {
-            // A timestamp alone falls back to "a date without a time".
-            Some("%s") => format!(
-                "Failed to parse '{input}' with format '%s': input is not enough for unique \
-                 date and time"
-            ),
             Some(format) => {
                 format!("Failed to parse '{input}' with format '{format}': input is out of range")
             }
@@ -968,6 +964,48 @@ fn invalid_output_timezone(case: &Value) -> Option<String> {
     .then(|| format!("Invalid timezone '{zone}'. Use 'UTC', '+HH:MM', or '-HH:MM'"))
 }
 
+/// IF-238: the date-only fallback used to hide these time resolution errors.
+fn date_time_failure(case: &Value, recorded: &Value) -> Option<Value> {
+    let impossible = "no possible date and time matching input";
+    let error = |input: &str, format: &str, reason: &str| json!({"err": format!("Failed to parse '{input}' with format '{format}': {reason}")});
+    if let Some(back) = case.get("read_back") {
+        // These non-UTC wall times were written without an offset, alongside %s.
+        if back["spec"] == "%s"
+            && matches!(
+                back["input"].as_str()?,
+                "2021-01-03T12:00:00-08:00" | "2024-12-30T23:59:59.000001+05:30"
+            )
+        {
+            let mut expected = recorded.clone();
+            expected["read"] = error(
+                recorded["written"]["ok"][0].as_str()?,
+                "%Y-%m-%d %H:%M:%S %s",
+                impossible,
+            );
+            return Some(expected);
+        }
+        return None;
+    }
+    let input = case["config"]["input"].as_str()?;
+    let format = case["config"]["input_format"].as_str()?;
+    let reason = match (format, input) {
+        ("%Y-%m-%d %H", "2024-06-15 10")
+        | ("%Y-%m-%d :%M", "2024-06-15 :30")
+        | ("%Y-%m-%d %H::%S", "2024-06-15 10::45")
+        | ("%F %I:%M", "2024-06-15 10:30")
+        | ("%F %H %I %p", "2024-06-15 22 10 PM")
+        | ("%F %p", "2024-06-15 PM")
+        | ("%F %H:%M%.f", "2024-06-15 10:30.250") => "input is not enough for unique date and time",
+        ("%s", "8210266876800" | "9223372036854775807") => "input is out of range",
+        ("%s %Y", "1718447400 2025")
+        | ("%s %F %T", "1718447400 2024-06-15 10:30:01")
+        | ("%s %H", "1718447400 11")
+        | ("%s %a", "1718447400 Sun") => impossible,
+        _ => return None,
+    };
+    Some(error(input, format, reason))
+}
+
 #[test]
 fn date_format_matches_the_recorded_behaviour() {
     let recorded = std::fs::read_to_string(fixture_path()).expect("golden fixture");
@@ -993,6 +1031,7 @@ fn date_format_matches_the_recorded_behaviour() {
                 json!({ "err": error })
             }
             _ if let Some(error) = invalid_output_timezone(&case) => json!({ "err": error }),
+            _ if let Some(corrected) = date_time_failure(&case, &line[1]) => corrected,
             _ => with_numeric_century(&line[1]),
         };
         if observed != expected {

@@ -31,13 +31,14 @@ fn read(input: &str, items: &[Item<'_>]) -> Result<Fields, ParseError> {
 
 /// The wall-clock time in `fields` at `offset`; a date alone is midnight.
 fn resolve(fields: &Fields, offset: i32) -> Result<(DateTime, bool), ParseError> {
-    match fields.date_time(offset) {
-        Ok(resolved) => Ok((resolved.local, resolved.leap)),
-        Err(_) => Ok((
+    if fields.is_date_only() {
+        return Ok((
             DateTime::from_parts(fields.date()?, Time::midnight()),
             false,
-        )),
+        ));
     }
+    let resolved = fields.date_time(offset)?;
+    Ok((resolved.local, resolved.leap))
 }
 
 /// Try the formats the node detects without an `input_format`.

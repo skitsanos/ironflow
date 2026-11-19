@@ -248,6 +248,37 @@ async fn date_format_input_offset_is_kept_without_timezone() {
 }
 
 #[tokio::test]
+async fn date_format_only_defaults_an_actual_date_to_midnight() {
+    for (input, format) in [
+        ("1970-01-02 12:00:00 0", "%F %T %s"),
+        ("1970-01-02 0", "%F %s"),
+        ("1970-01-02 12", "%F %H"),
+    ] {
+        run_date(serde_json::json!({"input": input, "input_format": format}))
+            .await
+            .expect_err(input);
+    }
+    for (input, format, expected, epoch) in [
+        (
+            "1970-01-02 12:00:00 129600",
+            "%F %T %s",
+            "12:00 +00:00",
+            129600,
+        ),
+        ("1970-01-02 129600", "%F %s", "12:00 +00:00", 129600),
+        ("1970-01-02", "%F", "00:00 +00:00", 86400),
+        ("1970-01-02 +0200", "%F %z", "00:00 +02:00", 79200),
+    ] {
+        let (value, unix) = run_date(serde_json::json!({
+            "input": input, "input_format": format, "output_format": "%H:%M %:z"
+        }))
+        .await
+        .unwrap();
+        assert_eq!((value.as_str(), unix), (expected, epoch), "{input}");
+    }
+}
+
+#[tokio::test]
 async fn date_format_date_with_offset_is_midnight_at_that_offset() {
     let (formatted, unix) = run_date(serde_json::json!({
         "input": "2024-06-15 +0200",

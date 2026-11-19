@@ -14,10 +14,10 @@ flow:step("parse", nodes.date_format({
 })):depends_on("now")
 
 -- An input_format with a numeric offset (%z, %:z) yields the real instant.
--- 10:30 at +02:00 is 08:30 UTC; without `timezone` the value keeps +02:00.
+-- 10:30 at +02:00 is 08:30 UTC. The Unix timestamp (%s) must agree.
 flow:step("offset", nodes.date_format({
-    input = "2024-06-15 10:30:00 +0200",
-    input_format = "%Y-%m-%d %H:%M:%S %z",
+    input = "2024-06-15 10:30:00 +0200 1718440200",
+    input_format = "%Y-%m-%d %H:%M:%S %z %s",
     output_format = "%Y-%m-%dT%H:%M:%SZ",
     timezone = "UTC",
     output_key = "utc_time"

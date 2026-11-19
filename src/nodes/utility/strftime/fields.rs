@@ -59,6 +59,15 @@ fn as_i32(value: i64) -> ParseResult<i32> {
 }
 
 impl Fields {
+    pub(in crate::nodes::utility) fn is_date_only(&self) -> bool {
+        self.timestamp.is_none()
+            && self.hour_div_12.is_none()
+            && self.hour_mod_12.is_none()
+            && self.minute.is_none()
+            && self.second.is_none()
+            && self.nanosecond.is_none()
+    }
+
     pub(super) fn set_year(&mut self, value: i64) -> ParseResult<()> {
         set(&mut self.year, as_i32(value)?)
     }

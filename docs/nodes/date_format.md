@@ -53,8 +53,8 @@ Give exactly one of `input` or `source_key`; both, or neither, fails the step. B
 
 - Without `input_format`, these are tried in order: RFC 3339 (`2024-06-15T10:30:00+02:00`), RFC 2822 (`Sat, 15 Jun 2024 10:30:00 +0000`), `%Y-%m-%d %H:%M:%S`, `%Y-%m-%dT%H:%M:%S`, `%Y-%m-%d`.
 - A numeric offset in the input (`%z`, `%:z`, `%#z`, or `%+`) is applied: `10:30:00 +0200` is `08:30:00Z`. The result keeps that offset unless `timezone` converts it.
-- An input without an offset is read as UTC. A date without a time is midnight.
-- Fields that repeat or overlap must agree: a weekday name that does not match the date fails the step.
+- An input without an offset is read as UTC. A date alone means midnight at the input offset. An incomplete clock time is not a date-only input: `%F %H` without minutes or a Unix timestamp fails the step.
+- Fields that repeat or overlap must agree. For example, with `%F %T %s`, `1970-01-02 12:00:00 129600` is noon UTC; changing the timestamp to `0` fails the step. A weekday name that does not match the date also fails.
 - `%Z` accepts only `UTC`, `GMT`, `UT` and `Z` (any case), or any name next to a numeric offset, where the offset decides. Other names (`CEST`, `Europe/Berlin`) fail the step.
 - The step fails when the input matches neither `input_format` nor any auto-detected format.
 - The step fails when `output_format` has an unknown specifier (`%i`), a trailing `%`, an unsupported modifier or width (`%#m`, `%03d`), or a parse-only specifier (`%#z`).
