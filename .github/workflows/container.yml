@@ -6,6 +6,7 @@ on:
     paths:
       - "src/**"
       - "assets/**"
+      - "LICENSE"
       - "THIRD_PARTY_LICENSES.md"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -78,6 +79,12 @@ jobs:
           load: true
           tags: ironflow-container-smoke:${{ github.sha }}
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache-amd64
+
+      - name: Verify packaged project license
+        env:
+          CANDIDATE_IMAGE: ironflow-container-smoke:${{ github.sha }}
+        shell: bash
+        run: docker run --rm --entrypoint cat "$CANDIDATE_IMAGE" /usr/local/share/licenses/ironflow/LICENSE | cmp LICENSE -
 
       - name: Verify default container storage
         env:

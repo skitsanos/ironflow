@@ -49,6 +49,7 @@ RUN apt-get update \
     && chmod -R g=u /data
 
 COPY --from=builder /app/target/release/ironflow /usr/local/bin/ironflow
+COPY LICENSE /usr/local/share/licenses/ironflow/LICENSE
 COPY assets/fonts/OFL.txt /usr/local/share/licenses/ironflow/fonts-OFL.txt
 COPY THIRD_PARTY_LICENSES.md /usr/local/share/licenses/ironflow/THIRD_PARTY_LICENSES.md
 

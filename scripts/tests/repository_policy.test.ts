@@ -218,7 +218,7 @@ describe("repository integration policy", () => {
     expect(await read("scripts/integration_gate.sh")).toContain("--features postgres,redis,cjk-fonts");
   });
 
-  test("every release archive and the container image carry the third-party notices beside the fonts license", async () => {
+  test("every release archive and the container image carry the project license, third-party notices and font license", async () => {
     // IF-204: the notices file is a committed, gated build input, so packaging
     // and the image copy it as plain files.
     const notices = "THIRD_PARTY_LICENSES.md";
@@ -229,18 +229,21 @@ describe("repository integration policy", () => {
     const packaging = workflow.jobs.build.steps.filter((step) => step.name?.startsWith("Package ("));
     expect(packaging.map((step) => step.name)).toEqual(["Package (unix)", "Package (windows)"]);
     for (const step of packaging) {
+      expect(step.run, step.name).toMatch(/(?:^|\s)"?LICENSE"?(?:,|\s|$)/);
       expect(step.run, step.name).toContain(notices);
       expect(step.run, step.name).toContain("assets/fonts/OFL.txt");
     }
     const dockerfile = await read("Dockerfile");
     const copies = dockerfile.match(/^COPY \S+ \/usr\/local\/share\/licenses\/ironflow\/\S+$/gm) ?? [];
     expect(copies).toEqual([
+      "COPY LICENSE /usr/local/share/licenses/ironflow/LICENSE",
       "COPY assets/fonts/OFL.txt /usr/local/share/licenses/ironflow/fonts-OFL.txt",
       `COPY ${notices} /usr/local/share/licenses/ironflow/${notices}`,
     ]);
     const ignored = (await read(".dockerignore")).split("\n").filter((line) => line.trim() && !line.startsWith("#"));
     for (const pattern of ignored) {
       expect(new Bun.Glob(pattern).match(notices), pattern).toBeFalse();
+      expect(new Bun.Glob(pattern).match("LICENSE"), pattern).toBeFalse();
     }
   });
 

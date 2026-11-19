@@ -25,11 +25,11 @@ PostgreSQL or Redis storage, choose the matching archive with `-full` before
 not bundle database servers. Linux ARM64 and Windows ARM64 native binaries
 are not currently published.
 
-Every archive contains three files: the `ironflow` binary (`ironflow.exe` on
-Windows), `THIRD_PARTY_LICENSES.md` with the license notices for the Rust
+Every archive contains four files: the `ironflow` binary (`ironflow.exe` on
+Windows), IronFlow's MIT `LICENSE`, `THIRD_PARTY_LICENSES.md` with the notices for the Rust
 crates statically linked into that binary, and the SIL Open Font License for
 the bundled document fonts (`assets/fonts/OFL.txt` in the `.tar.gz` archives,
-`OFL.txt` in the `.zip`). Keep the two license files with the binary when you
+`OFL.txt` in the `.zip`). Keep all three license files with the binary when you
 redistribute it.
 
 No Rust compiler, separate Lua installation or native library is required:

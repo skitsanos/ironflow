@@ -714,6 +714,7 @@ commitment.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Release archives and the container image include
-[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md), the generated license
-notices for the Rust crates linked into the binary.
+MIT — see [LICENSE](LICENSE). Release archives include `LICENSE` at the archive
+root, alongside [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md). The runtime
+image installs both files and the bundled font license in
+`/usr/local/share/licenses/ironflow/`.
