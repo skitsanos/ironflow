@@ -1526,6 +1526,12 @@ verified content identity remains independent of that authorization. A shared
 network filesystem retains the local process-trust boundary and is not
 equivalent to a separately authorized object store.
 
+When a publish encounters an existing local digest, only a confirmed size or
+SHA-256 mismatch permits repair. Cancellation and verification errors leave
+the entry in place. Repair renames the verified staging file over the old
+entry: a failed rename does not leave a gap at the digest path. This applies
+both to local publication and to publication of a verified S3 download.
+
 The S3 lifecycle contract is deliberately narrow:
 
 - IronFlow uses the standard AWS credential chain and an optional
