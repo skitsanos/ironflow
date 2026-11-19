@@ -24,6 +24,7 @@ All string values are interpolated.
 | `client_version` | string | No | IronFlow version | Client version sent in the handshake. |
 | `params` | object | No | — | Handshake fields `protocolVersion`, `capabilities` and `clientInfo`; for `call_tool`, fallback `name` and `arguments`. |
 | `tool_name` | string | For `call_tool` | — | Tool to call. |
+| `cursor` | string | No | Omitted | For `list_tools`, pass the previous page's opaque `{output_key}_result.nextCursor` unchanged. Omit it for the first page. |
 | `arguments` | object | No | `{}` | Tool arguments. |
 
 ## Context Output
@@ -57,6 +58,7 @@ Action-specific keys:
 ## Behavior
 
 - `list_tools` and `call_tool` fail when the server did not negotiate the `tools` capability.
+- Each `list_tools` call returns one page. Stop when `nextCursor` is absent; the tool names and count describe only the current page.
 - Sessions live in the IronFlow process; a handle does not survive a restart.
 - A failed, timed-out or cancelled action ends its session. A tool's side effect is not rolled back.
 - A result larger than `IRONFLOW_MAX_MCP_RESULT_BYTES` fails the step and writes nothing; the session stays usable, except after `initialize`.

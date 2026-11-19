@@ -124,6 +124,7 @@ def call_tool_response(request):
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--trace")
+    parser.add_argument("--paginated", action="store_true")
     parser.add_argument(
         "--mode",
         choices=[
@@ -198,6 +199,16 @@ def main():
                     }
                 )
                 emit({"jsonrpc": "2.0", "id": "server-ping", "method": "ping"})
+            result = {"tools": TOOLS}
+            if args.paginated:
+                cursor = (request.get("params") or {}).get("cursor")
+                if cursor is None:
+                    result = {"tools": TOOLS[:1], "nextCursor": "echo page/2+"}
+                elif cursor == "echo page/2+":
+                    result = {"tools": TOOLS[1:]}
+                else:
+                    emit(rpc_error(request.get("id"), -32602, "Unknown cursor"))
+                    continue
             emit_operation_response(
                 {
                     "jsonrpc": "2.0",
@@ -206,7 +217,7 @@ def main():
                         if args.mode == "wrong-list-id"
                         else request.get("id")
                     ),
-                    "result": {"tools": TOOLS},
+                    "result": result,
                 },
                 args,
             )

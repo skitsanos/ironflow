@@ -7,7 +7,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts check`.
 
 - Total findings: 259
-- Active findings: 3
+- Active findings: 2
 
 ## Working agreement
 
@@ -278,7 +278,7 @@ priority, area, and title. The registry is generated with
 | [IF-248](./IF-248.md) | P2 | Resolved | Nodes/Azure OpenAI | Azure Responses can name different deployments in the request URL and body |
 | [IF-249](./IF-249.md) | P2 | Resolved | Nodes/database | db_query silently drops columns with duplicate labels |
 | [IF-250](./IF-250.md) | P2 | Resolved | Nodes/HTTP | HTTP response metadata silently discards repeated headers |
-| [IF-251](./IF-251.md) | P2 | Open | Nodes/MCP | MCP list_tools cannot discover tools beyond the first page |
+| [IF-251](./IF-251.md) | P2 | Resolved | Nodes/MCP | MCP list_tools cannot discover tools beyond the first page |
 | [IF-252](./IF-252.md) | P2 | Open | Nodes/MCP | MCP action timeout excludes time waiting for the session lock |
 | [IF-253](./IF-253.md) | P1 | Resolved | Artifacts/publication | Inconclusive verification can unlink a valid retained artifact |
 | [IF-254](./IF-254.md) | P2 | Open | Storage/SQL | Run inspection can mix the header and tasks of different runs |

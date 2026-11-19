@@ -5,7 +5,8 @@ use std::time::{Duration, Instant};
 use anyhow::{Result, anyhow, bail};
 use rmcp::model::{
     CallToolRequest, CallToolRequestParams, CallToolResult, ClientConfig, ClientRequest,
-    ListToolsRequest, ListToolsResult, ProtocolVersion, ServerPeerInfo, ServerResult,
+    ListToolsRequest, ListToolsResult, PaginatedRequestParams, ProtocolVersion, ServerPeerInfo,
+    ServerResult,
 };
 use rmcp::service::{PeerRequestOptions, RoleClient, RunningService};
 use tokio::sync::Mutex as AsyncMutex;
@@ -66,9 +67,18 @@ impl McpSession {
         Ok(())
     }
 
-    pub(super) async fn list_tools(&self, timeout: Duration) -> Result<ListToolsResult> {
+    pub(super) async fn list_tools(
+        &self,
+        cursor: Option<&str>,
+        timeout: Duration,
+    ) -> Result<ListToolsResult> {
         self.require_tools_capability()?;
-        let request = ClientRequest::ListToolsRequest(ListToolsRequest::default());
+        let params =
+            cursor.map(|s| PaginatedRequestParams::default().with_cursor(Some(s.to_owned())));
+        let request = ClientRequest::ListToolsRequest(ListToolsRequest {
+            params,
+            ..Default::default()
+        });
         let response = self
             .service
             .peer()

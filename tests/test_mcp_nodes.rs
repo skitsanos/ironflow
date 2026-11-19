@@ -135,6 +135,29 @@ async fn stdio_session_reuses_one_process_and_closes_cleanly() {
 }
 
 #[tokio::test]
+async fn stdio_lists_two_pages_using_the_returned_cursor() {
+    let temp = tempfile::tempdir().unwrap();
+    let node = NodeRegistry::with_builtins().get("mcp_client").unwrap();
+    let mut init = initialize_config(&temp.path().join("trace"), "normal", "init");
+    init["args"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!("--paginated"));
+    let ctx = empty_context();
+    let handle = node.execute(&init, &ctx).await.unwrap()["init_session"].clone();
+    let mut list = json!({"action":"list_tools", "session":handle});
+    let first = node.execute(&list, &ctx).await.unwrap();
+    assert_eq!(first["mcp_tool_names"], json!(["search"]));
+    list["cursor"] = first["mcp_result"]["nextCursor"].clone();
+    let second = node.execute(&list, &ctx).await.unwrap();
+    assert_eq!(second["mcp_tool_names"], json!(["echo"]));
+    assert!(second["mcp_result"].get("nextCursor").is_none());
+    node.execute(&json!({"action":"close","session":handle}), &ctx)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
 async fn stdio_sessions_with_identical_configs_are_isolated() {
     let temp = tempfile::tempdir().unwrap();
     let trace = temp.path().join("mcp.jsonl");

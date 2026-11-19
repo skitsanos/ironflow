@@ -59,11 +59,19 @@ impl Node for McpClientNode {
             }
             McpAction::ListTools => {
                 let handle = session_handle(&config)?.to_string();
+                let cursor = config
+                    .get("cursor")
+                    .map(|value| {
+                        value.as_str().ok_or_else(|| {
+                            anyhow::anyhow!("mcp_client list_tools expects 'cursor' to be a string")
+                        })
+                    })
+                    .transpose()?;
                 let mut lease = self.sessions.lease(&handle)?;
                 let session = lease.session();
                 let session = session.lock().await;
                 let transport = session.transport();
-                let result = session.list_tools(timeout).await?;
+                let result = session.list_tools(cursor, timeout).await?;
                 drop(session);
                 lease.disarm();
                 // The reply was complete, so the session stays usable.
