@@ -9,6 +9,7 @@
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::process::Output;
 
 use ironflow::engine::types::Context;
 use ironflow::nodes::NodeRegistry;
@@ -334,7 +335,7 @@ async fn zip_extract_ignores_archive_modes_and_keeps_replaced_ones() {
 
 /// Run one `write_file` flow through the CLI in a child process whose umask
 /// is `mask`, so no umask of this test process changes.
-async fn write_under_umask(directory: &Path, mask: libc::mode_t) -> String {
+async fn write_under_umask(directory: &Path, mask: libc::mode_t) -> Output {
     let flow = directory.join("flow.lua");
     std::fs::write(
         &flow,
@@ -360,15 +361,58 @@ async fn write_under_umask(directory: &Path, mask: libc::mode_t) -> String {
             Ok(())
         });
     }
-    let output = tokio::time::timeout(std::time::Duration::from_secs(30), command.output())
+    tokio::time::timeout(std::time::Duration::from_secs(30), command.output())
         .await
-        .expect("ironflow CLI timed out")
-        .expect("ironflow CLI failed to start");
-    format!(
-        "{}\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    )
+        .unwrap_or_else(|_| panic!("umask {mask:04o}: ironflow CLI timed out"))
+        .unwrap_or_else(|error| panic!("umask {mask:04o}: ironflow CLI failed to start: {error}"))
+}
+
+fn check_umask_run(mask: libc::mode_t, output: &Output) -> Result<(), String> {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    if output.status.success() && stdout.lines().any(|line| line == "Status: success") {
+        Ok(())
+    } else {
+        Err(format!(
+            "umask {mask:04o}: expected a successful CLI run; {}; stdout={stdout:?}; stderr={:?}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        ))
+    }
+}
+
+#[test]
+fn umask_failure_reports_termination_and_both_streams() {
+    for (script, termination, streams) in [
+        (
+            "exit 42",
+            "exit status: 42".to_owned(),
+            r#"stdout=""; stderr="""#,
+        ),
+        (
+            "kill -TERM $$",
+            format!("signal: {}", libc::SIGTERM),
+            r#"stdout=""; stderr="""#,
+        ),
+        (
+            "echo 'Status: success'; echo diagnostic >&2; exit 7",
+            "exit status: 7".to_owned(),
+            r#"stdout="Status: success\n"; stderr="diagnostic\n""#,
+        ),
+        (
+            "echo 'Status: success' >&2",
+            "exit status: 0".to_owned(),
+            r#"stdout=""; stderr="Status: success\n""#,
+        ),
+    ] {
+        let output = std::process::Command::new("/bin/sh")
+            .args(["-c", script])
+            .output()
+            .unwrap();
+        let error = check_umask_run(0o027, &output).expect_err(script);
+        for detail in ["umask 0027", &termination, streams] {
+            assert!(error.contains(detail), "missing {detail:?} in {error:?}");
+        }
+    }
 }
 
 #[tokio::test]
@@ -383,7 +427,7 @@ async fn a_new_file_is_0666_masked_by_the_process_umask() {
 
         let output = write_under_umask(directory.path(), mask).await;
 
-        assert!(output.contains("Status: success"), "{output}");
+        check_umask_run(mask, &output).unwrap_or_else(|error| panic!("{error}"));
         let made = directory.path().join("made");
         assert_eq!(
             format!("{:o}", mode(&made.join("deeper/new.txt"))),

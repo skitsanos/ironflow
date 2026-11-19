@@ -7,7 +7,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts check`.
 
 - Total findings: 259
-- Active findings: 14
+- Active findings: 13
 
 ## Working agreement
 
@@ -286,4 +286,4 @@ priority, area, and title. The registry is generated with
 | [IF-256](./IF-256.md) | P2 | Resolved | Metrics/subworkflows | Subworkflow task attempts disappear from process metrics |
 | [IF-257](./IF-257.md) | P2 | Resolved | Nodes/date_format | Invalid timezone components are silently normalized to another offset |
 | [IF-258](./IF-258.md) | P3 | Resolved | Nodes/HTTP | A non-text response header is silently reported as an empty value |
-| [IF-259](./IF-259.md) | P3 | Open | Testing/Unix CLI | Unix file-mode regression test loses the child exit status on failure |
+| [IF-259](./IF-259.md) | P3 | Resolved | Testing/Unix CLI | Unix file-mode regression test loses the child exit status on failure |
