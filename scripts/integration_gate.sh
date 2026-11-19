@@ -4,6 +4,15 @@ set -euo pipefail
 repo_root=$(git rev-parse --show-toplevel)
 cd "$repo_root"
 
+for command in cargo cargo-audit python3 bun actionlint docker openssl; do
+  if ! command -v "$command" >/dev/null 2>&1; then
+    echo "Integration gate requires '$command' on PATH." >&2
+    exit 1
+  fi
+done
+
+start_tree=$(bun --no-env-file scripts/gate_receipt.ts start-tree)
+
 redis_container=""
 postgres_container=""
 
@@ -33,13 +42,6 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-
-for command in cargo cargo-audit python3 bun actionlint docker openssl; do
-  if ! command -v "$command" >/dev/null 2>&1; then
-    echo "Integration gate requires '$command' on PATH." >&2
-    exit 1
-  fi
-done
 
 echo "[integration] pruning stale IronFlow artifacts"
 clean_workspace_artifacts
@@ -145,7 +147,6 @@ bun --no-env-file scripts/test_store_tls.ts target/debug/ironflow
 # IF-172: the develop pre-push hook accepts this receipt instead of re-running
 # the gate inside the push's SSH session, which GitHub closes before it ends.
 echo "[integration] recording the gate receipt"
-bun --no-env-file scripts/gate_receipt.ts write \
-  || echo "[integration] no receipt recorded: commit the worktree and rerun the gate before a develop push" >&2
+bun --no-env-file scripts/gate_receipt.ts write "$start_tree"
 
 echo "IronFlow full integration gate passed."

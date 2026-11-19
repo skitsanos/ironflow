@@ -7,7 +7,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts check`.
 
 - Total findings: 259
-- Active findings: 12
+- Active findings: 11
 
 ## Working agreement
 
@@ -266,7 +266,7 @@ priority, area, and title. The registry is generated with
 | [IF-236](./IF-236.md) | P3 | Resolved | MCP/resource bounds | rmcp 3.11.0 reads a JSON error body up to the full response limit |
 | [IF-237](./IF-237.md) | P3 | Resolved | Documents/HTML conversion | htmd 0.6 no longer accepts IronFlow's depth-capped HTML tree |
 | [IF-238](./IF-238.md) | P2 | Resolved | Nodes/date_format | date_format silently returns midnight for conflicting timestamp fields |
-| [IF-239](./IF-239.md) | P2 | Open | Tooling/integration gate | Integration gate receipt can identify a different tree from the one tested |
+| [IF-239](./IF-239.md) | P2 | Resolved | Tooling/integration gate | Integration gate receipt can identify a different tree from the one tested |
 | [IF-240](./IF-240.md) | P3 | Open | CI/container publication | Container publication ignores changes to shipped third-party notices |
 | [IF-241](./IF-241.md) | P2 | Open | Release/distribution | Release archives and runtime image omit IronFlow’s own license |
 | [IF-242](./IF-242.md) | P2 | Open | Nodes/filesystem | Recursive list_directory can inventory the wrong directory on Unix |

@@ -653,8 +653,12 @@ clean, no open pull request targets `develop`, remote `develop` is integrated,
 and the committed version is a new `X.Y.Z-dev.N`. It then requires a receipt
 from a `scripts/integration_gate.sh` run on the exact tree being pushed: run
 the full local gate first, including its disposable Redis and PostgreSQL tests,
-because the gate cannot finish inside the push's SSH session. Start or
-advance a candidate with:
+because the gate cannot finish inside the push's SSH session. The gate starts
+from a clean checkout and refuses to record a receipt unless it finishes on
+the same clean Git tree. A message-only amend preserves the tree. Use a
+dedicated worktree when developing in parallel: these checks do not detect
+temporary edits reverted before the gate ends. Receipts from before this
+start-tree check require a new gate run. Start or advance a candidate with:
 
 ```bash
 bun run scripts/development_version.ts bump minor  # 1.15.0 -> 1.16.0-dev.1
