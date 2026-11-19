@@ -6,8 +6,8 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts generate` and verified with
 `bun run scripts/issues_registry.ts check`.
 
-- Total findings: 237
-- Active findings: 0
+- Total findings: 259
+- Active findings: 22
 
 ## Working agreement
 
@@ -265,3 +265,25 @@ priority, area, and title. The registry is generated with
 | [IF-235](./IF-235.md) | P1 | Resolved | Dependency security | Six lettre advisories fail the audit gate; send_email over SMTP uses the affected code |
 | [IF-236](./IF-236.md) | P3 | Resolved | MCP/resource bounds | rmcp 3.11.0 reads a JSON error body up to the full response limit |
 | [IF-237](./IF-237.md) | P3 | Resolved | Documents/HTML conversion | htmd 0.6 no longer accepts IronFlow's depth-capped HTML tree |
+| [IF-238](./IF-238.md) | P2 | Open | Nodes/date_format | date_format silently returns midnight for conflicting timestamp fields |
+| [IF-239](./IF-239.md) | P2 | Open | Tooling/integration gate | Integration gate receipt can identify a different tree from the one tested |
+| [IF-240](./IF-240.md) | P3 | Open | CI/container publication | Container publication ignores changes to shipped third-party notices |
+| [IF-241](./IF-241.md) | P2 | Open | Release/distribution | Release archives and runtime image omit IronFlow’s own license |
+| [IF-242](./IF-242.md) | P2 | Open | Nodes/filesystem | Recursive list_directory can inventory the wrong directory on Unix |
+| [IF-243](./IF-243.md) | P2 | Open | Nodes/CSV | CSV header escaping can collapse distinct object keys |
+| [IF-244](./IF-244.md) | P2 | Open | Nodes/XLSX | XLSX date and duration headers acquire literal JSON quotes |
+| [IF-245](./IF-245.md) | P2 | Open | API/idempotency | A small task output cap breaks replay of completed API requests |
+| [IF-246](./IF-246.md) | P2 | Open | CLI/validation | Child-flow validation can miss invalid descendants depending on declaration order |
+| [IF-247](./IF-247.md) | P2 | Open | Lua/static validation | Strict Lua validation rejects the implicit self parameter of colon methods |
+| [IF-248](./IF-248.md) | P2 | Open | Nodes/Azure OpenAI | Azure Responses can name different deployments in the request URL and body |
+| [IF-249](./IF-249.md) | P2 | Open | Nodes/database | db_query silently drops columns with duplicate labels |
+| [IF-250](./IF-250.md) | P2 | Open | Nodes/HTTP | HTTP response metadata silently discards repeated headers |
+| [IF-251](./IF-251.md) | P2 | Open | Nodes/MCP | MCP list_tools cannot discover tools beyond the first page |
+| [IF-252](./IF-252.md) | P2 | Open | Nodes/MCP | MCP action timeout excludes time waiting for the session lock |
+| [IF-253](./IF-253.md) | P1 | Open | Artifacts/publication | Inconclusive verification can unlink a valid retained artifact |
+| [IF-254](./IF-254.md) | P2 | Open | Storage/SQL | Run inspection can mix the header and tasks of different runs |
+| [IF-255](./IF-255.md) | P2 | Open | Scheduler/time zones | Restarting during a fall-back overlap can miss an in-grace fire |
+| [IF-256](./IF-256.md) | P2 | Open | Metrics/subworkflows | Subworkflow task attempts disappear from process metrics |
+| [IF-257](./IF-257.md) | P2 | Open | Nodes/date_format | Invalid timezone components are silently normalized to another offset |
+| [IF-258](./IF-258.md) | P3 | Open | Nodes/HTTP | A non-text response header is silently reported as an empty value |
+| [IF-259](./IF-259.md) | P3 | Open | Testing/Unix CLI | Unix file-mode regression test loses the child exit status on failure |
