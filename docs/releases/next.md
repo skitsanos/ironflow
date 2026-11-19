@@ -121,7 +121,7 @@ publication is verified separately.
   `-wal` file). The audit exception carried since 1.21.0 is retired, and the
   advice not to open untrusted SQLite files with `db_query` or `db_exec`
   applies only to releases up to 1.22.0.
-- `zip` 9.7.2 (re-reads recorded in IF-218), `jiff` 1.0.1, `noyalib` 0.0.62,
+- `zip` 9.7.3 (re-reads recorded in IF-218), `jiff` 1.0.1, `noyalib` 0.0.62,
   the AWS SDK crates, `clap` 4.6.8, `uuid` 1.29.3 and `rmcp` 3.11.0.
 - With `rmcp` 3.11, `mcp_client` over Streamable HTTP reads the JSON body of
   an error response within the 16 MiB response cap, where 3.10 stopped at
