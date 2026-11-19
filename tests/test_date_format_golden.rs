@@ -4,9 +4,8 @@
 //! `chrono` implementation before the node moved to `jiff`. Each line is a
 //! case and what the node returned for it: the formatted text and Unix
 //! seconds, or the error text. The cases are built here; the fixture holds
-//! only what was observed. Two things differ from it: the year range (see
-//! `beyond_the_range`) and the century of a year before 0000 (see
-//! `with_numeric_century`).
+//! only what was observed. Intended differences are the year range, the
+//! century of a year before 0000, and malformed output timezone offsets.
 //!
 //! To record again after an intended change, run
 //! `cargo test --test nodes test_date_format_golden::record -- --ignored`
@@ -950,6 +949,25 @@ fn with_numeric_century(recorded: &Value) -> Value {
     json!({ "ok": [corrected, recorded["ok"][1]] })
 }
 
+/// IF-257: these ten malformed output offsets succeeded in the old recording.
+fn invalid_output_timezone(case: &Value) -> Option<String> {
+    let zone = case["config"]["timezone"].as_str()?;
+    matches!(
+        zone,
+        "+2:00"
+            | "+5:30"
+            | "+02:0"
+            | "+02:000"
+            | "+002:00"
+            | "+02:60"
+            | "+02:-30"
+            | "+-2:00"
+            | "-+2:00"
+            | "+02:+30"
+    )
+    .then(|| format!("Invalid timezone '{zone}'. Use 'UTC', '+HH:MM', or '-HH:MM'"))
+}
+
 #[test]
 fn date_format_matches_the_recorded_behaviour() {
     let recorded = std::fs::read_to_string(fixture_path()).expect("golden fixture");
@@ -974,6 +992,7 @@ fn date_format_matches_the_recorded_behaviour() {
                 beyond += 1;
                 json!({ "err": error })
             }
+            _ if let Some(error) = invalid_output_timezone(&case) => json!({ "err": error }),
             _ => with_numeric_century(&line[1]),
         };
         if observed != expected {

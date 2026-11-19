@@ -145,27 +145,11 @@ pub(super) fn parse_timezone(tz: &str) -> Result<i32> {
     if trimmed.eq_ignore_ascii_case("utc") || trimmed == "Z" {
         return Ok(0);
     }
-    // Parse "+HH:MM" or "-HH:MM"
-    if (trimmed.starts_with('+') || trimmed.starts_with('-')) && trimmed.len() >= 5 {
-        let sign = if trimmed.starts_with('-') { -1 } else { 1 };
-        let parts: Vec<&str> = trimmed[1..].split(':').collect();
-        if parts.len() == 2
-            && let (Ok(h), Ok(m)) = (parts[0].parse::<i32>(), parts[1].parse::<i32>())
-            && let Some(offset) = offset_seconds(sign, h, m).and_then(within_one_day)
-        {
-            return Ok(offset);
-        }
+    if let Some(seconds) = strftime::strict_numeric_offset(trimmed).and_then(within_one_day) {
+        return Ok(seconds);
     }
     bail!(
         "Invalid timezone '{}'. Use 'UTC', '+HH:MM', or '-HH:MM'",
         tz
     )
-}
-
-/// Seconds east of UTC for `sign * (hours:minutes)`, or `None` on overflow.
-fn offset_seconds(sign: i32, hours: i32, minutes: i32) -> Option<i32> {
-    hours
-        .checked_mul(3600)?
-        .checked_add(minutes.checked_mul(60)?)?
-        .checked_mul(sign)
 }

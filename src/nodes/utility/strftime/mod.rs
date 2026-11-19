@@ -30,6 +30,18 @@ pub(super) use items::items;
 pub(super) use parse::parse_prefix;
 pub(super) use rfc::{parse_rfc2822, parse_rfc3339};
 
+/// Parse the entire numeric output timezone, not a prefix of a timestamp.
+pub(super) fn strict_numeric_offset(input: &str) -> Option<i32> {
+    let form = scan::OffsetForm {
+        separator: scan::Separator::Colon,
+        zulu: false,
+        missing_minutes: false,
+        minus_sign: false,
+    };
+    let (rest, seconds) = scan::timezone_offset(input, form).ok()?;
+    rest.is_empty().then_some(seconds)
+}
+
 /// Why an input did not parse. The texts are part of the node's errors.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ParseError {

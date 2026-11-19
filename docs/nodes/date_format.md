@@ -58,7 +58,7 @@ Give exactly one of `input` or `source_key`; both, or neither, fails the step. B
 - `%Z` accepts only `UTC`, `GMT`, `UT` and `Z` (any case), or any name next to a numeric offset, where the offset decides. Other names (`CEST`, `Europe/Berlin`) fail the step.
 - The step fails when the input matches neither `input_format` nor any auto-detected format.
 - The step fails when `output_format` has an unknown specifier (`%i`), a trailing `%`, an unsupported modifier or width (`%#m`, `%03d`), or a parse-only specifier (`%#z`).
-- The step fails when `timezone` is not one of the accepted forms or is a day or more from UTC.
+- A numeric `timezone` requires a sign, two ASCII hour digits (`00` through `23`), a colon, and two ASCII minute digits (`00` through `59`). For example, `+05:30` is valid; `+5:30`, `+01:75`, and `+01:-30` fail the step instead of being normalized. This rule does not change how `input_format` reads an offset.
 - A non-string value under `source_key` is converted to its JSON text before parsing.
 
 ## Limits
@@ -81,7 +81,8 @@ flow:step("now", nodes.date_format({
 
 flow:step("parse", nodes.date_format({
     input = "2024-06-15T10:30:00Z",
-    output_format = "%B %d, %Y at %I:%M %p",
+    timezone = "+05:30",
+    output_format = "%B %d, %Y at %I:%M %p %:z",
     output_key = "pretty_date"
 })):depends_on("now")
 

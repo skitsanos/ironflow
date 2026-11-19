@@ -406,8 +406,25 @@ async fn date_format_valid_output_specifiers_are_unchanged() {
 }
 
 #[tokio::test]
-async fn date_format_timezone_out_of_range_is_a_node_error() {
-    for timezone in ["+999999999:00", "-999999999:00", "+00:999999999", "+24:00"] {
+async fn date_format_rejects_invalid_output_timezone() {
+    for timezone in [
+        "+01:75",
+        "-00:60",
+        "+01:-30",
+        "-01:+30",
+        "+-2:00",
+        "+1:00",
+        "+01:0",
+        "+001:00",
+        "+01:030",
+        "+01:3x",
+        "+01:30x",
+        "+999999999:00",
+        "-999999999:00",
+        "+00:999999999",
+        "+24:00",
+        "-24:00",
+    ] {
         let error = run_date(serde_json::json!({
             "input": "2024-06-15T10:30:00Z",
             "timezone": timezone
@@ -417,14 +434,31 @@ async fn date_format_timezone_out_of_range_is_a_node_error() {
         .to_string();
         assert!(error.contains("Invalid timezone"), "{error}");
     }
-    let (formatted, unix) = run_date(serde_json::json!({
-        "input": "2024-06-15T10:30:00Z",
-        "timezone": "-05:30",
-        "output_format": "%H:%M %:z"
-    }))
-    .await
-    .unwrap();
-    assert_eq!((formatted.as_str(), unix), ("05:00 -05:30", INSTANT_1030Z));
+}
+
+#[tokio::test]
+async fn date_format_valid_output_timezone_preserves_instant() {
+    for (zone, expected) in [
+        ("UTC", "15 10:30 +00:00"),
+        ("Z", "15 10:30 +00:00"),
+        ("+05:30", "15 16:00 +05:30"),
+        ("-05:30", "15 05:00 -05:30"),
+        ("+23:59", "16 10:29 +23:59"),
+        ("-23:59", "14 10:31 -23:59"),
+    ] {
+        let (formatted, unix) = run_date(serde_json::json!({
+            "input": "2024-06-15T10:30:00Z",
+            "timezone": zone,
+            "output_format": "%d %H:%M %:z"
+        }))
+        .await
+        .unwrap();
+        assert_eq!(
+            (formatted.as_str(), unix),
+            (expected, INSTANT_1030Z),
+            "{zone}"
+        );
+    }
 }
 
 #[tokio::test]

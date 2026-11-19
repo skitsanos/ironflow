@@ -8,7 +8,8 @@ flow:step("now", nodes.date_format({
 
 flow:step("parse", nodes.date_format({
     input = "2024-06-15T10:30:00Z",
-    output_format = "%B %d, %Y at %I:%M %p",
+    timezone = "+05:30",
+    output_format = "%B %d, %Y at %I:%M %p %:z",
     output_key = "pretty_date"
 })):depends_on("now")
 
