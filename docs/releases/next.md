@@ -68,8 +68,36 @@ publication is verified separately.
   text and integer forms; `jiff`'s own `Display` and `as_microsecond` differ
   from them and must not be used for stored values.
 
+- Markdown from `html_to_markdown` and `extract_html` (`format = "markdown"`)
+  changes with `htmd` 0.6 (IF-237). Plain text, limits and refusals do not.
+  All of it renders the same in a CommonMark parser unless noted:
+  - `&`, `$` and `~` in text are always escaped (`R\&D`, `\$5`), and `&` also
+    in link destinations and titles (`/r?a=1\&b=2`). A flow that reads URLs
+    from the raw Markdown with a pattern must drop the backslash or parse the
+    Markdown. `1)` and `+` at the start of text, a `#` after a heading marker
+    or ending a heading, and `[`/`]` in image alt text are escaped too; a
+    line ending in alt text is written `&#10;`.
+  - Link text is one line. An anchor around block content is written
+    `[Card Body text](/card)`; it was `[### Card`, a blank line and
+    `Body text](/card)`, which is not a link. A `<br>` inside a link is a
+    space, and a heading inside a link no longer writes `##`. An empty
+    `href` is `(<>)`, and spaces at the edges of link text stay inside the
+    brackets.
+  - Tables: a caption is followed by a blank line, so the table below it is
+    a table. A `|` in a cell is `\|` where it was `&#124;`. A table with a
+    `<thead>` but no header cells gets an empty header row and a delimiter
+    row, an empty column is one character wide, and a `<th>` row that
+    follows a body row is no longer taken as the header (its `<td>` cells
+    are kept and its `<th>` cells dropped; it was the reverse).
+  - An empty heading is `###` without a trailing space.
+
 ## Dependencies
 
+- `htmd` moves from 0.5.6 to 0.6.0 with its `rcdom` backend, and `html5ever`
+  and `markup5ever_rcdom` from 0.38 to 0.40 (IF-237). IronFlow still parses
+  HTML itself under the nesting cap and hands the converter the finished
+  tree. One `html5ever` remains in the dependency graph, shared with
+  `ammonia`; seven crates are gone.
 - `chrono-tz` is removed and its audit exception (RUSTSEC-2026-0555) retired;
   `jiff` 1.0 is added with only its bundled time zone database enabled.
 - `chrono` is no longer used by IronFlow except in the adapter that hands

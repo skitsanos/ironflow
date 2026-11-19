@@ -21,7 +21,9 @@ Convert an HTML string to Markdown. Conversion is best effort and lossy on compl
 - Setting both `input` and `source_key`, or neither, fails the step; so does a `source_key` that is not in the context.
 - Fragments and malformed markup are accepted. `head`, `title`, `script`, `style`, `noscript` and `template` content and comments are dropped, as in [`extract_html`](extract_html.md).
 - Headings, emphasis, links, images, inline and fenced code, block quotes, lists and GFM pipe tables are kept.
-- Literal Markdown punctuation in prose is escaped (`# literal` becomes `\# literal`); code content is left untouched.
+- Literal Markdown punctuation in prose is escaped (`# literal` becomes `\# literal`); code content is left untouched. `&`, `$` and `~` are always escaped, and `&` also in link destinations (`/r?a=1\&b=2`), so read URLs with a Markdown parser, not from the raw text.
+- Link text is one line: block content and `<br>` inside an anchor are joined with spaces (`<a href="/c"><h3>Card</h3><p>Body</p></a>` becomes `[Card Body](/c)`).
+- A table with a header cell or `<thead>` becomes a pipe table; a `|` in a cell is written `\|`, and a `<th>` in a body row is dropped. Other tables are written as plain blocks.
 - Elements may nest at most 128 levels (fixed; the parser's `<html>` and `<body>` count, so a fragment has 126). Deeper input fails the step.
 - CSS and scripts are not evaluated and external resources are not fetched. This is not a sanitizer; use [`html_sanitize`](html_sanitize.md).
 

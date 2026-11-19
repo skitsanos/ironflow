@@ -25,7 +25,8 @@ Extract the text, and optionally the page metadata, of an HTML file as plain tex
 - Both formats drop `head`, `title`, `script`, `style`, `noscript` and `template` content and comments. Metadata is read from the original input, so the title is still available under `metadata_key`.
 - `text` adds no Markdown markers or escaping. Paragraph-level blocks are separated by one blank line; list items, table rows, `dt`/`dd` and `div` blocks by one newline; `<br>` is one newline and never widens a blank line.
 - In `text`, table cells are separated by spaces, image alt text is kept, whitespace is collapsed except in preformatted text, and leading and trailing newlines are trimmed.
-- `markdown` escapes literal Markdown punctuation only where it would change meaning: `<p># literal</p>` becomes `\# literal`, while `C#` stays unchanged.
+- `markdown` escapes literal Markdown punctuation where it would change meaning: `<p># literal</p>` becomes `\# literal`, while `C#` stays unchanged. `&`, `$` and `~` are always escaped, and `&` also in link destinations.
+- `markdown` is produced by the same converter as [`html_to_markdown`](html_to_markdown.md), which describes link text and tables.
 - `markdown` fails when elements nest deeper than 128 levels (fixed; the parser's `<html>` and `<body>` count, so a fragment has 126). `text` accepts up to `IRONFLOW_MAX_HTML_TEXT_DEPTH` levels.
 - CSS is not evaluated, scripts are not run, and external resources are not fetched. This is extraction, not sanitizing; use [`html_sanitize`](html_sanitize.md) for that.
 
