@@ -33,6 +33,7 @@ List the entries of a directory, optionally recursing into subdirectories.
 
 - `type` is `"file"` for regular files and `"directory"` for everything else, including symlinks.
 - Recursion follows real subdirectories only, not symlinks.
+- If an entry name cannot be represented as UTF-8, the step fails without returning a partial list. Names are never rewritten to fit JSON.
 - Entries appear in the order the filesystem returns them; sort downstream if order matters.
 - A missing path or a path that is not a directory fails the step.
 

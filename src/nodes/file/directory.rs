@@ -1,3 +1,5 @@
+use std::{ffi::OsStr, path::Path};
+
 use anyhow::Result;
 use async_trait::async_trait;
 
@@ -34,8 +36,15 @@ impl Node for ListDirectoryNode {
 
         let recursive = config_bool(config, "recursive", ctx).unwrap_or(false);
 
-        let entries =
-            list_dir_entries(&path, recursive, directory_list_limits(config, ctx)).await?;
+        let mut entries = Vec::new();
+        list_dir_entries(
+            Path::new(&path),
+            recursive,
+            directory_list_limits(config, ctx),
+            0,
+            &mut entries,
+        )
+        .await?;
 
         let mut output = NodeOutput::new();
         output.insert(output_key.to_string(), serde_json::Value::Array(entries));
@@ -43,22 +52,14 @@ impl Node for ListDirectoryNode {
     }
 }
 
-/// Recursively list directory entries.
-fn list_dir_entries(
-    path: &str,
-    recursive: bool,
-    limits: DirectoryListLimits,
-) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<serde_json::Value>>> + Send + '_>>
-{
-    Box::pin(async move {
-        let mut entries = Vec::new();
-        list_dir_entries_inner(path, recursive, limits, 0, &mut entries).await?;
-        Ok(entries)
-    })
+fn entry_text(value: &OsStr) -> Result<&str> {
+    value
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("list_directory: entry path is not valid UTF-8: {value:?}"))
 }
 
-fn list_dir_entries_inner<'a>(
-    path: &'a str,
+fn list_dir_entries<'a>(
+    path: &'a Path,
     recursive: bool,
     limits: DirectoryListLimits,
     depth: usize,
@@ -84,8 +85,7 @@ fn list_dir_entries_inner<'a>(
             }
 
             let file_type = entry.file_type().await?;
-            let name = entry.file_name().to_string_lossy().to_string();
-            let entry_path = entry.path().to_string_lossy().to_string();
+            let entry_path = entry.path();
 
             let type_str = if file_type.is_file() {
                 "file"
@@ -94,13 +94,13 @@ fn list_dir_entries_inner<'a>(
             };
 
             entries.push(serde_json::json!({
-                "name": name,
+                "name": entry_text(&entry.file_name())?,
                 "type": type_str,
-                "path": entry_path,
+                "path": entry_text(entry_path.as_os_str())?,
             }));
 
             if recursive && file_type.is_dir() {
-                list_dir_entries_inner(&entry_path, true, limits, depth + 1, entries).await?;
+                list_dir_entries(&entry_path, true, limits, depth + 1, entries).await?;
             }
         }
 
