@@ -244,6 +244,30 @@ describe("repository integration policy", () => {
     }
   });
 
+  test("changes to files copied directly into the runtime image trigger container publication", async () => {
+    const workflow = Bun.YAML.parse(await read(".github/workflows/container.yml")) as {
+      on: { push: { paths: string[] } };
+    };
+    const runtime = (await read("Dockerfile")).split(/^FROM\s+\S+\s+AS\s+runtime\s*$/im)[1];
+    expect(runtime).toBeDefined();
+    const sources = new Set<string>();
+    for (const [, args] of runtime.matchAll(/^[ \t]*COPY[ \t]+(.+)$/gim)) {
+      if (args.startsWith("--from=")) continue; // A build-stage artifact, not a repository path.
+      // The runtime uses literal, whitespace-separated COPY paths.
+      expect(args, "unhandled runtime COPY syntax").toMatch(/^[\w./-]+(?:[ \t]+[\w./-]+)+$/);
+      for (const source of args.trim().split(/\s+/).slice(0, -1)) sources.add(source);
+    }
+    expect(sources.has("THIRD_PARTY_LICENSES.md")).toBeTrue();
+    for (const source of sources) {
+      let included = false;
+      for (const pattern of workflow.on.push.paths) {
+        const exclude = pattern.startsWith("!");
+        if (new Bun.Glob(exclude ? pattern.slice(1) : pattern).match(source)) included = !exclude;
+      }
+      expect(included, `container push paths omit runtime input ${source}`).toBeTrue();
+    }
+  });
+
   test("third-party actions are pinned to commit SHAs with their version noted", async () => {
     const files = [...new Bun.Glob(".github/workflows/*.yml").scanSync(repository)];
     expect(files.length).toBeGreaterThan(0);

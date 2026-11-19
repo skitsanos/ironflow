@@ -6,6 +6,7 @@ on:
     paths:
       - "src/**"
       - "assets/**"
+      - "THIRD_PARTY_LICENSES.md"
       - "Cargo.toml"
       - "Cargo.lock"
       - "Dockerfile"

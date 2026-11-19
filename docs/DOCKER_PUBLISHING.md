@@ -29,7 +29,9 @@ Both registries use these tags:
 | `X.Y.Z` | The published image for a successful stable `vX.Y.Z` release. |
 
 Build-related pushes to `main` or `develop`, and manual Container workflow runs,
-trigger publication. A manual run updates a branch alias only when its selected
+trigger publication. A push that changes only `THIRD_PARTY_LICENSES.md` or
+`assets/fonts/OFL.txt` also triggers the workflow because the runtime image
+ships both files. A manual run updates a branch alias only when its selected
 ref is that branch. Existing GHCR images are not backfilled automatically.
 
 The existing container storage acceptance step precedes publication. One publish
