@@ -47,7 +47,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: 1.4.4
+          bun-version: 1.4.5
       - run: bun run scripts/validate_skills.ts
       - run: bun run scripts/issues_registry.ts check
       - run: bun test scripts/tests/*.test.ts
@@ -79,7 +79,7 @@ jobs:
         run: cargo audit --deny warnings
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: 1.4.4
+          bun-version: 1.4.5
       # Fails on copyleft-only, unparsable, or missing licenses anywhere in the
       # shipped dependency graph; the allowlist lives in scripts/check_licenses.ts.
       - name: Check dependency licenses
@@ -125,7 +125,7 @@ jobs:
         run: cargo clippy --lib -- --cfg ironflow_portable_writer -D warnings
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: 1.4.4
+          bun-version: 1.4.5
       - run: bun --no-env-file scripts/test_rust_targets.ts
       - run: cargo test --doc
 
@@ -177,7 +177,7 @@ jobs:
       - run: cargo clippy --all-targets --features postgres,redis,cjk-fonts -- -D warnings
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: 1.4.4
+          bun-version: 1.4.5
       # Only the binaries with feature-gated tests: storage backends, the TLS
       # boundary, the CLI and scheduler cases behind `postgres`, and the CJK
       # document renders. The default job already ran everything else.
@@ -197,7 +197,7 @@ jobs:
           cache-targets: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: 1.4.4
+          bun-version: 1.4.5
       # Pull requests cover the areas where macOS differs (files, paths,
       # processes, archives and the CLI); pushes and dispatch run the whole suite.
       - name: Platform-sensitive areas
