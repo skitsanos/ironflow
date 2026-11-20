@@ -118,6 +118,8 @@ listed above and reported as `child flow <file>: ...`; the output adds
 (default 16) on each path. If a shared child is also reachable by a shorter
 path, its descendants within that path's limit are checked regardless of
 step declaration order. Files reachable only beyond the limit are not loaded.
+A cycle is reported once, as an error when any route through it is
+unconditional, whichever route is declared first.
 
 | Finding | Result |
 |---------|--------|

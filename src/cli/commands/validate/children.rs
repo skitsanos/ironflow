@@ -37,9 +37,14 @@ struct Frame {
 
 struct CachedFlow {
     children: Rc<[Frame]>,
-    // A shallower route can reach new files; an unconditional route can
-    // turn a depth warning into an error. Equal visits need no further walk.
-    visits: HashSet<(usize, bool)>,
+    // Visits by nesting level and by the position of the deepest conditional
+    // edge on the route (0 when there is none). A shallower route can reach
+    // new files; a route whose last conditional edge lies higher up turns a
+    // depth warning, or a recursion warning for a cycle that starts below
+    // that edge, into an error. Equal visits need no further walk. Keying on
+    // whole-route conditionality alone made the severity of a cycle depend on
+    // which of two routes to the same flow was declared first (IF-260).
+    visits: HashSet<(usize, usize)>,
 }
 
 struct Walker<'a> {
@@ -134,7 +139,8 @@ impl Walker<'_> {
                 continue;
             }
             let level = self.stack.len();
-            let unconditional = self.path_is_unconditional(1) && child.unconditional;
+            let last_conditional = self.last_conditional(child, level);
+            let unconditional = last_conditional == 0;
             if level > self.limit {
                 self.report_depth(&child.path, level, unconditional);
                 continue;
@@ -143,7 +149,7 @@ impl Walker<'_> {
                 .loaded
                 .entry(child.path.clone())
                 .or_insert_with(|| CachedFlow::load(&child.path, self.registry, &mut self.report));
-            if !cached.visits.insert((level, unconditional)) {
+            if !cached.visits.insert((level, last_conditional)) {
                 continue;
             }
             let descendants = Rc::clone(&cached.children);
@@ -151,6 +157,19 @@ impl Walker<'_> {
             self.visit(&descendants);
             self.stack.pop();
         }
+    }
+
+    /// The stack position of the deepest conditional edge on the route that
+    /// ends with `child` at `level`, or 0 when every edge is unconditional.
+    /// The root at position 0 has no edge.
+    fn last_conditional(&self, child: &Frame, level: usize) -> usize {
+        if !child.unconditional {
+            return level;
+        }
+        self.stack
+            .iter()
+            .rposition(|frame| !frame.unconditional)
+            .unwrap_or(0)
     }
 
     /// Whether every flow from `from` to the top was reached unconditionally.
@@ -170,16 +189,24 @@ impl Walker<'_> {
     fn report_cycle(&mut self, start: usize, child: &Path, unconditional: bool) {
         let chain = self.chain(start, child);
         let refusal = self.limit.saturating_add(1);
+        let error = format!(
+            "child flow recursion: {chain} always starts itself again; a run fails \
+             at nesting level {refusal} ({DEPTH_LIMIT})"
+        );
+        let warning = format!(
+            "child flow recursion: {chain} can start itself again; the child at \
+             nesting level {refusal} is refused ({DEPTH_LIMIT})"
+        );
+        // One cycle is found again on every route that reaches it. Report it
+        // once, as an error when any route through it is unconditional.
+        if self.report.errors.contains(&error) {
+            return;
+        }
         if unconditional && self.path_is_unconditional(start + 1) {
-            self.report.errors.push(format!(
-                "child flow recursion: {chain} always starts itself again; a run fails \
-                 at nesting level {refusal} ({DEPTH_LIMIT})"
-            ));
-        } else {
-            self.report.warnings.push(format!(
-                "child flow recursion: {chain} can start itself again; the child at \
-                 nesting level {refusal} is refused ({DEPTH_LIMIT})"
-            ));
+            self.report.warnings.retain(|known| *known != warning);
+            self.report.errors.push(error);
+        } else if !self.report.warnings.contains(&warning) {
+            self.report.warnings.push(warning);
         }
     }
 
