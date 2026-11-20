@@ -24,7 +24,7 @@ All string values are interpolated.
 | `client_version` | string | No | IronFlow version | Client version sent in the handshake. |
 | `params` | object | No | — | Handshake fields `protocolVersion`, `capabilities` and `clientInfo`; for `call_tool`, fallback `name` and `arguments`. |
 | `tool_name` | string | For `call_tool` | — | Tool to call. |
-| `cursor` | string | No | Omitted | For `list_tools`, pass the previous page's opaque `{output_key}_result.nextCursor` unchanged. Omit it for the first page. |
+| `cursor` | string | No | Omitted | For `list_tools`, pass the previous page's opaque `{output_key}_result.nextCursor` unchanged. Omit it for the first page. An empty string fails the step. |
 | `arguments` | object | No | `{}` | Tool arguments. |
 
 ## Context Output
@@ -58,7 +58,7 @@ Action-specific keys:
 ## Behavior
 
 - `list_tools` and `call_tool` fail when the server did not negotiate the `tools` capability.
-- Each `list_tools` call returns one page. Stop when `nextCursor` is absent; the tool names and count describe only the current page.
+- Each `list_tools` call returns one page; the tool names and count describe only the current page. Stop when `nextCursor` is absent: it interpolates to an empty string, which is refused before anything is sent, so guard the next-page step with `step_if("ctx.<key>_result.nextCursor exists", ...)`.
 - Sessions live in the IronFlow process; a handle does not survive a restart.
 - Session actions share one timeout across waiting for the session and executing the request. A timeout or cancellation while queued sends nothing and leaves the session usable, including when waiting to close. Once admitted, a failed, timed-out or cancelled request ends the session. A tool's side effect is not rolled back.
 - A result larger than `IRONFLOW_MAX_MCP_RESULT_BYTES` fails the step and writes nothing; the session stays usable, except after `initialize`.

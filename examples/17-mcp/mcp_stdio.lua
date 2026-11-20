@@ -31,7 +31,9 @@ flow:step("list_tools", nodes.mcp_client({
     output_key = "mcp_tools"
 })):depends_on("initialize")
 
-flow:step("next_page", nodes.mcp_client({
+-- Fetch the next page only when the server returned a cursor. An absent
+-- nextCursor interpolates to an empty string, which list_tools refuses.
+flow:step_if("ctx.mcp_tools_result.nextCursor exists", "next_page", nodes.mcp_client({
     action = "list_tools",
     session = "${ctx.mcp_init_session}",
     cursor = "${ctx.mcp_tools_result.nextCursor}",

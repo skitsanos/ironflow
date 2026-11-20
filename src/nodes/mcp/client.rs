@@ -72,6 +72,16 @@ impl Node for McpClientNode {
                             })
                         })
                         .transpose()?;
+                    // An absent `nextCursor` interpolates to an empty string.
+                    // Sent as a cursor it is rejected by a strict server, which
+                    // ends the session, or answered with the first page again.
+                    // Refuse it before the session is leased (IF-261).
+                    anyhow::ensure!(
+                        cursor != Some(""),
+                        "mcp_client list_tools received an empty 'cursor': the previous page \
+                         had no nextCursor, so there is no further page; run this step only \
+                         when nextCursor is present"
+                    );
                     let mut lease = self.sessions.lease(handle, deadline).await?;
                     let session = lease.session();
                     let transport = session.transport();

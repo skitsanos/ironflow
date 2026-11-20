@@ -152,6 +152,17 @@ async fn stdio_lists_two_pages_using_the_returned_cursor() {
     let second = node.execute(&list, &ctx).await.unwrap();
     assert_eq!(second["mcp_tool_names"], json!(["echo"]));
     assert!(second["mcp_result"].get("nextCursor").is_none());
+
+    // IF-261: an absent nextCursor interpolates to "". It is refused before
+    // anything is sent, so the session survives and no page is fetched twice.
+    list["cursor"] = json!("");
+    let error = node.execute(&list, &ctx).await.unwrap_err().to_string();
+    assert!(error.contains("empty 'cursor'"), "{error}");
+    list.as_object_mut().unwrap().remove("cursor");
+    let again = node.execute(&list, &ctx).await.unwrap();
+    assert_eq!(again["mcp_tool_names"], json!(["search"]));
+    let requests = std::fs::read_to_string(temp.path().join("trace")).unwrap();
+    assert_eq!(requests.matches("tools/list").count(), 3, "{requests}");
     node.execute(&json!({"action":"close","session":handle}), &ctx)
         .await
         .unwrap();
