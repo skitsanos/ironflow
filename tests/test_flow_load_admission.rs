@@ -135,6 +135,15 @@ async fn wait_for_run_refusal(router: &Router) {
     .expect("slow run parser never acquired the run permit");
 }
 
+/// Lua wall-clock budget for every parse in this process. The blocked parse
+/// below stops only when this budget expires.
+const LUA_BUDGET: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// Allowance on top of [`LUA_BUDGET`] for blocking-pool scheduling and VM
+/// setup before the budget starts. The deadline only detects a permit that is
+/// never restored, so it is sized for a loaded hosted runner (IF-266).
+const LOADED_RUNNER_SLACK: std::time::Duration = std::time::Duration::from_secs(10);
+
 #[tokio::test]
 async fn a_blocked_parse_makes_a_concurrent_validation_fail_fast() {
     // This test is its own integration-test process, so initializing the
@@ -142,7 +151,7 @@ async fn a_blocked_parse_makes_a_concurrent_validation_fail_fast() {
     unsafe { std::env::set_var("IRONFLOW_MAX_CONCURRENT_FLOW_LOADS", "1") };
     unsafe { std::env::set_var("IRONFLOW_MAX_CONCURRENT_RUNS", "1") };
     unsafe { std::env::set_var("IRONFLOW_LUA_MAX_INSTRUCTIONS", "0") };
-    unsafe { std::env::set_var("IRONFLOW_LUA_MAX_SECONDS", "1") };
+    unsafe { std::env::set_var("IRONFLOW_LUA_MAX_SECONDS", LUA_BUDGET.as_secs().to_string()) };
     unsafe { std::env::set_var("IRONFLOW_LUA_HOOK_INTERVAL", "1000") };
 
     let directory = tempfile::tempdir().unwrap();
@@ -150,6 +159,7 @@ async fn a_blocked_parse_makes_a_concurrent_validation_fail_fast() {
         directory.path().to_path_buf(),
         directory.path().join("runs"),
     );
+    let blocked_parse_spawned = std::time::Instant::now();
     let first = tokio::spawn(
         router
             .clone()
@@ -181,7 +191,10 @@ async fn a_blocked_parse_makes_a_concurrent_validation_fail_fast() {
     let body = to_bytes(second.into_body(), usize::MAX).await.unwrap();
     assert!(String::from_utf8_lossy(&body).contains("maximum concurrent flow-loading capacity"));
 
-    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+    // The parse cannot stop before its wall-clock budget, which starts only
+    // after it was spawned, so the restore deadline is derived from that
+    // budget rather than from a fixed margin a loaded runner can exhaust.
+    tokio::time::timeout(LUA_BUDGET + LOADED_RUNNER_SLACK, async {
         loop {
             let response = router
                 .clone()
@@ -199,6 +212,14 @@ async fn a_blocked_parse_makes_a_concurrent_validation_fail_fast() {
     })
     .await
     .expect("flow-load permit was not restored after the detached parse settled");
+    // Restoring earlier would mean the abort released admission while the
+    // detached parser was still running inside its budget.
+    let restored_after = blocked_parse_spawned.elapsed();
+    assert!(
+        restored_after >= LUA_BUDGET,
+        "flow-load permit was restored after {restored_after:?}, before the \
+         blocked parse could reach its {LUA_BUDGET:?} budget"
+    );
 
     // The run semaphore is a separate, longer-lived fence. A second blocked
     // parser proves it is reserved before flow loading rather than only after
