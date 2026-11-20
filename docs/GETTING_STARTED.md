@@ -105,8 +105,8 @@ and stable release version tags.
 Docker Desktop or Docker Engine must be running. Images include PostgreSQL
 and Redis storage support and currently target **linux/amd64** only. On ARM
 hosts, Docker must support x86-64 emulation; on Windows, use Linux containers.
-The image keeps the same third-party notices and the fonts' license under
-`/usr/local/share/licenses/ironflow/`.
+The image keeps IronFlow's `LICENSE`, the same third-party notices and the
+fonts' license under `/usr/local/share/licenses/ironflow/`.
 
 ### Select an image
 

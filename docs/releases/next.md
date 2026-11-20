@@ -6,6 +6,55 @@ publication is verified separately.
 
 ## Changed
 
+- **HTTP response headers** (IF-250, IF-258). `{output_key}_headers` of
+  `http_request` and its wrappers keeps every field: a name received once is
+  a string as before, and a name received several times is now an array in
+  receipt order, where only one value was kept. A flow that read a repeated
+  header such as `set-cookie` as a string must index the array. A value the
+  HTTP client cannot read as text, which includes any non-ASCII byte, is
+  `{"base64": "..."}` where it was an empty string. When IronFlow records or
+  returns a run it decodes such a value, and replaces it if the bytes hold a
+  protected value (IF-262).
+- **`db_query` fails on duplicate column labels** (IF-249). A row whose
+  result has two columns with the same label, such as `SELECT *` over a join
+  or two unaliased expressions, fails the step; the later column used to
+  replace the earlier one silently. Alias the columns. The check runs per
+  row, so such a query still returns `[]` while it matches nothing.
+- **`csv_stringify` fails when escaping makes two headers equal** (IF-243).
+  With `escape_formulas` on, an object with both `=a` and `'=a` as keys wrote
+  two identical header cells; the step now fails and names the columns.
+- **`list_directory` fails on a name that is not UTF-8** (IF-242). Such an
+  entry used to be listed with replacement characters, and a recursive
+  listing then read a different directory. The step now fails without a
+  partial list. Ordinary names are unchanged.
+- **`date_format` rejects conflicting and incomplete time fields** (IF-238).
+  An `input_format` that parses a date with an incomplete clock (`%F %H`,
+  `%F %p`), or fields that disagree with a `%s` timestamp, fails the step; it
+  used to return midnight. A date with no time fields is still midnight.
+- **`date_format` checks the output `timezone` strictly** (IF-257). An offset
+  must be a sign, two hour digits, a colon and two minute digits from 00 to
+  59. `+5:30`, `+02:0` and `+002:00`, which were accepted, and `+01:75`,
+  which was silently normalized to another offset, now fail the step. `UTC`,
+  `Z` and named zones are unchanged.
+- **`extract_xlsx` header keys** (IF-244). With `has_header`, a header cell
+  that is a date or an elapsed time becomes the key `2026-03-15T00:00:00` or
+  `PT37H30M`; the key used to include literal double quotes.
+- **`mcp_client`** (IF-251, IF-252, IF-261). `list_tools` accepts `cursor`
+  and returns one page per call, where only the first page could be read. An
+  empty `cursor` fails the step before anything is sent: guard the next-page
+  step with `step_if("ctx.<key>_result.nextCursor exists", ...)`. The action
+  timeout now includes the time spent waiting for the session, so a queued
+  action can time out without sending anything; the session then stays
+  usable.
+- **`llm` on Azure** (IF-248). When `model` is not set, the request body and
+  `llm_model` name the deployment the URL routes to; in responses mode they
+  could name the chat deployment.
+- **`ironflow validate`** (IF-246, IF-247, IF-260). A child flow shared by
+  several routes is checked at each depth it can be reached, and a cycle is
+  reported once, as an error when any route through it is unconditional;
+  both used to depend on the order in which steps were declared. `--strict`
+  no longer reports `self` as undefined inside `function obj:method()`.
+
 - Schedule time zones are resolved by `jiff` instead of `chrono-tz`, which is
   reported as unmaintained (IF-231). Fire instants and claim keys are
   unchanged: both implementations were compared over 31 zones for 2012 to
@@ -51,7 +100,8 @@ publication is verified separately.
   spellings, such as a time without seconds.
 - `date_format` no longer uses `chrono` (IF-231). Its `input_format` and
   `output_format` specifiers, the auto-detected input formats, the accepted
-  spellings and the error texts are unchanged; the node page now lists the
+  spellings and the error texts are unchanged apart from the two stricter
+  rules listed under IF-238 and IF-257 below; the node page now lists the
   specifiers itself. One difference: dates are held for the years -9999 to
   9999, where -262143 to 262142 were accepted. An input outside that range,
   or a `timezone` that moves the result outside it, fails the step.
@@ -130,6 +180,27 @@ publication is verified separately.
   message stays short (IF-236, accepted by the maintainer on 2026-11-18).
 
 ## Fixed
+
+- An artifact already in the store is no longer unlinked when its
+  verification cannot finish (a read error, a cancellation, a file that
+  changes while it is hashed). Only a size or digest mismatch is repaired, by
+  replacing the file; any other failure fails the publish and leaves the
+  stored bytes in place (IF-253).
+- Replaying a completed keyed API request no longer returns 409 when
+  `IRONFLOW_MAX_TASK_OUTPUT_BYTES` is small: the fingerprint recorded at
+  admission is kept when the run is finalized (IF-245).
+- `ironflow inspect` and `GET /runs/{id}` read a run's header and tasks from
+  one snapshot on the SQL stores, so a run deleted and recreated between the
+  two reads can no longer be shown with another run's tasks (IF-254).
+- A scheduler that restarts during the repeated hour of a fall-back day
+  recovers an occurrence that is still inside its grace period (IF-255).
+- `ironflow_task_attempts_total` counts the steps of child workflows, which
+  were missing for all four composition nodes (IF-256).
+- Release archives and the container image include IronFlow's own `LICENSE`
+  (in the image under `/usr/local/share/licenses/ironflow/`), and a change to
+  a shipped license or notices file publishes a new image (IF-240, IF-241).
+- The integration gate records its receipt for the tree it started with and
+  refuses a tree that changed during the run (IF-239).
 
 - `extract_xlsx` returns a cell with an elapsed-time format (`[h]:mm:ss`) as an ISO-8601 duration such as `PT37H30M`. It was returned as a date (`1900-01-01T13:30:00`), which dropped whole days (IF-227). The node page now documents what dates, times of day, durations and 1904-system workbooks return.
 

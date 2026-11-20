@@ -82,8 +82,9 @@ After approval:
    only for actions not already authorized in the session.
 8. After authorization, push the tag and monitor the complete Release workflow,
    including its container version-tag job. Confirm all four targets produced
-   both default and `-full` archives, that each archive contains
-   `THIRD_PARTY_LICENSES.md` beside the binary and the fonts' OFL license, and
+   both default and `-full` archives, that each archive contains the project
+   `LICENSE`, `THIRD_PARTY_LICENSES.md` beside the binary and the fonts' OFL
+   license, and
    that the published checksum manifest covers all eight archives. Each variant
    builds its own binary from the tagged source. Complete container acceptance below before declaring the release done.
 
