@@ -80,6 +80,26 @@ mod tests {
     }
 
     #[test]
+    fn a_secret_inside_a_utf8_header_string_is_replaced_as_text() {
+        // Since IF-264 a UTF-8 header value reaches the record as a string,
+        // not as Base64, so the ordinary text scan must find the secret.
+        let value = format!("résumé {SECRET} naïve");
+        let headers = json!({ "x-echo": value, "x-other": ["plain", value] });
+        let expected_text = format!("résumé {REDACTED} naïve");
+        let expected = json!({
+            "x-echo": expected_text,
+            "x-other": ["plain", expected_text],
+        });
+
+        assert_eq!(redactor().redact_value(&headers), expected);
+
+        let mut context = Context::new();
+        context.insert("response_headers".to_string(), headers);
+        let scrubbed = redactor().redact_context_owned(context);
+        assert_eq!(scrubbed["response_headers"], expected);
+    }
+
+    #[test]
     fn other_encoded_values_and_other_shapes_are_left_alone() {
         let harmless = encoded(b"caf\xe9");
         assert_eq!(redactor().redact_value(&harmless), harmless);

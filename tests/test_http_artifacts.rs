@@ -320,6 +320,53 @@ async fn non_text_response_headers_preserve_bytes_in_both_modes() {
 }
 
 #[tokio::test]
+async fn utf8_response_headers_are_strings_in_both_modes() {
+    let _lock = ENV_LOCK.lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let _environment = Environment::local_artifacts(directory.path());
+    let disposition = "attachment; filename=\"résumé.pdf\"";
+    let server = spawn(Router::new().route(
+        "/",
+        get(move || async move {
+            Response::builder()
+                .header("content-disposition", disposition.as_bytes())
+                .header("x-tab", "left\tright")
+                .header("x-c1", "a\u{85}b".as_bytes())
+                .header("x-mixed", "ascii")
+                .header("x-mixed", "naïve".as_bytes())
+                .header("x-mixed", b"caf\xe9".as_slice())
+                .body(Body::from("ok"))
+                .unwrap()
+        }),
+    ))
+    .await;
+
+    for mode in ["inline", "artifact"] {
+        let output = execute(
+            "http_get",
+            serde_json::json!({"url": server.url, "proxy_mode": "direct", "response_mode": mode}),
+            &Context::new(),
+        )
+        .await
+        .unwrap();
+        let headers = &output["http_headers"];
+        assert_eq!(headers["content-disposition"], disposition, "{mode}");
+        assert_eq!(headers["x-tab"], "left\tright", "{mode}");
+        // A C1 control is valid UTF-8 but not text: it keeps the byte form.
+        assert_eq!(
+            headers["x-c1"],
+            serde_json::json!({"base64": "YcKFYg=="}),
+            "{mode}"
+        );
+        assert_eq!(
+            headers["x-mixed"],
+            serde_json::json!(["ascii", "naïve", {"base64": "Y2Fm6Q=="}]),
+            "{mode}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn artifact_response_preserves_binary_without_inline_data() {
     let _lock = ENV_LOCK.lock().await;
     let directory = tempfile::tempdir().unwrap();

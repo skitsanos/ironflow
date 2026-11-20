@@ -1,12 +1,15 @@
 use std::io::{self, Read};
 
 use anyhow::Result;
-use base64::{Engine as _, engine::general_purpose::STANDARD};
 
 use crate::artifacts::{ArtifactRef, ArtifactStore};
 use crate::engine::types::NodeOutput;
 use crate::util::execution::run_tracked_blocking_step;
 use crate::util::sensitive_url::redact_sensitive_text;
+
+mod headers;
+
+use headers::response_headers;
 
 const BODY_CHANNEL_CAPACITY: usize = 8;
 
@@ -62,32 +65,6 @@ impl ResponseMetadata {
             mime_type,
         }
     }
-}
-
-fn response_header_value(value: &reqwest::header::HeaderValue) -> serde_json::Value {
-    match value.to_str() {
-        Ok(text) => serde_json::Value::from(text),
-        Err(_) => serde_json::json!({ "base64": STANDARD.encode(value.as_bytes()) }),
-    }
-}
-
-fn response_headers(
-    headers: &reqwest::header::HeaderMap,
-) -> serde_json::Map<String, serde_json::Value> {
-    headers
-        .keys()
-        .filter_map(|name| {
-            let mut values = headers.get_all(name).iter().map(response_header_value);
-            let first = values.next()?;
-            let field = match values.next() {
-                None => first,
-                Some(second) => {
-                    serde_json::Value::Array([first, second].into_iter().chain(values).collect())
-                }
-            };
-            Some((name.to_string(), field))
-        })
-        .collect()
 }
 
 pub(super) async fn response_to_output(
