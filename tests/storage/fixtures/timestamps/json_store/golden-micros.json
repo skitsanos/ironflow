@@ -1,0 +1,22 @@
+{
+  "_ironflow_revision": "13d05b57-82a8-4dc9-8861-7e0ae648660f",
+  "_ironflow_summary_digest": "f4124f56d11691668e55d585582c7eecb6a76b0655df3d2a0c6d8ead5e5cd4b3",
+  "id": "golden-micros",
+  "flow_name": "golden",
+  "status": "running",
+  "started": "2026-01-02T03:04:05.000100Z",
+  "finished": null,
+  "ctx": {
+    "k": "v"
+  },
+  "tasks": {
+    "step": {
+      "name": "step",
+      "status": "success",
+      "attempt": 0,
+      "node_type": "log",
+      "started": "2026-01-02T03:04:05.500Z",
+      "finished": "2026-01-02T03:04:06.000000001Z"
+    }
+  }
+}

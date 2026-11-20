@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Result, anyhow};
-use chrono::Utc;
+use jiff::Timestamp;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
@@ -139,7 +139,7 @@ pub(crate) fn spawn_with_lifecycle(
         metrics.clone(),
     ));
     let mut scheduler =
-        Scheduler::new(schedules, store, executor, Utc::now()).with_metrics(metrics);
+        Scheduler::new(schedules, store, executor, Timestamp::now()).with_metrics(metrics);
     let (shutdown, mut shutdown_requested) = oneshot::channel();
     let task_lifecycle = lifecycle.clone();
     let handle = tokio::spawn(async move {
@@ -148,7 +148,7 @@ pub(crate) fn spawn_with_lifecycle(
         loop {
             tokio::select! {
                 _ = ticker.tick() => {
-                    scheduler.evaluate(Utc::now()).await;
+                    scheduler.evaluate(Timestamp::now()).await;
                 }
                 _ = &mut shutdown_requested => {
                     tracing::info!("scheduler stopped");

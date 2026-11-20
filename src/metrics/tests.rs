@@ -1,5 +1,7 @@
 use super::*;
 
+mod child_attempts;
+
 struct StubScheduleExecutor;
 
 #[async_trait::async_trait]
@@ -169,10 +171,12 @@ async fn workflow_execution_records_outcomes_durations_and_active_work() {
 
 #[tokio::test]
 async fn scheduler_evaluation_records_its_bounded_outcome() {
-    use chrono::TimeZone as _;
-
-    let start = chrono::Utc.with_ymd_and_hms(2026, 5, 1, 1, 59, 0).unwrap();
-    let due = chrono::Utc.with_ymd_and_hms(2026, 5, 1, 2, 0, 0).unwrap();
+    let start = jiff::tz::Offset::UTC
+        .to_timestamp(jiff::civil::datetime(2026, 5, 1, 1, 59, 0, 0))
+        .unwrap();
+    let due = jiff::tz::Offset::UTC
+        .to_timestamp(jiff::civil::datetime(2026, 5, 1, 2, 0, 0, 0))
+        .unwrap();
     let schedules = std::collections::HashMap::from([(
         "secret-schedule-name".to_string(),
         crate::scheduler::config::ScheduleConfig::new(

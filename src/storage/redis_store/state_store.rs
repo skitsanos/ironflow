@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use chrono::Utc;
+use jiff::Timestamp;
 
 use crate::engine::types::*;
 use crate::storage::run_listing::compare_summaries;
@@ -32,7 +32,7 @@ impl StateStore for RedisStateStore {
             id: run_id.to_string(),
             flow_name: flow_name.to_string(),
             status: RunStatus::Pending,
-            started: Some(Utc::now()),
+            started: Some(Timestamp::now()),
             finished: None,
             ctx: ctx.clone(),
             tasks: HashMap::new(),
@@ -53,7 +53,7 @@ impl StateStore for RedisStateStore {
             id: run_id.to_string(),
             flow_name: flow_name.to_string(),
             status: RunStatus::Pending,
-            started: Some(Utc::now()),
+            started: Some(Timestamp::now()),
             finished: None,
             ctx: ctx.clone(),
             tasks: HashMap::new(),
@@ -67,7 +67,7 @@ impl StateStore for RedisStateStore {
             // Preserve the first terminal transition's timestamp and never clear
             // it on a later non-terminal write (IF-052).
             if status.is_terminal() && info.finished.is_none() {
-                info.finished = Some(Utc::now());
+                info.finished = Some(Timestamp::now());
             }
             Ok(true)
         })
@@ -91,10 +91,7 @@ impl StateStore for RedisStateStore {
         self.renew_owned_run(run_id, lease).await
     }
 
-    async fn reconcile_expired_run_leases(
-        &self,
-        now: chrono::DateTime<chrono::Utc>,
-    ) -> StorageResult<usize> {
+    async fn reconcile_expired_run_leases(&self, now: jiff::Timestamp) -> StorageResult<usize> {
         self.reconcile_owned_runs(now).await
     }
 
@@ -214,7 +211,7 @@ impl StateStore for RedisStateStore {
 
     /// Prune via bounded summary pages rather than the default full-catalog scan
     /// (IF-051).
-    async fn prune_before(&self, cutoff: chrono::DateTime<chrono::Utc>) -> StorageResult<usize> {
+    async fn prune_before(&self, cutoff: jiff::Timestamp) -> StorageResult<usize> {
         crate::storage::prune_before_via_summary_pages(self, cutoff).await
     }
 

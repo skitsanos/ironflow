@@ -1,40 +1,34 @@
 # `json_validate`
 
-Validate JSON from context against a JSON Schema.
+Validate JSON text or a JSON value from context against a JSON Schema. A string is parsed as JSON before validation.
 
 ## Parameters
 
-| Parameter    | Type   | Required | Default | Description                                                                    |
-|--------------|--------|----------|---------|--------------------------------------------------------------------------------|
-| `source_key` | string | Yes      | --      | Context key containing either a JSON string, or a value already decoded as JSON |
-| `schema`     | object/boolean | No* | -- | A JSON Schema to validate the data against |
-| `schema_key` | string | No* | -- | Context key containing a decoded JSON Schema or JSON Schema string |
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `source_key` | string | Yes | — | Context key holding a JSON string or an already decoded value |
+| `schema` | object/boolean | One of | — | Inline JSON Schema |
+| `schema_key` | string | One of | — | Context key holding a decoded schema or a JSON Schema string |
 
-*Provide exactly one of `schema` or `schema_key`.
-
-If the value is a string, `json_validate` first parses it as JSON, then validates the result.  
-If the value is already a JSON object/array/etc., it is validated directly.
-
-## Schema References
-
-Validation is offline-only. References bundled in the supplied schema work;
-references requiring network or file retrieval fail normally without fetching.
-See [JSON Schema validation](../JSON_SCHEMA_VALIDATION.md) for bundled-reference
-examples, error behavior, and cancellation boundaries.
+Give `schema` or `schema_key`; when both are set, `schema` is used.
 
 ## Context Output
 
-- `validation_success` — boolean indicating whether validation passed
-- `validation_errors` — array of validation error strings (empty on success)
+| Key | Type | Description |
+|-----|------|-------------|
+| `validation_success` | boolean | `true` when the data matches the schema |
+| `validation_errors` | array | Error strings of the form `<message> at <instance path>`; empty on success |
 
-The node returns a structured error when validation fails. Downstream steps are
-skipped unless a dedicated `on_error` handler runs successfully and resolves
-the failure. After retries are exhausted, the final validation result is
-buffered for the source phase barrier and the handler receives its source-exact
-copy in `_error_output`. Normal shared keys still follow declaration-order
-collision precedence if a parallel step publishes the same names.
+## Behavior
 
-## Example
+- A string value is parsed as JSON first; a syntax error fails the step. Any other value is validated as is. Use [`validate_schema`](validate_schema.md) to validate a string value itself.
+- Failed validation fails the step with `Schema validation failed: ...` and the errors joined by `; `. Downstream steps are skipped unless an `on_error` handler resolves the failure; the handler receives both outputs in `_error_output`.
+- The step also fails when `source_key` or `schema_key` is missing, or the schema is invalid.
+- Validation is offline: references bundled in the schema resolve, references that need network or file retrieval fail without fetching. See [JSON Schema validation](../JSON_SCHEMA_VALIDATION.md).
+
+## Examples
+
+### Inline schema
 
 ```lua
 local flow = Flow.new("json_validate_example")

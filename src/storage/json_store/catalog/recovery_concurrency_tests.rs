@@ -97,7 +97,7 @@ mod concurrency {
 mod paging {
     use std::collections::HashMap;
 
-    use chrono::{TimeZone as _, Utc};
+    use jiff::Timestamp;
 
     use crate::engine::types::{Context, RunInfo, RunStatus};
     use crate::storage::StateStore;
@@ -172,10 +172,7 @@ mod paging {
             id: format!("mixed-{index:02}"),
             flow_name: "flow".to_string(),
             status,
-            started: Some(
-                Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, index as u32)
-                    .unwrap(),
-            ),
+            started: Some(Timestamp::from_second(1_767_225_600 + index as i64).unwrap()),
             finished: None,
             ctx: Context::new(),
             tasks: HashMap::new(),

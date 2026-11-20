@@ -1,143 +1,76 @@
 # `parallel_subworkflows`
 
-Execute multiple subworkflows concurrently and collect their results.
+Run several child flows concurrently and collect one result entry per child,
+either from a static `flows` list or by fanning one flow out over a context
+array.
 
 ## Parameters
 
+Use either `flows` (static) or `flow` + `source_key` (dynamic).
+
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `flows` | array | conditional | — | Static array of flow configurations to execute in parallel. Use either `flows` or dynamic `flow` + `source_key`. |
-| `flow` | string | conditional | — | Dynamic fan-out child flow path. Required when `flows` is omitted. |
-| `source_key` | string | conditional | — | Context key containing the runtime array to fan out over. Required when `flows` is omitted. |
-| `input` | object | no | — | In dynamic mode, authored base input mapping applied to every child run. A string value names a parent key that must exist; see [Input mapping contract](#input-mapping-contract). |
-| `item_key` | string | no | `"item"` | Dynamic mode child context key that receives the current source item as a literal value, never a parent-key reference. |
-| `index_key` | string | no | `"index"` | Dynamic mode child context key that receives the 1-based source item index. |
-| `child_output_key` | string | no | — | Dynamic mode namespace for each child context inside its result entry; cannot be `success`, `flow`, or `error`. |
-| `output_key` | string | no | `"parallel_results"` | Key for the results array in context |
-| `on_error` | string | no | `"fail_fast"` | Error handling: `"fail_fast"` (fail on any error) or `"ignore"` (collect all results) |
-| `max_concurrent` | number | no | CPU count | Maximum child workflows executing at the same time. Hard-capped at `1024`. |
+| `flows` | array | Static mode | — | Non-empty list of flow entries (see below). |
+| `flow` | string | Dynamic mode | — | Child flow path, run once per source item. |
+| `source_key` | string | Dynamic mode | — | Context key holding the array to fan out over; may be empty. |
+| `input` | object | No | — | Dynamic mode: mapping applied to every child (see [Input mapping](subworkflow.md#input-mapping)). |
+| `item_key` | string | No | `"item"` | Dynamic mode: child key that receives the current item, as a literal value. |
+| `index_key` | string | No | `"index"` | Dynamic mode: child key that receives the 1-based item index. |
+| `child_output_key` | string | No | — | Dynamic mode: namespace for each child's context inside its result entry. |
+| `output_key` | string | No | `"parallel_results"` | Context key for the results array. |
+| `on_error` | string | No | `"fail_fast"` | `"fail_fast"` fails the step if any child fails; `"ignore"` returns all results. |
+| `max_concurrent` | number | No | host CPU count | Children running at once; must be greater than 0, capped at `1024`. |
 
-One call fans out to at most `IRONFLOW_MAX_PARALLEL_SUBWORKFLOWS` children
-(default `1024`); see [Fan-out bounds](#fan-out-bounds).
+Each entry of `flows`:
 
-### Flow Entry Parameters
-
-Each entry in the `flows` array:
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `flow` | string | yes | Path to the `.lua` flow file (relative to `_flow_dir`) |
-| `input` | object | no | Context mapping — keys are child context keys. A string value names a parent context key that must exist; `{ optional = "key" }` and `{ literal = value }` state the exceptions. See [Input mapping contract](#input-mapping-contract). |
-| `output_key` | string | no | Namespace the child's output under this key in the result entry; cannot be `success`, `flow`, or `error`. |
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `flow` | string | Yes | Child flow path, relative to the parent flow's directory. |
+| `input` | object | No | Mapping for this child (see [Input mapping](subworkflow.md#input-mapping)); without it the child inherits the parent context. |
+| `output_key` | string | No | Namespace for this child's context inside its result entry. |
 
 ## Context Output
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `{output_key}` | array | Array of result objects, one per flow (in original order) |
-| `{output_key}_count` | number | Total number of flows |
-| `{output_key}_errors` | number | Number of flows that failed |
-| `{output_key}_all_succeeded` | boolean | `true` if all flows succeeded |
+| `{output_key}` | array | One result entry per child, in input order. |
+| `{output_key}_count` | number | Number of children. |
+| `{output_key}_errors` | number | Number of failed children. |
+| `{output_key}_all_succeeded` | boolean | `true` when no child failed. |
 
-Each result entry contains:
+## Output Shape
 
-| Key | Type | Description |
-|-----|------|-------------|
-| `success` | boolean | Whether the subworkflow succeeded |
-| `flow` | string | The loaded child flow's declared name, or its configured path when loading/execution cannot return a finalized child result |
-| `error` | string | Error message (only present on failure) |
-| *context keys* | any | Public child context, excluding reserved metadata keys when flattened, or under per-flow `output_key` |
+```json
+[
+  { "success": true, "flow": "worker", "result": { "status": "done" } },
+  { "success": false, "flow": "worker", "error": "Subworkflow 'worker' (index 1) finished with status: failed: task 'parse': ..." }
+]
+```
 
-`success`, `flow`, and `error` are reserved at the top level of each result
-entry. They describe the actual child execution, never values published or
-inherited by the child. Successful entries have no top-level `error` field;
-failed entries have the engine's failure description. Aggregate counts and
-flags follow those same execution outcomes.
+- `success`, `flow` (the child's declared name, or its configured path when it could not load) and `error` (failures only) describe the child run.
+- Without a namespace, the child's public context is flattened into the entry and child keys named `success`, `flow` or `error` are dropped; use `output_key` / `child_output_key` to keep them.
 
-For finalized failed children, `error` includes unresolved task names and
-reasons, not just the child status. Summaries use the same redaction, ordering,
-and limits as [`subworkflow`](subworkflow.md#error-handling): at most eight
-failures, 128 bytes per name, and 768 bytes per message, with truncation markers
-and an omitted-failure count. Recovered task errors are excluded. Cancelled
-children or unavailable task details retain a status-only description;
-loading/execution errors keep their existing error-entry behavior.
+## Behavior
 
-`on_error = "fail_fast"` collects the children before failing the parent step;
-its aggregate message includes each failed child's reason in input order,
-using the same text as the corresponding `error` entry. It does not stop the
-remaining children at the first failure. These details come from live execution,
-not a context/history reload.
+- `success`, `flow` and `error` are reserved: using one as `output_key` in an entry or as `child_output_key` fails the step before any child starts.
+- Every `input` mapping and every flow path is checked before any child starts; a missing parent key or flow file fails the step and no sibling runs. `on_error = "ignore"` does not suppress these.
+- `fail_fast` waits for all children, then fails with each failed child's error in input order. It does not stop running siblings.
+- Dynamic mode never inherits unmapped parent keys. Items are passed as written, without key lookup: an item `"customer"` is the string, not `ctx.customer`.
+- The injected item and index override same-named `input` entries.
+- A child's flow is loaded and its context built only when it takes a concurrency slot.
+- Child limits, deadline and cancellation follow [`subworkflow`](subworkflow.md#behavior); the error text uses the same bounded summary.
 
-Without a child namespace, same-named child fields are omitted from the result.
-To retain them, use a non-reserved per-flow `output_key` (static mode) or
-`child_output_key` (dynamic mode), such as `"child"`. Then `result.success`
-remains authoritative while `result.child.success`, `result.child.flow`, and
-`result.child.error` retain their domain values. Nested fields are not filtered
-by these metadata names; the existing private-key and redaction rules still
-apply.
+## Limits
 
-Reserved namespace names are configuration errors, rejected at node execution
-before any child loads or starts, including an empty dynamic source. They are
-not suppressed by `on_error = "ignore"`. The node-level `output_key` names the
-results array in the parent context and is not subject to this restriction.
-Existing workflows using a reserved child namespace must rename it; workflows
-needing flattened domain fields with these names must opt into namespacing.
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `IRONFLOW_MAX_PARALLEL_SUBWORKFLOWS` | `1024` | Children one call may start; a longer `flows` or source array fails the step before any child starts. |
+| `IRONFLOW_MAX_SUBWORKFLOW_DEPTH` | `16` | Child nesting depth across all composition nodes. |
+| `IRONFLOW_MAX_LIVE_CHILD_RUNS` | `4096` | Child runs alive at once in the process; nested fan-out multiplies `max_concurrent` per level. |
 
-Both static and dynamic fan-out collect full live child results with
-top-level `_`-prefixed keys removed. `IRONFLOW_MAX_TASK_OUTPUT_BYTES` bounds
-persisted task/final inspection snapshots, not the values delivered to parent
-steps. The existing `on_error` policy is unchanged: ignoring a failure does not
-discard values committed before that failure.
+## Examples
 
-This is an in-process handoff, not durable result recovery. Existing child
-execution limits and parent cancellation/timeouts still apply. Large results
-remain in memory while collected; prefer artifact references for bulky payloads.
-
-## Fan-out bounds
-
-- **Item ceiling.** A `flows` array or a `source_key` array with more than
-  `IRONFLOW_MAX_PARALLEL_SUBWORKFLOWS` entries (default `1024`) fails the step
-  before any child is resolved or started:
-  `parallel_subworkflows: 1025 child flows exceeds the limit of 1024
-  (IRONFLOW_MAX_PARALLEL_SUBWORKFLOWS)`. It is a configuration error and
-  `on_error = "ignore"` does not suppress it. Split a larger list into batches
-  or raise the process limit.
-- **Lazy children.** A child's flow is loaded and its context built only when
-  the child takes one of the `max_concurrent` slots, so the contexts alive at
-  one time are proportional to `max_concurrent`, not to the number of items.
-  A dynamic entry holds a reference to its item in the parent context, not a
-  copy. Collected results still grow with the number of children.
-- **Flow paths.** Every entry's flow path is resolved before the first child
-  starts, off the async worker and once per distinct path. A missing flow file
-  fails the step without running the other children.
-- **Nesting and waiting.** Children count towards the
-  [child workflow nesting limit](subworkflow.md#nesting-limit-and-waiting)
-  (`IRONFLOW_MAX_SUBWORKFLOW_DEPTH`, default `16`). When the step times out or
-  its run is cancelled, children that have not started never start, running
-  children are cancelled, and the step does not end, start its `on_error`
-  handler or release its admission until every started child has stopped,
-  tracked blocking workers included. The children's steps observe this step's
-  deadline; see [Parent deadline](subworkflow.md#parent-deadline).
-- **Live child runs.** Every running child holds one of the process's
-  `IRONFLOW_MAX_LIVE_CHILD_RUNS` slots (default `4096`), shared with every
-  other composition step at every nesting level. A child that finds none
-  free fails with `child workflow run limit reached`; see
-  [Live child run limit](subworkflow.md#live-child-run-limit). Nested
-  fan-out multiplies `max_concurrent` per level, so keep the product of
-  the levels below the limit.
-
-## Example
-
-[`if135_child_error_details.lua`](../../examples/11-subworkflow/if135_child_error_details.lua)
-uses its bundled [`helper`](../../examples/11-subworkflow/if135_error_child.lua)
-to demonstrate tolerated child errors without external services. It asserts
-that a failed result includes the task name and `boom: unsupported file type`,
-while a successful result has no `error` field.
-
-The offline [`parallel_result_metadata.lua`](../../examples/11-subworkflow/parallel_result_metadata.lua)
-example and its [`metadata_child.lua`](../../examples/11-subworkflow/metadata_child.lua)
-helper verify successful and failed static/dynamic children with colliding
-domain fields, including namespaced preservation.
+### Static fan-out
 
 ```lua
 local flow = Flow.new("parallel_workers")
@@ -164,7 +97,7 @@ end):depends_on("run_all")
 return flow
 ```
 
-### With input mapping
+### Input mapping per entry
 
 ```lua
 flow:step("process", nodes.parallel_subworkflows({
@@ -177,27 +110,7 @@ flow:step("process", nodes.parallel_subworkflows({
 }))
 ```
 
-The first two entries pass text; the third copies the parent key
-`current_job_id`, which must exist.
-
-### Input mapping contract
-
-The mapping forms are those of [`subworkflow`](subworkflow.md#input-mapping):
-a string is a top-level parent key that must exist, `{ optional = "key" }`
-omits the child key when the parent key is absent, `{ literal = value }`
-passes the value as written, and any other non-string value is a literal.
-
-A string that names no parent key fails the step with `parallel_subworkflows:
-input '<child_key>' references a parent context value that does not exist;
-...`. Every entry of `flows`, or the shared dynamic `input`, is checked before
-any child starts, so no sibling runs. This is a step error and `on_error =
-"ignore"` does not turn it into a per-child result. In earlier releases such a
-string was passed to the child as literal text. An `input` that is not an
-object is rejected.
-
 ### Dynamic fan-out from context
-
-Use `flow` + `source_key` when the parent workflow discovers work items at runtime. The child flow receives the current item under `item` and its 1-based position under `index` by default.
 
 ```lua
 flow:step("run_jobs", nodes.parallel_subworkflows({
@@ -211,54 +124,5 @@ flow:step("run_jobs", nodes.parallel_subworkflows({
     child_output_key = "result",
     max_concurrent = 5,
     output_key = "job_results",
-}))
-```
-
-If `ctx.jobs` is:
-
-```json
-[
-  { "id": "a", "path": "/tmp/a.txt" },
-  { "id": "b", "path": "/tmp/b.txt" }
-]
-```
-
-then `worker.lua` runs twice. Each child context receives `job`, `job_index`, plus any mapped `input` fields. Dynamic mode allows an empty source array and returns an empty results array with `{output_key}_all_succeeded = true`.
-
-Source items and authored mappings have different semantics. If `ctx.jobs` is
-`{ "customer" }` and `ctx.customer` is `{ id = "C-42" }`, the child's `item`
-is the string `"customer"`, not that object. An explicit mapping such as
-`input = { customer_copy = "customer" }` still selects the parent object.
-Items are copied without key lookup or interpolation, preserving strings,
-objects, arrays, booleans, nulls, and numbers within the existing Lua conversion
-limits. A JSON null reaches a Lua handler as `json_null`, not `nil`.
-
-Mapped strings resolve once against a top-level parent key, which must exist;
-a selected string is not resolved again. Non-string mapping values are copied without recursively
-interpreting strings inside objects or arrays. Dynamic mode does not inherit
-unmapped parent fields. Static entries without `input` retain their existing
-parent-context inheritance; `input = {}` selects no parent fields.
-
-The injected item and numeric one-based index override same-named authored
-input fields. Choose distinct `item_key` and `index_key`: if they are identical,
-the index retains its existing precedence. Engine-owned context keys, private
-output filtering, execution-overlay redaction, and resource limits still apply.
-
-[`parallel_literal_inputs.lua`](../../examples/11-subworkflow/parallel_literal_inputs.lua)
-and its [`literal_item_child.lua`](../../examples/11-subworkflow/literal_item_child.lua)
-helper demonstrate literal dynamic items alongside explicit parent mappings.
-
-### Error handling
-
-```lua
--- fail_fast (default): step fails if any subworkflow fails
-flow:step("strict", nodes.parallel_subworkflows({
-    flows = { ... }
-}))
-
--- ignore: collect all results, check errors yourself
-flow:step("tolerant", nodes.parallel_subworkflows({
-    flows = { ... },
-    on_error = "ignore"
 }))
 ```

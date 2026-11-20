@@ -152,7 +152,7 @@ impl RunCoordinator {
             &phase_ctx,
             &self.execution_overlay,
             &self.lease_owner,
-            self.metrics.as_ref(),
+            self.task_metrics(),
         );
         match WorkflowEngine::run_task(&runtime, &step, input_overlay.as_ref()).await {
             Ok(output) => {

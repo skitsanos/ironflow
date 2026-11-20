@@ -1,77 +1,63 @@
 # `db_query`
 
-Execute a SQL SELECT query against a database and return the result rows.
+Run a SQL `SELECT` against SQLite or PostgreSQL and return the rows as JSON objects.
 
 ## Parameters
 
-| Parameter    | Type   | Required | Default  | Description                                                                                                           |
-|--------------|--------|----------|----------|-----------------------------------------------------------------------------------------------------------------------|
-| `connection` | string | yes      | --       | Database URL string (e.g., `sqlite:/path/to/db?mode=rwc`). Supports `${ctx.key}` interpolation.                        |
-| `query`      | string | yes      | --       | SQL SELECT query with `?` (SQLite) or `$1`, `$2`, ... (PostgreSQL) placeholders for bound parameters. |
-| `params`     | array  | no       | `[]`     | Query parameters. Strings support `${ctx.key}` interpolation. Numbers, booleans, and null are bound with their native SQL types. |
-| `output_key` | string | no       | `"rows"` | Context key prefix for the output.                                                                                    |
-| `max_rows` | number/string | no | `IRONFLOW_DB_MAX_ROWS` / `1000` | Maximum rows returned before failing. Use pagination or raise this limit for trusted jobs. |
-| `max_result_bytes` | number/string | no | `IRONFLOW_DB_MAX_RESULT_BYTES` / `10485760` | Maximum serialized JSON result size before failing. |
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `connection` | string | Yes | — | sqlx database URL, e.g. `sqlite:/path/to/app.db?mode=rwc`; supports `${ctx.key}` |
+| `query` | string | Yes | — | SQL with `?` (SQLite) or `$1`, `$2`, ... (PostgreSQL) placeholders; must not contain `${ctx...}` |
+| `params` | array | No | `[]` | Values bound in order; strings support `${ctx.key}`, numbers, booleans and `nil` keep their SQL types |
+| `output_key` | string | No | `"rows"` | Prefix for output keys |
+| `max_rows` | number | No | `IRONFLOW_DB_MAX_ROWS` | Row cap for this step; more rows fail the step |
+| `max_result_bytes` | number | No | `IRONFLOW_DB_MAX_RESULT_BYTES` | Cap on the serialized JSON result; a larger result fails the step |
 
 ## Context Output
 
-On successful execution:
-
-- `{output_key}` -- Array of row objects. Each row is a key-value object mapping column names to values.
-- `{output_key}_count` -- Number of rows returned.
-- `{output_key}_success` -- Boolean `true`.
-
-With the default `output_key` of `"rows"`, the keys are: `rows`, `rows_count`, `rows_success`.
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}` | array | Row objects mapping column names to values |
+| `{output_key}_count` | number | Number of rows returned |
+| `{output_key}_success` | boolean | `true` on success |
 
 ## Result Types
 
-Each cell is decoded from its runtime value type, not the declared column type.
-SQLite expressions, `COUNT`, `SUM`, and `AVG` retain their numeric values;
-different rows in the same SQLite column may have different types.
+Each cell is converted from its runtime value, not the declared column type, so
+different SQLite rows in one column can have different types.
 
 | SQL value | JSON value |
 |-----------|------------|
-| Integer | Signed 64-bit integer, without conversion through floating point |
-| Finite floating point | Number; PostgreSQL `REAL` is decoded as `f32` then widened to `f64` |
-| Boolean | Boolean when exposed by the driver; SQLite stores booleans as integers `0`/`1` |
-| Text | String, including numeric-looking strings |
+| Integer | 64-bit signed integer |
+| Finite floating point | Number |
+| Boolean | Boolean; SQLite stores booleans as `0`/`1` |
+| Text | String |
 | SQL NULL | `null` |
-| SQLite BLOB / PostgreSQL BYTEA | Array of byte integers (`0` through `255`); empty binary data is `[]` |
+| SQLite `BLOB` / PostgreSQL `BYTEA` | Array of byte integers (`0`-`255`) |
 
-Invalid text, incompatible decoding, and non-finite numbers (`NaN`, positive or
-negative infinity) fail the node. They do not become successful JSON `null`
-values, and no partial rows or success flag are returned on failure. SQLite may
-itself produce SQL NULL for operations such as division by zero; those remain
-`null`. Result byte limits apply to the serialized JSON, including byte arrays.
+PostgreSQL `NUMERIC`, dates and timestamps, JSON/JSONB, and arrays are not
+supported, even when NULL. Cast them in SQL: `::text` to keep exact digits, or
+`::double precision` (for example `AVG(amount::double precision)`).
 
-PostgreSQL requires a build with the `postgres` feature. SQLx's generic driver
-supports the scalar types above, but not `NUMERIC`, dates/timestamps, JSON/JSONB,
-arrays, or other unsupported types, even when their values are NULL. Cast such
-results explicitly in SQL: use `::text` to preserve decimal digits, or
-`::double precision` only when approximate numeric output is acceptable.
-In particular, PostgreSQL `AVG(integer)` returns unsupported `NUMERIC`;
-`AVG(amount::double precision)` returns a supported floating-point value.
+## Behavior
 
-Integer digits are preserved in JSON; downstream JavaScript or floating-point
-consumers may lose precision beyond their exact integer range. Cast to text in
-SQL when those consumers need exact large integer identifiers. Binary output
-does not add binary parameter binding: arrays and objects in `params` remain
-unsupported.
+- Each returned row must have distinct column labels. If two columns have the same label, the step fails without returning partial rows. Use aliases in joins, for example `SELECT users.id AS user_id, orders.id AS order_id FROM users JOIN orders ON orders.user_id = users.id`. Labels are compared exactly as returned by the driver; an empty result still returns `[]`.
+- A cell that cannot be decoded (invalid text, unsupported type, `NaN` or infinity) fails the step; no partial rows are returned.
+- Arrays and objects in `params` fail the step.
+- A per-step `max_rows` or `max_result_bytes` of `0` falls back to the global setting.
+- PostgreSQL requires a build with the `postgres` feature; it supports `sslmode=require`, `verify-ca` and `verify-full`, with `sslrootcert=` for a private CA.
+- With `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, every host in the connection URL (including PostgreSQL `host` and `hostaddr`) must be public or allowlisted; SQLite files and Unix sockets are unaffected. See [Outbound destinations](../SECURITY.md#outbound-destinations).
 
-## Outbound destination policy
+## Limits
 
-When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, every network
-host the `connection` URL names (the URL host and the PostgreSQL `host` and
-`hostaddr` query parameters) is resolved and refused when it is `localhost`
-or not a public unicast address. This is a host check only: the database
-driver resolves the name again when it connects, so it is weaker than the
-DNS pinning of the HTTP nodes. A database on a private address must be
-listed by the operator in `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` (for example
-`db.internal:5432`). SQLite files and Unix sockets are not network
-destinations and are unaffected. See
-[Outbound destinations](../SECURITY.md#outbound-destinations).
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `IRONFLOW_DB_MAX_ROWS` | `1000` | Maximum rows per query; `0` disables the cap |
+| `IRONFLOW_DB_MAX_RESULT_BYTES` | 10 MiB | Maximum serialized result size; `0` disables the cap |
 
-## Example
+## Examples
+
+### Paged select
 
 ```lua
 local flow = Flow.new("query_users")
@@ -93,32 +79,4 @@ flow:step("log_count", nodes.log({
 return flow
 ```
 
-## Notes
-
-- The `connection` string follows the sqlx URL format. For SQLite, use `sqlite:/path/to/file?mode=rwc`.
-- Open only SQLite files, and directories holding them, that IronFlow or a
-  trusted party wrote. The bundled SQLite (3.51.3) is affected by
-  CVE-2026-119375: a database opened together with a crafted sibling `-wal`
-  file can return stale process memory in query results. The fixed binding
-  cannot be resolved until `sqlx` releases support for it; see
-  [Dependency advisories](../SECURITY.md#dependency-advisories).
-- PostgreSQL requires a build with the `postgres` feature. In such builds the
-  TLS modes `sslmode=require`, `verify-ca` and `verify-full` are supported, with
-  `sslrootcert=/path/to/ca.pem` for a private CA; prefer `verify-full`. The
-  Rustls crypto provider is process-wide: the `ironflow` binary installs it
-  once at startup, before the runtime is built. Library storage constructors
-  and SQL nodes also install it idempotently, so embedders do not need an
-  explicit startup call. Calling `ironflow::initialize_tls_provider()` early
-  remains recommended when the embedding application builds other Rustls
-  clients first; an already installed provider is preserved. See
-  [IF-141](../issues/IF-141.md).
-- Query parameters use positional `?` placeholders for SQLite and `$1`, `$2`, ... for PostgreSQL. The `params` array values are bound in order.
-- String parameters support context interpolation (`${ctx.key}`) for values supplied by upstream steps. Context interpolation in the SQL query body is rejected; keep runtime values in `params`.
-- Null values in `params` are bound as SQL NULL.
-- Boolean values are bound as their native SQL type (e.g., INTEGER 0/1 for SQLite).
-- Results are streamed from the database, but returned rows are still accumulated into workflow context. Use SQL pagination (`LIMIT`/`OFFSET` or keyset pagination) for large datasets.
-- `IRONFLOW_DB_MAX_ROWS=0` and `IRONFLOW_DB_MAX_RESULT_BYTES=0` disable the corresponding global caps. Per-node caps must be greater than zero.
-
-## See Also
-
-- [`db_exec`](db_exec.md) -- Execute INSERT/UPDATE/DELETE statements.
+See also [`db_exec`](db_exec.md) for `INSERT`, `UPDATE`, and `DELETE`.

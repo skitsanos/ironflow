@@ -1,120 +1,53 @@
 # `ai_chunk_semantic`
 
-Split text into semantic chunks using embedding similarity to detect topic boundaries.
+Split text into topic chunks: embed each sentence, then cut where the distance between neighbouring sentences peaks.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `source_key` | string | Yes | — | Context key holding the text to chunk |
-| `output_key` | string | No | `"semantic"` | Prefix for output context keys |
-| `provider` | string | No | `"openai"` | Embedding provider: `"openai"`, `"ollama"`, `"oauth"`. Any other value, including a non-string, fails the step before a request is sent. OAuth tokens are handled as in [`ai_embed`](ai_embed.md#oauth-tokens). |
-| `model` | string | No | per provider | Model name (same defaults as `ai_embed`) |
-| `timeout` | number | No | `120` | HTTP request timeout in seconds |
-| `batch_size` | number/string | No | `512` | Maximum sentences per embedding request, `1`-`2048`; accepts context interpolation |
-| `batch_max_bytes` | number/string | No | `262144` | Maximum combined UTF-8 sentence bytes per batch, `1`-`52428800`; accepts context interpolation |
-| `batch_retries` | number/string | No | `2` | Additional transient-error attempts per batch, `0`-`5`; accepts context interpolation |
-| `sim_window` | number | No | `3` | Window for averaging adjacent sentence cosine distances (odd, >= 3, at most `101`) |
-| `sg_window` | number | No | `11` | Savitzky-Golay smoothing window (odd, at most `1001`) |
-| `poly_order` | number | No | `3` | Savitzky-Golay polynomial order (at most `16`). Smoothing is skipped when the order is not below the window |
-| `threshold` | number | No | `0.5` | Relative peak admission level (clamped to 0.0-1.0); higher admits weaker candidate splits |
-| `min_distance` | number | No | `2` | Minimum sentence-index gap between accepted split points; `0` disables spacing |
+| `source_key` | string | Yes | — | Context key holding the text. |
+| `output_key` | string | No | `"semantic"` | Prefix for output keys. |
+| `provider` | string | No | `"openai"` | `openai`, `ollama` or `oauth`. |
+| `model` | string | No | per provider | Same defaults as [`ai_embed`](ai_embed.md). |
+| `timeout` | number | No | `120` | Seconds per HTTP request. |
+| `batch_size` | integer | No | `512` | Sentences per embedding request, `1` to `2048`. |
+| `batch_max_bytes` | integer | No | `262144` | Combined sentence bytes per request, `1` to `52428800`. |
+| `batch_retries` | integer | No | `2` | Extra attempts for a batch after a transient error, `0` to `5`. |
+| `sim_window` | integer | No | `3` | Window for averaging neighbour similarity; raised to an odd value of at least 3; at most `101`. |
+| `sg_window` | integer | No | `11` | Savitzky-Golay smoothing window; raised to an odd value; at most `1001`. |
+| `poly_order` | integer | No | `3` | Savitzky-Golay polynomial order, at most `16`; no smoothing when it is not below `sg_window`. |
+| `threshold` | number | No | `0.5` | Relative peak admission level, clamped to `0`–`1`. |
+| `min_distance` | integer | No | `2` | Minimum sentences between splits; `0` disables the spacing. |
 
-### Provider auth parameters
-
-Same as [`ai_embed`](ai_embed.md) — `api_key`, `base_url`, `ollama_host`, `token_url`, `client_id`, `client_secret`, `scope` with identical environment variable fallbacks.
-
-## HTTP Transport
-
-Embedding and OAuth-token requests follow redirects only within the original
-scheme, host, and effective port, with at most 10 hops. Cross-origin redirects
-fail before replaying credentials or source text; automatic `Referer` is disabled.
-Configure the final provider endpoint explicitly when its origin changes.
-
-Sentence embeddings share [`ai_embed`'s batching, retry, ordering, and resource
-limits](ai_embed.md#batching-and-limits), including the response-body ceiling and
-cumulative `IRONFLOW_MAX_EMBEDDING_VALUES` budget. All batches are concatenated
-before one global boundary-detection pass. A batch edge is not a topic boundary;
-this node returns chunk strings, not the sentence vectors. Input count, sentence
-length, and model limits matter, not document page count. A sentence exceeding the
-byte budget fails without being silently truncated; byte budgets are not exact
-token counts. Workflow step retries restart all batches, while batch-local retries
-repeat only the failing request.
+Provider credentials and endpoints (`api_key`, `base_url`, `ollama_host`, `token_url`, `client_id`, `client_secret`, `scope`) and their environment fallbacks are the same as in [`ai_embed`](ai_embed.md#provider-settings). Numeric parameters also accept `${ctx.key}` strings.
 
 ## Context Output
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `{output_key}` | array | Array of semantic chunk strings |
+| `{output_key}` | array | Chunk strings, in document order |
 | `{output_key}_count` | number | Number of chunks |
-| `{output_key}_success` | boolean | `true` on success |
+| `{output_key}_success` | boolean | `true` |
 
-## Algorithm
+## Behavior
 
-1. Split text into sentences (`.!?` followed by ASCII whitespace or end of input)
-2. Embed sentences in bounded sequential batches using the selected provider, then concatenate the ordered vectors
-3. Compute a distance at each sentence gap: `1 - average cosine similarity` of adjacent sentence pairs in a local window
-4. Apply Savitzky-Golay smoothing to the distance curve
-5. Detect positive interior local maxima with near-zero first derivative and negative curvature; a flat-topped peak contributes one center point (left center for even widths)
-6. Keep peaks at or above `percentile(candidate_distances, 1 - threshold)`, then enforce `min_distance` from left to right
-7. Group sentences at boundaries into chunks
+- Sentences end at `.`, `!` or `?` followed by whitespace or the end of the text.
+- Sentences are embedded with the same batching, retries and failure rules as [`ai_embed`](ai_embed.md#behavior); a sentence longer than `batch_max_bytes` fails the step.
+- `threshold` is relative, not a cosine cutoff: `0` keeps only the strongest peak, `1` keeps every peak before `min_distance` is applied. Higher values give more, smaller chunks.
+- There is no size limit per chunk; apply [`ai_chunk`](ai_chunk.md) in `fixed` mode afterwards for byte-bounded chunks.
+- Empty or whitespace-only text returns no chunks. A single sentence returns the original text without an embedding request.
+- When no peak survives, all sentences form one chunk. Whitespace between sentences in a chunk becomes one space.
+- The operator's [outbound destination policy](../SECURITY.md#outbound-destinations) applies to the embedding endpoint and `token_url`.
 
-## Tuning
+## Limits
 
-`threshold` controls a **relative percentile of candidate distance peaks**, not an
-absolute cosine cutoff or a target chunk count. `0` admits only the strongest
-peak(s), including ties; `1` admits every candidate peak before spacing. Raising
-it admits weaker peaks, while `min_distance` can suppress later nearby candidates.
-
-- Lower `threshold` generally favors fewer splits and larger chunks.
-- Higher `threshold` admits more candidates, generally producing smaller chunks.
-- Larger `sg_window` smooths the curve more and can merge or shift transitions.
-- Smaller `min_distance` permits accepted splits closer together.
-
-`sim_window`, `sg_window` and `poly_order` have fixed ceilings (`101`, `1001`
-and `16`). A larger value fails the step before any sentence is embedded,
-for example `ai_chunk_semantic: 'poly_order' must be at most 16, got 3200`.
-The boundary computation runs after the embeddings arrive and its cost
-grows with sentences × window, and with the cube of the order: without the
-ceilings, a smoothing window as long as a 50,000-sentence document took 5 s
-and order 3,200 took 330 s in an optimized build. Values this large have no
-use for smoothing a distance curve; an even window is still raised to the
-next odd number.
-
-`min_distance` is not a minimum size for the first or last chunk. This node has
-no hard minimum/maximum character, byte, or token budget. For byte-budgeted
-chunks, apply [`ai_chunk`](ai_chunk.md) in `fixed` mode to each semantic chunk
-downstream. This may split a topic; a single UTF-8 character wider than the
-fixed budget remains intact and can exceed that budget.
-
-Empty or whitespace-only input returns no chunks. A single sentence (including
-unpunctuated text) returns the original text without requesting embeddings.
-Flat distances, numerical noise on a flat curve, or input too short for the
-configured smoothing/derivative windows do not invent boundaries. If no valid
-peaks survive, the sentences form one chunk. Multi-sentence grouping preserves
-sentence order and content, but normalizes whitespace between sentences to one
-space; it is not a byte-preserving text transform.
-
-## Outbound destination policy
-
-When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, this node
-refuses a destination that is not a public unicast address before it
-connects: a literal private, loopback or link-local address, `localhost`,
-and a host name whose DNS answer contains such an address. The validated
-answer is the one connected to, and the node connects directly, ignoring a
-system proxy. The OAuth `token_url` is checked as well as the embedding endpoint. A local
-Ollama server needs an entry such as `127.0.0.1:11434`. An internal destination must be listed by the operator in
-`IRONFLOW_PRIVATE_NETWORK_ALLOWLIST`; nothing in the flow can add one. See
-[Outbound destinations](../SECURITY.md#outbound-destinations).
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `IRONFLOW_MAX_HTTP_BODY_BYTES` | `52428800` | Maximum embedding or token response body |
+| `IRONFLOW_MAX_EMBEDDING_VALUES` | `16777216` | Maximum numbers across all sentence vectors |
 
 ## Examples
-
-[`semantic_topic_boundary.lua`](../../examples/13-ai/semantic_topic_boundary.lua)
-contains two distinct topics without a document-file dependency. It requires
-`OPENAI_API_KEY` and optionally accepts `OPENAI_BASE_URL`. Its regression uses
-synthetic orthogonal embeddings to verify the exact transition; real model
-embeddings may produce different splits. This is algorithm coverage, not a
-real-document RAG quality benchmark.
 
 ### Semantic chunking with OpenAI
 

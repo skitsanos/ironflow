@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use chrono::{TimeZone as _, Utc};
+use jiff::Timestamp;
 
 use crate::engine::types::RunStatus;
 use crate::storage::json_store::JsonStateStore;
@@ -15,7 +15,7 @@ fn records(count: usize) -> Vec<CatalogRecord> {
         .map(|index| CatalogRecord {
             id: format!("benchmark-{index:05}"),
             status: RunStatus::Pending,
-            started: Some(Utc.timestamp_opt(index as i64, 0).unwrap()),
+            started: Some(Timestamp::new(index as i64, 0).unwrap()),
         })
         .collect::<Vec<_>>();
     records.sort_by(format::compare_records);
@@ -60,7 +60,7 @@ async fn projection_changing_write_benchmark() {
         let record = CatalogRecord {
             id: format!("benchmark-{:05}", count / 2),
             status: RunStatus::Success,
-            started: Some(Utc.timestamp_opt((count / 2) as i64, 0).unwrap()),
+            started: Some(Timestamp::new((count / 2) as i64, 0).unwrap()),
         };
 
         store.reset_catalog_io_counters();

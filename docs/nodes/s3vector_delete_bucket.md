@@ -1,51 +1,43 @@
 # `s3vector_delete_bucket`
 
-Delete an Amazon S3 Vector bucket.
-
-This operation requires the `s3vectors:DeleteVectorBucket` IAM permission. The
-service rejects deletion while the bucket contains an index or has an operation
-in progress, so delete every index first.
+Delete an Amazon S3 Vectors bucket. The bucket must have no indexes.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `vector_bucket_name` | string | yes* | -- | Explicit bucket name to delete. |
-| `bucket` | string | no | no | Alias for `vector_bucket_name`. |
-| `vector_bucket_arn` | string | yes* | -- | Explicit alternative bucket ARN. |
-| `region` | string | no | AWS region chain | Override `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, or `AWS_DEFAULT_REGION`. The environment is used only when the parameter is absent: a value that is not a string, or is empty after interpolation, fails the step before the client is built. |
-| `endpoint_url` | string | no | `AWS_ENDPOINT_URL` env var | Override the S3 Vectors service endpoint. A value that is not a string, or is empty after interpolation, fails the step instead of falling back to the environment or the default AWS endpoint. |
-| `output_key` | string | no | `s3vector` | Prefix for context output keys. |
+| `vector_bucket_name` | string | One of* | — | Bucket name |
+| `bucket` | string | No | — | Alias for `vector_bucket_name`; both must resolve to the same value |
+| `vector_bucket_arn` | string | One of* | — | Bucket ARN, instead of a name |
+| `region` | string | No | AWS region chain | Region; when absent, `S3VECTORS_REGION`, `S3_REGION`, `AWS_REGION`, then `AWS_DEFAULT_REGION` |
+| `endpoint_url` | string | No | `AWS_ENDPOINT_URL` | Service endpoint override |
+| `output_key` | string | No | `"s3vector"` | Prefix for output keys |
 
-## Target Resolution and Safety
-
-Use exactly one explicit configured target after interpolation:
-`vector_bucket_name`/`bucket` or `vector_bucket_arn`. Resource identifier
-environment variables are deliberately never consulted for bucket deletion;
-region, endpoint, and AWS credentials may still come from the environment.
-Conflicting forms and non-string or blank targets fail before the AWS client is
-built.
+\* Set exactly one of name or ARN in the step. Bucket environment variables
+are never used for deletion.
 
 ## Context Output
 
-- `{output_key}_bucket_name` — Deleted bucket name when deletion used a name.
-- `{output_key}_bucket_arn` — Deleted bucket ARN when deletion used an ARN.
-- `{output_key}_success` — `true` after the service accepts the deletion.
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}_bucket_name` | string | Deleted bucket name, when the step used a name |
+| `{output_key}_bucket_arn` | string | Deleted bucket ARN, when the step used an ARN |
+| `{output_key}_success` | boolean | `true` after the service accepts the deletion |
 
-The service returns no resource body; the identifier field above echoes the
-validated request target.
+## Behavior
 
-## Outbound destination policy
+- The service rejects deletion while the bucket still has an index; delete vectors, then indexes, then the bucket.
+- A missing target, both a name and an ARN, or a target that is not a string or is blank after interpolation fails the step before any request.
+- A `region` or `endpoint_url` that is not a string or is blank fails the step; the environment is used only when the parameter is absent.
+- Credentials come from the AWS SDK credential chain and need `s3vectors:DeleteVectorBucket`.
+- With `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, a private endpoint needs an operator allowlist entry; see [Outbound destinations](../SECURITY.md#outbound-destinations).
 
-When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, `endpoint_url`
-(or `AWS_ENDPOINT_URL`) is refused when it is `localhost` or not a public
-unicast address, and every DNS answer of the service client is validated
-and pinned. An S3-compatible endpoint on a private address must be listed by
-the operator in `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` (for example
-`minio.internal:9000`). See
-[Outbound destinations](../SECURITY.md#outbound-destinations).
+## Examples
 
-## Example
+The runnable [`s3vector_vector_workflow.lua`](../../examples/16-s3vector/s3vector_vector_workflow.lua)
+shows the full vectors, index, bucket teardown order.
+
+### Delete after the index
 
 ```lua
 flow:step("delete_bucket", nodes.s3vector_delete_bucket({
@@ -53,7 +45,3 @@ flow:step("delete_bucket", nodes.s3vector_delete_bucket({
     output_key = "deleted_bucket"
 })):depends_on("delete_index")
 ```
-
-See the runnable
-[`s3vector_vector_workflow.lua`](../../examples/16-s3vector/s3vector_vector_workflow.lua)
-for the complete vectors → index → bucket teardown order.

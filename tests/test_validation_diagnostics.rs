@@ -188,6 +188,22 @@ async fn api_rejects_ambiguous_handler_ranges_and_captured_locals() {
 }
 
 #[test]
+fn cli_strict_accepts_implicit_self_in_a_colon_method() {
+    let flow = r#"
+local flow = Flow.new("receiver")
+flow:step("read", function()
+    local item = { x = 1 }
+    function item:get() return self.x end
+    return { result = item:get() }
+end)
+return flow
+"#;
+    let output = validate_cli(flow, true);
+    assert!(output.status.success(), "{output:?}");
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("Warnings:"));
+}
+
+#[test]
 fn cli_warns_but_succeeds_by_default() {
     let output = validate_cli(FUNCTION_FLOW, false);
     assert!(output.status.success(), "{output:?}");

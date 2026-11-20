@@ -110,7 +110,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 ## 08-extraction
 - **extract_word.lua** — Extract Word (.docx) JSON blocks, metadata, and comments
 - **extract_pdf.lua** — Extract text and metadata from PDF files with bounded, single-parse page processing
-- **extract_pptx.lua** — Extract slides in presentation order with relationship-linked notes, comments, metadata, and disk-backed media descriptors; verify slide and comment indices
+- **extract_pptx.lua** — Extract slides in presentation order with relationship-linked notes, legacy and modern comments (with nested replies), metadata, and disk-backed media descriptors; verify slide and comment indices
 - **extract_vtt.lua** — Extract text and metadata from WebVTT subtitle files
 - **extract_srt.lua** — Extract text and metadata from SRT subtitle files
 - **xlsx_workbook.lua** — Extract every sheet of an Excel (.xlsx) workbook and count rows per sheet via `foreach`
@@ -221,7 +221,7 @@ credentialed, local-state, and platform-specific flow at the same time.
 - **s3vector_rag_query_evaluator.lua** — Compare baseline vs LLM-expanded retrieval on S3 vectors with relevance metrics.
 
 ## 17-mcp
-- **mcp_stdio.lua** — Reuses one persistent MCP stdio server for atomic initialization, tool listing, a tool call, and explicit close, including fragmented responses interleaved with server ping replies.
+- **mcp_stdio.lua** — Discovers two tool pages using an opaque cursor, calls a tool and closes the same stdio session while handling fragmented replies and server pings.
 - **mcp_streamable_http.lua** — MCP 2025-11-25 Streamable HTTP session with optional bearer authentication, tool listing/call, and explicit close.
 
 ## 18-xml-yaml

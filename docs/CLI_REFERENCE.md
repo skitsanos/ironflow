@@ -94,6 +94,10 @@ Parse and validate a flow file without executing it. Checks for:
 - Child flows that fail to load or validate, and child-flow recursion (see
   [Child flows](#child-flows) below)
 
+In Lua handlers and string-valued `code` sources, `function item:get()`
+binds a local `self`, just like `function item.get(self)`. A dot declaration
+without that parameter introduces no receiver.
+
 Undefined globals are warnings by default, so validation still exits
 successfully while reporting the source line and column. Embedded code-source
 locations use `step[NAME].source:LINE:COLUMN`; their positions are relative to
@@ -111,8 +115,11 @@ is used as it is, a relative one is joined to the directory of the flow that
 names it. Each distinct child is loaded and checked once for the errors
 listed above and reported as `child flow <file>: ...`; the output adds
 `Child flows: <n>`. The walk stops at `IRONFLOW_MAX_SUBWORKFLOW_DEPTH` levels
-(default 16), the depth at which a run refuses a child, so flows below that
-level are not loaded.
+(default 16) on each path. If a shared child is also reachable by a shorter
+path, its descendants within that path's limit are checked regardless of
+step declaration order. Files reachable only beyond the limit are not loaded.
+A cycle is reported once, as an error when any route through it is
+unconditional, whichever route is declared first.
 
 | Finding | Result |
 |---------|--------|
@@ -204,6 +211,9 @@ its filter, so every continuation command must repeat the same `--status`.
 ### `ironflow inspect <RUN_ID>`
 
 Show full details for a specific run, including context, tasks, timing, and errors.
+On SQLite and PostgreSQL, each inspection reads the run and its tasks from one
+snapshot. If a run is deleted and its ID reused, inspection never combines
+the original run's context with the replacement's tasks.
 
 | Argument / Flag | Required | Default | Description |
 |-----------------|----------|---------|-------------|
@@ -245,7 +255,7 @@ store.
 
 | Flag | Required | Default | Description |
 |------|----------|---------|-------------|
-| `--before <RFC3339>` | yes | — | Delete only artifacts last modified before this instant |
+| `--before <RFC3339>` | yes | — | Delete only artifacts last modified before this instant, written with `Z` or a numeric offset, for example `2026-01-02T03:04:05Z` |
 | `--limit <COUNT>` | no | `100` | Most artifacts deleted by this invocation, strictly 1–100 |
 | `--scan <COUNT>` | no | `10000` | Most stored artifacts examined by this invocation, strictly 1–10000 |
 | `--after <SHA256>` | no | — | Resume after this digest, as printed by an incomplete invocation |
@@ -500,6 +510,8 @@ portable ASCII characters (`A-Z`, `a-z`, `0-9`, `-`, `_`, `.`, `:`). The key is
 hashed rather than stored; its deterministic run ID and request fingerprint are
 created atomically. A same-key/same-body retry returns that run from any
 replica, while a different source/file/context receives `409 conflict`.
+`IRONFLOW_MAX_TASK_OUTPUT_BYTES` limits stored output, not the request
+fingerprint used for replay.
 Deleting the run releases the retained identity: the same key then starts a
 new run under the same run ID, with its own complete event stream. See
 [Replica deployment](REPLICA_DEPLOYMENT.md) for the complete boundary.
@@ -1392,7 +1404,7 @@ schedules:
 |---|---|---|---|
 | `flow` | yes | — | Resolved against `flows_dir`, so a schedule cannot escape it. Maximum 1,024 UTF-8 bytes |
 | `cron` | yes | — | Maximum 256 UTF-8 bytes. Five fields separated by spaces: minute hour day month weekday, each one token (see [Field syntax](#field-syntax)). Seconds are fixed at zero; six- and seven-field expressions are rejected, and so is a token that is not exactly one field. Weekday numbers are `0` to `7`: `0` and `7` are Sunday, `1` to `6` are Monday to Saturday (see [Weekday field](#weekday-field)). If day and weekday are both restricted, either matching fires the schedule, as in traditional crontab |
-| `timezone` | no | `UTC` | IANA name, maximum 128 UTF-8 bytes. Unknown names fail at startup |
+| `timezone` | no | `UTC` | IANA name spelled exactly as the database spells it, maximum 128 UTF-8 bytes. Unknown names fail at startup (see [Time zones](#time-zones)) |
 | `grace_seconds` | no | `300` | Maximum lateness for which a missed instant still fires. Of several missed instants only the most recent fires (see [Catch-up](#catch-up)). Range 60..=604,800 because the scheduler evaluates every 30 seconds and catch-up must remain bounded |
 | `context` | no | `{}` | Merged into the run's initial context, maximum 65,536 serialized JSON bytes. Must not define `_schedule` or `_flow_dir` |
 
@@ -1619,7 +1631,32 @@ configuration.
   in `Europe/Berlin` fires at 03:00 on the transition date rather than skipping
   the day.
 - *Fall back* — the configured time occurs twice. The schedule fires once, on
-  the earlier instant.
+  the earlier instant. Restarting during the second pass still recovers that
+  first occurrence if it is inside the catch-up window and was not settled.
+  For example, with 45 minutes of grace, a Berlin schedule for 02:30 can
+  recover at the second 02:05: the first 02:30 was 35 real minutes ago.
+
+##### Time zones
+
+`timezone` takes a name from the IANA Time Zone Database, such as
+`Europe/Berlin`, `Asia/Kolkata` or the older link names (`US/Eastern`).
+
+- The name is case-sensitive and must match the database spelling:
+  `europe/berlin` and `utc` fail at startup with
+  `schedule timezone '...' is not a known IANA time zone name`. The name is
+  part of every schedule claim key, so one zone has exactly one spelling.
+  UTC offsets (`+02:00`) and POSIX `TZ` strings are not accepted.
+- Zone rules come from the IANA database compiled into the `ironflow` binary:
+  release **2026f**. The host's `/usr/share/zoneinfo`, `TZ` and `TZDIR` are
+  never read, so Linux, macOS, Windows and the container image behave
+  identically and every replica of one release agrees on when a schedule
+  fires.
+- Zone data is updated by upgrading IronFlow. A release that moves to a newer
+  IANA release names it in its release notes. Installing or updating `tzdata`
+  on the host changes nothing.
+- When a government changes its rules at short notice, a schedule in that
+  zone fires by the old rules until an IronFlow release carries the new ones.
+  A schedule in `UTC` is never affected.
 
 **Overlap.** If a previous run of the same schedule has not finished, the new
 instant is skipped rather than queued. At `IRONFLOW_MAX_CONCURRENT_RUNS`
@@ -1712,7 +1749,7 @@ This is resolved after dotenv loading by both `serve` and `list`.
 | `IRONFLOW_LUA_MAX_INSTRUCTIONS` | `5000000` | Max Lua VM instructions per flow parse/code execution; `0` disables |
 | `IRONFLOW_LUA_MAX_SECONDS` | `10` | Max wall-clock seconds per Lua state; `0` disables |
 | `IRONFLOW_LUA_MAX_MEMORY_BYTES` | `134217728` | Max Lua VM memory per Lua state; `0` disables |
-| `IRONFLOW_LUA_MAX_PATTERN_STEPS` | `50000000` | Max pattern-matching steps per Lua state, summed over `string.find`, `string.match`, `string.gmatch` and `string.gsub`; `0` disables. A pattern that backtracks without bound fails with the budget error instead of holding its step. A step timeout, cancellation and `IRONFLOW_LUA_MAX_SECONDS` also end a match in progress. Invalid values fail startup. See [Execution limits](nodes/code.md#execution-limits) |
+| `IRONFLOW_LUA_MAX_PATTERN_STEPS` | `50000000` | Max pattern-matching steps per Lua state, summed over `string.find`, `string.match`, `string.gmatch` and `string.gsub`; `0` disables. A pattern that backtracks without bound fails with the budget error instead of holding its step. A step timeout, cancellation and `IRONFLOW_LUA_MAX_SECONDS` also end a match in progress. Invalid values fail startup. See [Execution limits](nodes/code.md#limits) |
 | `IRONFLOW_ENV_ALLOWLIST` | unset (all) | Comma-separated variable names the Lua `env()` global may read. When set, `env()` returns `nil` for any other key; when unset, any process variable is readable (the default). |
 | `IRONFLOW_LUA_HOOK_INTERVAL` | `10000` | Instruction interval for budget checks |
 | `IRONFLOW_LUA_GC_AFTER_EXECUTION` | `true` | Run a Lua garbage-collection cycle after flow parsing/code execution; accepts only `true` or `false` |

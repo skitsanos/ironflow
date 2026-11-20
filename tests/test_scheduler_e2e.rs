@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
-use chrono::{TimeZone as _, Utc};
 use ironflow::engine::types::Context;
 use ironflow::scheduler::config::ScheduleConfig;
 use ironflow::scheduler::execution::SCHEDULE_CONTEXT_KEY;
 use ironflow::scheduler::{Outcome, ScheduleExecutor, Scheduler};
 use ironflow::storage::StateStore;
+use jiff::Timestamp;
 
 #[path = "support/scheduler.rs"]
 mod scheduler_support;
@@ -280,7 +280,7 @@ async fn an_occurrence_whose_own_run_is_active_is_not_reported_as_overlapped() {
         .expect("the run did not start");
     assert!(!app.store.schedule_run_recorded("slow", key).await.unwrap());
 
-    let now = Utc.with_ymd_and_hms(2026, 3, 10, 2, 0, 35).unwrap();
+    let now = utc_at(2026, 3, 10, 2, 0, 35);
     let mut scheduler = Scheduler::new(
         std::collections::HashMap::from([("slow".to_string(), schedule)]),
         app.store.clone(),
@@ -324,7 +324,7 @@ async fn two_schedulers_sharing_one_store_fire_an_instant_exactly_once() {
                 schedules,
                 store.clone() as Arc<dyn StateStore>,
                 executor as Arc<dyn ScheduleExecutor>,
-                Utc.with_ymd_and_hms(2026, 5, 1, 1, 59, 0).unwrap(),
+                utc_at(2026, 5, 1, 1, 59, 0),
             ),
             store,
         )
@@ -333,7 +333,7 @@ async fn two_schedulers_sharing_one_store_fire_an_instant_exactly_once() {
     let (mut first, store) = build();
     let (mut second, _) = build();
 
-    let now = Utc.with_ymd_and_hms(2026, 5, 1, 2, 0, 0).unwrap();
+    let now = utc_at(2026, 5, 1, 2, 0, 0);
     let (left, right) = tokio::join!(first.evaluate(now), second.evaluate(now));
 
     let fired: Vec<_> = left
@@ -372,12 +372,10 @@ async fn a_preclaimed_instant_without_a_run_is_recovered_after_restart() {
         schedules,
         store.clone() as Arc<dyn StateStore>,
         executor,
-        Utc.with_ymd_and_hms(2026, 5, 1, 1, 59, 0).unwrap(),
+        utc_at(2026, 5, 1, 1, 59, 0),
     );
 
-    let decisions = scheduler
-        .evaluate(Utc.with_ymd_and_hms(2026, 5, 1, 2, 0, 0).unwrap())
-        .await;
+    let decisions = scheduler.evaluate(utc_at(2026, 5, 1, 2, 0, 0)).await;
     assert!(matches!(decisions[0].outcome, Outcome::Fired { .. }));
     assert_eq!(store.list_runs(None).await.unwrap().len(), 1);
 }
@@ -500,4 +498,9 @@ fn a_schedule_naming_a_resolvable_flow_passes_startup_validation() {
         ironflow::scheduler::startup::validate_schedule_flows(&schedules, Some(flows.path()))
             .is_ok()
     );
+}
+
+fn utc_at(year: i16, month: i8, day: i8, hour: i8, minute: i8, second: i8) -> Timestamp {
+    let wall_clock = jiff::civil::datetime(year, month, day, hour, minute, second, 0);
+    jiff::tz::Offset::UTC.to_timestamp(wall_clock).unwrap()
 }

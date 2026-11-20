@@ -7,14 +7,16 @@
 //! without asserting that anything before it was actually missed: this
 //! process has no way to know whether an earlier one already ran it.
 
-use chrono::{Duration, NaiveDateTime, TimeZone, Utc};
+use jiff::{SignedDuration, civil};
 
 use super::config::ScheduleConfig;
+use super::timing::minute_text;
 
 /// How far back to search for an occurrence the seeded watermark will skip.
 /// Bounds cost, not correctness: a schedule whose last occurrence is older
-/// than this is treated as quiet rather than logged about.
-const LOOKBACK_WINDOW: Duration = Duration::days(35);
+/// than this is treated as quiet rather than logged about. Thirty-five days
+/// of wall-clock time, as an exact length rather than a calendar span.
+const LOOKBACK_WINDOW: SignedDuration = SignedDuration::from_hours(35 * 24);
 
 /// Safety cap on how many occurrences one search considers, so a
 /// pathologically frequent expression cannot make startup spin. At the
@@ -30,17 +32,19 @@ const MAX_LOOKBACK_INSTANTS: usize = 60_000;
 /// last hit — there is no cheaper way to ask a `Schedule` this question.
 fn last_occurrence_before(
     schedule: &ScheduleConfig,
-    before: NaiveDateTime,
-) -> Option<NaiveDateTime> {
-    let lower_bound = before - LOOKBACK_WINDOW;
-    // Fed to `cron` as if it were UTC, exactly as `due_instants` does: the
-    // iterator walks wall-clock occurrences, the space the expression is
-    // written in.
-    let cursor = Utc.from_utc_datetime(&lower_bound);
+    before: civil::DateTime,
+) -> Option<civil::DateTime> {
+    // Walked in wall-clock space, exactly as `due_instants` does.
+    let lower_bound = before
+        .checked_sub(LOOKBACK_WINDOW)
+        .unwrap_or(civil::DateTime::MIN);
 
     let mut last_missed = None;
-    for candidate in schedule.cron().after(&cursor).take(MAX_LOOKBACK_INSTANTS) {
-        let local = candidate.naive_utc();
+    for local in schedule
+        .cron()
+        .after(lower_bound)
+        .take(MAX_LOOKBACK_INSTANTS)
+    {
         if local >= before {
             break;
         }
@@ -54,13 +58,13 @@ fn last_occurrence_before(
 pub(super) fn log_unreachable_catchup(
     name: &str,
     schedule: &ScheduleConfig,
-    seeded: NaiveDateTime,
+    seeded: civil::DateTime,
 ) {
     if let Some(previous) = last_occurrence_before(schedule, seeded) {
         tracing::info!(
             schedule = %name,
-            catch_up_from = %seeded.format("%Y-%m-%dT%H:%M"),
-            previous_occurrence = %previous.format("%Y-%m-%dT%H:%M"),
+            catch_up_from = %minute_text(seeded),
+            previous_occurrence = %minute_text(previous),
             "catch-up window starts here; earlier occurrences are outside it"
         );
     }
@@ -70,8 +74,8 @@ pub(super) fn log_unreachable_catchup(
 mod tests {
     use super::*;
 
-    fn local(text: &str) -> NaiveDateTime {
-        NaiveDateTime::parse_from_str(text, "%Y-%m-%d %H:%M:%S").unwrap()
+    fn local(text: &str) -> civil::DateTime {
+        text.parse().unwrap()
     }
 
     fn daily_at_two() -> ScheduleConfig {

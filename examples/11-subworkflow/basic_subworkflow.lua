@@ -12,6 +12,8 @@ flow:step("set_name", nodes.code({
     end
 }))
 
+-- With server metrics enabled, call_greet and greet.lua's build_greeting
+-- each contribute one successful task attempt.
 flow:step("call_greet", nodes.subworkflow({
     flow = "greet.lua",
     input = {

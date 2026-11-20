@@ -248,6 +248,37 @@ async fn date_format_input_offset_is_kept_without_timezone() {
 }
 
 #[tokio::test]
+async fn date_format_only_defaults_an_actual_date_to_midnight() {
+    for (input, format) in [
+        ("1970-01-02 12:00:00 0", "%F %T %s"),
+        ("1970-01-02 0", "%F %s"),
+        ("1970-01-02 12", "%F %H"),
+    ] {
+        run_date(serde_json::json!({"input": input, "input_format": format}))
+            .await
+            .expect_err(input);
+    }
+    for (input, format, expected, epoch) in [
+        (
+            "1970-01-02 12:00:00 129600",
+            "%F %T %s",
+            "12:00 +00:00",
+            129600,
+        ),
+        ("1970-01-02 129600", "%F %s", "12:00 +00:00", 129600),
+        ("1970-01-02", "%F", "00:00 +00:00", 86400),
+        ("1970-01-02 +0200", "%F %z", "00:00 +02:00", 79200),
+    ] {
+        let (value, unix) = run_date(serde_json::json!({
+            "input": input, "input_format": format, "output_format": "%H:%M %:z"
+        }))
+        .await
+        .unwrap();
+        assert_eq!((value.as_str(), unix), (expected, epoch), "{input}");
+    }
+}
+
+#[tokio::test]
 async fn date_format_date_with_offset_is_midnight_at_that_offset() {
     let (formatted, unix) = run_date(serde_json::json!({
         "input": "2024-06-15 +0200",
@@ -406,8 +437,25 @@ async fn date_format_valid_output_specifiers_are_unchanged() {
 }
 
 #[tokio::test]
-async fn date_format_timezone_out_of_range_is_a_node_error() {
-    for timezone in ["+999999999:00", "-999999999:00", "+00:999999999", "+24:00"] {
+async fn date_format_rejects_invalid_output_timezone() {
+    for timezone in [
+        "+01:75",
+        "-00:60",
+        "+01:-30",
+        "-01:+30",
+        "+-2:00",
+        "+1:00",
+        "+01:0",
+        "+001:00",
+        "+01:030",
+        "+01:3x",
+        "+01:30x",
+        "+999999999:00",
+        "-999999999:00",
+        "+00:999999999",
+        "+24:00",
+        "-24:00",
+    ] {
         let error = run_date(serde_json::json!({
             "input": "2024-06-15T10:30:00Z",
             "timezone": timezone
@@ -417,14 +465,31 @@ async fn date_format_timezone_out_of_range_is_a_node_error() {
         .to_string();
         assert!(error.contains("Invalid timezone"), "{error}");
     }
-    let (formatted, unix) = run_date(serde_json::json!({
-        "input": "2024-06-15T10:30:00Z",
-        "timezone": "-05:30",
-        "output_format": "%H:%M %:z"
-    }))
-    .await
-    .unwrap();
-    assert_eq!((formatted.as_str(), unix), ("05:00 -05:30", INSTANT_1030Z));
+}
+
+#[tokio::test]
+async fn date_format_valid_output_timezone_preserves_instant() {
+    for (zone, expected) in [
+        ("UTC", "15 10:30 +00:00"),
+        ("Z", "15 10:30 +00:00"),
+        ("+05:30", "15 16:00 +05:30"),
+        ("-05:30", "15 05:00 -05:30"),
+        ("+23:59", "16 10:29 +23:59"),
+        ("-23:59", "14 10:31 -23:59"),
+    ] {
+        let (formatted, unix) = run_date(serde_json::json!({
+            "input": "2024-06-15T10:30:00Z",
+            "timezone": zone,
+            "output_format": "%d %H:%M %:z"
+        }))
+        .await
+        .unwrap();
+        assert_eq!(
+            (formatted.as_str(), unix),
+            (expected, INSTANT_1030Z),
+            "{zone}"
+        );
+    }
 }
 
 #[tokio::test]
@@ -461,5 +526,29 @@ async fn date_format_failures_reach_the_on_error_handler() {
         assert_eq!(info.status, RunStatus::Success, "{step}");
         assert_eq!(info.tasks["format"].status, TaskStatus::Failed, "{step}");
         assert_eq!(info.ctx["failed_step"], "format", "{step}");
+    }
+}
+
+/// IF-234: the century of a year before 0000 was written as two characters
+/// that are not a number (`I5` for the year -0001).
+#[tokio::test]
+async fn date_format_century_of_a_year_before_zero_is_a_number() {
+    let cases = [
+        ("-0001-12-31", "%C|%-C|%_C|%0C|%y", "-1|-1|-1|-1|99"),
+        ("-0100-01-01", "%C %y", "-1 00"),
+        ("-0101-01-01", "%C %y", "-2 99"),
+        ("-9999-01-01", "%C %y", "-100 01"),
+        ("0000-01-01", "%C|%-C|%_C %y", "00|0| 0 00"),
+        ("0999-01-01", "%C %y", "09 99"),
+    ];
+    for (input, output_format, expected) in cases {
+        let (formatted, _) = run_date(serde_json::json!({
+            "input": input,
+            "input_format": "%Y-%m-%d",
+            "output_format": output_format
+        }))
+        .await
+        .unwrap_or_else(|e| panic!("{input}: {e}"));
+        assert_eq!(formatted, expected, "{input} / {output_format}");
     }
 }

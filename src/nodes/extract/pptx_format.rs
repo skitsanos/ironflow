@@ -2,7 +2,7 @@ mod text;
 
 use anyhow::Result;
 
-use super::pptx_parser::{PptxComment, PptxElement, PptxSlide};
+use super::pptx_parser::{PptxComment, PptxCommentEntry, PptxElement, PptxSlide};
 use super::resource::Budget;
 
 pub(super) use text::{pptx_slides_to_markdown, pptx_slides_to_text};
@@ -119,7 +119,10 @@ fn pptx_comments_into_json(
     values.try_reserve_exact(comments.len())?;
     for comment in comments {
         budget.checkpoint()?;
-        budget.charge_output(64, "PPTX JSON comment structure")?;
+        budget.charge_output(
+            comment_structure_bytes(&comment),
+            "PPTX JSON comment structure",
+        )?;
         values.push(serde_json::to_value(comment)?);
     }
     Ok(serde_json::Value::Array(values))
@@ -134,7 +137,10 @@ pub(super) fn pptx_comments_to_json(
     values.try_reserve_exact(comments.len())?;
     for comment in comments {
         budget.checkpoint()?;
-        budget.charge_output(64, "PPTX JSON comment structure")?;
+        budget.charge_output(
+            comment_structure_bytes(comment),
+            "PPTX JSON comment structure",
+        )?;
         if duplicate_retained_fields {
             budget.charge_output(
                 comment_retained_bytes(comment),
@@ -146,14 +152,30 @@ pub(super) fn pptx_comments_to_json(
     Ok(serde_json::Value::Array(values))
 }
 
+/// Serialized keys and punctuation, per comment and per nested reply.
+fn comment_structure_bytes(comment: &PptxComment) -> u64 {
+    64_u64.saturating_mul(1 + comment.replies.len() as u64)
+}
+
 fn comment_retained_bytes(comment: &PptxComment) -> u64 {
+    std::iter::once(&comment.entry)
+        .chain(&comment.replies)
+        .map(entry_retained_bytes)
+        .fold(
+            comment.idx.as_deref().map_or(0, |idx| idx.len() as u64),
+            u64::saturating_add,
+        )
+}
+
+fn entry_retained_bytes(entry: &PptxCommentEntry) -> u64 {
     [
-        comment.idx.as_deref(),
-        comment.author_id.as_deref(),
-        comment.author.as_deref(),
-        comment.initials.as_deref(),
-        comment.date.as_deref(),
-        Some(comment.text.as_str()),
+        entry.id.as_deref(),
+        entry.author_id.as_deref(),
+        entry.author.as_deref(),
+        entry.initials.as_deref(),
+        entry.date.as_deref(),
+        entry.status.as_deref(),
+        Some(entry.text.as_str()),
     ]
     .into_iter()
     .flatten()

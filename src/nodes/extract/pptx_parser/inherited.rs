@@ -15,9 +15,9 @@ use anyhow::Result;
 
 use super::graph::{SlidePart, resolve_target};
 use super::list_style;
-use super::part_paths::relationships_part;
 use super::relationships::{Kind, Relationships, parse_pptx_rels};
 use crate::nodes::extract::ooxml::Archive;
+use crate::nodes::extract::ooxml::part_paths::relationships_part;
 use crate::nodes::extract::resource::Budget;
 use crate::util::execution::ExecutionControl;
 

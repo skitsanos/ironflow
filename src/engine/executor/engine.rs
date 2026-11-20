@@ -14,6 +14,7 @@ use super::child_runs::LiveChildRun;
 use super::coordinator::RunCoordinator;
 use super::handle::{ChildRunResult, RunHandle};
 use super::nesting::ChildLink;
+use super::output::FinalContext::{self, LiveChild, PreserveAdmissionKey, Snapshot};
 use super::overlay::ExecutionOverlay;
 
 const EVENT_PUBLISH_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(500);
@@ -89,7 +90,7 @@ impl WorkflowEngine {
         execution_overlay: ExecutionOverlay,
     ) -> Result<RunHandle> {
         let run_id = Uuid::new_v4().to_string();
-        self.start_new_with_run_id(flow, initial_ctx, execution_overlay, run_id, false, None)
+        self.start_new_with_run_id(flow, initial_ctx, execution_overlay, run_id, Snapshot, None)
             .await?
             .ok_or_else(|| anyhow::anyhow!("generated workflow run ID already exists"))
     }
@@ -111,7 +112,7 @@ impl WorkflowEngine {
             initial_ctx,
             execution_overlay,
             Uuid::new_v4().to_string(),
-            true,
+            LiveChild,
             Some(link.clone()),
         )
         .await?
@@ -131,7 +132,7 @@ impl WorkflowEngine {
     ) -> Result<RunHandle> {
         let run_id = Uuid::new_v4().to_string();
         let link = Some(link.detached());
-        self.start_new_with_run_id(flow, initial_ctx, execution_overlay, run_id, false, link)
+        self.start_new_with_run_id(flow, initial_ctx, execution_overlay, run_id, Snapshot, link)
             .await?
             .ok_or_else(|| anyhow::anyhow!("generated workflow run ID already exists"))
     }
@@ -143,13 +144,14 @@ impl WorkflowEngine {
         flow: &FlowDefinition,
         initial_ctx: Context,
         run_id: String,
+        admission_key: Option<&'static str>,
     ) -> Result<Option<RunHandle>> {
         self.start_new_with_run_id(
             flow,
             initial_ctx,
             ExecutionOverlay::default(),
             run_id,
-            false,
+            admission_key.map_or(Snapshot, PreserveAdmissionKey),
             None,
         )
         .await
@@ -161,7 +163,7 @@ impl WorkflowEngine {
         mut initial_ctx: Context,
         execution_overlay: ExecutionOverlay,
         run_id: String,
-        retain_child_result: bool,
+        final_context: FinalContext,
         child_link: Option<ChildLink>,
     ) -> Result<Option<RunHandle>> {
         // Resolve limits before validating the flow or creating durable state.
@@ -253,7 +255,7 @@ impl WorkflowEngine {
 
         Ok(Some(
             coordinator
-                .with_child_result(retain_child_result)
+                .with_final_context(final_context)
                 .with_child_link(child_link, live_child)
                 .spawn(),
         ))

@@ -1,33 +1,32 @@
 # `template_render`
 
-Render a string template with context variable interpolation.
+Render a string template by replacing `${ctx...}` placeholders with context values.
 
 ## Parameters
 
-| Parameter    | Type   | Required | Default | Description                                                  |
-|--------------|--------|----------|---------|--------------------------------------------------------------|
-| `template`   | string | Yes      | --      | Template string containing context path placeholders         |
-| `output_key` | string | Yes      | --      | Context key under which the rendered result will be stored   |
-
-The `template` parameter supports the shared context path grammar:
-
-- dotted object access: `${ctx.user.email}`
-- zero-based array access: `${ctx.items[0].name}`
-- JSON double-quoted bracket keys: `${ctx["key.with.dots"]}`
-
-These forms can be combined. Missing paths, out-of-range indexes, and `null`
-values resolve to an empty string. Expressions, function calls, and fallback
-operators are invalid; compute derived/default values in an explicit workflow
-step. Non-`ctx` placeholders such as `${HOME}` remain literal. To render
-`${ctx.user}` literally, pass `\${ctx.user}` at runtime (written as
-`"\\${ctx.user}"` in a Lua string). Rendering is one pass, so placeholder text
-inside a resolved context string is not evaluated again.
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `template` | string | Yes | — | Text containing `${ctx...}` placeholders |
+| `output_key` | string | Yes | — | Context key for the rendered string |
 
 ## Context Output
 
-- `{output_key}` -- the rendered string, stored under the key specified by the `output_key` parameter
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}` | string | The rendered text |
 
-## Example
+## Behavior
+
+- Placeholders use the context path grammar: dotted access (`${ctx.user.email}`), zero-based indexes (`${ctx.items[0].name}`), and JSON double-quoted keys (`${ctx["key.with.dots"]}`), in any combination.
+- A missing path, an out-of-range index, or `null` renders as an empty string. Objects and arrays render as compact JSON.
+- Expressions, function calls and fallback operators are not supported and are rejected when the flow is validated; compute derived or default values in an earlier step.
+- Non-`ctx` placeholders such as `${HOME}` stay literal.
+- `\${ctx.user}` renders literally as `${ctx.user}` (write `"\\${ctx.user}"` in a Lua string).
+- Rendering is one pass: placeholder text inside a resolved value is not evaluated again.
+
+## Examples
+
+### Render a message
 
 ```lua
 local flow = Flow.new("order_confirmation")
@@ -44,9 +43,4 @@ flow:step("done", nodes.log({
 return flow
 ```
 
-Given a context with `users[0].name = "Alice"` and `order_id = 42`, the output
-key `confirmation_message` will contain:
-
-```
-Hello Alice, your order #42 is confirmed.
-```
+With `users[0].name = "Alice"` and `order_id = 42`, `confirmation_message` is `Hello Alice, your order #42 is confirmed.`

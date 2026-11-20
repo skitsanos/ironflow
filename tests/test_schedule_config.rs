@@ -44,40 +44,40 @@ fn rejects_an_unparseable_expression_without_leaking_parser_noise() {
 
 #[test]
 fn a_five_field_expression_fires_at_the_top_of_the_minute() {
-    use chrono::{TimeZone as _, Utc};
+    use jiff::civil::datetime;
     let schedule = parse_cron("0 2 * * *").unwrap();
-    let after = Utc.with_ymd_and_hms(2026, 5, 1, 0, 0, 0).unwrap();
-    let next = schedule.after(&after).next().unwrap();
-    assert_eq!(next, Utc.with_ymd_and_hms(2026, 5, 1, 2, 0, 0).unwrap());
+    let after = datetime(2026, 5, 1, 0, 0, 0, 0);
+    let next = schedule.after(after).next().unwrap();
+    assert_eq!(next, datetime(2026, 5, 1, 2, 0, 0, 0));
 }
 
 #[test]
 fn restricted_day_of_month_and_weekday_use_traditional_or_semantics() {
-    use chrono::{TimeZone as _, Utc};
+    use jiff::civil::datetime;
 
     let schedule = parse_cron("0 4 1 * Fri").unwrap();
-    let after = Utc.with_ymd_and_hms(2026, 5, 29, 4, 0, 0).unwrap();
-    let next = schedule.after(&after).take(2).collect::<Vec<_>>();
+    let after = datetime(2026, 5, 29, 4, 0, 0, 0);
+    let next = schedule.after(after).take(2).collect::<Vec<_>>();
 
     assert_eq!(
         next,
         [
-            Utc.with_ymd_and_hms(2026, 6, 1, 4, 0, 0).unwrap(),
-            Utc.with_ymd_and_hms(2026, 6, 5, 4, 0, 0).unwrap(),
+            datetime(2026, 6, 1, 4, 0, 0, 0),
+            datetime(2026, 6, 5, 4, 0, 0, 0),
         ]
     );
 }
 
 #[test]
 fn a_date_matching_both_day_fields_is_emitted_once() {
-    use chrono::{TimeZone as _, Utc};
+    use jiff::civil::datetime;
 
     let schedule = parse_cron("0 4 1 * Fri").unwrap();
-    let after = Utc.with_ymd_and_hms(2026, 4, 30, 4, 0, 0).unwrap();
-    let next = schedule.after(&after).take(2).collect::<Vec<_>>();
+    let after = datetime(2026, 4, 30, 4, 0, 0, 0);
+    let next = schedule.after(after).take(2).collect::<Vec<_>>();
 
-    assert_eq!(next[0], Utc.with_ymd_and_hms(2026, 5, 1, 4, 0, 0).unwrap());
-    assert_eq!(next[1], Utc.with_ymd_and_hms(2026, 5, 8, 4, 0, 0).unwrap());
+    assert_eq!(next[0], datetime(2026, 5, 1, 4, 0, 0, 0));
+    assert_eq!(next[1], datetime(2026, 5, 8, 4, 0, 0, 0));
 }
 
 use ironflow::engine::types::Context;
@@ -91,7 +91,7 @@ fn config(cron: &str, timezone: Option<&str>) -> Result<ScheduleConfig, String> 
 fn defaults_are_utc_and_five_minutes_of_grace() {
     let schedule = config("0 2 * * *", None).unwrap();
     assert_eq!(schedule.flow(), "nightly.lua");
-    assert_eq!(schedule.timezone(), chrono_tz::UTC);
+    assert_eq!(schedule.timezone().name(), "UTC");
     assert_eq!(schedule.grace_seconds(), 300);
     assert_eq!(schedule.cron_source(), "0 2 * * *");
     assert!(schedule.context().is_empty());
@@ -99,12 +99,8 @@ fn defaults_are_utc_and_five_minutes_of_grace() {
 
 #[test]
 fn named_timezones_are_accepted_and_unknown_ones_fail() {
-    assert_eq!(
-        config("0 2 * * *", Some("Europe/Berlin"))
-            .unwrap()
-            .timezone(),
-        chrono_tz::Europe::Berlin
-    );
+    let schedule = config("0 2 * * *", Some("Europe/Berlin")).unwrap();
+    assert_eq!(schedule.timezone().name(), "Europe/Berlin");
 
     let error = config("0 2 * * *", Some("Europe/Atlantis")).unwrap_err();
     assert!(error.contains("Europe/Atlantis"), "{error}");
@@ -246,7 +242,7 @@ context:
 "#;
     let schedule: ScheduleConfig = noyalib::from_str(yaml).unwrap();
     assert_eq!(schedule.flow(), "reports/nightly.lua");
-    assert_eq!(schedule.timezone(), chrono_tz::Europe::Berlin);
+    assert_eq!(schedule.timezone().name(), "Europe/Berlin");
     assert_eq!(schedule.grace_seconds(), 3600);
     assert_eq!(schedule.context()["region"], serde_json::json!("eu"));
 }

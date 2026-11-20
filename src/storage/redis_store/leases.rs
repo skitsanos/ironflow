@@ -1,6 +1,6 @@
 use std::sync::LazyLock;
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 
 use super::RedisStateStore;
 use super::lease_cas::LeaseGuard;
@@ -56,7 +56,7 @@ impl RedisStateStore {
             .guarded_mutation(run_id, LeaseGuard::Owner(owner), move |info| {
                 info.status = status.clone();
                 if status.is_terminal() && info.finished.is_none() {
-                    info.finished = Some(Utc::now());
+                    info.finished = Some(Timestamp::now());
                 }
             })
             .await?
@@ -91,7 +91,7 @@ impl RedisStateStore {
             .is_some())
     }
 
-    pub(super) async fn reconcile_owned_runs(&self, _now: DateTime<Utc>) -> StorageResult<usize> {
+    pub(super) async fn reconcile_owned_runs(&self, _now: Timestamp) -> StorageResult<usize> {
         let mut reconciled = 0;
         // A record the pass cannot decode keeps its expired lease and so stays
         // in the expiry index (IF-181); later pages start behind those.
@@ -166,7 +166,7 @@ fn stall_expired_run(info: &mut RunInfo) -> bool {
     if info.status.is_terminal() {
         return false;
     }
-    let finished = Utc::now();
+    let finished = Timestamp::now();
     for task in info.tasks.values_mut() {
         if !task.status.is_terminal() {
             task.status = if task.status == TaskStatus::Running {

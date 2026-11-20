@@ -4,7 +4,7 @@ Unified LLM call for Azure deployments.
 Flow:
 1) Call `nodes.llm` with `provider = "azure"` and `mode = "chat"`.
 2) Use environment values for endpoint/version/deployment/key.
-3) Log the normalized assistant reply.
+3) Log the selected model and the normalized assistant reply.
 
 Environment variables:
 - AZURE_OPENAI_ENDPOINT
@@ -23,7 +23,7 @@ flow:step("ask", nodes.llm({
 }))
 
 flow:step("print", nodes.log({
-    message = "Azure LLM reply: ${ctx.llm_azure_text}"
+    message = "Azure LLM (${ctx.llm_azure_model}): ${ctx.llm_azure_text}"
 })):depends_on("ask")
 
 return flow

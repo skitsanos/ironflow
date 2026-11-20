@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use chrono::Utc;
+use jiff::Timestamp;
 
 use super::SqlStateStore;
 use crate::engine::types::{Context, RunInfo, RunStatus, RunSummary, TaskState};
@@ -28,7 +28,7 @@ impl StateStore for SqlStateStore {
             id: run_id.to_string(),
             flow_name: flow_name.to_string(),
             status: RunStatus::Pending,
-            started: Some(Utc::now()),
+            started: Some(Timestamp::now()),
             finished: None,
             ctx: ctx.clone(),
             tasks: HashMap::new(),
@@ -68,10 +68,7 @@ impl StateStore for SqlStateStore {
         self.renew_owned_run(run_id, lease).await
     }
 
-    async fn reconcile_expired_run_leases(
-        &self,
-        now: chrono::DateTime<chrono::Utc>,
-    ) -> StorageResult<usize> {
+    async fn reconcile_expired_run_leases(&self, now: jiff::Timestamp) -> StorageResult<usize> {
         self.reconcile_owned_runs(now).await
     }
 
@@ -110,21 +107,7 @@ impl StateStore for SqlStateStore {
     }
 
     async fn get_run_info(&self, run_id: &str) -> StorageResult<RunInfo> {
-        let sql = format!(
-            "SELECT id, flow_name, status, started, finished, ctx FROM {} WHERE id = {}",
-            self.tables.runs,
-            self.placeholder(1)
-        );
-        let row = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
-            .bind(run_id)
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(|error| {
-                StorageError::backend(format_args!("Failed to read run '{run_id}'"), error)
-            })?
-            .ok_or_else(|| StorageError::not_found(format_args!("Run '{run_id}' not found")))?;
-        let tasks = self.read_tasks(run_id).await?;
-        Self::row_to_run_info(&row, tasks)
+        self.begin_inspection(run_id).await?.finish().await
     }
 
     async fn list_runs(&self, status_filter: Option<RunStatus>) -> StorageResult<Vec<RunInfo>> {
@@ -186,7 +169,7 @@ impl StateStore for SqlStateStore {
         self.delete_run_transactional(run_id).await
     }
 
-    async fn prune_before(&self, cutoff: chrono::DateTime<Utc>) -> StorageResult<usize> {
+    async fn prune_before(&self, cutoff: jiff::Timestamp) -> StorageResult<usize> {
         self.prune_before_transactional(cutoff).await
     }
 

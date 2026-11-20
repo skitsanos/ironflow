@@ -6,8 +6,8 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts generate` and verified with
 `bun run scripts/issues_registry.ts check`.
 
-- Total findings: 229
-- Active findings: 3
+- Total findings: 262
+- Active findings: 0
 
 ## Working agreement
 
@@ -252,8 +252,41 @@ priority, area, and title. The registry is generated with
 | [IF-222](./IF-222.md) | P3 | Resolved | Documents/extraction fidelity | Document extraction fidelity follow-ups for DOCX, PPTX and PDF metadata |
 | [IF-223](./IF-223.md) | P3 | Resolved | Data transforms | Data transform follow-ups: YAML non-finite and large numbers, CSV formula cells, neq on a missing field |
 | [IF-224](./IF-224.md) | P3 | Resolved | Documents/extraction fidelity | extract_pptx does not tell hidden slides apart |
-| [IF-225](./IF-225.md) | P3 | Open | Documents/extraction fidelity | Verify extract_word against a document saved by Word or LibreOffice |
-| [IF-226](./IF-226.md) | P3 | Open | Documents/extraction fidelity | Verify extract_pptx comments and notes header and date placeholders against a PowerPoint deck |
-| [IF-227](./IF-227.md) | P3 | Open | Documents/extraction fidelity | Verify extract_xlsx date cells against a workbook saved by Excel |
+| [IF-225](./IF-225.md) | P3 | Resolved | Documents/extraction fidelity | Verify extract_word against a document saved by Word or LibreOffice |
+| [IF-226](./IF-226.md) | P3 | Resolved | Documents/extraction fidelity | Verify extract_pptx comments and notes header and date placeholders against a PowerPoint deck |
+| [IF-227](./IF-227.md) | P3 | Resolved | Documents/extraction fidelity | Verify extract_xlsx date cells against a workbook saved by Excel |
 | [IF-228](./IF-228.md) | P3 | Resolved | Documents/extraction fidelity | Decide whether slide footer placeholder text belongs in extract_pptx slide text |
 | [IF-229](./IF-229.md) | P3 | Resolved | Documents/extraction fidelity | extract_pptx approximated bullets inherited from the layout and master |
+| [IF-230](./IF-230.md) | P3 | Resolved | Documents/extraction fidelity | extract_word and extract_pptx read the main document and its parts from fixed paths |
+| [IF-231](./IF-231.md) | P2 | Resolved | Dependencies/time handling | chrono and chrono-tz are reported as unmaintained |
+| [IF-232](./IF-232.md) | P3 | Resolved | Storage/retention | prune_before compares a different precision in the JSON and Redis stores than in SQL |
+| [IF-233](./IF-233.md) | P3 | Resolved | Document extraction/extract_xlsx | extract_xlsx fails the step on a date or elapsed-time cell with an extreme value |
+| [IF-234](./IF-234.md) | P3 | Resolved | Utility nodes/date_format | date_format writes the century of a year before 0000 as characters that are not a number |
+| [IF-235](./IF-235.md) | P1 | Resolved | Dependency security | Six lettre advisories fail the audit gate; send_email over SMTP uses the affected code |
+| [IF-236](./IF-236.md) | P3 | Resolved | MCP/resource bounds | rmcp 3.11.0 reads a JSON error body up to the full response limit |
+| [IF-237](./IF-237.md) | P3 | Resolved | Documents/HTML conversion | htmd 0.6 no longer accepts IronFlow's depth-capped HTML tree |
+| [IF-238](./IF-238.md) | P2 | Resolved | Nodes/date_format | date_format silently returns midnight for conflicting timestamp fields |
+| [IF-239](./IF-239.md) | P2 | Resolved | Tooling/integration gate | Integration gate receipt can identify a different tree from the one tested |
+| [IF-240](./IF-240.md) | P3 | Resolved | CI/container publication | Container publication ignores changes to shipped third-party notices |
+| [IF-241](./IF-241.md) | P2 | Resolved | Release/distribution | Release archives and runtime image omit IronFlow’s own license |
+| [IF-242](./IF-242.md) | P2 | Resolved | Nodes/filesystem | Recursive list_directory can inventory the wrong directory on Unix |
+| [IF-243](./IF-243.md) | P2 | Resolved | Nodes/CSV | CSV header escaping can collapse distinct object keys |
+| [IF-244](./IF-244.md) | P2 | Resolved | Nodes/XLSX | XLSX date and duration headers acquire literal JSON quotes |
+| [IF-245](./IF-245.md) | P2 | Resolved | API/idempotency | A small task output cap breaks replay of completed API requests |
+| [IF-246](./IF-246.md) | P2 | Resolved | CLI/validation | Child-flow validation can miss invalid descendants depending on declaration order |
+| [IF-247](./IF-247.md) | P2 | Resolved | Lua/static validation | Strict Lua validation rejects the implicit self parameter of colon methods |
+| [IF-248](./IF-248.md) | P2 | Resolved | Nodes/Azure OpenAI | Azure Responses can name different deployments in the request URL and body |
+| [IF-249](./IF-249.md) | P2 | Resolved | Nodes/database | db_query silently drops columns with duplicate labels |
+| [IF-250](./IF-250.md) | P2 | Resolved | Nodes/HTTP | HTTP response metadata silently discards repeated headers |
+| [IF-251](./IF-251.md) | P2 | Resolved | Nodes/MCP | MCP list_tools cannot discover tools beyond the first page |
+| [IF-252](./IF-252.md) | P2 | Resolved | Nodes/MCP | MCP action timeout excludes time waiting for the session lock |
+| [IF-253](./IF-253.md) | P1 | Resolved | Artifacts/publication | Inconclusive verification can unlink a valid retained artifact |
+| [IF-254](./IF-254.md) | P2 | Resolved | Storage/SQL | Run inspection can mix the header and tasks of different runs |
+| [IF-255](./IF-255.md) | P2 | Resolved | Scheduler/time zones | Restarting during a fall-back overlap can miss an in-grace fire |
+| [IF-256](./IF-256.md) | P2 | Resolved | Metrics/subworkflows | Subworkflow task attempts disappear from process metrics |
+| [IF-257](./IF-257.md) | P2 | Resolved | Nodes/date_format | Invalid timezone components are silently normalized to another offset |
+| [IF-258](./IF-258.md) | P3 | Resolved | Nodes/HTTP | A non-text response header is silently reported as an empty value |
+| [IF-259](./IF-259.md) | P3 | Resolved | Testing/Unix CLI | Unix file-mode regression test loses the child exit status on failure |
+| [IF-260](./IF-260.md) | P2 | Resolved | CLI/validation | Child-flow recursion severity still depends on declaration order |
+| [IF-261](./IF-261.md) | P2 | Resolved | MCP/pagination | mcp_client sends an empty cursor when there is no next page |
+| [IF-262](./IF-262.md) | P2 | Resolved | Security/redaction | A protected value inside a non-text response header is recorded unredacted |

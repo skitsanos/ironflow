@@ -190,7 +190,7 @@ async fn sqlite_event_store_backfills_legacy_rows_in_bounded_stable_order() {
         .bind(&event.run_id)
         .bind(event.event_type.as_sse_name())
         .bind(serde_json::to_string(&event).unwrap())
-        .bind(event.timestamp.to_rfc3339())
+        .bind(ironflow::util::timestamp::rfc3339_offset(event.timestamp))
         .execute(&pool)
         .await
         .unwrap();
@@ -275,7 +275,9 @@ async fn sqlite_event_store_backfills_legacy_rows_in_bounded_stable_order() {
     .bind(&late_legacy.run_id)
     .bind(late_legacy.event_type.as_sse_name())
     .bind(serde_json::to_string(&late_legacy).unwrap())
-    .bind(late_legacy.timestamp.to_rfc3339())
+    .bind(ironflow::util::timestamp::rfc3339_offset(
+        late_legacy.timestamp,
+    ))
     .execute(&pool)
     .await
     .unwrap();
@@ -676,7 +678,7 @@ async fn postgres_event_store_obeys_cursor_contract_and_classifies_failures() {
         .bind(&legacy.run_id)
         .bind(legacy.event_type.as_sse_name())
         .bind(serde_json::to_string(&legacy).unwrap())
-        .bind(legacy.timestamp.to_rfc3339())
+        .bind(ironflow::util::timestamp::rfc3339_offset(legacy.timestamp))
         .execute(&pool)
         .await
         .unwrap();

@@ -10,7 +10,6 @@ use std::time::Duration;
 
 use axum::Router;
 use axum::http::StatusCode;
-use chrono::{DateTime, TimeZone as _, Utc};
 use ironflow::engine::types::Context;
 use ironflow::nodes::NodeRegistry;
 use ironflow::scheduler::config::ScheduleConfig;
@@ -19,6 +18,7 @@ use ironflow::scheduler::{Decision, Outcome, Scheduler};
 use ironflow::storage::StateStore as _;
 use ironflow::storage::event_store::MemoryEventStore;
 use ironflow::storage::json_store::JsonStateStore;
+use jiff::{SignedDuration, Timestamp};
 
 #[path = "support/flow_load.rs"]
 mod flow_load;
@@ -30,8 +30,13 @@ use flow_load::{hold_both_load_permits, slow_flow, validate, validation_router};
 use super::test_scheduler_e2e::PROCESS_ADMISSION_LOCK as PERMITS;
 
 /// Five seconds after the 02:00 UTC occurrence every schedule here matches.
-fn just_after_two() -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(2026, 3, 10, 2, 0, 5).unwrap()
+fn utc_at(year: i16, month: i8, day: i8, hour: i8, minute: i8, second: i8) -> Timestamp {
+    let wall_clock = jiff::civil::datetime(year, month, day, hour, minute, second, 0);
+    jiff::tz::Offset::UTC.to_timestamp(wall_clock).unwrap()
+}
+
+fn just_after_two() -> Timestamp {
+    utc_at(2026, 3, 10, 2, 0, 5)
 }
 
 struct Fixture {
@@ -124,7 +129,7 @@ async fn eight_schedules_due_together_each_run_once_with_two_load_permits() {
 
     // The instants are settled: a later tick neither repeats nor adds a run.
     let later = scheduler
-        .evaluate(now + chrono::Duration::seconds(30))
+        .evaluate(now + SignedDuration::from_secs(30))
         .await;
     assert!(later.is_empty(), "{later:?}");
     assert_eq!(run_count(&fixture.store).await, 8);
@@ -190,7 +195,7 @@ async fn an_expired_load_wait_defers_the_instant_and_grace_bounds_the_retry() {
     .expect("the held parses never released the flow-load permits");
 
     // 95 seconds late: inside the 300-second grace, outside the 60-second one.
-    let retry_at = now + chrono::Duration::seconds(90);
+    let retry_at = now + SignedDuration::from_secs(90);
     let second = scheduler.evaluate(retry_at).await;
 
     let outcome = |name: &str| {
@@ -208,7 +213,7 @@ async fn an_expired_load_wait_defers_the_instant_and_grace_bounds_the_retry() {
     assert_eq!(run_count(&fixture.store).await, 1);
 
     let third = scheduler
-        .evaluate(retry_at + chrono::Duration::seconds(30))
+        .evaluate(retry_at + SignedDuration::from_secs(30))
         .await;
     assert!(third.is_empty(), "{third:?}");
     assert_eq!(run_count(&fixture.store).await, 1);

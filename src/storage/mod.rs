@@ -93,10 +93,7 @@ pub trait StateStore: Send + Sync {
     /// Atomically stall only non-terminal runs whose ownership lease expired.
     /// Unleased legacy runs are deliberately ignored for rolling-upgrade
     /// safety: a new replica cannot know whether an old replica is still live.
-    async fn reconcile_expired_run_leases(
-        &self,
-        _now: chrono::DateTime<chrono::Utc>,
-    ) -> StorageResult<usize> {
+    async fn reconcile_expired_run_leases(&self, _now: jiff::Timestamp) -> StorageResult<usize> {
         Ok(0)
     }
 
@@ -172,14 +169,14 @@ pub trait StateStore: Send + Sync {
             .map(|()| DeletedRun::default())
     }
 
-    /// Delete runs older than the given cutoff (UTC). Returns the number
-    /// removed. Default implementation scans via `list_runs`; stores that
+    /// Delete terminal runs that started before the cutoff, comparing whole
+    /// microseconds as run listing does. Returns the number removed. Default implementation scans via `list_runs`; stores that
     /// track metadata separately MAY override with an index-only path.
-    async fn prune_before(&self, cutoff: chrono::DateTime<chrono::Utc>) -> StorageResult<usize> {
+    async fn prune_before(&self, cutoff: jiff::Timestamp) -> StorageResult<usize> {
         let runs = self.list_runs(None).await?;
         let mut removed = 0;
         for r in runs {
-            if r.started.map(|t| t < cutoff).unwrap_or(false) && r.status.is_terminal() {
+            if run_listing::started_before(r.started, cutoff) && r.status.is_terminal() {
                 match self.delete_run(&r.id).await {
                     Ok(()) => removed += 1,
                     Err(error) if error.is_not_found() => {}
@@ -255,7 +252,7 @@ pub trait StateStore: Send + Sync {
 /// position of later pages (IF-051).
 pub(crate) async fn prune_before_via_summary_pages(
     store: &(impl StateStore + ?Sized),
-    cutoff: chrono::DateTime<chrono::Utc>,
+    cutoff: jiff::Timestamp,
 ) -> StorageResult<usize> {
     let page_size = PageSize::new(256)?;
     let mut removed = 0;
@@ -264,8 +261,7 @@ pub(crate) async fn prune_before_via_summary_pages(
         let query = RunListQuery::new(None, after, page_size)?;
         let page = store.list_run_summaries_page(&query).await?;
         for summary in &page.items {
-            if summary.status.is_terminal()
-                && summary.started.is_some_and(|started| started < cutoff)
+            if summary.status.is_terminal() && run_listing::started_before(summary.started, cutoff)
             {
                 match store.delete_run(&summary.id).await {
                     Ok(()) => removed += 1,
@@ -288,5 +284,7 @@ pub(crate) async fn prune_before_via_summary_pages(
 pub async fn reconcile_nonterminal_runs(
     store: &(impl StateStore + ?Sized),
 ) -> StorageResult<usize> {
-    store.reconcile_expired_run_leases(chrono::Utc::now()).await
+    store
+        .reconcile_expired_run_leases(jiff::Timestamp::now())
+        .await
 }

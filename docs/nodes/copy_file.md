@@ -1,54 +1,41 @@
 # `copy_file`
 
-Copy a regular file to a new location through the same tracked atomic writer
-as `write_file`. The copy runs on a tracked blocking worker and is bounded by
-`IRONFLOW_MAX_FILE_BYTES` (default 50 MiB).
+Copy a regular file to a new path through the same atomic writer as `write_file`, creating missing parent directories.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `source` | string | yes | — | Path to the source file. Must be a regular file. Supports `${ctx.key}` interpolation. |
-| `destination` | string | yes | — | Path for the copied file. Missing parent directories are created. Supports `${ctx.key}` interpolation. |
-
-## Source and destination safety
-
-- The source follows the `read_file` policy: FIFOs, devices and directories
-  are refused before any byte is read. Final-path symlinks are also refused
-  on Unix and Windows. Its size is admitted against
-  `IRONFLOW_MAX_FILE_BYTES`, and a source that changes
-  size while being copied fails the copy.
-- Configured parent-directory aliases, including macOS `/tmp`, are resolved
-  before staging. Unix pins the resolved directory, so retargeting the alias
-  afterward cannot redirect the copy. This is not permission to follow a
-  destination-file symlink.
-- On Unix, missing parent directories are created
-  [`0755` masked by the process umask](write_file.md#created-directories).
-- A destination-file symlink, dangling link or special file is refused and its
-  target is never opened or truncated. An existing regular destination is
-  replaced only after a complete, flushed and synced copy.
-- On Unix, the copy keeps the source's permission bits (for example an
-  executable `0751` script stays `0751`), whether the destination is new or
-  replaces a file with another mode; the staged file is created `0600` and
-  receives the source mode before it is published. Other platforms use
-  native file-permission semantics, not Unix modes; protect destination
-  directories with appropriate access controls.
-- Copies to one destination are serialized inside the IronFlow process with
-  `write_file` writes to it; see [write_file](write_file.md) for the limits of
-  that guarantee.
-- Source, admission, cancellation or commit failure leaves an existing
-  destination unchanged and removes the staged file.
-- Portable platforms revalidate the destination immediately before an OS-level
-  atomic replacement, but cannot close a hostile parent-directory swap race;
-  protect destination trees from same-identity mutation.
+| `source` | string | Yes | — | Path to a regular source file; supports `${ctx.key}` interpolation. |
+| `destination` | string | Yes | — | Path for the copy; supports `${ctx.key}` interpolation. |
 
 ## Context Output
 
-- `copy_file_source` — The resolved source path (after interpolation).
-- `copy_file_destination` — The resolved destination path (after interpolation).
-- `copy_file_success` — `true` when the staged copy was committed.
+| Key | Type | Description |
+|-----|------|-------------|
+| `copy_file_source` | string | Source path after interpolation. |
+| `copy_file_destination` | string | Destination path after interpolation. |
+| `copy_file_success` | boolean | `true` after the copy is committed. |
 
-## Example
+## Behavior
+
+- A source that is a directory, FIFO, device or symlink fails the step.
+- A destination that is a symlink, dangling link or special file fails the step; an existing regular file is replaced.
+- A source that changes size during the copy fails the step.
+- Any failure leaves an existing destination unchanged.
+- On Unix the copy keeps the source's permission bits, whether the destination is new or replaced.
+- Missing parent directories are created as described in [Created directories](write_file.md#created-directories).
+- Copies and `write_file` writes to the same destination run one after another within one process.
+
+## Limits
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `IRONFLOW_MAX_FILE_BYTES` | 50 MiB | Maximum size of the source file. |
+
+## Examples
+
+### Copy a file
 
 ```lua
 local flow = Flow.new("copy_demo")

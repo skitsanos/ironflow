@@ -39,13 +39,25 @@ pub(super) fn into_owned_context(context: Arc<Context>) -> Context {
     Arc::try_unwrap(context).unwrap_or_else(|shared| shared.as_ref().clone())
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum FinalContext {
+    Snapshot,
+    LiveChild,
+    PreserveAdmissionKey(&'static str),
+}
+
 pub(super) fn prepare_final_context(
     context: Arc<Context>,
     overlay: &ExecutionOverlay,
-    retain_live: bool,
+    mode: FinalContext,
 ) -> (Context, Option<Context>) {
-    let context = into_owned_context(context);
-    if !retain_live {
+    let mut context = into_owned_context(context);
+    if let FinalContext::PreserveAdmissionKey(key) = mode {
+        // StateStore merges these updates. Omitting the key retains the value
+        // atomically stored at admission, regardless of later step output.
+        context.remove(key);
+    }
+    if mode != FinalContext::LiveChild {
         return (bound_context(overlay.redact_context_owned(context)), None);
     }
     // A parent run reads the values as the child produced them; only the

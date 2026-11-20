@@ -5,10 +5,11 @@ use std::time::{Duration, Instant};
 use anyhow::{Result, anyhow, bail};
 use rmcp::model::{
     CallToolRequest, CallToolRequestParams, CallToolResult, ClientConfig, ClientRequest,
-    ListToolsRequest, ListToolsResult, ProtocolVersion, ServerPeerInfo, ServerResult,
+    ListToolsRequest, ListToolsResult, PaginatedRequestParams, ProtocolVersion, ServerPeerInfo,
+    ServerResult,
 };
 use rmcp::service::{PeerRequestOptions, RoleClient, RunningService};
-use tokio::sync::Mutex as AsyncMutex;
+use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard};
 use uuid::Uuid;
 
 use crate::nodes::child_process::ChildProcessGuard;
@@ -66,9 +67,18 @@ impl McpSession {
         Ok(())
     }
 
-    pub(super) async fn list_tools(&self, timeout: Duration) -> Result<ListToolsResult> {
+    pub(super) async fn list_tools(
+        &self,
+        cursor: Option<&str>,
+        timeout: Duration,
+    ) -> Result<ListToolsResult> {
         self.require_tools_capability()?;
-        let request = ClientRequest::ListToolsRequest(ListToolsRequest::default());
+        let params =
+            cursor.map(|s| PaginatedRequestParams::default().with_cursor(Some(s.to_owned())));
+        let request = ClientRequest::ListToolsRequest(ListToolsRequest {
+            params,
+            ..Default::default()
+        });
         let response = self
             .service
             .peer()
@@ -179,7 +189,7 @@ impl SessionManager {
         Ok(handle)
     }
 
-    pub(super) fn lease(self: &Arc<Self>, handle: &str) -> Result<SessionLease> {
+    fn lookup(&self, handle: &str) -> Result<Arc<AsyncMutex<McpSession>>> {
         let now = Instant::now();
         let mut sessions = self.lock_sessions()?;
         let expired = self.prune_expired(&mut sessions, now);
@@ -190,24 +200,28 @@ impl SessionManager {
         let session = Arc::clone(&stored.session);
         drop(sessions);
         schedule_close(expired);
+        Ok(session)
+    }
 
+    pub(super) async fn lease(
+        self: &Arc<Self>,
+        handle: &str,
+        deadline: tokio::time::Instant,
+    ) -> Result<SessionLease> {
+        let session = self.lookup(handle)?.lock_owned().await;
+        if tokio::time::Instant::now() >= deadline {
+            bail!("mcp_client: timed out waiting for session");
+        }
+        // A prior operation may have closed or invalidated this handle while we waited.
+        if !self.lock_sessions()?.contains_key(handle) {
+            bail!("mcp_client: unknown or expired session handle '{handle}'");
+        }
         Ok(SessionLease {
             manager: Arc::clone(self),
             handle: handle.to_string(),
             session,
             armed: true,
         })
-    }
-
-    pub(super) async fn close(&self, handle: &str, timeout: Duration) -> Result<McpTransport> {
-        let stored = self
-            .lock_sessions()?
-            .remove(handle)
-            .ok_or_else(|| anyhow!("mcp_client: unknown or expired session handle '{handle}'"))?;
-        let mut session = stored.session.lock().await;
-        let transport = session.transport();
-        session.close(timeout).await?;
-        Ok(transport)
     }
 
     fn remove(&self, handle: &str) {
@@ -242,16 +256,16 @@ impl SessionManager {
 pub(super) struct SessionLease {
     manager: Arc<SessionManager>,
     handle: String,
-    session: Arc<AsyncMutex<McpSession>>,
+    session: OwnedMutexGuard<McpSession>,
     armed: bool,
 }
 
 impl SessionLease {
-    pub(super) fn session(&self) -> Arc<AsyncMutex<McpSession>> {
-        Arc::clone(&self.session)
+    pub(super) fn session(&mut self) -> &mut McpSession {
+        &mut self.session
     }
 
-    pub(super) fn disarm(&mut self) {
+    pub(super) fn disarm(mut self) {
         self.armed = false;
     }
 }

@@ -98,7 +98,17 @@ describe("repository integration policy", () => {
     // IF-164: document dependencies carry only the features the nodes use.
     expect(dependencies.comrak["default-features"]).toBeFalse();
     expect(dependencies.lopdf["default-features"]).toBeFalse();
-    expect(dependencies.lopdf.features).toEqual(["chrono"]);
+    // IF-231: neither document crate may bring chrono back. lopdf's chrono
+    // feature only converts PDF date objects, which IronFlow reads as text,
+    // and calamine's dates feature is replaced by xlsx/cells.rs (IF-233).
+    expect(dependencies.lopdf.features).toBeUndefined();
+    expect(dependencies.calamine["default-features"]).toBeFalse();
+    expect(dependencies.calamine.features).toBeUndefined();
+    // IF-231: schedule zones come only from the IANA database compiled into
+    // the binary. A default feature would let the host's zoneinfo or TZ
+    // decide a claim key, differently on each replica.
+    expect(dependencies.jiff["default-features"]).toBeFalse();
+    expect(dependencies.jiff.features).toEqual(["std", "tzdb-bundle-always"]);
     expect(dependencies.parley["default-features"]).toBeFalse();
     expect(dependencies.parley.features).toEqual(["std", "complex-scripts"]);
     expect(dependencies.krilla["default-features"]).toBeFalse();
@@ -115,15 +125,59 @@ describe("repository integration policy", () => {
     expect(manifest).not.toContain("tls-native-tls");
   });
 
-  test("the one audit exception lasts only while no fixed SQLite binding resolves", async () => {
+  test("each audit exception lasts only while its crate cannot be fixed or removed", async () => {
     // IF-173: RUSTSEC-2026-0459 is fixed in libsqlite3-sys 0.39.0, which the
     // newest published sqlx-sqlite cannot resolve. The exception must go as
-    // soon as the lockfile holds a fixed version, and no other may join it.
+    // soon as the lockfile holds a fixed version.
     const { advisories } = Bun.TOML.parse(await read(".cargo/audit.toml")) as { advisories: { ignore: string[] } };
     const locked = (await read("Cargo.lock")).match(/name = "libsqlite3-sys"\nversion = "(\d+)\.(\d+)\.\d+"/);
     expect(locked).not.toBeNull();
     const fixed = Number(locked![1]) > 0 || Number(locked![2]) >= 39;
-    expect(advisories.ignore).toEqual(fixed ? [] : ["RUSTSEC-2026-0459"]);
+    // IF-231: chrono is reported as unmaintained and has no patched version.
+    // The exception must go when the crate leaves the lockfile, and no
+    // unreviewed exception may join these two. chrono-tz carried a third
+    // until named zones moved to jiff; it must not come back.
+    const lockfile = await read("Cargo.lock");
+    const expected = fixed ? [] : ["RUSTSEC-2026-0459"];
+    if (lockfile.includes('name = "chrono"\n')) expected.push("RUSTSEC-2026-0543");
+    expect(advisories.ignore).toEqual(expected);
+    expect(lockfile).not.toContain('name = "chrono-tz"\n');
+  });
+
+  test("chrono is used only at the cron boundary", async () => {
+    // IF-231 stage 2: the scheduler's own time types are jiff. The cron crate
+    // still evaluates over chrono, so one adapter converts for it. A chrono
+    // type anywhere else in the scheduler would let naive-as-UTC values leak
+    // back into zone arithmetic.
+    // IF-231 stage 3: records, wire payloads, leases and clocks are jiff, and
+    // every stored form is written by src/util/timestamp.rs. A chrono type in
+    // another module would bring back a second formatter for the same bytes.
+    // IF-231 stage 4: the date_format node reads its own strftime dialect
+    // (src/nodes/utility/strftime) over jiff types.
+    const allowed = ["src/scheduler/cron_boundary.rs"];
+    const users: string[] = [];
+    for await (const file of new Bun.Glob("src/**/*.rs").scan(repository)) {
+      if (/\bchrono::|\buse chrono\b/.test(await read(file))) users.push(file);
+    }
+    expect(users.sort()).toEqual(allowed);
+    // Nothing of IronFlow's own serializes a chrono value any more, and
+    // jiff's serde feature stays off (the manifest test pins it), so a timestamp field
+    // without an explicit form does not compile.
+    // The adapter needs chrono's types only: no clock, serde or locale
+    // feature may be turned on for IronFlow's own use.
+    const { dependencies } = Bun.TOML.parse(await read("Cargo.toml")) as {
+      dependencies: Record<string, { "default-features"?: boolean; features?: string[] }>;
+    };
+    expect(dependencies.chrono["default-features"]).toBeFalse();
+    expect(dependencies.chrono.features).toBeUndefined();
+    // chrono reaches the graph through cron and rmcp only. Another parent
+    // means a dependency or feature brought it back.
+    const parents = (await read("Cargo.lock"))
+      .split("[[package]]")
+      .filter((block) => /^ "chrono"(,| \d)/m.test(block))
+      .map((block) => block.match(/name = "([^"]+)"/)![1])
+      .sort();
+    expect(parents).toEqual(["cron", "ironflow", "rmcp"]);
   });
 
   test("a scheduled run audits the default branch and runs no other job", async () => {
@@ -164,7 +218,7 @@ describe("repository integration policy", () => {
     expect(await read("scripts/integration_gate.sh")).toContain("--features postgres,redis,cjk-fonts");
   });
 
-  test("every release archive and the container image carry the third-party notices beside the fonts license", async () => {
+  test("every release archive and the container image carry the project license, third-party notices and font license", async () => {
     // IF-204: the notices file is a committed, gated build input, so packaging
     // and the image copy it as plain files.
     const notices = "THIRD_PARTY_LICENSES.md";
@@ -175,18 +229,45 @@ describe("repository integration policy", () => {
     const packaging = workflow.jobs.build.steps.filter((step) => step.name?.startsWith("Package ("));
     expect(packaging.map((step) => step.name)).toEqual(["Package (unix)", "Package (windows)"]);
     for (const step of packaging) {
+      expect(step.run, step.name).toMatch(/(?:^|\s)"?LICENSE"?(?:,|\s|$)/);
       expect(step.run, step.name).toContain(notices);
       expect(step.run, step.name).toContain("assets/fonts/OFL.txt");
     }
     const dockerfile = await read("Dockerfile");
     const copies = dockerfile.match(/^COPY \S+ \/usr\/local\/share\/licenses\/ironflow\/\S+$/gm) ?? [];
     expect(copies).toEqual([
+      "COPY LICENSE /usr/local/share/licenses/ironflow/LICENSE",
       "COPY assets/fonts/OFL.txt /usr/local/share/licenses/ironflow/fonts-OFL.txt",
       `COPY ${notices} /usr/local/share/licenses/ironflow/${notices}`,
     ]);
     const ignored = (await read(".dockerignore")).split("\n").filter((line) => line.trim() && !line.startsWith("#"));
     for (const pattern of ignored) {
       expect(new Bun.Glob(pattern).match(notices), pattern).toBeFalse();
+      expect(new Bun.Glob(pattern).match("LICENSE"), pattern).toBeFalse();
+    }
+  });
+
+  test("changes to files copied directly into the runtime image trigger container publication", async () => {
+    const workflow = Bun.YAML.parse(await read(".github/workflows/container.yml")) as {
+      on: { push: { paths: string[] } };
+    };
+    const runtime = (await read("Dockerfile")).split(/^FROM\s+\S+\s+AS\s+runtime\s*$/im)[1];
+    expect(runtime).toBeDefined();
+    const sources = new Set<string>();
+    for (const [, args] of runtime.matchAll(/^[ \t]*COPY[ \t]+(.+)$/gim)) {
+      if (args.startsWith("--from=")) continue; // A build-stage artifact, not a repository path.
+      // The runtime uses literal, whitespace-separated COPY paths.
+      expect(args, "unhandled runtime COPY syntax").toMatch(/^[\w./-]+(?:[ \t]+[\w./-]+)+$/);
+      for (const source of args.trim().split(/\s+/).slice(0, -1)) sources.add(source);
+    }
+    expect(sources.has("THIRD_PARTY_LICENSES.md")).toBeTrue();
+    for (const source of sources) {
+      let included = false;
+      for (const pattern of workflow.on.push.paths) {
+        const exclude = pattern.startsWith("!");
+        if (new Bun.Glob(exclude ? pattern.slice(1) : pattern).match(source)) included = !exclude;
+      }
+      expect(included, `container push paths omit runtime input ${source}`).toBeTrue();
     }
   });
 

@@ -34,13 +34,17 @@ pub(super) struct RunSnapshot {
 }
 
 pub(super) fn legacy_incarnation(info: &RunInfo) -> StorageResult<String> {
-    let immutable_identity = serde_json::to_vec(&(&info.id, &info.flow_name, info.started))
-        .map_err(|error| {
-            StorageError::backend(
-                format_args!("Failed to serialize Redis run identity '{}'", info.id),
-                error,
-            )
-        })?;
+    let immutable_identity = serde_json::to_vec(&(
+        &info.id,
+        &info.flow_name,
+        info.started.map(crate::util::timestamp::rfc3339_z),
+    ))
+    .map_err(|error| {
+        StorageError::backend(
+            format_args!("Failed to serialize Redis run identity '{}'", info.id),
+            error,
+        )
+    })?;
     Ok(format!(
         "legacy:{}",
         hex::encode(Sha256::digest(immutable_identity))
@@ -260,3 +264,7 @@ impl RedisStateStore {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "atomic_tests.rs"]
+mod tests;

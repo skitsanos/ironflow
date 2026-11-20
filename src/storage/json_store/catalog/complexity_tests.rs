@@ -4,7 +4,7 @@
 mod fixture {
     use std::collections::HashMap;
 
-    use chrono::{TimeZone as _, Utc};
+    use jiff::Timestamp;
 
     use crate::engine::types::{Context, RunInfo, RunStatus, RunSummary};
     use crate::storage::json_store::JsonStateStore;
@@ -102,7 +102,7 @@ mod fixture {
         CatalogRecord {
             id: format!("complexity-{index:05}"),
             status,
-            started: Some(Utc.timestamp_opt(index as i64, 0).unwrap()),
+            started: Some(Timestamp::new(index as i64, 0).unwrap()),
         }
     }
 
@@ -111,7 +111,7 @@ mod fixture {
             id: format!("complexity-{index:05}"),
             flow_name: "flow".to_string(),
             status,
-            started: Some(Utc.timestamp_opt(index as i64, 0).unwrap()),
+            started: Some(Timestamp::new(index as i64, 0).unwrap()),
             finished: None,
             ctx: Context::new(),
             tasks: HashMap::new(),

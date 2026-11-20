@@ -7,22 +7,22 @@
 //! well-formed lists, ranges, steps and month names fire on the same instants
 //! as before the check existed.
 
-use chrono::{DateTime, TimeZone as _, Utc};
 use ironflow::scheduler::config::parse_cron;
+use jiff::civil::DateTime;
 
-fn utc(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(year, month, day, hour, minute, 0)
-        .unwrap()
+/// A wall-clock time: a parsed expression has no time zone of its own.
+fn utc(year: i16, month: i8, day: i8, hour: i8, minute: i8) -> DateTime {
+    jiff::civil::datetime(year, month, day, hour, minute, 0, 0)
 }
 
 /// Instants at which `expression` fires in `(after, through]`.
-fn fired(expression: &str, after: DateTime<Utc>, through: DateTime<Utc>) -> Vec<String> {
+fn fired(expression: &str, after: DateTime, through: DateTime) -> Vec<String> {
     let schedule = parse_cron(expression)
         .unwrap_or_else(|error| panic!("'{expression}' should be accepted: {error}"));
     schedule
-        .after(&after)
+        .after(after)
         .take_while(|instant| *instant <= through)
-        .map(|instant| instant.format("%Y-%m-%d %H:%M:%S").to_string())
+        .map(|instant| instant.strftime("%Y-%m-%d %H:%M:%S").to_string())
         .collect()
 }
 
@@ -87,9 +87,9 @@ fn refusal_problem(field: &str, expression: &str) -> Option<String> {
     match parse_cron(expression) {
         Ok(schedule) => {
             let next = schedule
-                .after(&utc(2026, 11, 12, 0, 0))
+                .after(utc(2026, 11, 12, 0, 0))
                 .take(3)
-                .map(|instant| instant.format("%Y-%m-%d %H:%M:%S").to_string())
+                .map(|instant| instant.strftime("%Y-%m-%d %H:%M:%S").to_string())
                 .collect::<Vec<_>>();
             Some(format!("'{expression}' was accepted and fires at {next:?}"))
         }

@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use sqlx::Row as _;
 
 use super::{SqlStateStore, datetime_to_string};
@@ -7,7 +7,7 @@ use crate::storage::{StorageError, StorageResult};
 const RECONCILE_BATCH: usize = 256;
 
 impl SqlStateStore {
-    pub(super) async fn reconcile_owned_runs(&self, _now: DateTime<Utc>) -> StorageResult<usize> {
+    pub(super) async fn reconcile_owned_runs(&self, _now: Timestamp) -> StorageResult<usize> {
         let mut total = 0;
         loop {
             let (candidates, reconciled) = self.reconcile_owned_batch().await?;
@@ -37,7 +37,7 @@ impl SqlStateStore {
             .await
             .map_err(|error| StorageError::backend("Failed to list expired run leases", error))?;
         let candidate_count = rows.len();
-        let finished = datetime_to_string(Some(Utc::now()))
+        let finished = datetime_to_string(Some(Timestamp::now()))
             .expect("a concrete reconciliation timestamp always serializes");
         let mut reconciled = 0;
 

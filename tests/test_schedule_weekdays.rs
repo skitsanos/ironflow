@@ -5,22 +5,22 @@
 //! reference fortnight runs from Sunday 2026-11-08 to Saturday 2026-11-21;
 //! Thursday 2026-11-12 is the day the defect was reproduced on a live server.
 
-use chrono::{DateTime, TimeZone as _, Utc};
 use ironflow::scheduler::config::parse_cron;
+use jiff::civil::DateTime;
 
-fn utc(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(year, month, day, hour, minute, 0)
-        .unwrap()
+/// A wall-clock time: a parsed expression has no time zone of its own.
+fn utc(year: i16, month: i8, day: i8, hour: i8, minute: i8) -> DateTime {
+    jiff::civil::datetime(year, month, day, hour, minute, 0, 0)
 }
 
 /// Days on which `expression` fires in `(after, through]`, as weekday and date.
-fn fired_days(expression: &str, after: DateTime<Utc>, through: DateTime<Utc>) -> Vec<String> {
+fn fired_days(expression: &str, after: DateTime, through: DateTime) -> Vec<String> {
     let schedule = parse_cron(expression)
         .unwrap_or_else(|error| panic!("'{expression}' should be accepted: {error}"));
     schedule
-        .after(&after)
+        .after(after)
         .take_while(|instant| *instant <= through)
-        .map(|instant| instant.format("%a %Y-%m-%d").to_string())
+        .map(|instant| instant.strftime("%a %Y-%m-%d").to_string())
         .collect()
 }
 
@@ -174,13 +174,13 @@ fn the_live_reproduction_fires_on_thursday_for_four_and_not_for_five() {
 
     let four = parse_cron("* * * * 4").unwrap();
     assert_eq!(
-        four.after(&thursday_morning).next().unwrap(),
+        four.after(thursday_morning).next().unwrap(),
         utc(2026, 11, 12, 10, 1)
     );
 
     let five = parse_cron("* * * * 5").unwrap();
     assert_eq!(
-        five.after(&thursday_morning).next().unwrap(),
+        five.after(thursday_morning).next().unwrap(),
         utc(2026, 11, 13, 0, 0)
     );
 }
@@ -335,13 +335,13 @@ fn unknown_and_misplaced_names_are_still_rejected() {
 }
 
 mod in_the_schedule_time_zone {
-    use chrono::NaiveDateTime;
     use ironflow::engine::types::Context;
     use ironflow::scheduler::config::ScheduleConfig;
     use ironflow::scheduler::timing::due_instants;
+    use jiff::civil::DateTime;
 
-    fn local(text: &str) -> NaiveDateTime {
-        NaiveDateTime::parse_from_str(text, "%Y-%m-%d %H:%M:%S").unwrap()
+    fn local(text: &str) -> DateTime {
+        text.parse().unwrap()
     }
 
     #[test]
@@ -364,7 +364,10 @@ mod in_the_schedule_time_zone {
         assert!(!truncated);
         assert_eq!(due.len(), 1);
         assert_eq!(due[0].local, local("2026-11-09 09:00:00"));
-        assert_eq!(due[0].instant.to_rfc3339(), "2026-11-09T09:00:00+13:00");
+        assert_eq!(
+            due[0].instant.strftime("%Y-%m-%dT%H:%M:%S%:z").to_string(),
+            "2026-11-09T09:00:00+13:00"
+        );
     }
 
     #[test]

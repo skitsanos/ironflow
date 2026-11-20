@@ -1,25 +1,34 @@
 # `switch_node`
 
-Multi-case routing based on a context value, similar to a switch/case statement.
+Select a route by matching a context value against a map of cases.
+Dependent steps choose a branch with `:route("<name>")`.
 
 ## Parameters
 
-| Parameter | Type   | Required | Default     | Description                                                        |
-|-----------|--------|----------|-------------|--------------------------------------------------------------------|
-| `value`   | string | Yes      | --          | Expression that resolves to a context value (e.g., `ctx.role`)     |
-| `cases`   | object | Yes      | --          | Map of case values to route names                                  |
-| `default` | string | No       | `"default"` | Route name used when no case matches the resolved value            |
-
-The `value` expression is resolved from the context using the `ctx.` prefix and supports dotted paths. The resolved value is compared as a string against each key in `cases`. If a match is found, the corresponding route is used; otherwise `default` is used.
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `value` | string | Yes | — | Context path to read, such as `ctx.user.role`; the `ctx.` prefix is optional. |
+| `cases` | object | Yes | — | Map of case value to route name. |
+| `default` | string | No | `"default"` | Route used when no case matches. |
 
 ## Context Output
 
-- `_route_{step_name}` -- the selected route string
-- `_switch_value_{step_name}` -- the resolved value that was matched against cases
+| Key | Type | Description |
+|-----|------|-------------|
+| `_route_{step_name}` | string | The selected route. |
+| `_switch_value_{step_name}` | string | The resolved value as text. |
 
-`{step_name}` defaults to `"switch"` unless the internal `_step_name` field is set.
+`{step_name}` is the name of the step.
 
-## Example
+## Behavior
+
+- The value is compared as text with the case keys: a string as-is, a number or boolean as its JSON text (`5`, `true`), an object or array as compact JSON.
+- A path that does not resolve becomes `""`; it does not fail the step.
+- A case whose route is not a string is treated as no match.
+
+## Examples
+
+### Route by role
 
 ```lua
 local flow = Flow.new("role_routing")
@@ -44,11 +53,6 @@ flow:step("handle_editor", nodes.log({
     level = "info"
 })):depends_on("check_role"):route("editor_flow")
 
-flow:step("handle_viewer", nodes.log({
-    message = "Read-only view for ${ctx.user.name}",
-    level = "info"
-})):depends_on("check_role"):route("viewer_flow")
-
 flow:step("handle_guest", nodes.log({
     message = "Guest access — limited functionality",
     level = "warn"
@@ -57,4 +61,4 @@ flow:step("handle_guest", nodes.log({
 return flow
 ```
 
-If `ctx.user.role` is `"editor"`, the route `_route_switch` will be set to `"editor_flow"`.
+If `ctx.user.role` is `"editor"`, `_route_check_role` is `"editor_flow"`.

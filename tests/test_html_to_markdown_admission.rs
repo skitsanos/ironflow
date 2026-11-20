@@ -104,3 +104,36 @@ async fn html_to_markdown_charges_repeated_prefixes_before_the_output_exists() {
         "html_to_markdown: Markdown output exceeds IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES (20)"
     );
 }
+
+#[tokio::test]
+async fn html_to_markdown_charges_list_indents_and_table_padding_before_the_output_exists() {
+    // IF-237: the same early refusal as for block quotes, for the other
+    // elements that repeat bytes. Each document is refused at a limit its
+    // own text fits in.
+    let cases = [
+        (
+            "<ul><li><ul><li><ul><li><pre>a\nb\nc\nd\n</pre></li></ul></li></ul></li></ul>",
+            "*   *   *   a\n            b\n            c\n            d",
+        ),
+        (
+            "<ol><li><ol><li><ol><li><pre>a\nb\nc\nd\n</pre></li></ol></li></ol></li></ol>",
+            "1.  1.  1.  a\n            b\n            c\n            d",
+        ),
+        (
+            "<table><tr><th>wwwwwwwwwwwwwwwwwwww</th></tr><tr><td>a</td></tr><tr><td>b</td></tr><tr><td>c</td></tr></table>",
+            "| wwwwwwwwwwwwwwwwwwww |\n| -------------------- |\n| a                    |\n| b                    |\n| c                    |",
+        ),
+    ];
+    for (html, markdown) in cases {
+        let _limit = EnvOverride::set("IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES", "1024");
+        assert_eq!(html_to_markdown(html).await.unwrap(), markdown);
+
+        // Above the element text, below what the repetition adds.
+        let _limit = EnvOverride::set("IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES", "40");
+        let error = html_to_markdown(html).await.unwrap_err().to_string();
+        assert_eq!(
+            error,
+            "html_to_markdown: Markdown output exceeds IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES (40)"
+        );
+    }
+}

@@ -191,3 +191,155 @@ fn a_chain_deeper_than_the_nesting_limit_fails_and_the_walk_stops_there() {
         "l3.lua must be loaded and refused"
     );
 }
+
+#[test]
+fn a_shared_child_reaches_its_invalid_descendant_in_either_declaration_order() {
+    let directory = tempfile::tempdir().unwrap();
+    let dir = directory.path();
+    write(dir, "a.lua", &calling("a", "b.lua"));
+    write(dir, "b.lua", &calling("b", "c.lua"));
+    write(
+        dir,
+        "c.lua",
+        "local f = Flow.new('c')\nf:step('log', nodes.log({message='test'})):depends_on('missing_step')\nreturn f",
+    );
+
+    let via = "f:step('via_a', nodes.subworkflow({flow='a.lua'})):depends_on('gate'):route('true')";
+    let direct = "f:step('direct_b', nodes.subworkflow({flow='b.lua'}))";
+    for (first, second) in [(direct, via), (via, direct)] {
+        write(
+            dir,
+            "root.lua",
+            &format!(
+                "local f = Flow.new('root')\nf:step('gate', nodes.if_node({{condition='ctx.enabled'}}))\n{first}\n{second}\nreturn f"
+            ),
+        );
+        let output = validate(dir, "root.lua", &[], Some("2"));
+        let text = stdout(&output);
+        assert_eq!(output.status.code(), Some(1), "{text}");
+        assert_eq!(text.matches("child flow c.lua:").count(), 1, "{text}");
+        assert!(text.contains("missing_step"), "{text}");
+        assert!(text.contains("Child flows: 3"), "{text}");
+    }
+}
+
+#[test]
+fn a_conditional_visit_does_not_mask_an_unconditional_depth_error() {
+    let directory = tempfile::tempdir().unwrap();
+    let dir = directory.path();
+    write(dir, "b.lua", &calling("b", "c.lua"));
+    write(dir, "c.lua", LEAF);
+    let maybe = "f:step('tolerate', nodes.subworkflow({flow='b.lua', on_error='ignore'}))";
+    let always = "f:step('require', nodes.subworkflow({flow='b.lua'}))";
+    for (first, second) in [(maybe, always), (always, maybe)] {
+        write(
+            dir,
+            "root.lua",
+            &format!("local f = Flow.new('root')\n{first}\n{second}\nreturn f"),
+        );
+        let output = validate(dir, "root.lua", &[], Some("1"));
+        let text = stdout(&output);
+        assert_eq!(output.status.code(), Some(1), "{text}");
+        assert!(
+            text.contains("root.lua -> b.lua -> c.lua nests 2 levels"),
+            "{text}"
+        );
+        assert!(text.contains("Child flows: 1"), "{text}");
+    }
+}
+
+#[test]
+fn repeated_routes_reuse_the_same_visit() {
+    let directory = tempfile::tempdir().unwrap();
+    let dir = directory.path();
+    for level in 0..9 {
+        let next = level + 1;
+        write(
+            dir,
+            &format!("{level}.lua"),
+            &format!(
+                "local f = Flow.new('level')\nf:step('one', nodes.subworkflow({{flow='{next}.lua'}}))\nf:step('two', nodes.subworkflow({{flow='{next}.lua'}}))\nreturn f"
+            ),
+        );
+    }
+    write(dir, "9.lua", &calling("last", "10.lua"));
+    write(dir, "10.lua", LEAF);
+    let output = validate(dir, "0.lua", &[], Some("9"));
+    let text = stdout(&output);
+    assert_eq!(output.status.code(), Some(1), "{text}");
+    // Report the single over-limit edge once, not once per route to it.
+    assert_eq!(text.matches("nests 10 levels").count(), 1, "{text}");
+    assert!(text.contains("Child flows: 9"), "{text}");
+}
+
+/// IF-260: a flow reached conditionally calls a child twice, tolerantly and
+/// unconditionally, and that child always calls it back. The cycle is
+/// unconditional whichever of the two calls is declared first.
+#[test]
+fn a_tolerant_route_does_not_downgrade_an_unconditional_cycle() {
+    let directory = tempfile::tempdir().unwrap();
+    let dir = directory.path();
+    write(
+        dir,
+        "root.lua",
+        "local f = Flow.new('root')\n\
+         f:step('enter', nodes.subworkflow({flow='a.lua', on_error='ignore'}))\nreturn f",
+    );
+    write(dir, "b.lua", &calling("b", "a.lua"));
+    let maybe = "f:step('tolerate', nodes.subworkflow({flow='b.lua', on_error='ignore'}))";
+    let always = "f:step('require', nodes.subworkflow({flow='b.lua'}))";
+    for (first, second) in [(maybe, always), (always, maybe)] {
+        write(
+            dir,
+            "a.lua",
+            &format!("local f = Flow.new('a')\n{first}\n{second}\nreturn f"),
+        );
+        let output = validate(dir, "root.lua", &[], None);
+        let text = stdout(&output);
+        assert_eq!(output.status.code(), Some(1), "{text}");
+        assert!(
+            text.contains("a.lua -> b.lua -> a.lua always starts itself again"),
+            "{text}"
+        );
+        // One cycle, reported once and at its highest severity.
+        assert_eq!(text.matches("a.lua -> b.lua -> a.lua").count(), 1, "{text}");
+    }
+}
+
+/// IF-260: the same child is reached at one depth through a tolerant and
+/// through an unconditional intermediate flow; only the second route makes
+/// the cycle certain.
+#[test]
+fn an_unconditional_cycle_through_another_route_is_an_error_in_either_order() {
+    let directory = tempfile::tempdir().unwrap();
+    let dir = directory.path();
+    write(
+        dir,
+        "root.lua",
+        "local f = Flow.new('root')\n\
+         f:step('enter', nodes.subworkflow({flow='a.lua', on_error='ignore'}))\nreturn f",
+    );
+    write(dir, "x.lua", &calling("x", "b.lua"));
+    write(dir, "y.lua", &calling("y", "b.lua"));
+    write(dir, "b.lua", &calling("b", "a.lua"));
+    let via_x = "f:step('tolerate', nodes.subworkflow({flow='x.lua', on_error='ignore'}))";
+    let via_y = "f:step('require', nodes.subworkflow({flow='y.lua'}))";
+    for (first, second) in [(via_x, via_y), (via_y, via_x)] {
+        write(
+            dir,
+            "a.lua",
+            &format!("local f = Flow.new('a')\n{first}\n{second}\nreturn f"),
+        );
+        let output = validate(dir, "root.lua", &[], None);
+        let text = stdout(&output);
+        assert_eq!(output.status.code(), Some(1), "{text}");
+        assert!(
+            text.contains("a.lua -> y.lua -> b.lua -> a.lua always starts itself again"),
+            "{text}"
+        );
+        assert!(
+            text.contains("a.lua -> x.lua -> b.lua -> a.lua can start itself again"),
+            "{text}"
+        );
+    }
+}

@@ -66,6 +66,20 @@ return flow
 }
 
 #[test]
+fn implicit_self_is_local_to_the_method_and_its_closures() {
+    let source = r#"local t = { inner = {} }
+function t.inner:get() return function() return self.x end end
+function t.inner.explicit(self) return self.x end
+function t.inner.plain() return self.x end
+return self"#;
+    let warnings = analyze_code_source(source, "read").unwrap();
+    let lines: Vec<_> = warnings.iter().map(|warning| warning.line).collect();
+    assert_eq!(lines, [4, 5], "{warnings:?}");
+    assert!(warnings.iter().all(|warning| warning.code == "undefined_global"
+        && warning.message.contains("`self`")));
+}
+
+#[test]
 fn local_names_are_not_visible_in_their_own_initializers() {
     let source = r#"local flow = Flow.new("initializer")
 flow:step("render", function()

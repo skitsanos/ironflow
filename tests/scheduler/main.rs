@@ -16,10 +16,16 @@ mod test_schedule_config;
 mod test_schedule_field_shapes;
 #[path = "../test_schedule_run_records.rs"]
 mod test_schedule_run_records;
+#[path = "../test_schedule_time_edges.rs"]
+mod test_schedule_time_edges;
 #[path = "../test_schedule_timing.rs"]
 mod test_schedule_timing;
 #[path = "../test_schedule_weekdays.rs"]
 mod test_schedule_weekdays;
+#[path = "../test_schedule_zone_parity.rs"]
+mod test_schedule_zone_parity;
+#[path = "../test_schedule_zones.rs"]
+mod test_schedule_zones;
 #[path = "../test_scheduler_availability.rs"]
 mod test_scheduler_availability;
 #[path = "../test_scheduler_decisions.rs"]

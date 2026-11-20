@@ -1,38 +1,49 @@
 # `image_resize`
 
-Resize a single image file.
+Resize a single image and write it as PNG or JPEG.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | one of `path` or `source_key` | — | Source image path (supports `${ctx.key}` interpolation). |
-| `source_key` | string | one of `path` or `source_key` | — | Context key containing a path, artifact URI/descriptor, `{ artifact = ... }`, or an explicit `{ base64 = "..." }` object. A stored path is used as it is and is not interpolated. |
-| `output_path` | string | yes | — | Destination file path for the resized image. |
-| `width` | number | no | — | Target width in px. Required if `height` is omitted. |
-| `height` | number | no | — | Target height in px. Required if `width` is omitted. |
-| `format` | string | no | inferred from `output_path` or `png` | Output format: `png`, `jpeg`, or `jpg`. |
-| `output_key` | string | no | `"resized_image"` | Prefix for the generated context output keys. |
-
-> If both `path` and `source_key` are provided, execution fails.
-> Artifact inputs are opened and SHA-256 verified inside the tracked blocking worker; decoding consumes that same rewound handle rather than a resolved store pathname.
-
-With one dimension, the other is computed to preserve aspect ratio (rounded to
-the nearest pixel, minimum 1). With both dimensions, the image is resized to
-that exact size using Lanczos3, which may change its aspect ratio.
-
-Supported source formats are BMP, Farbfeld, GIF, HDR, ICO, JPEG, PNG, PNM,
-QOI, TGA, TIFF, and WebP. Output remains restricted to PNG or JPEG.
+| `path` | string | One of `path` or `source_key` | — | Source image path; supports `${ctx.key}` interpolation. |
+| `source_key` | string | One of `path` or `source_key` | — | Context key holding a path, an artifact (URI, descriptor or `{ artifact = ... }`), or `{ base64 = "..." }`; a stored path is not interpolated. |
+| `output_path` | string | Yes | — | Destination file; supports `${ctx.key}` interpolation. |
+| `width` | number | One of `width` or `height` | — | Target width in pixels (at least 1). |
+| `height` | number | One of `width` or `height` | — | Target height in pixels (at least 1). |
+| `format` | string | No | from `output_path`, else `png` | Output format: `png`, `jpeg` or `jpg`. |
+| `output_key` | string | No | `"resized_image"` | Prefix for the context output keys. |
 
 ## Context Output
 
-- `<output_key>` — output file path.
-- `<output_key>_width` — output width in pixels.
-- `<output_key>_height` — output height in pixels.
-- `<output_key>_format` — output format (`"png"` or `"jpeg"`).
-- `<output_key>_success` — `true` on success.
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}` | string | Output file path. |
+| `{output_key}_width` | number | Output width in pixels. |
+| `{output_key}_height` | number | Output height in pixels. |
+| `{output_key}_format` | string | `"png"` or `"jpeg"`. |
+| `{output_key}_success` | boolean | `true` on success. |
 
-## Example
+## Behavior
+
+- With one dimension, the other keeps the aspect ratio (rounded, minimum 1). With both, the image is resized to exactly that size, which may change its aspect ratio. Resampling uses Lanczos3.
+- Setting both `path` and `source_key` fails the step.
+- Input formats are detected from the content: BMP, Farbfeld, GIF, HDR, ICO, JPEG, PNG, PNM, QOI, TGA, TIFF and WebP.
+- Without `format`, a `.png`, `.jpg` or `.jpeg` extension selects the format, no extension writes PNG, and any other extension fails the step.
+- The destination directory must exist. A destination that is a symlink or not a regular file fails the step; a failure leaves an existing file unchanged. See [`write_file`](write_file.md#behavior) for file modes.
+- The size check covers the source, the output and the resampling buffers, so a large upscale can fail even when the source is small.
+
+## Limits
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `IRONFLOW_MAX_IMAGE_ENCODED_BYTES` | 50 MiB | Maximum encoded source size, including decoded Base64. |
+| `IRONFLOW_MAX_IMAGE_PIXELS` | 25,000,000 | Maximum pixels in the source and the output. |
+| `IRONFLOW_MAX_IMAGE_DECODE_ALLOCATION_BYTES` | 128 MiB | Maximum estimated working memory for decoding and resizing. |
+
+## Examples
+
+### Resize to a width
 
 ```lua
 local flow = Flow.new("image_resize_demo")
@@ -49,56 +60,3 @@ flow:step("log", nodes.log({
 
 return flow
 ```
-
-## Destination contract
-
-`output_path` is published through the same rooted, atomic writer as
-[`write_file`](write_file.md), inside the tracked blocking worker: the resized
-image is encoded into a staged file beside the destination, flushed and
-synchronized, then renamed over it.
-
-- The destination directory must already exist. The node creates no
-  directories and fails with `image_resize: destination directory '<dir>' does
-  not exist`. Directory aliases, including macOS `/tmp`, are resolved first.
-- A destination that is a symlink (dangling or not), FIFO, device or directory
-  is refused and its target is left untouched. An existing regular file is
-  replaced.
-- An encoder or write failure, an expired step deadline or cancellation
-  removes the staged file and leaves an existing destination unchanged.
-- On Unix the published file has the mode a plain write would have left: a
-  new file gets `0666` masked by the process umask (`0644` under umask `022`)
-  and a replaced file keeps its permission bits, without any setuid, setgid
-  or sticky bit. The staged file is mode `0600` until it is published. Other
-  platforms use their native permission semantics.
-- Unix pins the resolved directory and stages relative to that handle. Other
-  platforms revalidate the observed path immediately before an atomic
-  replacement and cannot close a hostile parent-directory swap race; protect
-  destination trees from same-identity mutation.
-
-## Resource contract
-
-The encoded source, decoded dimensions/pixels, decoder allocation, and computed
-output dimensions are checked against `IRONFLOW_MAX_IMAGE_ENCODED_BYTES` (50
-MiB), `IRONFLOW_MAX_IMAGE_PIXELS` (25 million), and
-`IRONFLOW_MAX_IMAGE_DECODE_ALLOCATION_BYTES` (128 MiB). Resize admission runs
-after header inspection but before pixel decoding, then is rechecked against
-the decoded image before resampling. It applies equally to paths, verified
-artifacts, and Base64 inputs.
-
-The working-buffer estimate includes the retained source, the output in its
-original pixel type, the `source_width * target_height * 16` byte RGBA-float
-intermediate, and conservative filter-weight scratch space (including vector
-growth/reallocation). The two sampling passes are budgeted by their peak, not
-their sum. Same-size requests copy the source without a float intermediate.
-All size arithmetic is checked; overflow or an unaddressable buffer is rejected.
-
-For example, a 100x1 RGB image resized to 1x100 needs a 160,000-byte intermediate
-even though its source and output are only 300 bytes each. A 1 KiB allocation
-limit rejects it before decoding pixels or creating/overwriting the output.
-
-This is an admission estimate for known image buffers, not a hard process-memory
-ceiling. Header/codec internals, encoding scratch, encoded/Base64 input and
-workflow context, allocator overhead, and concurrent tasks can require additional
-memory; decoder-managed limits and encoded-input limits remain separate checks.
-Decode, resize, and encode run on a tracked blocking worker; cancellation is
-observed between opaque codec and transform operations, not within them.

@@ -3,10 +3,10 @@ mod provider;
 mod request;
 
 pub(super) use config::{
-    LlmMode, Provider, optional_u64_config, parse_mode, parse_timeout, resolve_model,
-    resolve_tool_choice, resolve_tools,
+    LlmMode, Provider, optional_u64_config, parse_mode, parse_timeout, resolve_tool_choice,
+    resolve_tools,
 };
-pub(super) use provider::resolve_provider_config;
+pub(super) use provider::{ResolvedProvider, resolve_provider_config};
 pub(super) use request::{LlmBodyInput, build_body, resolve_messages, resolve_prompt};
 
 #[cfg(test)]

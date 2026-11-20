@@ -288,7 +288,7 @@ async fn legacy_identity_migration_is_bounded_by_the_lock_timeout_and_retryable(
     .bind(&legacy.run_id)
     .bind(legacy.event_type.as_sse_name())
     .bind(serde_json::to_string(&legacy).unwrap())
-    .bind(legacy.timestamp.to_rfc3339())
+    .bind(ironflow::util::timestamp::rfc3339_offset(legacy.timestamp))
     .execute(&database.admin)
     .await
     .unwrap();
@@ -624,7 +624,7 @@ async fn postgres_claims_table_from_an_older_binary_is_upgraded_in_place() {
         .execute(format!(
             "INSERT INTO {claims} (name, claim_key, claimed_micros) \
              VALUES ('nightly', '{KEY}', {})",
-            chrono::Utc::now().timestamp_micros()
+            ironflow::util::timestamp::unix_micros(jiff::Timestamp::now())
         ))
         .await;
 

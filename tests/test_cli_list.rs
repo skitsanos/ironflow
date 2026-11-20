@@ -2,19 +2,18 @@ use std::collections::HashMap;
 use std::fs;
 use std::process::{Command, Output};
 
-use chrono::{Duration, TimeZone as _, Utc};
 use ironflow::engine::types::{RunInfo, RunStatus, RunSummary};
 
 fn seed_runs(directory: &std::path::Path, count: usize) {
     fs::create_dir_all(directory).unwrap();
-    let base = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
+    let base = jiff::Timestamp::from_second(1_767_225_600).unwrap();
     for index in 0..count {
         let id = format!("run-{index:03}");
         let info = RunInfo {
             id: id.clone(),
             flow_name: "cli-list".to_string(),
             status: RunStatus::Success,
-            started: Some(base + Duration::seconds(index as i64)),
+            started: Some(base + std::time::Duration::from_secs(index as u64)),
             finished: None,
             ctx: HashMap::from([("large".to_string(), serde_json::json!("private-context"))]),
             tasks: HashMap::new(),
@@ -81,6 +80,49 @@ fn list_is_bounded_by_default_and_cursor_can_reach_older_records() {
     let second = json(&command.output().unwrap());
     assert_eq!(second["returned"], 1);
     assert_eq!(second["has_more"], false);
+}
+
+/// The table and JSON forms of a start time, recorded before the storage
+/// types moved from `chrono` to `jiff` (IF-231).
+#[test]
+fn list_renders_start_times_in_their_recorded_forms() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = temp.path().join("runs");
+    seed_runs(&store, 3);
+    fs::write(
+        store.join("fraction.json"),
+        r#"{"id":"fraction","flow_name":"cli-list","status":"success","started":"2026-01-01T00:00:09.987654321Z","finished":null,"ctx":{},"tasks":{}}"#,
+    )
+    .unwrap();
+
+    let table = base_list_command(temp.path(), &store).output().unwrap();
+    assert!(table.status.success());
+    let table = String::from_utf8(table.stdout).unwrap();
+    let started: Vec<String> = table
+        .lines()
+        .filter(|line| line.contains("cli-list"))
+        .map(|line| {
+            let field: Vec<&str> = line.split_whitespace().collect();
+            field[field.len() - 2..].join(" ")
+        })
+        .collect();
+    assert_eq!(
+        started,
+        [
+            "2026-01-01 00:00:09",
+            "2026-01-01 00:00:02",
+            "2026-01-01 00:00:01",
+            "2026-01-01 00:00:00",
+        ],
+        "{table}"
+    );
+
+    let listed = json(&list_command(temp.path(), &store).output().unwrap());
+    assert_eq!(
+        listed["runs"][0]["started"],
+        "2026-01-01T00:00:09.987654321Z"
+    );
+    assert_eq!(listed["runs"][1]["started"], "2026-01-01T00:00:02Z");
 }
 
 #[test]

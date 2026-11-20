@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use chrono::{Duration as ChronoDuration, Utc};
 use ironflow::engine::types::{Context, RunStatus, TaskState};
 use ironflow::storage::sql_store::SqlStateStore;
 use ironflow::storage::{StateStore, StorageErrorKind};
+use jiff::Timestamp;
 
 fn sqlite_store_url(directory: &std::path::Path) -> String {
     format!(
@@ -66,7 +66,7 @@ async fn sqlite_task_upserts_cannot_outlive_delete_or_prune() {
                         Removal::Delete => store.delete_run(&run_id).await.map(|()| 1),
                         Removal::Prune => {
                             store
-                                .prune_before(Utc::now() + ChronoDuration::seconds(1))
+                                .prune_before(Timestamp::now() + std::time::Duration::from_secs(1))
                                 .await
                         }
                     }
@@ -190,7 +190,7 @@ mod postgres {
                     Removal::Delete => store.delete_run(&run_id).await.map(|()| 1),
                     Removal::Prune => {
                         store
-                            .prune_before(Utc::now() + ChronoDuration::seconds(1))
+                            .prune_before(Timestamp::now() + std::time::Duration::from_secs(1))
                             .await
                     }
                 }

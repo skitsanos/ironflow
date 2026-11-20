@@ -158,12 +158,18 @@ async fn longest_schedule_and_zone_names_still_claim_in_the_json_store() {
     let dir = tempfile::tempdir().unwrap();
     let store = JsonStateStore::new(dir.path());
     let name = "n".repeat(ironflow::scheduler::config::MAX_SCHEDULE_NAME_BYTES);
-    let zone = chrono_tz::TZ_VARIANTS
-        .iter()
-        .map(|zone| zone.name())
+    let zone = jiff_tzdb::available()
         .max_by_key(|zone| zone.len())
         .unwrap();
     assert_eq!(zone.len(), 32, "{zone}");
+    ironflow::scheduler::config::ScheduleConfig::new(
+        "f.lua",
+        "0 2 * * *",
+        Some(zone),
+        None,
+        ironflow::engine::types::Context::new(),
+    )
+    .unwrap();
     let key = format!("{zone}@2026-05-01T02:00");
 
     assert!(store.claim_schedule(&name, &key, TTL).await.unwrap());

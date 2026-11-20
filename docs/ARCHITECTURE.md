@@ -240,6 +240,19 @@ its worst-case decoded size ([IF-178](issues/IF-178.md)). Shared extraction
 budgets cover operations, property hops and text, with cooperative checkpoints
 outside opaque content/font decoding calls.
 
+`date_format` reads `input_format` and `output_format` itself
+(`nodes/utility/strftime/`): the two strings are a public contract, and the
+strftime dialects of `chrono`, which the node used until
+[IF-231](issues/IF-231.md), and of `jiff` differ in specifiers, padding,
+accepted spellings and error text. The module splits a format into items,
+reads an input into fields, resolves the fields to one date with the rule
+that every field given must agree, and writes the result; `jiff` supplies the
+calendar (dates, weekdays, ISO weeks, arithmetic) and holds the years -9999 to
+9999. `tests/test_date_format_golden.rs` compares 2638 cases with a recording
+taken from the `chrono` implementation. `extract_xlsx` converts date serials
+the same way, in `nodes/extract/xlsx/cells.rs`. `chrono` is imported only by
+`scheduler/cron_boundary.rs`.
+
 ### 3. Lua Runtime (`lua/`)
 
 - Uses `mlua` crate with Lua 5.4
@@ -309,7 +322,7 @@ pub trait StateStore: Send + Sync {
     async fn renew_run_lease(&self, run_id: &str, lease: &RunLease) -> StorageResult<bool>;
     async fn reconcile_expired_run_leases(
         &self,
-        now: chrono::DateTime<chrono::Utc>,
+        now: jiff::Timestamp,
     ) -> StorageResult<usize>;
     async fn upsert_task(&self, run_id: &str, task: &TaskState) -> StorageResult<()>;
     async fn upsert_task_owned(
@@ -334,7 +347,7 @@ pub trait StateStore: Send + Sync {
         query: &RunListQuery,
     ) -> StorageResult<RunSummaryPage>;
     async fn delete_run(&self, run_id: &str) -> StorageResult<()>;
-    async fn prune_before(&self, cutoff: chrono::DateTime<chrono::Utc>) -> StorageResult<usize>;
+    async fn prune_before(&self, cutoff: jiff::Timestamp) -> StorageResult<usize>;
     async fn claim_schedule(
         &self,
         name: &str,
@@ -389,6 +402,35 @@ fixed-record base, reads at most `limit + 1 + K` base entries, and merges its
 checksummed delta, where `K <= 128` is the overlay entry count. A clean page
 therefore uses O(log N + page size + K) catalog reads and O(page size + K)
 memory without enumerating the store directory.
+
+#### Stored timestamp forms
+
+An instant is a `jiff::Timestamp` in memory (IF-231). `jiff`'s own text form
+and integer conversions are never used for anything stored or published:
+`util/timestamp.rs` writes every form, byte for byte as the earlier `chrono`
+implementation did, so replicas on either implementation share a store.
+
+| Form | Example | Where |
+| --- | --- | --- |
+| `Z`, shortest fraction | `2026-01-02T03:04:05.120Z` | JSON store records and summaries, Redis `info` and summary values, Redis events, API and SSE bodies, `ironflow list --format json`, run-list cursors |
+| `+00:00`, shortest fraction | `2026-01-02T03:04:05.120+00:00` | SQL event `timestamp` column, Lua `now_rfc3339()` |
+| `Z`, nine fraction digits | `2026-01-02T03:04:05.120000000Z` | SQL run and task `started` and `finished` columns |
+| Whole microseconds since 1970, rounded down | `1767323045120000` | SQL `started_micros`, `expires_micros`, `claimed_micros` and `run_micros`; JSON catalog, delta and lease records; Redis ordered-catalog members |
+
+"Shortest fraction" is none for a whole second and otherwise three, six or
+nine digits, whichever is the shortest that is exact. Readers accept all
+three text forms in any column, with `Z` or a numeric offset. Nothing is
+ordered by timestamp text except the one-time backfill of SQL event rows
+written before publication sequences existed; every other order uses the
+microsecond integer or a sequence, and `prune_before` compares the same
+microsecond integer in every store (IF-232). SQL and Redis lease deadlines are stamped
+and compared with the store's clock, not a replica's; the single-host JSON
+store uses the process clock.
+
+`jiff` holds -9999-01-02T01:59:59Z to 9999-12-30T22:00:00.999999999Z, where
+`chrono` reached the years -262143 to 262142. A stored value outside that
+range is reported as corruption. IronFlow only stores clock readings, so
+such a value can only have been written by hand.
 
 Both `StateStore` and `EventStore` return `StorageResult`. `StorageError`
 preserves one of five boundary-safe categories: `InvalidInput`, `NotFound`,
@@ -902,7 +944,9 @@ backlog is settled over the following ticks while the latest occurrence is
 decided at once. Occurrences that share a claim key (matched local times
 inside a daylight-saving gap) are one occurrence and never supersede each
 other. Cron expressions have five fields and traditional crontab
-day-of-month/day-of-week OR semantics; time zones use IANA names. Weekday
+day-of-month/day-of-week OR semantics; time zones use IANA names, resolved
+by `scheduler/zone.rs` from the IANA database compiled into the binary
+(`jiff` with its bundled database only), never from the host. Weekday
 numbers are 0 to 7, where 0 and 7 are Sunday and 1 to 6 are Monday to
 Saturday. The underlying `cron` crate numbers the week 1 to 7 from Sunday, so
 `scheduler/weekday.rs` validates the weekday field and rewrites its numbers,
@@ -913,6 +957,27 @@ requires each of the other four tokens to be exactly one field: a token such
 as `5*/2` fails at startup instead of shifting every field after it. A repeated
 fall-back wall-clock instant resolves to the earlier occurrence, while a
 spring-forward gap resolves to the first real instant after the gap.
+
+The scheduler keeps two kinds of time apart by type (IF-231). A wall-clock
+time (the watermark, a matched occurrence, the claim key's time) is a
+`jiff::civil::DateTime`, which has no zone. An instant (the clock reading
+passed to `Scheduler::evaluate`, the instant an occurrence fires at) is a
+`jiff::Timestamp` or a `jiff::ZonedDateTime`. Grace and lateness are measured
+between instants. For the wall-clock enumeration, both the grace floor and
+the tick use the latest local reading reached by their respective instants.
+On the second pass through a repeated hour this is the last reading before
+the rollback, not the earlier reading now on the clock. This keeps the
+exclusive lower and inclusive upper bounds ordered without changing claim
+keys or admitting future occurrences. Arithmetic uses exact durations
+(`jiff::SignedDuration`), never calendar units. Lateness is whole elapsed seconds with the
+fraction dropped, and an occurrence is late only when that exceeds the grace.
+`scheduler/cron_boundary.rs` is the only scheduler module that uses `chrono`:
+the `cron` crate evaluates over `chrono` values, so the adapter labels a
+wall-clock time as UTC for it and reads the next match back. `cron` thus
+walks the space the expression is written in, for the years 1970 to 2100, and
+applies no zone rule. The scheduler passes claim keys, TTLs in seconds and
+whole-second lateness to stores, the engine, logs and metrics, and no time
+value.
 
 Configuration admits at most 256 schedules. Names are at most 48 UTF-8 bytes,
 flow paths 1,024 bytes, cron expressions 256 bytes, timezone names 128 bytes,
@@ -1464,6 +1529,12 @@ S3 bucket policy or workload credentials authenticate the remote namespace;
 verified content identity remains independent of that authorization. A shared
 network filesystem retains the local process-trust boundary and is not
 equivalent to a separately authorized object store.
+
+When a publish encounters an existing local digest, only a confirmed size or
+SHA-256 mismatch permits repair. Cancellation and verification errors leave
+the entry in place. Repair renames the verified staging file over the old
+entry: a failed rename does not leave a gap at the digest path. This applies
+both to local publication and to publication of a verified S3 download.
 
 The S3 lifecycle contract is deliberately narrow:
 

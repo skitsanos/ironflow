@@ -83,6 +83,12 @@ impl<'source, 'tree> ScopeAnalyzer<'source, 'tree> {
 
     fn function(&mut self, function: Node<'tree>) {
         self.names.open_scope();
+        if function
+            .child_by_field_name("name")
+            .is_some_and(|name| name.kind() == "method_index_expression")
+        {
+            self.names.declare_name("self");
+        }
         if let Some(parameters) = function.child_by_field_name("parameters") {
             self.names.declare_identifiers(parameters);
         }

@@ -167,5 +167,10 @@ async fn reference_link_parser_expansion_stays_bounded() {
         )
         .await
         .unwrap();
-    assert!(output["document_metadata"]["pages"].as_u64().unwrap() < 10);
+    // comrak caps the text that reference links may expand to at the larger of
+    // the input size and 100 KB, so these 600 links to one 1.9 KB target stop
+    // resolving after about 50. Without the cap the document would hold 1.1 MB
+    // of link targets and run to several hundred pages.
+    let pages = output["document_metadata"]["pages"].as_u64().unwrap();
+    assert!(pages < 48, "pages: {pages}");
 }

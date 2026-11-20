@@ -10,6 +10,7 @@ use crate::storage::{StorageError, StorageResult};
 mod claims;
 mod codec;
 mod deletion;
+mod inspection;
 mod lease_reconciliation;
 mod leases;
 mod listing;
@@ -95,7 +96,7 @@ impl SqlStateStore {
             .bind(&info.flow_name)
             .bind(info.status.to_string())
             .bind(datetime_to_string(info.started))
-            .bind(info.started.map(|started| started.timestamp_micros()))
+            .bind(info.started.map(crate::util::timestamp::unix_micros))
             .bind(datetime_to_string(info.finished))
             .bind(serde_json::to_string(&info.ctx).map_err(|error| {
                 StorageError::backend(
@@ -109,24 +110,10 @@ impl SqlStateStore {
         Ok(())
     }
 
-    async fn read_tasks(&self, run_id: &str) -> StorageResult<HashMap<String, TaskState>> {
-        let sql = format!(
-            "SELECT name, node_type, status, attempt, input, output, error, started, finished \
-             FROM {} WHERE run_id = {}",
-            self.tables.tasks,
-            self.placeholder(1)
-        );
-
-        let rows = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
-            .bind(run_id)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|error| {
-                StorageError::backend(
-                    format_args!("Failed to read tasks for run '{run_id}'"),
-                    error,
-                )
-            })?;
+    fn rows_to_tasks(
+        run_id: &str,
+        rows: Vec<sqlx::any::AnyRow>,
+    ) -> StorageResult<HashMap<String, TaskState>> {
         let mut tasks = HashMap::with_capacity(rows.len());
         for row in rows {
             let name: String = row_value(&row, "name", "task", run_id)?;

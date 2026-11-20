@@ -50,6 +50,7 @@ fn header_text(cell: &Data, index: usize) -> Cow<'_, str> {
         Data::Error(_) | Data::Empty => None,
         other => match cell_value(other) {
             serde_json::Value::Null => None,
+            serde_json::Value::String(text) => Some(text),
             value => Some(value.to_string()),
         },
     };

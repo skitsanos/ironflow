@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
-use chrono::Utc;
+use jiff::Timestamp;
 use tracing::info;
 
 use crate::engine::events::{RunEvent, RunEventType};
@@ -28,7 +28,7 @@ pub(super) async fn start(
     let mut task_state = TaskState::new(&step.name, &step.node_type);
     task_state.status = TaskStatus::Running;
     task_state.attempt = attempt;
-    task_state.started = Some(Utc::now());
+    task_state.started = Some(Timestamp::now());
     runtime
         .persist_task(&task_state)
         .await
@@ -71,7 +71,7 @@ pub(super) async fn record_success(
     // directly and apply the shared task-history size cap.
     task_state.status = TaskStatus::Success;
     task_state.output = Some(task_output);
-    task_state.finished = Some(Utc::now());
+    task_state.finished = Some(Timestamp::now());
     let duration_ms = task_duration_ms(task_state.started, task_state.finished);
     runtime
         .persist_task(&task_state)
@@ -111,7 +111,7 @@ pub(super) async fn record_failure(
     task_state.error = Some(err_msg.to_string());
     let (buffered_output, task_output) = split_failure_output(final_output);
     task_state.output = task_output;
-    task_state.finished = Some(Utc::now());
+    task_state.finished = Some(Timestamp::now());
     let duration_ms = task_duration_ms(task_state.started, task_state.finished);
     runtime
         .persist_task(task_state)
@@ -168,7 +168,7 @@ pub(super) async fn wait_for_retry(
         task_state.error = Some(timeout_error.clone());
         let (output, task_output) = split_failure_output(failure_output);
         task_state.output = task_output;
-        task_state.finished = Some(Utc::now());
+        task_state.finished = Some(Timestamp::now());
         runtime
             .persist_task(task_state)
             .await

@@ -1,78 +1,52 @@
 # `pdf_merge`
 
-Merge bounded PDF path or artifact sources sequentially into one atomically
-published PDF.
+Merge PDF files or artifacts, in order, into one PDF.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `files` | array | one of `files` / `source_key` | — | Non-empty array of paths, artifact descriptors, or canonical artifact URIs. Path strings support `${ctx.key}` interpolation. |
-| `source_key` | string | one of `files` / `source_key` | — | Context key containing the non-empty source array. Stored paths are used as they are and are not interpolated. Useful when prior nodes produced artifact descriptors. |
-| `output_path` | string | yes | — | Merged output path with `${ctx.key}` interpolation. |
-| `output_key` | string | no | `"pdf_merge"` | Prefix for output values. |
+| `files` | array | One of `files` or `source_key` | — | Non-empty array of paths, artifact descriptors, or `artifact://sha256/...` URIs; path strings support `${ctx.key}` interpolation. |
+| `source_key` | string | One of `files` or `source_key` | — | Context key holding the source array; values are used as stored, without interpolation. |
+| `output_path` | string | Yes | — | Merged PDF path; supports `${ctx.key}` interpolation. |
+| `output_key` | string | No | `"pdf_merge"` | Prefix for the context keys written by this node. |
 
 `files` and `source_key` are mutually exclusive.
 
-## Resource and durability contract
+## Context Output
 
-| Environment variable | Default | Boundary |
-|----------------------|---------|----------|
-| `IRONFLOW_MAX_PDF_MERGE_FILES` | `100` | Source entries admitted before collection |
-| `IRONFLOW_MAX_PDF_BYTES` | `104857600` | Bytes in each source PDF |
-| `IRONFLOW_MAX_PDF_DECOMPRESSED_STREAM_BYTES` | `67108864` | Decoded bytes per object/cross-reference stream in each source |
-| `IRONFLOW_MAX_PDF_OBJECTS` | `250000` | Loaded objects per source, checked after parsing |
-| `IRONFLOW_MAX_PDF_MERGE_BYTES` | `536870912` | Cumulative input bytes and staged output bytes |
-| `IRONFLOW_MAX_PDF_MERGE_PAGES` | `2000` | Cumulative pages |
-| `IRONFLOW_MAX_PDF_MERGE_OBJECTS` | `250000` | Retained output graph objects |
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}_path` | string | Output path after interpolation. |
+| `{output_key}_page_count` | number | Total pages in the merged PDF. |
+| `{output_key}_success` | boolean | `true` after the file is committed. |
 
-Inputs are opened and parsed one at a time on a tracked blocking worker. For
-each source, the union of objects reachable from all selected pages is remapped
-once, so pages sharing fonts, images, or resources do not clone those objects
-per page. Artifact inputs use the same verified file handle used for identity
-checking.
+## Behavior
 
-Every source passes the [shared PDF loading policy](../PDF_LOADING.md), including
-strict parsing and bounded recovery checks, before graph collection. The loaded
-object limit includes objects not needed in the merged graph; the retained-output
-object limit remains separate. Neither is a hard parser memory ceiling.
+- All pages of each source are appended in source order.
+- An empty array, or a source that is not a valid PDF, fails the step.
+- The output is published only when complete; any failure leaves an existing `output_path` unchanged.
+- A destination that is a symlink or not a regular file fails the step; an existing regular file is replaced.
+- Links between merged pages are kept. Bookmarks, signatures and document-level features are not, and content is not sanitized.
+- Missing parent directories are created as described in [Created directories](write_file.md#created-directories).
 
-Before replacing page parents, the node materializes the nearest inherited
-`Resources`, `MediaBox`, `CropBox`, and `Rotate` values. Explicit page values
-take precedence; null values are treated as absent. Inherited indirect resources
-remain shared and count toward the retained-object limit. Broken or cyclic
-parent chains fail without replacing an existing output file.
+## Limits
 
-Links between retained pages and annotation backlinks are remapped. Source
-catalog/page-tree references are disconnected rather than copying the old tree.
-This is a page-oriented merge, not preservation of document-level outlines,
-signatures, catalog features, or a general content-redaction operation.
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `IRONFLOW_MAX_PDF_MERGE_FILES` | `100` | Maximum number of sources. |
+| `IRONFLOW_MAX_PDF_BYTES` | 100 MiB | Maximum size of each source. |
+| `IRONFLOW_MAX_PDF_DECOMPRESSED_STREAM_BYTES` | 64 MiB | Maximum decompressed size of one stream in a source. |
+| `IRONFLOW_MAX_PDF_OBJECTS` | `250000` | Maximum objects loaded from each source. |
+| `IRONFLOW_MAX_PDF_MERGE_BYTES` | 512 MiB | Maximum total input bytes, and maximum output size. |
+| `IRONFLOW_MAX_PDF_MERGE_PAGES` | `2000` | Maximum total pages. |
+| `IRONFLOW_MAX_PDF_MERGE_OBJECTS` | `250000` | Maximum objects in the merged PDF. |
 
-The result is written to a sibling staged file, flushed and synchronized, then
-atomically committed. Parse, limit, save, and cancellation failures remove the
-partial staging file and preserve an existing destination. The output refuses
-a final link or non-regular destination. On Unix a new output gets `0666`
-masked by the process umask (`0644` under umask `022`) and a replaced output
-keeps its permission bits; the staged file is mode `0600` until it is
-published.
+See [PDF loading](../PDF_LOADING.md) for how the per-source limits apply.
 
-Configured parent-directory aliases for `output_path`, including macOS `/tmp`,
-are resolved before staging and missing parent directories are created
-([`0755` masked by the process umask](write_file.md#created-directories) on Unix). Unix
-pins the resolved directory, so retargeting the alias afterward cannot redirect
-the write. This is not permission to follow a destination-file symlink.
+## Examples
 
-Artifact inputs require a protected artifact directory visible at the same path
-on every eligible worker. A shared mount is not an authentication boundary
-against a process running under the same OS identity.
-
-## Context output
-
-- `<output_key>_path` — merged PDF path.
-- `<output_key>_page_count` — total page count.
-- `<output_key>_success` — `true` after commit.
-
-## Example
+### Merge artifacts from earlier steps
 
 ```lua
 local flow = Flow.new("merge_artifacts")

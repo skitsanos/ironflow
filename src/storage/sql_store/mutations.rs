@@ -1,4 +1,4 @@
-use chrono::Utc;
+use jiff::Timestamp;
 
 use super::{SqlStateStore, datetime_to_string, optional_json_to_string, row_value};
 use crate::engine::types::{Context, RunStatus, TaskState};
@@ -28,7 +28,7 @@ impl SqlStateStore {
         };
         let mut query = sqlx::query(sqlx::AssertSqlSafe(sql.as_str())).bind(status.to_string());
         if status.is_terminal() {
-            query = query.bind(datetime_to_string(Some(Utc::now())));
+            query = query.bind(datetime_to_string(Some(Timestamp::now())));
         }
         let affected = query
             .bind(run_id)

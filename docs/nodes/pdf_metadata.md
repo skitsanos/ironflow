@@ -1,58 +1,59 @@
 # `pdf_metadata`
 
-Extract metadata from a PDF file (document info dictionary + page count).
+Read a PDF's page count and document information fields (title, author, dates and so on).
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | one of `path` or `source_key` | — | PDF file path |
-| `source_key` | string | one of `path` or `source_key` | — | Context key containing a file path, artifact URI, or artifact descriptor. A stored path is used as it is and is not interpolated. |
-| `output_key` | string | no | `"metadata"` | Prefix for output key |
+| `path` | string | One of `path` or `source_key` | — | PDF file path or `artifact://` URI; supports `${ctx.key}` interpolation. |
+| `source_key` | string | One of `path` or `source_key` | — | Context key holding a path, artifact URI or artifact descriptor; used as stored, without interpolation. |
+| `output_key` | string | No | `"metadata"` | Context key for the metadata object. |
 
-> Providing both `path` and `source_key` is an error.
-> Artifact inputs are opened and SHA-256 verified inside the tracked blocking worker; PDF parsing consumes that same rewound handle rather than a resolved store pathname.
-
-## Resource contract
-
-The source must be a regular file and is capped by
-`IRONFLOW_MAX_PDF_BYTES` (default 100 MiB) before and while it is read; a file
-that grows after the initial metadata check cannot cross the limit. On Unix and
-Windows the final path component may not be a symlink/reparse point. Loading and metadata traversal run on
-a tracked blocking worker with cancellation checkpoints around and during input
-reads. `lopdf` still constructs its document object model in memory, so the byte
-ceiling bounds raw input rather than promising that parser RSS equals file size.
-
-[Shared PDF loading](../PDF_LOADING.md) additionally enforces
-`IRONFLOW_MAX_PDF_DECOMPRESSED_STREAM_BYTES` (64 MiB) per object/cross-reference
-stream and `IRONFLOW_MAX_PDF_OBJECTS` (250000) after parsing. Strict loading and
-bounded recovery checks reject oversized streams instead of returning partial
-metadata. These are independent limits, not a cumulative memory ceiling.
+`path` and `source_key` are mutually exclusive.
 
 ## Context Output
 
-- `<output_key>` — object containing metadata:
-  - `pages` — page count
-  - `title`, `author`, `subject`, `keywords`, `creator`, `producer`, `created`, `modified` when present
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}` | object | Page count and the document information fields that are present. |
 
-The text fields are PDF text strings and are decoded as such: PDFDocEncoding,
-UTF-16BE with a byte-order mark (`<FEFF...>`, the usual form in office-exported
-PDFs) and UTF-8 with a byte-order mark. A string that starts with the
-little-endian mark (`<FFFE...>`) is decoded as UTF-16LE; the format does not
-define that form, but some producers write it. The Info dictionary and each of its
-values may be direct or indirect objects. Values are trimmed. Control
-characters other than tab, line feed and carriage return are removed, as are
-NUL terminators and language-tag escapes, so no NUL reaches the run context.
-A language tag is an escape (0x1B), a two-letter language code with an
-optional two-letter country code, and a closing escape. It is removed in
-each form producers write: a letter per code unit or the raw code bytes
-(`en` as the single unit 0x656E) in a UTF-16 string, and the same bytes in a
-PDFDocEncoding string, where a lone 0x1B is otherwise the dot accent (U+02D9).
-An ill-formed UTF-16 or UTF-8 sequence becomes U+FFFD. A field that is absent,
-not a string, unresolvable or empty after decoding is omitted. `created` and
-`modified` are the raw PDF date strings (`D:YYYYMMDDHHmmSS...`).
+## Output Shape
 
-## Example
+```json
+{
+  "pages": 3,
+  "title": "Quarterly Report",
+  "author": "Finance Team",
+  "creator": "Microsoft Word",
+  "producer": "macOS Quartz PDFContext",
+  "created": "D:20260115093000Z",
+  "modified": "D:20260116101500Z"
+}
+```
+
+- `pages` is always present. `title`, `author`, `subject`, `keywords`, `creator`, `producer`, `created` and `modified` appear only when set and non-empty.
+- `created` and `modified` are the raw PDF date strings (`D:YYYYMMDDHHmmSS...`).
+
+## Behavior
+
+- Text fields are decoded from PDFDocEncoding, UTF-16 or UTF-8, trimmed, and stripped of control characters and language-tag escapes; invalid sequences become U+FFFD.
+- A field that is missing, not a string, or empty after decoding is omitted rather than set to `null`. Use a Lua step to supply a default.
+- A source that is not a regular file, is a symlink, or is not a valid PDF fails the step.
+
+## Limits
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `IRONFLOW_MAX_PDF_BYTES` | 100 MiB | Maximum source size. |
+| `IRONFLOW_MAX_PDF_DECOMPRESSED_STREAM_BYTES` | 64 MiB | Maximum decompressed size of one PDF stream. |
+| `IRONFLOW_MAX_PDF_OBJECTS` | `250000` | Maximum objects in the source. |
+
+See [PDF loading](../PDF_LOADING.md) for how these limits apply.
+
+## Examples
+
+### Read metadata with a default
 
 ```lua
 local flow = Flow.new("pdf_metadata_demo")

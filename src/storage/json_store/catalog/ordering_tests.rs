@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use chrono::{Duration, TimeZone as _, Utc};
+use std::time::Duration;
+
+use jiff::Timestamp;
 
 use crate::engine::types::{Context, RunInfo, RunStatus};
 use crate::storage::{PageSize, RunListQuery, StateStore};
@@ -10,18 +12,18 @@ use crate::storage::json_store::JsonStateStore;
 #[tokio::test]
 async fn cursor_pages_order_microsecond_ties_by_descending_id_and_put_missing_last() {
     let directory = tempfile::tempdir().unwrap();
-    let base = Utc.timestamp_micros(1_800_000_000_000_000).unwrap();
+    let base = Timestamp::from_microsecond(1_800_000_000_000_000).unwrap();
     let records = [
-        ("new", Some(base + Duration::microseconds(300))),
+        ("new", Some(base + Duration::from_micros(300))),
         (
             "tie-a",
-            Some(base + Duration::microseconds(200) + Duration::nanoseconds(100)),
+            Some(base + Duration::from_micros(200) + Duration::from_nanos(100)),
         ),
         (
             "tie-z",
-            Some(base + Duration::microseconds(200) + Duration::nanoseconds(900)),
+            Some(base + Duration::from_micros(200) + Duration::from_nanos(900)),
         ),
-        ("old", Some(base + Duration::microseconds(100))),
+        ("old", Some(base + Duration::from_micros(100))),
         ("missing", None),
     ];
     for (id, started) in records {

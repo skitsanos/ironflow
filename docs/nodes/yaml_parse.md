@@ -1,55 +1,36 @@
 # `yaml_parse`
 
-Parse a YAML string into a JSON object.
+Parse a YAML string into a JSON value.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `input` | string | one of `input` or `source_key` | — | YAML string; supports `${ctx.key}` interpolation. |
-| `source_key` | string | one of `input` or `source_key` | — | Context key containing the YAML string. |
-| `output_key` | string | no | `"yaml_data"` | Context key for the parsed JSON output. |
+| `input` | string | One of | — | YAML text; supports `${ctx.key}` interpolation |
+| `source_key` | string | One of | — | Context key holding the YAML text |
+| `output_key` | string | No | `"yaml_data"` | Context key for the parsed value |
 
-> Providing both `input` and `source_key` is an error.
+Give exactly one of `input` or `source_key`; both, or neither, fails the step.
 
 ## Context Output
 
-- `<output_key>` (default `yaml_data`) — the parsed JSON value.
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}` | any | The parsed value |
 
-## Parsing Semantics
+## Behavior
 
-Anchors and `<<` merge keys are expanded; explicit keys override merged values.
-Unquoted leading-zero integers are decimal (`0123` becomes `123`), while quoted
-values remain strings. YAML 1.1 binary spellings such as `0b11` remain strings.
-These rules apply to both `input` and `source_key`. The parser retains its nesting
-and alias-expansion limits; recursive aliases and excessive expansion fail.
+- A non-string value under `source_key` is serialized to JSON and parsed as YAML.
+- Anchors and `<<` merge keys are expanded; explicit keys override merged values. Recursive aliases and excessive alias expansion fail the step.
+- Unquoted leading-zero integers are decimal (`0123` becomes `123`); quoted values stay strings. YAML 1.1 spellings such as `0b11` stay strings.
+- Integers from `-9223372036854775808` to `9223372036854775807` become integers; scalars written as floats (`1e30`, `1.0e19`) become doubles.
+- A number the output cannot hold exactly is kept as its source text, never rounded or set to `null`: `.nan`, `.inf`, `-.inf` (any case) give `".inf"` and so on, `1e999` gives `"1e999"`, and an integer outside the signed 64-bit range gives its digits as a string. This also applies through aliases and merges, and matches [`csv_parse`](csv_parse.md#behavior).
+- An explicit `!!float` tag asks for a float: `!!float 99999999999999999999` gives `1e20`, and `!!float .inf` fails the step.
+- Convert a kept-as-text number in a `code` step when arithmetic on it is needed.
 
-### Numbers that JSON cannot hold
+## Examples
 
-A scalar that YAML resolves to a number the output cannot hold exactly is
-kept as a string of its source text. It is never rounded or replaced by
-`null`. This is the rule [`csv_parse`](csv_parse.md#type-inference) follows.
-
-| YAML scalar | Output |
-|---|---|
-| `.nan`, `.inf`, `-.inf`, `+.inf` (any letter case) | the text, for example `".inf"` |
-| a float whose exponent overflows, such as `1e999` | `"1e999"` |
-| an integer outside the signed 64-bit range, such as `9223372036854775808` or `12345678901234567890` | the digits as a string, sign included |
-| an integer from `-9223372036854775808` to `9223372036854775807` | integer |
-| a float written as one: `1e30`, `1.0e19`, `12345678901234567890.0` | float |
-
-The same holds for a value reached through an alias or a `<<` merge. A float
-is an IEEE 754 double, so a fraction with more than about 15 significant
-digits is read to the nearest double, as in every YAML and JSON parser. An
-explicit `!!float` tag asks for a float: `!!float 99999999999999999999` gives
-`1e20`, and `!!float .inf` fails the step because there is no finite value
-and no plain text to keep.
-
-Before this rule the first two rows gave `null` and the third a rounded
-float. A flow that compared such a value with a number now receives a
-string; convert it in a `code` step when arithmetic on it is intended.
-
-## Example
+### Parse inline YAML
 
 ```lua
 local flow = Flow.new("parse_yaml")

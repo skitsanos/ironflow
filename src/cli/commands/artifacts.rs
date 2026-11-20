@@ -71,10 +71,9 @@ impl ArtifactPruneOptions {
     }
 
     fn cutoff(&self) -> Result<SystemTime> {
-        let cutoff = chrono::DateTime::parse_from_rfc3339(&self.before)
-            .context("--before must be an RFC 3339 timestamp")?
-            .with_timezone(&chrono::Utc);
-        Ok(cutoff.into())
+        let cutoff = crate::util::timestamp::parse_rfc3339(&self.before)
+            .context("--before must be an RFC 3339 timestamp")?;
+        SystemTime::try_from(cutoff).context("--before is outside the supported time range")
     }
 }
 

@@ -1,31 +1,62 @@
 # `zip_list`
 
-List entries in a ZIP archive.
+List the entries of a ZIP archive without extracting it.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | yes | — | Path to a ZIP file. Supports `${ctx.key}` interpolation. |
-| `output_key` | string | no | `"zip_entries"` | Context key where the listing array is stored. |
-| `max_entries` | number | no | `IRONFLOW_MAX_ZIP_ENTRIES` / `10000` | Maximum raw archive entries, checked before ZIP metadata construction. Supports `${ctx.key}` interpolation. |
-| `max_metadata_bytes` | number | no | `IRONFLOW_MAX_ZIP_METADATA_BYTES` / `8388608` | Maximum cumulative raw filename, extra-field, file/archive-comment, and ZIP64 end-record extension bytes. Supports `${ctx.key}` interpolation. |
-| `max_total_uncompressed_bytes` | number | no | `IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES` / `536870912` | Maximum total declared uncompressed entry size accepted while listing. Supports `${ctx.key}` interpolation. |
+| `path` | string | Yes | — | ZIP file to list; supports `${ctx.key}` interpolation. |
+| `output_key` | string | No | `"zip_entries"` | Context key for the entry array. |
+| `max_entries` | number | No | `IRONFLOW_MAX_ZIP_ENTRIES` | Maximum archive entries. |
+| `max_metadata_bytes` | number | No | `IRONFLOW_MAX_ZIP_METADATA_BYTES` | Maximum total bytes of entry names, extra fields and comments. |
+| `max_total_uncompressed_bytes` | number | No | `IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES` | Maximum total declared uncompressed size. |
+
+A zero or invalid limit override falls back to the default.
 
 ## Context Output
 
-- `{output_key}` — An array of entries. Each entry has:
-  - `name` — Entry path inside the archive.
-  - `is_directory` — Whether entry is a directory.
-  - `size` — Uncompressed size in bytes.
-  - `compressed_size` — Compressed size in bytes.
-  - `crc32` — CRC32 checksum.
-  - `method` — Compression method used.
-- `{output_key}_count` — Number of entries in the archive.
-- `zip_list_path` — The resolved archive path.
-- `zip_list_success` — `true` when listing completed successfully.
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}` | array | One object per entry, in archive order. |
+| `{output_key}_count` | number | Number of entries. |
+| `zip_list_path` | string | Archive path after interpolation. |
+| `zip_list_success` | boolean | `true` on success. |
 
-## Example
+## Output Shape
+
+```json
+[
+  {
+    "name": "docs/readme.txt",
+    "is_directory": false,
+    "size": 1024,
+    "compressed_size": 512,
+    "crc32": 3632233996,
+    "method": "Deflated"
+  }
+]
+```
+
+`size` is the uncompressed size; `method` is the compression method name, such as `"Stored"` or `"Deflated"`.
+
+## Behavior
+
+- The archive must be a regular file; a symlink fails the step.
+- Malformed, multi-disk, or self-extracting archives (data before or after the ZIP records) fail the step.
+- Duplicate entry names fail the step.
+
+## Limits
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `IRONFLOW_MAX_ZIP_ENTRIES` | `10000` | Default for `max_entries`. |
+| `IRONFLOW_MAX_ZIP_METADATA_BYTES` | 8 MiB | Default for `max_metadata_bytes`. |
+| `IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES` | 512 MiB | Default for `max_total_uncompressed_bytes`. |
+
+## Examples
+
+### List an archive
 
 ```lua
 local flow = Flow.new("zip_list_demo")
@@ -42,35 +73,3 @@ flow:step("log", nodes.log({
 
 return flow
 ```
-
-## Filesystem, limits, and cancellation
-
-The archive path must open as a regular file; on Unix, a final symlink is
-rejected without being followed. Before constructing ZIP library metadata,
-`zip_list` scans the raw single-disk ZIP/ZIP64 central directory and checks its
-entry count, bounds, exact header lengths, duplicate raw names, and metadata
-budget. The end record must terminate at EOF, including its archive comment,
-and it must be the last end record in the file: an archive with bytes after
-the comment, or with a comment that holds another complete end record, is
-rejected. The central directory must end exactly where its end record (or
-ZIP64 end record) begins, so archives with prepended data or a gap after the
-directory are rejected. An end record that marks a
-split archive, or whose only ZIP64 marker is a disk-number field, is rejected
-as multi-disk (IF-218): the ZIP library would skip it and look for an earlier
-end record. After opening, the ZIP library's directory offset and
-raw entry count must equal the validated ones before any entry is listed.
-Duplicate entries are rejected even if the ZIP library would collapse them.
-Unicode path aliases that collapse during bounded ZIP construction also fail
-before a listing is returned. Total declared uncompressed bytes are checked
-while listing the admitted entries.
-
-The metadata budget does not cap compressed payload size or total process
-memory. The scanner uses a bounded tail buffer and per-entry name hashes;
-library metadata and decoded names may require additional copies. Set positive
-limits; zero or invalid overrides fall back to their environment/default values.
-
-Listing runs on a tracked blocking worker and checks the enclosing step/run
-deadline and cancellation signal between raw central headers, filename chunks,
-and listing entries, and around the ZIP constructor. The synchronous constructor
-cannot be interrupted midway. A failed or cancelled list
-does not publish a partial array to workflow context.

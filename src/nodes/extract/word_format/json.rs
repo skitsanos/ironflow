@@ -1,12 +1,32 @@
 use anyhow::{Context, Result};
 
-use super::super::docx_parser::{DocxBlock, DocxCell, DocxParagraph, DocxRun, DocxTable};
+use super::super::docx_parser::{
+    DocxBlock, DocxCell, DocxParagraph, DocxRun, DocxStories, DocxTable,
+};
 use super::super::resource::Budget;
 
+mod stories;
+
+/// `{"blocks": [...]}` plus `footnotes`, `endnotes`, `headers` and `footers`
+/// arrays when the call extracted any.
 pub(in crate::nodes::extract) fn blocks_to_json(
     blocks: &[DocxBlock],
+    stories: &DocxStories,
     budget: &mut Budget<'_>,
 ) -> Result<serde_json::Value> {
+    let values = blocks_array(blocks, budget)?;
+    let mut object = serde_json::Map::new();
+    insert_value(
+        &mut object,
+        "blocks",
+        serde_json::Value::Array(values),
+        budget,
+    )?;
+    stories::insert_stories(&mut object, stories, budget)?;
+    Ok(serde_json::Value::Object(object))
+}
+
+fn blocks_array(blocks: &[DocxBlock], budget: &mut Budget<'_>) -> Result<Vec<serde_json::Value>> {
     let mut values = Vec::new();
     values
         .try_reserve_exact(blocks.len())
@@ -18,15 +38,7 @@ pub(in crate::nodes::extract) fn blocks_to_json(
             DocxBlock::Table(table) => table_to_json(table, index, budget)?,
         });
     }
-
-    let mut object = serde_json::Map::new();
-    insert_value(
-        &mut object,
-        "blocks",
-        serde_json::Value::Array(values),
-        budget,
-    )?;
-    Ok(serde_json::Value::Object(object))
+    Ok(values)
 }
 
 fn run_to_json(run: &DocxRun, budget: &mut Budget<'_>) -> Result<serde_json::Value> {
@@ -68,6 +80,9 @@ fn run_to_json(run: &DocxRun, budget: &mut Budget<'_>) -> Result<serde_json::Val
             "DOCX JSON run highlight copies",
             budget,
         )?;
+    }
+    if let Some(note) = &run.note {
+        stories::insert_note_ref(&mut object, note, budget)?;
     }
     Ok(serde_json::Value::Object(object))
 }

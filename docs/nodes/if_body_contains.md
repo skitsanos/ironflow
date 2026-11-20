@@ -1,26 +1,37 @@
 # `if_body_contains`
 
-Route execution based on whether a context value contains a text pattern.
+Select a route by checking whether a context value contains a substring.
+Dependent steps choose a branch with `:route("<name>")`.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `source_key` | string | Yes | -- | Context key to inspect (supports dotted paths, for example `resp.body`) |
-| `pattern` | string | Yes | -- | Pattern to search for |
-| `true_route` | string | No | `true` | Route name when the pattern is found |
-| `false_route` | string | No | `false` | Route name when the pattern is missing |
-| `case_sensitive` | bool | No | `true` | Case-sensitive matching |
-| `required` | bool | No | `false` | If `true`, missing `source_key` fails the node |
+| `source_key` | string | Yes | — | Context key to inspect; dotted paths such as `resp.body` work. |
+| `pattern` | string | Yes | — | Plain substring to look for (not a regular expression). |
+| `true_route` | string | No | `"true"` | Route when the substring is found. |
+| `false_route` | string | No | `"false"` | Route when it is not found. |
+| `case_sensitive` | boolean | No | `true` | Match case exactly. |
+| `required` | boolean | No | `false` | Fail the step when `source_key` is missing. |
 
 ## Context Output
 
-- `_route_{step_name}` — selected route name
-- `_contains_{step_name}` — boolean match result
+| Key | Type | Description |
+|-----|------|-------------|
+| `_route_{step_name}` | string | The selected route. |
+| `_contains_{step_name}` | boolean | Whether the substring was found. |
 
-`{step_name}` defaults to `"if_body_contains"` unless the internal `_step_name` field is set.
+`{step_name}` is the name of the step.
 
-## Example
+## Behavior
+
+- A non-string value is searched as its compact JSON text.
+- A missing `source_key` selects `false_route` unless `required` is `true`.
+- An empty `pattern` never matches.
+
+## Examples
+
+### Case-insensitive match
 
 ```lua
 local flow = Flow.new("if_body_contains_example")
@@ -36,7 +47,6 @@ flow:step("seed", nodes.code({
 flow:step("route", nodes.if_body_contains({
     source_key = "sample",
     pattern = "api",
-    _step_name = "sample_check",
     true_route = "contains_api",
     false_route = "missing_api",
     case_sensitive = false

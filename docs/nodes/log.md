@@ -1,21 +1,23 @@
 # `log`
 
-Write a message to the workflow log via the `tracing` framework.
+Write an interpolated message to the workflow log.
 
 ## Parameters
 
-| Parameter | Type   | Required | Default  | Description                                                   |
-|-----------|--------|----------|----------|---------------------------------------------------------------|
-| `message` | string | No       | `""`     | Message template with `${ctx.key}` interpolation support        |
-| `level`   | string | No       | `"info"` | Log level: `debug`, `info`, `warn`, or `error`                |
-
-The message string supports `${ctx.key}` placeholders which are replaced with values from the workflow context before logging. Any unrecognized `level` value falls back to `info`.
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `message` | string | No | `""` | Message template; `${ctx.key}` placeholders are replaced from the context. |
+| `level` | string | No | `"info"` | `debug`, `info`, `warn` or `error`; any other value logs at `info`. |
 
 ## Context Output
 
-- `log_message` -- the rendered (interpolated) message that was logged
+| Key | Type | Description |
+|-----|------|-------------|
+| `log_message` | string | The rendered message. |
 
-## Example
+## Examples
+
+### Log at two levels
 
 ```lua
 local flow = Flow.new("order_logging")

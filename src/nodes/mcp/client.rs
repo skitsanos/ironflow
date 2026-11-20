@@ -37,65 +37,89 @@ impl Node for McpClientNode {
         let output_key = output_key(&config).to_string();
         let timeout = timeout(&config)?;
 
-        match action {
-            McpAction::Initialize => {
-                let transport = transport(&config)?;
-                let mut session =
-                    mcp_transport::initialize(&config, client_info(&config)?, transport, timeout)
-                        .await?;
-                if let Err(error) = session.validate_protocol() {
-                    let _ = session.close(timeout).await;
-                    return Err(error);
-                }
-                let info = session.server_info()?;
-                // The server's own description becomes context like any
-                // other result, so an oversized one ends the session.
-                if let Err(error) = result_limit::admit(action, &info) {
-                    let _ = session.close(timeout).await;
-                    return Err(error);
-                }
-                let handle = self.sessions.insert(session)?;
-                Ok(output::initialized(&output_key, transport, &handle, &info))
-            }
-            McpAction::ListTools => {
-                let handle = session_handle(&config)?.to_string();
-                let mut lease = self.sessions.lease(&handle)?;
-                let session = lease.session();
-                let session = session.lock().await;
-                let transport = session.transport();
-                let result = session.list_tools(timeout).await?;
-                drop(session);
-                lease.disarm();
-                // The reply was complete, so the session stays usable.
-                result_limit::admit(action, &result)?;
-                Ok(output::tools(&output_key, transport, &handle, &result))
-            }
-            McpAction::CallTool => {
-                let handle = session_handle(&config)?.to_string();
-                let (tool_name, arguments) = tool_call(&config)?;
-                let mut lease = self.sessions.lease(&handle)?;
-                let session = lease.session();
-                let session = session.lock().await;
-                let transport = session.transport();
-                let result = session
-                    .call_tool(tool_name.clone(), arguments, timeout)
+        if action == McpAction::Initialize {
+            let transport = transport(&config)?;
+            let mut session =
+                mcp_transport::initialize(&config, client_info(&config)?, transport, timeout)
                     .await?;
-                drop(session);
-                lease.disarm();
-                result_limit::admit(action, &result)?;
-                Ok(output::tool_call(
-                    &output_key,
-                    transport,
-                    &handle,
-                    &tool_name,
-                    &result,
-                ))
+            if let Err(error) = session.validate_protocol() {
+                let _ = session.close(timeout).await;
+                return Err(error);
             }
-            McpAction::Close => {
-                let handle = session_handle(&config)?.to_string();
-                let transport = self.sessions.close(&handle, timeout).await?;
-                Ok(output::closed(&output_key, transport, &handle))
+            let info = session.server_info()?;
+            // The server's own description becomes context like any
+            // other result, so an oversized one ends the session.
+            if let Err(error) = result_limit::admit(action, &info) {
+                let _ = session.close(timeout).await;
+                return Err(error);
             }
+            let handle = self.sessions.insert(session)?;
+            return Ok(output::initialized(&output_key, transport, &handle, &info));
         }
+        let deadline = tokio::time::sleep(timeout).deadline();
+        let operation = async {
+            let handle = session_handle(&config)?;
+            match action {
+                McpAction::Initialize => unreachable!(),
+                McpAction::ListTools => {
+                    let cursor = config
+                        .get("cursor")
+                        .map(|value| {
+                            value.as_str().ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "mcp_client list_tools expects 'cursor' to be a string"
+                                )
+                            })
+                        })
+                        .transpose()?;
+                    // An absent `nextCursor` interpolates to an empty string.
+                    // Sent as a cursor it is rejected by a strict server, which
+                    // ends the session, or answered with the first page again.
+                    // Refuse it before the session is leased (IF-261).
+                    anyhow::ensure!(
+                        cursor != Some(""),
+                        "mcp_client list_tools received an empty 'cursor': the previous page \
+                         had no nextCursor, so there is no further page; run this step only \
+                         when nextCursor is present"
+                    );
+                    let mut lease = self.sessions.lease(handle, deadline).await?;
+                    let session = lease.session();
+                    let transport = session.transport();
+                    let result = session.list_tools(cursor, timeout).await?;
+                    lease.disarm();
+                    // The reply was complete, so the session stays usable.
+                    result_limit::admit(action, &result)?;
+                    Ok(output::tools(&output_key, transport, handle, &result))
+                }
+                McpAction::CallTool => {
+                    let (tool_name, arguments) = tool_call(&config)?;
+                    let mut lease = self.sessions.lease(handle, deadline).await?;
+                    let session = lease.session();
+                    let transport = session.transport();
+                    let result = session
+                        .call_tool(tool_name.clone(), arguments, timeout)
+                        .await?;
+                    lease.disarm();
+                    result_limit::admit(action, &result)?;
+                    Ok(output::tool_call(
+                        &output_key,
+                        transport,
+                        handle,
+                        &tool_name,
+                        &result,
+                    ))
+                }
+                McpAction::Close => {
+                    let mut lease = self.sessions.lease(handle, deadline).await?;
+                    let session = lease.session();
+                    let transport = session.transport();
+                    session.close(timeout).await?;
+                    Ok(output::closed(&output_key, transport, handle))
+                }
+            }
+        };
+        tokio::time::timeout_at(deadline, operation)
+            .await
+            .map_err(|_| anyhow::anyhow!("mcp_client: {action} timed out"))?
     }
 }

@@ -11,7 +11,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use chrono::{DateTime, TimeZone as _, Utc};
 use ironflow::engine::types::{Context, NodeOutput};
 use ironflow::nodes::NodeRegistry;
 use ironflow::scheduler::config::ScheduleConfig;
@@ -19,6 +18,7 @@ use ironflow::scheduler::execution::FlowExecutor;
 use ironflow::scheduler::{Outcome, ScheduleExecutor, ScheduleRun, Scheduler};
 use ironflow::storage::StateStore;
 use ironflow::storage::event_store::MemoryEventStore;
+use jiff::Timestamp;
 
 use super::test_scheduler_e2e::PROCESS_ADMISSION_LOCK;
 
@@ -112,7 +112,7 @@ impl Deployment {
 
     /// A replica that starts at `started` and therefore catches up over the
     /// preceding grace window, exactly like a restarted process.
-    fn replica(&self, started: DateTime<Utc>) -> Scheduler {
+    fn replica(&self, started: Timestamp) -> Scheduler {
         Scheduler::new(
             HashMap::from([(NAME.to_string(), Self::schedule())]),
             self.store.clone(),
@@ -124,7 +124,7 @@ impl Deployment {
     /// Evaluate one tick and return the outcome for the 02:00 instant. The
     /// process-wide flow-load permits are shared with neighbouring tests, so
     /// the lock is held for the evaluation only, never across a wait.
-    async fn evaluate(&self, scheduler: &mut Scheduler, now: DateTime<Utc>) -> Outcome {
+    async fn evaluate(&self, scheduler: &mut Scheduler, now: Timestamp) -> Outcome {
         let _admission = PROCESS_ADMISSION_LOCK.lock().await;
         let decisions = scheduler.evaluate(now).await;
         let decision = decisions
@@ -181,9 +181,9 @@ impl Deployment {
     }
 }
 
-fn at(hour: u32, minute: u32, second: u32) -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(2026, 5, 1, hour, minute, second)
-        .unwrap()
+fn at(hour: i8, minute: i8, second: i8) -> Timestamp {
+    let wall_clock = jiff::civil::datetime(2026, 5, 1, hour, minute, second, 0);
+    jiff::tz::Offset::UTC.to_timestamp(wall_clock).unwrap()
 }
 
 /// Poll state instead of sleeping a fixed time, so a loaded machine only

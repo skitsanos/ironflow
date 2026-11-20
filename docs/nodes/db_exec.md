@@ -1,36 +1,35 @@
 # `db_exec`
 
-Execute a SQL INSERT, UPDATE, or DELETE statement against a database.
+Run a SQL statement that returns no rows, such as `INSERT`, `UPDATE`, `DELETE`,
+or `CREATE TABLE`, against SQLite or PostgreSQL.
 
 ## Parameters
 
-| Parameter    | Type   | Required | Default | Description                                                                                                           |
-|--------------|--------|----------|---------|-----------------------------------------------------------------------------------------------------------------------|
-| `connection` | string | yes      | --      | Database URL string (e.g., `sqlite:/path/to/db?mode=rwc`). Supports `${ctx.key}` interpolation.                        |
-| `query`      | string | yes      | --      | SQL INSERT/UPDATE/DELETE statement with `?` placeholders for bound parameters.                                        |
-| `params`     | array  | no       | `[]`    | Query parameters. Strings support `${ctx.key}` interpolation. Numbers, booleans, and null are bound with their native SQL types. |
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `connection` | string | Yes | — | sqlx database URL, e.g. `sqlite:/path/to/app.db?mode=rwc`; supports `${ctx.key}` |
+| `query` | string | Yes | — | SQL with `?` (SQLite) or `$1`, `$2`, ... (PostgreSQL) placeholders; must not contain `${ctx...}` |
+| `params` | array | No | `[]` | Values bound in order; strings support `${ctx.key}`, numbers, booleans and `nil` keep their SQL types |
 
 ## Context Output
 
-On successful execution:
+| Key | Type | Description |
+|-----|------|-------------|
+| `rows_affected` | number | Rows affected by the statement |
+| `db_exec_success` | boolean | `true` on success |
 
-- `rows_affected` -- Number of rows affected by the statement.
-- `db_exec_success` -- Boolean `true`.
+The output keys are fixed; a later `db_exec` step overwrites them.
 
-## Outbound destination policy
+## Behavior
 
-When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, every network
-host the `connection` URL names (the URL host and the PostgreSQL `host` and
-`hostaddr` query parameters) is resolved and refused when it is `localhost`
-or not a public unicast address. This is a host check only: the database
-driver resolves the name again when it connects, so it is weaker than the
-DNS pinning of the HTTP nodes. A database on a private address must be
-listed by the operator in `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` (for example
-`db.internal:5432`). SQLite files and Unix sockets are not network
-destinations and are unaffected. See
-[Outbound destinations](../SECURITY.md#outbound-destinations).
+- A database error, a failed connection, or an array or object in `params` fails the step.
+- Booleans are bound with the driver's native type (SQLite stores `0`/`1`).
+- PostgreSQL requires a build with the `postgres` feature; it supports `sslmode=require`, `verify-ca` and `verify-full`, with `sslrootcert=` for a private CA.
+- With `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, every host in the connection URL (including PostgreSQL `host` and `hostaddr`) must be public or allowlisted; SQLite files and Unix sockets are unaffected. See [Outbound destinations](../SECURITY.md#outbound-destinations).
 
-## Example
+## Examples
+
+### Create, insert, update
 
 ```lua
 local flow = Flow.new("sqlite_crud")
@@ -57,31 +56,4 @@ flow:step("deactivate_user", nodes.db_exec({
 return flow
 ```
 
-## Notes
-
-- The `connection` string follows the sqlx URL format. For SQLite, use `sqlite:/path/to/file?mode=rwc`.
-- Open only SQLite files, and directories holding them, that IronFlow or a
-  trusted party wrote. The bundled SQLite (3.51.3) is affected by
-  CVE-2026-119375: a database opened together with a crafted sibling `-wal`
-  file can return stale process memory in query results. The fixed binding
-  cannot be resolved until `sqlx` releases support for it; see
-  [Dependency advisories](../SECURITY.md#dependency-advisories).
-- PostgreSQL requires a build with the `postgres` feature. In such builds the
-  TLS modes `sslmode=require`, `verify-ca` and `verify-full` are supported, with
-  `sslrootcert=/path/to/ca.pem` for a private CA; prefer `verify-full`. The
-  Rustls crypto provider is process-wide: the `ironflow` binary installs it
-  once at startup, before the runtime is built. Library storage constructors
-  and SQL nodes also install it idempotently, so embedders do not need an
-  explicit startup call. Calling `ironflow::initialize_tls_provider()` early
-  remains recommended when the embedding application builds other Rustls
-  clients first; an already installed provider is preserved. See
-  [IF-141](../issues/IF-141.md).
-- Query parameters use positional `?` placeholders. The `params` array values are bound in order.
-- String parameters support context interpolation (`${ctx.key}`), so you can dynamically construct statements based on upstream step outputs.
-- Null values in `params` are bound as SQL NULL.
-- Boolean values are bound as their native SQL type (e.g., INTEGER 0/1 for SQLite).
-- This node is intended for write operations. For SELECT queries, use [`db_query`](db_query.md).
-
-## See Also
-
-- [`db_query`](db_query.md) -- Execute SELECT queries and return rows.
+See also [`db_query`](db_query.md) for `SELECT` queries.

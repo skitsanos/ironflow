@@ -294,7 +294,7 @@ fn take_json_string(input: &str) -> Option<(String, &str)> {
 mod tests {
     use std::collections::HashMap;
 
-    use chrono::Utc;
+    use jiff::Timestamp;
 
     use super::*;
     use crate::engine::types::RunStatus;
@@ -304,7 +304,7 @@ mod tests {
             id: "revision-probe".to_string(),
             flow_name: "flow".to_string(),
             status: RunStatus::Pending,
-            started: Some(Utc::now()),
+            started: Some(Timestamp::now()),
             finished: None,
             ctx: HashMap::new(),
             tasks: HashMap::new(),

@@ -50,7 +50,7 @@ async fn common_server_lifecycle_reconciles_expired_owners() {
             &HashMap::new(),
             &RunLease::at(
                 "dead-owner",
-                chrono::Utc::now() - chrono::Duration::seconds(1),
+                jiff::Timestamp::now() - std::time::Duration::from_secs(1),
             ),
         )
         .await
@@ -83,7 +83,7 @@ async fn startup_reconciliation_skips_a_run_record_it_cannot_decode() {
                 &HashMap::new(),
                 &RunLease::at(
                     "dead-owner",
-                    chrono::Utc::now() - chrono::Duration::seconds(1),
+                    jiff::Timestamp::now() - std::time::Duration::from_secs(1),
                 ),
             )
             .await

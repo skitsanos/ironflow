@@ -10,7 +10,7 @@ import { isAbsolute, join, resolve } from "node:path";
 export const RECEIPT_NAME = "ironflow-gate-receipt.json";
 export const DEFAULT_MAX_AGE_SECONDS = 24 * 60 * 60;
 
-export type Receipt = { tree: string; commit: string; completed: string };
+export type Receipt = { version: 2; tree: string; commit: string; completed: string };
 
 export type Verdict =
   | { accepted: true; receipt: Receipt; ageSeconds: number }
@@ -80,18 +80,31 @@ export function treeOf(repository: string, commit: string): string {
   return git(repository, ["rev-parse", "--verify", `${commit}^{tree}`]);
 }
 
-/** Record the tree the gate just validated. A dirty worktree is refused: its
- *  tree hash would describe content the gate did not test. */
+function cleanHead(repository: string): string {
+  const commit = git(repository, ["rev-parse", "--verify", "HEAD"]);
+  if (git(repository, ["status", "--porcelain", "--untracked-files=normal", "--ignore-submodules=none"]) !== "") {
+    throw new Error("the worktree has uncommitted changes; run the gate on a clean committed tree");
+  }
+  return commit;
+}
+
+export function captureTree(repository: string): string {
+  return treeOf(repository, cleanHead(repository));
+}
+
+/** Bind the receipt to the clean tree captured before the first check. */
 export async function writeReceipt(
   repository: string,
+  startTree: string,
   targetDirectory?: string,
   now: Date = new Date(),
 ): Promise<Receipt> {
-  if (git(repository, ["status", "--porcelain"]) !== "") {
-    throw new Error("the worktree has uncommitted changes, so no commit describes what the gate validated");
+  const commit = cleanHead(repository);
+  const tree = treeOf(repository, commit);
+  if (tree !== startTree) {
+    throw new Error(`the integration gate tree changed from ${short(startTree)} to ${short(tree)}; rerun the gate`);
   }
-  const commit = git(repository, ["rev-parse", "--verify", "HEAD"]);
-  const receipt: Receipt = { tree: treeOf(repository, commit), commit, completed: now.toISOString() };
+  const receipt: Receipt = { version: 2, tree: startTree, commit, completed: now.toISOString() };
   await Bun.write(receiptPath(repository, targetDirectory), `${JSON.stringify(receipt, null, 2)}\n`);
   return receipt;
 }
@@ -113,10 +126,11 @@ export async function checkReceipt(
   let receipt: Receipt;
   try {
     const parsed = JSON.parse(await file.text()) as Partial<Receipt>;
+    if (parsed.version !== 2) throw new Error("unsupported receipt version; rerun the integration gate");
     if (typeof parsed.tree !== "string" || typeof parsed.commit !== "string" || typeof parsed.completed !== "string") {
       throw new Error("missing tree, commit or completed field");
     }
-    receipt = { tree: parsed.tree, commit: parsed.commit, completed: parsed.completed };
+    receipt = { version: 2, tree: parsed.tree, commit: parsed.commit, completed: parsed.completed };
   } catch (error) {
     return { accepted: false, reason: `unreadable integration gate receipt at ${path}: ${describe(error)}` };
   }
@@ -159,15 +173,19 @@ function maxAgeFromEnvironment(): number {
 async function main(argv: string[]): Promise<number> {
   const repository = git(process.cwd(), ["rev-parse", "--show-toplevel"]);
   const targetDirectory = process.env.CARGO_TARGET_DIR || undefined;
-  const [command, commit] = argv;
+  const [command, objectId] = argv;
 
-  if (command === "write" && argv.length === 1) {
-    const receipt = await writeReceipt(repository, targetDirectory);
+  if (command === "start-tree" && argv.length === 1) {
+    console.log(captureTree(repository));
+    return 0;
+  }
+  if (command === "write" && objectId && /^[0-9a-f]{40}$/.test(objectId) && argv.length === 2) {
+    const receipt = await writeReceipt(repository, objectId, targetDirectory);
     console.log(`Integration gate receipt recorded for tree ${short(receipt.tree)} (commit ${short(receipt.commit)}).`);
     return 0;
   }
-  if (command === "check" && commit && argv.length === 2) {
-    const verdict = await checkReceipt(repository, commit, targetDirectory, new Date(), maxAgeFromEnvironment());
+  if (command === "check" && objectId && argv.length === 2) {
+    const verdict = await checkReceipt(repository, objectId, targetDirectory, new Date(), maxAgeFromEnvironment());
     if (verdict.accepted) {
       console.log(
         `Integration gate receipt accepted: tree ${short(verdict.receipt.tree)} passed the full gate `
@@ -182,7 +200,7 @@ async function main(argv: string[]): Promise<number> {
     );
     return 1;
   }
-  console.error("Usage: bun --no-env-file scripts/gate_receipt.ts write | check <commit>");
+  console.error("Usage: bun --no-env-file scripts/gate_receipt.ts start-tree | write <start-tree> | check <commit>");
   return 2;
 }
 

@@ -1,6 +1,6 @@
 [package]
 name = "ironflow"
-version = "1.22.0"
+version = "1.23.0"
 edition = "2024"
 # IF-162: integration tests are declared below as area binaries; see tests/<area>/main.rs.
 autotests = false
@@ -15,14 +15,19 @@ tree-sitter = "0.27.0"
 tree-sitter-lua = "0.5.0"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
-noyalib = "0.0.60"
+noyalib = "0.0.63"
 clap = { version = "4.6.1", features = ["derive", "env"] }
 anyhow = "1.0.102"
 thiserror = "2.0.18"
 uuid = { version = "1.23.3", features = ["v4"] }
-chrono = { version = "0.4.45", features = ["serde"] }
-chrono-tz = "0.10"
+# Only `scheduler/cron_boundary.rs` uses chrono: the `cron` crate evaluates
+# over its types (IF-231). No feature is needed for that.
+chrono = { version = "0.4.45", default-features = false }
 cron = "0.17"
+# Named time zones for schedules (IF-231). The IANA database is compiled in and
+# the host's copy is never read, so every replica of a release agrees on zone
+# rules and claim keys on every platform.
+jiff = { version = "1.0.0", default-features = false, features = ["std", "tzdb-bundle-always"] }
 async-trait = "0.1.89"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
@@ -31,7 +36,7 @@ reqwest = { version = "0.13.4", features = ["json", "stream", "multipart"] }
 url = "2.5.8"
 percent-encoding = "2.3.2"
 http = "1"
-rmcp = { version = "3.9.0", default-features = false, features = ["client", "transport-streamable-http-client-reqwest"] }
+rmcp = { version = "3.11.0", default-features = false, features = ["client", "transport-streamable-http-client-reqwest"] }
 aws-config = "1.8.18"
 aws-sdk-s3 = { version = "1.156.0", default-features = false, features = [
     "http-1x",
@@ -58,7 +63,7 @@ hex = "0.4.3"
 axum = "0.8.9"
 tower-http = { version = "0.7.0", features = ["cors", "fs", "trace"] }
 base64 = "0.23.0"
-comrak = { version = "0.59", default-features = false }
+comrak = { version = "1.0", default-features = false }
 parley = { version = "0.13.0", default-features = false, features = ["std", "complex-scripts"] }
 krilla = { version = "0.8.2", default-features = false, features = ["raster-images"] }
 unicode-bidi = "0.3"
@@ -66,15 +71,19 @@ unicode-script = "0.5.8"
 # HTML-to-Markdown conversion and the shared rcdom tree walked by extract_html.
 # Both are permissively licensed; the GPL html2md crate was removed in IF-161.
 # html5ever is the parser htmd already uses: IronFlow drives it directly so
-# nesting is capped while parsing (IF-174). Keep all three on one release line.
-htmd = "0.5.6"
-markup5ever_rcdom = "0.38"
-html5ever = "0.38"
+# nesting is capped while parsing (IF-174) and hands htmd the finished rcdom
+# tree. htmd accepts that tree only through its `rcdom` feature, which is why
+# the default `ego-tree` backend is off (IF-237). Keep all three, and ammonia's
+# html5ever, on one release line: a second html5ever in the graph means htmd
+# and IronFlow no longer share one tree type.
+htmd = { version = "0.6.0", default-features = false, features = ["rcdom"] }
+markup5ever_rcdom = "0.40"
+html5ever = "0.40"
 ammonia = "4.1.2"
 zip = "9.0.5"
 quick-xml = "0.42.0"
-calamine = { version = "0.38", default-features = false, features = ["dates"] }
-lopdf = { version = "0.47", default-features = false, features = ["chrono"] }
+calamine = { version = "0.38", default-features = false }
+lopdf = { version = "0.47", default-features = false }
 image = { version = "0.25.10", default-features = false, features = [
     "bmp", "ff", "gif", "hdr", "ico", "jpeg", "png", "pnm", "qoi", "tga", "tiff", "webp",
 ] }
@@ -82,7 +91,7 @@ image = { version = "0.25.10", default-features = false, features = [
 hayro = { version = "0.9.0", optional = true }
 sqlx = { version = "0.9", features = ["runtime-tokio", "any", "sqlite"] }
 futures-util = "0.3"
-lettre = { version = "0.11.22", default-features = false, features = ["builder", "hostname", "pool", "smtp-transport", "tokio1", "tokio1-rustls-tls"] }
+lettre = { version = "0.11.24", default-features = false, features = ["builder", "hostname", "pool", "smtp-transport", "tokio1", "tokio1-rustls-tls"] }
 redis = { version = "1.2", features = ["aio", "tokio-comp", "connection-manager"], optional = true }
 rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"], optional = true }
 
@@ -108,6 +117,9 @@ redis = ["dep:redis", "redis/tokio-rustls-comp", "dep:rustls"]
 tokio = { version = "1.52.3", features = ["test-util"] }
 tempfile = "3"
 tower = "0.5"
+# Test-only view of the bundled IANA release and its zone names (IF-231); the
+# crate is already in the graph through `jiff`.
+jiff-tzdb = "1.0.0"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.186"

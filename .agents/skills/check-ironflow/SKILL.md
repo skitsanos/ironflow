@@ -26,6 +26,8 @@ An audit is read-only unless fixes or issue registration were requested.
   `scripts/integration_gate.sh` so local integration matches repository policy.
   A passing run records the receipt that `.githooks/pre-push` requires for the
   pushed tree; the gate cannot finish inside the push's SSH session.
+  Start from a clean committed tree and keep that worktree untouched until
+  completion. Use a separate worktree for concurrent edits.
   An intermediate `develop` push may set `IRONFLOW_PREPUSH_GATE=fast` to run
   formatting, repository policy, default Clippy and the `examples` and `cli`
   binaries instead; the full gate still precedes every merge and release.

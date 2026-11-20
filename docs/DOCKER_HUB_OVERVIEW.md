@@ -20,7 +20,7 @@ Both registries receive the same build with matching tags:
 | --- | --- |
 | `latest` | Most recently published build from `main`. |
 | `develop` | Most recently published development build; may include unreleased changes. |
-| `1.22.0` | Published image for the stable 1.22.0 release. |
+| `1.23.0` | Published image for the stable 1.23.0 release. |
 | `sha-<full-commit>` | A specific published source revision. |
 
 Check the repository's Tags tab for available images. Stable `X.Y.Z` tags are
@@ -58,7 +58,7 @@ and follow the [deployment guide](https://github.com/skitsanos/ironflow/blob/mai
 
 ## License
 
-[MIT](https://github.com/skitsanos/ironflow/blob/main/LICENSE). The image
-ships the license notices for the statically linked Rust crates as
-`/usr/local/share/licenses/ironflow/THIRD_PARTY_LICENSES.md` and the bundled
-fonts' SIL Open Font License as `fonts-OFL.txt` in the same directory.
+The image includes IronFlow's [MIT license](https://github.com/skitsanos/ironflow/blob/main/LICENSE)
+at `/usr/local/share/licenses/ironflow/LICENSE`. The same directory contains
+`THIRD_PARTY_LICENSES.md` for the linked Rust crates and `fonts-OFL.txt` for
+the bundled fonts.

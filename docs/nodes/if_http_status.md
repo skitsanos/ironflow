@@ -1,30 +1,36 @@
 # `if_http_status`
 
-Route execution based on an HTTP status value in context.
+Select a route from an HTTP status code held in the context. Dependent steps
+choose a branch with `:route("<name>")`.
 
 ## Parameters
 
-| Parameter | Type   | Required | Default | Description |
-|-----------|--------|----------|---------|-------------|
-| `status_key` | string | Yes | -- | Context key containing the HTTP status (supports dotted paths) |
-| `success_route` | string | No | `success` | Route name used for 2xx statuses when `routes` is not set |
-| `error_route` | string | No | `error` | Route name used for non-2xx statuses when `routes` is not set |
-| `default_route` | string | No | value of `error_route` | Fallback route when `routes` is set and no match is found |
-| `routes` | object | No | -- | Optional map of status rules to route names |
-
-The optional `routes` object allows explicit routing by status code and class.
-
-- Exact status match first (for example `"404" = "not_found"`)
-- Then status class match (`"2xx"`, `"4xx"`, etc.)
-- Otherwise `default` in `routes`, or `default_route`
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `status_key` | string | Yes | — | Context key holding the status; dotted paths such as `resp.status` work. |
+| `success_route` | string | No | `"success"` | Route for 2xx statuses when `routes` is not set. |
+| `error_route` | string | No | `"error"` | Route for other statuses when `routes` is not set. |
+| `routes` | object | No | — | Map of status rules to route names (see Behavior). |
+| `default_route` | string | No | value of `error_route` | Route when `routes` is set and no rule matches. |
 
 ## Context Output
 
-- `_route_{step_name}` -- selected route name
-- `_status_code_{step_name}` -- numeric status code
-- `_status_class_{step_name}` -- class bucket, e.g. `2xx`
+| Key | Type | Description |
+|-----|------|-------------|
+| `_route_{step_name}` | string | The selected route. |
+| `_status_code_{step_name}` | number | The status code. |
+| `_status_class_{step_name}` | string | The status class, such as `"4xx"`. |
 
-## Example
+`{step_name}` is the name of the step.
+
+## Behavior
+
+- With `routes`, the lookup order is the exact code (`"404"`), then the class (`"4xx"`), then a `default` entry in `routes`, then `default_route`.
+- The status may be a number or a numeric string; a missing key or any other value fails the step.
+
+## Examples
+
+### Route by status code and class
 
 ```lua
 local flow = Flow.new("if_http_status_example")
@@ -44,7 +50,6 @@ flow:step("probe", nodes.http_get({
 
 flow:step("route", nodes.if_http_status({
     status_key = "probe_status",
-    _step_name = "probe",
     default_route = "unexpected",
     routes = {
         ["2xx"] = "success",
@@ -54,22 +59,17 @@ flow:step("route", nodes.if_http_status({
 })):depends_on("probe")
 
 flow:step("success", nodes.log({
-    message = "HTTP ${ctx._status_code_probe} ok",
+    message = "HTTP ${ctx._status_code_route} ok",
     level = "info"
 })):depends_on("route"):route("success")
 
 flow:step("unauthorized", nodes.log({
-    message = "HTTP ${ctx._status_code_probe} requires authentication",
+    message = "HTTP ${ctx._status_code_route} requires authentication",
     level = "warn"
 })):depends_on("route"):route("unauthorized")
 
-flow:step("rate_limited", nodes.log({
-    message = "Rate limit hit (status ${ctx._status_code_probe})",
-    level = "warn"
-})):depends_on("route"):route("rate_limited")
-
 flow:step("unexpected", nodes.log({
-    message = "Unhandled status class ${ctx._status_class_probe}: ${ctx._status_code_probe}",
+    message = "Unhandled status class ${ctx._status_class_route}: ${ctx._status_code_route}",
     level = "error"
 })):depends_on("route"):route("unexpected")
 

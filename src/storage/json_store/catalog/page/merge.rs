@@ -71,7 +71,7 @@ fn merge_sorted(
 
 #[cfg(test)]
 mod tests {
-    use chrono::{TimeZone as _, Utc};
+    use jiff::Timestamp;
 
     use crate::engine::types::{RunStatus, RunSummary};
     use crate::storage::{PageSize, RunListQuery, RunSummaryPage};
@@ -82,11 +82,7 @@ mod tests {
         CatalogRecord {
             id: id.to_string(),
             status,
-            started: Some(
-                Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, second)
-                    .single()
-                    .unwrap(),
-            ),
+            started: Some(Timestamp::from_second(1_767_225_600 + i64::from(second)).unwrap()),
         }
     }
 

@@ -135,6 +135,40 @@ async fn stdio_session_reuses_one_process_and_closes_cleanly() {
 }
 
 #[tokio::test]
+async fn stdio_lists_two_pages_using_the_returned_cursor() {
+    let temp = tempfile::tempdir().unwrap();
+    let node = NodeRegistry::with_builtins().get("mcp_client").unwrap();
+    let mut init = initialize_config(&temp.path().join("trace"), "normal", "init");
+    init["args"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!("--paginated"));
+    let ctx = empty_context();
+    let handle = node.execute(&init, &ctx).await.unwrap()["init_session"].clone();
+    let mut list = json!({"action":"list_tools", "session":handle});
+    let first = node.execute(&list, &ctx).await.unwrap();
+    assert_eq!(first["mcp_tool_names"], json!(["search"]));
+    list["cursor"] = first["mcp_result"]["nextCursor"].clone();
+    let second = node.execute(&list, &ctx).await.unwrap();
+    assert_eq!(second["mcp_tool_names"], json!(["echo"]));
+    assert!(second["mcp_result"].get("nextCursor").is_none());
+
+    // IF-261: an absent nextCursor interpolates to "". It is refused before
+    // anything is sent, so the session survives and no page is fetched twice.
+    list["cursor"] = json!("");
+    let error = node.execute(&list, &ctx).await.unwrap_err().to_string();
+    assert!(error.contains("empty 'cursor'"), "{error}");
+    list.as_object_mut().unwrap().remove("cursor");
+    let again = node.execute(&list, &ctx).await.unwrap();
+    assert_eq!(again["mcp_tool_names"], json!(["search"]));
+    let requests = std::fs::read_to_string(temp.path().join("trace")).unwrap();
+    assert_eq!(requests.matches("tools/list").count(), 3, "{requests}");
+    node.execute(&json!({"action":"close","session":handle}), &ctx)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
 async fn stdio_sessions_with_identical_configs_are_isolated() {
     let temp = tempfile::tempdir().unwrap();
     let trace = temp.path().join("mcp.jsonl");
@@ -347,6 +381,64 @@ async fn failed_tool_request_invalidates_the_session() {
         .unwrap_err()
         .to_string();
     assert!(error.contains("unknown or expired session"), "{error}");
+}
+
+#[tokio::test]
+async fn queued_actions_expire_without_sending_or_invalidating_the_session() {
+    use tokio::time::{Duration, sleep, timeout};
+    let dir = tempfile::tempdir().unwrap();
+    let trace = dir.path().join("trace");
+    let node = NodeRegistry::with_builtins().get("mcp_client").unwrap();
+    let init = node
+        .execute(
+            &initialize_config(&trace, "slow-call", "init"),
+            &empty_context(),
+        )
+        .await
+        .unwrap();
+    let handle = session_from(&init, "init_session");
+    let call = json!({"action":"call_tool","session":handle,"tool_name":"echo","arguments":{"query":"holder"}});
+    let holder = tokio::spawn({
+        let node = node.clone();
+        async move { node.execute(&call, &empty_context()).await.unwrap() }
+    });
+    timeout(Duration::from_secs(3), async {
+        while !read_trace(&trace)
+            .iter()
+            .any(|e| e["method"] == "tools/call")
+        {
+            sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    for action in ["list_tools", "call_tool", "close"] {
+        let request =
+            json!({"action":action, "session":handle, "timeout":0.02, "tool_name":"echo"});
+        let ctx = empty_context();
+        let err = timeout(Duration::from_millis(500), node.execute(&request, &ctx))
+            .await
+            .expect("action waited past its queue deadline")
+            .unwrap_err();
+        assert!(err.to_string().contains("timed out"), "{err}");
+    }
+    assert_eq!(holder.await.unwrap()["mcp_tool_text"], "Echo: holder");
+    let list = json!({"action":"list_tools","session":handle});
+    assert_eq!(
+        node.execute(&list, &empty_context()).await.unwrap()["mcp_tool_count"],
+        2
+    );
+    node.execute(
+        &json!({"action":"close","session":handle}),
+        &empty_context(),
+    )
+    .await
+    .unwrap();
+    let events = read_trace(&trace);
+    for method in ["tools/list", "tools/call"] {
+        assert_eq!(events.iter().filter(|e| e["method"] == method).count(), 1);
+    }
+    assert!(events.iter().any(|e| e["event"] == "eof"));
 }
 
 #[tokio::test]

@@ -320,7 +320,7 @@ async fn list_directory_custom_output_key() {
 async fn list_directory_recursive() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("root.txt"), "r").unwrap();
-    let sub = dir.path().join("child");
+    let sub = dir.path().join("\u{fffd}");
     std::fs::create_dir(&sub).unwrap();
     std::fs::write(sub.join("nested.txt"), "n").unwrap();
 
@@ -334,7 +334,6 @@ async fn list_directory_recursive() {
 
     let result = node.execute(&config, &empty_ctx()).await.unwrap();
     let files = result.get("files").unwrap().as_array().unwrap();
-    // Should have: root.txt, child (dir), nested.txt (from recursive)
     assert_eq!(files.len(), 3);
 
     let names: Vec<&str> = files
@@ -342,8 +341,32 @@ async fn list_directory_recursive() {
         .map(|e| e.get("name").unwrap().as_str().unwrap())
         .collect();
     assert!(names.contains(&"root.txt"));
-    assert!(names.contains(&"child"));
+    assert!(names.contains(&"\u{fffd}"));
     assert!(names.contains(&"nested.txt"));
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn list_directory_rejects_unrepresentable_names_without_aliasing_siblings() {
+    use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
+
+    let dir = tempfile::tempdir().unwrap();
+    for (name, marker) in [
+        (OsStr::from_bytes(b"\xff"), "raw.txt"),
+        (OsStr::new("\u{fffd}"), "unicode.txt"),
+    ] {
+        let child = dir.path().join(name);
+        std::fs::create_dir(&child).unwrap();
+        std::fs::write(child.join(marker), marker).unwrap();
+    }
+
+    let reg = NodeRegistry::with_builtins();
+    let node = reg.get("list_directory").unwrap();
+    for recursive in [true, false] {
+        let config = serde_json::json!({"path": dir.path(), "recursive": recursive});
+        let err = node.execute(&config, &empty_ctx()).await.unwrap_err();
+        assert!(err.to_string().contains("not valid UTF-8"), "{err}");
+    }
 }
 
 #[tokio::test]

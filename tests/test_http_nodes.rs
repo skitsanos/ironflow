@@ -169,6 +169,44 @@ async fn http_get_happy_path() {
 }
 
 #[tokio::test]
+async fn repeated_response_headers_keep_field_order_and_singletons_stay_strings() {
+    let first_cookie = "alpha=one; Expires=Wed, 21 Oct 2026 07:28:00 GMT";
+    let (url, server) = spawn_status_mock_server(
+        200,
+        "OK",
+        &[
+            ("Set-Cookie", first_cookie),
+            ("X-Tag", "same"),
+            ("X-List", "a, b"),
+            ("set-cookie", "beta=two"),
+            ("X-Tag", "same"),
+            ("X-Tag", "last"),
+        ],
+        "{}",
+    );
+    let registry = NodeRegistry::with_builtins();
+    let config = serde_json::json!({"url": url, "method": "GET", "proxy_mode": "direct", "output_key": "result"});
+    let output = registry
+        .get("http_request")
+        .unwrap()
+        .execute(&config, &empty_ctx())
+        .await
+        .unwrap();
+    server.join().unwrap();
+    let headers = &output["result_headers"];
+    assert_eq!(
+        headers["set-cookie"],
+        serde_json::json!([first_cookie, "beta=two"])
+    );
+    assert_eq!(
+        headers["x-tag"],
+        serde_json::json!(["same", "same", "last"])
+    );
+    assert_eq!(headers["x-list"], "a, b");
+    assert_eq!(headers["content-type"], "application/json");
+}
+
+#[tokio::test]
 async fn http_get_missing_url() {
     let reg = NodeRegistry::with_builtins();
     let node = reg.get("http_get").unwrap();

@@ -1,27 +1,49 @@
 # `zip_create`
 
-Create a ZIP archive from a file or directory.
+Create a ZIP archive from a file or a directory tree.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `source` | string | yes | — | File or directory path to archive. Supports `${ctx.key}` interpolation. |
-| `zip_path` | string | yes | — | Output path for the generated ZIP file. Supports `${ctx.key}` interpolation. |
-| `include_root` | bool | no | `false` | When `true`, prefix archived file names with the top-level source directory name. Supports `${ctx.key}` interpolation. Empty directories are not stored. |
-| `compression` | string | no | `"deflated"` | Compression algorithm: `"stored"` (no compression) or `"deflated"`; `"deflate"` is accepted as an alias. |
-| `max_entries` | number | no | `IRONFLOW_MAX_ZIP_ENTRIES` / `10000` | Maximum source entries visited. A directory source counts every child file and directory; a single-file source counts as one. Supports `${ctx.key}` interpolation. |
-| `max_depth` | number | no | `IRONFLOW_MAX_DIRECTORY_DEPTH` / `32` | Maximum source-tree depth. The source root is depth 0; files directly inside it are allowed when the limit is 0. Supports `${ctx.key}` interpolation. |
-| `max_total_uncompressed_bytes` | number | no | `IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES` / `536870912` | Maximum total source bytes copied before compression. Supports `${ctx.key}` interpolation. |
+| `source` | string | Yes | — | File or directory to archive; supports `${ctx.key}` interpolation. |
+| `zip_path` | string | Yes | — | Output archive path; supports `${ctx.key}` interpolation. |
+| `include_root` | boolean | No | `false` | Prefix entry names with the source directory name. |
+| `compression` | string | No | `"deflated"` | `"stored"` or `"deflated"` (alias `"deflate"`). |
+| `max_entries` | number | No | `IRONFLOW_MAX_ZIP_ENTRIES` | Maximum source files and directories visited. |
+| `max_depth` | number | No | `IRONFLOW_MAX_DIRECTORY_DEPTH` | Maximum directory depth below the source root (root is depth 0). |
+| `max_total_uncompressed_bytes` | number | No | `IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES` | Maximum total source bytes. |
 
 ## Context Output
 
-- `zip_create_path` — The resolved output archive path.
-- `zip_create_source` — The resolved source path.
-- `zip_create_files` — Number of files added to the archive.
-- `zip_create_success` — `true` when creation completed successfully.
+| Key | Type | Description |
+|-----|------|-------------|
+| `zip_create_path` | string | Archive path after interpolation. |
+| `zip_create_source` | string | Source path after interpolation. |
+| `zip_create_files` | number | Number of files added. |
+| `zip_create_success` | boolean | `true` after the archive is published. |
 
-## Example
+## Behavior
+
+- A symlink or special file at the source or anywhere below it fails the step; symlinks are never followed.
+- A non-UTF-8 file name, or a name containing `\` or a NUL byte, fails the step.
+- Only files are stored; empty directories are not.
+- Entries are added in name order.
+- Each entry records the source file's `rwx` permission bits (setuid, setgid, sticky and ownership are not stored). [`zip_extract`](zip_extract.md) ignores them.
+- The archive is published only when complete; a failure leaves an existing archive unchanged. An existing output symlink fails the step.
+- Missing parent directories of `zip_path` are created as described in [Created directories](write_file.md#created-directories).
+
+## Limits
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `IRONFLOW_MAX_ZIP_ENTRIES` | `10000` | Default for `max_entries`. |
+| `IRONFLOW_MAX_DIRECTORY_DEPTH` | `32` | Default for `max_depth`. |
+| `IRONFLOW_MAX_ZIP_UNCOMPRESSED_BYTES` | 512 MiB | Default for `max_total_uncompressed_bytes`. |
+
+## Examples
+
+### Archive a directory
 
 ```lua
 local flow = Flow.new("zip_create_demo")
@@ -43,31 +65,3 @@ flow:step("log", nodes.log({
 
 return flow
 ```
-
-## Filesystem, limits, and cancellation
-
-The source must be a regular file or directory. IronFlow never follows source
-symlinks: a symlink or special file at the root or anywhere below it fails the
-step. Entry, depth, and actual copied-byte ceilings bound traversal and archive
-work.
-
-Creation runs on a tracked blocking worker and checks the enclosing step/run
-deadline and cancellation signal while traversing entries and copying chunks.
-The archive is written to a sibling temporary file. Failure or cancellation
-removes that temporary file and preserves any prior output; only a complete
-archive is published. The configured output parent may be a directory alias
-such as macOS `/tmp`; it is resolved before staging. An existing output symlink is rejected rather than
-followed.
-
-On Unix a new archive gets `0666` masked by the process umask (`0644` under
-umask `022`) and a replaced archive keeps its permission bits; the temporary
-file is mode `0600` until it is published. Missing parent directories of
-`zip_path` are created [`0755` masked by the process umask](write_file.md#created-directories).
-
-Each archive entry records the permission bits of its source file (`rwx` for
-owner, group and other), so an executable script is stored as `0755` and a
-private file as `0600` (IF-218; every entry was stored as `0600` before).
-Setuid, setgid and sticky bits are never recorded, and ownership is not
-stored. On platforms without Unix modes entries are still recorded as `0600`.
-[`zip_extract`](zip_extract.md#file-modes) ignores stored modes; other tools
-such as `unzip` apply them.

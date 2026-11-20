@@ -10,10 +10,9 @@ use crate::util::limits;
 use crate::util::redaction::SecretRedactor;
 use crate::util::sensitive_url::{SecretEndpoint, redact_sensitive_text};
 
-use super::embeddings::resolve_param;
 use super::llm_providers::{
-    LlmBodyInput, LlmMode, Provider, build_body, optional_u64_config, parse_mode, parse_timeout,
-    resolve_messages, resolve_model, resolve_prompt, resolve_provider_config, resolve_tool_choice,
+    LlmBodyInput, LlmMode, Provider, ResolvedProvider, build_body, optional_u64_config, parse_mode,
+    parse_timeout, resolve_messages, resolve_prompt, resolve_provider_config, resolve_tool_choice,
     resolve_tools,
 };
 
@@ -109,28 +108,11 @@ impl Node for LlmNode {
             String::new()
         };
 
-        let azure_deployment = if matches!(provider, Provider::Azure) {
-            resolve_param(
-                config,
-                "azure_chat_deployment",
-                "AZURE_OPENAI_CHAT_DEPLOYMENT",
-                ctx,
-            )
-            .or_else(|| {
-                resolve_param(
-                    config,
-                    "azure_responses_deployment",
-                    "AZURE_OPENAI_RESPONSES_DEPLOYMENT",
-                    ctx,
-                )
-            })
-            .or_else(|| Some("".to_string()))
-        } else {
-            None
-        };
-        let model = resolve_model(config, mode, azure_deployment.as_deref());
-        let (url, mut headers, provider_name) =
-            resolve_provider_config(config, ctx, mode, provider)?;
+        let ResolvedProvider {
+            url,
+            mut headers,
+            model,
+        } = resolve_provider_config(config, ctx, mode, provider)?;
         // These headers contain resolved auth, including keys supplied only by the environment.
         let credentials = headers
             .values_mut()
@@ -193,7 +175,7 @@ impl Node for LlmNode {
                 "{}",
                 redact_error(&format!(
                     "llm: request to {} at {} returned {}: {}",
-                    provider_name,
+                    provider.name(),
                     SecretEndpoint::new(&url),
                     status,
                     response_text

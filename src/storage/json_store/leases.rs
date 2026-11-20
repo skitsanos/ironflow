@@ -1,4 +1,6 @@
-use chrono::Utc;
+use jiff::Timestamp;
+
+use crate::util::timestamp::unix_micros;
 use serde::{Deserialize, Serialize};
 
 use super::JsonStateStore;
@@ -117,7 +119,7 @@ impl JsonStateStore {
                 return Ok(false);
             };
             if current.owner != lease.owner()
-                || current.expires_micros <= Utc::now().timestamp_micros()
+                || current.expires_micros <= unix_micros(Timestamp::now())
             {
                 return Ok(false);
             }
@@ -150,7 +152,7 @@ impl JsonStateStore {
             let Some(current) = store.read_lease(&run_id).await? else {
                 return Ok(false);
             };
-            if current.owner != owner || current.expires_micros <= Utc::now().timestamp_micros() {
+            if current.owner != owner || current.expires_micros <= unix_micros(Timestamp::now()) {
                 return Ok(false);
             }
             let terminal = status.is_terminal();
@@ -229,7 +231,7 @@ impl JsonStateStore {
     async fn lease_blocks_deletion(&self, run_id: &str) -> StorageResult<bool> {
         match self.read_lease(run_id).await {
             Ok(lease) => {
-                Ok(lease.is_some_and(|lease| lease.expires_micros > Utc::now().timestamp_micros()))
+                Ok(lease.is_some_and(|lease| lease.expires_micros > unix_micros(Timestamp::now())))
             }
             Err(error) if error.kind() == StorageErrorKind::Corruption => {
                 tracing::debug!(run_id, %error, "deleting a run whose lease cannot be decoded");
@@ -241,7 +243,7 @@ impl JsonStateStore {
 
     async fn lease_is_live(&self, run_id: &str, owner: &str) -> StorageResult<bool> {
         Ok(self.read_lease(run_id).await?.is_some_and(|lease| {
-            lease.owner == owner && lease.expires_micros > Utc::now().timestamp_micros()
+            lease.owner == owner && lease.expires_micros > unix_micros(Timestamp::now())
         }))
     }
 

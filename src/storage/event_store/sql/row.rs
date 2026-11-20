@@ -1,6 +1,5 @@
 //! Decoding of one stored event row.
 
-use chrono::{DateTime, Utc};
 use sqlx::{Row, any::AnyRow};
 
 use super::SqlEventStore;
@@ -54,14 +53,13 @@ impl SqlEventStore {
                 error,
             )
         })?;
-        let parsed_timestamp = DateTime::parse_from_rfc3339(&row_timestamp)
-            .map_err(|error| {
+        let parsed_timestamp =
+            crate::util::timestamp::parse_rfc3339(&row_timestamp).map_err(|error| {
                 StorageError::corruption(
                     format_args!("Invalid stored event timestamp for run '{expected_run_id}'"),
                     error,
                 )
-            })?
-            .with_timezone(&Utc);
+            })?;
         if row_id.is_empty()
             || row_run_id != expected_run_id
             || event.id != row_id

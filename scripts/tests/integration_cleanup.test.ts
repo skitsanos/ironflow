@@ -16,10 +16,12 @@ async function cleanupProbe(redis: string, postgres: string, dockerExit = 0) {
       await chmod(path, 0o755);
     }
     const source = await Bun.file(join(repository, "scripts/integration_gate.sh")).text();
-    const boundary = source.indexOf("for command in cargo ");
-    expect(boundary).toBeGreaterThan(0);
+    const start = source.indexOf('redis_container=""');
+    const boundary = source.indexOf('echo "[integration] pruning stale');
+    expect(start).toBeGreaterThan(0);
+    expect(boundary).toBeGreaterThan(start);
     // Exercise the real cleanup/traps, without running the integration workload.
-    const child = Bun.spawn(["/bin/bash", "-c", `${source.slice(0, boundary)}
+    const child = Bun.spawn(["/bin/bash", "-c", `${source.slice(start, boundary)}
 redis_container='${redis}'
 postgres_container='${postgres}'
 exit 42

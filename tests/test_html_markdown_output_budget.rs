@@ -110,6 +110,34 @@ async fn nested_lists_cannot_multiply_their_lines_past_the_output_limit() {
 }
 
 #[tokio::test]
+async fn nested_ordered_lists_cannot_multiply_their_lines_past_the_output_limit() {
+    // IF-237: an ordered list indents its items itself, so it is charged by
+    // a different wrapper than the unordered list above.
+    let html = format!(
+        "{}<pre>{}</pre>{}",
+        "<ol><li>".repeat(60),
+        "x\n".repeat(300_000),
+        "</li></ol>".repeat(60)
+    );
+    assert_both_refuse(&html).await;
+}
+
+#[tokio::test]
+async fn a_table_inside_quotes_and_lists_is_charged_for_both_multipliers() {
+    // IF-237: 64 KiB of header cell over 100 rows is 6.4 MB padded; 12 quote
+    // levels and 12 list levels then prefix each of its lines.
+    let html = format!(
+        "{}{}{}{}{}",
+        "<blockquote>".repeat(12),
+        "<ul><li>".repeat(12),
+        wide_table(64 * 1024, 900),
+        "</li></ul>".repeat(12),
+        "</blockquote>".repeat(12)
+    );
+    assert_both_refuse(&html).await;
+}
+
+#[tokio::test]
 async fn tables_quotes_and_lists_within_the_limit_convert_as_before() {
     let table = html_to_markdown(&wide_table(40, 3)).await.unwrap();
     let wide = "w".repeat(40);

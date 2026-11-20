@@ -18,7 +18,6 @@ flow:step("response_text", nodes.json_stringify({
 flow:step("inspect", nodes.if_body_contains({
     source_key = "resp_text",
     pattern = "httpbin.org",
-    _step_name = "resp",
     true_route = "has_httpbin",
     false_route = "no_httpbin",
     case_sensitive = false

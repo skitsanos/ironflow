@@ -18,6 +18,12 @@ mod test_extract_html_content;
 mod test_extract_pdf_font_bounds;
 #[path = "../test_extract_word_comment_anchors.rs"]
 mod test_extract_word_comment_anchors;
+#[path = "../test_extract_word_markdown_emphasis.rs"]
+mod test_extract_word_markdown_emphasis;
+#[path = "../test_extract_word_notes_and_furniture.rs"]
+mod test_extract_word_notes_and_furniture;
+#[path = "../test_extract_word_package_parts.rs"]
+mod test_extract_word_package_parts;
 #[path = "../test_extract_word_style_toggles.rs"]
 mod test_extract_word_style_toggles;
 #[path = "../test_extract_word_text_boxes.rs"]
@@ -26,12 +32,18 @@ mod test_extract_word_text_boxes;
 mod test_extract_xlsx;
 #[path = "../test_extract_xlsx_compound_prefix.rs"]
 mod test_extract_xlsx_compound_prefix;
+#[path = "../test_extract_xlsx_datetimes.rs"]
+mod test_extract_xlsx_datetimes;
 #[path = "../test_extract_xlsx_styles.rs"]
 mod test_extract_xlsx_styles;
 #[path = "../test_file_source_interpolation.rs"]
 mod test_file_source_interpolation;
+#[path = "../test_html_conversion_golden.rs"]
+mod test_html_conversion_golden;
 #[path = "../test_html_depth_limit.rs"]
 mod test_html_depth_limit;
+#[path = "../test_html_link_text.rs"]
+mod test_html_link_text;
 #[path = "../test_html_markdown_output_budget.rs"]
 mod test_html_markdown_output_budget;
 #[path = "../test_image_output_safety.rs"]
@@ -54,6 +66,8 @@ mod test_markdown_docx_alignment;
 mod test_markdown_fonts;
 #[path = "../test_markdown_multilingual.rs"]
 mod test_markdown_multilingual;
+#[path = "../test_ooxml_core_properties.rs"]
+mod test_ooxml_core_properties;
 #[path = "../test_pdf_actual_text.rs"]
 mod test_pdf_actual_text;
 #[path = "../test_pdf_info_strings.rs"]
@@ -88,8 +102,12 @@ mod test_pptx_hidden;
 mod test_pptx_inherited_bullets;
 #[path = "../test_pptx_line_breaks.rs"]
 mod test_pptx_line_breaks;
+#[path = "../test_pptx_modern_comments.rs"]
+mod test_pptx_modern_comments;
 #[path = "../test_pptx_notes_placeholders.rs"]
 mod test_pptx_notes_placeholders;
+#[path = "../test_pptx_package_parts.rs"]
+mod test_pptx_package_parts;
 #[path = "../test_pptx_presentation.rs"]
 mod test_pptx_presentation;
 #[path = "../test_pptx_slide_furniture.rs"]

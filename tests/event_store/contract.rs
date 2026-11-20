@@ -1,4 +1,3 @@
-use chrono::{TimeZone, Utc};
 use ironflow::engine::types::RunStatus;
 use ironflow::engine::{RunEvent, RunEventType};
 use ironflow::storage::StorageErrorKind;
@@ -54,10 +53,7 @@ pub fn ordered_event(run_id: &str, suffix: &str, timestamp_offset: i64) -> RunEv
         RunStatus::Running,
     );
     event.id = format!("{run_id}-{suffix}");
-    event.timestamp = Utc
-        .timestamp_opt(1_700_000_000 + timestamp_offset, 0)
-        .single()
-        .unwrap();
+    event.timestamp = jiff::Timestamp::new(1_700_000_000 + timestamp_offset, 0).unwrap();
     event
 }
 

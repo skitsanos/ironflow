@@ -1,63 +1,59 @@
 # `image_to_pdf`
 
-Convert one or more images into a single PDF file.
+Combine one or more images into a PDF, one image per page.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `sources` | array | one of `sources` or `source_key` | — | Array of source images. Each item may be a path, artifact URI/descriptor, `{ artifact = ... }`, or an explicit `{ base64 = "..." }` object. Path strings support `${ctx.key}` interpolation. |
-| `source_key` | string | one of `sources` or `source_key` | — | Context key containing an array of source images (same formats as `sources`). Stored paths are used as they are and are not interpolated. |
-| `output_path` | string | yes | — | Destination path for generated PDF. Supports `${ctx.key}` interpolation. |
-| `output_key` | string | no | `pdf_path` | Context key to store generated PDF path. |
+| `sources` | array | One of `sources` or `source_key` | — | Non-empty array of image entries (see below); path strings support `${ctx.key}` interpolation. |
+| `source_key` | string | One of `sources` or `source_key` | — | Context key holding an array of image entries; values are used as stored, without interpolation. |
+| `output_path` | string | Yes | — | Destination PDF path; supports `${ctx.key}` interpolation. |
+| `output_key` | string | No | `"pdf_path"` | Context key for the output path, and prefix for the other keys. |
 
-Paths inside image entries support `${ctx.key}` interpolation.
+`sources` and `source_key` are mutually exclusive. Each entry is one of:
 
-### Image entry formats
+| Form | Example |
+|------|---------|
+| Path or artifact URI string | `"images/logo.png"` |
+| Path object | `{ path = "images/logo.png" }` |
+| Base64 object | `{ base64 = "iVBORw0KGgo..." }` (`data` is an alias) |
+| Artifact descriptor or wrapper | `{ artifact_uri = "artifact://sha256/...", sha256 = "...", size_bytes = 184322, mime_type = "image/png" }` or `{ artifact = ... }` |
 
-#### String
-
-```json
-"images/logo.png"
-```
-
-#### Object
-
-```lua
-{ path = "images/logo.png" }
-```
-
-```lua
-{ base64 = "iVBORw0KGgoAAAANSUhEUg..." }
-```
-
-```lua
-{ artifact_uri = "artifact://sha256/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-  sha256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-  size_bytes = 184322,
-  mime_type = "image/png" }
-```
-
-Output wrappers from `pdf_to_image` are also accepted directly: set
-`source_key = "images"` and each `{ artifact = ... }` entry in that context
-array is resolved without Base64. For one `pdf_thumbnail` result, place the
-thumbnail object in a context array before passing its key.
-
-Artifact inputs are opened and SHA-256 verified inside the tracked blocking
-worker; encoding reads that same rewound handle rather than a resolved store
-pathname.
-
-Supported source formats are BMP, Farbfeld, GIF, HDR, ICO, JPEG, PNG, PNM,
-QOI, TGA, TIFF, and WebP. AVIF and OpenEXR are not supported.
+An object with more than one of `path`, `base64`, `data`, `artifact` or `artifact_uri` fails the step. The `images` array from [`pdf_to_image`](pdf_to_image.md) can be passed directly with `source_key`.
 
 ## Context Output
 
-- `<output_key>` (default `pdf_path`) — output PDF path.
-- `image_count` — number of source images processed.
-- `<output_key>_count` — same as `image_count`.
-- `<output_key>_success` — boolean `true`.
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}` | string | Output PDF path after interpolation. |
+| `image_count` | number | Number of images added. |
+| `{output_key}_count` | number | Same as `image_count`. |
+| `{output_key}_success` | boolean | `true` after the PDF is committed. |
 
-## Example
+## Behavior
+
+- Supported formats: BMP, Farbfeld, GIF, HDR, ICO, JPEG, PNG, PNM, QOI, TGA, TIFF and WebP. AVIF and OpenEXR fail the step.
+- Each page is the image's pixel size in PDF points. JPEG data is embedded without re-encoding.
+- The destination directory must already exist; it is not created.
+- A destination that is a symlink or not a regular file fails the step; an existing regular file is replaced.
+- Any failure leaves an existing destination unchanged.
+- Prefer paths or artifacts over Base64 for large images.
+
+## Limits
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `IRONFLOW_MAX_IMAGE_TO_PDF_SOURCES` | `100` | Maximum number of images. |
+| `IRONFLOW_MAX_IMAGE_ENCODED_BYTES` | 50 MiB | Maximum encoded size of each image. |
+| `IRONFLOW_MAX_IMAGE_PIXELS` | `25000000` | Maximum pixels of each image. |
+| `IRONFLOW_MAX_IMAGE_DECODE_ALLOCATION_BYTES` | 128 MiB | Maximum decoder memory for each image. |
+| `IRONFLOW_MAX_IMAGE_TO_PDF_ENCODED_BYTES` | 100 MiB | Maximum total encoded size of all images. |
+| `IRONFLOW_MAX_IMAGE_TO_PDF_PIXELS` | `50000000` | Maximum total pixels of all images. |
+
+## Examples
+
+### Combine two images
 
 ```lua
 local flow = Flow.new("images_to_pdf")
@@ -77,52 +73,3 @@ flow:step("log", nodes.log({
 
 return flow
 ```
-
-## Destination contract
-
-`output_path` is published through the same rooted, atomic writer as
-[`write_file`](write_file.md), inside the tracked blocking worker: the PDF is
-serialized into a staged file beside the destination, flushed and
-synchronized, then renamed over it.
-
-- The destination directory must already exist. The node creates no
-  directories and fails with `image_to_pdf: destination directory '<dir>' does
-  not exist`. Directory aliases, including macOS `/tmp`, are resolved first.
-- A destination that is a symlink (dangling or not), FIFO, device or directory
-  is refused and its target is left untouched. An existing regular file is
-  replaced.
-- An encoder or write failure, an expired step deadline or cancellation
-  removes the staged file and leaves an existing destination unchanged.
-- On Unix the published file has the mode a plain write would have left: a
-  new file gets `0666` masked by the process umask (`0644` under umask `022`)
-  and a replaced file keeps its permission bits, without any setuid, setgid
-  or sticky bit. The staged file is mode `0600` until it is published. Other
-  platforms use their native permission semantics.
-- Unix pins the resolved directory and stages relative to that handle. Other
-  platforms revalidate the observed path immediately before an atomic
-  replacement and cannot close a hostile parent-directory swap race; protect
-  destination trees from same-identity mutation.
-
-## Resource contract
-
-Source objects must select exactly one of `path`, `artifact`, `base64`, or
-`data`; ambiguous objects fail instead of silently selecting the first field.
-The node rejects more than `IRONFLOW_MAX_IMAGE_TO_PDF_SOURCES` entries (default
-`100`) before parsing them. Each image is bounded by
-`IRONFLOW_MAX_IMAGE_ENCODED_BYTES` (50 MiB), `IRONFLOW_MAX_IMAGE_PIXELS` (25
-million), and `IRONFLOW_MAX_IMAGE_DECODE_ALLOCATION_BYTES` (128 MiB). A whole
-call is additionally bounded by `IRONFLOW_MAX_IMAGE_TO_PDF_ENCODED_BYTES` (100
-MiB) and `IRONFLOW_MAX_IMAGE_TO_PDF_PIXELS` (50 million).
-
-Headers, dimensions, decoded byte estimates, and cumulative budgets are checked
-before pixel decoding or adding a PDF object. Base64 length is admitted against
-the per-source and cumulative decoded-byte ceilings before IronFlow clones a
-source string out of workflow context; malformed or oversized later entries do
-not cause an unbounded pre-worker copy. JPEG bytes can be embedded without
-decoding. Other formats use the configured image decoder limits and a bounded
-pixel conversion and compression-buffer preflight. The in-progress `lopdf`
-document still retains embedded streams until save, and accepted Base64 input
-temporarily retains both its bounded context string and decoded bytes; prefer
-paths or artifacts for large media. Decode, conversion, compression, and save
-run on a tracked blocking worker with cooperative checkpoints between opaque
-codec operations.

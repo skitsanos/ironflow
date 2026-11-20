@@ -1,43 +1,37 @@
 # `foreach`
 
-Iterate over an array, execute a Lua function per item, and collect results.
+Call a Lua function for each item of a context array and collect the return
+values.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `source_key` | string | yes | — | Context key containing the array to iterate over. |
-| `transform` | function | yes | — | Lua function called with `(item, index)` for each element. |
-| `output_key` | string | no | `"foreach_results"` | Context key where the result array is stored. |
-| `filter_nulls` | bool | no | `true` | When `true`, items where the transform returns `nil` are excluded from the results. |
-
-> The function is serialized to bytecode at parse time (same mechanism as function handlers on `flow:step()`).
-> The `ctx` table, `env()`, JSON helpers, base64 helpers, logging helpers, UUID, and timestamp helpers are available as globals inside the transform.
-> The Lua environment is sandboxed: `os`, `io`, `debug`, `loadfile`, and `dofile` are removed.
-
-Transforms must be self-contained: captured locals from the enclosing flow are
-rejected because upvalues cannot survive serialization. Declare constants in
-the transform or read them from `ctx`. Validation reports undefined global
-reads with line and column information; use `ironflow validate --strict` to
-treat those warnings as failures. `Flow` and `nodes` are loader-only globals
-and are unavailable inside the transform VM.
-
-A transform callback can be reused by multiple nodes. Validation reports each
-source warning once; distinct functions sharing an exact start/end line range
-must be moved onto separate lines to avoid ambiguous source association. See
-[`reused_callbacks.lua`](../../examples/07-advanced/reused_callbacks.lua) for
-reuse across the function-backed node APIs.
-
-## Execution Limits
-
-Each `foreach` transform runs inside the Lua execution budgets configured by `IRONFLOW_LUA_MAX_INSTRUCTIONS`, `IRONFLOW_LUA_MAX_SECONDS`, `IRONFLOW_LUA_MAX_MEMORY_BYTES`, `IRONFLOW_LUA_MAX_PATTERN_STEPS`, `IRONFLOW_LUA_HOOK_INTERVAL`, and `IRONFLOW_LUA_GC_AFTER_EXECUTION`.
-
-A step timeout or run cancellation stops the transform at the next instruction-hook check, inside a pattern-matching call, and between items. Pattern matching is bounded by a step budget, as described for [`code`](code.md#execution-limits); the step's timeout result and `on_error` handler wait until the transform's worker has returned.
+| `source_key` | string | Yes | — | Context key holding the array to iterate over. |
+| `transform` | function | Yes | — | Lua function called as `transform(item, index)` with a 1-based `index`. |
+| `output_key` | string | No | `"foreach_results"` | Context key for the result array. |
+| `filter_nulls` | boolean | No | `true` | Drop items for which the transform returns `nil`. |
 
 ## Context Output
 
-- `{output_key}` (default `foreach_results`) — array of transformed values.
-- `{output_key}_count` (default `foreach_results_count`) — number of items in the result array (after filtering).
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}` | array | Transformed values, in source order. |
+| `{output_key}_count` | number | Number of values after filtering. |
+
+## Behavior
+
+- A missing `source_key`, a value that is not an array, or a transform error fails the step; the error names the failing item.
+- The transform runs in the same sandbox as [`code`](code.md): `ctx`, `env()`, the JSON, base64, logging, UUID and timestamp helpers are available; `os`, `io`, `debug`, `loadfile` and `dofile` are not; `Flow` and `nodes` are not available.
+- The transform must be self-contained: captured locals from the enclosing flow are rejected. Declare constants inside the function or read them from `ctx`.
+- `ironflow validate` reports undefined globals in the transform; `--strict` makes them failures.
+- Step timeouts and cancellation stop the transform between items and during execution.
+
+## Limits
+
+The transform runs under the Lua execution limits (`IRONFLOW_LUA_MAX_INSTRUCTIONS`,
+`IRONFLOW_LUA_MAX_SECONDS`, `IRONFLOW_LUA_MAX_MEMORY_BYTES`,
+`IRONFLOW_LUA_MAX_PATTERN_STEPS`); see [`code`](code.md#limits).
 
 ## Examples
 

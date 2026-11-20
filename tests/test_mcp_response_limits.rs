@@ -18,8 +18,6 @@ use tokio::task::JoinSet;
 
 /// Cap on one `application/json` response, as documented for `mcp_client`.
 const JSON_RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
-/// Cap on the body of a non-2xx `application/json` response.
-const ERROR_RESPONSE_LIMIT: usize = 64 * 1024;
 const WRITE_CHUNK: usize = 64 * 1024;
 
 /// What the server sends for the JSON-RPC method under test.
@@ -348,7 +346,7 @@ async fn initialize_stops_reading_an_undeclared_oversized_json_body() {
 
 #[tokio::test]
 async fn initialize_does_not_materialize_an_oversized_json_error_body() {
-    let body_bytes = 2 * JSON_RESPONSE_LIMIT;
+    let body_bytes = 3 * JSON_RESPONSE_LIMIT;
     let server = OversizedServer::start(Oversized {
         method: "initialize",
         status: "500 Internal Server Error",
@@ -381,9 +379,13 @@ async fn initialize_does_not_materialize_an_oversized_json_error_body() {
         !completed,
         "the client read the whole {body_bytes}-byte error body"
     );
+    // rmcp 3.11 reads a JSON error body within the JSON response cap, so that
+    // a JSON-RPC error can be parsed, and keeps at most 64 KiB of its text
+    // (IF-236). The cap plus what the loopback socket buffers hold, never the
+    // whole body.
     assert!(
-        delivered < JSON_RESPONSE_LIMIT,
-        "client accepted {delivered} bytes of an error body capped at {ERROR_RESPONSE_LIMIT}"
+        delivered < 2 * JSON_RESPONSE_LIMIT,
+        "client accepted {delivered} bytes of a {body_bytes}-byte error body"
     );
 }
 

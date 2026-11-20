@@ -1,20 +1,31 @@
 # `data_transform`
 
-Transform data by mapping and renaming fields.
+Build new objects from an object or an array of objects by mapping new field names to existing ones. Only mapped fields are kept.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `source_key` | string | yes | — | Context key holding the source value (object or array of objects) |
-| `output_key` | string | yes | — | Context key where the transformed result will be stored |
-| `mapping` | object | yes | — | Object mapping new field names to old field names (`{ "new_name": "old_name" }`) |
+| `source_key` | string | Yes | — | Context key holding an object or an array of objects |
+| `output_key` | string | Yes | — | Context key for the result |
+| `mapping` | object | Yes | — | `{ new_name = "old_name" }` pairs |
 
 ## Context Output
 
-- `{output_key}` — the transformed result. If the source is an array, each item is transformed independently and the result is an array. If the source is a single object, the result is a single object. Only fields listed in the mapping are included in the output.
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}` | object or array | One mapped object, or an array with one mapped object per item |
 
-## Example
+## Behavior
+
+- The step fails when the source is missing or is neither an object nor an array.
+- A mapped field missing from the source item is left out of the result; a mapping value that is not a string is ignored.
+- An array item that is not an object becomes an empty object.
+- One source field can be mapped to several new names.
+
+## Examples
+
+### Array and single object
 
 ```lua
 -- Transform an array of objects

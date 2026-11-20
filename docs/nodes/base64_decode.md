@@ -1,54 +1,43 @@
 # `base64_decode`
 
-Decode a base64 string to text or write decoded bytes to a file.
+Decode a base64 string to UTF-8 text in context, or write the decoded bytes to a file.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `input` | string | one of `input` or `source_key` | — | Base64 string to decode; supports `${ctx.key}` interpolation. |
-| `source_key` | string | see above | — | Context key containing the base64 string to decode. |
-| `output_key` | string | no | `"base64_decoded"` | Context key for the decoded output. |
-| `output_file` | string | no | — | File path to write decoded bytes to. |
-| `url_safe` | bool | no | `false` | Expect URL-safe base64 alphabet. |
+| `input` | string | One of | — | Base64 string; supports `${ctx.key}` interpolation |
+| `source_key` | string | One of | — | Context key holding the base64 string |
+| `output_key` | string | No | `"base64_decoded"` | Context key (or key prefix with `output_file`) for the result |
+| `output_file` | string | No | — | Write the decoded bytes to this path instead of context; supports `${ctx.key}` interpolation |
+| `url_safe` | bool | No | `false` | Expect the URL-safe alphabet (`-` and `_`) |
+
+Give exactly one of `input` or `source_key`; both, or neither, fails the step.
 
 ## Context Output
 
-- If no `output_file`: `<output_key>` (default `base64_decoded`) — the decoded string.
-- If `output_file` is set: `<output_key>_path` — the file path written to.
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}` | string | The decoded text; set only without `output_file` |
+| `{output_key}_path` | string | The path written; set only with `output_file` |
 
-## File safety
+## Behavior
 
-`output_file` streams the decoded bytes through the same atomic, tracked write
-path as `write_file`. The decoded length is derived from the encoded input and
-admitted against `IRONFLOW_MAX_FILE_BYTES` (default 50 MiB) before any worker
-or decoded-byte allocation. An oversized payload fails with exactly one
-message:
+- Input must be padded base64 in the chosen alphabet; invalid input fails the step.
+- Without `output_file`, decoded bytes that are not valid UTF-8 fail the step; use `output_file` for binary data.
+- With `output_file`, the file is written like [`write_file`](write_file.md): missing parent directories are created ([permissions](write_file.md#created-directories)), an existing regular file is replaced only after a complete write, and a symlink or special file at the destination is refused.
+- On malformed input, an oversized payload, cancellation or a write error, an existing file is left unchanged. File errors end with `; output_file '<path>'`.
+- A decoded payload over the limit fails before anything is written: `base64_decode: final payload is <decoded> bytes, exceeds the IRONFLOW_MAX_FILE_BYTES limit (<limit>)`.
 
-```
-base64_decode: final payload is <decoded> bytes, exceeds the IRONFLOW_MAX_FILE_BYTES limit (<limit>)
-```
+## Limits
 
-Decoding then runs in bounded chunks directly into the staged file, so the
-decoded payload is never held in memory; only the text output path (no
-`output_file`) decodes in memory. File errors name the destination once, as
-`<error>; output_file '<path>'`.
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `IRONFLOW_MAX_FILE_BYTES` | 50 MiB | Largest decoded payload written with `output_file` |
 
-Valid directory aliases (including macOS `/tmp`) are accepted, but destination
-file symlinks and special files are refused. Missing parent directories are
-created ([`0755` masked by the process umask](write_file.md#created-directories) on Unix). An existing regular file is replaced only after a complete, synced
-write; malformed input, byte-limit, cancellation or write failure preserves it
-and removes temporary output. On Unix a new file gets `0666` masked by the
-process umask and a replaced file keeps its permission bits, as described for
-[write_file](write_file.md); writes to one destination are serialized inside
-the process in the same way.
+## Examples
 
-Unix pins the resolved destination directory and uses handle-relative writes.
-Other platforms retain observed-path checks and atomic replacement; protect
-the parent namespace against concurrent hostile mutation. This does not impose
-a filesystem sandbox on a trusted flow's configured destination.
-
-## Example
+### Decode to text
 
 ```lua
 local flow = Flow.new("decode_demo")

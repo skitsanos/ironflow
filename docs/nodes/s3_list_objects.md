@@ -1,80 +1,64 @@
 # `s3_list_objects`
 
-List objects under a bucket and optional prefix.
-
-Uses regional SigV4 signing, or SigV4a when `bucket` is an MRAP ARN;
-see [S3 signing](../SECURITY.md#s3-signing).
+List objects in a bucket, optionally under a prefix, following continuation tokens until the listing ends or `max_objects` is reached.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `bucket` | string | yes | env `S3_BUCKET` | Bucket name or MRAP ARN to query. |
-| `prefix` | string | no | `""` | Prefix used to filter keys. |
-| `delimiter` | string | no | `""` | Optional delimiter for grouped prefixes. |
-| `max_keys` | number | no | `1000` | Entries requested per page. This is a page size, not a bound on the listing. |
-| `max_objects` | number | no | -- | Stop after this many entries and return the token to continue from. Between 1 and `IRONFLOW_MAX_S3_LIST_OBJECTS`. |
-| `continuation_token` | string | no | -- | Resume a listing from `{output_key}_next_continuation_token` of an earlier call. An empty string starts from the beginning. |
-| `region` | string | no | `S3_REGION` / `AWS_REGION` | Explicit AWS/S3 region override. |
-| `endpoint_url` | string | no | env `AWS_ENDPOINT_URL` | Optional custom endpoint (for S3-compatible services). |
-| `force_path_style` | bool | no | `false` | Force path-style bucket addressing. |
-| `output_key` | string | no | `"s3"` | Prefix for context output keys. |
+| `bucket` | string | Yes | env `S3_BUCKET` | Bucket name or MRAP ARN; supports `${ctx.key}` interpolation. |
+| `prefix` | string | No | `""` | Key prefix filter; supports `${ctx.key}` interpolation. |
+| `delimiter` | string | No | `""` | Groups keys into `{output_key}_common_prefixes`, for example `"/"`. |
+| `max_keys` | number | No | `1000` | Entries requested per page; a page size, not a bound on the listing. |
+| `max_objects` | number | No | — | Stop after this many entries and return a continuation token; 1 to `IRONFLOW_MAX_S3_LIST_OBJECTS`. |
+| `continuation_token` | string | No | — | Resume from an earlier `{output_key}_next_continuation_token`; an empty string starts from the beginning. |
+| `region` | string | No | env `S3_REGION`, `AWS_REGION`, `AWS_DEFAULT_REGION` | Region override. |
+| `endpoint_url` | string | No | env `AWS_ENDPOINT_URL` | Endpoint of an S3-compatible service. |
+| `force_path_style` | boolean | No | env `AWS_S3_FORCE_PATH_STYLE`, else `false` | Use path-style bucket addressing. |
+| `output_key` | string | No | `"s3"` | Prefix for the context output keys. |
 
 ## Context Output
 
-- `{output_key}_bucket` — Queried bucket.
-- `{output_key}_prefix` — Prefix filter used.
-- `{output_key}_count` — Objects returned by this call (all pages it read).
-- `{output_key}_objects` — Array of objects (`key`, `size`, `etag`, `last_modified`, `storage_class`).
-- `{output_key}_common_prefixes` — Array of the prefixes grouped by `delimiter`; empty without one.
-- `{output_key}_truncated` — `true` when the call stopped at `max_objects` and more entries remain.
-- `{output_key}_next_continuation_token` — Token for the next call when truncated, otherwise `""`.
-- `{output_key}_success` — `true` on success.
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}_bucket` | string | Bucket listed. |
+| `{output_key}_prefix` | string | Prefix used. |
+| `{output_key}_count` | number | Objects returned by this call. |
+| `{output_key}_objects` | array | Object entries; see Output Shape. |
+| `{output_key}_common_prefixes` | array | Prefix strings grouped by `delimiter`; empty without one. |
+| `{output_key}_truncated` | boolean | `true` when the call stopped at `max_objects` and more entries remain. |
+| `{output_key}_next_continuation_token` | string | Token for the next call when truncated, otherwise `""`. |
+| `{output_key}_success` | boolean | `true` on success. |
+
+## Output Shape
+
+One entry of `{output_key}_objects`:
+
+```json
+{"key": "raw/a.txt", "size": 1024, "etag": "\"9b2c...\"", "last_modified": "2026-01-05T10:00:00Z", "storage_class": "STANDARD"}
+```
+
+A field the service does not return is `""` (or `0` for `size`).
+
+## Behavior
+
+- Objects and common prefixes both count as entries toward `max_objects` and the limit.
+- Without `max_objects`, a listing with more entries than `IRONFLOW_MAX_S3_LIST_OBJECTS` fails the step; it is never returned in part.
+- With `max_objects`, pass `{output_key}_next_continuation_token` as `continuation_token` to the next call; it continues exactly after the last entry returned.
+- The step fails when the endpoint returns a truncated page without a token, repeats a token, returns more entries than requested, or returns 16 truncated empty pages in a row.
+- Credentials come from the AWS SDK default chain. An MRAP ARN is signed with SigV4a; see [S3 signing](../SECURITY.md#s3-signing).
+- With `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, a private `endpoint_url` must be allow-listed; see [Outbound destinations](../SECURITY.md#outbound-destinations).
 
 ## Limits
 
-One call returns at most `IRONFLOW_MAX_S3_LIST_OBJECTS` entries (default
-`10000`); objects and common prefixes both count, as they do toward S3's
-`max_keys`. The node follows continuation tokens itself, so the two cases
-are:
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `IRONFLOW_MAX_S3_LIST_OBJECTS` | 10,000 | Maximum entries one call returns, and the upper bound for `max_objects`. |
+| `IRONFLOW_MAX_S3_LIST_PAGE_BYTES` | 16 MiB | Maximum response body of one page; a larger page fails the step. |
 
-- Without `max_objects`, the listing must fit the ceiling. A listing with
-  more entries fails the step with `listing holds more than N entries`; it
-  is never returned in part.
-- With `max_objects`, the call stops at that many entries and reports
-  `{output_key}_truncated = true` with the token to pass as
-  `continuation_token` to the next call. The last page is requested with a
-  smaller `max_keys`, so the token continues exactly after the last entry
-  returned.
+## Examples
 
-The step also fails, instead of requesting pages without end, when an
-endpoint returns a truncated page without a continuation token, repeats a
-token already used in the call, returns more entries than the page asked
-for, or returns 16 consecutive truncated pages that hold no entry. These
-shapes come from S3-compatible services reached through `endpoint_url`.
-
-One page's response body may be at most `IRONFLOW_MAX_S3_LIST_PAGE_BYTES`
-(default `16777216`, 16 MiB). The AWS SDK reads a page whole before it parses
-it, so the entry checks above only run on a page that is already in memory;
-this limit applies before that. A response that declares a larger
-`Content-Length` is refused without being read, and a response without a
-length is cut off while it streams. Either way the step fails with
-`s3_list_objects: a list page exceeds IRONFLOW_MAX_S3_LIST_PAGE_BYTES
-(16777216)`. A page of 1,000 keys of the longest key S3 allows is under
-half of the default, so the limit only matters for an endpoint that ignores
-`max_keys` or pads its response.
-
-## Outbound destination policy
-
-When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, `endpoint_url`
-(or `AWS_ENDPOINT_URL`) is refused when it is `localhost` or not a public
-unicast address, and every DNS answer of the service client is validated
-and pinned. An S3-compatible endpoint on a private address must be listed by
-the operator in `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` (for example
-`minio.internal:9000`). See
-[Outbound destinations](../SECURITY.md#outbound-destinations).
-
-## Example
+### List a prefix
 
 ```lua
 local flow = Flow.new("s3_list")
@@ -93,7 +77,7 @@ flow:step("log", nodes.log({
 return flow
 ```
 
-Paging through a large prefix, 500 entries per call:
+### Page through a large prefix
 
 ```lua
 flow:step("first", nodes.s3_list_objects({

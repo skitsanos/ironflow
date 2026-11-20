@@ -1,6 +1,8 @@
 mod comments;
 mod content;
 mod metadata;
+mod package;
+mod stories;
 mod worker;
 
 use anyhow::Result;
@@ -11,6 +13,7 @@ use crate::nodes::Node;
 
 use super::common::{ensure_distinct_keys, optional_string, string_or, validate_word_format};
 use crate::util::file_source::get_file_source;
+use crate::util::node_config::config_bool_or;
 
 pub struct ExtractWordNode;
 
@@ -30,6 +33,12 @@ impl Node for ExtractWordNode {
         let output_key = string_or(config, "output_key", "content", "extract_word")?;
         let metadata_key = optional_string(config, "metadata_key", "extract_word")?;
         let comments_key = optional_string(config, "comments_key", "extract_word")?;
+        let stories = stories::StoryOptions {
+            notes: config_bool_or(config, "notes", ctx, true)
+                .map_err(|error| anyhow::anyhow!("extract_word: {error}"))?,
+            headers_footers: config_bool_or(config, "headers_footers", ctx, false)
+                .map_err(|error| anyhow::anyhow!("extract_word: {error}"))?,
+        };
         let mut keys = vec![("output_key", output_key)];
         if let Some(key) = metadata_key {
             keys.push(("metadata_key", key));
@@ -44,6 +53,7 @@ impl Node for ExtractWordNode {
             output_key: output_key.to_string(),
             metadata_key: metadata_key.map(str::to_string),
             comments_key: comments_key.map(str::to_string),
+            stories,
         };
 
         crate::util::execution::run_tracked_blocking_step(move |execution| {

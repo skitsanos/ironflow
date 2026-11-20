@@ -3,12 +3,12 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use chrono::{TimeZone as _, Utc};
 use ironflow::engine::types::{Context, RunInfo, RunStatus, TaskState};
 use ironflow::scheduler::config::ScheduleConfig;
 use ironflow::scheduler::{Outcome, ScheduleExecutor, ScheduleRun, Scheduler};
 use ironflow::storage::null_store::NullStateStore;
 use ironflow::storage::{RunListQuery, RunSummaryPage, StateStore, StorageResult};
+use jiff::{SignedDuration, Timestamp};
 
 const HUNG: &str = "a_hung";
 const HEALTHY: &str = "b_healthy";
@@ -32,12 +32,17 @@ fn schedules() -> HashMap<String, ScheduleConfig> {
         .collect()
 }
 
-fn start() -> chrono::DateTime<Utc> {
-    Utc.with_ymd_and_hms(2026, 5, 1, 1, 59, 0).unwrap()
+fn utc_at(year: i16, month: i8, day: i8, hour: i8, minute: i8, second: i8) -> Timestamp {
+    let wall_clock = jiff::civil::datetime(year, month, day, hour, minute, second, 0);
+    jiff::tz::Offset::UTC.to_timestamp(wall_clock).unwrap()
 }
 
-fn due() -> chrono::DateTime<Utc> {
-    Utc.with_ymd_and_hms(2026, 5, 1, 2, 0, 0).unwrap()
+fn start() -> Timestamp {
+    utc_at(2026, 5, 1, 1, 59, 0)
+}
+
+fn due() -> Timestamp {
+    utc_at(2026, 5, 1, 2, 0, 0)
 }
 
 #[derive(Default)]
@@ -199,8 +204,8 @@ fn assert_deferred_for_the_budget(decisions: &[ironflow::scheduler::Decision]) {
     );
 }
 
-fn tick(number: i64) -> chrono::DateTime<Utc> {
-    due() + chrono::Duration::seconds(30 * number)
+fn tick(number: i64) -> Timestamp {
+    due() + SignedDuration::from_secs(30 * number)
 }
 
 // Every test below runs on the paused test clock: the budget expires because
@@ -295,7 +300,7 @@ async fn a_completed_evaluation_resets_the_expiry_count() {
 
     // The next day's instant hangs again and is deferred, not burned at once.
     executor.hanging_starts.store(1, Ordering::SeqCst);
-    let next_day = due() + chrono::Duration::days(1);
+    let next_day = due() + SignedDuration::from_hours(24);
     assert_deferred_for_the_budget(&scheduler.evaluate(next_day).await);
 }
 
@@ -366,7 +371,7 @@ async fn an_expiry_after_the_run_started_keeps_the_fired_decision() {
         ScheduleConfig::new("f.lua", "* * * * *", Some("UTC"), None, Context::new()).unwrap();
     // Started ten seconds after 02:00 with the default 300 seconds of grace:
     // 01:56 to 01:59 are missed, 02:00 is the most recent instant.
-    let now = due() + chrono::Duration::seconds(10);
+    let now = due() + SignedDuration::from_secs(10);
     let mut scheduler = Scheduler::new(
         HashMap::from([(HUNG.to_string(), every_minute)]),
         store.clone(),
@@ -386,7 +391,7 @@ async fn an_expiry_after_the_run_started_keeps_the_fired_decision() {
 
     store.hang_disabled.store(true, Ordering::SeqCst);
     let second = scheduler
-        .evaluate(now + chrono::Duration::seconds(30))
+        .evaluate(now + SignedDuration::from_secs(30))
         .await;
     let outcomes = second
         .iter()

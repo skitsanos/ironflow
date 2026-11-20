@@ -1,49 +1,50 @@
 # `s3_put_object`
 
-Upload text or base64 payloads to S3 (or S3-compatible storage).
-
-Uses regional SigV4 signing, or SigV4a when `bucket` is an MRAP ARN;
-see [S3 signing](../SECURITY.md#s3-signing).
+Upload text, Base64 data or a local file to S3 or an S3-compatible service.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `bucket` | string | yes | env `S3_BUCKET` | Destination bucket name or MRAP ARN. |
-| `key` | string | yes | -- | Destination object key. |
-| `content` | string | no | -- | Inline text payload for upload. |
-| `source_key` | string | no | -- | Read string payload from context key instead of `content`. |
-| `source_path` | string | no | -- | Read upload payload from local file path. |
-| `encoding` | string | no | `"text"` | `"text"` or `"base64"` for `content`/`source_key`. |
-| `source_encoding` | string | no | `"text"` | Optional alias for `encoding`. |
-| `content_type` | string | no | `"application/octet-stream"` | Optional `Content-Type` metadata. |
-| `region` | string | no | `S3_REGION` / `AWS_REGION` | Explicit AWS/S3 region override. |
-| `endpoint_url` | string | no | env `AWS_ENDPOINT_URL` | Optional custom endpoint (for S3-compatible services). |
-| `force_path_style` | bool | no | `false` | Force path-style bucket addressing. |
-| `output_key` | string | no | `"s3"` | Prefix for context output keys. |
-
-One of `content`, `source_key`, or `source_path` is required.
+| `bucket` | string | Yes | env `S3_BUCKET` | Bucket name or MRAP ARN; supports `${ctx.key}` interpolation. |
+| `key` | string | Yes | — | Object key; supports `${ctx.key}` interpolation. |
+| `content` | string | One of three | — | Inline payload; supports `${ctx.key}` interpolation. |
+| `source_key` | string | One of three | — | Context key holding the payload string. |
+| `source_path` | string | One of three | — | Local file to upload as is; supports `${ctx.key}` interpolation. |
+| `encoding` | string | No | `"text"` | How `content` or `source_key` is decoded: `text` or `base64`. Alias: `source_encoding`. |
+| `content_type` | string | No | `"application/octet-stream"` | `Content-Type` stored with the object. |
+| `region` | string | No | env `S3_REGION`, `AWS_REGION`, `AWS_DEFAULT_REGION` | Region override. |
+| `endpoint_url` | string | No | env `AWS_ENDPOINT_URL` | Endpoint of an S3-compatible service. |
+| `force_path_style` | boolean | No | env `AWS_S3_FORCE_PATH_STYLE`, else `false` | Use path-style bucket addressing. |
+| `output_key` | string | No | `"s3"` | Prefix for the context output keys. |
 
 ## Context Output
 
-- `{output_key}_bucket` — Target bucket.
-- `{output_key}_key` — Object key written.
-- `{output_key}_content_type` — Effective content type used.
-- `{output_key}_etag` — Optional response ETag.
-- `{output_key}_version_id` — Optional response version id.
-- `{output_key}_success` — `true` on success.
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}_bucket` | string | Bucket written. |
+| `{output_key}_key` | string | Object key written. |
+| `{output_key}_content_type` | string | Content type sent. |
+| `{output_key}_etag` | string | ETag, when returned. |
+| `{output_key}_version_id` | string | Version ID, when the bucket is versioned. |
+| `{output_key}_success` | boolean | `true` on success. |
 
-## Outbound destination policy
+## Behavior
 
-When the operator sets `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, `endpoint_url`
-(or `AWS_ENDPOINT_URL`) is refused when it is `localhost` or not a public
-unicast address, and every DNS answer of the service client is validated
-and pinned. An S3-compatible endpoint on a private address must be listed by
-the operator in `IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` (for example
-`minio.internal:9000`). See
-[Outbound destinations](../SECURITY.md#outbound-destinations).
+- When several payload parameters are set, `source_path` wins over `source_key`, which wins over `content`. None of them fails the step.
+- `encoding` does not apply to `source_path`. Invalid Base64, an unknown `encoding`, or a `source_key` value that is missing or not a string fails the step.
+- Credentials come from the AWS SDK default chain. An MRAP ARN is signed with SigV4a; see [S3 signing](../SECURITY.md#s3-signing).
+- With `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, a private `endpoint_url` must be allow-listed; see [Outbound destinations](../SECURITY.md#outbound-destinations).
 
-## Example
+## Limits
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `IRONFLOW_MAX_FILE_BYTES` | 50 MiB | Maximum size of a `source_path` file. |
+
+## Examples
+
+### Upload inline text
 
 ```lua
 local flow = Flow.new("s3_upload")

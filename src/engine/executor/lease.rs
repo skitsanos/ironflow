@@ -244,7 +244,7 @@ async fn reconcile_lost_lease(
 ) {
     if let Err(error) = bounded(
         "reconcile an expired workflow run lease",
-        store.reconcile_expired_run_leases(chrono::Utc::now()),
+        store.reconcile_expired_run_leases(jiff::Timestamp::now()),
         STATE_OPERATION_TIMEOUT,
     )
     .await

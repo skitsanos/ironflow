@@ -5,6 +5,7 @@ use serde_json::Value;
 
 use crate::engine::types::Context;
 
+mod encoded;
 mod owned;
 mod tokens;
 
@@ -61,6 +62,7 @@ impl SecretRedactor {
             Value::Array(items) => {
                 Value::Array(items.iter().map(|item| self.redact_value(item)).collect())
             }
+            Value::Object(map) if self.holds_encoded_secret(map) => Self::encoded_redaction(),
             Value::Object(map) => Value::Object(
                 map.iter()
                     .filter(|(key, _)| !self.withholds_key(key))

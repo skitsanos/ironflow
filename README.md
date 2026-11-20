@@ -174,7 +174,7 @@ docker run --rm --pull always --name ironflow --platform linux/amd64 \
 published development build. Both are moving tags, so `--pull always` checks
 for an updated image on each start. Commit tags and digest references are also
 available; see [image selection](docs/GETTING_STARTED.md#select-an-image).
-Use `:1.22.0` to select that stable release. Future stable releases receive
+Use `:1.23.0` to select that stable release. Future stable releases receive
 matching `X.Y.Z` tags on both registries after release publication.
 Images include PostgreSQL and Redis support and currently target `linux/amd64`;
 ARM hosts need Docker's x86-64 emulation. The `ironflow-data` volume preserves
@@ -653,8 +653,12 @@ clean, no open pull request targets `develop`, remote `develop` is integrated,
 and the committed version is a new `X.Y.Z-dev.N`. It then requires a receipt
 from a `scripts/integration_gate.sh` run on the exact tree being pushed: run
 the full local gate first, including its disposable Redis and PostgreSQL tests,
-because the gate cannot finish inside the push's SSH session. Start or
-advance a candidate with:
+because the gate cannot finish inside the push's SSH session. The gate starts
+from a clean checkout and refuses to record a receipt unless it finishes on
+the same clean Git tree. A message-only amend preserves the tree. Use a
+dedicated worktree when developing in parallel: these checks do not detect
+temporary edits reverted before the gate ends. Receipts from before this
+start-tree check require a new gate run. Start or advance a candidate with:
 
 ```bash
 bun run scripts/development_version.ts bump minor  # 1.15.0 -> 1.16.0-dev.1
@@ -710,6 +714,7 @@ commitment.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Release archives and the container image include
-[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md), the generated license
-notices for the Rust crates linked into the binary.
+MIT — see [LICENSE](LICENSE). Release archives include `LICENSE` at the archive
+root, alongside [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md). The runtime
+image installs both files and the bundled font license in
+`/usr/local/share/licenses/ironflow/`.

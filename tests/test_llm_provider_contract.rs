@@ -190,6 +190,45 @@ async fn supported_providers_keep_their_routes() {
 }
 
 #[tokio::test]
+async fn azure_model_defaults_to_the_routed_deployment_unless_overridden() {
+    for (mode, deployment, path, mode_override) in [
+        ("chat", "chat-slot", "chat/completions", "chat-override"),
+        (
+            "responses",
+            "responses-slot",
+            "responses",
+            "responses-override",
+        ),
+    ] {
+        let mode_models =
+            json!({"chat_model": "chat-override", "responses_model": "responses-override"});
+        for (overrides, expected_model) in [
+            (json!({}), deployment),
+            (mode_models.clone(), mode_override),
+            (with(mode_models, json!({"model": "explicit"})), "explicit"),
+        ] {
+            let server = Server::start(None, success()).await;
+            let config = with(
+                json!({
+                    "provider": "azure", "mode": mode, "azure_endpoint": server.base,
+                    "azure_chat_deployment": "chat-slot", "azure_responses_deployment": "responses-slot",
+                    "api_key": KEY, "prompt": "ordinary input"
+                }),
+                overrides,
+            );
+            let output = run(config).await.unwrap();
+            let sent = body(&server);
+            assert_eq!(
+                server.requests()[0].path,
+                format!("/openai/deployments/{deployment}/{path}")
+            );
+            assert_eq!(sent["model"], expected_model, "{mode} request");
+            assert_eq!(output["llm_model"], expected_model, "{mode} output");
+        }
+    }
+}
+
+#[tokio::test]
 async fn top_level_response_format_reaches_the_chat_request() {
     let format = json!({"type": "json_object"});
     let server = Server::start(None, success()).await;

@@ -259,8 +259,6 @@ IPv4-compatible and IPv4-translated forms, `64:ff9b:1::/48`, `100::/64`,
 `2001::/23`, `2001:db8::/32` and `3fff::/20`. IPv4-mapped (`::ffff:0:0/96`),
 NAT64 (`64:ff9b::/96`) and 6to4 (`2002::/16`) addresses are refused when the
 IPv4 address they embed is in a refused IPv4 range and allowed otherwise.
-The node reference describes each range under
-[Private-network blocking](nodes/http_request.md#private-network-blocking).
 
 ## Forwarded webhook headers
 
@@ -412,16 +410,24 @@ release were handled on 2026-11-12 ([IF-173](issues/IF-173.md)):
 
 | Advisory | Crate | Outcome |
 | --- | --- | --- |
-| [RUSTSEC-2026-0462](https://rustsec.org/advisories/RUSTSEC-2026-0462.html) | `rmcp` | Updated to 3.9.0 and required as the minimum. `mcp_client` over Streamable HTTP was affected: JSON and error bodies were read without a limit. They are now capped at 16 MiB and 64 KiB. |
+| [RUSTSEC-2026-0462](https://rustsec.org/advisories/RUSTSEC-2026-0462.html) | `rmcp` | Updated to 3.9.0 and required as the minimum. `mcp_client` over Streamable HTTP was affected: JSON and error bodies were read without a limit. A JSON response is capped at 16 MiB. Since `rmcp` 3.11 a JSON error body is read within that same cap, so its JSON-RPC error can be parsed, and at most 64 KiB of its text is kept ([IF-236](issues/IF-236.md)); with 3.9 and 3.10 the client stopped reading an error body at 64 KiB. |
 | [RUSTSEC-2026-0436](https://rustsec.org/advisories/RUSTSEC-2026-0436.html) | `calamine` | Updated to 0.38.0. The defect is in the `.xls`/`.xlsb`/VBA container parser. `extract_xlsx` does not read those formats, but see the note below on the compound-file probe. |
-| [RUSTSEC-2026-0459](https://rustsec.org/advisories/RUSTSEC-2026-0459.html) | `libsqlite3-sys` | Not fixable yet; one reviewed exception, described below. |
+| [RUSTSEC-2026-0459](https://rustsec.org/advisories/RUSTSEC-2026-0459.html) | `libsqlite3-sys` | Fixed on 2026-11-18: `sqlx` 0.9.1 resolves `libsqlite3-sys` 0.40.0 with SQLite 3.54.1, and the reviewed exception was retired. |
+
+On 2026-11-17 two informational advisories appeared for crates IronFlow
+depended on directly ([IF-231](issues/IF-231.md)):
+
+| Advisory | Crate | Outcome |
+| --- | --- | --- |
+| [RUSTSEC-2026-0543](https://rustsec.org/advisories/RUSTSEC-2026-0543.html) | `chrono` | Reported as unmaintained; no vulnerability and no patched version. IronFlow's own time handling moved to `jiff` in four stages, finished on 2026-11-18: the only module that still uses `chrono` is the adapter that hands wall-clock values to `cron`, with no optional feature enabled. The crate stays in `Cargo.lock` through `cron` and `rmcp`, so one reviewed exception remains, described below. |
+| [RUSTSEC-2026-0555](https://rustsec.org/advisories/RUSTSEC-2026-0555.html) | `chrono-tz` | Removed. Schedule time zones now use `jiff` with the IANA database compiled into the binary, and the exception is retired. The policy test fails if `chrono-tz` returns to `Cargo.lock`. |
 
 Updating `calamine` was not free of risk. Version 0.38 builds a style record
 for every cell format when a workbook opens and copies the font name and
 number-format code into each one, so a workbook of a few kilobytes could hold
 gigabytes before a cell was read. `extract_xlsx` now bounds that table against
 `IRONFLOW_MAX_XLSX_OUTPUT_BYTES` before the workbook is opened; see
-[`extract_xlsx`](nodes/extract_xlsx.md#ceilings).
+[`extract_xlsx`](nodes/extract_xlsx.md#limits).
 
 The compound-file (OLE) parser is not entirely out of reach of
 `extract_xlsx`, as first recorded here. `calamine::Xlsx::new` probes every
@@ -433,28 +439,37 @@ memory is exhausted, and a ZIP package may begin with such a header.
 signature before the workbook is opened ([IF-218](issues/IF-218.md)). This has
 not been reported upstream.
 
-### SQLite exception (RUSTSEC-2026-0459)
+On 2026-11-18 six advisories against `lettre` 0.11.23 (RUSTSEC-2026-0560 to
+RUSTSEC-2026-0565), published the day before, failed the audit. They cover
+the SMTP client and message builder that `send_email` uses with the SMTP
+provider. `lettre` was updated to 0.11.24, which fixes all six, and that
+version is now the required minimum ([IF-235](issues/IF-235.md)).
 
-The bundled SQLite is 3.51.3. Before 3.54.0, SQLite can return uninitialized
-page-cache memory when a database is opened together with a crafted sibling
-`-wal` file (CVE-2026-119375). The fix ships in `libsqlite3-sys` 0.39.0, but
-the newest published `sqlx-sqlite` (0.9.0) requires a version below 0.38, so
-no fixed version resolves. The `sqlx` development branch already accepts it.
+### SQLite exception (RUSTSEC-2026-0459), retired
 
-- **Exposure.** An attacker must write both the database file and its `-wal`
-  file, and IronFlow must then open them. The state and event stores live in
-  an owner-only directory (IF-163) and are not exposed by this. The exposed
-  path is a `db_query` or `db_exec` flow whose `connection` names a SQLite
-  file that a less trusted party could have written: its rows could carry
-  stale memory of the IronFlow process into workflow context.
-- **Until it is fixed.** Do not point `db_query` or `db_exec` at SQLite files,
-  or at directories, that an untrusted party can write. PostgreSQL connections
-  are not affected.
-- **Exit.** The entry is removed when a published `sqlx` release resolves
-  `libsqlite3-sys` 0.39.0 or later. A repository policy test fails as soon as
-  the lockfile holds a fixed version while the entry remains, and whenever a
-  second entry is added. The exception is reviewed again by 2026-12-12 if no
-  such release exists.
+Before 3.54.0, SQLite could return uninitialized page-cache memory when a
+database was opened together with a crafted sibling `-wal` file
+(CVE-2026-119375). IronFlow carried a reviewed audit exception from 2026-11-12
+until 2026-11-18, when `sqlx` 0.9.1 resolved `libsqlite3-sys` 0.40.0 (SQLite
+3.54.1). Releases up to 1.22.0 bundle SQLite 3.51.3: with those, do not point
+`db_query` or `db_exec` at SQLite files that an untrusted party can write.
+
+### chrono exception (RUSTSEC-2026-0543)
+
+The advisory reports `chrono` as unmaintained. It names no vulnerability and
+no version fixes it ([IF-231](issues/IF-231.md)).
+
+- **Exposure.** None known. IronFlow parses no date and formats none with
+  `chrono`: `scheduler/cron_boundary.rs` passes it wall-clock values built
+  field by field and reads the next match back. The `cron` crate does its
+  calendar arithmetic on `chrono` types, and `rmcp` reads the clock through
+  it. A future defect in that arithmetic would not be fixed upstream.
+- **Exit.** The entry is removed when `cron` and `rmcp` no longer resolve
+  `chrono`, or when the advisory is withdrawn. A repository policy test fails
+  if the entry outlives the crate in `Cargo.lock`, if any crate other than
+  `cron`, `rmcp` and IronFlow itself resolves it, if IronFlow enables one of
+  its features, or if a module other than the adapter imports it. Reviewed on
+  2026-11-18; reviewed again by 2026-12-17.
 
 ### Scheduled audit
 

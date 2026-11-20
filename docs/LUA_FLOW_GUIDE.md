@@ -556,7 +556,7 @@ The function receives `ctx` (the phase-start workflow context) as its argument
 and returns a table of key-value pairs to publish at the phase barrier. Under
 the hood, the function is compiled to bytecode at parse time and executed as a
 `code` node — so the same sandbox rules, execution budgets and
-[timeout behaviour](nodes/code.md#execution-limits) apply. Runtime
+[timeout behaviour](nodes/code.md#limits) apply. Runtime
 helpers such as `env()`, `log()`, `json_parse()`, and `now_unix_ms()` work
 inside handlers. Loader-only globals such as `Flow` and `nodes` do not.
 

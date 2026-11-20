@@ -376,7 +376,10 @@ end)
 
 ### `now_rfc3339()`
 
-Return current UTC timestamp in RFC3339 format.
+Return current UTC timestamp in RFC3339 format, for example
+`2026-01-02T03:04:05.120456+00:00`. The offset is always written `+00:00`.
+The fraction is omitted for a whole second and otherwise has three, six or
+nine digits, as many as the clock reading needs.
 
 ```lua
 flow:step("stamp", function()
@@ -386,7 +389,7 @@ end)
 
 ### `now_unix_ms()`
 
-Return current UTC epoch timestamp in milliseconds.
+Return current UTC epoch timestamp in whole milliseconds, rounded down.
 
 ```lua
 flow:step("stamp", function()

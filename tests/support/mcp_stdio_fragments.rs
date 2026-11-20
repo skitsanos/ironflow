@@ -41,17 +41,24 @@ async fn cli_stdio_example_reassembles_responses_and_closes_its_session() {
     }
     let output = example_command(workspace.path(), "run", stdio).await;
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("Flow: mcp_stdio (5 steps)"), "{stdout}");
     assert!(stdout.contains("Status: success"), "{stdout}");
     let (_, context) = stdout.split_once("\nContext:\n").unwrap();
     let context: serde_json::Value = serde_json::from_str(context.trim()).unwrap();
-    assert_eq!(context["mcp_tools_tool_count"], 2);
+    assert_eq!(context["mcp_tools_tool_names"], json!(["search"]));
+    assert_eq!(context["mcp_page_two_tool_names"], json!(["echo"]));
+    assert!(context["mcp_page_two_result"].get("nextCursor").is_none());
     assert_eq!(
         context["mcp_call_tool_text"],
         "Search result for 'How does IronFlow evaluate context interpolation?' is available in the IronFlow docs."
     );
     assert_eq!(context["mcp_close_closed"], true);
-    for action in ["mcp_init", "mcp_tools", "mcp_call", "mcp_close"] {
+    for action in [
+        "mcp_init",
+        "mcp_tools",
+        "mcp_page_two",
+        "mcp_call",
+        "mcp_close",
+    ] {
         assert_eq!(context[format!("{action}_success")], true);
         assert_eq!(
             context[format!("{action}_session")],

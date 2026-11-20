@@ -1,12 +1,13 @@
+mod authors;
 mod comments;
 mod content_types;
 mod graph;
 mod inherited;
 mod list_style;
 mod metadata;
+mod modern_comments;
 mod notes;
 mod package;
-mod part_paths;
 mod presentation;
 mod relationships;
 mod slide;
@@ -51,11 +52,25 @@ pub(super) struct PptxTextPara {
     pub(super) list_level: Option<u32>,
 }
 
+/// A slide comment. Legacy comments carry `idx`; modern comments carry `id`,
+/// an optional `status` and nested `replies`. `date` is the legacy `dt` or
+/// the modern `created` attribute.
 #[derive(serde::Serialize, Default)]
 pub(super) struct PptxComment {
     pub(super) slide_index: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) idx: Option<String>,
+    #[serde(flatten)]
+    pub(super) entry: PptxCommentEntry,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(super) replies: Vec<PptxCommentEntry>,
+}
+
+/// Fields shared by a comment and a modern comment reply.
+#[derive(serde::Serialize, Default)]
+pub(super) struct PptxCommentEntry {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) author_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -64,5 +79,7 @@ pub(super) struct PptxComment {
     pub(super) initials: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) date: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) status: Option<String>,
     pub(super) text: String,
 }

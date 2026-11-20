@@ -153,7 +153,7 @@ fn ancestor_elements(node: &Handle, limit: usize) -> usize {
     depth
 }
 
-pub(super) fn parent(node: &Node) -> Option<Handle> {
+fn parent(node: &Node) -> Option<Handle> {
     let weak = node.parent.take()?;
     let parent = weak.upgrade();
     node.parent.set(Some(weak));
@@ -228,15 +228,11 @@ mod tests {
             crate::util::execution::run_tracked_blocking_step(move |execution| {
                 let converter = HtmlToMarkdown::new();
                 let chunked = parse(&html, "test", DepthCap::markdown(), &execution)?;
-                let one_shot = converter.html_to_tree(&html)?;
-                Ok((
-                    converter.tree_to_markdown(&chunked),
-                    converter.tree_to_markdown(&one_shot),
-                ))
+                Ok((converter.convert(&chunked)?, converter.convert(&html)?))
             })
             .await
             .unwrap();
-        assert!(chunked.contains("caf\u{e9} & \u{1F600} \u{1F600} **bold**"));
+        assert!(chunked.contains("caf\u{e9} \\& \u{1F600} \u{1F600} **bold**"));
         assert_eq!(chunked, one_shot);
     }
 }

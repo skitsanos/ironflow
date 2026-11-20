@@ -1,5 +1,6 @@
 mod content;
 mod markdown;
+mod markdown_links;
 mod markdown_meter;
 mod tree;
 

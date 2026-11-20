@@ -1,10 +1,8 @@
 //! Bounded five-field cron parsing with traditional day-field semantics.
 
-use std::str::FromStr;
+use jiff::civil;
 
-use chrono::{DateTime, Utc};
-use cron::Schedule;
-
+use super::cron_boundary::Expression;
 use super::{field_shape, weekday};
 
 const CRON_FIELDS: usize = 5;
@@ -19,21 +17,20 @@ pub const MAX_CRON_EXPRESSION_BYTES: usize = 256;
 /// Saturday.
 #[derive(Clone, Debug)]
 pub struct CronSchedule {
-    alternatives: Vec<Schedule>,
+    alternatives: Vec<Expression>,
 }
 
 impl CronSchedule {
-    /// Iterate distinct matching wall-clock candidates strictly after `after`.
-    pub fn after<'a>(
-        &'a self,
-        after: &DateTime<Utc>,
-    ) -> impl Iterator<Item = DateTime<Utc>> + use<'a> {
-        let mut cursor = *after;
+    /// Iterate distinct matching wall-clock times strictly after `after`,
+    /// oldest first. The times are in the space the expression is written in:
+    /// no time zone is applied here.
+    pub fn after(&self, after: civil::DateTime) -> impl Iterator<Item = civil::DateTime> + use<'_> {
+        let mut cursor = after;
         std::iter::from_fn(move || {
             let next = self
                 .alternatives
                 .iter()
-                .filter_map(|schedule| schedule.after(&cursor).next())
+                .filter_map(|expression| expression.next_after(cursor))
                 .min()?;
             cursor = next;
             Some(next)
@@ -83,9 +80,9 @@ pub fn parse_cron(expression: &str) -> Result<CronSchedule, String> {
 
     let alternatives = expressions
         .into_iter()
-        .map(|candidate| Schedule::from_str(&format!("0 {candidate}")))
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| format!("cron expression '{expression}' is not valid"))?;
+        .map(|candidate| Expression::parse(&format!("0 {candidate}")))
+        .collect::<Option<Vec<_>>>()
+        .ok_or_else(|| format!("cron expression '{expression}' is not valid"))?;
 
     Ok(CronSchedule { alternatives })
 }

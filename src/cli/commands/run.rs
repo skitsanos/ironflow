@@ -96,8 +96,7 @@ pub(crate) async fn cmd_run(
             status_icon, name, task.node_type, task.attempt
         );
         if verbose && let (Some(s), Some(f)) = (&task.started, &task.finished) {
-            let duration = *f - *s;
-            println!("    Duration: {}ms", duration.num_milliseconds());
+            println!("    Duration: {}ms", f.duration_since(*s).as_millis());
         }
         if let Some(ref err) = task.error {
             println!("    Error: {}", err);

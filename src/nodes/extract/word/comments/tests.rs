@@ -32,6 +32,7 @@ async fn comment_anchor_fan_out_is_charged_before_expansion() {
             &std::collections::HashMap::new(),
             &crate::nodes::extract::docx_parser::StyleSheet::default(),
             Some(&comment_ids),
+            true,
             &mut budget,
         )
         .map(|_| ())

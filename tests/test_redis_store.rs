@@ -90,7 +90,7 @@ async fn redis_run_leases_protect_live_peers_and_reconcile_expired_owners() {
     let store = Arc::new(fixture.state_store(None).await);
     let expired = RunLease::at(
         "original-owner",
-        chrono::Utc::now() + chrono::Duration::minutes(5),
+        jiff::Timestamp::now() + std::time::Duration::from_secs(300),
     );
     store
         .init_run_owned("lease-expired", "flow", &Context::new(), &expired)
@@ -120,7 +120,7 @@ async fn redis_run_leases_protect_live_peers_and_reconcile_expired_owners() {
         .unwrap();
     let attempted = RunLease::at(
         "original-owner",
-        chrono::Utc::now() + chrono::Duration::minutes(5),
+        jiff::Timestamp::now() + std::time::Duration::from_secs(300),
     );
     assert!(
         !store
@@ -136,7 +136,7 @@ async fn redis_run_leases_protect_live_peers_and_reconcile_expired_owners() {
     );
     assert_eq!(
         store
-            .reconcile_expired_run_leases(chrono::Utc::now())
+            .reconcile_expired_run_leases(jiff::Timestamp::now())
             .await
             .unwrap(),
         1
@@ -197,7 +197,7 @@ async fn redis_run_leases_protect_live_peers_and_reconcile_expired_owners() {
 
     let live = RunLease::at(
         "live-owner",
-        chrono::Utc::now() + chrono::Duration::minutes(5),
+        jiff::Timestamp::now() + std::time::Duration::from_secs(300),
     );
     store
         .init_run_owned("lease-live", "flow", &Context::new(), &live)
@@ -211,7 +211,7 @@ async fn redis_run_leases_protect_live_peers_and_reconcile_expired_owners() {
     );
     assert_eq!(
         store
-            .reconcile_expired_run_leases(chrono::Utc::now())
+            .reconcile_expired_run_leases(jiff::Timestamp::now())
             .await
             .unwrap(),
         0
@@ -315,7 +315,7 @@ async fn redis_owned_runs_stay_persistent_without_configured_retention() {
         .unwrap();
     assert_eq!(
         store
-            .reconcile_expired_run_leases(chrono::Utc::now())
+            .reconcile_expired_run_leases(jiff::Timestamp::now())
             .await
             .unwrap(),
         1
@@ -350,7 +350,7 @@ async fn redis_upsert_task() {
         node_type: "log".to_string(),
         status: TaskStatus::Running,
         attempt: 1,
-        started: Some(chrono::Utc::now()),
+        started: Some(jiff::Timestamp::now()),
         finished: None,
         input: None,
         output: None,
@@ -366,7 +366,7 @@ async fn redis_upsert_task() {
     // Update same task
     let task_done = TaskState {
         status: TaskStatus::Success,
-        finished: Some(chrono::Utc::now()),
+        finished: Some(jiff::Timestamp::now()),
         output: Some(serde_json::json!({"result": "ok"})),
         ..task
     };
@@ -525,9 +525,9 @@ async fn redis_summary_page_backfills_the_legacy_set_once() {
     for (run_id, started) in [
         (
             "legacy-old",
-            chrono::Utc::now() - chrono::Duration::seconds(1),
+            jiff::Timestamp::now() - std::time::Duration::from_secs(1),
         ),
-        ("legacy-new", chrono::Utc::now()),
+        ("legacy-new", jiff::Timestamp::now()),
     ] {
         let info = RunInfo {
             id: run_id.to_string(),

@@ -1,7 +1,7 @@
 --[[
 This example demonstrates a complete MCP client flow over stdio transport:
 1) Start and atomically initialize one persistent MCP server process.
-2) List available tools while replying to a server ping mid-response.
+2) Discover both pages of tools while replying to a server ping mid-response.
 3) Call one tool and reassemble its fragmented response text.
 4) Close the session explicitly.
 
@@ -18,7 +18,7 @@ flow:step("initialize", nodes.mcp_client({
     command = "python3",
     cwd = "${ctx._flow_dir}",
     args = {
-        "mcp_stdio_mock.py", "--mode", "fragmented-ping"
+        "mcp_stdio_mock.py", "--mode", "fragmented-ping", "--paginated"
     },
     action = "initialize",
     output_key = "mcp_init"
@@ -31,6 +31,15 @@ flow:step("list_tools", nodes.mcp_client({
     output_key = "mcp_tools"
 })):depends_on("initialize")
 
+-- Fetch the next page only when the server returned a cursor. An absent
+-- nextCursor interpolates to an empty string, which list_tools refuses.
+flow:step_if("ctx.mcp_tools_result.nextCursor exists", "next_page", nodes.mcp_client({
+    action = "list_tools",
+    session = "${ctx.mcp_init_session}",
+    cursor = "${ctx.mcp_tools_result.nextCursor}",
+    output_key = "mcp_page_two"
+})):depends_on("list_tools")
+
 --[[ Step 3: call the `search` tool with arguments ]]
 flow:step("call_tool", nodes.mcp_client({
     action = "call_tool",
@@ -40,11 +49,12 @@ flow:step("call_tool", nodes.mcp_client({
         query = "How does IronFlow evaluate context interpolation?"
     },
     output_key = "mcp_call"
-})):depends_on("list_tools")
+})):depends_on("next_page")
 
 --[[ Step 4: close stdin and stop the owned MCP server process ]]
 flow:step("close", nodes.mcp_client({
     action = "close",
+    timeout = 3, -- Includes waiting for any active action on this session.
     session = "${ctx.mcp_init_session}",
     output_key = "mcp_close"
 })):depends_on("call_tool")

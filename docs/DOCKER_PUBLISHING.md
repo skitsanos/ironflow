@@ -29,10 +29,13 @@ Both registries use these tags:
 | `X.Y.Z` | The published image for a successful stable `vX.Y.Z` release. |
 
 Build-related pushes to `main` or `develop`, and manual Container workflow runs,
-trigger publication. A manual run updates a branch alias only when its selected
+trigger publication. A push that changes only `LICENSE`, `THIRD_PARTY_LICENSES.md`, or
+`assets/fonts/OFL.txt` also triggers the workflow because the runtime image
+ships all three files. A manual run updates a branch alias only when its selected
 ref is that branch. Existing GHCR images are not backfilled automatically.
 
-The existing container storage acceptance step precedes publication. One publish
+The workflow compares the candidate image's project license with the repository
+copy and checks default container storage before publication. One publish
 step sends the same build, SBOM, and provenance to both registries. The dependency
 build cache stays on GHCR under `buildcache-amd64` and is not mirrored to Docker Hub.
 A successful run records both immutable image references in its **Published

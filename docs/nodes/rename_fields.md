@@ -1,20 +1,30 @@
 # `rename_fields`
 
-Rename fields in a context object.
+Rename top-level fields of a context object, copying all other fields unchanged.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `source_key` | string | yes | — | Context key holding the source object |
-| `output_key` | string | yes | — | Context key where the resulting object will be stored |
-| `mapping` | object | yes | — | Object mapping old field names to new field names (`{ "old_name": "new_name" }`) |
+| `source_key` | string | Yes | — | Context key holding the source object |
+| `output_key` | string | Yes | — | Context key for the new object |
+| `mapping` | object | Yes | — | `{ old_name = "new_name" }` pairs |
 
 ## Context Output
 
-- `{output_key}` — a new object with renamed fields. Fields not present in the mapping are copied as-is. If a mapping value is not a string, the original field name is preserved.
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}` | object | The object with renamed fields |
 
-## Example
+## Behavior
+
+- The step fails when the source is missing or not an object.
+- Fields not in `mapping` are copied as is; a mapping value that is not a string keeps the original name.
+- When two fields end up with the same name, the value from the alphabetically last source field is kept.
+
+## Examples
+
+### Normalize field names
 
 ```lua
 flow:step("rename", nodes.rename_fields({

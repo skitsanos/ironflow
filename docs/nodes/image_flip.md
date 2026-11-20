@@ -1,34 +1,48 @@
 # `image_flip`
 
-Flip a single image horizontally or vertically.
+Mirror a single image horizontally, vertically or both, and write it as PNG or JPEG.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | one of `path` or `source_key` | — | Source image path |
-| `source_key` | string | one of `path` or `source_key` | — | Context key containing a source path, artifact URI/descriptor, or explicit Base64 object. A stored path is used as it is and is not interpolated. |
-| `output_path` | string | yes | — | Destination image path |
-| `direction` | string | no | `"horizontal"` | `horizontal`, `vertical`, or `both` |
-| `format` | string | no | inferred / `png` | `png` or `jpeg`/`jpg` |
-| `output_key` | string | no | `"flipped_image"` | Prefix for output values |
-
-Artifact inputs are opened and SHA-256 verified inside the tracked blocking
-worker; decoding consumes that same rewound handle rather than a resolved store
-pathname.
-
-Supported source formats are BMP, Farbfeld, GIF, HDR, ICO, JPEG, PNG, PNM,
-QOI, TGA, TIFF, and WebP. Output remains restricted to PNG or JPEG.
+| `path` | string | One of `path` or `source_key` | — | Source image path; supports `${ctx.key}` interpolation. |
+| `source_key` | string | One of `path` or `source_key` | — | Context key holding a path, an artifact (URI, descriptor or `{ artifact = ... }`), or `{ base64 = "..." }`; a stored path is not interpolated. |
+| `output_path` | string | Yes | — | Destination file; supports `${ctx.key}` interpolation. |
+| `direction` | string | No | `"horizontal"` | `horizontal` (or `h`), `vertical` (or `v`), or `both`; case-insensitive. |
+| `format` | string | No | from `output_path`, else `png` | Output format: `png`, `jpeg` or `jpg`. |
+| `output_key` | string | No | `"flipped_image"` | Prefix for the context output keys. |
 
 ## Context Output
 
-- `<output_key>` — output file path
-- `<output_key>_direction` — chosen direction
-- `<output_key>_width` / `<output_key>_height`
-- `<output_key>_format`
-- `<output_key>_success`
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}` | string | Output file path. |
+| `{output_key}_direction` | string | `direction` as given, lowercased (`"h"` stays `"h"`). |
+| `{output_key}_width` | number | Output width in pixels. |
+| `{output_key}_height` | number | Output height in pixels. |
+| `{output_key}_format` | string | `"png"` or `"jpeg"`. |
+| `{output_key}_success` | boolean | `true` on success. |
 
-## Example
+## Behavior
+
+- An unknown `direction` fails the step.
+- Setting both `path` and `source_key` fails the step.
+- Input formats are detected from the content: BMP, Farbfeld, GIF, HDR, ICO, JPEG, PNG, PNM, QOI, TGA, TIFF and WebP.
+- Without `format`, a `.png`, `.jpg` or `.jpeg` extension selects the format, no extension writes PNG, and any other extension fails the step.
+- The destination directory must exist. A destination that is a symlink or not a regular file fails the step; a failure leaves an existing file unchanged.
+
+## Limits
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `IRONFLOW_MAX_IMAGE_ENCODED_BYTES` | 50 MiB | Maximum encoded source size, including decoded Base64. |
+| `IRONFLOW_MAX_IMAGE_PIXELS` | 25,000,000 | Maximum pixels in the source. |
+| `IRONFLOW_MAX_IMAGE_DECODE_ALLOCATION_BYTES` | 128 MiB | Maximum decoded source plus output memory. |
+
+## Examples
+
+### Flip vertically
 
 ```lua
 local flow = Flow.new("image_flip_demo")
@@ -46,37 +60,3 @@ flow:step("log", nodes.log({
 
 return flow
 ```
-
-## Destination contract
-
-`output_path` is published through the same rooted, atomic writer as
-[`write_file`](write_file.md), inside the tracked blocking worker: the flipped
-image is encoded into a staged file beside the destination, flushed and
-synchronized, then renamed over it.
-
-- The destination directory must already exist. The node creates no
-  directories and fails with `image_flip: destination directory '<dir>' does
-  not exist`. Directory aliases, including macOS `/tmp`, are resolved first.
-- A destination that is a symlink (dangling or not), FIFO, device or directory
-  is refused and its target is left untouched. An existing regular file is
-  replaced.
-- An encoder or write failure, an expired step deadline or cancellation
-  removes the staged file and leaves an existing destination unchanged.
-- On Unix the published file has the mode a plain write would have left: a
-  new file gets `0666` masked by the process umask (`0644` under umask `022`)
-  and a replaced file keeps its permission bits, without any setuid, setgid
-  or sticky bit. The staged file is mode `0600` until it is published. Other
-  platforms use their native permission semantics.
-- Unix pins the resolved directory and stages relative to that handle. Other
-  platforms revalidate the observed path immediately before an atomic
-  replacement and cannot close a hostile parent-directory swap race; protect
-  destination trees from same-identity mutation.
-
-## Resource contract
-
-Image headers and decoded byte requirements are checked before allocation using
-`IRONFLOW_MAX_IMAGE_ENCODED_BYTES` (50 MiB), `IRONFLOW_MAX_IMAGE_PIXELS` (25
-million), and `IRONFLOW_MAX_IMAGE_DECODE_ALLOCATION_BYTES` (128 MiB); the latter
-includes retained source plus flip output. Decode,
-flip, and encode run on a tracked blocking worker with cancellation checkpoints
-between opaque image-library operations.

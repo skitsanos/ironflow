@@ -12,7 +12,10 @@ The fixtures are intentionally reused across examples:
 - `ironflow-sample.docx` — paragraphs and a small table for text and Markdown
   extraction.
 - `ironflow-sample.pptx` — two editable slides for structured extraction and
-  presentation reconstruction examples.
+  presentation reconstruction examples. The first slide carries one
+  PowerPoint modern comment thread (a comment and one reply, in
+  `ppt/comments/` with authors in `ppt/authors.xml`), added by hand in the
+  element order PowerPoint for the web writes.
 - `ironflow-sample.png` — a 640 x 480 RGB test pattern for image nodes.
 - `ironflow-sample.xlsx` — a two-sheet workbook (`Parts`, `Notes`) for
   `extract_xlsx`. `Parts` carries a title row above its real header, the

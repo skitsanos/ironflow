@@ -20,7 +20,6 @@ flow:step("probe", nodes.http_get({
 
 flow:step("route", nodes.if_http_status({
     status_key = "probe_status",
-    _step_name = "probe",
     default_route = "unexpected",
     routes = {
         ["2xx"] = "success",
@@ -30,22 +29,22 @@ flow:step("route", nodes.if_http_status({
 })):depends_on("probe")
 
 flow:step("success", nodes.log({
-    message = "HTTP ${ctx._status_code_probe} success",
+    message = "HTTP ${ctx._status_code_route} success",
     level = "info"
 })):depends_on("route"):route("success")
 
 flow:step("unauthorized", nodes.log({
-    message = "HTTP ${ctx._status_code_probe} unauthorized",
+    message = "HTTP ${ctx._status_code_route} unauthorized",
     level = "warn"
 })):depends_on("route"):route("unauthorized")
 
 flow:step("rate_limited", nodes.log({
-    message = "HTTP ${ctx._status_code_probe} rate limited",
+    message = "HTTP ${ctx._status_code_route} rate limited",
     level = "warn"
 })):depends_on("route"):route("rate_limited")
 
 flow:step("unexpected", nodes.log({
-    message = "HTTP ${ctx._status_code_probe} class ${ctx._status_class_probe} encountered",
+    message = "HTTP ${ctx._status_code_route} class ${ctx._status_class_route} encountered",
     level = "error"
 })):depends_on("route"):route("unexpected")
 

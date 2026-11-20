@@ -4,6 +4,7 @@ mod catchup;
 pub mod config;
 mod context;
 mod cron;
+mod cron_boundary;
 mod decision;
 mod evaluation;
 pub mod execution;
@@ -17,13 +18,14 @@ pub mod startup;
 pub mod timing;
 mod weekday;
 mod window;
+mod zone;
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use chrono::{DateTime, NaiveDateTime, Utc};
+use jiff::{Timestamp, civil};
 
 use crate::storage::StateStore;
 
@@ -151,7 +153,7 @@ pub struct Scheduler {
     store: Arc<dyn StateStore>,
     executor: Arc<dyn ScheduleExecutor>,
     /// Local wall-clock time each schedule was last evaluated through.
-    evaluated_through: HashMap<String, NaiveDateTime>,
+    evaluated_through: HashMap<String, civil::DateTime>,
     /// Consecutive evaluations of each schedule that exceeded the budget.
     budget_expiries: HashMap<String, u32>,
     evaluation_timeout: Duration,
@@ -167,7 +169,7 @@ impl Scheduler {
         schedules: HashMap<String, ScheduleConfig>,
         store: Arc<dyn StateStore>,
         executor: Arc<dyn ScheduleExecutor>,
-        now: DateTime<Utc>,
+        now: Timestamp,
     ) -> Self {
         let mut evaluated_through = HashMap::new();
         for (name, schedule) in &schedules {

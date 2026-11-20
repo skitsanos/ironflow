@@ -3,7 +3,7 @@ use std::num::NonZeroUsize;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 use crate::engine::types::{RunStatus, RunSummary};
@@ -40,7 +40,8 @@ impl PageSize {
 pub struct RunCursor {
     version: u8,
     status: Option<RunStatus>,
-    started: Option<DateTime<Utc>>,
+    #[serde(default, with = "crate::util::timestamp::serde_option")]
+    started: Option<Timestamp>,
     id: String,
 }
 
@@ -77,7 +78,7 @@ impl RunCursor {
         Ok(cursor)
     }
 
-    pub const fn started(&self) -> Option<DateTime<Utc>> {
+    pub const fn started(&self) -> Option<Timestamp> {
         self.started
     }
 
@@ -174,13 +175,22 @@ pub(crate) fn compare_summaries(left: &RunSummary, right: &RunSummary) -> Orderi
         .then_with(|| right.id.cmp(&left.id))
 }
 
-pub(crate) fn normalized_started(started: Option<DateTime<Utc>>) -> Option<i64> {
-    started.map(|started| started.timestamp_micros())
+pub(crate) fn normalized_started(started: Option<Timestamp>) -> Option<i64> {
+    started.map(crate::util::timestamp::unix_micros)
+}
+
+/// Whether a run that started at `started` is older than a retention
+/// `cutoff`. Both are taken as whole microseconds, the precision every store
+/// lists and indexes by, so a cutoff later in a run's own microsecond keeps
+/// the run on every backend (IF-232). A run without a start time is kept.
+pub(crate) fn started_before(started: Option<Timestamp>, cutoff: Timestamp) -> bool {
+    normalized_started(started)
+        .is_some_and(|started| started < crate::util::timestamp::unix_micros(cutoff))
 }
 
 #[cfg(test)]
 mod tests {
-    use chrono::{TimeZone as _, Utc};
+    use jiff::Timestamp;
 
     use super::*;
 
@@ -189,7 +199,8 @@ mod tests {
             id: id.to_string(),
             flow_name: "flow".to_string(),
             status,
-            started: second.map(|second| Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, second).unwrap()),
+            started: second
+                .map(|second| Timestamp::from_second(1_767_225_600 + i64::from(second)).unwrap()),
             finished: None,
             task_count: 0,
         }

@@ -4,6 +4,9 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 
+#[cfg(windows)]
+mod windows;
+
 pub(super) fn ensure_private_directory(path: &Path) -> Result<()> {
     std::fs::create_dir_all(path)
         .with_context(|| format!("failed to create artifact directory '{}'", path.display()))?;
@@ -137,6 +140,9 @@ fn harden_path_platform(path: &Path) -> Result<()> {
 #[cfg(not(unix))]
 fn set_file_read_only(file: &File) -> Result<()> {
     let mut permissions = file.metadata()?.permissions();
+    if permissions.readonly() {
+        return Ok(()); // Duplicate verification uses a read-only handle.
+    }
     permissions.set_readonly(true);
     file.set_permissions(permissions)?;
     Ok(())
@@ -180,6 +186,19 @@ impl TempArtifact {
 
     pub(super) fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// The staging name and digest live in one directory. Never unlink the
+    /// destination first: if replacement fails, readers retain the old entry.
+    pub(super) fn replace(mut self, destination: &Path) -> Result<()> {
+        harden_file(self.file())?;
+        drop(self.file.take());
+        #[cfg(windows)]
+        windows::replace(&self.path, destination)?;
+        #[cfg(not(windows))]
+        std::fs::rename(&self.path, destination)?;
+        self.armed = false;
+        Ok(())
     }
 
     pub(super) fn remove(mut self) -> Result<()> {

@@ -82,10 +82,7 @@ impl StateStore for LateRenewalStore {
         Ok(renewed)
     }
 
-    async fn reconcile_expired_run_leases(
-        &self,
-        now: chrono::DateTime<chrono::Utc>,
-    ) -> StorageResult<usize> {
+    async fn reconcile_expired_run_leases(&self, now: jiff::Timestamp) -> StorageResult<usize> {
         self.reconciliations.fetch_add(1, Ordering::SeqCst);
         self.inner.reconcile_expired_run_leases(now).await
     }

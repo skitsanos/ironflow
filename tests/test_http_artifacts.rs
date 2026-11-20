@@ -271,8 +271,52 @@ async fn download() -> Response<Body> {
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/x-ironflow-binary")
+        .header("x-tag", "first")
+        .header("x-tag", "second")
         .body(Body::from(DOWNLOAD_BYTES))
         .unwrap()
+}
+
+#[tokio::test]
+async fn non_text_response_headers_preserve_bytes_in_both_modes() {
+    let _lock = ENV_LOCK.lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let _environment = Environment::local_artifacts(directory.path());
+    let server = spawn(Router::new().route(
+        "/",
+        get(|| async {
+            Response::builder()
+                .header("x-label", b"caf\xe9".as_slice())
+                .header("x-empty", "")
+                .header("x-text", "Y2Fm6Q==")
+                .header("x-mixed", "first")
+                .header("x-mixed", b"caf\xe9".as_slice())
+                .header("x-mixed", "")
+                .body(Body::from("ok"))
+                .unwrap()
+        }),
+    ))
+    .await;
+
+    for mode in ["inline", "artifact"] {
+        let output = execute(
+            "http_get",
+            serde_json::json!({"url": server.url, "proxy_mode": "direct", "response_mode": mode}),
+            &Context::new(),
+        )
+        .await
+        .unwrap();
+        let headers = &output["http_headers"];
+        let encoded = serde_json::json!({"base64": "Y2Fm6Q=="});
+        assert_eq!(headers["x-label"], encoded, "{mode}");
+        assert_eq!(headers["x-empty"], "", "{mode}");
+        assert_eq!(headers["x-text"], "Y2Fm6Q==", "{mode}");
+        assert_eq!(
+            headers["x-mixed"],
+            serde_json::json!(["first", encoded, ""]),
+            "{mode}"
+        );
+    }
 }
 
 #[tokio::test]
@@ -299,6 +343,14 @@ async fn artifact_response_preserves_binary_without_inline_data() {
     assert!(!output.contains_key("download_data"));
     assert_eq!(output["download_status"], 200);
     assert_eq!(output["download_attempts"], 1);
+    assert_eq!(
+        output["download_headers"]["x-tag"],
+        serde_json::json!(["first", "second"])
+    );
+    assert_eq!(
+        output["download_headers"]["content-type"],
+        "application/x-ironflow-binary"
+    );
     assert_eq!(
         output["download_artifact"]["mime_type"],
         "application/x-ironflow-binary"

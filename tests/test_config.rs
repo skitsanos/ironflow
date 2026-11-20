@@ -318,11 +318,11 @@ schedules:
 
     let nightly = &schedules["nightly_report"];
     assert_eq!(nightly.flow(), "reports/nightly.lua");
-    assert_eq!(nightly.timezone(), chrono_tz::Europe::Berlin);
+    assert_eq!(nightly.timezone().name(), "Europe/Berlin");
     assert_eq!(nightly.grace_seconds(), 3600);
 
     let hourly = &schedules["hourly"];
-    assert_eq!(hourly.timezone(), chrono_tz::UTC);
+    assert_eq!(hourly.timezone().name(), "UTC");
     assert_eq!(hourly.grace_seconds(), 300);
 }
 

@@ -10,21 +10,28 @@ use super::filesystem;
 
 const HASH_CHUNK_BYTES: usize = 16 * 1024;
 
+pub(super) enum ExistingArtifact {
+    Verified,
+    Mismatch,
+}
+
 pub(super) fn verify_existing(
     path: &Path,
     expected_digest: &str,
     expected_size: u64,
     execution: &ExecutionControl,
-) -> Result<()> {
+) -> Result<ExistingArtifact> {
     let mut file = crate::util::bounded_read::open_regular_file(path, "existing artifact")?;
     if file.metadata()?.len() != expected_size {
-        bail!("existing content-addressed artifact has an unexpected size");
+        return Ok(ExistingArtifact::Mismatch);
     }
     let digest = hash_reader(&mut file, expected_size, execution)?;
     if digest != expected_digest {
-        bail!("existing content-addressed artifact failed digest verification");
+        return Ok(ExistingArtifact::Mismatch);
     }
-    filesystem::harden_file(&file)
+    execution.checkpoint()?;
+    filesystem::harden_file(&file)?;
+    Ok(ExistingArtifact::Verified)
 }
 
 pub(super) fn hash_reader(

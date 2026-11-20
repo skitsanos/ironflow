@@ -1,41 +1,32 @@
 # `move_file`
 
-Move (rename) a file to a new location. The destination directory is prepared
-with the shared rooted policy used by `write_file`, and the rename runs on a
-tracked blocking worker.
+Move (rename) a file to a new path, creating missing parent directories.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `source` | string | yes | — | Path to the file to move. Supports `${ctx.key}` interpolation. |
-| `destination` | string | yes | — | New path for the file. Missing parent directories are created. Supports `${ctx.key}` interpolation. |
-
-## Destination safety
-
-- Configured parent-directory aliases, including macOS `/tmp`, are resolved
-  before the rename. Unix pins the resolved directory and renames relative to
-  that handle, so retargeting the alias afterward cannot redirect the move.
-  This is not permission to follow a destination-file symlink.
-- On Unix, missing parent directories are created
-  [`0755` masked by the process umask](write_file.md#created-directories).
-- A destination leaf that is a symlink, dangling link or special file is
-  refused, so the move never replaces a link or writes through one. An
-  existing regular destination file is replaced atomically.
-- The source is renamed as-is: a source symlink moves the link itself, and the
-  source must stay on the same filesystem. A cross-device move fails with an
-  error rather than copying and deleting.
-- Portable platforms revalidate the destination immediately before the rename,
-  but cannot close a hostile parent-directory swap race; protect destination
-  trees from same-identity mutation.
+| `source` | string | Yes | — | Path to the file to move; supports `${ctx.key}` interpolation. |
+| `destination` | string | Yes | — | New path for the file; supports `${ctx.key}` interpolation. |
 
 ## Context Output
 
-- `move_file_source` — The resolved source path (after interpolation).
-- `move_file_destination` — The resolved destination path (after interpolation).
-- `move_file_success` — `true` when the move completed successfully.
+| Key | Type | Description |
+|-----|------|-------------|
+| `move_file_source` | string | Source path after interpolation. |
+| `move_file_destination` | string | Destination path after interpolation. |
+| `move_file_success` | boolean | `true` after the move completes. |
 
-## Example
+## Behavior
+
+- Source and destination must be on the same filesystem; a cross-device move fails the step instead of copying.
+- The source is renamed as is: a source symlink moves the link itself.
+- A destination that is a symlink, dangling link or special file fails the step; an existing regular file is replaced atomically.
+- Missing parent directories are created as described in [Created directories](write_file.md#created-directories).
+
+## Examples
+
+### Rename a file
 
 ```lua
 local flow = Flow.new("move_demo")

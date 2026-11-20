@@ -1,4 +1,4 @@
-use chrono::Utc;
+use jiff::Timestamp;
 
 use super::{SqlStateStore, datetime_to_string, map_insert_error};
 use crate::engine::types::{Context, RunStatus};
@@ -59,13 +59,13 @@ impl SqlStateStore {
             self.placeholder(7),
             self.placeholder(8),
         );
-        let started = Utc::now();
+        let started = Timestamp::now();
         sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
             .bind(run_id)
             .bind(flow_name)
             .bind(RunStatus::Pending.to_string())
             .bind(datetime_to_string(Some(started)))
-            .bind(started.timestamp_micros())
+            .bind(crate::util::timestamp::unix_micros(started))
             .bind(Option::<String>::None)
             .bind(serde_json::to_string(ctx).map_err(|error| {
                 StorageError::backend(
@@ -171,7 +171,7 @@ impl SqlStateStore {
 
         let finished = status
             .is_terminal()
-            .then(|| datetime_to_string(Some(Utc::now())));
+            .then(|| datetime_to_string(Some(Timestamp::now())));
         let sql = if status.is_terminal() {
             format!(
                 "UPDATE {} SET status = {}, finished = COALESCE(finished, {}) WHERE id = {}",

@@ -1,4 +1,6 @@
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
+
+use crate::util::timestamp::unix_micros;
 
 use super::JsonStateStore;
 use super::leases::LEASE_SUFFIX;
@@ -14,7 +16,7 @@ enum ExpiredRun {
 }
 
 impl JsonStateStore {
-    pub(super) async fn reconcile_lease_files(&self, now: DateTime<Utc>) -> StorageResult<usize> {
+    pub(super) async fn reconcile_lease_files(&self, now: Timestamp) -> StorageResult<usize> {
         let mut reconciled = 0;
         let Some(mut entries) = self.run_leases.stream_entries().await? else {
             return Ok(0);
@@ -43,7 +45,7 @@ impl JsonStateStore {
                 }
                 Err(error) => return Err(error),
             };
-            if record.expires_micros > now.timestamp_micros() {
+            if record.expires_micros > unix_micros(now) {
                 continue;
             }
             if self.reconcile_lease_candidate(name, now).await? {
@@ -55,15 +57,11 @@ impl JsonStateStore {
         Ok(reconciled)
     }
 
-    async fn reconcile_lease_candidate(
-        &self,
-        name: &str,
-        now: DateTime<Utc>,
-    ) -> StorageResult<bool> {
+    async fn reconcile_lease_candidate(&self, name: &str, now: Timestamp) -> StorageResult<bool> {
         let name = name.to_string();
         self.with_lease_lock(move |store| async move {
             let record = match store.read_named_lease(&name).await {
-                Ok(record) if record.expires_micros <= now.timestamp_micros() => record,
+                Ok(record) if record.expires_micros <= unix_micros(now) => record,
                 Ok(_) => return Ok(false),
                 Err(error) if error.is_not_found() => return Ok(false),
                 Err(error) => return Err(error),
@@ -86,7 +84,7 @@ impl JsonStateStore {
     async fn stall_expired_run(
         &self,
         run_id: &str,
-        finished: DateTime<Utc>,
+        finished: Timestamp,
     ) -> StorageResult<ExpiredRun> {
         let _lock = self.lock.write().await;
         let mut catalog = super::catalog::CatalogTransaction::begin(self).await?;

@@ -1,6 +1,10 @@
+//! OPC part-name arithmetic for relationship targets, shared by the DOCX and
+//! PPTX readers. Targets are untrusted: no URI decoding, no scheme, no
+//! escape above the package root.
+
 use anyhow::Result;
 
-pub(super) fn relationships_part(source: &str) -> String {
+pub(in crate::nodes::extract) fn relationships_part(source: &str) -> String {
     let (directory, name) = source.rsplit_once('/').unwrap_or(("", source));
     if directory.is_empty() {
         format!("_rels/{name}.rels")
@@ -9,22 +13,23 @@ pub(super) fn relationships_part(source: &str) -> String {
     }
 }
 
-pub(super) fn resolve_part(source: &str, target: &str) -> Result<String> {
-    anyhow::ensure!(
-        !target.is_empty(),
-        "extract_pptx: empty relationship target"
-    );
+pub(in crate::nodes::extract) fn resolve_part(
+    operation: &str,
+    source: &str,
+    target: &str,
+) -> Result<String> {
+    anyhow::ensure!(!target.is_empty(), "{operation}: empty relationship target");
     anyhow::ensure!(
         !target.contains('\\'),
-        "extract_pptx: relationship target contains backslashes"
+        "{operation}: relationship target contains backslashes"
     );
     anyhow::ensure!(
         !target.contains('?') && !target.contains('#'),
-        "extract_pptx: relationship target has a query or fragment"
+        "{operation}: relationship target has a query or fragment"
     );
     anyhow::ensure!(
         !target.bytes().any(|byte| byte.is_ascii_control()),
-        "extract_pptx: relationship target contains control characters"
+        "{operation}: relationship target contains control characters"
     );
     let target_path = target.strip_prefix('/').unwrap_or(target);
     anyhow::ensure!(
@@ -33,15 +38,15 @@ pub(super) fn resolve_part(source: &str, target: &str) -> Result<String> {
             .next()
             .unwrap_or_default()
             .contains(':'),
-        "extract_pptx: relationship target has a URI scheme"
+        "{operation}: relationship target has a URI scheme"
     );
     anyhow::ensure!(
         !target_path.split('/').any(str::is_empty),
-        "extract_pptx: relationship target has an empty segment"
+        "{operation}: relationship target has an empty segment"
     );
     anyhow::ensure!(
         !matches!(target_path.rsplit('/').next(), Some("." | "..")),
-        "extract_pptx: relationship target names a directory"
+        "{operation}: relationship target names a directory"
     );
     let mut parts = if target.starts_with('/') {
         Vec::new()
@@ -57,7 +62,7 @@ pub(super) fn resolve_part(source: &str, target: &str) -> Result<String> {
             ".." => {
                 anyhow::ensure!(
                     parts.pop().is_some(),
-                    "extract_pptx: relationship escapes the package root"
+                    "{operation}: relationship escapes the package root"
                 );
             }
             segment => parts.push(segment),
@@ -114,7 +119,10 @@ mod tests {
                 "ppt/slides/caf\u{e9}.xml",
             ),
         ] {
-            assert_eq!(resolve_part(source, target).unwrap(), expected);
+            assert_eq!(
+                resolve_part("extract_pptx", source, target).unwrap(),
+                expected
+            );
         }
     }
 }

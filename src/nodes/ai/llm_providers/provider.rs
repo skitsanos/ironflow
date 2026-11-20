@@ -5,10 +5,14 @@ use serde_json::Value;
 use crate::engine::types::Context;
 use crate::lua::interpolate::interpolate_ctx;
 
-use super::config::{LlmMode, Provider};
+use super::config::{LlmMode, Provider, resolve_model};
 use crate::nodes::ai::embeddings::resolve_param;
 
-type ResolvedProvider = (String, HeaderMap, String);
+pub(crate) struct ResolvedProvider {
+    pub(crate) url: String,
+    pub(crate) headers: HeaderMap,
+    pub(crate) model: String,
+}
 
 pub(crate) fn resolve_provider_config(
     config: &Value,
@@ -56,11 +60,11 @@ fn resolve_openai_provider(
         LlmMode::Chat => "chat/completions",
         LlmMode::Responses => "responses",
     };
-    Ok((
-        format!("{}/{path}", base_url.trim_end_matches('/')),
+    Ok(ResolvedProvider {
+        url: format!("{}/{path}", base_url.trim_end_matches('/')),
         headers,
-        provider.name().to_string(),
-    ))
+        model: resolve_model(config, mode, None),
+    })
 }
 
 fn resolve_azure_provider(
@@ -87,8 +91,8 @@ fn resolve_azure_provider(
         ctx,
     );
     let deployment = match mode {
-        LlmMode::Chat => chat_deployment.or_else(|| responses_deployment.clone()),
-        LlmMode::Responses => responses_deployment.or_else(|| chat_deployment.clone()),
+        LlmMode::Chat => chat_deployment.or(responses_deployment),
+        LlmMode::Responses => responses_deployment.or(chat_deployment),
     }
     .ok_or_else(|| anyhow::anyhow!("llm (azure) requires deployment for selected mode"))?;
     let api_key = resolve_param(config, "api_key", "AZURE_OPENAI_API_KEY", ctx)
@@ -103,8 +107,8 @@ fn resolve_azure_provider(
         LlmMode::Responses => "responses",
     };
 
-    Ok((
-        format!(
+    Ok(ResolvedProvider {
+        url: format!(
             "{}/openai/deployments/{}/{}?api-version={}",
             endpoint.trim_end_matches('/'),
             deployment,
@@ -112,8 +116,8 @@ fn resolve_azure_provider(
             api_version
         ),
         headers,
-        Provider::Azure.name().to_string(),
-    ))
+        model: resolve_model(config, mode, Some(&deployment)),
+    })
 }
 
 fn resolve_custom_provider(
@@ -142,7 +146,11 @@ fn resolve_custom_provider(
     let endpoint = resolve_custom_endpoint(&base_url, path);
     let headers = resolve_custom_auth(config, ctx)?;
 
-    Ok((endpoint, headers, Provider::Custom.name().to_string()))
+    Ok(ResolvedProvider {
+        url: endpoint,
+        headers,
+        model: resolve_model(config, mode, None),
+    })
 }
 
 fn resolve_custom_endpoint(base_url: &str, path: &str) -> String {
@@ -210,7 +218,7 @@ mod tests {
             "api_key": "compatible-secret",
         });
 
-        let (endpoint, headers, provider) = resolve_provider_config(
+        let resolved = resolve_provider_config(
             &config,
             &Context::new(),
             LlmMode::Responses,
@@ -218,10 +226,11 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(endpoint, "https://gateway.example/v1/responses");
-        assert_eq!(provider, "openai_compatible");
+        assert_eq!(resolved.url, "https://gateway.example/v1/responses");
+        assert_eq!(resolved.model, "gpt-5-mini");
         assert_eq!(
-            headers
+            resolved
+                .headers
                 .get(reqwest::header::AUTHORIZATION)
                 .unwrap()
                 .to_str()
@@ -246,7 +255,7 @@ mod tests {
         ];
 
         for (mode, expected_suffix) in cases {
-            let (endpoint, headers, provider) = resolve_provider_config(
+            let resolved = resolve_provider_config(
                 &config,
                 &Context::new(),
                 mode,
@@ -254,13 +263,12 @@ mod tests {
             )
             .unwrap();
             assert_eq!(
-                endpoint,
+                resolved.url,
                 format!(
                     "https://account.openai.azure.com/openai/deployments/{expected_suffix}?api-version=2026-01-01-preview"
                 )
             );
-            assert_eq!(provider, "azure");
-            assert_eq!(headers.get("api-key").unwrap(), "azure-secret");
+            assert_eq!(resolved.headers.get("api-key").unwrap(), "azure-secret");
         }
     }
 }

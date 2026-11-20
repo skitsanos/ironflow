@@ -1,197 +1,104 @@
 # `http_request`
 
-Generic HTTP request with configurable method.
+Send an HTTP request and write the response to the context.
 
 ## Parameters
 
-| Parameter    | Type   | Required | Default   | Description                                                                                          |
-|--------------|--------|----------|-----------|------------------------------------------------------------------------------------------------------|
-| `method`     | string | no       | `"GET"`   | HTTP method. Supported values: `GET`, `POST`, `PUT`, `DELETE`, `PATCH`.                              |
-| `url`        | string | yes      | --        | Request URL. Supports context interpolation via `${ctx.key}`.                                        |
-| `headers`    | object | no       | `{}`      | Key-value map of request headers. Header values support `${ctx.key}` interpolation.                  |
-| `body_type`  | string | no       | `"json"`  | Body encoding: `json`, `form`, `text`, `artifact`, or `multipart`. |
-| `body`       | any    | no       | --        | Inline payload, or an artifact descriptor/URI when `body_type = "artifact"`. |
-| `body_key`   | string | no       | --        | Context key containing an artifact descriptor/URI. Valid only with `body_type = "artifact"`. |
-| `parts`      | array  | no       | --        | Text and artifact parts. Required with `body_type = "multipart"`. |
-| `response_mode` | string | no    | `"inline"` | `inline` returns parsed JSON/text in context; `artifact` streams the body to the artifact store. |
-| `timeout`    | number | no       | `30`      | Total deadline in seconds for one request attempt, including redirects and response transfer. |
-| `auth`       | object | no       | --        | Authentication configuration. See [Auth](#auth) below.                                               |
-| `output_key` | string | no       | `"http"`  | Prefix for context output keys.                                                                      |
-| `fail_on_status` | boolean | no | `true` | When `true`, non-2xx responses return an error after any configured status retries. When `false`, non-2xx responses are returned as normal output. |
-| `retry_statuses` | array | no | `[]` | HTTP status codes to retry, as numbers or numeric strings. |
-| `status_retries` | integer | no | `0` | Number of retries for responses whose status appears in `retry_statuses`; maximum `100`. |
-| `max_status_retries` | integer | no | `0` | Alias for `status_retries`, with the same maximum `100`. |
-| `status_retry_backoff` | number | no | `1` | Base retry delay in seconds. Delay uses exponential backoff by attempt; minimum `0.01` when retries are enabled. |
-| `respect_retry_after` | boolean | no | `true` | When `true`, a numeric `Retry-After` response header overrides the backoff delay. |
-| `max_retry_after` | number | no | `60` | Maximum status retry delay in seconds; minimum `0.01` when retries are enabled. |
-| `max_redirects` | integer | no | `10` | Maximum number of redirects to follow. Set to `0` to disable redirect following; maximum `100`. |
-| `allow_cross_origin_redirects` | boolean | no | `false` | Allow redirects that change scheme, host, or port. Even when enabled, cross-origin redirects are refused when `auth`, credentials embedded in URL userinfo, caller-configured `headers`, or a request `body` is present, because arbitrary credentials cannot be stripped safely. Generated `Referer` headers are disabled. |
-| `proxy_mode` | string | no | `"auto"` | `auto` uses the system proxy unless private-network blocking is enabled; `system` always uses it; `direct` bypasses it. |
-| `block_private_network` | boolean | no | `false` | Can only tighten: `IRONFLOW_BLOCK_PRIVATE_NETWORK=true` forces it on. Refuse `localhost` and every address that is not a public unicast destination, for the initial URL and each redirect target; see [Private-network blocking](#private-network-blocking) for the exact ranges. Hostnames are resolved, every answer is validated, and the validated set is pinned to the connector. |
-
-For `body_type = "json"`, string values in `body` are recursively interpolated via `${ctx.key}`.
-
-For `body_type = "form"`, `body` must be a JSON object. Keys/values are percent-encoded and sent as
-`application/x-www-form-urlencoded`.
-
-For `body_type = "text"`, `body` is converted to plain text after recursive interpolation. Non-string
-values are stringified.
-
-For `body_type = "artifact"`, provide exactly one of `body` or `body_key`.
-The value must be a canonical `artifact://sha256/...` URI or an artifact
-descriptor, never a local path. A URI string written in `body` supports
-`${ctx.key}` interpolation, resolved once, as the `write_file` `artifact`
-parameter does; a value read through `body_key` is used as stored and is not
-interpolated. IronFlow verifies and reopens the artifact for
-each redirect or status retry, streams it with a fixed `Content-Length`, and
-uses the descriptor MIME type as `Content-Type` when the caller did not set one.
-
-For `body_type = "multipart"`, `parts` must contain 1–100 objects. Every part
-has `name` and exactly one of `text`, `source_key`, or `artifact`. Artifact parts
-may add `filename` and `content_type`; text parts may not. A part's `artifact`
-follows the same rule as `body`: a configured URI string is interpolated once,
-and a value read through `source_key` is not. IronFlow generates
-the multipart boundary, so a caller-supplied `Content-Type` header is rejected.
-Each `name`, `filename`, and `content_type` value must contain 1–255 bytes and
-must not contain CR or LF. An explicit `content_type` must be a valid MIME type
-and must match the artifact descriptor's MIME type when that descriptor has one.
-Raw artifact and complete multipart request bodies are bounded by
-`IRONFLOW_MAX_HTTP_BODY_BYTES`; multipart admission includes a conservative
-allowance for generated boundaries and headers. Artifact and multipart bodies
-also reject caller-supplied `Content-Length` or `Transfer-Encoding` framing.
-
-`proxy_mode = "system"` cannot be combined with
-`block_private_network = true` or `IRONFLOW_BLOCK_PRIVATE_NETWORK=true`, because a proxy resolves the target outside
-IronFlow's validated connector. `auto` becomes direct in that mode.
-
-### Private-network blocking
-
-With `block_private_network = true` a request is refused before any
-connection when the host is `localhost`, a name under `.localhost`, or a
-literal address in one of the ranges below. The same check runs on every
-redirect target and on every address a hostname resolves to; one refused
-address in a DNS answer refuses the whole answer. Decimal, octal, hexadecimal
-and short IPv4 host forms (`http://1681915905/`) are normalized before the
-check.
-
-| Family | Refused ranges |
-|--------|----------------|
-| IPv4 | `0.0.0.0/8` (this network), `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16` (private), `100.64.0.0/10` (shared address space, carrier-grade NAT), `127.0.0.0/8` (loopback), `169.254.0.0/16` (link-local, cloud metadata), `192.0.0.0/24` (IETF protocol assignments), `192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24` (documentation), `192.88.99.0/24` (deprecated 6to4 relay anycast), `198.18.0.0/15` (benchmarking), `224.0.0.0/4` (multicast), `240.0.0.0/4` (reserved, including `255.255.255.255`) |
-| IPv6 | Everything outside global unicast `2000::/3`: `::` and `::1`, the IPv4-compatible (`::a.b.c.d`) and IPv4-translated (`::ffff:0:a.b.c.d`) forms, `64:ff9b:1::/48` (local-use NAT64), `100::/64` (discard-only), `5f00::/16` (segment routing), `fc00::/7` (unique local), `fe80::/10` (link-local), `fec0::/10` (site-local), `ff00::/8` (multicast) and all unassigned space. Inside `2000::/3`: `2001::/23` (IETF protocol assignments, including Teredo `2001::/32`, benchmarking `2001:2::/48` and ORCHID), `2001:db8::/32` and `3fff::/20` (documentation) |
-| IPv6 carrying IPv4 | IPv4-mapped `::ffff:a.b.c.d`, NAT64 `64:ff9b::/96` and 6to4 `2002::/16` are classified by the embedded IPv4 address: refused when that address is in an IPv4 range above, allowed when it is public |
-
-Every other address is allowed, including public addresses reached through
-NAT64 or 6to4. The option does not interpret an IPv4 address embedded in the
-interface identifier of an otherwise public IPv6 address (ISATAP), and it
-cannot know about a public-looking range that a deployment routes internally;
-restrict those at the network layer.
-
-The operator can force this guard on for the whole process with
-`IRONFLOW_BLOCK_PRIVATE_NETWORK=true`. The option then cannot turn it off:
-`block_private_network = false` changes nothing, and `proxy_mode = "system"`
-is refused. Internal destinations the operator lists in
-`IRONFLOW_PRIVATE_NETWORK_ALLOWLIST` are permitted in either case. The
-policy, the allowlist matching rules and the other covered nodes are
-described under
-[Outbound destinations](../SECURITY.md#outbound-destinations).
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `method` | string | No | `"GET"` | `GET`, `POST`, `PUT`, `DELETE` or `PATCH`. |
+| `url` | string | Yes | — | Absolute `http` or `https` URL; interpolated. |
+| `headers` | object | No | — | Request headers; values are interpolated. |
+| `auth` | object | No | — | See [Auth](#auth). |
+| `body_type` | string | No | `"json"` | See [Request bodies](#request-bodies). |
+| `body` | any | No | — | Inline payload, or an artifact URI or descriptor. |
+| `body_key` | string | No | — | Context key holding an artifact; `artifact` bodies only. |
+| `parts` | array | No | — | Multipart parts; required for `multipart`. |
+| `response_mode` | string | No | `"inline"` | `inline`, or `artifact` to stream the body to the artifact store. |
+| `timeout` | number | No | `30` | Seconds per attempt, including redirects and body transfer. |
+| `output_key` | string | No | `"http"` | Prefix for output keys. |
+| `fail_on_status` | boolean | No | `true` | Fail the step on a non-2xx final response. |
+| `retry_statuses` | array | No | `[]` | Status codes to retry (numbers or numeric strings). |
+| `status_retries` | integer | No | `0` | Retries for those statuses; maximum `100`. |
+| `max_status_retries` | integer | No | `0` | Alias, used when `status_retries` is absent. |
+| `status_retry_backoff` | number | No | `1` | Base delay in seconds, doubled per retry. |
+| `respect_retry_after` | boolean | No | `true` | Prefer a numeric `Retry-After` header. |
+| `max_retry_after` | number | No | `60` | Maximum retry delay in seconds. |
+| `max_redirects` | integer | No | `10` | `0` returns a 3xx response as is; maximum `100`. |
+| `allow_cross_origin_redirects` | boolean | No | `false` | Follow redirects that change scheme, host or port. |
+| `proxy_mode` | string | No | `"auto"` | `auto`, `system` or `direct`. |
+| `block_private_network` | boolean | No | `false` | See [Outbound destinations](../SECURITY.md#outbound-destinations). |
 
 ### Auth
 
-The `auth` object supports three authentication types, determined by `auth.type`:
+| `auth.type` | Fields | Sends |
+|-------------|--------|-------|
+| `"bearer"` (default) | `token` (interpolated) | `Authorization: Bearer <token>` |
+| `"basic"` | `username` (default `""`), `password` (optional); not interpolated | Basic authentication |
+| `"api_key"` | `key` (interpolated), `header` (default `"X-API-Key"`) | `key` in the named header |
 
-| `auth.type`  | Fields                                    | Behavior                                                                 |
-|--------------|-------------------------------------------|--------------------------------------------------------------------------|
-| `"bearer"`   | `token` (string)                          | Sets the `Authorization: Bearer <token>` header. Default when `auth.type` is omitted. Token supports `${ctx.key}` interpolation. |
-| `"basic"`    | `username` (string), `password` (string)  | Sets basic authentication. `username` defaults to `""` if omitted. `password` is optional. |
-| `"api_key"`  | `key` (string), `header` (string)         | Sets a custom header with the API key. `header` defaults to `"X-API-Key"`. Key supports `${ctx.key}` interpolation. |
+### Request bodies
+
+| `body_type` | Source | Default `Content-Type` |
+|-------------|--------|------------------------|
+| `json` | `body`, string values interpolated | `application/json` |
+| `form` | `body` object, percent-encoded | `application/x-www-form-urlencoded` |
+| `text` | `body`, interpolated and stringified | `text/plain; charset=utf-8` |
+| `artifact` | Exactly one of `body` or `body_key` | Descriptor MIME type, else `application/octet-stream` |
+| `multipart` | `parts`, 1 to 100 | Generated |
+
+- An artifact source is an `artifact://sha256/...` URI or a descriptor, never a local path. A URI written in configuration is interpolated; a value read through `body_key` or `source_key` is not.
+- Each part has `name` and exactly one of `text`, `source_key` or `artifact`. Artifact parts may add `filename` and `content_type`, which must match the descriptor's MIME type when it has one.
+- Part `name`, `filename` and `content_type` are 1 to 255 bytes without CR or LF.
+- A `Content-Type` header overrides the default, except for `multipart`, where it fails the step. `artifact` and `multipart` bodies reject `Content-Length` and `Transfer-Encoding` headers.
 
 ## Context Output
 
-On a successful response (HTTP 2xx), or on a non-2xx response when `fail_on_status = false`, the following keys are written to the context:
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}_status` | number | HTTP status code |
+| `{output_key}_headers` | object | Lowercase field names. Text values are strings; non-text values are `{"base64":"..."}` objects. Repeated fields are arrays in receipt order. |
+| `{output_key}_success` | boolean | `true` for 2xx |
+| `{output_key}_attempts` | number | Requests sent, including status retries |
+| `{output_key}_data` | any | Inline mode: parsed JSON, else a string |
+| `{output_key}_artifact` | object | Artifact mode: descriptor, instead of `_data` |
 
-- `{output_key}_status` -- HTTP status code as a number (e.g., `200`).
-- `{output_key}_headers` -- Response headers as a key-value object.
-- `{output_key}_success` -- Boolean `true` for HTTP 2xx, `false` otherwise.
-- `{output_key}_attempts` -- Number of HTTP attempts, including the first request and any status retries.
+## Behavior
 
-With `response_mode = "inline"` (the default), `{output_key}_data` contains the
-response body parsed as JSON, falling back to a string. With
-`response_mode = "artifact"`, `{output_key}_artifact` contains the artifact
-descriptor and `{output_key}_data` is omitted. Artifact mode preserves valid
-response `Content-Type` metadata and never converts binary bytes through UTF-8.
+- Header values are neither split nor joined on commas. For example, two `Set-Cookie` fields yield `{"set-cookie":["alpha=one","beta=two"]}`, while one `Vary: Accept, Origin` field yields `{"vary":"Accept, Origin"}`. This applies in both inline and artifact modes.
+- An empty field is `""`. If the HTTP client cannot read a value as text, its object contains the original value bytes in standard padded Base64. For example, two fields with the same name, one containing `first` and one containing the bytes `63 61 66 e9`, yield `["first",{"base64":"Y2Fm6Q=="}]`. Base64 is not redaction inside a running flow; when IronFlow records or returns a run it decodes such a value and replaces it if the bytes hold a protected value.
+- A non-2xx final response fails the step unless `fail_on_status = false`.
+- Only statuses in `retry_statuses` are retried. Transport errors and timeouts fail the step.
+- Retry delay is `status_retry_backoff * 2^retry` or `Retry-After`, capped at `max_retry_after`; with retries on, both settings must be at least `0.01`.
+- A 303, or a 301/302 after `POST`, is followed as `GET` without the body.
+- A cross-origin redirect always fails when the request has `auth`, `headers`, URL credentials or a body.
+- `proxy_mode = "system"` fails when private-network blocking is on; `auto` then connects directly.
+- An invalid value fails the step; it never falls back to the default.
 
-By default, non-success responses (non-2xx) return an error without materializing the final body. Set `fail_on_status = false` when the flow should inspect provider error responses, such as `401`, `402`, `429`, or `5xx` bodies and headers.
+## Limits
 
-With the default `output_key` of `"http"`, inline mode returns `http_status`, `http_data`, `http_headers`, `http_success`, and `http_attempts`. Artifact mode replaces `http_data` with `http_artifact`.
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `IRONFLOW_MAX_HTTP_BODY_BYTES` | `52428800` | Maximum response body, artifact upload or multipart request |
 
-## Status Retries
+## Examples
 
-Status retries are separate from step-level retries. They retry only HTTP responses whose status is listed in `retry_statuses`; transport errors still surface as node errors and can be handled by step retry configuration.
-Bodies from retryable responses are discarded; only the final accepted response
-is materialized or published as an artifact.
-
-Retry counts, redirect counts, booleans, and delay values are parsed strictly:
-a present but invalid value is an error rather than being treated as an omitted
-default. A provider's `Retry-After: 0` is floored to 0.01 seconds.
-
-```lua
-flow:step("provider_call", nodes.http_request({
-    method = "POST",
-    url = "https://api.example.com/generate",
-    body = { prompt = "${ctx.prompt}" },
-    output_key = "provider",
-    fail_on_status = false,
-    retry_statuses = { 429, 500, 502, 503 },
-    status_retries = 2,
-    status_retry_backoff = 0.5,
-    respect_retry_after = true,
-    max_retry_after = 10
-}))
-```
-
-## Example
+### POST with bearer auth
 
 ```lua
-local flow = Flow.new("create_user")
-
 flow:step("request", nodes.http_request({
     method = "POST",
     url = "https://api.example.com/users",
-    headers = { ["Content-Type"] = "application/json" },
     body = { name = "Alice", email = "alice@example.com" },
     auth = { type = "bearer", token = "${ctx.api_token}" },
-    timeout = 10,
     output_key = "create_user"
 }))
-
-flow:step("done", nodes.log({
-    message = "Created user: ${ctx.create_user_status}",
-    level = "info"
-})):depends_on("request")
-
-return flow
 ```
 
-## Artifact Transfer
+### Multipart upload of an artifact
 
 ```lua
-flow:step("source", nodes.read_file({
-    path = "${ctx._flow_dir}/../fixtures/ironflow-sample.pdf",
-    encoding = "artifact",
-    mime_type = "application/pdf",
-    output_key = "document"
-}))
-
-flow:step("transfer", nodes.http_put({
-    url = "${ctx.upload_url}",
-    body_type = "artifact",
-    body_key = "document_artifact",
-    response_mode = "artifact",
-    proxy_mode = "direct",
-    output_key = "transfer"
-})):depends_on("source")
-
-flow:step("multipart_transfer", nodes.http_post({
+flow:step("upload", nodes.http_post({
     url = "${ctx.upload_url}",
     body_type = "multipart",
     parts = {
@@ -203,8 +110,6 @@ flow:step("multipart_transfer", nodes.http_post({
             content_type = "application/pdf"
         }
     },
-    response_mode = "artifact",
-    proxy_mode = "direct",
-    output_key = "multipart_transfer"
-})):depends_on("source")
+    output_key = "upload"
+}))
 ```

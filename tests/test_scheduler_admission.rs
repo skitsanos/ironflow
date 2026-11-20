@@ -131,7 +131,6 @@ impl ScheduleExecutor for ProbeSawCapacity {
 
 #[tokio::test]
 async fn a_run_cap_that_fills_after_the_probe_is_reported_as_at_capacity() {
-    use chrono::TimeZone as _;
     use ironflow::scheduler::{Outcome, Scheduler};
     let _serial = ONE_RUN_PERMIT.lock().await;
     cap_runs_at_one();
@@ -147,7 +146,9 @@ async fn a_run_cap_that_fills_after_the_probe_is_reported_as_at_capacity() {
         .await
         .expect("the holding run did not start");
 
-    let now = chrono::Utc.with_ymd_and_hms(2026, 3, 10, 2, 0, 5).unwrap();
+    let now = jiff::tz::Offset::UTC
+        .to_timestamp(jiff::civil::datetime(2026, 3, 10, 2, 0, 5, 0))
+        .unwrap();
     let mut scheduler = Scheduler::new(
         [("squeezed".to_string(), schedule)].into(),
         app.store.clone(),

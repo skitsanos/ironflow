@@ -3,6 +3,7 @@
 use super::SqlStateStore;
 use crate::storage::schedule_cleanup::CLAIM_CLEANUP_BATCH_SIZE;
 use crate::storage::{StorageError, StorageErrorKind, StorageResult};
+use crate::util::timestamp::unix_micros;
 
 /// Set once the claimed occurrence is settled: it has a durable run (IF-201)
 /// or the scheduler skipped it (IF-217). Nullable, so a claim row written by
@@ -31,7 +32,7 @@ impl SqlStateStore {
         match sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
             .bind(name)
             .bind(key)
-            .bind(chrono::Utc::now().timestamp_micros())
+            .bind(unix_micros(jiff::Timestamp::now()))
             .execute(&self.pool)
             .await
         {
@@ -74,7 +75,7 @@ impl SqlStateStore {
             p3 = self.placeholder(3),
             p4 = self.placeholder(4),
         );
-        let now = chrono::Utc::now().timestamp_micros();
+        let now = unix_micros(jiff::Timestamp::now());
         sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
             .bind(name)
             .bind(key)
@@ -114,8 +115,7 @@ impl SqlStateStore {
     /// predicate and deterministic oldest-first batch without a table scan.
     async fn reap_expired_claims(&self, name: &str, ttl_seconds: u64) {
         let ttl_micros = ttl_seconds.saturating_mul(1_000_000);
-        let cutoff = chrono::Utc::now()
-            .timestamp_micros()
+        let cutoff = unix_micros(jiff::Timestamp::now())
             .saturating_sub(i64::try_from(ttl_micros).unwrap_or(i64::MAX));
         let sql = format!(
             "DELETE FROM {table} WHERE name = {p1} AND claim_key IN (\

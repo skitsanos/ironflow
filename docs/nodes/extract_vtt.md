@@ -1,64 +1,63 @@
 # `extract_vtt`
 
-Extract text and metadata from a WebVTT subtitle file.
+Parse a WebVTT subtitle file into a plain-text transcript, a cue list with timings and speakers, and optional metadata.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | one of `path` or `source_key` | — | File path to the `.vtt` file; supports `${ctx.key}` interpolation. |
-| `source_key` | string | one of `path` or `source_key` | — | Context key containing a `.vtt` file path, artifact URI, or artifact descriptor. A stored path is used as it is and is not interpolated. |
-| `format` | string | no | `"text"` | Optional secondary-output format: `"text"` or `"markdown"`. The canonical `transcript` output is always plain text. |
-| `output_key` | string | no | `"transcript"` | Secondary formatted output key. Set it to a key other than `transcript` to emit a separate text or Markdown rendering. |
-| `cues_key` | string | no | `"cues"` | Context key for the parsed cue list array. |
-| `metadata_key` | string | no | — | If set, metadata is stored under this key. |
-
-> Providing both `path` and `source_key` is an error.
-> Artifact inputs are opened and SHA-256 verified inside the tracked blocking worker; extraction reads that same handle rather than a resolved store pathname.
-> The `format` parameter only accepts `"text"` or `"markdown"`.
-> Present `format`, `output_key`, `cues_key`, and `metadata_key` values must be strings; a value of the wrong type is rejected instead of being treated as absent.
-> `format = "markdown"` requires an `output_key` other than `transcript`. The canonical `transcript`, `cues_key`, distinct `output_key`, and `metadata_key` names must all differ; collisions are rejected before extraction begins.
+| `path` | string | One of `path` or `source_key` | — | Path to the `.vtt` file; supports `${ctx.key}` interpolation. |
+| `source_key` | string | One of `path` or `source_key` | — | Context key holding a file path, artifact URI, or artifact descriptor; a stored path is used as is, not interpolated. |
+| `format` | string | No | `"text"` | Rendering for `{output_key}`: `"text"` or `"markdown"`. |
+| `output_key` | string | No | `"transcript"` | Key for a second rendering; it is written only when it differs from `transcript`. |
+| `cues_key` | string | No | `"cues"` | Context key for the cue array. |
+| `metadata_key` | string | No | — | When set, subtitle metadata is stored under this key. |
 
 ## Context Output
 
-- `transcript` — concatenated cue text in plain text.
-- `<output_key>` — emitted only when `output_key` is different from `transcript`; it contains a second rendering selected by `format`. A Markdown rendering therefore requires both `format = "markdown"` and a distinct custom `output_key`. With the default `format` and key, no duplicate output is emitted and `transcript` stays plain text.
-- `<cues_key>` (default `cues`) — array of cue objects:
-  - `start_ms` — start timestamp in milliseconds
-  - `end_ms` — end timestamp in milliseconds
-  - `start` — formatted start timestamp
-  - `end` — formatted end timestamp
-  - `text` — cue text
-  - `speaker` — speaker name from the first WebVTT voice span, when present; omitted for unlabelled cues
-- `<metadata_key>` (when set) — object with:
-  - `type` — `"vtt"`
-  - `cue_count` — number of parsed subtitle cues
-  - `first_start_ms` — first cue start timestamp in milliseconds (optional)
-  - `last_end_ms` — last cue end timestamp in milliseconds (optional)
-  - `duration_ms` — total subtitle span in milliseconds (optional)
+| Key | Type | Description |
+|-----|------|-------------|
+| `transcript` | string | Cue texts joined by newlines, always plain text. |
+| `{output_key}` | string | Only when `output_key` is not `transcript`: the cues rendered in `format`. |
+| `{cues_key}` | array | Cue objects (see Output Shape). |
+| `{metadata_key}` | object | Only when `metadata_key` is set (see Output Shape). |
 
-## Resource and cancellation contract
+## Output Shape
 
-- The input must be a regular UTF-8 file. `IRONFLOW_MAX_FILE_BYTES` (default
-  `52428800`, 50 MiB) bounds both its declared size and actual bytes read. On
-  Unix, IronFlow also refuses to follow a final path-component symlink; other
-  platforms enforce the opened-handle regular-file check.
-- `IRONFLOW_MAX_EXTRACT_ITEMS` (default `250000`) is cumulative across input
-  lines inspected and parsed cues, bounding both sparse/adversarial files and
-  ordinary subtitle structure.
-- `IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES` (default `52428800`, 50 MiB) bounds the
-  complete serialized `NodeOutput`, including the canonical plain transcript,
-  a distinct formatted output when requested, cue objects, and metadata. All
-  retained copies therefore share one result ceiling. This is a logical result
-  limit, not a process-RSS limit and not the later
-  `IRONFLOW_MAX_TASK_OUTPUT_BYTES` persistence limit.
-- Reading, parsing, annotation removal, output construction, and serialization
-  run on a tracked blocking worker and check cancellation and the step/run
-  deadline between input chunks, subtitle lines, long annotation strings, and
-  cues. Task and run admission remain occupied until the physical worker
-  stops.
+```json
+{
+  "cues": [
+    {"start_ms": 1000, "end_ms": 4500, "start": "00:00:01.000", "end": "00:00:04.500",
+     "text": "Welcome to IronFlow.", "speaker": "Alice"}
+  ],
+  "meta": {"type": "vtt", "cue_count": 1, "first_start_ms": 1000, "last_end_ms": 4500, "duration_ms": 3500}
+}
+```
 
-## Example
+- `speaker` comes from the cue's first voice span (`<v Alice>`, `<v.loud Alice>`) and is omitted when there is none.
+- `first_start_ms` is omitted when the first cue starts at 0; `last_end_ms` and `duration_ms` are omitted when there are no cues. `duration_ms` is `last_end_ms` minus `first_start_ms`.
+
+## Behavior
+
+- `format = "markdown"` requires an `output_key` other than `transcript`. The keys `transcript`, `cues_key`, `output_key` and `metadata_key` must all differ.
+- Setting both `path` and `source_key`, neither, or a non-string value for a string parameter fails the step. The file must be valid UTF-8.
+- A line containing `-->` with an unparsable or reversed timing fails the step with its line number.
+- The `WEBVTT` header and `NOTE` blocks are skipped. Cue lines are joined with spaces, markup tags are removed, and cues with no text are dropped.
+- Markdown renders one line per cue: ``- `00:00:01.000` -> `00:00:04.500`: text``.
+
+## Limits
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `IRONFLOW_MAX_FILE_BYTES` | `52428800` (50 MiB) | Maximum input file size. |
+| `IRONFLOW_MAX_EXTRACT_ITEMS` | `250000` | Maximum input lines plus cues. |
+| `IRONFLOW_MAX_EXTRACT_OUTPUT_BYTES` | `52428800` (50 MiB) | Maximum serialized output: transcript, second rendering, cues and metadata together. |
+
+Exceeding a limit fails the step.
+
+## Examples
+
+### Markdown rendering and metadata
 
 ```lua
 local flow = Flow.new("extract_vtt_demo")

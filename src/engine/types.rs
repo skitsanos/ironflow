@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -119,10 +119,18 @@ pub struct TaskState {
     pub output: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub started: Option<DateTime<Utc>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub finished: Option<DateTime<Utc>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::util::timestamp::serde_option"
+    )]
+    pub started: Option<Timestamp>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "crate::util::timestamp::serde_option"
+    )]
+    pub finished: Option<Timestamp>,
 }
 
 impl TaskState {
@@ -147,8 +155,10 @@ pub struct RunInfo {
     pub id: String,
     pub flow_name: String,
     pub status: RunStatus,
-    pub started: Option<DateTime<Utc>>,
-    pub finished: Option<DateTime<Utc>>,
+    #[serde(default, with = "crate::util::timestamp::serde_option")]
+    pub started: Option<Timestamp>,
+    #[serde(default, with = "crate::util::timestamp::serde_option")]
+    pub finished: Option<Timestamp>,
     pub ctx: Context,
     pub tasks: HashMap<String, TaskState>,
 }
@@ -160,8 +170,10 @@ pub struct RunSummary {
     pub id: String,
     pub flow_name: String,
     pub status: RunStatus,
-    pub started: Option<DateTime<Utc>>,
-    pub finished: Option<DateTime<Utc>>,
+    #[serde(default, with = "crate::util::timestamp::serde_option")]
+    pub started: Option<Timestamp>,
+    #[serde(default, with = "crate::util::timestamp::serde_option")]
+    pub finished: Option<Timestamp>,
     pub task_count: usize,
 }
 

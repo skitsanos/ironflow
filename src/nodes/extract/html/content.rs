@@ -77,7 +77,7 @@ fn attribute(node: &Node, name: &str) -> Option<String> {
         NodeData::Element { attrs, .. } => attrs
             .borrow()
             .iter()
-            .find(|attribute| attribute.name.local.as_ref() == name)
+            .find(|attribute| &*attribute.name.local == name)
             .map(|attribute| attribute.value.to_string()),
         _ => None,
     }

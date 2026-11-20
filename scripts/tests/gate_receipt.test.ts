@@ -1,10 +1,11 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   DEFAULT_MAX_AGE_SECONDS,
   REPOSITORY_SCOPED_GIT_VARIABLES,
+  captureTree,
   checkReceipt,
   receiptPath,
   repositoryNeutralEnvironment,
@@ -38,7 +39,11 @@ async function fixture(): Promise<{ root: string; target: string }> {
 test("a receipt records the validated tree and survives a message-only amend, not a content change", async () => {
   const { root, target } = await fixture();
   try {
-    const receipt = await writeReceipt(root, target);
+    const start = captureTree(root);
+    const initialCommit = git(root, "rev-parse", "HEAD");
+    git(root, "commit", "-q", "--amend", "-m", "reworded during validation");
+    const receipt = await writeReceipt(root, start, target);
+    expect(receipt.commit).not.toBe(initialCommit);
     expect(receipt.commit).toBe(git(root, "rev-parse", "HEAD"));
     expect(receipt.tree).toBe(git(root, "rev-parse", "HEAD^{tree}"));
     expect(await Bun.file(receiptPath(root, target)).exists()).toBeTrue();
@@ -62,11 +67,57 @@ test("a receipt records the validated tree and survives a message-only amend, no
   }
 });
 
-test("a dirty worktree cannot record a receipt", async () => {
+test("a dirty start or finish is refused, including untracked files hidden by git config", async () => {
   const { root, target } = await fixture();
   try {
+    const start = captureTree(root);
+    git(root, "config", "status.showUntrackedFiles", "no");
+    await writeFile(join(root, "untracked.lua"), "return 3\n");
+    expect(() => captureTree(root)).toThrow("uncommitted changes");
+    await expect(writeReceipt(root, start, target)).rejects.toThrow("uncommitted changes");
+    await rm(join(root, "untracked.lua"));
     await writeFile(join(root, "flow.lua"), "return 3\n");
-    await expect(writeReceipt(root, target)).rejects.toThrow("uncommitted changes");
+    await expect(writeReceipt(root, start, target)).rejects.toThrow("uncommitted changes");
+    git(root, "add", "flow.lua");
+    await expect(writeReceipt(root, start, target)).rejects.toThrow("uncommitted changes");
+    expect(await Bun.file(receiptPath(root, target)).exists()).toBeFalse();
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("the integration gate refuses a clean commit made during validation", async () => {
+  const { root, target } = await fixture();
+  try {
+    const scripts = join(root, "scripts");
+    const bin = join(root, ".git", "fake-bin");
+    await mkdir(scripts);
+    await mkdir(bin);
+    await mkdir(join(root, "examples"));
+    for (const name of ["integration_gate.sh", "gate_receipt.ts"]) {
+      await copyFile(join(import.meta.dir, "..", name), join(scripts, name));
+    }
+    git(root, "add", "scripts");
+    git(root, "commit", "-qm", "gate fixture");
+    // Run the real gate and receipt commands; stand in for the expensive checks.
+    const commands: Record<string, string> = {
+      cargo: 'if [ "$1" = fmt ]; then echo changed > flow.lua; git -c user.name=Fixture -c user.email=fixture@example.invalid -c core.hooksPath=/dev/null -c commit.gpgsign=false commit -qam changed; fi',
+      bun: 'if [ "$2" = scripts/gate_receipt.ts ]; then exec "$REAL_BUN" "$@"; fi',
+      docker: 'case "$1" in exec) echo PONG;; port) echo 127.0.0.1:12345;; esac',
+      "cargo-audit": ":", actionlint: ":", openssl: ":", python3: ":",
+    };
+    for (const [name, body] of Object.entries(commands)) {
+      await writeFile(join(bin, name), `#!/bin/sh\nset -e\n${body}\n`, { mode: 0o755 });
+    }
+    const before = git(root, "rev-parse", "HEAD^{tree}");
+    const gate = Bun.spawnSync(["bash", "scripts/integration_gate.sh"], {
+      cwd: root,
+      env: { ...environment, PATH: `${bin}:${environment.PATH}`, REAL_BUN: process.execPath, CARGO_TARGET_DIR: target },
+      stdout: "pipe", stderr: "pipe",
+    });
+    expect(git(root, "rev-parse", "HEAD^{tree}")).not.toBe(before);
+    expect(gate.exitCode).not.toBe(0);
+    expect(new TextDecoder().decode(gate.stderr)).toContain("tree changed");
     expect(await Bun.file(receiptPath(root, target)).exists()).toBeFalse();
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -82,7 +133,7 @@ test("missing, stale, future-dated and malformed receipts are rejected", async (
     if (!missing.accepted) expect(missing.reason).toContain("no integration gate receipt");
 
     const completed = new Date("2026-10-29T10:00:00Z");
-    await writeReceipt(root, target, completed);
+    const receipt = await writeReceipt(root, captureTree(root), target, completed);
     const fresh = await checkReceipt(root, head, target, new Date("2026-10-29T18:00:00Z"));
     expect(fresh.accepted).toBeTrue();
     if (fresh.accepted) expect(fresh.ageSeconds).toBe(8 * 3600);
@@ -92,7 +143,13 @@ test("missing, stale, future-dated and malformed receipts are rejected", async (
     const future = await checkReceipt(root, head, target, new Date("2026-10-29T09:00:00Z"));
     expect(future.accepted).toBeFalse();
 
-    await writeFile(receiptPath(root, target), "{\"tree\": 1}\n");
+    const legacy = { tree: receipt.tree, commit: receipt.commit, completed: receipt.completed };
+    await writeFile(receiptPath(root, target), JSON.stringify(legacy));
+    const old = await checkReceipt(root, head, target, completed);
+    expect(old.accepted).toBeFalse();
+    if (!old.accepted) expect(old.reason).toContain("unsupported receipt version");
+
+    await writeFile(receiptPath(root, target), "{\"version\": 2, \"tree\": 1}\n");
     const malformed = await checkReceipt(root, head, target);
     expect(malformed.accepted).toBeFalse();
     if (!malformed.accepted) expect(malformed.reason).toContain("unreadable");
@@ -118,7 +175,10 @@ test("the CLI accepts a matching receipt and fails closed on a malformed age lim
     expect(blocked.exitCode).toBe(1);
     expect(new TextDecoder().decode(blocked.stderr)).toContain("Run scripts/integration_gate.sh on this commit first");
 
-    const written = run(["write"]);
+    expect(run(["write"]).exitCode).toBe(2);
+    const start = run(["start-tree"]);
+    expect(start.exitCode).toBe(0);
+    const written = run(["write", new TextDecoder().decode(start.stdout).trim()]);
     expect(written.exitCode, new TextDecoder().decode(written.stderr)).toBe(0);
     const accepted = run(["check", head]);
     expect(accepted.exitCode, new TextDecoder().decode(accepted.stderr)).toBe(0);
@@ -149,7 +209,7 @@ test("a receipt describes its own repository under variables inherited from a gi
     const head = git(root, "rev-parse", "HEAD");
 
     process.env.GIT_INDEX_FILE = join(hooked.root, ".git", "index");
-    const receipt = await writeReceipt(root, target);
+    const receipt = await writeReceipt(root, captureTree(root), target);
     expect(receipt.commit).toBe(head);
 
     process.env.GIT_DIR = join(hooked.root, ".git");

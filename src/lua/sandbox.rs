@@ -1,6 +1,8 @@
 use anyhow::Result;
 use base64::Engine;
-use chrono::Utc;
+use jiff::Timestamp;
+
+use crate::util::timestamp;
 use mlua::prelude::*;
 use tracing::{debug, error, info, trace, warn};
 use uuid::Uuid;
@@ -85,11 +87,11 @@ pub(crate) fn register_shared_globals(lua: &Lua) -> Result<()> {
     globals.set("uuid4", uuid_fn)?;
 
     // now_rfc3339() -> RFC3339 timestamp
-    let now_fn = lua.create_function(|_, ()| Ok(Utc::now().to_rfc3339()))?;
+    let now_fn = lua.create_function(|_, ()| Ok(timestamp::rfc3339_offset(Timestamp::now())))?;
     globals.set("now_rfc3339", now_fn)?;
 
     // now_unix_ms() -> epoch milliseconds
-    let now_unix_fn = lua.create_function(|_, ()| Ok(Utc::now().timestamp_millis()))?;
+    let now_unix_fn = lua.create_function(|_, ()| Ok(timestamp::unix_millis(Timestamp::now())))?;
     globals.set("now_unix_ms", now_unix_fn)?;
 
     Ok(())

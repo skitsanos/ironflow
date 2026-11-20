@@ -1,65 +1,47 @@
 # `csv_parse`
 
-Parse a CSV string from context into JSON arrays.
+Parse CSV text from context into an array of rows.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `source_key` | string | yes | — | Context key holding the CSV text |
-| `output_key` | string | yes | — | Context key where parsed rows are stored |
-| `has_header` | bool | no | `true` | Parse the first row as header names |
-| `delimiter` | string | no | `,` | CSV delimiter character (one char, or `\\t` for tab) |
-| `quote_char` | string | no | `"` | Quote character for parsed fields |
-| `trim` | bool | no | `false` | Trim whitespace from each field |
-| `skip_empty_lines` | bool | no | `true` | Skip completely empty lines |
-| `infer_types` | bool | no | `false` | Convert boolean and plain decimal fields into JSON values (see [Type inference](#type-inference)) |
+| `source_key` | string | Yes | — | Context key holding the CSV text |
+| `output_key` | string | Yes | — | Context key where the rows are stored |
+| `has_header` | bool | No | `true` | Use the first row as field names |
+| `delimiter` | string | No | `","` | One single-byte character, or `"\\t"` for tab |
+| `quote_char` | string | No | `"\""` | One single-byte quote character |
+| `trim` | bool | No | `false` | Trim whitespace around each field |
+| `skip_empty_lines` | bool | No | `true` | Skip rows whose fields are all empty |
+| `infer_types` | bool | No | `false` | Convert boolean and plain decimal fields to JSON values |
 
 ## Context Output
 
-- `{output_key}` — an array of parsed rows
-  - with `has_header: true`: `[{"col": value}, ...]`
-  - with `has_header: false`: `[[col1, col2, ...], ...]`
+| Key | Type | Description |
+|-----|------|-------------|
+| `{output_key}` | array | With a header, an array of objects (`[{"col": value}, ...]`); without, an array of arrays (`[["a", "b"], ...]`) |
 
-## Type inference
+## Behavior
 
-Without `infer_types` every field is a string. With `infer_types = true` each
-field is trimmed of surrounding whitespace and then converted by these rules,
-in order:
+- The step fails when the source is missing or not a string, when `delimiter` or `quote_char` is not a single byte, or on malformed CSV.
+- A row with a different number of fields than the first row fails the step.
+- Without `infer_types` every field is a string.
+- With `infer_types = true` each field is trimmed, then `true`/`false` (any case) become booleans, and a plain decimal `[-]digits[.digits][e[+-]digits]` becomes a number: an integer when it has only digits, a float when it has a decimal point or an exponent (`1e3` gives `1000.0`). Everything else stays a trimmed string.
+- With inference on, a numeric-looking field still stays a string when converting would change it:
 
-1. `true` or `false`, in any letter case, becomes a boolean.
-2. A plain decimal number becomes a number. The field must have the form
-   `[-]digits[.digits][e[+-]digits]`; the digits before or after the decimal
-   point may be omitted (`.5`, `5.`), but not both.
-   - Digits only, with an optional `-`, give an integer: `30`, `-5`, `0`.
-   - A decimal point or an exponent gives a float: `1.5`, `-0.25`, `1e3`
-     (`1000.0`).
-3. Everything else stays a string, with the surrounding whitespace removed.
-   An empty field is the empty string.
-
-A field that looks numeric stays a string when converting it would change
-what it says:
-
-| Field | Reason it stays a string |
-|-------|--------------------------|
-| `02134`, `007`, `00`, `-012`, `0123.5` | a leading zero before another digit |
-| `+15551234567`, `+1`, `+1.5` | a leading `+` |
+| Field | Reason |
+|-------|--------|
+| `02134`, `007`, `-012`, `0123.5` | leading zero before another digit |
+| `+15551234567`, `+1.5` | leading `+` |
 | `-0` | an integer cannot keep the sign |
-| `1234567890123456`, `12345678901234567890`, `0.1234567890123456` | more than 15 significant digits |
-| `nan`, `NAN`, `inf`, `-inf`, `Infinity` | not a finite number |
-| `1e999` | outside the range of a 64-bit float |
+| `1234567890123456`, `0.1234567890123456` | more than 15 significant digits (leading zeros dropped, trailing zeros counted) |
+| `nan`, `inf`, `Infinity`, `1e999` | not a finite 64-bit float |
 
-Significant digits are counted across the whole and fractional parts after
-leading zeros are dropped, so `123456789012345` and `0.000123456789012345`
-(15 each) convert and `1234567890123456` (16) does not. Trailing zeros count.
+- Inference is per field, so one column can mix numbers and strings. For postal codes, phone numbers and account numbers, leave `infer_types` off or convert numeric columns in a later step.
 
-Inference looks at one field at a time, so a column can mix numbers and
-strings (`2134` in one row, `"02134"` in the next). For identifier columns
-such as postal codes, phone numbers and account numbers, leave `infer_types`
-off, or convert the numeric columns in a later step. A field written with an
-exponent (`1e3`, `12E3`) is converted.
+## Examples
 
-## Example
+### Parse with type inference
 
 ```lua
 flow:step("parse", nodes.csv_parse({

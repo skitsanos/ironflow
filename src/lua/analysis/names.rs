@@ -46,13 +46,16 @@ impl<'source> Names<'source> {
         }
     }
 
-    #[allow(clippy::expect_used)] // Infallible: scope analyzer always has a scope.
     pub(super) fn declare(&mut self, identifier: Node<'_>) {
-        let name = self.text(identifier).to_string();
+        self.declare_name(self.text(identifier));
+    }
+
+    #[allow(clippy::expect_used)] // Infallible: scope analyzer always has a scope.
+    pub(super) fn declare_name(&mut self, name: &str) {
         self.scopes
             .last_mut()
             .expect("scope analyzer always has a scope")
-            .insert(name);
+            .insert(name.to_owned());
     }
 
     /// Declare every identifier below `node`, such as a parameter list.

@@ -132,7 +132,7 @@ fn walk<'a>(
             inline(node, Style::default())?,
         )),
         NodeValue::CodeBlock(code) => blocks.push(Block::Code(code.literal.clone())),
-        NodeValue::ThematicBreak => blocks.push(Block::Rule),
+        NodeValue::ThematicBreak(..) => blocks.push(Block::Rule),
         NodeValue::Table(_) => {
             let mut rows = Vec::new();
             for row in node.children() {
@@ -174,15 +174,15 @@ fn inline<'a>(node: Node<'a>, mut style: Style) -> Result<Vec<Run>> {
         }
         NodeValue::SoftBreak => Some(" ".to_owned()),
         NodeValue::LineBreak => Some("\n".to_owned()),
-        NodeValue::Strong => {
+        NodeValue::Strong(..) => {
             style.bold = true;
             None
         }
-        NodeValue::Emph => {
+        NodeValue::Emph(..) => {
             style.italic = true;
             None
         }
-        NodeValue::Strikethrough => {
+        NodeValue::Strikethrough(..) => {
             style.strike = true;
             None
         }

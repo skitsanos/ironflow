@@ -72,7 +72,7 @@ async fn redis_state_scripts_preflight_faults_and_upgrade_legacy_records() {
         id: "legacy-run".to_string(),
         flow_name: "legacy".to_string(),
         status: RunStatus::Running,
-        started: Some(chrono::Utc::now()),
+        started: Some(jiff::Timestamp::now()),
         finished: None,
         ctx: Context::new(),
         tasks: HashMap::new(),

@@ -124,7 +124,10 @@ fn extract(request: Request, limits: Limits, execution: ExecutionControl) -> Res
     let metadata = request
         .metadata_key
         .as_ref()
-        .map(|_| extract_pptx_metadata(&mut archive, slides.len(), &mut budget, &execution))
+        .map(|_| {
+            let part = &presentation.core_properties;
+            extract_pptx_metadata(&mut archive, part, slides.len(), &mut budget, &execution)
+        })
         .transpose()?;
 
     let content = match request.format.as_str() {

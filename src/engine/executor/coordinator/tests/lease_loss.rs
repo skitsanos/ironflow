@@ -75,10 +75,7 @@ impl StateStore for LeaseLossStore {
         self.inner.renew_run_lease(run_id, lease).await
     }
 
-    async fn reconcile_expired_run_leases(
-        &self,
-        now: chrono::DateTime<chrono::Utc>,
-    ) -> StorageResult<usize> {
+    async fn reconcile_expired_run_leases(&self, now: jiff::Timestamp) -> StorageResult<usize> {
         self.inner.reconcile_expired_run_leases(now).await
     }
 

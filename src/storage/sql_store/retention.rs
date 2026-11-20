@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 
 use super::{SqlStateStore, row_value};
 use crate::storage::sql_names::SqlDialect;
@@ -7,7 +7,7 @@ use crate::storage::{StorageError, StorageResult};
 impl SqlStateStore {
     pub(super) async fn prune_before_transactional(
         &self,
-        cutoff: DateTime<Utc>,
+        cutoff: Timestamp,
     ) -> StorageResult<usize> {
         let mut transaction = self
             .pool
@@ -28,7 +28,7 @@ impl SqlStateStore {
             lock,
         );
         let rows = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
-            .bind(cutoff.timestamp_micros())
+            .bind(crate::util::timestamp::unix_micros(cutoff))
             .fetch_all(&mut *transaction)
             .await
             .map_err(|error| StorageError::backend("Failed to list prunable SQL runs", error))?;

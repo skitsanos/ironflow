@@ -26,7 +26,7 @@ flow:step("show", nodes.log({
     level = "info"
 })):depends_on("read")
 
--- List the selected temporary directory (non-recursive)
+-- List the selected temporary directory (non-recursive); entry names must be valid UTF-8.
 flow:step("list", nodes.list_directory({
     path = temp_root,
     output_key = "tmp_files"

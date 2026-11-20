@@ -1,107 +1,52 @@
 # `write_file`
 
-Atomically write text, streamed Base64, or a verified workflow artifact to a
-regular file. The work runs on a tracked blocking worker and is bounded by
-`IRONFLOW_MAX_FILE_BYTES` (default 50 MiB).
+Atomically write text, Base64-decoded bytes, or a stored artifact to a regular file, creating missing parent directories.
 
 ## Parameters
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | yes | — | Destination path. Supports `${ctx.key}` interpolation. Missing parent directories are created. |
-| `content` | string | no | `""` | Inline text or Base64 input. Supports interpolation. Mutually exclusive with `source_key` and `artifact`. |
-| `source_key` | string | no | — | Context key containing a string or artifact descriptor. The stored value is used as it is and is not interpolated. Mutually exclusive with `content` and `artifact`. |
-| `artifact` | object or string | no | — | Artifact descriptor or canonical `artifact://sha256/...` URI; a URI string supports `${ctx.key}` interpolation. A local path is rejected. Mutually exclusive with `content` and `source_key`. |
-| `encoding` | string | no | `"text"` | `"text"`, `"base64"`, or `"artifact"`. An object source is recognized as an artifact without the explicit encoding. |
-| `append` | bool | no | `false` | Copy the existing regular file followed by the new input into an atomic replacement. |
+| `path` | string | Yes | — | Destination path; supports `${ctx.key}` interpolation. |
+| `content` | string | No | `""` | Inline text or Base64 input; supports interpolation. |
+| `source_key` | string | No | — | Context key holding a string or artifact descriptor; the value is used as is, without interpolation. |
+| `artifact` | object or string | No | — | Artifact descriptor or canonical `artifact://sha256/...` URI; a URI string supports interpolation. |
+| `encoding` | string | No | `"text"` | `"text"`, `"base64"`, or `"artifact"`. |
+| `append` | boolean | No | `false` | Write the existing file's content followed by the new input. |
 
-At most one input form may be configured. Omitting all three writes an empty
-file. A canonical artifact URI stored as a context string requires
-`encoding = "artifact"`; artifact descriptor objects are detected directly.
+`content`, `source_key` and `artifact` are mutually exclusive. Omitting all three writes an empty file.
 
-An artifact input must name stored bytes: a descriptor object, a canonical
-`artifact://sha256/...` URI, or an `{ artifact = ... }` wrapper of either. Any
-other string fails with `write_file: artifact input must be an artifact
-descriptor or a canonical artifact://sha256/... URI`, whether it was written
-in `artifact`, in `content` with `encoding = "artifact"`, or read through
-`source_key`. This matches the `http_*` artifact body. `write_file` does not
-copy a local file named by path: use [`copy_file`](copy_file.md), or
-[`read_file`](read_file.md) with `encoding = "artifact"` to store it first.
-The accepted and rejected forms are shown in
-[`write_file_artifact_inputs.lua`](../../examples/04-file-operations/write_file_artifact_inputs.lua).
+## Context Output
 
-## Safety and resource contract
+| Key | Type | Description |
+|-----|------|-------------|
+| `write_file_path` | string | Destination path after interpolation. |
+| `write_file_success` | boolean | `true` after the file is committed. |
 
-- Base64 decoded length is admitted before the worker or decoded-byte
-  allocation, then decoded in bounded chunks directly into the staged file.
-- Artifact content is copied from the same verified, rewound handle whose size
-  and SHA-256 identity were checked by the artifact store.
-- Append mode applies the byte limit to the resulting file, not only the new
-  input. The existing destination must be a regular non-link file.
-- Overwrite and append both use a sibling staged file. Malformed input, size
-  failure, cancellation, flush/sync failure, or commit failure leaves an
-  existing destination unchanged and removes the staged file.
-- On Unix a new file gets `0666` masked by the process umask (`0644` under
-  umask `022`). Overwrite and append keep the existing file's nine permission
-  bits, so an appended `0755` script stays executable; setuid, setgid and
-  sticky bits are not carried, and the replacement is owned by the IronFlow
-  process. The staged file is mode `0600` until it is published. Other
-  platforms use their native permission semantics.
-- Writes to one destination are serialized inside the IronFlow process. Each
-  write, overwrite or append, including `copy_file` and the `base64_decode`
-  `output_file`, waits for the previous one to commit and observes
-  cancellation and the step deadline while it waits. Parallel appends
-  therefore keep every appended input; their order is the order in which the
-  steps reached the file. The destination is identified by its resolved
-  directory and case-folded file name.
-- Writers outside that process are not coordinated. Two IronFlow processes
-  that append to the same file, such as replicas sharing a volume, or another
-  node that replaces it during an append, are last-writer-wins: an append can
-  be discarded although its step succeeded. Give each process its own file.
-- Final links are refused. Unix uses handle-relative staging and replacement.
-  Portable platforms revalidate the destination immediately before an OS-level
-  atomic replacement, but cannot close a hostile parent-directory swap race;
-  protect destination trees from same-identity mutation.
-- Configured parent-directory aliases, including macOS `/tmp`, are resolved
-  before staging. Unix pins the resolved directory, so retargeting the alias
-  afterward cannot redirect that write. This is not permission to follow a
-  destination-file symlink or an archive entry's symlinked subdirectory.
+## Behavior
 
-Artifact descriptors are backend-neutral. Local mode requires the same
-protected `IRONFLOW_ARTIFACT_DIR` on every possible consumer. S3 mode restores
-missing bytes into each replica's private cache, verifies size and SHA-256, and
-passes only the verified rewound handle to this node.
+- An object value is treated as an artifact without `encoding = "artifact"`; a canonical URI held as a context string needs `encoding = "artifact"`.
+- An artifact input must be a descriptor, a canonical URI, or an `{ artifact = ... }` wrapper; a local file path fails the step. Use [`copy_file`](copy_file.md) to copy a file.
+- Invalid Base64, an oversized result, cancellation or a write failure leaves an existing destination unchanged.
+- A destination that is a symlink or not a regular file fails the step.
+- `append` applies the size limit to the resulting file, not only to the new input.
+- On Unix a new file gets `0666` masked by the umask; overwrite and append keep the existing file's permission bits (setuid, setgid and sticky are dropped).
+- Writes to the same destination within one IronFlow process run one after another, so parallel appends keep every input. Separate processes writing the same file are last-writer-wins.
 
-Remote restores observe step deadlines and run cancellation between received
-chunks, not only when the response stalls. Cancellation discards the download's
-private staging file before the tracked worker releases admission. The
-destination stays unchanged, and no `write_file_success` is returned. Idle body
-waits also poll cancellation every 100 ms; this is a cooperative check interval,
-not a hard latency guarantee for filesystem operations. See the
-[artifact lifecycle](../ARCHITECTURE.md#binary-artifacts) for the shared contract.
+Accepted and rejected artifact forms are shown in [`write_file_artifact_inputs.lua`](../../examples/04-file-operations/write_file_artifact_inputs.lua). Artifact storage and backends are described in [binary artifacts](../ARCHITECTURE.md#binary-artifacts).
 
 ## Created directories
 
-Missing parent directories are created by every node that writes through the
-rooted writer: `write_file`, `copy_file`, `move_file`, `base64_decode` with
-`output_file`, `zip_create`, `zip_extract`, `pdf_merge`, `pdf_split`,
-`markdown_to_pdf`, `markdown_to_docx` and `cache_set` with the file backend.
-On Unix each created directory gets `0755` masked by the process umask: `0755`
-under umask `022` or `002`, `0750` under `027`, `0700` under `077`. This is a
-deliberate contract (IF-218), narrower than the `0777` a plain `mkdir`
-requests: a permissive umask never yields a group- or world-writable
-directory, in which another user could replace the files a node publishes.
-Published files still get `0666` masked by the umask. A directory that already
-exists is used with the mode it has, so create it beforehand with the mode you
-need, for example a setgid group-writable directory for shared output. Other
-platforms use their native permission semantics.
+Missing parent directories are created by `write_file`, `copy_file`, `move_file`, `base64_decode` with `output_file`, `zip_create`, `zip_extract`, `pdf_merge`, `pdf_split`, `markdown_to_pdf`, `markdown_to_docx`, and `cache_set` with the file backend. On Unix each new directory gets `0755` masked by the umask (`0750` under `027`, `0700` under `077`), never group- or world-writable. An existing directory keeps its mode; create it beforehand if you need a different one.
 
-## Context output
+## Limits
 
-- `write_file_path` — resolved destination path.
-- `write_file_success` — `true` after the staged file is committed.
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `IRONFLOW_MAX_FILE_BYTES` | 50 MiB | Maximum size of the written file, including existing content in append mode. |
 
 ## Examples
+
+### Write, append, and restore an artifact
 
 ```lua
 local flow = Flow.new("write_demo")
