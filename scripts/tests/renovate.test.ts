@@ -8,6 +8,7 @@ type Rule = {
   matchPackageNames?: string[];
   groupName?: string;
   allowedVersions?: string;
+  pinDigests?: boolean;
 };
 type Dependency = { manager: string; datasource: string; name: string };
 
@@ -93,6 +94,16 @@ test("Rust workflow pins and the Docker builder stay in one update group", async
     expect(resolve(rules, dependency).groupName).toBe("Rust toolchain");
   }
   expect(resolve(rules, { manager: "dockerfile", datasource: "docker", name: "debian" }).groupName).toBeUndefined();
+});
+
+test("every PostgreSQL image reference updates in one group on its tag (IF-263)", async () => {
+  const rules = await packageRules();
+  for (const manager of ["custom.regex", "github-actions", "docker-compose"]) {
+    const resolved = resolve(rules, { manager, datasource: "docker", name: "postgres" });
+    expect(resolved.groupName).toBe("PostgreSQL image");
+    expect(resolved.pinDigests).toBeFalse();
+  }
+  expect(resolve(rules, { manager: "github-actions", datasource: "docker", name: "redis" }).groupName).toBeUndefined();
 });
 
 test("deferrals are exact exclusions, never version ceilings", async () => {

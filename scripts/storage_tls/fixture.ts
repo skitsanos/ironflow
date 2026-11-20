@@ -95,6 +95,8 @@ export function postgresReadinessCommand(container: string, password: string) {
 
 // Wall-clock budget for a disposable store to answer its first verified query.
 // Each probe is clamped to 5 s so a hung docker exec cannot consume the budget.
+// One PostgreSQL major for the gate, CI, this fixture and the replica stack (IF-263).
+export const postgresImage = "postgres:19-alpine";
 export const readinessTimeout = 90_000;
 
 export async function waitForReady(args: string[], expected: string, run: Runner = command, timeout = readinessTimeout) {
@@ -141,10 +143,10 @@ export async function createFixture() {
     await successful(["openssl", "x509", "-req", "-in", "server.csr", "-CA", "ca.pem", "-CAkey", "ca.key", "-CAcreateserial", "-days", "2", "-sha256", "-extfile", "server.ext", "-out", "server.pem"], { cwd: root });
     await Bun.write(join(root, "pg_hba.conf"), "local all all trust\nhostssl all all 0.0.0.0/0 scram-sha-256\nhostnossl all all 0.0.0.0/0 reject\n");
     await chmod(join(root, "server.key"), 0o600);
-    for (const image of ["postgres:latest", "redis:latest"]) await pullImage(image);
+    for (const image of [postgresImage, "redis:latest"]) await pullImage(image);
     const mount = `type=bind,src=${root},dst=/tls,readonly`;
     owned.push(postgres);
-    await successful(["docker", "run", "-d", "--name", postgres, "-p", "127.0.0.1::5432", "--mount", mount, "-e", `POSTGRES_PASSWORD=${password}`, "-e", "POSTGRES_DB=ironflow_tls", "--entrypoint", "sh", "postgres:latest", "-c", "install -o postgres -g postgres -m 600 /tls/server.key /tmp/ironflow.key\ninstall -o postgres -g postgres -m 644 /tls/server.pem /tmp/ironflow.pem\ninstall -o postgres -g postgres -m 644 /tls/pg_hba.conf /tmp/ironflow-hba.conf\nexec docker-entrypoint.sh postgres -c ssl=on -c ssl_cert_file=/tmp/ironflow.pem -c ssl_key_file=/tmp/ironflow.key -c hba_file=/tmp/ironflow-hba.conf"]);
+    await successful(["docker", "run", "-d", "--name", postgres, "-p", "127.0.0.1::5432", "--mount", mount, "-e", `POSTGRES_PASSWORD=${password}`, "-e", "POSTGRES_DB=ironflow_tls", "--entrypoint", "sh", postgresImage, "-c", "install -o postgres -g postgres -m 600 /tls/server.key /tmp/ironflow.key\ninstall -o postgres -g postgres -m 644 /tls/server.pem /tmp/ironflow.pem\ninstall -o postgres -g postgres -m 644 /tls/pg_hba.conf /tmp/ironflow-hba.conf\nexec docker-entrypoint.sh postgres -c ssl=on -c ssl_cert_file=/tmp/ironflow.pem -c ssl_key_file=/tmp/ironflow.key -c hba_file=/tmp/ironflow-hba.conf"]);
     owned.push(redis);
     await successful(["docker", "run", "-d", "--name", redis, "-p", "127.0.0.1::6379", "--mount", mount, "--entrypoint", "sh", "redis:latest", "-c", "install -o redis -g redis -m 600 /tls/server.key /tmp/ironflow.key\ninstall -o redis -g redis -m 644 /tls/server.pem /tmp/ironflow.pem\ninstall -o redis -g redis -m 644 /tls/ca.pem /tmp/ironflow-ca.pem\nexec docker-entrypoint.sh redis-server --port 0 --tls-port 6379 --tls-cert-file /tmp/ironflow.pem --tls-key-file /tmp/ironflow.key --tls-ca-cert-file /tmp/ironflow-ca.pem --tls-auth-clients no --requirepass \"$1\"", "fixture", password]);
     await waitForReady(postgresReadinessCommand(postgres, password), "1");

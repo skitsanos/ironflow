@@ -144,7 +144,7 @@ jobs:
           --health-timeout 3s
           --health-retries 20
       postgres:
-        image: postgres:latest
+        image: postgres:19-alpine
         env:
           POSTGRES_DB: ironflow_test
           POSTGRES_USER: postgres

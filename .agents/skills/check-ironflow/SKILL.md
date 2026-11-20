@@ -99,7 +99,9 @@ which binary was used.
 Start disposable, explicitly named Redis and PostgreSQL containers. Wait for
 their health checks, set `IRONFLOW_REDIS_TEST_REQUIRED=1` and
 `IRONFLOW_POSTGRES_TEST_REQUIRED=1`, then run the relevant feature suites
-serially. Record image/database versions and remove only those named containers
+serially. Use the PostgreSQL image tag that the integration gate, CI and
+`deploy/replica/docker-compose.yml` share (IF-263); Redis follows `latest`
+(IF-167). Record image/database versions and remove only those named containers
 afterward. Never read or print credentials from `.env`.
 
 TLS changes also require `bun --no-env-file scripts/test_store_tls.ts target/debug/ironflow`

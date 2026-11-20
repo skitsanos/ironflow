@@ -97,17 +97,19 @@ fi
 container_suffix="$$"
 redis_container="ironflow-integration-redis-$container_suffix"
 postgres_container="ironflow-integration-postgres-$container_suffix"
+# One PostgreSQL major for the gate, CI, the TLS fixture and the replica stack (IF-263).
+postgres_image="postgres:19-alpine"
 postgres_password=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')
 
 echo "[integration] disposable Redis and PostgreSQL"
 docker pull redis:latest
-docker pull postgres:latest
+docker pull "$postgres_image"
 docker run -d --name "$redis_container" -p 127.0.0.1::6379 redis:latest >/dev/null
 docker run -d --name "$postgres_container" \
   -e POSTGRES_DB=ironflow_test \
   -e POSTGRES_USER=postgres \
   -e "POSTGRES_PASSWORD=$postgres_password" \
-  -p 127.0.0.1::5432 postgres:latest >/dev/null
+  -p 127.0.0.1::5432 "$postgres_image" >/dev/null
 
 for _ in {1..60}; do
   if docker exec "$redis_container" redis-cli ping 2>/dev/null | grep -q PONG; then break; fi

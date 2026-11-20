@@ -14,6 +14,13 @@
       "matchStrings": ["dtolnay/rust-toolchain@(?<currentValue>\\d+\\.\\d+\\.\\d+)"],
       "depNameTemplate": "rust",
       "datasourceTemplate": "rust-version"
+    },
+    {
+      "customType": "regex",
+      "description": "The integration gate and the live TLS fixture name the PostgreSQL image in one variable each; CI and the replica stack are read by the github-actions and docker-compose managers (IF-263).",
+      "managerFilePatterns": ["/^scripts/integration_gate\\.sh$/", "/^scripts/storage_tls/fixture\\.ts$/"],
+      "matchStrings": ["(?:postgres_image=|postgresImage = )\"(?<depName>postgres):(?<currentValue>[^\"@\\s]+)\""],
+      "datasourceTemplate": "docker"
     }
   ],
   "packageRules": [
@@ -28,6 +35,13 @@
       "matchDatasources": ["rust-version", "docker"],
       "matchPackageNames": ["rust"],
       "groupName": "Rust toolchain"
+    },
+    {
+      "description": "The gate, CI, the live TLS fixture and the replica stack run one PostgreSQL major tag and move to the next major together. A tag, not a digest: patch releases still arrive unpinned, as IF-167 decided (IF-263).",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["postgres"],
+      "groupName": "PostgreSQL image",
+      "pinDigests": false
     },
     {
       "description": "The ZIP preflight (src/util/zip_preflight) must select the same end record as these readers. Every update needs the re-read in docs/SECURITY.md (Archive reader updates); the repository policy test fails until scripts/reviewed_archive_readers.json names the new version (IF-218).",

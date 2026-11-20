@@ -683,7 +683,9 @@ approved unencrypted connection is appropriate.
 Run `bun --no-env-file scripts/test_store_tls.ts target/debug/ironflow` after building
 the combined feature binary to test disposable TLS-only stores, CLI and API
 workflows, restart persistence, `db_query` over `require`/`verify-ca`/`verify-full`
-with the default store, and rejection of wrong CAs/hostnames/plaintext. The
+with the default store, and rejection of wrong CAs/hostnames/plaintext. It
+starts the same PostgreSQL major-version image as the integration gate, CI and
+the replica stack, and `redis:latest`. The
 script removes its containers and key material on completion and on
 SIGINT/SIGTERM.
 

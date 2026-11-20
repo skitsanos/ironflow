@@ -277,6 +277,12 @@ uniqueness, SIGTERM draining with a `503` readiness answer on new connections,
 real SIGKILL lease reconciliation, arbitrary UID
 execution, and a read-only root filesystem.
 
+The stack's PostgreSQL image (`deploy/replica/docker-compose.yml`) is the one
+major-version tag that the integration gate, the CI storage job and the live
+TLS acceptance also run. `scripts/tests/postgres_image.test.ts` fails when the
+four disagree, and Renovate proposes the next major for all of them in one
+update (IF-263).
+
 ```bash
 IRONFLOW_RUN_REPLICA_ACCEPTANCE=1 bun run scripts/replica_acceptance.ts
 ```

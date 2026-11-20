@@ -6,7 +6,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts generate` and verified with
 `bun run scripts/issues_registry.ts check`.
 
-- Total findings: 262
+- Total findings: 263
 - Active findings: 0
 
 ## Working agreement
@@ -290,3 +290,4 @@ priority, area, and title. The registry is generated with
 | [IF-260](./IF-260.md) | P2 | Resolved | CLI/validation | Child-flow recursion severity still depends on declaration order |
 | [IF-261](./IF-261.md) | P2 | Resolved | MCP/pagination | mcp_client sends an empty cursor when there is no next page |
 | [IF-262](./IF-262.md) | P2 | Resolved | Security/redaction | A protected value inside a non-text response header is recorded unredacted |
+| [IF-263](./IF-263.md) | P3 | Resolved | Validation workflow | The PostgreSQL test image is not pinned consistently |
