@@ -15,7 +15,8 @@ in workflow files, documentation, or command-line arguments.
 
 Copy [DOCKER_HUB_OVERVIEW.md](DOCKER_HUB_OVERVIEW.md) into the Docker Hub repository
 overview when setting it up, and update it when the public container contract
-changes. Overview updates are manual; the workflow publishes images only.
+changes. It names no release version, so a release alone does not require an
+update. Overview updates are manual; the workflow publishes images only.
 
 ## Tags and synchronization
 

@@ -10,7 +10,8 @@ and API request.
 Open the [latest stable release](https://github.com/skitsanos/ironflow/releases/latest)
 and expand **Assets**. Download the archive matching your system and the
 `checksums-sha256.txt` file from the same release. Asset names include the
-release version; `<version>` below stands for that version, such as `1.23.0`.
+release version; `<version>` below stands for that version, without the
+leading `v` of the release tag.
 
 | System | Default archive |
 | --- | --- |
@@ -43,18 +44,21 @@ In the directory containing the downloaded archive, verify its SHA-256 hash
 against its entry in `checksums-sha256.txt`:
 
 ```bash
+# The release you downloaded, without the leading v.
+VERSION=X.Y.Z
+
 # Linux; replace the filename with the asset you downloaded.
-sha256sum ironflow-v1.23.0-x86_64-unknown-linux-musl.tar.gz
+sha256sum "ironflow-v${VERSION}-x86_64-unknown-linux-musl.tar.gz"
 
 # macOS Apple Silicon; use x86_64-apple-darwin for an Intel Mac.
-shasum -a 256 ironflow-v1.23.0-aarch64-apple-darwin.tar.gz
+shasum -a 256 "ironflow-v${VERSION}-aarch64-apple-darwin.tar.gz"
 ```
 
 Only continue if the hash matches. Extract your archive with `tar -xzf`, for
 example on Linux:
 
 ```bash
-tar -xzf ironflow-v1.23.0-x86_64-unknown-linux-musl.tar.gz
+tar -xzf "ironflow-v${VERSION}-x86_64-unknown-linux-musl.tar.gz"
 ./ironflow --version
 ```
 
@@ -76,16 +80,18 @@ to approve that binary.
 ### Windows
 
 In PowerShell, verify the archive hash against its entry in
-`checksums-sha256.txt`, then extract it. Substitute the version you downloaded:
+`checksums-sha256.txt`, then extract it. Set `$Version` to the release you
+downloaded, without the leading `v`:
 
 ```powershell
-Get-FileHash .\ironflow-v1.23.0-x86_64-pc-windows-msvc.zip -Algorithm SHA256
+$Version = "X.Y.Z"
+Get-FileHash ".\ironflow-v$Version-x86_64-pc-windows-msvc.zip" -Algorithm SHA256
 ```
 
 After confirming that the hash matches:
 
 ```powershell
-Expand-Archive .\ironflow-v1.23.0-x86_64-pc-windows-msvc.zip -DestinationPath .\ironflow
+Expand-Archive ".\ironflow-v$Version-x86_64-pc-windows-msvc.zip" -DestinationPath .\ironflow
 Set-Location .\ironflow
 .\ironflow.exe --version
 ```
@@ -117,7 +123,7 @@ manual Container workflow runs:
 | --- | --- |
 | `ghcr.io/skitsanos/ironflow:latest` | Most recently published build from `main`; the Quick Start default. |
 | `ghcr.io/skitsanos/ironflow:develop` | Most recently published build from `develop`; may include unreleased changes. |
-| `ghcr.io/skitsanos/ironflow:1.23.0` | Published image for the stable 1.23.0 release. |
+| `ghcr.io/skitsanos/ironflow:X.Y.Z` | A stable release; the tag keeps the digest it was published with. |
 | `ghcr.io/skitsanos/ironflow:sha-<full-commit>` | A specific published source revision. |
 | `ghcr.io/skitsanos/ironflow@sha256:...` | An exact image digest for reproducible deployment. |
 

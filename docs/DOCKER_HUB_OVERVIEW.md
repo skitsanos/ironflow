@@ -20,7 +20,7 @@ Both registries receive the same build with matching tags:
 | --- | --- |
 | `latest` | Most recently published build from `main`. |
 | `develop` | Most recently published development build; may include unreleased changes. |
-| `1.23.0` | Published image for the stable 1.23.0 release. |
+| `X.Y.Z` | A stable release, such as the newest one listed under [Releases](https://github.com/skitsanos/ironflow/releases). The tag keeps the digest it was published with. |
 | `sha-<full-commit>` | A specific published source revision. |
 
 Check the repository's Tags tab for available images. Stable `X.Y.Z` tags are
