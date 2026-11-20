@@ -19,7 +19,14 @@ fn context(key: &str, value: serde_json::Value) -> Context {
     Context::from([(key.to_string(), value)])
 }
 
-async fn sqlite_stores() -> (
+/// SQLite journal modes the store can meet. The store sets none, so a new
+/// database keeps SQLite's default rollback journal (`delete`); an operator
+/// may convert the file to WAL, which then persists for every connection.
+const JOURNAL_MODES: [&str; 2] = ["delete", "wal"];
+
+async fn sqlite_stores(
+    journal: &str,
+) -> (
     tempfile::TempDir,
     Arc<SqlStateStore>,
     Arc<SqlStateStore>,
@@ -32,11 +39,27 @@ async fn sqlite_stores() -> (
     );
     let first = Arc::new(SqlStateStore::new(&url).await.unwrap());
     let pool = sqlx::AnyPool::connect(&url).await.unwrap();
-    sqlx::query("PRAGMA journal_mode = WAL")
+    if journal != "delete" {
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "PRAGMA journal_mode = {journal}"
+        )))
         .execute(&pool)
         .await
         .unwrap();
+    }
     let second = Arc::new(SqlStateStore::new(&url).await.unwrap());
+    // A connection reports the file's mode once it has read the header.
+    let mut connection = pool.acquire().await.unwrap();
+    sqlx::query("SELECT count(*) FROM sqlite_master")
+        .execute(&mut *connection)
+        .await
+        .unwrap();
+    let mode: String = sqlx::query_scalar("PRAGMA journal_mode")
+        .fetch_one(&mut *connection)
+        .await
+        .unwrap();
+    assert_eq!(mode, journal);
+    drop(connection);
     (directory, first, second, pool)
 }
 
@@ -169,25 +192,31 @@ async fn delete_recreate_races(first: Arc<SqlStateStore>, second: Arc<SqlStateSt
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn sqlite_concurrent_unowned_merges_preserve_disjoint_updates() {
-    let (_directory, first, second, _pool) = sqlite_stores().await;
-    concurrent_merges(first, second, false).await;
+    for journal in JOURNAL_MODES {
+        let (_directory, first, second, _pool) = sqlite_stores(journal).await;
+        concurrent_merges(first, second, false).await;
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn sqlite_owned_and_unowned_merges_preserve_disjoint_updates() {
-    let (_directory, first, second, _pool) = sqlite_stores().await;
-    concurrent_merges(first, second, true).await;
+    for journal in JOURNAL_MODES {
+        let (_directory, first, second, _pool) = sqlite_stores(journal).await;
+        concurrent_merges(first, second, true).await;
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn sqlite_context_snapshot_cannot_cross_delete_recreate() {
-    let (_directory, first, second, _pool) = sqlite_stores().await;
-    delete_recreate_races(first, second).await;
+    for journal in JOURNAL_MODES {
+        let (_directory, first, second, _pool) = sqlite_stores(journal).await;
+        delete_recreate_races(first, second).await;
+    }
 }
 
 #[tokio::test]
 async fn sqlite_context_merge_semantics_and_failure_rollback() {
-    let (_directory, store, _second, pool) = sqlite_stores().await;
+    let (_directory, store, _second, pool) = sqlite_stores("delete").await;
     merge_semantics(&store).await;
     sqlx::query("UPDATE ironflow_runs SET ctx = '{broken' WHERE id = 'semantics'")
         .execute(&pool)
@@ -231,7 +260,7 @@ async fn sqlite_context_merge_semantics_and_failure_rollback() {
 
 #[tokio::test]
 async fn sqlite_cancelled_context_writer_releases_transaction() {
-    let (_directory, store, _second, pool) = sqlite_stores().await;
+    let (_directory, store, _second, pool) = sqlite_stores("delete").await;
     store
         .init_run("cancel", "flow", &Context::new())
         .await
