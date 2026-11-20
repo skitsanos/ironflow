@@ -26,6 +26,12 @@ impl SecretRedactor {
     }
 
     fn scrub_value(&self, value: &mut Value) {
+        if let Value::Object(map) = value
+            && self.holds_encoded_secret(map)
+        {
+            *value = Self::encoded_redaction();
+            return;
+        }
         match value {
             Value::String(text) if self.tokens.occur_in(text) => {
                 *text = self.tokens.redact(std::mem::take(text));
