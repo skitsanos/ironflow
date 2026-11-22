@@ -1,12 +1,18 @@
 # IronFlow — Workflow Automation Engine in Rust
 
-TLS trust-store incident assessment and rebuild guidance: [Security](docs/SECURITY.md).
+**IronFlow is a workflow engine in one binary for document extraction, analysis and RAG pipelines in places where n8n, Airflow or a hosted platform are not allowed.**
 
-**A lightweight, high-performance workflow engine built in Rust with Lua scripting. The open-source alternative to n8n, Airflow, and Prefect that ships as a single binary without a Python, Node.js, or container runtime.**
+In production at a top-10 pharmaceutical company and in digital forensics casework.
 
-IronFlow is a DAG-based workflow orchestration engine designed for CI/CD pipelines, data processing, ETL jobs, API integrations, document extraction, and task automation. Define workflows in simple Lua scripts — a language with only ~20 keywords — and run them on a sandboxed, async Rust runtime with parallel step execution, retry logic, conditional routing, and a built-in REST API.
+Used for:
 
-No Python. No Node.js. No Docker required. Workflows need only the IronFlow binary; every built-in node, including PDF page rendering, works without a native library. IronFlow runs on Linux, macOS, edge servers, and air-gapped environments.
+- **Document extraction** — PDF, Word, PowerPoint, Excel, HTML and transcripts into structured data
+- **Analysis pipelines** — repeatable batch runs with retries, schedules and a durable run history
+- **RAG** — chunking, embeddings, LLM calls and retrieval against the provider or local model server you choose
+
+[![IronFlow answers a question from a sample document and shows the page the answer came from](https://ironflow.work/assets/media/ironflow-demo.gif)](https://ironflow.work/use-cases)
+
+Workflows are Lua scripts — a language with only ~20 keywords — run by a sandboxed, async Rust runtime with parallel steps, retries, conditional routing, schedules and a built-in REST API. There is no Python, Node.js or container runtime to install, and every built-in node, including PDF page rendering, works without a native library. Prebuilt binaries are published for Linux, macOS and Windows.
 
 ```lua
 local flow = Flow.new("process_order")
@@ -41,19 +47,21 @@ return flow
 ironflow run process_order.lua --context '{"order": {"order_id": "ORD-42", "amount": 99.99}}'
 ```
 
+Need this built and deployed inside your own environment? [The people who build IronFlow can help](#need-help).
+
 ---
 
 ## Why IronFlow?
 
-**For teams that can't use n8n, Dify, or hosted workflow platforms** — whether due to company policy, air-gapped environments, or the need for something faster and simpler.
+**For teams that cannot use n8n, Dify, Airflow or a hosted workflow platform** — because of company policy, an air-gapped network, or data that must not leave.
 
-IronFlow gives you a workflow engine that:
+- **Runs where the others are not allowed** — a single binary with no Python, Node.js, package manager or container runtime
+- **Keeps flows inside a boundary** — sandboxed Lua cannot reach the filesystem or OS except through nodes, and an [outbound destination policy](docs/SECURITY.md#outbound-destinations) can refuse private and metadata addresses
+- **Has the document and AI steps built in** — extraction, chunking, embeddings, LLM, transcription and MCP nodes ship in the binary
+- **Is easy to review** — Lua has ~20 keywords, and a flow is one file that belongs in code review
+- **Runs the same everywhere** — laptop, CI job, server or edge machine, on a Rust runtime that schedules independent steps in parallel
 
-- **Ships as a single binary** — no Python, Node.js, package manager, or container runtime required
-- **Runs anywhere** — Linux, macOS, CI/CD pipelines, edge servers, embedded systems
-- **Is fast** — Rust-powered execution with parallel step scheduling via DAG resolution
-- **Is safe** — Sandboxed Lua can't access the filesystem or OS unless you explicitly allow it
-- **Is easy to learn** — Lua has ~20 keywords. If you can write JSON, you can write flows
+See worked examples at [ironflow.work/use-cases](https://ironflow.work/use-cases) and comparisons with n8n, Dify and Airflow at [ironflow.work/compare](https://ironflow.work/compare).
 
 ## The Architecture
 
@@ -86,7 +94,15 @@ Rust as the runtime + Lua as the scripting layer. A well-proven pattern used by 
 
 ## Features
 
-- **105 built-in nodes** — HTTP (GET/POST/PUT/DELETE), file I/O, ZIP utilities (`zip_create`, `zip_list`, `zip_extract`), S3 operations, shell commands, JSON/CSV/XML/YAML transforms, foreach iteration, key-value caching (memory + file), conditional routing, schema validation, hashing, templating, Markdown conversion (including local PDF and DOCX generation), HTML sanitization, document extraction (Word/PDF/PPTX/HTML/VTT/SRT/Excel), PDF merge/split, database queries (SQLite via sqlx, ArangoDB via HTTP), AI text embeddings/chunking (`ai_*`) and chat/completions (`llm`) across providers, audio/video transcription (`transcribe`) via OpenAI, OpenAI-compatible, or Azure, an MCP 2025-11-25 client over persistent stdio and Streamable HTTP (`mcp_client`), notification integrations (`send_email`, `slack_notification`), data extraction helpers (`json_extract_path`, `if_body_contains`, `if_http_status`), delays, inline code execution, bounded repeated subworkflow composition, LLM tool dispatch (`tool_dispatch`), presigned S3 URL support, base64 encoding/decoding, date formatting, image helpers (`pdf_to_image`, `pdf_thumbnail`, `image_to_pdf`, `image_resize`, `image_crop`, `image_rotate`, `image_flip`, `image_grayscale`, `image_metadata`, `image_convert`, `image_watermark`, `pdf_metadata`).
+- **105 built-in nodes** ([node reference](docs/NODE_REFERENCE.md)):
+  - **HTTP and APIs** — HTTP GET/POST/PUT/DELETE, an MCP 2025-11-25 client over persistent stdio and Streamable HTTP (`mcp_client`), response helpers (`json_extract_path`, `if_body_contains`, `if_http_status`)
+  - **Files and archives** — file I/O, ZIP utilities (`zip_create`, `zip_list`, `zip_extract`), S3 operations with presigned URL support
+  - **Documents and images** — extraction from Word, PDF, PPTX, HTML, VTT, SRT and Excel; PDF merge, split, rendering and metadata; Markdown conversion including local PDF and DOCX generation; HTML sanitization; image resize, crop, rotate, flip, grayscale, convert and watermark
+  - **Data transforms** — JSON, CSV, XML and YAML transforms, schema validation, hashing, templating, base64 and date formatting
+  - **AI** — text embeddings and chunking (`ai_*`), chat/completions (`llm`) across providers, LLM tool dispatch (`tool_dispatch`), audio/video transcription (`transcribe`) via OpenAI, OpenAI-compatible, or Azure
+  - **Storage and databases** — SQLite via sqlx, ArangoDB via HTTP, key-value caching (memory + file)
+  - **Control flow** — conditional routing, foreach iteration, delays, inline code, shell commands, bounded repeated subworkflow composition
+  - **Notifications** — `send_email`, `slack_notification`
 - **Function handlers** — pass Lua functions directly as step handlers, no boilerplate needed
 - **Conditional step shorthand** — `step_if(condition, name, handler)` for concise branching
 - **DAG-based scheduling** — steps run in parallel unless dependencies are declared
@@ -225,8 +241,10 @@ A server that runs flows it did not write can be confined with
 `IRONFLOW_BLOCK_PRIVATE_NETWORK=true` (`block_private_network` in
 `ironflow.yaml`). It is off by default. With it on, a model server or
 database on a loopback or private address must be listed in
-`IRONFLOW_PRIVATE_NETWORK_ALLOWLIST`, for example `127.0.0.1:11434` for a
-local Ollama; see [Outbound destinations](docs/SECURITY.md#outbound-destinations).
+`IRONFLOW_PRIVATE_NETWORK_ALLOWLIST`, for example `localhost:11434` for a
+local Ollama reached through its default `localhost` URL. An address entry
+such as `127.0.0.1:11434` matches only that literal address, never a host
+name; see [Outbound destinations](docs/SECURITY.md#outbound-destinations).
 
 The repository's [`.env.example`](.env.example) contains safe starter values.
 See the [CLI reference](docs/CLI_REFERENCE.md#configuration-resolution) for the
@@ -711,6 +729,13 @@ boundaries. Bounded operator metrics and the streamed S3-compatible artifact
 lifecycle are part of the delivered baseline. A read-only Web UI for flow and
 run visualization remains a later candidate rather than an implementation
 commitment.
+
+## Need help?
+
+IronFlow is free and open source. If you need a document extraction, analysis
+or RAG pipeline designed, built and deployed inside a regulated or air-gapped
+environment, the people who build IronFlow do that work:
+[ironflow.work/services](https://ironflow.work/services).
 
 ## License
 
