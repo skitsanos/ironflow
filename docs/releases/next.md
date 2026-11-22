@@ -27,6 +27,9 @@ publication is verified separately.
   startup. On Unix a new default `ironflow.sqlite` or
   `ironflow-events.sqlite` is created with mode `0600`, so its side files
   are owner-only too; an existing file keeps its mode inside the `0700`
-  store directory (`chmod 600` it to match).
+  store directory (`chmod 600` it to match). CLI commands and a gracefully
+  stopped `serve` close their store connections before exiting, so the side
+  files are removed at a clean exit. Embedders can do the same with the new
+  `StateStore::close` and `EventStore::close`, which default to a no-op.
 
 Earlier changes remain in [the 1.22.0 notes](1.22.0.md).

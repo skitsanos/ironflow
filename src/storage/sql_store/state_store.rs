@@ -22,6 +22,11 @@ impl StateStore for SqlStateStore {
         Ok(())
     }
 
+    /// Waits for checked-out connections to return; callers bound the wait.
+    async fn close(&self) {
+        self.pool.close().await;
+    }
+
     async fn init_run(&self, run_id: &str, flow_name: &str, ctx: &Context) -> StorageResult<()> {
         admit_context(run_id, ctx)?;
         let info = RunInfo {

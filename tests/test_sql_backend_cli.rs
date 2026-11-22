@@ -89,6 +89,84 @@ async fn default_backend_is_sqlite_under_a_private_store_directory() {
     assert_eq!(runs[0]["status"], "success");
 }
 
+/// IF-267: every CLI command closes its SQLite connections before it exits,
+/// so SQLite folds the WAL back into the database file and removes the side
+/// files. A copy of the database file alone then holds every finished run.
+#[cfg(unix)]
+#[tokio::test]
+async fn cli_commands_leave_no_wal_side_files_behind() {
+    let directory = tempfile::tempdir().unwrap();
+    fs::write(directory.path().join("probe.lua"), support::FLOW).unwrap();
+    let store = directory.path().join("runs");
+    let assert_closed = |stage: &str| {
+        for name in [
+            "ironflow.sqlite-wal",
+            "ironflow.sqlite-shm",
+            "ironflow-events.sqlite-wal",
+            "ironflow-events.sqlite-shm",
+        ] {
+            assert!(!store.join(name).exists(), "{stage} left {name} behind");
+        }
+    };
+    let succeeded = |stage: &str, output: &std::process::Output| {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{stage} failed: {stderr}");
+    };
+
+    let run = output(
+        command(directory.path())
+            .args(["run", "probe.lua"])
+            .env("IRONFLOW_STORE_DIR", &store),
+    )
+    .await;
+    succeeded("run", &run);
+    assert_closed("run");
+
+    let listed = output(
+        command(directory.path())
+            .args(["list", "--format", "json"])
+            .env("IRONFLOW_STORE_DIR", &store),
+    )
+    .await;
+    succeeded("list", &listed);
+    assert_closed("list");
+    let page: serde_json::Value = serde_json::from_slice(&listed.stdout).unwrap();
+    let run_id = page["runs"][0]["id"].as_str().unwrap().to_string();
+
+    let inspected = output(
+        command(directory.path())
+            .args(["inspect", &run_id])
+            .env("IRONFLOW_STORE_DIR", &store),
+    )
+    .await;
+    succeeded("inspect", &inspected);
+    assert_closed("inspect");
+
+    let mut serve = command(directory.path());
+    serve
+        .env("IRONFLOW_STORE_DIR", &store)
+        .env("IRONFLOW_EVENT_STORE", "sqlite");
+    let server = Server::start(serve).await;
+    let served = server.run_flow().await;
+    assert!(store.join("ironflow-events.sqlite").is_file());
+    server.terminate().await;
+    assert_closed("serve");
+
+    let copy = directory.path().join("copy.sqlite");
+    fs::copy(store.join("ironflow.sqlite"), &copy).unwrap();
+    let pool = sqlx::SqlitePool::connect(&format!("sqlite://{}", copy.display()))
+        .await
+        .unwrap();
+    let ids: Vec<String> = sqlx::query_scalar("SELECT id FROM ironflow_runs ORDER BY id")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    pool.close().await;
+    let mut expected = vec![run_id, served];
+    expected.sort();
+    assert_eq!(ids, expected);
+}
+
 /// A symbolic link in place of the default store directory is refused rather
 /// than followed, matching the JSON store's root rule.
 #[cfg(unix)]

@@ -668,8 +668,12 @@ commit survives a power loss as before.
   permissions. On Unix IronFlow creates a missing default database file as
   `0600`, so all three files are owner-only inside the owner-only store
   directory; an existing file keeps its mode, and a file named by a configured
-  `sqlite:` URL is created by SQLite under the umask. The WAL file may remain
-  after IronFlow exits; the next open folds it back in.
+  `sqlite:` URL is created by SQLite under the umask. Every CLI command,
+  and `serve` on SIGTERM or Ctrl-C, closes its connections before it exits,
+  which folds the WAL into the database file and removes both side files.
+  They stay while IronFlow runs, after a crash or `kill -9`, and when a
+  connection is still busy 5 s after the command ends (IronFlow then logs a
+  warning); the next open folds them back in.
 - Back up a running store with `sqlite3 ironflow.sqlite ".backup backup.sqlite"`
   or `VACUUM INTO 'backup.sqlite'`, or stop IronFlow and copy the whole store
   directory. Copying `ironflow.sqlite` alone can miss commits still in the WAL.

@@ -58,6 +58,10 @@ pub trait EventStore: Send + Sync {
         Ok(())
     }
 
+    /// Close the backend's connections before the process exits, as
+    /// [`StateStore::close`](crate::storage::StateStore::close) does.
+    async fn close(&self) {}
+
     /// Publish one logical event with a non-empty ID unique within its run.
     ///
     /// Callers must never assign that ID to another logical event in the same

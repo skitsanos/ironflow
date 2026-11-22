@@ -127,6 +127,19 @@ impl Server {
         assert_eq!(run["ctx"]["answer"], 42);
     }
 
+    /// Stop with SIGTERM, the graceful shutdown signal, and wait for exit.
+    #[cfg(unix)]
+    pub async fn terminate(mut self) {
+        let pid = i32::try_from(self.child.id().unwrap()).unwrap();
+        // SAFETY: `kill` only sends a signal to the server this test spawned.
+        assert_eq!(unsafe { libc::kill(pid, libc::SIGTERM) }, 0);
+        let status = tokio::time::timeout(Duration::from_secs(10), self.child.wait())
+            .await
+            .expect("server must exit after SIGTERM")
+            .unwrap();
+        assert!(status.success(), "server exited with {status}");
+    }
+
     pub async fn stop(mut self) {
         self.child.kill().await.unwrap();
         self.child.wait().await.unwrap();

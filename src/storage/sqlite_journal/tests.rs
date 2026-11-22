@@ -199,3 +199,35 @@ fn journal_mode_names_match_sqlite() {
     assert_eq!(SqliteJournalMode::Wal.as_str(), "wal");
     assert_eq!(SqliteJournalMode::Delete.as_str(), "delete");
 }
+
+/// Closing a store closes every pooled connection, so SQLite checkpoints the
+/// WAL into the database file and removes both side files.
+#[tokio::test]
+async fn closing_the_stores_checkpoints_and_removes_the_wal_files() {
+    use crate::storage::{EventStore as _, StateStore as _};
+
+    sqlx::any::install_default_drivers();
+    let dir = tempfile::tempdir().unwrap();
+    let file = database(&dir);
+    let store = SqlStateStore::new_with_journal_mode(&url(&file), None, SqliteJournalMode::Wal)
+        .await
+        .unwrap();
+    store
+        .init_run("closed", "flow", &Default::default())
+        .await
+        .unwrap();
+    let wal = dir.path().join("state.sqlite-wal");
+    let shm = dir.path().join("state.sqlite-shm");
+    assert!(wal.exists());
+    store.close().await;
+    assert!(!wal.exists() && !shm.exists());
+
+    let events = dir.path().join("events.sqlite");
+    let store = SqlEventStore::new_with_journal_mode(&url(&events), None, SqliteJournalMode::Wal)
+        .await
+        .unwrap();
+    assert!(dir.path().join("events.sqlite-wal").exists());
+    store.close().await;
+    assert!(!dir.path().join("events.sqlite-wal").exists());
+    assert!(!dir.path().join("events.sqlite-shm").exists());
+}

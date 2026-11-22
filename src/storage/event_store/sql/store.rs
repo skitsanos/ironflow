@@ -124,6 +124,11 @@ impl EventStore for SqlEventStore {
         self.probe().await
     }
 
+    /// Waits for checked-out connections to return; callers bound the wait.
+    async fn close(&self) {
+        self.pool.close().await;
+    }
+
     async fn publish(&self, event: RunEvent) -> StorageResult<()> {
         self.publish_scoped(event, None).await
     }

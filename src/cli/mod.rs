@@ -7,6 +7,7 @@ mod resolution;
 mod schedule_retention;
 mod sql_config;
 mod sqlite_path;
+mod store_close;
 mod store_factory;
 
 pub use config::IronFlowConfig;
@@ -184,7 +185,11 @@ pub async fn run_cli() -> Result<()> {
             );
             let max_concurrent_tasks = resolution::resolve_max_concurrent_tasks(&cfg)?;
             let store = create_store(&cfg, &store_dir).await?;
-            commands::cmd_run(flow, context, verbose, store, max_concurrent_tasks).await
+            let result =
+                commands::cmd_run(flow, context, verbose, store.clone(), max_concurrent_tasks)
+                    .await;
+            store_close::close_state_store(store.as_ref()).await;
+            result
         }
         Commands::Validate { flow, strict } => {
             resolution::validate_limit_environment()?;
@@ -206,7 +211,9 @@ pub async fn run_cli() -> Result<()> {
                 cfg.store_dir.as_deref().map(PathBuf::from),
             );
             let store = create_store(&cfg, &store_dir).await?;
-            commands::cmd_list(store, prepared).await
+            let result = commands::cmd_list(store.clone(), prepared).await;
+            store_close::close_state_store(store.as_ref()).await;
+            result
         }
         Commands::Inspect { run_id, store_dir } => {
             let store_dir = resolution::with_config(
@@ -215,7 +222,9 @@ pub async fn run_cli() -> Result<()> {
                 cfg.store_dir.as_deref().map(PathBuf::from),
             );
             let store = create_store(&cfg, &store_dir).await?;
-            commands::cmd_inspect(run_id, store).await
+            let result = commands::cmd_inspect(run_id, store.clone()).await;
+            store_close::close_state_store(store.as_ref()).await;
+            result
         }
         Commands::Nodes => commands::cmd_nodes(),
         Commands::Artifacts { command } => match command {
@@ -227,7 +236,9 @@ pub async fn run_cli() -> Result<()> {
                     cfg.store_dir.as_deref().map(PathBuf::from),
                 );
                 let store = create_store(&cfg, &store_dir).await?;
-                commands::cmd_artifact_prune(store, options).await
+                let result = commands::cmd_artifact_prune(store.clone(), options).await;
+                store_close::close_state_store(store.as_ref()).await;
+                result
             }
         },
         Commands::Serve {
@@ -273,7 +284,11 @@ pub async fn run_cli() -> Result<()> {
             schedule_retention::warn_about_short_redis_ttl(&cfg, &schedules)?;
             let store = create_store(&cfg, &store_dir).await?;
             let event_store = create_event_store(&cfg, &store_dir).await?;
-            commands::cmd_serve(store, event_store, options, schedules).await
+            let result =
+                commands::cmd_serve(store.clone(), event_store.clone(), options, schedules).await;
+            store_close::close_state_store(store.as_ref()).await;
+            store_close::close_event_store(event_store.as_ref()).await;
+            result
         }
     }
 }

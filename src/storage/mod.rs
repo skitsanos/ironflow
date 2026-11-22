@@ -49,6 +49,10 @@ pub trait StateStore: Send + Sync {
         Ok(())
     }
 
+    /// Close the backend's connections before the process exits; SQLite then
+    /// folds its WAL back into the database file. The default does nothing.
+    async fn close(&self) {}
+
     /// Initialize a new workflow run.
     async fn init_run(&self, run_id: &str, flow_name: &str, ctx: &Context) -> StorageResult<()>;
 

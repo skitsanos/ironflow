@@ -40,6 +40,10 @@ impl EventStore for ObservedEventStore {
         self.observe(StorageOperation::Healthcheck, result)
     }
 
+    async fn close(&self) {
+        self.inner.close().await;
+    }
+
     async fn publish(&self, event: RunEvent) -> StorageResult<()> {
         let result = self.inner.publish(event).await;
         self.observe(StorageOperation::PublishEvent, result)

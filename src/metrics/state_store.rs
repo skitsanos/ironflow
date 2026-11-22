@@ -41,6 +41,10 @@ impl StateStore for ObservedStateStore {
         self.observe(StorageOperation::Healthcheck, result)
     }
 
+    async fn close(&self) {
+        self.inner.close().await;
+    }
+
     async fn init_run(&self, run_id: &str, flow_name: &str, ctx: &Context) -> StorageResult<()> {
         let result = self.inner.init_run(run_id, flow_name, ctx).await;
         self.observe(StorageOperation::InitRun, result)
