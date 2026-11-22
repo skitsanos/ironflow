@@ -665,7 +665,10 @@ commit survives a power loss as before.
   `ironflow.sqlite-shm` (and the same for `ironflow-events.sqlite`). They are
   part of the database: never delete them, and keep them with the database
   when it is moved. SQLite creates them with the database file's own
-  permissions, inside the owner-only store directory. The WAL file may remain
+  permissions. On Unix IronFlow creates a missing default database file as
+  `0600`, so all three files are owner-only inside the owner-only store
+  directory; an existing file keeps its mode, and a file named by a configured
+  `sqlite:` URL is created by SQLite under the umask. The WAL file may remain
   after IronFlow exits; the next open folds it back in.
 - Back up a running store with `sqlite3 ironflow.sqlite ".backup backup.sqlite"`
   or `VACUUM INTO 'backup.sqlite'`, or stop IronFlow and copy the whole store
@@ -817,8 +820,8 @@ Or via environment variables (override config file):
 | `REDIS_TTL` | — | TTL seconds for Redis run/event keys and event-deletion fences: `1..=99,999,999,999` (no expiration if unset). State mutations and event publishes refresh their keys; the first successful event deletion sets the fence expiry, while same-owner retries preserve that original lifetime. With `schedules:` configured, keep it greater than the largest `grace_seconds` plus 60: `ironflow serve` logs a warning for each schedule it does not cover (see [Record retention and deleted runs](#record-retention-and-deleted-runs)). Schedule claims do not use this TTL. |
 | `IRONFLOW_REDIS_RESPONSE_TIMEOUT_MS` | `500` | Milliseconds the Redis state and event stores wait for one response (`1..=600000`). The default is the client library's; raise it when a loaded Redis server or host makes store operations fail with `timed out`. A longer value also delays the detection of a server that has stopped answering, including for event publication, which gives up after 500 ms on its own. A malformed or out-of-range value stops startup. |
 
-When the state backend is `sqlite` (the default) and no URL is configured, IronFlow creates `ironflow.sqlite` under `IRONFLOW_STORE_DIR`, creating that directory with owner-only permissions on Unix and refusing a symbolic link in its place. Existing JSON store directories keep working with `IRONFLOW_STORE=json`; there is no automatic import between backends, so a deployment that switches backends starts with an empty run history unless it keeps the old selection.
-When `IRONFLOW_EVENT_STORE=sqlite` and no URL is configured, IronFlow creates `ironflow-events.sqlite` under `IRONFLOW_STORE_DIR`.
+When the state backend is `sqlite` (the default) and no URL is configured, IronFlow creates `ironflow.sqlite` under `IRONFLOW_STORE_DIR`, creating that directory with owner-only permissions on Unix and refusing a symbolic link in its place. A missing database file is created with mode `0600` on Unix, which its WAL side files inherit. Existing JSON store directories keep working with `IRONFLOW_STORE=json`; there is no automatic import between backends, so a deployment that switches backends starts with an empty run history unless it keeps the old selection.
+When `IRONFLOW_EVENT_STORE=sqlite` and no URL is configured, IronFlow creates `ironflow-events.sqlite` under `IRONFLOW_STORE_DIR` in the same way.
 Run state and run events are configured separately, so a deployment can store run records in one backend and stream event replay from another. Redis event storage is available behind `--features redis` and uses `REDIS_URL`, `REDIS_PREFIX`, and optional `REDIS_TTL`.
 Redis state mutations use revision-token compare-and-swap, while event payload/cursor publication is one idempotent Lua operation. These guarantees apply per operation; state and event writes are not a single transaction. The current multi-key layout supports standalone Redis, not Redis Cluster.
 

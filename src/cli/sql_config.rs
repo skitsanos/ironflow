@@ -119,6 +119,7 @@ pub(super) fn resolve_url(
     let file = sqlite_path::database_file(store_dir, filename)?;
     let url = sqlite_path::create_url(&file)?;
     create_private_store_dir(store_dir)?;
+    create_private_database(&file)?;
     Ok(SqlTarget {
         url,
         location: file.display().to_string(),
@@ -148,9 +149,72 @@ fn create_private_store_dir(store_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Create a missing default database file owner-only. SQLite would create it
+/// under the umask, usually `0644`, and gives its `-wal` and `-shm` files the
+/// database file's mode. An existing file, or anything else at the path, is
+/// left for SQLite to open as before.
+fn create_private_database(file: &Path) -> Result<()> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(0o600);
+    }
+    match options.open(file) {
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
+        Err(error) => {
+            Err(error).with_context(|| format!("Failed to create SQLite store: {}", file.display()))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{SqlStoreKind, validate_url};
+
+    /// The default SQLite files are created owner-only, so the `-wal` and
+    /// `-shm` files SQLite derives from them are owner-only too.
+    #[cfg(unix)]
+    #[test]
+    fn default_sqlite_files_are_created_owner_only() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        for (kind, name) in [
+            (SqlStoreKind::State, "ironflow.sqlite"),
+            (SqlStoreKind::Event, "ironflow-events.sqlite"),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let store = dir.path().join("runs");
+            let config = crate::cli::IronFlowConfig::default();
+            super::resolve_url(&config, &store, "sqlite", kind).unwrap();
+            let file = store.join(name);
+            let mode = std::fs::metadata(&file).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600, "{name}");
+            assert_eq!(std::fs::metadata(&file).unwrap().len(), 0);
+        }
+    }
+
+    /// An existing default file is opened as it is: its contents and mode are
+    /// left alone, and the owner-only store directory still protects it.
+    #[cfg(unix)]
+    #[test]
+    fn an_existing_default_file_keeps_its_contents_and_mode() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = dir.path().join("runs");
+        std::fs::create_dir(&store).unwrap();
+        let file = store.join("ironflow.sqlite");
+        std::fs::write(&file, b"existing").unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o640)).unwrap();
+        let config = crate::cli::IronFlowConfig::default();
+        super::resolve_url(&config, &store, "sqlite", SqlStoreKind::State).unwrap();
+        assert_eq!(std::fs::read(&file).unwrap(), b"existing");
+        let mode = std::fs::metadata(&file).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o640);
+    }
 
     #[test]
     fn supported_schemes_match_storage_dialect_detection() {

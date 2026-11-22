@@ -57,6 +57,18 @@ async fn default_backend_is_sqlite_under_a_private_store_directory() {
         use std::os::unix::fs::PermissionsExt as _;
         let mode = fs::metadata(&store).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o700, "store directory must be owner-only");
+        for name in [
+            "ironflow.sqlite",
+            "ironflow.sqlite-wal",
+            "ironflow.sqlite-shm",
+        ] {
+            let Ok(metadata) = fs::metadata(store.join(name)) else {
+                assert_ne!(name, "ironflow.sqlite");
+                continue;
+            };
+            let mode = metadata.permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600, "{name} must be owner-only");
+        }
     }
 
     let listed = output(
