@@ -98,6 +98,8 @@ mod test_send_email_node;
 mod test_shell_markdown_nodes;
 #[path = "../test_slack_notification_node.rs"]
 mod test_slack_notification_node;
+#[path = "../test_sqlite_journal_env.rs"]
+mod test_sqlite_journal_env;
 #[path = "../test_transcribe_config_env.rs"]
 mod test_transcribe_config_env;
 #[path = "../test_transcribe_limits.rs"]

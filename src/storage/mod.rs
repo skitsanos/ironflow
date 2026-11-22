@@ -17,6 +17,7 @@ mod schedule_cleanup;
 pub(crate) mod sql_ddl;
 pub mod sql_names;
 pub mod sql_store;
+pub(crate) mod sqlite_journal;
 pub(crate) mod sqlite_url;
 #[cfg(any(feature = "postgres", feature = "redis"))]
 pub(crate) mod tls;
@@ -32,6 +33,7 @@ pub use run_lease::{RUN_LEASE_REFRESH, RUN_LEASE_TTL, RunLease};
 pub use run_listing::{PageSize, RunCursor, RunListQuery, RunSummaryPage};
 pub(crate) use run_reaper::{RunLeaseReaper, spawn_run_lease_reaper};
 pub use sql_store::SqlStateStore;
+pub use sqlite_journal::SqliteJournalMode;
 
 use async_trait::async_trait;
 

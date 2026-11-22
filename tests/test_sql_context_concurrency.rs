@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use ironflow::engine::types::Context;
 use ironflow::storage::sql_store::SqlStateStore;
-use ironflow::storage::{RunLease, StateStore, StorageErrorKind};
+use ironflow::storage::{RunLease, SqliteJournalMode, StateStore, StorageErrorKind};
 use serde_json::json;
 use tokio::sync::Barrier;
 use tokio::task::JoinSet;
@@ -19,13 +19,12 @@ fn context(key: &str, value: serde_json::Value) -> Context {
     Context::from([(key.to_string(), value)])
 }
 
-/// SQLite journal modes the store can meet. The store sets none, so a new
-/// database keeps SQLite's default rollback journal (`delete`); an operator
-/// may convert the file to WAL, which then persists for every connection.
-const JOURNAL_MODES: [&str; 2] = ["delete", "wal"];
+/// SQLite journal modes the store can be configured with: WAL, the default
+/// since IF-267, and the `IRONFLOW_SQLITE_WAL=false` rollback journal.
+const JOURNAL_MODES: [SqliteJournalMode; 2] = [SqliteJournalMode::Wal, SqliteJournalMode::Delete];
 
 async fn sqlite_stores(
-    journal: &str,
+    journal: SqliteJournalMode,
 ) -> (
     tempfile::TempDir,
     Arc<SqlStateStore>,
@@ -37,17 +36,10 @@ async fn sqlite_stores(
         "sqlite://{}?mode=rwc",
         directory.path().join("state.sqlite").display()
     );
-    let first = Arc::new(SqlStateStore::new(&url).await.unwrap());
+    let open = || SqlStateStore::new_with_journal_mode(&url, None, journal);
+    let first = Arc::new(open().await.unwrap());
+    let second = Arc::new(open().await.unwrap());
     let pool = sqlx::AnyPool::connect(&url).await.unwrap();
-    if journal != "delete" {
-        sqlx::query(sqlx::AssertSqlSafe(format!(
-            "PRAGMA journal_mode = {journal}"
-        )))
-        .execute(&pool)
-        .await
-        .unwrap();
-    }
-    let second = Arc::new(SqlStateStore::new(&url).await.unwrap());
     // A connection reports the file's mode once it has read the header.
     let mut connection = pool.acquire().await.unwrap();
     sqlx::query("SELECT count(*) FROM sqlite_master")
@@ -58,7 +50,7 @@ async fn sqlite_stores(
         .fetch_one(&mut *connection)
         .await
         .unwrap();
-    assert_eq!(mode, journal);
+    assert_eq!(mode, journal.as_str());
     drop(connection);
     (directory, first, second, pool)
 }
@@ -216,7 +208,7 @@ async fn sqlite_context_snapshot_cannot_cross_delete_recreate() {
 
 #[tokio::test]
 async fn sqlite_context_merge_semantics_and_failure_rollback() {
-    let (_directory, store, _second, pool) = sqlite_stores("delete").await;
+    let (_directory, store, _second, pool) = sqlite_stores(SqliteJournalMode::Wal).await;
     merge_semantics(&store).await;
     sqlx::query("UPDATE ironflow_runs SET ctx = '{broken' WHERE id = 'semantics'")
         .execute(&pool)
@@ -260,7 +252,7 @@ async fn sqlite_context_merge_semantics_and_failure_rollback() {
 
 #[tokio::test]
 async fn sqlite_cancelled_context_writer_releases_transaction() {
-    let (_directory, store, _second, pool) = sqlite_stores("delete").await;
+    let (_directory, store, _second, pool) = sqlite_stores(SqliteJournalMode::Wal).await;
     store
         .init_run("cancel", "flow", &Context::new())
         .await

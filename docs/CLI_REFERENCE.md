@@ -651,6 +651,36 @@ Runs %41"` from a directory whose own path contains a space, confirm that
 run `ironflow list --store-dir` with the absolute path of that directory and
 confirm the run is listed.
 
+#### SQLite journal mode and backups
+
+The SQLite state and event stores switch every database file they open to
+write-ahead logging (WAL), new and existing files alike (IF-267). `serve` reads
+and writes one database from the API, the scheduler and the run executors at
+once: under SQLite's rollback journal a task update had to wait for every open
+run inspection or listing and failed after the 5 s busy timeout, while in WAL
+it commits beside them. Commits stay `synchronous = FULL`, so a reported
+commit survives a power loss as before.
+
+- WAL keeps two side files next to the database, `ironflow.sqlite-wal` and
+  `ironflow.sqlite-shm` (and the same for `ironflow-events.sqlite`). They are
+  part of the database: never delete them, and keep them with the database
+  when it is moved. SQLite creates them with the database file's own
+  permissions, inside the owner-only store directory. The WAL file may remain
+  after IronFlow exits; the next open folds it back in.
+- Back up a running store with `sqlite3 ironflow.sqlite ".backup backup.sqlite"`
+  or `VACUUM INTO 'backup.sqlite'`, or stop IronFlow and copy the whole store
+  directory. Copying `ironflow.sqlite` alone can miss commits still in the WAL.
+- WAL needs shared memory between the processes that open the file, so every
+  one of them must run on the same host. Set `IRONFLOW_SQLITE_WAL=false` for a
+  database on a network filesystem (NFS, SMB, a `\\server\share` path) or any
+  filesystem that cannot provide it; the stores then switch the file back to
+  the rollback journal. Docker named volumes and bind mounts used from one
+  container are local filesystems.
+- The switch needs exclusive access to the file. When another process holds
+  it, or the directory is read-only, the store logs a warning naming the
+  requested mode and keeps working in the file's current mode. Give every
+  process that opens a database the same setting.
+
 ### Encrypted shared stores
 
 Source builds with `--features postgres` enable SQLx Rustls/ring TLS; builds
@@ -781,6 +811,7 @@ Or via environment variables (override config file):
 | `IRONFLOW_RUNTIME_SHUTDOWN_SECONDS` | `5` | Seconds blocking workers that cannot be interrupted may keep the process alive after any command has returned (`1..=3600`) |
 | `IRONFLOW_EVENT_MEMORY_CAPACITY` | `10000` | Positive global event/fence count when the event backend is `memory`; a fixed 64 MiB retained-heap estimate is enforced independently |
 | `IRONFLOW_SQL_TABLE_PREFIX` | `ironflow_` | SQL table/index prefix for SQLite/Postgres state and event stores |
+| `IRONFLOW_SQLITE_WAL` | `true` | `false` keeps SQLite state and event databases in the rollback journal instead of WAL, for network filesystems; accepts only `true` or `false`, and any other value fails startup. See [SQLite journal mode and backups](#sqlite-journal-mode-and-backups). |
 | `REDIS_URL` | `redis://127.0.0.1:6379` | Redis connection URL |
 | `REDIS_PREFIX` | `ironflow:` | Key prefix for Redis keys |
 | `REDIS_TTL` | — | TTL seconds for Redis run/event keys and event-deletion fences: `1..=99,999,999,999` (no expiration if unset). State mutations and event publishes refresh their keys; the first successful event deletion sets the fence expiry, while same-owner retries preserve that original lifetime. With `schedules:` configured, keep it greater than the largest `grace_seconds` plus 60: `ironflow serve` logs a warning for each schedule it does not cover (see [Record retention and deleted runs](#record-retention-and-deleted-runs)). Schedule claims do not use this TTL. |
@@ -1721,6 +1752,7 @@ start.
 | `IRONFLOW_SHUTDOWN_GRACE_SECONDS` | `30` | Accepted-run drain before cancellation (`0..=3600` seconds) |
 | `IRONFLOW_RUNTIME_SHUTDOWN_SECONDS` | `5` | Wait for uninterruptible blocking workers after the command returns (`1..=3600` seconds) |
 | `IRONFLOW_SQL_TABLE_PREFIX` | `ironflow_` | SQL table/index prefix for SQLite/Postgres state and event stores |
+| `IRONFLOW_SQLITE_WAL` | `true` | `false` keeps SQLite state and event databases in the rollback journal instead of WAL, for network filesystems; accepts only `true` or `false`, and any other value fails startup. See [SQLite journal mode and backups](#sqlite-journal-mode-and-backups). |
 | `FLOWS_DIR` | — | Flow files directory |
 | `MAX_BODY` | `1048576` | Max request body size (bytes) |
 | `IRONFLOW_API_KEY` | — | API key required for non-loopback API servers. Present but empty fails startup unless unauthenticated access is enabled explicitly. |

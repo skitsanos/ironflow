@@ -6,7 +6,7 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts generate` and verified with
 `bun run scripts/issues_registry.ts check`.
 
-- Total findings: 266
+- Total findings: 267
 - Active findings: 0
 
 ## Working agreement
@@ -294,3 +294,4 @@ priority, area, and title. The registry is generated with
 | [IF-264](./IF-264.md) | P3 | Resolved | Nodes/HTTP | A UTF-8 response header value is returned as Base64 instead of a string |
 | [IF-265](./IF-265.md) | P3 | Resolved | Storage/SQL | IF-254 SQLite regression forced WAL instead of the store's own journal mode |
 | [IF-266](./IF-266.md) | P3 | Resolved | Test reliability | Flow-load admission test gives the detached parse a fixed 2 s restore window |
+| [IF-267](./IF-267.md) | P2 | Resolved | Storage/SQL | SQLite stores used the rollback journal, so open readers blocked and failed writers |

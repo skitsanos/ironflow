@@ -199,13 +199,21 @@ async fn unset_table_prefix_variable_keeps_the_configured_prefix() {
     };
     assert_eq!(runs_status(&base, Some(YAML_KEY)).await, 200);
     server.kill().await.unwrap();
-    let database = std::fs::read(directory.path().join("runs/ironflow.sqlite")).unwrap();
-    let needle = b"tenant_a_runs";
-    assert!(
-        database
-            .windows(needle.len())
-            .any(|window| window == needle)
+    // Read the schema through SQLite: in WAL (IF-267) the killed server's
+    // commits may still be in `ironflow.sqlite-wal`, not the database file.
+    sqlx::any::install_default_drivers();
+    let url = format!(
+        "sqlite://{}?mode=rw",
+        directory.path().join("runs/ironflow.sqlite").display()
     );
+    let pool = sqlx::AnyPool::connect(&url).await.unwrap();
+    let tables: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM sqlite_master WHERE name = 'tenant_a_runs'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    pool.close().await;
+    assert_eq!(tables, 1);
 }
 
 /// A blank artifact directory used to be accepted at startup: the empty

@@ -3,7 +3,7 @@
 //! a node reads one, the value is already baked into the process. The child
 //! workflow ceilings are read on each use.
 
-use super::Limit;
+use super::{Limit, Toggle};
 
 /// Detached `subworkflow` executions admitted at once.
 pub(crate) const MAX_DETACHED_SUBWORKFLOWS: Limit =
@@ -37,6 +37,9 @@ pub(crate) const MAX_REPEAT_ITERATIONS: Limit =
 /// default is the client library's own; the ceiling is ten minutes.
 pub(crate) const REDIS_RESPONSE_TIMEOUT_MS: Limit =
     Limit::bounded("IRONFLOW_REDIS_RESPONSE_TIMEOUT_MS", 500, 600_000);
+/// Whether the SQL stores open SQLite files in WAL mode (IF-267); `false`
+/// keeps the rollback journal, for filesystems without WAL shared memory.
+pub(crate) const SQLITE_WAL: Toggle = Toggle::new("IRONFLOW_SQLITE_WAL", true);
 
 fn capacity(limit: &Limit) -> usize {
     usize::try_from(limit.read()).unwrap_or(usize::MAX)

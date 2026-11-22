@@ -183,7 +183,7 @@ pub(crate) const ALL: &[&Limit] = &[
 ];
 
 /// Every boolean switch, checked by [`validate_environment`] at startup.
-pub(crate) const TOGGLES: &[&Toggle] = &[&LUA_GC_AFTER_EXECUTION];
+pub(crate) const TOGGLES: &[&Toggle] = &[&LUA_GC_AFTER_EXECUTION, &process::SQLITE_WAL];
 
 pub fn max_http_body_bytes() -> u64 {
     MAX_HTTP_BODY_BYTES.read()

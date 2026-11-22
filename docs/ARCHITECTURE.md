@@ -658,7 +658,7 @@ than an ignored entry. Direct-store custom IDs outside the grammar require an
 offline, backed-up export/reimport or a coordinated rename of both main and
 summary filenames plus their embedded IDs.
 
-State backend selection is controlled by the `store_backend` config field or `IRONFLOW_STORE` environment variable; the default is `sqlite`, which creates `ironflow.sqlite` under the owner-only store directory. SQLite/Postgres table names use `IRONFLOW_SQL_TABLE_PREFIX` / `sql_table_prefix`, defaulting to `ironflow_` so existing names such as `ironflow_runs` are preserved.
+State backend selection is controlled by the `store_backend` config field or `IRONFLOW_STORE` environment variable; the default is `sqlite`, which creates `ironflow.sqlite` under the owner-only store directory. SQLite/Postgres table names use `IRONFLOW_SQL_TABLE_PREFIX` / `sql_table_prefix`, defaulting to `ironflow_` so existing names such as `ironflow_runs` are preserved. The SQL stores switch each SQLite file they open to WAL with `synchronous = FULL`, so writers commit beside open readers; `IRONFLOW_SQLITE_WAL=false` keeps the rollback journal for filesystems without shared memory (`src/storage/sqlite_journal.rs`, IF-267).
 
 Run execution events use a separate `EventStore` abstraction so monitoring can
 be scaled independently from run persistence. Besides publish and replay, the

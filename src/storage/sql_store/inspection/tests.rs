@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use super::*;
 use crate::engine::types::{Context, RunStatus, TaskState};
-use crate::storage::{StateStore, StorageErrorKind};
+use crate::storage::{SqliteJournalMode, StateStore, StorageErrorKind};
 
 /// Upper bound for any wait in these tests; SQLite's busy timeout is 5 s.
 const BOUND: Duration = Duration::from_secs(15);
@@ -56,9 +56,19 @@ async fn replace_between_reads(store: &SqlStateStore) {
     assert_generation(new, "replacement");
 }
 
-async fn sqlite_store(dir: &tempfile::TempDir) -> SqlStateStore {
+/// A store in the given journal mode, set by the store itself as
+/// `IRONFLOW_SQLITE_WAL` would (IF-267).
+async fn sqlite_store(dir: &tempfile::TempDir, mode: SqliteJournalMode) -> SqlStateStore {
     let url = format!("sqlite://{}/runs.db?mode=rwc", dir.path().display());
-    SqlStateStore::new(&url).await.unwrap()
+    let store = SqlStateStore::new_with_journal_mode(&url, None, mode)
+        .await
+        .unwrap();
+    let modes = journal_modes(&store).await;
+    assert!(
+        modes.iter().all(|actual| actual == mode.as_str()),
+        "{modes:?}"
+    );
+    store
 }
 
 /// The journal mode every pooled connection uses after reading the file.
@@ -85,39 +95,49 @@ async fn journal_modes(store: &SqlStateStore) -> Vec<String> {
     modes
 }
 
-/// The store sets no journal mode, so a new database keeps SQLite's default
-/// rollback journal: the mode IronFlow runs in unless an operator converted
-/// the file to WAL.
-#[tokio::test]
-async fn sqlite_default_journal_replacement_between_inspection_reads() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = sqlite_store(&dir).await;
-    let modes = journal_modes(&store).await;
-    assert!(modes.iter().all(|mode| mode == "delete"), "{modes:?}");
-    replace_between_reads(&store).await;
-}
-
-/// A database file converted to WAL stays WAL for every later connection.
+/// WAL, the default since IF-267: the replacement commits beside the open
+/// snapshot.
 #[tokio::test]
 async fn sqlite_wal_replacement_between_inspection_reads() {
     let dir = tempfile::tempdir().unwrap();
-    let store = sqlite_store(&dir).await;
-    let set: String = sqlx::query_scalar("PRAGMA journal_mode=WAL")
-        .fetch_one(&store.pool)
-        .await
-        .unwrap();
-    assert_eq!(set, "wal");
-    assert!(journal_modes(&store).await.iter().all(|mode| mode == "wal"));
+    let store = sqlite_store(&dir, SqliteJournalMode::Wal).await;
     replace_between_reads(&store).await;
+}
+
+/// The `IRONFLOW_SQLITE_WAL=false` rollback journal: the replacement waits
+/// for the reader.
+#[tokio::test]
+async fn sqlite_rollback_journal_replacement_between_inspection_reads() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = sqlite_store(&dir, SqliteJournalMode::Delete).await;
+    replace_between_reads(&store).await;
+}
+
+/// In WAL a writer commits while an inspection stays open, well inside the
+/// busy timeout, and the open snapshot still returns the original run.
+#[tokio::test]
+async fn sqlite_wal_writer_commits_beside_open_inspection() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = sqlite_store(&dir, SqliteJournalMode::Wal).await;
+    let id = uuid::Uuid::new_v4().to_string();
+    seed(&store, &id, "original").await;
+    let read = store.begin_inspection(&id).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(2), store.delete_run(&id))
+        .await
+        .expect("a WAL writer must not wait for an open reader")
+        .expect("a WAL writer commits beside an open reader");
+    assert_generation(read.finish().await.unwrap(), "original");
+    let error = store.get_run_info(&id).await.unwrap_err();
+    assert_eq!(error.kind(), StorageErrorKind::NotFound);
 }
 
 /// Under a rollback journal a writer cannot commit past an inspection that
 /// never finishes. It must fail within SQLite's busy timeout, leave the run
 /// intact, and must not disturb the open snapshot.
 #[tokio::test]
-async fn sqlite_default_journal_writer_fails_bounded_behind_open_inspection() {
+async fn sqlite_rollback_journal_writer_fails_bounded_behind_open_inspection() {
     let dir = tempfile::tempdir().unwrap();
-    let store = sqlite_store(&dir).await;
+    let store = sqlite_store(&dir, SqliteJournalMode::Delete).await;
     let id = uuid::Uuid::new_v4().to_string();
     seed(&store, &id, "original").await;
     let read = store.begin_inspection(&id).await.unwrap();

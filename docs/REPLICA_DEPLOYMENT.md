@@ -29,7 +29,8 @@ these store TLS features. Do not work around that limitation by disabling
 required encryption or certificate verification. See
 [encrypted shared stores](CLI_REFERENCE.md#encrypted-shared-stores).
 Do not mount a JSON/SQLite directory into
-multiple containers and treat it as a distributed database.
+multiple containers and treat it as a distributed database. SQLite files use
+WAL, which needs every process that opens them on one host.
 
 The URL check verifies the selected dialect, not deployment topology. Operators
 must still point every replica at the intended shared services and table/key

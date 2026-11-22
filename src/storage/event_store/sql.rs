@@ -1,7 +1,7 @@
-use sqlx::any::AnyPoolOptions;
 use sqlx::{Any, AnyPool, Transaction};
 
 use crate::storage::sql_names::{SqlDialect, SqlEventTableNames};
+use crate::storage::sqlite_journal::{self, SqliteJournalMode};
 use crate::storage::{StorageError, StorageResult};
 
 mod backfill;
@@ -27,6 +27,24 @@ impl SqlEventStore {
     }
 
     pub async fn new_with_prefix(url: &str, table_prefix: Option<&str>) -> StorageResult<Self> {
+        Self::open(url, table_prefix, None).await
+    }
+
+    /// Like [`SqlEventStore::new_with_prefix`], with the SQLite journal mode
+    /// given instead of read from `IRONFLOW_SQLITE_WAL`. Ignored for PostgreSQL.
+    pub async fn new_with_journal_mode(
+        url: &str,
+        table_prefix: Option<&str>,
+        journal_mode: SqliteJournalMode,
+    ) -> StorageResult<Self> {
+        Self::open(url, table_prefix, Some(journal_mode)).await
+    }
+
+    async fn open(
+        url: &str,
+        table_prefix: Option<&str>,
+        journal_mode: Option<SqliteJournalMode>,
+    ) -> StorageResult<Self> {
         sqlx::any::install_default_drivers();
         crate::initialize_tls_provider();
         let dialect = SqlDialect::from_url(url)
@@ -44,11 +62,7 @@ impl SqlEventStore {
                 crate::storage::sqlite_url::RELATIVE_AUTHORITY_REJECTION
             )));
         }
-        let pool = AnyPoolOptions::new()
-            .max_connections(5)
-            .connect(url)
-            .await
-            .map_err(|error| StorageError::backend("Failed to connect SQL event store", error))?;
+        let pool = sqlite_journal::connect(url, dialect, journal_mode, "event store").await?;
 
         let store = Self {
             pool,

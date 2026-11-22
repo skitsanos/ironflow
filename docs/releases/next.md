@@ -13,5 +13,17 @@ publication is verified separately.
   flow that decoded that object for such a header must read the string.
   Values that are not valid UTF-8, or that hold a C1 control character,
   keep the `{"base64": "..."}` form.
+- **SQLite stores use WAL** (IF-267). The SQLite state and event stores now
+  switch every database file they open, new and existing, to write-ahead
+  logging, so a task update no longer waits for open run inspections and
+  listings or fails after the 5 s busy timeout behind one. Commits remain
+  `synchronous = FULL`. The store directory now also holds
+  `ironflow.sqlite-wal` and `ironflow.sqlite-shm`: keep them with the
+  database, and back up with `sqlite3 ironflow.sqlite ".backup ..."`,
+  `VACUUM INTO`, or a copy of the whole directory while IronFlow is stopped,
+  since the database file alone can miss recent commits. For a database on a
+  network filesystem set `IRONFLOW_SQLITE_WAL=false`, which switches the file
+  back to the rollback journal; any value other than `true` or `false` fails
+  startup.
 
 Earlier changes remain in [the 1.22.0 notes](1.22.0.md).
