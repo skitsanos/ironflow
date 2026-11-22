@@ -40,6 +40,9 @@ pub(super) fn configured_url(
     if !matches!(backend, "sqlite" | "postgres") {
         return Ok(None);
     }
+    if backend == "sqlite" {
+        crate::storage::SqliteJournalMode::from_environment()?;
+    }
     let (_, environment, _) = kind.names();
     let fallback = match kind {
         SqlStoreKind::State => &cfg.store_url,

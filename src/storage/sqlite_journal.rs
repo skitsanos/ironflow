@@ -69,8 +69,11 @@ pub(crate) async fn connect(
     let pool = pool_options(dialect).connect(url).await.map_err(|error| {
         StorageError::backend(format_args!("Failed to connect SQL {store}"), error)
     })?;
-    if let Some(mode) = mode {
-        apply(&pool, mode, store).await;
+    if let Some(mode) = mode
+        && let Err(error) = apply(&pool, mode, store).await
+    {
+        pool.close().await;
+        return Err(error);
     }
     Ok(pool)
 }
@@ -95,33 +98,28 @@ fn pool_options(dialect: SqlDialect) -> AnyPoolOptions {
     })
 }
 
-/// Switch the file to `mode`. The switch needs an exclusive lock that does
-/// not wait for the busy timeout, so it fails while another process holds
-/// the file, and a filesystem without shared memory keeps the rollback
-/// journal. The stores are correct in either mode, so both cases are logged
-/// with the mode in use instead of failing startup.
-async fn apply(pool: &AnyPool, mode: SqliteJournalMode, store: &'static str) {
+/// WAL is a best-effort optimization. The explicit rollback selection is a
+/// filesystem constraint: do not hand out the pool without confirming it.
+async fn apply(pool: &AnyPool, mode: SqliteJournalMode, store: &'static str) -> StorageResult<()> {
     let sql = format!("PRAGMA journal_mode = {}", mode.as_str());
-    match sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(sql))
+    let cause = match sqlx::query_scalar::<_, String>(sqlx::AssertSqlSafe(sql))
         .fetch_one(pool)
         .await
     {
-        Ok(actual) if actual.eq_ignore_ascii_case(mode.as_str()) => {}
-        Ok(actual) => tracing::warn!(
-            store,
-            requested = mode.as_str(),
-            actual = actual.as_str(),
-            "SQLite kept another journal mode; set IRONFLOW_SQLITE_WAL=false where the \
-             filesystem cannot provide WAL shared memory"
-        ),
-        Err(error) => tracing::warn!(
-            store,
-            requested = mode.as_str(),
-            %error,
-            "SQLite journal mode unchanged, for example because another process holds the \
-             database"
-        ),
+        Ok(actual) if actual.eq_ignore_ascii_case(mode.as_str()) => return Ok(()),
+        Ok(actual) => format!("SQLite returned journal_mode={actual}"),
+        Err(error) => error.to_string(),
+    };
+    if mode == SqliteJournalMode::Delete {
+        return Err(StorageError::backend(
+            format_args!(
+                "SQLite {store} requires the rollback journal (DELETE); close other connections and check directory write access"
+            ),
+            cause,
+        ));
     }
+    tracing::warn!(store, %cause, "Could not enable SQLite WAL; continuing in the current journal mode");
+    Ok(())
 }
 
 #[cfg(test)]

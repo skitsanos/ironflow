@@ -681,12 +681,13 @@ commit survives a power loss as before.
   one of them must run on the same host. Set `IRONFLOW_SQLITE_WAL=false` for a
   database on a network filesystem (NFS, SMB, a `\\server\share` path) or any
   filesystem that cannot provide it; the stores then switch the file back to
-  the rollback journal. Docker named volumes and bind mounts used from one
-  container are local filesystems.
-- The switch needs exclusive access to the file. When another process holds
-  it, or the directory is read-only, the store logs a warning naming the
-  requested mode and keeps working in the file's current mode. Give every
-  process that opens a database the same setting.
+  the rollback journal. For Docker mounts, check the underlying filesystem.
+- Changing journal mode needs exclusive access. If WAL cannot be enabled,
+  the store warns and continues in the current mode. With
+  `IRONFLOW_SQLITE_WAL=false`, the store refuses to open unless SQLite
+  confirms rollback mode (`DELETE`). Close other connections, make sure the
+  directory is writable, and retry. Use the same setting in every process
+  that opens the database.
 
 ### Encrypted shared stores
 

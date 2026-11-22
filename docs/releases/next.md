@@ -23,8 +23,9 @@ publication is verified separately.
   `VACUUM INTO`, or a copy of the whole directory while IronFlow is stopped,
   since the database file alone can miss recent commits. For a database on a
   network filesystem set `IRONFLOW_SQLITE_WAL=false`, which switches the file
-  back to the rollback journal; any value other than `true` or `false` fails
-  startup. On Unix a new default `ironflow.sqlite` or
+  back to the rollback journal or refuses to open if SQLite cannot switch.
+  Any value other than `true` or `false` is rejected before the default store
+  directory or database is created. On Unix a new default `ironflow.sqlite` or
   `ironflow-events.sqlite` is created with mode `0600`, so its side files
   are owner-only too; an existing file keeps its mode inside the `0700`
   store directory (`chmod 600` it to match). CLI commands and a gracefully

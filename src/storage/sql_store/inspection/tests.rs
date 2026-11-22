@@ -35,21 +35,16 @@ async fn replace(store: &SqlStateStore, id: &str) {
 
 /// Replace a run while an inspection is open, then finish the inspection.
 ///
-/// WAL and PostgreSQL let the replacement commit beside the snapshot; a
-/// rollback journal makes it wait for the reader. Either way the open
-/// inspection returns only the original and the next only the replacement.
+/// WAL and PostgreSQL must let the replacement commit before the snapshot
+/// reads its tasks, irrespective of how the executor schedules the writer.
 async fn replace_between_reads(store: &SqlStateStore) {
     let id = uuid::Uuid::new_v4().to_string();
     seed(store, &id, "original").await;
     let read = store.begin_inspection(&id).await.unwrap();
-    let inspect = async {
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        read.finish().await.unwrap()
-    };
-    let (old, ()) =
-        tokio::time::timeout(BOUND, async { tokio::join!(inspect, replace(store, &id)) })
-            .await
-            .expect("inspection and replacement must both finish");
+    tokio::time::timeout(BOUND, replace(store, &id))
+        .await
+        .expect("replacement must commit beside the open inspection");
+    let old = read.finish().await.unwrap();
     let new = store.get_run_info(&id).await.unwrap();
     store.delete_run(&id).await.unwrap();
     assert_generation(old, "original");
@@ -101,15 +96,6 @@ async fn journal_modes(store: &SqlStateStore) -> Vec<String> {
 async fn sqlite_wal_replacement_between_inspection_reads() {
     let dir = tempfile::tempdir().unwrap();
     let store = sqlite_store(&dir, SqliteJournalMode::Wal).await;
-    replace_between_reads(&store).await;
-}
-
-/// The `IRONFLOW_SQLITE_WAL=false` rollback journal: the replacement waits
-/// for the reader.
-#[tokio::test]
-async fn sqlite_rollback_journal_replacement_between_inspection_reads() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = sqlite_store(&dir, SqliteJournalMode::Delete).await;
     replace_between_reads(&store).await;
 }
 

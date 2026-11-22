@@ -112,10 +112,8 @@ async fn existing_databases_are_switched_to_the_configured_mode() {
     }
 }
 
-/// A store that cannot switch the file, because another process holds it in
-/// WAL, still opens and works in the file's mode.
 #[tokio::test]
-async fn a_file_held_by_another_connection_keeps_its_mode_and_still_opens() {
+async fn both_stores_refuse_rollback_when_another_connection_holds_wal() {
     sqlx::any::install_default_drivers();
     let dir = tempfile::tempdir().unwrap();
     let file = database(&dir);
@@ -123,29 +121,20 @@ async fn a_file_held_by_another_connection_keeps_its_mode_and_still_opens() {
         .await
         .unwrap();
     let held = wal.pool.acquire().await.unwrap();
-    let rollback =
-        SqlStateStore::new_with_journal_mode(&url(&file), None, SqliteJournalMode::Delete)
-            .await
-            .unwrap();
-    assert!(
-        settings(&rollback.pool)
-            .await
-            .iter()
-            .all(|(mode, _, _)| mode == "wal")
-    );
-    use crate::storage::StateStore as _;
-    rollback
-        .init_run("held", "flow", &Default::default())
+    let state = SqlStateStore::new_with_journal_mode(&url(&file), None, SqliteJournalMode::Delete)
         .await
-        .unwrap();
+        .err()
+        .expect("state store cannot switch to DELETE");
+    let event = SqlEventStore::new_with_journal_mode(&url(&file), None, SqliteJournalMode::Delete)
+        .await
+        .err()
+        .expect("event store cannot switch to DELETE");
+    for error in [state, event] {
+        assert_eq!(error.kind(), crate::storage::StorageErrorKind::Backend);
+        assert!(error.to_string().contains("rollback journal"), "{error}");
+    }
     drop(held);
-    assert_eq!(
-        crate::storage::StateStore::get_run_info(&wal, "held")
-            .await
-            .unwrap()
-            .flow_name,
-        "flow"
-    );
+    assert_eq!(file_mode(&file).await, "wal");
 }
 
 /// The event store connects through the same path; its pool is private to

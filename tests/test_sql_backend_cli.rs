@@ -1,5 +1,7 @@
 use std::fs;
 
+#[path = "support/sqlite_journal_cli.rs"]
+mod journal;
 #[cfg(feature = "postgres")]
 #[path = "support/sql_backend_postgres.rs"]
 mod postgres;
