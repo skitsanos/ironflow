@@ -1,8 +1,12 @@
 # IronFlow
 
-IronFlow is a Rust workflow engine with Lua workflow definitions, a REST API,
-parallel DAG execution, retries, and durable run history.
+IronFlow is a single-binary workflow engine for building and running document
+extraction, analysis, and RAG pipelines on infrastructure you control.
 
+Workflows are defined in restricted Lua and executed by a Rust engine with a
+REST API, parallel DAG execution, retries, schedules, and durable run history.
+
+- [Website and use cases](https://ironflow.work)
 - [Source code](https://github.com/skitsanos/ironflow)
 - [Getting started](https://github.com/skitsanos/ironflow/blob/main/docs/GETTING_STARTED.md)
 - [Node documentation](https://github.com/skitsanos/ironflow/tree/main/docs/nodes)

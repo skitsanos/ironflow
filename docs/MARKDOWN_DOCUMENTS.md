@@ -1,8 +1,8 @@
 # Markdown Documents
 
 `markdown_to_pdf` and `markdown_to_docx` generate documents locally from the same
-CommonMark/GFM source. No external converter, Python runtime, browser, network
-service, or Pdfium library is required for generation. Both nodes are available
+CommonMark/GFM source. No external converter, Python runtime, browser, or
+network service is required for generation. Both nodes are available
 with default features and with `--no-default-features`.
 
 ## Parameters

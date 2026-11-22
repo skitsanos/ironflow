@@ -206,7 +206,7 @@ pub trait Node: Send + Sync {
 }
 ```
 
-Nodes are registered in a `NodeRegistry` and exposed to Lua as callable factory functions. 105 built-in nodes are provided across HTTP, shell, file, S3, S3 vector, MCP, data transform, iteration, caching, conditional, timing, code execution, markdown, XML, YAML, HTML sanitization, date/time, encoding, document extraction, image processing, database, AI, subworkflow/tool dispatch, notification, and utility categories. The `pdf_to_image` and `pdf_thumbnail` nodes require the native Pdfium library at runtime.
+Nodes are registered in a `NodeRegistry` and exposed to Lua as callable factory functions. 105 built-in nodes are provided across HTTP, shell, file, S3, S3 vector, MCP, data transform, iteration, caching, conditional, timing, code execution, markdown, XML, YAML, HTML sanitization, date/time, encoding, document extraction, image processing, database, AI, subworkflow/tool dispatch, notification, and utility categories.
 
 `markdown_to_pdf` and `markdown_to_docx` share a bounded Comrak-derived document
 model and explicit file/artifact image bindings. Tracked workers retain one of
@@ -219,7 +219,8 @@ publish through the shared staged-file boundary and require no external
 converter. See [Markdown Documents](MARKDOWN_DOCUMENTS.md) for limits and format
 differences.
 
-`pdf_to_image` and `pdf_thumbnail` render with a built-in pure-Rust rasterizer
+With the default `pdf-render` feature, `pdf_to_image` and `pdf_thumbnail`
+render with a built-in pure-Rust rasterizer
 ([IF-194](issues/IF-194.md)). It has no cancellation hook and no work limit,
 so the nodes bound it from outside: the document passes the shared PDF loading
 policy, the streams a page can reach are decoded under the stream ceiling, and
@@ -227,7 +228,7 @@ the page is interpreted once against a metering device that draws nothing. The
 meter counts drawing operations against `IRONFLOW_MAX_PDF_RENDER_OPERATIONS`,
 refuses oversized embedded images, and checks the execution control every 256
 operations; only an admitted page is rasterized, and a renderer panic fails
-the step. The Pdfium binding was removed.
+the step.
 
 `extract_pdf` reuses the shared single-parse PDF loading boundary and decodes one
 page at a time. A bounded marked-content walker substitutes outermost ActualText
