@@ -8,7 +8,8 @@ import { join } from "node:path";
 
 const hook = join(import.meta.dir, "../../.githooks/pre-push");
 const environment = Object.fromEntries(
-  Object.entries(Bun.env).filter(([key]) => !key.startsWith("GIT_")),
+  // Each fixture selects its own mode; an omitted mode tests the hook's default.
+  Object.entries(Bun.env).filter(([key]) => !key.startsWith("GIT_") && key !== "IRONFLOW_PREPUSH_GATE"),
 ) as Record<string, string>;
 
 function git(cwd: string, ...args: string[]): string {
