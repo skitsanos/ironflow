@@ -6,8 +6,8 @@ priority, area, and title. The registry is generated with
 `bun run scripts/issues_registry.ts generate` and verified with
 `bun run scripts/issues_registry.ts check`.
 
-- Total findings: 267
-- Active findings: 0
+- Total findings: 268
+- Active findings: 1
 
 ## Working agreement
 
@@ -295,3 +295,4 @@ priority, area, and title. The registry is generated with
 | [IF-265](./IF-265.md) | P3 | Resolved | Storage/SQL | IF-254 SQLite regression forced WAL instead of the store's own journal mode |
 | [IF-266](./IF-266.md) | P3 | Resolved | Test reliability | Flow-load admission test gives the detached parse a fixed 2 s restore window |
 | [IF-267](./IF-267.md) | P2 | Resolved | Storage/SQL | SQLite stores used the rollback journal, so open readers blocked and failed writers |
+| [IF-268](./IF-268.md) | P2 | Open | Validation workflow | Agents cannot learn which context keys a node writes or when they become readable |
