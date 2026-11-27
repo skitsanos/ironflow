@@ -1046,7 +1046,6 @@ checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
 dependencies = [
  "iana-time-zone",
  "num-traits",
- "serde",
  "windows-link",
 ]
 
@@ -4298,16 +4297,16 @@ dependencies = [
 
 [[package]]
 name = "rmcp"
-version = "3.11.0"
+version = "3.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "391f153431ab68664d946513ea0cb3edbca78eaf99c5a983036cacab6220d85b"
+checksum = "fc4fa9a7558c480e1817c0f02e9a73782001ac1f47fb9d26cc073915963282ea"
 dependencies = [
  "base64 0.23.1",
  "bytes",
- "chrono",
  "futures",
  "http",
  "indexmap",
+ "jiff",
  "libc",
  "percent-encoding",
  "pin-project-lite",

@@ -170,14 +170,14 @@ describe("repository integration policy", () => {
     };
     expect(dependencies.chrono["default-features"]).toBeFalse();
     expect(dependencies.chrono.features).toBeUndefined();
-    // chrono reaches the graph through cron and rmcp only. Another parent
+    // Only cron and IronFlow's cron adapter depend on chrono. Another parent
     // means a dependency or feature brought it back.
     const parents = (await read("Cargo.lock"))
       .split("[[package]]")
       .filter((block) => /^ "chrono"(,| \d)/m.test(block))
       .map((block) => block.match(/name = "([^"]+)"/)![1])
       .sort();
-    expect(parents).toEqual(["cron", "ironflow", "rmcp"]);
+    expect(parents).toEqual(["cron", "ironflow"]);
   });
 
   test("a scheduled run audits the default branch and runs no other job", async () => {
