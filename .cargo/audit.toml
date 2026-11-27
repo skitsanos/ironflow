@@ -14,14 +14,14 @@
 #
 # Why it is not fixed: IronFlow's own time handling moved to jiff (IF-231,
 # finished 2026-11-18), but the cron crate evaluates schedules over chrono
-# types and rmcp reads the clock through it, so no update removes chrono from
-# the graph. IronFlow's only use is src/scheduler/cron_boundary.rs, which
-# exchanges wall-clock values with cron and enables no chrono feature.
+# types, so chrono remains in the graph. IronFlow's only use is
+# src/scheduler/cron_boundary.rs, which exchanges wall-clock values with cron
+# and enables no chrono feature.
 #
 # Exposure: none known. IronFlow parses and formats no date with chrono.
 #
-# Exit: remove the entry when cron and rmcp no longer resolve chrono, or when
-# the advisory is withdrawn. scripts/tests/repository_policy.test.ts fails if
+# Exit: remove the entry when cron and its IronFlow adapter no longer resolve
+# chrono, or when the advisory is withdrawn. scripts/tests/repository_policy.test.ts fails if
 # the entry outlives the crate, if another crate resolves chrono, if a chrono
 # feature is enabled here, or if another module imports it. Review again by
 # 2026-12-17.
