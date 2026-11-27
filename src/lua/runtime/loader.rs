@@ -146,6 +146,9 @@ impl LuaRuntime {
         let limits = LuaExecutionLimits::from_env();
         apply_limits(&lua, limits, execution.clone())?;
         register_shared_globals(&lua)?;
+        if collect_diagnostics {
+            install_validation_print(&lua)?;
+        }
         checkpoint(&execution)?;
         register_flow_api(&lua, registry, diagnostics.clone())?;
         checkpoint(&execution)?;
@@ -177,6 +180,32 @@ impl LuaRuntime {
         }
         Ok(ValidatedFlow { flow, warnings })
     }
+}
+
+// Flow definitions can print while being evaluated for validation. Keep those
+// messages out of the CLI report without changing the running workflow's VM.
+fn install_validation_print(lua: &Lua) -> LuaResult<()> {
+    let print = lua.create_function(|_, args: LuaMultiValue| {
+        const LOG_BYTES: usize = 4096;
+        let mut message = String::new();
+        for (index, arg) in args.iter().enumerate() {
+            if message.len() == LOG_BYTES {
+                break;
+            }
+            if index > 0 {
+                message.push('\t');
+            }
+            let text = arg.to_string()?;
+            let end = text.floor_char_boundary(LOG_BYTES - message.len());
+            message.push_str(&text[..end]);
+            if end < text.len() {
+                break;
+            }
+        }
+        tracing::info!("{message}");
+        Ok(())
+    })?;
+    lua.globals().set("print", print)
 }
 
 fn apply_limits(

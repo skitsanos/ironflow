@@ -7,31 +7,13 @@ use crate::engine::types::NodeOutput;
 use crate::util::execution::run_tracked_blocking_step;
 use crate::util::sensitive_url::redact_sensitive_text;
 
+use super::super::output::{Field, ResponseMode};
+
 mod headers;
 
 use headers::response_headers;
 
 const BODY_CHANNEL_CAPACITY: usize = 8;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum ResponseMode {
-    Inline,
-    Artifact,
-}
-
-impl ResponseMode {
-    pub(super) fn parse(config: &serde_json::Value) -> Result<Self> {
-        match config.get("response_mode") {
-            None => Ok(Self::Inline),
-            Some(serde_json::Value::String(value)) => match value.as_str() {
-                "inline" => Ok(Self::Inline),
-                "artifact" => Ok(Self::Artifact),
-                _ => anyhow::bail!("HTTP response_mode must be 'inline' or 'artifact'"),
-            },
-            Some(_) => anyhow::bail!("HTTP response_mode must be a string"),
-        }
-    }
-}
 
 pub(super) struct ResponseMetadata {
     pub(super) status: u16,
@@ -88,12 +70,12 @@ pub(super) async fn response_to_output(
             let bytes = collect_inline(response, maximum).await?;
             let body = String::from_utf8_lossy(&bytes).into_owned();
             let data = serde_json::from_str(&body).unwrap_or(serde_json::Value::String(body));
-            output.insert(format!("{output_key}_data"), data);
+            output.insert(mode.body_field().key(output_key), data);
         }
         ResponseMode::Artifact => {
             let artifact = store_artifact(response, maximum, metadata.mime_type).await?;
             output.insert(
-                format!("{output_key}_artifact"),
+                mode.body_field().key(output_key),
                 serde_json::to_value(artifact)?,
             );
         }
@@ -104,15 +86,15 @@ pub(super) async fn response_to_output(
 fn metadata_output(output_key: &str, metadata: &ResponseMetadata) -> NodeOutput {
     let mut output = NodeOutput::new();
     output.insert(
-        format!("{output_key}_status"),
+        Field::Status.key(output_key),
         serde_json::Value::Number(metadata.status.into()),
     );
     output.insert(
-        format!("{output_key}_headers"),
+        Field::Headers.key(output_key),
         serde_json::Value::Object(metadata.headers.clone()),
     );
     output.insert(
-        format!("{output_key}_success"),
+        Field::Success.key(output_key),
         serde_json::Value::Bool(metadata.success),
     );
     output

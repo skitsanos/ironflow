@@ -16,9 +16,10 @@ use crate::util::node_config::{
 use crate::util::outbound::Guard;
 use crate::util::sensitive_url::SecretEndpoint;
 
+use super::output::{self, Field, ResponseMode};
 use body::RequestBody;
 pub use nodes::{HttpDeleteNode, HttpGetNode, HttpPostNode, HttpPutNode, HttpRequestNode};
-use response::{ResponseMetadata, ResponseMode, response_to_output};
+use response::{ResponseMetadata, response_to_output};
 use transport::{ProxyMode, RedirectPolicy, send_with_redirects, shared_client};
 
 /// Status retries are nested inside a step attempt, so leaving this count
@@ -48,10 +49,7 @@ pub(super) async fn do_http_request(
 
     let timeout_s = config_f64_or(config, "timeout", ctx, 30.0)?;
     let timeout = positive_duration(timeout_s, "HTTP timeout")?;
-    let output_key = config
-        .get("output_key")
-        .and_then(|value| value.as_str())
-        .unwrap_or("http");
+    let output_key = output::prefix(config);
     let response_mode = ResponseMode::parse(config)?;
     let fail_on_status = config_bool_or(config, "fail_on_status", ctx, true)?;
     let retry_statuses = parse_retry_statuses(config, ctx)?;
@@ -154,7 +152,7 @@ pub(super) async fn do_http_request(
             unreachable!("retry attempts continue before output handling")
         };
         output.insert(
-            format!("{}_attempts", output_key),
+            Field::Attempts.key(output_key),
             serde_json::Value::Number((attempt + 1).into()),
         );
         return Ok(output);

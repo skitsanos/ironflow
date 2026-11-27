@@ -1,3 +1,4 @@
+mod authoring_args;
 mod bootstrap;
 mod commands;
 mod config;
@@ -10,6 +11,7 @@ mod sqlite_path;
 mod store_close;
 mod store_factory;
 
+pub use authoring_args::{AuthoringFormat, NodesArgs, NodesCommand, ValidateArgs};
 pub use config::IronFlowConfig;
 pub use store_factory::{create_event_store, create_store};
 
@@ -54,14 +56,7 @@ pub enum Commands {
     },
 
     /// Validate a flow file without executing
-    Validate {
-        /// Path to the .lua flow file
-        flow: PathBuf,
-
-        /// Treat Lua handler warnings as validation failures
-        #[arg(long)]
-        strict: bool,
-    },
+    Validate(ValidateArgs),
 
     /// List past workflow runs
     List {
@@ -97,7 +92,7 @@ pub enum Commands {
     },
 
     /// List available nodes
-    Nodes,
+    Nodes(NodesArgs),
 
     /// Inspect or prune content-addressed workflow artifacts
     Artifacts {
@@ -191,10 +186,10 @@ pub async fn run_cli() -> Result<()> {
             store_close::close_state_store(store.as_ref()).await;
             result
         }
-        Commands::Validate { flow, strict } => {
+        Commands::Validate(args) => {
             resolution::validate_limit_environment()?;
             resolution::install_outbound_policy(&cfg)?;
-            commands::cmd_validate(flow, strict)
+            commands::cmd_validate(args)
         }
         Commands::List {
             status,
@@ -226,7 +221,7 @@ pub async fn run_cli() -> Result<()> {
             store_close::close_state_store(store.as_ref()).await;
             result
         }
-        Commands::Nodes => commands::cmd_nodes(),
+        Commands::Nodes(args) => commands::cmd_nodes(args),
         Commands::Artifacts { command } => match command {
             ArtifactCommands::Prune { options, store_dir } => {
                 options.validate()?;

@@ -13,6 +13,8 @@ use serde_json::Value;
 
 use crate::engine::types::Context;
 
+pub(crate) use template::context_reads;
+
 /// A malformed expression in IronFlow's reserved `${ctx...}` namespace.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InterpolationError {

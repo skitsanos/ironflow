@@ -44,6 +44,25 @@ pub(super) fn validate(template: &str) -> Result<(), InterpolationError> {
     .map(|_| ())
 }
 
+/// Use the runtime scanner so escaped placeholders and bracket keys agree.
+pub(crate) fn context_reads(
+    template: &str,
+    mut read: impl FnMut(&str, &str, Option<&str>),
+) -> Result<(), InterpolationError> {
+    visit(template, None, |expression| {
+        let segments = path::parse(expression)?;
+        if let Some(path::Segment::Key(key)) = segments.first() {
+            let field = match segments.get(1) {
+                Some(path::Segment::Key(field)) => Some(field.as_str()),
+                _ => None,
+            };
+            read(expression, key, field);
+        }
+        Ok(String::new())
+    })
+    .map(drop)
+}
+
 pub(super) fn render_bounded(
     template: &str,
     context: &Context,

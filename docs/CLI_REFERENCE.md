@@ -101,9 +101,29 @@ without that parameter introduces no receiver.
 Undefined globals are warnings by default, so validation still exits
 successfully while reporting the source line and column. Embedded code-source
 locations use `step[NAME].source:LINE:COLUMN`; their positions are relative to
-the decoded source string. Use `--strict` to treat any Lua warning as a
+the decoded source string. Use `--strict` to treat any warning as a
 validation failure. Invalid embedded syntax and function handlers that capture
 outer locals are always rejected.
+
+For the submitted flow, validation also warns when a `template_render`
+placeholder appears to read an `http_get` output from the wrong response
+mode, uses `prefix.data` or `prefix.artifact`, or reads the output before its
+producer phase has completed. Other node outputs and dynamic Lua reads are
+not inferred. An unrelated key may come from caller context and is not a
+validation error. Use repeatable `--context-key KEY` when a caller supplies
+a top-level key that overlaps with one of these checks.
+
+`--format json` writes one JSON object with `schema_version`, `file`,
+`valid`, and `diagnostics`. Diagnostics include a stable `code`, `severity`,
+and `message`, plus `step`, `line`, and `column` where known. Embedded Lua
+locations are relative to the embedded source; context warnings identify the
+step but do not claim a line number. Lua `print()` during flow loading goes
+to the validation log, not stdout. The exit status still reflects validity,
+including warnings under `--strict`.
+
+```bash
+ironflow validate flow.lua --strict --format json
+```
 
 #### Child flows
 
@@ -173,6 +193,19 @@ List all registered node types with descriptions.
 
 ```bash
 ironflow nodes
+```
+
+`ironflow nodes describe http_get --format json` returns the installed
+version's output contract, including defaults, output key patterns for each
+response mode on success, and an executable Lua example. Replace
+`{output_key}` in each pattern with the configured prefix (default: `http`).
+The example expects an initial context key `url` and passes the response to
+a dependent step. Currently, only `http_get` has a describable contract;
+`ironflow nodes` still lists all registered nodes.
+
+```bash
+ironflow nodes describe http_get --format json | jq -r .example > flow.lua
+ironflow validate flow.lua --strict
 ```
 
 ---

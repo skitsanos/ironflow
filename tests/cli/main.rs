@@ -6,6 +6,8 @@
 
 #[path = "../test_artifact_restore_cli.rs"]
 mod test_artifact_restore_cli;
+#[path = "../test_authoring_cli.rs"]
+mod test_authoring_cli;
 #[path = "../test_cache_identity_cli.rs"]
 mod test_cache_identity_cli;
 #[path = "../test_child_result_cli.rs"]
