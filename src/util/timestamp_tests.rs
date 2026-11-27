@@ -96,12 +96,10 @@ fn microseconds_convert_back_within_the_supported_years() {
     }
     assert_eq!(unix_micros(Timestamp::MIN), -377_705_023_201_000_000);
     assert_eq!(unix_micros(Timestamp::MAX), 253_402_207_200_999_999);
-    // The library's own constructor stops one second short of its maximum.
-    assert!(Timestamp::from_microsecond(253_402_207_200_000_001).is_err());
-    assert_eq!(
-        from_unix_micros(253_402_207_200_999_999).map(unix_micros),
-        Some(253_402_207_200_999_999)
-    );
+    // Include the fraction of the final supported second in the round trip.
+    for micros in [253_402_207_200_000_001, 253_402_207_200_999_999] {
+        assert_eq!(from_unix_micros(micros).map(unix_micros), Some(micros));
+    }
     assert_eq!(from_unix_micros(253_402_207_201_000_000), None);
     assert_eq!(from_unix_micros(-377_705_023_201_000_001), None);
     assert_eq!(from_unix_micros(i64::MAX), None);

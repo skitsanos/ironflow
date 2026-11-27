@@ -419,7 +419,7 @@ depended on directly ([IF-231](issues/IF-231.md)):
 
 | Advisory | Crate | Outcome |
 | --- | --- | --- |
-| [RUSTSEC-2026-0543](https://rustsec.org/advisories/RUSTSEC-2026-0543.html) | `chrono` | Reported as unmaintained; no vulnerability and no patched version. IronFlow's own time handling moved to `jiff` in four stages, finished on 2026-11-18: the only module that still uses `chrono` is the adapter that hands wall-clock values to `cron`, with no optional feature enabled. The crate stays in `Cargo.lock` through `cron` and `rmcp`, so one reviewed exception remains, described below. |
+| [RUSTSEC-2026-0543](https://rustsec.org/advisories/RUSTSEC-2026-0543.html) | `chrono` | Reported as unmaintained; no vulnerability and no patched version. IronFlow's own time handling moved to `jiff` in four stages, finished on 2026-11-18: the only module that still uses `chrono` is the adapter that hands wall-clock values to `cron`, with no optional feature enabled. The crate stays in `Cargo.lock` through `cron` and this adapter, so one reviewed exception remains, described below. |
 | [RUSTSEC-2026-0555](https://rustsec.org/advisories/RUSTSEC-2026-0555.html) | `chrono-tz` | Removed. Schedule time zones now use `jiff` with the IANA database compiled into the binary, and the exception is retired. The policy test fails if `chrono-tz` returns to `Cargo.lock`. |
 
 Updating `calamine` was not free of risk. Version 0.38 builds a style record
@@ -462,12 +462,12 @@ no version fixes it ([IF-231](issues/IF-231.md)).
 - **Exposure.** None known. IronFlow parses no date and formats none with
   `chrono`: `scheduler/cron_boundary.rs` passes it wall-clock values built
   field by field and reads the next match back. The `cron` crate does its
-  calendar arithmetic on `chrono` types, and `rmcp` reads the clock through
-  it. A future defect in that arithmetic would not be fixed upstream.
-- **Exit.** The entry is removed when `cron` and `rmcp` no longer resolve
-  `chrono`, or when the advisory is withdrawn. A repository policy test fails
+  calendar arithmetic on `chrono` types. A future defect in that arithmetic
+  would not be fixed upstream.
+- **Exit.** The entry is removed when `cron` and its IronFlow adapter no longer
+  resolve `chrono`, or when the advisory is withdrawn. A repository policy test fails
   if the entry outlives the crate in `Cargo.lock`, if any crate other than
-  `cron`, `rmcp` and IronFlow itself resolves it, if IronFlow enables one of
+  `cron` and IronFlow itself resolves it, if IronFlow enables one of
   its features, or if a module other than the adapter imports it. Reviewed on
   2026-11-18; reviewed again by 2026-12-17.
 
