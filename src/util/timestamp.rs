@@ -120,8 +120,8 @@ pub fn unix_millis(instant: Timestamp) -> i64 {
 /// The instant `micros` microseconds after the Unix epoch, or `None` outside
 /// the supported years.
 pub fn from_unix_micros(micros: i64) -> Option<Timestamp> {
-    // Not `Timestamp::from_microsecond`: it refuses the fraction of the last
-    // second, which `Timestamp::MAX` and `unix_micros` both reach.
+    // Older Jiff 1.0 releases accepted by Cargo.toml rejected fractions of the
+    // final second. Use the same conversion across the supported versions.
     let nanos = i32::try_from(micros.rem_euclid(1_000_000) * 1_000).ok()?;
     Timestamp::new(micros.div_euclid(1_000_000), nanos).ok()
 }
