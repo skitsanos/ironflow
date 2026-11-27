@@ -9,7 +9,7 @@ tree, `OFL.txt` in the release archives, `fonts-OFL.txt` in the image).
 This file is generated from `Cargo.lock` by
 `bun --no-env-file scripts/third_party_notices.ts write`; do not edit it by
 hand. It covers every crate reachable from IronFlow through normal or build
-dependencies with all Cargo features enabled (557 crates), so it also lists
+dependencies with all Cargo features enabled (558 crates), so it also lists
 crates that only the `-full` archives and the container image include. Rows
 carry no version: the exact versions linked into a binary are those in the
 `Cargo.lock` of the source revision it was built from. Where a crate offers
@@ -298,6 +298,7 @@ at the listed source.
 | markup5ever_rcdom | MIT OR Apache-2.0 | MIT | https://github.com/servo/html5ever |
 | matchers | MIT | MIT | https://github.com/hawkw/matchers |
 | matchit | MIT AND BSD-3-Clause | MIT, BSD-3-Clause | https://github.com/ibraheemdev/matchit |
+| maybe-dangling | Zlib OR MIT OR Apache-2.0 | MIT | https://github.com/danielhenrymantilla/maybe-dangling.rs |
 | md-5 | MIT OR Apache-2.0 | MIT | https://github.com/RustCrypto/hashes |
 | memchr | Unlicense OR MIT | MIT | https://github.com/BurntSushi/memchr |
 | memchr-n | MIT OR Apache-2.0 | MIT | https://github.com/Dr-Emann/memchr_n |
@@ -602,7 +603,7 @@ Each license below applies to the crates whose "Used under" column names it.
 
 ### MIT
 
-Used by 471 crates.
+Used by 472 crates.
 
 ```text
 MIT License
