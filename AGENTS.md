@@ -57,17 +57,14 @@
 - `develop` versions use `X.Y.Z-dev.N`. Before every push to `develop`, bump to a version newer than remote `develop` with `bun run scripts/development_version.ts bump <major|minor|patch|next>` and commit both `Cargo.toml` and `Cargo.lock`.
 - A `develop` push requires a clean worktree and a passing `scripts/integration_gate.sh` run on the exact tree being pushed. The gate cannot run inside the push itself, because GitHub closes the idle SSH session before it finishes (IF-172); instead a passing gate records `ironflow-gate-receipt.json` in the Cargo target directory, and `.githooks/pre-push` accepts only a receipt that is at most 24 hours old (`IRONFLOW_GATE_RECEIPT_MAX_AGE_SECONDS`) and whose tree matches the pushed commit (`scripts/gate_receipt.ts`). `IRONFLOW_PREPUSH_GATE=fast` replaces the receipt check with formatting, repository policy, default Clippy and the `examples` and `cli` binaries for an intermediate push, and the full gate remains mandatory before merging a release branch or tagging. CI runs for relevant pushes and pull requests to `develop` and `main`, plus manual dispatch; the tag-triggered release workflow remains separate.
 - For release promotion, create `release/X.Y.Z` from the verified `develop` candidate, run `bun run scripts/development_version.ts finalize` on that release branch, run the integration gate, merge the release branch into `main`, require green `main` CI, and tag the verified `main` commit. Never put a stable version on `develop`.
+- Preserve `main` and `develop` locally and on GitHub. Keep merged-head auto-deletion enabled and the deletion-only **Preserve main and develop** ruleset active with no bypass actors. Never delete either permanent branch as part of PR or release cleanup.
 
 ## Workspace hygiene
 
-- Disk space is limited and shared. A task is not complete until everything it created outside the committed change is removed; do this before reporting completion, not as a follow-up.
-- Worktrees and branches: remove each worktree created for the task once its branch is merged or abandoned (`git worktree remove`, then `git worktree prune`) and delete merged local branches with `git branch -d`. Never remove a worktree that has uncommitted changes or belongs to a session that is still working.
-- Build output: run `cargo clean` in every checkout the task built in, including the main checkout. Build output in a linked worktree is never kept. Do not delete the shared Cargo registry or other caches that belong to the user's machine rather than to this repository.
-- Scratch data: delete probe scripts, fixtures, temporary stores, logs and downloaded files the task wrote outside the repository, and leave no untracked files in the repository other than deliverables.
-- Docker: remove the containers, volumes, networks and images the task created, by name, and prune the build cache after container builds (`docker builder prune`). Never remove a container, volume or image the task did not create.
+- Follow [Maintenance and cleanup](docs/MAINTENANCE.md). Inventory what the task owns, wait for required checks, retain exact-tree evidence, then clean up before reporting completion. Verify the checkout, stashes, and unrelated work are unchanged.
+- Clean only task-owned build output, disposable worktrees, scratch files and Docker resources. Verify the Cargo target path first. Do not force-remove worktrees or branches, run blanket Docker or Git cleanup, or remove shared caches.
 - Hand-over notes: a note one session writes for another is transient. When that session's work has landed, move every open follow-up from the note into the issue registry (its own page or a collected follow-up page), or drop it with a stated reason, then delete the note. Issue pages never cite a hand-over note, and a page that says something is "not fixed here" is updated to name the finding that tracks or fixes it.
-- Leave user-owned data alone (`data/`, `.env`, editor folders, other tools' worktrees) and report it instead when it looks stale.
-- Report what was removed, what was deliberately left, and the space reclaimed.
+- Leave user-owned data alone (`data/`, `.env`, editor folders, other tasks' worktrees) and report it instead when it looks stale. Report what was removed, what was deliberately left, and the space reclaimed when measured.
 
 ## Completion and review
 
